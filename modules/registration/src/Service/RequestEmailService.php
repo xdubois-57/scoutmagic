@@ -37,8 +37,8 @@ use Modules\Registration\Repository\RegistrationRequestRepository;
  */
 class RequestEmailService
 {
-    private const ACCEPTED_KEY = 'registration_email_accepted_body';
-    private const REFUSED_KEY = 'registration_email_refused_body';
+    private const ACCEPTED_KEY = RequestEmailTemplateService::KEY_ACCEPTED;
+    private const REFUSED_KEY = RequestEmailTemplateService::KEY_REFUSED;
 
     /**
      * What differs between the two e-mails.
@@ -167,11 +167,20 @@ class RequestEmailService
         }
     }
 
+    /**
+     * « À rédiger » has one definition, RequestEmailTemplateService::
+     * isToWrite() — the very one the « Gabarits » page shows (issue #843,
+     * D10). Built here from the content store this service already holds,
+     * so the guard and the page can never disagree.
+     */
     private function hasContent(string $key): bool
     {
-        $value = $this->editableContentService->get($key);
+        return !$this->templates()->isToWrite($key);
+    }
 
-        return $value !== null && trim(strip_tags($value)) !== '';
+    private function templates(): RequestEmailTemplateService
+    {
+        return new RequestEmailTemplateService($this->editableContentService);
     }
 
     /**
@@ -200,7 +209,8 @@ class RequestEmailService
         $trackingToken = CapabilityToken::generate();
         $trackingUrl = rtrim($this->baseUrl, '/') . "/inscriptions/suivi/{$request->id}/{$trackingToken}";
 
-        $body = $this->substitute((string) $this->editableContentService->get($contentKey), [
+        $template = (string) $this->templates()->bodyFor($contentKey);
+        $body = RequestEmailTemplateService::substitute($template, [
             'prenom_enfant' => $request->childFirstName,
             'annee_scoute' => $targetYearLabel,
             'lien_suivi' => $trackingUrl,
@@ -255,18 +265,5 @@ class RequestEmailService
     public static function toPlainText(string $html): string
     {
         return trim(html_entity_decode(strip_tags($html), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
-    }
-
-    /**
-     * @param array<string, string> $vars
-     */
-    private function substitute(string $template, array $vars): string
-    {
-        $replacements = [];
-        foreach ($vars as $key => $value) {
-            $replacements['{{' . $key . '}}'] = htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
-        }
-
-        return strtr($template, $replacements);
     }
 }

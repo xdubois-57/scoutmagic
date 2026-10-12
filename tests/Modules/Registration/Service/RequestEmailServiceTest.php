@@ -140,6 +140,34 @@ class RequestEmailServiceTest extends TestCase
         $this->assertNull($this->requestRepository->findById($requestId)->decisionEmailSentAt);
     }
 
+    /**
+     * « À rédiger » has one definition (RequestEmailTemplateService::
+     * isToWrite(), IT-07): a body the editor emptied to `<p>&nbsp;</p>`
+     * is no body. The guard refuses it, records the failed attempt, and
+     * the transport is never reached.
+     */
+    public function testABodyEmptiedByTheEditorCountsAsNotWritten(): void
+    {
+        $this->editableContentService->set('registration_email_accepted_body', '<p>&nbsp;</p>', 'rich_text', 1);
+        $mailService = $this->createMock(MailService::class);
+        $mailService->expects($this->never())->method('send');
+        $service = $this->buildService($mailService);
+        $requestId = $this->createRequest('accepted');
+        $this->assertFalse($service->isAcceptedBodyReady());
+
+        try {
+            $service->sendAccepted($this->requestRepository->findById($requestId), '2026-2027');
+            $this->fail('Expected a RegistrationException for a body that renders as nothing.');
+        } catch (RegistrationException) {
+            // expected
+        }
+
+        $this->assertSame(
+            [DecisionEmail::FAILURE_BODY_NOT_WRITTEN],
+            array_map(static fn(DecisionEmail $email) => $email->failureCode, $this->history($requestId))
+        );
+    }
+
     public function testAMissingRefusalBodyIsRecordedAsAFailedAttemptToo(): void
     {
         $service = $this->buildService($this->createStub(MailService::class));

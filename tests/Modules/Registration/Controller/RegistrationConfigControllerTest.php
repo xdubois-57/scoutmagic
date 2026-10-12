@@ -40,9 +40,10 @@ use Core\Member\Repository\SectionRepository;
  * issue #843 (IT-01): the dashboard (four figures, capacity table), the
  * requests (year selection — target year default, past years read-only,
  * never beyond target —, the list with its filters, the bulk actions'
- * explicit-confirmation/CSRF/read-only-year guards), the templates
- * placeholder and the settings (schedule, code, capacity box), plus where
- * every existing POST sends the visitor back.
+ * explicit-confirmation/CSRF/read-only-year guards) and the settings
+ * (schedule, code, capacity box), plus where every existing POST sends the
+ * visitor back. « Gabarits » has its own controller and its own test
+ * (RegistrationTemplateControllerTest).
  *
  * @group database
  */
@@ -167,7 +168,6 @@ class RegistrationConfigControllerTest extends TestCase
         $paths = [
             'index' => '/config/inscriptions',
             'requests' => '/config/inscriptions/demandes',
-            'templates' => '/config/inscriptions/gabarits',
             'settings' => '/config/inscriptions/reglages',
         ];
         $this->twig->addGlobal('current_path', $paths[$action]);
@@ -344,6 +344,11 @@ class RegistrationConfigControllerTest extends TestCase
     // ------------------------------------------------------------------
 
     /**
+     * The sub-pages this controller renders; « Gabarits » is
+     * Controller\RegistrationTemplateController's, and
+     * RegistrationTemplateControllerTest holds the same two properties
+     * for it.
+     *
      * @return array<string, array{string, string}>
      */
     public static function subPageProvider(): array
@@ -351,7 +356,6 @@ class RegistrationConfigControllerTest extends TestCase
         return [
             'tableau de bord' => ['index', 'Tableau de bord'],
             'demandes' => ['requests', 'Demandes'],
-            'gabarits' => ['templates', 'Gabarits'],
             'réglages' => ['settings', 'Réglages'],
         ];
     }
@@ -492,16 +496,18 @@ class RegistrationConfigControllerTest extends TestCase
     }
 
     /**
-     * A waiting page until the templates arrive (IT-07): its title, and
-     * nothing that promises what is not there.
+     * The e-mails' texts are written in « Gabarits », not on the site's
+     * parameters page, which cannot write them (issue #843, IT-07).
      */
-    public function testTheTemplatesPageIsAWaitingPageWithItsTitle(): void
+    public function testTheSettingsPageSaysWhereTheEmailTextsAreWritten(): void
     {
-        $body = $this->renderPage('templates');
+        $body = $this->renderPage('settings');
 
-        $this->assertStringContainsString('Gabarits des e-mails de demande', $body);
-        $this->assertStringContainsString('Aucun gabarit à afficher.', $body);
-        $this->assertDoesNotMatchRegularExpression('/bientôt|prochainement|à venir/iu', $body);
+        $this->assertStringContainsString(
+            'Les textes des e-mails de demande se rédigent dans <a href="/config/inscriptions/gabarits">Gabarits</a>.',
+            $body
+        );
+        $this->assertStringNotContainsString('textes des emails', $body);
     }
 
     public function testTheSettingsPageCarriesTheFormTheCodeAndTheCapacities(): void

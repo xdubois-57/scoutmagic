@@ -1,20 +1,62 @@
 {% extends 'base.html.twig' %}
 {% block title %}Gabarits — Formulaire d'inscription — {{ site_name }}{% endblock %}
+{#
+  « Gabarits » (issue #843, D10): the four e-mails of the request flow as a
+  LIST, each with its state and a pencil to its own page
+  (template_edit.html.twig) — the shape of a rental asset's Gabarits page,
+  without drag or bin: an e-mail is neither deleted nor reordered.
+
+  The states come from Service\RequestEmailTemplateService::stateOf(),
+  whose « À rédiger » is the very test the sender refuses to send without.
+
+  Requires `templates` (slug, name, description, state, state_label) and
+  `decision_templates_to_write`.
+#}
 {% block content %}
     <div class="page-wide">
         {% include 'partials/page_header.html.twig' with { title: "Formulaire d'inscription" } only %}
         {% include '@registration/config/_nav.html.twig' %}
 
-        {# The request e-mails' templates arrive with issue #843's IT-07;
-           until then this sub-page has its title and breadcrumb, and says
-           only what is true today. #}
         <div class="card mb-4">
             <div class="card-body">
                 <h2 class="h5 mb-3">Gabarits des e-mails de demande</h2>
-                {% include 'partials/empty_state.html.twig' with {
-                    message: 'Aucun gabarit à afficher.',
-                    compact: true,
+
+                {% if decision_templates_to_write %}
+                    <div class="alert alert-warning" role="status">
+                        Les gabarits d'acceptation et de refus doivent être rédigés avant le premier envoi. Tant que
+                        l'un manque, aucun e-mail de décision ne part, ni à la main ni automatiquement.
+                    </div>
+                {% endif %}
+
+                {% embed 'partials/list_editor.html.twig' with {
+                    list_id: 'registration-template-list',
+                    items: templates|map(t => t|merge({id: t.slug})),
+                    sortable: false,
+                    state_tones: {'default': 'neutral', 'custom': 'info', 'to_write': 'refused'},
                 } only %}
+                    {% block item_content %}
+                        <div class="d-flex flex-wrap align-items-baseline gap-2">
+                            <span class="fw-semibold">{{ item.name }}</span>
+                            {% include 'partials/status_badge.html.twig' with {
+                                status: state_tones[item.state],
+                                label: item.state_label,
+                            } only %}
+                        </div>
+                        <div class="small text-body-secondary">{{ item.description }}</div>
+                    {% endblock %}
+                    {% block item_edit %}
+                        <a href="/config/inscriptions/gabarits/{{ item.slug }}"
+                           class="btn btn-sm btn-outline-secondary"
+                           aria-label="Modifier — {{ item.name }}" title="Modifier — {{ item.name }}">
+                            <i class="bi bi-pencil" aria-hidden="true"></i>
+                        </a>
+                    {% endblock %}
+                {% endembed %}
+
+                <p class="small text-body-secondary mb-0">
+                    Les e-mails de réinscription se règlent dans la
+                    <a href="/config/reinscription/reglages">gestion des réinscriptions</a>.
+                </p>
             </div>
         </div>
     </div>

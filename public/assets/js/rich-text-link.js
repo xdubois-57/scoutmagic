@@ -1293,6 +1293,484 @@
         });
     }
 
+    // ————— A list item made a heading or a paragraph (#885) —————
+    //
+    // `formatBlock` inside a `<li>` does not make that item a heading. The
+    // engine climbs to the nearest block it knows how to format — the
+    // LIST — and wraps all of it: `<h2><ul><li>un</li></ul></h2>`. That is
+    // invalid HTML (a heading holds no list), « Paragraphe » then nests a
+    // `<p>` inside the `<h2>` instead of replacing it, so the item stays a
+    // heading on screen, and the canonical form drops the impossible `<h2>`
+    // on save, so the heading the author saw is gone after reopening.
+    //
+    // So for an item, the toolbar does the move itself, the same way for
+    // H2, H3 and « Paragraphe »: the item leaves its list — cut in two
+    // around it when it sat in the middle — and becomes the block asked
+    // for, keeping its inline content (bold, links…). What is on screen is
+    // then exactly what is saved. « Paragraphe » on an item gives what a
+    // second click on « Liste à puces » gives: plain text, out of the list.
+    //
+    // The browser's undo history does not record a change made by hand. The
+    // move is kept to one DOM operation per node and touches nothing outside
+    // the list, so Ctrl+Z after it undoes the commands before it rather than
+    // corrupting the text.
+
+    /** The tags a list item is made of when it is not plain inline content. */
+    var ITEM_WRAPPERS = new Set(['P', 'DIV', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6']);
+
+    /**
+     * Whether $item stands in a list of $surface. A bare `<li>` straight in
+     * the surface — stored content that never went through this editor
+     * can hold one, as neither sanitizer checks where an `<li>` sits — has
+     * no list to leave: the engine's formatBlock handles it like any text.
+     *
+     * @param {HTMLLIElement} item
+     * @param {HTMLElement} surface
+     * @returns {boolean}
+     */
+    function inAList(item, surface) {
+        var list = item.parentElement;
+
+        return !!list && list !== surface && (list.nodeName === 'UL' || list.nodeName === 'OL');
+    }
+
+    /**
+     * The lines of $item: its children cut at each nested list. An item
+     * holds one line, or several when a nested list sits between two runs
+     * of its own text — `<li>avant<ul>…</ul>texte</li>`, which the
+     * canonical form keeps as it is.
+     *
+     * @param {HTMLLIElement} item
+     * @returns {ChildNode[][]} every line, empty ones included, in order
+     */
+    function linesOf(item) {
+        /** @type {ChildNode[][]} */
+        var lines = [[]];
+        Array.from(item.childNodes).forEach(function (child) {
+            if (child.nodeName === 'UL' || child.nodeName === 'OL') {
+                lines.push([]);
+            } else {
+                lines.at(-1)?.push(child);
+            }
+        });
+
+        return lines;
+    }
+
+    /**
+     * The line of a list item the selection reaches: its nodes, and the
+     * item and the node it stands before, for a line with no node yet.
+     *
+     * @typedef {{item: HTMLLIElement, nodes: ChildNode[], before: ChildNode|null}} ItemLine
+     */
+
+    /**
+     * The lines of list items the selection reaches in $surface, in
+     * document order: the one holding the caret, or every line the
+     * selection touches. A line, not a whole item: in
+     * `<li>avant<ul>…</ul>texte</li>` the caret in « texte » makes
+     * « texte » the heading, not « avant ». A selection that starts in a
+     * paragraph above a list and ends inside it reaches its first items
+     * too: leaving those to the engine is the very bug of #885.
+     *
+     * @param {HTMLElement} surface
+     * @returns {{lines: ItemLine[], range: Range|null, blanks: HTMLLIElement[]}} with the
+     *          items of nothing but whitespace the selection crossed
+     */
+    function listLinesInSelection(surface) {
+        var selection = window.getSelection();
+        if (!selection || selection.rangeCount === 0) {
+            return { lines: [], range: null, blanks: [] };
+        }
+        var range = selection.getRangeAt(0);
+        if (range.collapsed) {
+            var node = range.startContainer;
+            var element = node.nodeType === Node.ELEMENT_NODE ? /** @type {Element} */ (node) : node.parentElement;
+            var item = /** @type {HTMLLIElement|null} */ (element?.closest('li') ?? null);
+            if (!item || !surface.contains(item) || item === surface || !inAList(item, surface)) {
+                return { lines: [], range: range, blanks: [] };
+            }
+
+            return { lines: [lineAtCaret(item, node, range.startOffset)], range: range, blanks: [] };
+        }
+
+        /** @type {ItemLine[]} */
+        var lines = [];
+        /** @type {HTMLLIElement[]} */
+        var blanks = [];
+        Array.from(surface.querySelectorAll('li')).forEach(function (li) {
+            var item = /** @type {HTMLLIElement} */ (li);
+            if (!inAList(item, surface)) {
+                return;
+            }
+            // An item of nothing but whitespace, with no list of its own: no
+            // line to make a block of, and the canonical form drops it on
+            // save — left in place, it would stay a lone bullet among the
+            // new blocks. It goes instead.
+            var children = Array.from(item.childNodes);
+            if (children.every(isBlank) && children.some(function (child) { return range.intersectsNode(child); })) {
+                blanks.push(item);
+                return;
+            }
+            linesOf(item).forEach(function (nodes) {
+                var touched = nodes.some(function (child) {
+                    return range.intersectsNode(child);
+                });
+                // A line of bare whitespace — the indentation between two
+                // nested lists — is not something the author selected.
+                if (touched && !nodes.every(isBlank)) {
+                    lines.push({ item: item, nodes: nodes, before: null });
+                }
+            });
+        });
+
+        // querySelectorAll() gives an outer item before the items nested in
+        // it, so its second line — after the nested list — would come
+        // before them. The lines are moved in the order they are read.
+        lines.sort(function (a, b) {
+            return a.nodes[0].compareDocumentPosition(b.nodes[0]) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1;
+        });
+
+        return { lines: lines, range: range, blanks: blanks };
+    }
+
+    /**
+     * Whether $node is markup indentation: a text node of whitespace only.
+     * Any element counts as content — an image, and a `<br>` too: an item
+     * the author left empty on purpose is a line of its own, and skipping
+     * it would leave its bullet behind among the new blocks, for the
+     * canonical form to drop on save.
+     *
+     * @param {ChildNode} node
+     * @returns {boolean}
+     */
+    function isBlank(node) {
+        return node.nodeType === Node.TEXT_NODE && (node.textContent || '').trim() === '';
+    }
+
+    /**
+     * The line of $item that holds the caret, standing at $offset in $node.
+     *
+     * @param {HTMLLIElement} item
+     * @param {Node} node
+     * @param {number} offset
+     * @returns {ItemLine}
+     */
+    function lineAtCaret(item, node, offset) {
+        // The child of $item the caret is in, or — the caret standing
+        // between two children of the item itself — the one after it.
+        /** @type {Node|null} */
+        var child = node;
+        if (node === item) {
+            child = item.childNodes[offset] ?? null;
+        } else {
+            while (child && child.parentNode !== item) {
+                child = child.parentNode;
+            }
+        }
+
+        var lines = linesOf(item);
+        var children = Array.from(item.childNodes);
+        var index = 0;
+        var position = child ? children.indexOf(/** @type {ChildNode} */ (child)) : children.length;
+        // Which line: one more for every nested list before the caret.
+        children.slice(0, Math.max(position, 0)).forEach(function (previous) {
+            if (previous.nodeName === 'UL' || previous.nodeName === 'OL') {
+                index++;
+            }
+        });
+        var nodes = lines[index] ?? [];
+        var before = nodes.length === 0 && child ? /** @type {ChildNode} */ (child) : null;
+
+        return { item: item, nodes: nodes, before: before };
+    }
+
+    /**
+     * Whether $range reaches anything visible outside every list item of
+     * $surface — a paragraph above the list, or one between two lists.
+     * Every node, not the two ends only: a selection from one list to
+     * another holds the paragraph between them, which is the engine's to
+     * format once the items have moved.
+     *
+     * @param {Range} range
+     * @param {HTMLElement} surface
+     * @returns {boolean}
+     */
+    function touchesOutsideLists(range, surface) {
+        var walker = document.createTreeWalker(surface, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT);
+        for (var node = walker.nextNode(); node; node = walker.nextNode()) {
+            var visible = node.nodeType === Node.TEXT_NODE
+                ? (node.textContent || '').trim() !== ''
+                : node.nodeName === 'IMG';
+            if (visible && range.intersectsNode(node) && !node.parentElement?.closest('li')) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Takes $block out of the list item that holds it, and that list out
+     * of the item above it if the list was nested, until $block stands
+     * outside every list. Each list is cut in two around the item: what
+     * came before stays where it was, what came after follows $block.
+     *
+     * @param {HTMLElement} block already in place of the item's content
+     * @param {HTMLElement} surface
+     * @returns {void}
+     */
+    function liftOutOfLists(block, surface) {
+        var item = block.parentElement;
+        while (item?.tagName === 'LI' && surface.contains(item) && item !== surface) {
+            var list = item.parentElement;
+            // Never the surface itself: lifting out of it would put the
+            // block outside the editor, and an emptied « list » removed
+            // would be the editor (see inAList()).
+            if (!list || list === surface || (list.nodeName !== 'UL' && list.nodeName !== 'OL')) {
+                return;
+            }
+
+            // What the item held after $block — a nested list, mostly —
+            // stays an item, at the head of the second half.
+            var rest = document.createElement('li');
+            while (block.nextSibling) {
+                rest.appendChild(block.nextSibling);
+            }
+            var after = /** @type {HTMLElement} */ (list.cloneNode(false));
+            if (rest.hasChildNodes()) {
+                after.appendChild(rest);
+            }
+            while (item.nextSibling) {
+                after.appendChild(item.nextSibling);
+            }
+            // A numbered list's second half starts again at 1. Carrying the
+            // count on would take a `start` attribute, which the canonical
+            // form does not keep: the screen would number 3 what the saved
+            // text numbers 1.
+
+            list.after(block);
+            if (after.hasChildNodes()) {
+                block.after(after);
+            }
+            removeIfEmpty(item, list);
+            item = block.parentElement;
+        }
+    }
+
+    /**
+     * Removes $item once its block has left it, if nothing is left in it,
+     * and $list with it if that was its last item.
+     *
+     * Whitespace counts as empty — the canonical form drops such an item on
+     * save, so the screen must not keep an empty bullet — but an item still
+     * holding an image or a nested list is kept.
+     *
+     * @param {HTMLElement} item
+     * @param {HTMLElement} list
+     * @returns {void}
+     */
+    function removeIfEmpty(item, list) {
+        if (!item.hasChildNodes() || (item.textContent || '').trim() === '' && !item.querySelector('img, ul, ol')) {
+            item.remove();
+        }
+        if (!list.querySelector(':scope > li')) {
+            list.remove();
+        }
+    }
+
+    /**
+     * The block a « formatBlock » button asks for, as one of the three
+     * literals the toolbar offers — never the attribute's own text, which
+     * would otherwise reach createElement() and execCommand() as written.
+     * Anything else, a missing value included, is a paragraph.
+     *
+     * @param {string|undefined} value the button's data-value
+     * @returns {'h2'|'h3'|'p'}
+     */
+    function blockTagFor(value) {
+        switch ((value || '').toLowerCase()) {
+            case 'h2':
+                return 'h2';
+            case 'h3':
+                return 'h3';
+            default:
+                return 'p';
+        }
+    }
+
+    /**
+     * Makes $line a $tag block of its own, out of every list. What the item
+     * held before the line stays in the item; what came after it follows
+     * the block, as liftOutOfLists() does for any block.
+     *
+     * @param {ItemLine} line
+     * @param {HTMLElement} surface
+     * @param {'h2'|'h3'|'p'} tag
+     * @returns {HTMLElement} the new block
+     */
+    function lineToBlock(line, surface, tag) {
+        var block = document.createElement(tag);
+        // Read now, not when the selection was: lifting an earlier line of
+        // the same item has moved this one into the item that follows.
+        var anchor = line.nodes[0] ?? line.before;
+        var item = /** @type {HTMLElement} */ (anchor?.parentElement ?? line.item);
+        item.insertBefore(block, anchor ?? null);
+        line.nodes.forEach(function (next) {
+            if (ITEM_WRAPPERS.has(next.nodeName)) {
+                // The item's text in a block of its own (a pasted `<p>`):
+                // its content comes across, never the block itself, which
+                // would put a block inside the new one.
+                while (next.firstChild) {
+                    block.appendChild(next.firstChild);
+                }
+                next.remove();
+            } else {
+                block.appendChild(next);
+            }
+        });
+        if (!block.hasChildNodes()) {
+            // An empty item: a <br> keeps the new block one line high and
+            // gives the caret somewhere to stand.
+            block.appendChild(document.createElement('br'));
+        }
+
+        liftOutOfLists(block, surface);
+
+        return block;
+    }
+
+    /**
+     * Makes every line of a list item the selection reaches a $tag block
+     * of its own. Does nothing when it reaches none.
+     *
+     * The nodes are moved, never copied, so the selection is put back on
+     * the same text once the items have moved. When it also reached
+     * content outside the list — a paragraph above it — that part is still
+     * the engine's: `engine` says so, and the caller runs formatBlock on
+     * the restored selection, which no longer holds any list item.
+     *
+     * @param {HTMLElement} surface
+     * @param {'h2'|'h3'|'p'} tag
+     * @returns {{range: Range, engine: boolean}|null} the selection to put
+     *          back once the surface has focus again; null when no item
+     */
+    function listItemsToBlocks(surface, tag) {
+        var found = listLinesInSelection(surface);
+        if (found.lines.length === 0 || !found.range) {
+            return null;
+        }
+        var range = found.range;
+        var start = boundaryOf(range.startContainer, range.startOffset);
+        var end = boundaryOf(range.endContainer, range.endOffset);
+        var engine = !range.collapsed && touchesOutsideLists(range, surface);
+
+        var blocks = found.lines.map(function (line) {
+            return lineToBlock(line, surface, tag);
+        });
+        found.blanks.forEach(function (item) {
+            var list = item.parentElement;
+            item.remove();
+            if (list && list !== surface && !list.querySelector(':scope > li')) {
+                list.remove();
+            }
+        });
+
+        // Each end where it was, found again from the node it stood
+        // before rather than from a count of children: the surgery adds
+        // and removes children, so an offset into the surface — what
+        // « select all » gives — would still fit and point elsewhere,
+        // leaving the last paragraphs out of what the engine formats. An
+        // end whose node is gone — an item removed with its list — falls
+        // back to the edge of the new blocks on its own side only, so the
+        // other end keeps what the selection held outside the list.
+        var first = /** @type {HTMLElement} */ (blocks[0]);
+        var last = /** @type {HTMLElement} */ (blocks.at(-1));
+        var restored = document.createRange();
+        restored.setStartBefore(first);
+        restored.setEndAfter(last);
+        var startAt = placeOf(start, surface);
+        if (startAt && (first.contains(startAt.node) || restored.comparePoint(startAt.node, startAt.offset) < 0)) {
+            restored.setStart(startAt.node, startAt.offset);
+        }
+        var endAt = placeOf(end, surface);
+        if (endAt && (last.contains(endAt.node) || restored.comparePoint(endAt.node, endAt.offset) > 0)) {
+            restored.setEnd(endAt.node, endAt.offset);
+        }
+
+        return { range: restored, engine: engine };
+    }
+
+    /**
+     * A selection end, held so that it survives children being added and
+     * removed around it: in a text node by its offset, which only the
+     * text changes; in an element by the child it stands before, or as
+     * the element's end when it stands after the last one.
+     *
+     * @param {Node} node
+     * @param {number} offset
+     * @returns {{node: Node, offset: number, before: Node|null}}
+     */
+    function boundaryOf(node, offset) {
+        return {
+            node: node,
+            offset: offset,
+            before: node.nodeType === Node.TEXT_NODE ? null : node.childNodes[offset] ?? null,
+        };
+    }
+
+    /**
+     * Where $boundary stands now, or null when the node it was held by has
+     * left $surface (or, in a text node, the offset no longer fits).
+     *
+     * @param {{node: Node, offset: number, before: Node|null}} boundary
+     * @param {HTMLElement} surface
+     * @returns {{node: Node, offset: number}|null}
+     */
+    function placeOf(boundary, surface) {
+        var node = boundary.node;
+        if (node.nodeType === Node.TEXT_NODE) {
+            var fits = surface.contains(node) && boundary.offset <= (node.textContent || '').length;
+
+            return fits ? { node: node, offset: boundary.offset } : null;
+        }
+        var before = boundary.before;
+        if (before) {
+            var parent = before.parentNode;
+            if (!parent || before === surface || !surface.contains(parent)) {
+                return null;
+            }
+
+            return { node: parent, offset: Array.prototype.indexOf.call(parent.childNodes, before) };
+        }
+
+        return surface.contains(node) ? { node: node, offset: node.childNodes.length } : null;
+    }
+
+    /**
+     * Whether the selection lies in $surface.
+     *
+     * @param {HTMLElement} surface
+     * @returns {boolean}
+     */
+    function selectionIsIn(surface) {
+        var selection = window.getSelection();
+
+        return !!selection && selection.rangeCount > 0 && surface.contains(selection.getRangeAt(0).commonAncestorContainer);
+    }
+
+    /**
+     * The engine's own formatBlock, for what holds no list item. The angle
+     * brackets are the form the other two toolbars already used and the
+     * one every engine accepts; a bare `h2` is not.
+     *
+     * @param {'h2'|'h3'|'p'} tag
+     * @returns {void}
+     */
+    function formatBlockByEngine(tag) {
+        document.execCommand('formatBlock', false, '<' + tag + '>');
+    }
+
     // ————— The toolbar —————
 
     /**
@@ -1326,6 +1804,16 @@
 
             button.addEventListener('click', function () {
                 var command = button.dataset.command;
+
+                // The command acts on the selection, wherever it is: with the
+                // caret left in another editor of the same form — or in its
+                // title field — this button would format, or link, that one.
+                // Focusing first brings the selection here; a selection
+                // already here is kept as is.
+                if (!selectionIsIn(surface)) {
+                    surface.focus();
+                }
+
                 if (command === 'createLink') {
                     insertLink(surface).then(function () {
                         if (afterCommand) afterCommand();
@@ -1333,18 +1821,34 @@
                     return;
                 }
 
+                var moved = null;
+                var tag = blockTagFor(button.dataset.value);
                 if (command === 'formatBlock') {
-                    // The argument editable.js never passed at all — it
-                    // sent null, and a formatBlock with no block to format
-                    // is a button that does nothing. The angle brackets are
-                    // the form the other two toolbars already used and the
-                    // one every engine accepts; a bare `h2` is not.
-                    document.execCommand(command, false, '<' + (button.dataset.value || 'p') + '>');
+                    // In a list item, never the engine's formatBlock: it
+                    // wraps the whole list (#885, above).
+                    moved = listItemsToBlocks(surface, tag);
+                    if (!moved) {
+                        // The argument editable.js never passed at all — it
+                        // sent null, and a formatBlock with no block to
+                        // format is a button that does nothing.
+                        formatBlockByEngine(tag);
+                    }
                 } else {
                     document.execCommand(command || '', false, null);
                 }
 
                 surface.focus();
+                if (moved) {
+                    // After the focus, which may itself move the caret.
+                    var selection = window.getSelection();
+                    selection?.removeAllRanges();
+                    selection?.addRange(moved.range);
+                    if (moved.engine) {
+                        // What the selection held outside the list — no
+                        // list item left in it now for the engine to wrap.
+                        formatBlockByEngine(tag);
+                    }
+                }
                 if (afterCommand) afterCommand();
             });
         });

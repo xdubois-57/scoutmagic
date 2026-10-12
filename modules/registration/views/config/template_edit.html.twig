@@ -1,0 +1,131 @@
+{% extends 'base.html.twig' %}
+{% block title %}Modifier — {{ template.name }} — Gabarits — Formulaire d'inscription — {{ site_name }}{% endblock %}
+{#
+  One request e-mail on its own page under « Gabarits » (issue #843, D10),
+  on the model of a rental template's page: the editor, and the variables
+  this e-mail can carry shown OPEN beside it.
+
+  The editor is the site's rich text field
+  (partials/rich_text_form_field.html.twig): each variable is one chip the
+  browser cannot split, inserted from « Insérer un champ ». Everything
+  posted is sanitised server-side before it is stored
+  (Core\View\EditableContentService, SECURITY.md §7). Saving goes back to
+  the list; the way back without saving is the breadcrumb, or « Annuler ».
+
+  Requires `template` (Service\RequestEmailTemplate), `state`, `body`,
+  `variables` (the palette) and `unknown_variables`.
+#}
+{% block content %}
+    <div class="page-wide">
+        {% include 'partials/page_header.html.twig' with { title: "Formulaire d'inscription" } only %}
+        {% include '@registration/config/_nav.html.twig' %}
+
+        <div class="card mb-4">
+            <div class="card-body">
+                <h2 class="h5 mb-1">Modifier — {{ template.name }}</h2>
+                <p class="text-body-secondary small">{{ template.description }}</p>
+
+                {% if state == 'to_write' %}
+                    <div class="alert alert-warning" role="status">
+                        Ce gabarit est à rédiger : tant que son texte est vide, cet e-mail ne peut pas partir.
+                    </div>
+                {% elseif state == 'default' %}
+                    <div class="alert alert-light border">
+                        <p class="mb-0 small">
+                            Ce gabarit utilise le <strong>texte par défaut</strong>. Tant que vous ne le modifiez pas,
+                            c'est ce texte qui part.
+                        </p>
+                    </div>
+                {% elseif template.hasDefault() %}
+                    <div class="alert alert-light border">
+                        <p class="mb-2 small">
+                            Ce gabarit a été personnalisé. Vous pouvez rétablir le texte par défaut — le texte
+                            ci-dessous sera alors entièrement remplacé.
+                        </p>
+                        <details>
+                            <summary class="small">Voir le texte par défaut</summary>
+                            <div class="border rounded-3 p-3 mt-2 bg-body rich-text">{{ template.defaultBody|sanitized_html }}</div>
+                        </details>
+                        <form method="post" action="/config/inscriptions/gabarits/{{ template.slug }}/defaut" class="mt-2"
+                              data-confirm="Rétablir le texte par défaut ? Le texte que vous avez écrit sera perdu.">
+                            {{ csrf_field()|raw }}
+                            <button type="submit" class="btn btn-sm btn-outline-danger">
+                                Rétablir le texte par défaut
+                            </button>
+                        </form>
+                    </div>
+                {% endif %}
+
+                {% if unknown_variables is not empty %}
+                    <output class="alert alert-warning d-block">
+                        Variables non reconnues, qui apparaîtront telles quelles dans l'e-mail :
+                        {% for name in unknown_variables %}
+                            <code>{{ '{{ ' ~ name ~ ' }}' }}</code>{{ not loop.last ? ', ' : '' }}
+                        {% endfor %}
+                    </output>
+                {% endif %}
+
+                <div class="row g-4">
+                    <div class="col-12 col-xl-8">
+                        <form method="post" action="/config/inscriptions/gabarits/{{ template.slug }}">
+                            {{ csrf_field()|raw }}
+
+                            {% include 'partials/rich_text_form_field.html.twig' with {
+                                field_id: 'template-body',
+                                field_name: 'body',
+                                value: body,
+                                label: "Texte de l'e-mail",
+                                help: "Mettez en forme le texte comme ailleurs sur le site. Les champs insérés — en
+                                       bleu — sont remplacés par les valeurs de la demande au moment de l'envoi.",
+                                placeholders: variables,
+                                rows_height: '20rem',
+                            } only %}
+
+                            <div class="d-flex flex-wrap gap-2">
+                                <button type="submit" class="btn btn-primary">Enregistrer</button>
+                                <a href="/config/inscriptions/gabarits" class="btn btn-outline-secondary">Annuler</a>
+                            </div>
+                        </form>
+                    </div>
+                    <div class="col-12 col-xl-4">
+                        <h3 class="h6">Variables disponibles</h3>
+                        <p class="text-body-secondary small">
+                            Insérez-les avec « Insérer un champ » : elles sont remplacées à l'envoi de l'e-mail.
+                        </p>
+                        <div class="table-responsive">
+                            <table class="table table-sm">
+                                <caption class="visually-hidden">Variables utilisables dans cet e-mail</caption>
+                                <thead>
+                                    <tr>
+                                        <th scope="col">Variable</th>
+                                        <th scope="col">Valeur</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for variable in variables %}
+                                        <tr>
+                                            <td><code>{{ variable.placeholder }}</code></td>
+                                            <td class="small">{{ variable.description }}</td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock %}
+
+{% block stylesheets %}
+{# The variable chips and the editing surface are styled by components.css,
+   which base.html.twig deliberately does not load. #}
+<link rel="stylesheet" href="{{ asset('/assets/css/components.css') }}">
+{% endblock %}
+
+{% block scripts %}
+    {# type="module" — the file uses `export`, and a classic <script> tag
+       rejects it with a SyntaxError before a line of it runs. #}
+    <script type="module" src="{{ asset('/assets/js/rich-text-form-field.js') }}"></script>
+{% endblock %}
