@@ -1702,7 +1702,7 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
         self::assertLessThan($agent, $extract, $workflow . ' fetches the extract after the agent has run.');
 
         $fetch = $this->firstRunScriptContaining($workflow, 'contents/scripts/');
-        foreach (['support-triage-extract.sh', 'triage-comment-gate.sh'] as $script) {
+        foreach (['support-triage-extract.sh', 'triage-comment-gate.sh', 'project-effort.sh'] as $script) {
             self::assertStringContainsString($script, $fetch, $workflow . ' no longer fetches scripts/' . $script . '.');
             self::assertFileExists(
                 dirname(__DIR__, 2) . '/scripts/' . $script,
@@ -2397,6 +2397,48 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
      *
      * @return array<int, string>|null
      */
+    /**
+     * The model can propose effort but must never hold the credential that
+     * updates Projects. An issue body cannot choose a project or target issue.
+     * This is asserted on both event-driven and nightly triage.
+     */
+    #[DataProvider('issueWorkflows')]
+    public function testProjectEffortUsesOnlyAnAfterTriageWriteStep(string $workflow): void
+    {
+        $file = $this->contents($workflow);
+        $steps = $this->stepBlocks($workflow);
+        $withToken = array_values(array_filter(
+            $steps,
+            static fn (string $step): bool => str_contains($step, 'secrets.PROJECTS_TOKEN'),
+        ));
+
+        self::assertCount(1, $withToken, $workflow . ' must expose the Project token to exactly one step.');
+        self::assertStringContainsString(
+            '- name: Set Effort on ScoutMagic Project',
+            $withToken[0],
+            $workflow . ' exposes PROJECTS_TOKEN outside the post-verdict sync.',
+        );
+        self::assertStringContainsString(
+            'bash "$RUNNER_TEMP/triage-scripts/project-effort.sh"',
+            $withToken[0],
+            $workflow . ' no longer uses the reviewed bounded Project writer.',
+        );
+        self::assertStringNotContainsString(
+            'anthropics/claude-code-action',
+            $withToken[0],
+            $workflow . ' hands the Projects token to the triage model.',
+        );
+        self::assertStringContainsString(
+            'project-effort.sh',
+            $this->firstRunScriptContaining($workflow, 'contents/scripts/'),
+        );
+        self::assertMatchesRegularExpression(
+            '/\\\\\"effort\\\\\"/',
+            $file,
+            $workflow . ' no longer asks the model for a constrained effort estimate.',
+        );
+    }
+
     private function blockScalar(string $workflow, string $keyPattern): ?array
     {
         $block = [];
