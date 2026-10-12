@@ -575,6 +575,62 @@ class RegistrationRequestRepository
     }
 
     /**
+     * The declared siblings who are still in the unit, for a whole batch of
+     * requests, one query — what the recommendation's « Fratrie déjà dans
+     * l'unité » reads (issue #843, the maintainer's decision after IT-03).
+     *
+     * A declared sibling is still in the unit while they hold an active
+     * enrolment (`member_years.is_active`) in $currentScoutYearId or in the
+     * scout year the request itself targets: one already re-enrolled for
+     * that year counts, one with no active enrolment in either has left and
+     * does not any more. A sibling whose `members` row was merged into
+     * another identity since (Core\Member\Duplicate\MemberMergeService
+     * moves the member_years, not this module's links) is looked up under
+     * the identity it was merged into.
+     *
+     * The recommendation is its only reader. Every screen that SHOWS the
+     * siblings — the Passage page, the fiche, the list and its export —
+     * keeps reading the declared ones (findSiblingMemberIdsForRequests(),
+     * findSiblingMemberIds(), countSiblingsForRequests()): what the family
+     * declared at submission stays a fact of the request.
+     *
+     * @param array<int> $requestIds
+     * @return array<int, array<int>> request id => member ids, ascending
+     *         (requests with no sibling still in the unit are absent)
+     */
+    public function findPresentSiblingMemberIdsForRequests(array $requestIds, int $currentScoutYearId): array
+    {
+        $requestIds = array_values(array_unique($requestIds));
+        if ($requestIds === []) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($requestIds), '?'));
+        $stmt = $this->pdo->prepare(
+            "SELECT s.registration_request_id, s.member_id
+             FROM registration_request_siblings s
+             JOIN registration_requests r ON r.id = s.registration_request_id
+             JOIN members m ON m.id = s.member_id
+             WHERE s.registration_request_id IN ({$placeholders})
+               AND EXISTS (
+                   SELECT 1 FROM member_years my
+                   WHERE my.member_id IN (s.member_id, m.merged_into_member_id)
+                     AND my.is_active = 1
+                     AND my.scout_year_id IN (?, r.scout_year_id)
+               )
+             ORDER BY s.registration_request_id, s.member_id"
+        );
+        $stmt->execute(array_merge($requestIds, [$currentScoutYearId]));
+
+        $result = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $result[(int) $row['registration_request_id']][] = (int) $row['member_id'];
+        }
+
+        return $result;
+    }
+
+    /**
      * How many siblings each request declares — the management list only
      * ever shows the count, so it has no business fetching the ids.
      *

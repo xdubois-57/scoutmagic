@@ -20,6 +20,7 @@ use Modules\Registration\Service\Recommendation;
 use Modules\Registration\Service\RecommendationService;
 use Modules\Registration\Service\SlotMath;
 use Modules\Registration\Service\SlotService;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
@@ -40,6 +41,11 @@ use Tests\Modules\Registration\RegistrationTestHelper;
  *   possible duplicate #414 (07/10);
  * - Louveteaux · 2e année, capacity 15, 8 places taken: #398 (sibling);
  * - #401, born outside every age bracket.
+ *
+ * Each sibling declared there is still in the unit — an active enrolment
+ * in the current scout year — which is what « Fratrie déjà dans l'unité »
+ * reads (the maintainer's decision after IT-03): the tests named
+ * …SiblingStillInTheUnit / …NoLongerInTheUnit vary exactly that.
  */
 #[Group('database')]
 class RecommendationServiceTest extends TestCase
@@ -292,6 +298,122 @@ class RecommendationServiceTest extends TestCase
             'Oui — 1re demande classée sur 5 pour Louveteaux · 1re année. Avant elle, 6 places sur 15 seraient '
             . "occupées (40 %), dans la limite du « Oui » (70 %). Classement favorisé par : fratrie dans l'unité.",
             $result[416]->explanation
+        );
+    }
+
+    /**
+     * The sibling shapes that are still in the unit: an active enrolment in
+     * the current scout year, or in the year the request targets — a
+     * sibling already re-enrolled for it counts.
+     *
+     * @return array<string, array{array<string, bool>}>
+     */
+    public static function siblingsStillInTheUnit(): array
+    {
+        return [
+            'enrolled this year' => [['public' => true]],
+            'enrolled this year and re-enrolled for the target year' => [['public' => true, 'target' => true]],
+            're-enrolled for the target year only' => [['target' => true]],
+            'inactive this year but re-enrolled for the target year' => [['public' => false, 'target' => true]],
+        ];
+    }
+
+    /**
+     * The shapes that are not: no active enrolment in either year.
+     *
+     * @return array<string, array{array<string, bool>}>
+     */
+    public static function siblingsNoLongerInTheUnit(): array
+    {
+        return [
+            'left: inactive this year, active last year' => [['past' => true, 'public' => false]],
+            'left: enrolled last year only' => [['past' => true]],
+            'inactive in the target year too' => [['public' => false, 'target' => false]],
+            'never enrolled' => [[]],
+        ];
+    }
+
+    /**
+     * « Fratrie déjà dans l'unité » (the maintainer's decision after IT-03):
+     * a declared sibling still in the unit makes the request « Toujours
+     * Oui », with the explanation of the mock-up.
+     *
+     * @param array<string, bool> $enrolments
+     */
+    #[DataProvider('siblingsStillInTheUnit')]
+    public function testADeclaredSiblingStillInTheUnitMakesTheRequestAlwaysYes(array $enrolments): void
+    {
+        $this->seedMockupDataSet();
+        $this->declareSiblings(416, [$this->sibling($enrolments)]);
+
+        $recommendation = $this->service->forYear($this->targetYearId)[416];
+
+        $this->assertSame(Recommendation::KIND_ALWAYS, $recommendation->kind);
+        $this->assertSame(SlotMath::LEVEL_YES, $recommendation->level);
+        $this->assertSame(
+            "Oui — règle « Toujours Oui » : fratrie déjà présente dans l'unité.",
+            $recommendation->explanation
+        );
+    }
+
+    /**
+     * A declared sibling who has left the unit since counts for nothing:
+     * the request falls back into the ranking, where it takes its place by
+     * date of filing — 4th of 5, behind #417 (favoured), #409 and #418.
+     *
+     * @param array<string, bool> $enrolments
+     */
+    #[DataProvider('siblingsNoLongerInTheUnit')]
+    public function testADeclaredSiblingNoLongerInTheUnitCountsForNothing(array $enrolments): void
+    {
+        $this->seedMockupDataSet();
+        $this->declareSiblings(416, [$this->sibling($enrolments)]);
+
+        $result = $this->service->forYear($this->targetYearId);
+
+        $this->assertSame([417, 409, 418, 416, 419], array_slice(array_keys($result), 0, 5));
+        $this->assertSame(Recommendation::KIND_RANK, $result[416]->kind);
+        $this->assertSame(
+            'Oui — 4e demande classée sur 5 pour Louveteaux · 1re année. Avant elle, 9 places sur 15 seraient '
+            . 'occupées (60 %), dans la limite du « Oui » (70 %).',
+            $result[416]->explanation
+        );
+    }
+
+    /**
+     * In « Classement » too: a sibling who has left favours nothing, and is
+     * not said to.
+     */
+    public function testASiblingWhoHasLeftDoesNotFavourTheRequestInTheRanking(): void
+    {
+        $this->seedMockupDataSet();
+        $this->declareSiblings(416, [$this->sibling(['past' => true, 'public' => false])]);
+        $this->saveOrder(['always' => [], 'rank' => ['sibling', 'previous_no_room', 'arrival'], 'off' => []]);
+
+        $result = $this->service->forYear($this->targetYearId);
+
+        $this->assertSame([417, 409, 418, 416, 419], array_slice(array_keys($result), 0, 5));
+        $this->assertStringNotContainsString('fratrie', $result[416]->explanation);
+    }
+
+    /**
+     * Several siblings declared, one of whom has left: the one still in the
+     * unit is enough.
+     */
+    public function testOneSiblingStillInTheUnitIsEnoughAmongSeveral(): void
+    {
+        $this->seedMockupDataSet();
+        $this->declareSiblings(416, [
+            $this->sibling(['past' => true, 'public' => false]),
+            $this->sibling(['public' => true]),
+        ]);
+
+        $recommendation = $this->service->forYear($this->targetYearId)[416];
+
+        $this->assertSame(Recommendation::KIND_ALWAYS, $recommendation->kind);
+        $this->assertSame(
+            "Oui — règle « Toujours Oui » : fratrie déjà présente dans l'unité.",
+            $recommendation->explanation
         );
     }
 
@@ -636,7 +758,8 @@ class RecommendationServiceTest extends TestCase
 
     /**
      * Files one request, filed at $receivedAt, renumbered to $id when given
-     * (the mock-up's numbers), with a declared sibling when asked.
+     * (the mock-up's numbers), with a declared sibling when asked — one
+     * still in the unit, enrolled in the current scout year.
      */
     private function file(
         int $yearId,
@@ -647,7 +770,7 @@ class RecommendationServiceTest extends TestCase
         ?int $id = null,
         bool $sibling = false
     ): int {
-        $siblings = $sibling ? [RegistrationTestHelper::insertMember($this->pdo, 'D' . (++$this->memberSeq))] : [];
+        $siblings = $sibling ? [$this->sibling(['public' => true])] : [];
         $created = $this->requests->create($yearId, [
             'parent_name' => 'Parent ' . $lastName, 'child_last_name' => $lastName, 'child_first_name' => $firstName,
             'gender' => 'F', 'birth_date' => $birthDate, 'street' => 'Rue', 'number' => '1',
@@ -667,5 +790,49 @@ class RecommendationServiceTest extends TestCase
         }
 
         return $createdId;
+    }
+
+    /**
+     * A member who can be declared as a sibling, with one member_years row
+     * per scout year named — active or not. No function in a section, so
+     * the projection never places them in a slot: only « Fratrie déjà dans
+     * l'unité » reads these rows.
+     *
+     * @param array<string, bool> $enrolments 'past' | 'public' | 'target' => is_active
+     */
+    private function sibling(array $enrolments): int
+    {
+        $years = ['past' => $this->pastYearId, 'public' => $this->publicYearId, 'target' => $this->targetYearId];
+        $memberId = RegistrationTestHelper::insertMember($this->pdo, 'D' . (++$this->memberSeq));
+        $insert = $this->pdo->prepare('INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, '
+            . 'last_name_encrypted, is_active) VALUES (?, ?, ?, ?, ?)');
+        foreach ($enrolments as $year => $active) {
+            $insert->execute([
+                $memberId,
+                $years[$year],
+                $this->encryption->encrypt('Jules', 'member_years.first_name'),
+                $this->encryption->encrypt('Vidal', 'member_years.last_name'),
+                $active ? 1 : 0,
+            ]);
+        }
+
+        return $memberId;
+    }
+
+    /**
+     * Replaces the siblings declared on request $requestId by $memberIds.
+     *
+     * @param array<int> $memberIds
+     */
+    private function declareSiblings(int $requestId, array $memberIds): void
+    {
+        $this->pdo->prepare('DELETE FROM registration_request_siblings WHERE registration_request_id = ?')
+            ->execute([$requestId]);
+        $insert = $this->pdo->prepare(
+            'INSERT INTO registration_request_siblings (registration_request_id, member_id) VALUES (?, ?)'
+        );
+        foreach ($memberIds as $memberId) {
+            $insert->execute([$requestId, $memberId]);
+        }
     }
 }

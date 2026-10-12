@@ -24,6 +24,7 @@ class RegistrationRequestRepositoryTest extends TestCase
     private RegistrationRequestRepository $repository;
     private EncryptionService $encryption;
     private int $scoutYearId;
+    private int $memberSequence = 0;
 
     protected function setUp(): void
     {
@@ -163,6 +164,87 @@ class RegistrationRequestRepositoryTest extends TestCase
         $siblingIds = $this->repository->findSiblingMemberIds($created['id']);
         sort($siblingIds);
         $this->assertSame([$memberId1, $memberId2], $siblingIds);
+    }
+
+    /**
+     * « Fratrie déjà dans l'unité » reads the declared siblings still in the
+     * unit (issue #843, the maintainer's decision after IT-03): an active
+     * enrolment in the current scout year, or in the year the request
+     * itself targets — per request, not one year for the whole batch —,
+     * under the identity a merged member was folded into. Every screen
+     * showing the siblings keeps reading the declared ones, the departed
+     * included.
+     */
+    public function testPresentSiblingsAreTheDeclaredOnesStillEnrolledNowOrInTheRequestsYear(): void
+    {
+        $pastYearId = RegistrationTestHelper::insertScoutYear($this->pdo, '2025-2026', '2025-09-01', '2026-08-31');
+        $targetYearId = RegistrationTestHelper::insertScoutYear($this->pdo, '2027-2028', '2027-09-01', '2028-08-31');
+        $currentYearId = $this->scoutYearId;
+
+        $bothYears = $this->enrolledMember([$currentYearId => true, $targetYearId => true]);
+        $thisYear = $this->enrolledMember([$currentYearId => true]);
+        $reEnrolled = $this->enrolledMember([$currentYearId => false, $targetYearId => true]);
+        $left = $this->enrolledMember([$pastYearId => true, $currentYearId => false]);
+        $lastYearOnly = $this->enrolledMember([$pastYearId => true]);
+        $neverEnrolled = $this->enrolledMember([]);
+        // Merged since into an identity enrolled this year: the merge moved
+        // the member_years, not the link the family declared.
+        $merged = $this->enrolledMember([]);
+        $this->pdo->prepare('UPDATE members SET merged_into_member_id = ? WHERE id = ?')
+            ->execute([$this->enrolledMember([$currentYearId => true]), $merged]);
+
+        $declared = [$bothYears, $thisYear, $reEnrolled, $left, $lastYearOnly, $neverEnrolled, $merged];
+        $forTarget = $this->repository->create($targetYearId, $this->sampleFields(), null, $declared)['id'];
+        // Filed for the current year: the target year is not its year, so
+        // an enrolment there alone does not count for it.
+        $inYear = $this->repository->create($currentYearId, $this->sampleFields(), null, [$reEnrolled, $left])['id'];
+        $none = $this->repository->create($targetYearId, $this->sampleFields(), null, [])['id'];
+        $notAsked = $this->repository->create($targetYearId, $this->sampleFields(), null, [$thisYear])['id'];
+
+        $present = $this->repository->findPresentSiblingMemberIdsForRequests(
+            [$forTarget, $inYear, $none, $forTarget],
+            $currentYearId
+        );
+
+        $expected = [$bothYears, $thisYear, $reEnrolled, $merged];
+        sort($expected);
+        $this->assertSame([$forTarget => $expected], $present);
+        $this->assertArrayNotHasKey($notAsked, $present);
+        $this->assertSame([], $this->repository->findPresentSiblingMemberIdsForRequests([], $currentYearId));
+
+        // What the Passage page, the fiche and the export read: every
+        // declared sibling, whoever has left since.
+        $allDeclared = $this->repository->findSiblingMemberIdsForRequests([$forTarget, $inYear]);
+        sort($allDeclared[$forTarget]);
+        sort($declared);
+        $this->assertSame($declared, $allDeclared[$forTarget]);
+        $this->assertCount(2, $allDeclared[$inYear]);
+        $this->assertSame([$forTarget => 7], $this->repository->countSiblingsForRequests([$forTarget]));
+        $this->assertCount(7, $this->repository->findSiblingMemberIds($forTarget));
+    }
+
+    /**
+     * A member with one member_years row per scout year given, active or
+     * not.
+     *
+     * @param array<int, bool> $enrolments scout year id => is_active
+     */
+    private function enrolledMember(array $enrolments): int
+    {
+        $memberId = RegistrationTestHelper::insertMember($this->pdo, 'SIB' . (++$this->memberSequence));
+        $insert = $this->pdo->prepare('INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, '
+            . 'last_name_encrypted, is_active) VALUES (?, ?, ?, ?, ?)');
+        foreach ($enrolments as $yearId => $active) {
+            $insert->execute([
+                $memberId,
+                $yearId,
+                $this->encryption->encrypt('Jules', 'member_years.first_name'),
+                $this->encryption->encrypt('Dupont', 'member_years.last_name'),
+                $active ? 1 : 0,
+            ]);
+        }
+
+        return $memberId;
     }
 
     public function testVerifyTrackingTokenAcceptsCorrectTokenOnly(): void
