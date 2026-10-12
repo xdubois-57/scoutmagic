@@ -89,14 +89,10 @@ CREATE TABLE registration_requests (
     -- request (idx_rr_linked_member below) — Desk identity data itself
     -- never migrates, Desk stays authoritative (module spec).
     linked_member_id INT UNSIGNED NULL,
-    -- Emails are sent explicitly, never automatically at a status change
-    -- (module spec) — and the tracking page shows a status change only
-    -- once the corresponding email has actually gone out (module spec's
-    -- own design rule, not a display nuance): a chief refusing on Friday
-    -- and sending the email on Monday must not let the parent discover
-    -- the refusal in between. NULL = not sent yet (or not applicable).
-    accepted_email_sent_at DATETIME NULL,
-    refused_email_sent_at DATETIME NULL,
+    -- Whether the decision e-mail has left is NOT a column here any more:
+    -- every planned, attempted, sent, failed or cancelled acceptance or
+    -- refusal e-mail is a row of registration_decision_emails below, and
+    -- the tracking page reads its answer from there (issue #843, IT-05).
     -- Why a refused request was refused (issue #843, D6): 'no_room'
     -- (« Pas de place ») or 'other' (« Autre »). It feeds the
     -- recommendation's « Ancienne demande restée sans place » criterion,
@@ -456,4 +452,75 @@ CREATE TABLE registration_passage_notes (
     CONSTRAINT fk_rpn_section FOREIGN KEY (preferred_section_id) REFERENCES sections(id) ON DELETE SET NULL,
     CONSTRAINT fk_rpn_ai_section FOREIGN KEY (ai_section_id) REFERENCES sections(id) ON DELETE SET NULL,
     CONSTRAINT fk_rpn_account FOREIGN KEY (updated_by_user_account_id) REFERENCES user_accounts(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- The acceptance and refusal e-mails of a request (issue #843, D8 / IT-05):
+-- one row per e-mail the module planned or tried to send — a first send, a
+-- retry after a failure, a resend after a success — never one row per
+-- request rewritten in place, so the history a chief reads on the fiche is
+-- the history that happened (Repository\DecisionEmailRepository).
+--
+-- **A row belongs to one decision.** `superseded_at` is set, on every row of
+-- the request still open to it, by the very write that changes the request's
+-- status (RegistrationRequestRepository::updateStatus(), one transaction):
+-- from then on the row describes an earlier decision. A row still
+-- 'scheduled' at that moment never happened, so it is 'cancelled' with
+-- cancel_reason 'decision_changed' (« Annulé suite à un changement de
+-- décision ») and can no longer be claimed; a row already sent or failed
+-- keeps its state, because that is what happened. The tracking page shows
+-- an acceptance or a refusal only once a row of THAT decision, not
+-- superseded, is 'sent' (Service\RequestStatusService::visibleStatus(),
+-- R3): an earlier decision's e-mail never makes a later one visible, and a
+-- resend is a row of its own, so the first send's date is never rewritten.
+--
+-- **The claim.** A row is sent by whoever moves it to 'sending' — one
+-- conditional UPDATE from 'scheduled', or one INSERT already in 'sending' —
+-- and `active_request_id` is what makes that atomic across two clicks or
+-- two scheduler passes: it holds registration_request_id while the row is
+-- 'scheduled' or 'sending', NULL otherwise, and its UNIQUE index (several
+-- NULLs allowed on both engines) refuses a second e-mail in play for the
+-- same request. The same claim the core's sent_email_claims gives
+-- recomputed recipients, kept on the domain row because there is one here
+-- (Core\Notification\NotificationRepository::claimForEmail() is the
+-- precedent).
+--
+-- `failure_code` is the technical category of a failure ('body_not_written',
+-- 'mail_transport', 'interrupted'); `failure_message` the French sentence a
+-- chief may read, gated at the WRITE site (Core\Exception\
+-- UserFacingMessage, AGENTS.md). The transport's own text is never stored:
+-- an SMTP refusal routinely quotes the recipient's address, the reason the
+-- core's deliverability probe keeps a category and never the server's text.
+--
+-- Deleted with its request (ON DELETE CASCADE, and explicitly by
+-- RegistrationRequestRepository::deleteById(), which the retention purge
+-- goes through): it is data about a request and lives exactly as long.
+-- Dates are PHP-computed on every write, like the rest of this module.
+CREATE TABLE registration_decision_emails (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    registration_request_id INT UNSIGNED NOT NULL,
+    decision ENUM('accepted', 'refused') NOT NULL,
+    state ENUM('scheduled', 'sending', 'sent', 'failed', 'cancelled') NOT NULL DEFAULT 'scheduled',
+    -- When it is due — NULL for a send a chief started by hand, which has
+    -- no due date of its own.
+    due_at DATETIME NULL,
+    -- 1 for the first try of this decision's e-mail, and one more for each
+    -- earlier try of it that did not end cancelled.
+    attempt SMALLINT UNSIGNED NOT NULL DEFAULT 1,
+    -- A send started after this decision's e-mail had already gone out once.
+    is_resend TINYINT(1) NOT NULL DEFAULT 0,
+    attempted_at DATETIME NULL,
+    sent_at DATETIME NULL,
+    failed_at DATETIME NULL,
+    failure_code ENUM('body_not_written', 'mail_transport', 'interrupted') NULL,
+    failure_message VARCHAR(500) NULL,
+    cancelled_at DATETIME NULL,
+    cancel_reason ENUM('decision_changed') NULL,
+    superseded_at DATETIME NULL,
+    active_request_id INT UNSIGNED NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_rde_request FOREIGN KEY (registration_request_id) REFERENCES registration_requests(id) ON DELETE CASCADE,
+    UNIQUE INDEX idx_rde_active_request (active_request_id),
+    INDEX idx_rde_state_due (state, due_at),
+    INDEX idx_rde_request (registration_request_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

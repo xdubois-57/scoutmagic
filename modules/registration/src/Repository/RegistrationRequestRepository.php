@@ -29,18 +29,28 @@ class RegistrationRequestRepository
 {
     private HouseholdRepository $households;
 
+    private DecisionEmailRepository $decisionEmails;
+
     /**
      * $households is the core's, and the only thing here that knows how an
      * address becomes a household (issue #630). Built from the same
      * connection when the caller passes none, so the repository cannot be
      * constructed in a state where it would have to derive a key itself.
+     *
+     * $decisionEmails likewise (issue #843, IT-05): a status change
+     * supersedes the decision e-mails of the old decision in the same
+     * transaction (updateStatus()), and every request read here carries
+     * the date its current decision's e-mail first went out — so both
+     * must be on this repository's own connection.
      */
     public function __construct(
         private \PDO $pdo,
         private EncryptionService $encryption,
-        ?HouseholdRepository $households = null
+        ?HouseholdRepository $households = null,
+        ?DecisionEmailRepository $decisionEmails = null
     ) {
         $this->households = $households ?? new HouseholdRepository($pdo, $encryption);
+        $this->decisionEmails = $decisionEmails ?? new DecisionEmailRepository($pdo);
     }
 
     /**
@@ -185,9 +195,8 @@ class RegistrationRequestRepository
     {
         $stmt = $this->pdo->prepare('SELECT * FROM registration_requests WHERE id = ?');
         $stmt->execute([$id]);
-        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
 
-        return $row !== false ? $this->hydrate($row) : null;
+        return $this->hydrateAll($stmt->fetchAll(\PDO::FETCH_ASSOC))[0] ?? null;
     }
 
     /**
@@ -218,7 +227,7 @@ class RegistrationRequestRepository
         $stmt = $this->pdo->prepare('SELECT * FROM registration_requests WHERE email_blind_index = ?');
         $stmt->execute([$blindIndex]);
 
-        return array_map(fn(array $row) => $this->hydrate($row), $stmt->fetchAll(\PDO::FETCH_ASSOC));
+        return $this->hydrateAll($stmt->fetchAll(\PDO::FETCH_ASSOC));
     }
 
     /**
@@ -234,7 +243,7 @@ class RegistrationRequestRepository
             . 'ASC, id ASC');
         $stmt->execute([$scoutYearId]);
 
-        return array_map(fn(array $row) => $this->hydrate($row), $stmt->fetchAll(\PDO::FETCH_ASSOC));
+        return $this->hydrateAll($stmt->fetchAll(\PDO::FETCH_ASSOC));
     }
 
     /**
@@ -264,12 +273,13 @@ class RegistrationRequestRepository
      *
      * The definition is the one the family's own page applies
      * (Service\RequestStatusService::visibleStatus()): an acceptance —
-     * still `accepted`, or already `encoded` in Desk — stays invisible to
-     * the family until `accepted_email_sent_at` is set, a refusal until
-     * `refused_email_sent_at` is. So this counts exactly the decisions a
-     * family cannot see yet. Withdrawn requests send nothing and are never
-     * counted. The decision e-mail model of issue #843 (IT-05) takes this
-     * definition over and rebinds it to its own table.
+     * still `accepted`, or already `encoded` in Desk — or a refusal stays
+     * invisible to the family until an e-mail of THAT decision, not
+     * superseded by a later status change, has been sent
+     * (`registration_decision_emails`, issue #843 IT-05). So this counts
+     * exactly the decisions a family cannot see yet, whatever their e-mail
+     * is doing — scheduled, failed, or never planned. Withdrawn requests
+     * send nothing and are never counted.
      *
      * @param array<int> $scoutYearIds
      */
@@ -282,10 +292,15 @@ class RegistrationRequestRepository
         $placeholders = self::placeholdersFor($scoutYearIds);
 
         return $this->countRows(
-            "SELECT COUNT(*) FROM registration_requests
-             WHERE scout_year_id IN ({$placeholders})
-               AND ((status IN ('accepted', 'encoded') AND accepted_email_sent_at IS NULL)
-                    OR (status = 'refused' AND refused_email_sent_at IS NULL))",
+            "SELECT COUNT(*) FROM registration_requests r
+             WHERE r.scout_year_id IN ({$placeholders})
+               AND r.status IN ('accepted', 'encoded', 'refused')
+               AND NOT EXISTS (
+                   SELECT 1 FROM registration_decision_emails e
+                   WHERE e.registration_request_id = r.id
+                     AND e.state = 'sent' AND e.superseded_at IS NULL
+                     AND e.decision = CASE WHEN r.status = 'refused' THEN 'refused' ELSE 'accepted' END
+               )",
             $scoutYearIds
         );
     }
@@ -361,7 +376,7 @@ class RegistrationRequestRepository
         );
         $stmt->execute([$scoutYearId]);
 
-        return array_map(fn(array $row) => $this->hydrate($row), $stmt->fetchAll(\PDO::FETCH_ASSOC));
+        return $this->hydrateAll($stmt->fetchAll(\PDO::FETCH_ASSOC));
     }
 
     /**
@@ -396,7 +411,7 @@ class RegistrationRequestRepository
         );
         $stmt->execute([$scoutYearId]);
 
-        return array_map(fn(array $row) => $this->hydrate($row), $stmt->fetchAll(\PDO::FETCH_ASSOC));
+        return $this->hydrateAll($stmt->fetchAll(\PDO::FETCH_ASSOC));
     }
 
     /**
@@ -416,7 +431,7 @@ class RegistrationRequestRepository
         );
         $stmt->execute([$scoutYearId]);
 
-        return array_map(fn(array $row) => $this->hydrate($row), $stmt->fetchAll(\PDO::FETCH_ASSOC));
+        return $this->hydrateAll($stmt->fetchAll(\PDO::FETCH_ASSOC));
     }
 
     /**
@@ -602,15 +617,57 @@ class RegistrationRequestRepository
         string $status,
         ?\DateTimeImmutable $finalAt,
         ?string $refusalReason = null
-    ): void {
+    ): int {
         $storedReason = $status === RegistrationRequest::STATUS_REFUSED
             ? self::normalizeRefusalReason($refusalReason)
             : null;
 
-        $stmt = $this->pdo->prepare(
-            'UPDATE registration_requests SET status = ?, final_at = ?, refusal_reason = ? WHERE id = ?'
-        );
-        $stmt->execute([$status, $finalAt?->format('Y-m-d H:i:s'), $storedReason, $id]);
+        return $this->atomically(function () use ($id, $status, $finalAt, $storedReason): int {
+            // The request row first, then its e-mails — the order the send
+            // path reads them in (DecisionEmailRepository::insert() selects
+            // FROM this row), so a send racing this change either sees the
+            // new status and creates nothing, or ran entirely before it and
+            // is superseded below.
+            $stmt = $this->pdo->prepare(
+                'UPDATE registration_requests SET status = ?, final_at = ?, refusal_reason = ? WHERE id = ?'
+            );
+            $stmt->execute([$status, $finalAt?->format('Y-m-d H:i:s'), $storedReason, $id]);
+
+            // A changed decision makes every e-mail written for the old one
+            // obsolete (issue #843, D8): none of them may leave any more,
+            // and none of them may ever make the new decision visible to
+            // the family (R3). Here rather than in a service so that no
+            // path writing a status — the fiche, the bulk actions, the
+            // decision dialog — can change a decision and leave its old
+            // e-mail scheduled.
+            return $this->decisionEmails->supersedeForRequest($id, new \DateTimeImmutable());
+        });
+    }
+
+    /**
+     * Runs $work in a transaction of its own, or inside the caller's when
+     * one is already open (PDO refuses a nested beginTransaction()).
+     *
+     * @template T
+     * @param callable(): T $work
+     * @return T
+     */
+    private function atomically(callable $work): mixed
+    {
+        if ($this->pdo->inTransaction()) {
+            return $work();
+        }
+
+        $this->pdo->beginTransaction();
+        try {
+            $result = $work();
+            $this->pdo->commit();
+
+            return $result;
+        } catch (\Throwable $e) {
+            $this->pdo->rollBack();
+            throw $e;
+        }
     }
 
     /**
@@ -760,20 +817,6 @@ class RegistrationRequestRepository
         $stmt->execute([password_hash($rawToken, PASSWORD_DEFAULT), $id]);
     }
 
-    public function markAcceptedEmailSent(int $id): void
-    {
-        $now = (new \DateTimeImmutable())->format('Y-m-d H:i:s');
-        $stmt = $this->pdo->prepare('UPDATE registration_requests SET accepted_email_sent_at = ? WHERE id = ?');
-        $stmt->execute([$now, $id]);
-    }
-
-    public function markRefusedEmailSent(int $id): void
-    {
-        $now = (new \DateTimeImmutable())->format('Y-m-d H:i:s');
-        $stmt = $this->pdo->prepare('UPDATE registration_requests SET refused_email_sent_at = ? WHERE id = ?');
-        $stmt->execute([$now, $id]);
-    }
-
     /**
      * The request already linked to $memberId, if any — Service\
      * ReconciliationService's manual-link pre-check ("refuser un numéro
@@ -784,9 +827,8 @@ class RegistrationRequestRepository
     {
         $stmt = $this->pdo->prepare('SELECT * FROM registration_requests WHERE linked_member_id = ?');
         $stmt->execute([$memberId]);
-        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
 
-        return $row !== false ? $this->hydrate($row) : null;
+        return $this->hydrateAll($stmt->fetchAll(\PDO::FETCH_ASSOC))[0] ?? null;
     }
 
     /**
@@ -797,10 +839,23 @@ class RegistrationRequestRepository
      */
     public function linkToMemberAndEncode(int $id, int $memberId, \DateTimeImmutable $finalAt): void
     {
-        $stmt = $this->pdo->prepare(
-            "UPDATE registration_requests SET linked_member_id = ?, status = 'encoded', final_at = ? WHERE id = ?"
-        );
-        $stmt->execute([$memberId, $finalAt->format('Y-m-d H:i:s'), $id]);
+        $this->atomically(function () use ($id, $memberId, $finalAt): void {
+            $stmt = $this->pdo->prepare(
+                "UPDATE registration_requests SET linked_member_id = ?, status = 'encoded', final_at = ? WHERE id = ?"
+            );
+            $stmt->execute([$memberId, $finalAt->format('Y-m-d H:i:s'), $id]);
+
+            // Encoding keeps an acceptance what it was: its e-mails still
+            // describe the decision. A request linked from any other state
+            // (the manual link does not ask) has just become an acceptance,
+            // and whatever was written for its earlier decision is obsolete,
+            // exactly as in updateStatus().
+            $this->decisionEmails->supersedeForRequest(
+                $id,
+                new \DateTimeImmutable(),
+                DecisionEmail::DECISION_ACCEPTED
+            );
+        });
     }
 
     /**
@@ -824,12 +879,19 @@ class RegistrationRequestRepository
 
     /**
      * Permanent deletion — cascades to registration_request_siblings and
-     * registration_secondary_emails via their own ON DELETE CASCADE.
+     * registration_secondary_emails via their own ON DELETE CASCADE. The
+     * request's decision e-mails (issue #843, R7) are deleted explicitly
+     * first, in the same transaction, so the retention purge removes them
+     * whether or not the engine enforces their own cascade.
      */
     public function deleteById(int $id): void
     {
-        $stmt = $this->pdo->prepare('DELETE FROM registration_requests WHERE id = ?');
-        $stmt->execute([$id]);
+        $this->atomically(function () use ($id): void {
+            $this->decisionEmails->deleteForRequest($id);
+
+            $stmt = $this->pdo->prepare('DELETE FROM registration_requests WHERE id = ?');
+            $stmt->execute([$id]);
+        });
     }
 
     public static function normalizeEmail(string $email): string
@@ -855,9 +917,37 @@ class RegistrationRequestRepository
     }
 
     /**
+     * Every row, hydrated, with the date its current decision's e-mail
+     * first went out — read in one query for the whole set rather than one
+     * per request (Repository\DecisionEmailRepository::
+     * firstSentAtByRequest()).
+     *
+     * @param array<int, array<string, mixed>> $rows
+     * @return array<int, RegistrationRequest>
+     */
+    private function hydrateAll(array $rows): array
+    {
+        $sentAt = $this->decisionEmails->firstSentAtByRequest(
+            array_map(static fn(array $row): int => (int) $row['id'], $rows)
+        );
+
+        return array_map(function (array $row) use ($sentAt): RegistrationRequest {
+            // Only the e-mail of the decision the request holds NOW: a
+            // refused request whose acceptance e-mail went out earlier owes
+            // its refusal e-mail, and is not "sent".
+            $decision = DecisionEmail::decisionForStatus((string) $row['status']);
+
+            return $this->hydrate(
+                $row,
+                $decision !== null ? ($sentAt[(int) $row['id']][$decision] ?? null) : null
+            );
+        }, $rows);
+    }
+
+    /**
      * @param array<string, mixed> $row
      */
-    private function hydrate(array $row): RegistrationRequest
+    private function hydrate(array $row, ?\DateTimeImmutable $decisionEmailSentAt): RegistrationRequest
     {
         return new RegistrationRequest(
             id: (int) $row['id'],
@@ -894,12 +984,7 @@ class RegistrationRequestRepository
                 ? $this->encryption->decrypt($row['internal_notes_encrypted'], 'registration_requests.internal_notes')
                 : null,
             linkedMemberId: $row['linked_member_id'] !== null ? (int) $row['linked_member_id'] : null,
-            acceptedEmailSentAt: DateInput::fromStorage(
-                $row['accepted_email_sent_at'] === null ? null : (string) $row['accepted_email_sent_at']
-            ),
-            refusedEmailSentAt: DateInput::fromStorage(
-                $row['refused_email_sent_at'] === null ? null : (string) $row['refused_email_sent_at']
-            ),
+            decisionEmailSentAt: $decisionEmailSentAt,
             finalAt: DateInput::fromStorage($row['final_at'] === null ? null : (string) $row['final_at']),
             previousUnitAnswer: $row['previous_unit_answer'] !== null
                 ? (string) $row['previous_unit_answer']

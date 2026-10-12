@@ -614,3 +614,161 @@ année, parmi les demandes vivantes, la plus ancienne (ou celle qui tient
 déjà une place) restant dans la file (`Recommendation::$duplicateOfRequestId`)
 — sans encore l'afficher. R8 :
 aucune recommandation pour une année passée.
+
+---
+
+## IT-05 — Modèle des e-mails de décision
+
+**Livré.**
+
+- **Table `registration_decision_emails`** (`schema.sql`) : une ligne par
+  e-mail d'acceptation ou de refus prévu ou tenté — premier envoi,
+  nouvelle tentative après un échec, renvoi après un succès —, jamais une
+  ligne par demande réécrite. Décision (`accepted` / `refused`), état
+  (`scheduled` → `sending` → `sent` | `failed`, ou `cancelled`), échéance
+  (NULL pour un envoi lancé à la main), numéro de tentative, indicateur de
+  renvoi, dates de tentative, d'envoi et d'échec, catégorie technique de
+  l'échec (`body_not_written`, `mail_transport`, `interrupted`) et phrase
+  en français filtrée à l'écriture (`UserFacingMessage`), motif
+  d'annulation (`decision_changed`), `superseded_at`, horodatages ; index
+  `(state, due_at)` ; clé étrangère vers `registration_requests` (même
+  module) `ON DELETE CASCADE`. Les deux colonnes
+  `accepted_email_sent_at` / `refused_email_sent_at` disparaissent, sans
+  migration (`modules/registration/drops.sql`). Version 6.14.0 → 6.15.0.
+- **`Repository\DecisionEmailRepository`** (et l'objet `DecisionEmail`) :
+  créer, réclamer, marquer envoyé ou en échec, reprogrammer, rendre
+  obsolète, lire l'historique, les échéances et la date du premier envoi.
+  Aucune ligne dans un état final n'est réécrite : chaque écriture est un
+  UPDATE conditionnel qui nomme l'état qu'il quitte.
+- **`Service\DecisionEmailService`** : planifier (`schedule()`, échéance
+  donnée — le délai viendra d'IT-09), reprogrammer, ouvrir une tentative
+  réclamée (`begin()`), enregistrer un succès ou un échec, historique,
+  échéances et réclamation pour la tâche d'IT-09.
+- **`RequestEmailService` repris** : chaque envoi passe par `begin()`
+  (réclamation atomique), puis le garde-fou du corps non rédigé
+  (l'échec est enregistré, l'exception levée, jamais un succès), le
+  transport, et `recordSuccess()` / `recordFailure()`. Rotation du jeton
+  de suivi après un succès seulement (inchangée, R6). Le journal de
+  l'envoi porte le numéro de tentative et le renvoi, jamais la famille.
+- **Changer une décision annule l'envoi devenu obsolète** :
+  `RegistrationRequestRepository::updateStatus()` écrit le statut puis,
+  dans la même transaction, rend obsolètes les e-mails de l'ancienne
+  décision — un e-mail encore prévu est annulé (« Annulé suite à un
+  changement de décision ») et ne peut plus être réclamé, un e-mail
+  envoyé, en échec ou en cours garde son état et est seulement daté. Le
+  nombre d'annulés revient à `RequestStatusService`, qui le journalise.
+  Aucun e-mail de l'ancienne décision ne peut plus être lancé ; un envoi
+  dont le transport était déjà en cours à cet instant (quelques secondes)
+  se termine et est consigné, sans rien rendre visible à la famille.
+  `linkToMemberAndEncode()` fait de même pour une demande liée depuis un
+  autre état qu'« acceptée » (le lien manuel ne vérifie pas le statut),
+  en gardant les e-mails d'acceptation.
+- **Compteur « E-mails de décision à envoyer »** : lit la nouvelle table
+  (acceptées, encodées ou refusées sans e-mail envoyé de leur décision en
+  cours — prévu, en échec ou jamais planifié), test sur MariaDB.
+- Documentation : `ARCHITECTURE.md` §8.36, `specifications.md` §17.2,
+  §17.3, §17.5, §17.6, contenu RGPD par défaut et consigne du prompt
+  (`RgpdContentService`, règle 27), sujet d'aide `gerer-les-demandes`.
+- Tests : `DecisionEmailRepositoryTest`, `DecisionEmailRepositoryOnMysqlTest`
+  (prémisses du moteur, INSERT … SELECT, index UNIQUE, deux sessions qui
+  créent ou réclament le même e-mail, deux envois simultanés de bout en
+  bout → un seul e-mail, cascade), `DecisionEmailServiceTest`,
+  `RequestEmailServiceTest` (gabarit absent → échec enregistré, envoi
+  manuel, renvoi, échec SMTP puis nouvelle tentative, envoi interrompu,
+  envoi concurrent), `RequestStatusServiceTest` (masqué avant envoi,
+  visible après, changement de décision, ré-acceptation),
+  `TrackingControllerTest`, `RegistrationRequestRepositoryTest` et
+  `…OnMysqlTest` (compteur, obsolescence, effacement),
+  `PurgeRegistrationRequestsHandlerTest`, `RegistrationRequestControllerTest`
+  (renvoi, e-mail d'acceptation d'une demande refusée).
+
+**Décisions autonomes.**
+
+- **Une ligne par tentative**, pas une ligne par e-mail mise à jour : une
+  nouvelle tentative et un renvoi sont des lignes à part, ce qui rend
+  l'historique d'IT-08 exact par construction (« jamais écrasé »).
+- **La réclamation vit sur la ligne du domaine**, pas dans
+  `sent_email_claims` : le passage `scheduled` → `sending` par UPDATE
+  conditionnel, ou la création directement en `sending`, et la colonne
+  `active_request_id` (l'id de la demande tant que l'e-mail est prévu ou en
+  cours, NULL ensuite) sous index UNIQUE, qui refuse un second e-mail en jeu
+  pour la même demande (SQLSTATE 23000, la règle de
+  `SentEmailClaimRepository`). La création est un `INSERT … SELECT … FROM
+  registration_requests WHERE status IN (…)` : un envoi qui croise un
+  changement de décision ne crée rien. C'est le précédent de
+  `NotificationRepository::claimForEmail()` (une ligne de domaine existe),
+  que le document autorisait (« ou verrou équivalent »).
+- **L'obsolescence est faite par `updateStatus()`, pas par un service** :
+  c'est la seule écriture par laquelle passe tout changement de statut
+  (fiche, actions groupées, dialogue d'IT-04), et la même transaction
+  garantit qu'aucun e-mail de l'ancienne décision ne reste réclamable. Le
+  constructeur de `RequestStatusService` ne change pas, ce qui laisse IT-04,
+  qui tourne en parallèle, sans conflit sémantique.
+- **L'erreur technique n'est jamais stockée telle quelle** : la ligne garde
+  une catégorie et une phrase en français écrite au moment de l'échec ; le
+  texte du serveur SMTP, qui cite souvent l'adresse du destinataire, n'est
+  pas conservé — le précédent de la sonde de délivrabilité. Il reste dans
+  le journal, comme avant cette itération.
+- **Un e-mail ne part que pour la décision en cours** : l'e-mail
+  d'acceptation d'une demande refusée (ou en attente) est refusé avec un
+  message, et rien n'est enregistré. La fiche montrait et acceptait les
+  deux boutons quel que soit le statut : un e-mail d'acceptation pouvait
+  partir après un refus.
+- **Un envoi réclamé il y a plus de 10 minutes sans issue** (processus mort
+  entre la réclamation et le résultat) est enregistré « interrompu » au
+  prochain envoi manuel, avec une phrase qui dit qu'on ne sait pas s'il est
+  parti ; il n'est jamais renvoyé tout seul. Un envoi seulement lent qui
+  finit par aboutir transforme cette interruption en « envoyé » : c'est la
+  seule ligne finale qu'une écriture modifie, parce qu'elle consignait une
+  issue inconnue.
+- **Le succès est consigné avant l'enregistrement du nouveau jeton** : une
+  erreur de base de données après l'envoi laisse l'ancien lien valable et
+  l'e-mail marqué envoyé, jamais un e-mail parti qui paraît en cours.
+- **La fiche n'est pas refaite** (IT-08) : `RegistrationRequest` expose
+  `acceptedEmailSentAt()` / `refusedEmailSentAt()` (le premier envoi de la
+  décision en cours, null sinon), ce que les vues lisaient déjà sous ce
+  nom ; aucun gabarit Twig n'est modifié.
+- Les deux colonnes supprimées sont retirées par `drops.sql` plutôt que
+  laissées en place : elles n'auraient plus rien voulu dire, et le
+  comparateur de schéma signale une colonne non déclarée à chaque
+  migration.
+
+**Divergences avec le document.**
+
+- Faits vérifiés contre `main` (`d4efa13`) : `visibleStatus()` lisait bien
+  un horodatage par type ; le compteur d'IT-01 aussi ; la rotation du jeton
+  se faisait déjà après le succès seulement (R6 tenait avant cette
+  itération), alors qu'`ARCHITECTURE.md` décrivait encore une rotation
+  avant l'envoi (`rotateTrackingToken()`, méthode disparue) — corrigé.
+- #740 (effacement RGPD) et #724 (sa première partie) sont ouverts et non
+  implémentés : aucun effacement ciblé n'existe aujourd'hui. Le seul chemin
+  de suppression d'une demande est la purge de rétention.
+
+**Reporté.**
+
+- Le bloc « E-mail de décision » de la fiche (états, historique,
+  « Envoyer maintenant », « Réessayer », « Renvoyer l'e-mail ») : IT-08.
+- La planification avec délai et la tâche qui consomme les échéances
+  (`schedule()`, `findDue()`, `claim()` sont prêts) : IT-09.
+
+**Faits tranchés.**
+
+- **R3** : `visibleStatus()` suit l'envoi réel de l'e-mail **de la décision
+  en cours** — `decisionEmailSentAt`, le premier `sent_at` des lignes
+  envoyées, non obsolètes, de la décision que porte la demande. Un e-mail
+  d'une décision précédente (acceptée puis refusée, ou acceptée, remise en
+  attente puis acceptée à nouveau) ne rend jamais la nouvelle visible ; un
+  renvoi est une ligne à part et ne déplace jamais la date du premier
+  envoi. Le mécanisme à un horodatage par type est supprimé.
+- **R6** : le jeton n'est enregistré qu'après l'acceptation du message par
+  le transport ; un échec SMTP ou un gabarit absent laisse le lien
+  précédent valable (tests dédiés). La réclamation ne touche pas au jeton.
+- **R7** : la table suit la demande — `deleteById()`, par lequel passe la
+  purge `purge_registration_requests`, supprime ses lignes dans la même
+  transaction, et `ON DELETE CASCADE` couvre tout autre chemin (testé sur
+  MariaDB). Elle est rattachée à la demande par son id seul, donc tout
+  effacement futur d'une demande (#740) l'emporte. La liste blanche de
+  `BackupService::CONFIG_ONLY_TABLES` / `InstanceReset` ne grandit pas :
+  la table est une donnée, vidée par la remise à zéro et sauvegardée comme
+  les autres. Contenu RGPD mis à jour (historique des e-mails, réservé au
+  staff, supprimé avec la demande).

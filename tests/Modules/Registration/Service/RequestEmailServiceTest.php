@@ -11,7 +11,10 @@ use Core\Mail\MailService;
 use Core\Security\EncryptionService;
 use Core\View\EditableContentRepository;
 use Core\View\EditableContentService;
+use Modules\Registration\Repository\DecisionEmail;
+use Modules\Registration\Repository\DecisionEmailRepository;
 use Modules\Registration\Repository\RegistrationRequestRepository;
+use Modules\Registration\Service\DecisionEmailService;
 use Modules\Registration\Service\RegistrationException;
 use Modules\Registration\Service\RequestEmailService;
 use PHPUnit\Framework\MockObject\Rule\InvocationOrder;
@@ -33,6 +36,7 @@ class RequestEmailServiceTest extends TestCase
 {
     private \PDO $pdo;
     private RegistrationRequestRepository $requestRepository;
+    private DecisionEmailRepository $decisionEmails;
     private EditableContentService $editableContentService;
     private int $scoutYearId;
 
@@ -42,29 +46,62 @@ class RequestEmailServiceTest extends TestCase
         RegistrationTestHelper::createTables($this->pdo);
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
 
-        $this->requestRepository = new RegistrationRequestRepository($this->pdo, $encryption);
+        $this->decisionEmails = new DecisionEmailRepository($this->pdo);
+        $this->requestRepository = new RegistrationRequestRepository(
+            $this->pdo,
+            $encryption,
+            null,
+            $this->decisionEmails
+        );
         $this->editableContentService = new EditableContentService(new EditableContentRepository($this->pdo));
         $this->scoutYearId = RegistrationTestHelper::insertScoutYear($this->pdo, '2026-2027', '2026-09-01', '2027-08-31');
     }
 
     private function buildService(MailService $mailService): RequestEmailService
     {
+        $journal = new JournalService(new JournalRepository($this->pdo));
+
         return new RequestEmailService(
             $this->requestRepository, $mailService, $this->editableContentService,
-            new JournalService(new JournalRepository($this->pdo)), 'https://example.com', 'Unité Test'
+            $journal, 'https://example.com', 'Unité Test',
+            new DecisionEmailService($this->decisionEmails, $journal)
         );
     }
 
-    private function createRequest(): int
+    /**
+     * A request, moved to $status the way a chief's decision moves it.
+     */
+    private function createRequest(string $status = 'pending', string $email = 'marie@example.com'): int
     {
         $created = $this->requestRepository->create($this->scoutYearId, [
             'parent_name' => 'Marie Dupont', 'child_last_name' => 'Dupont', 'child_first_name' => 'Léa',
             'gender' => 'F', 'birth_date' => '2019-01-01', 'street' => 'S', 'number' => '1',
-            'postal_code' => '1000', 'city' => 'V', 'email' => 'marie@example.com',
+            'postal_code' => '1000', 'city' => 'V', 'email' => $email,
             'phone1' => '000', 'phone2' => null, 'remarks' => null,
         ], null, []);
+        if ($status !== 'pending') {
+            $this->requestRepository->updateStatus(
+                $created['id'],
+                $status,
+                $status === 'accepted' ? null : new \DateTimeImmutable()
+            );
+        }
 
         return $created['id'];
+    }
+
+    /**
+     * @return array<int, DecisionEmail>
+     */
+    private function history(int $requestId): array
+    {
+        return $this->decisionEmails->findForRequest($requestId);
+    }
+
+    private function writeBodies(): void
+    {
+        $this->editableContentService->set('registration_email_accepted_body', '<p>Bienvenue !</p>', 'rich_text', 1);
+        $this->editableContentService->set('registration_email_refused_body', '<p>Désolé.</p>', 'rich_text', 1);
     }
 
     public function testBodiesAreNotReadyByDefault(): void
@@ -75,22 +112,79 @@ class RequestEmailServiceTest extends TestCase
         $this->assertFalse($service->isRefusedBodyReady());
     }
 
-    public function testSendAcceptedThrowsWhenBodyNotWritten(): void
+    /**
+     * The guard D10 keeps, on a request that does hold the decision: no
+     * body, no e-mail — and the attempt is recorded as FAILED, never as a
+     * success, with a sentence a chief may read. The transport is never
+     * reached.
+     */
+    public function testAMissingBodyIsRecordedAsAFailedAttemptNeverASuccess(): void
     {
-        $service = $this->buildService($this->createStub(MailService::class));
-        $request = $this->requestRepository->findById($this->createRequest());
+        $mailService = $this->createMock(MailService::class);
+        $mailService->expects($this->never())->method('send');
+        $service = $this->buildService($mailService);
+        $requestId = $this->createRequest('accepted');
 
-        $this->expectException(RegistrationException::class);
-        $service->sendAccepted($request, '2026-2027');
+        try {
+            $service->sendAccepted($this->requestRepository->findById($requestId), '2026-2027');
+            $this->fail('Expected a RegistrationException for an unwritten body.');
+        } catch (RegistrationException $e) {
+            $this->assertSame("Le corps de l'email d'acceptation n'a pas encore été rédigé.", $e->getMessage());
+        }
+
+        [$attempt] = $this->history($requestId);
+        $this->assertSame(DecisionEmail::STATE_FAILED, $attempt->state);
+        $this->assertSame(DecisionEmail::FAILURE_BODY_NOT_WRITTEN, $attempt->failureCode);
+        $this->assertSame("Le corps de l'email d'acceptation n'a pas encore été rédigé.", $attempt->failureMessage);
+        $this->assertNull($attempt->sentAt);
+        $this->assertNull($this->requestRepository->findById($requestId)->decisionEmailSentAt);
     }
 
-    public function testSendRefusedThrowsWhenBodyNotWritten(): void
+    public function testAMissingRefusalBodyIsRecordedAsAFailedAttemptToo(): void
     {
         $service = $this->buildService($this->createStub(MailService::class));
-        $request = $this->requestRepository->findById($this->createRequest());
+        $requestId = $this->createRequest('refused');
 
-        $this->expectException(RegistrationException::class);
-        $service->sendRefused($request, '2026-2027');
+        try {
+            $service->sendRefused($this->requestRepository->findById($requestId), '2026-2027');
+            $this->fail('Expected a RegistrationException for an unwritten body.');
+        } catch (RegistrationException) {
+            // expected
+        }
+
+        $this->assertSame(
+            [DecisionEmail::FAILURE_BODY_NOT_WRITTEN],
+            array_map(static fn(DecisionEmail $email) => $email->failureCode, $this->history($requestId))
+        );
+    }
+
+    /**
+     * A decision e-mail goes only to a request that holds that decision:
+     * nothing is sent and nothing is recorded for a pending request, nor
+     * an acceptance for a refused one.
+     */
+    public function testAnEmailOfAnotherDecisionIsRefusedBeforeAnythingIsSentOrRecorded(): void
+    {
+        $this->writeBodies();
+        $mailService = $this->createMock(MailService::class);
+        $mailService->expects($this->never())->method('send');
+        $service = $this->buildService($mailService);
+        $pending = $this->createRequest();
+        $refused = $this->createRequest('refused');
+
+        foreach ([
+            [$pending, 'sendAccepted', "Cette demande n'est pas acceptée"],
+            [$pending, 'sendRefused', "Cette demande n'est pas refusée"],
+            [$refused, 'sendAccepted', "Cette demande n'est pas acceptée"],
+        ] as [$requestId, $method, $message]) {
+            try {
+                $service->$method($this->requestRepository->findById($requestId), '2026-2027');
+                $this->fail("{$method} should have been refused.");
+            } catch (RegistrationException $e) {
+                $this->assertStringStartsWith($message, $e->getMessage());
+            }
+            $this->assertSame([], $this->history($requestId), $method);
+        }
     }
 
     /**
@@ -118,46 +212,80 @@ class RequestEmailServiceTest extends TestCase
             });
     }
 
-    public function testSendAcceptedSucceedsAndMarksSentOnceBodyIsWritten(): void
+    public function testSendAcceptedSucceedsAndRecordsTheSentAttemptOnceBodyIsWritten(): void
     {
         $this->editableContentService->set('registration_email_accepted_body', '<p>Bienvenue {{prenom_enfant}} !</p>', 'rich_text', 1);
         $mailService = $this->createMock(MailService::class);
         $recipients = [];
         $this->recordRecipients($mailService, $this->once(), $recipients);
         $service = $this->buildService($mailService);
-        $requestId = $this->createRequest();
+        $requestId = $this->createRequest('accepted');
 
         $service->sendAccepted($this->requestRepository->findById($requestId), '2026-2027');
 
         // The address the family wrote on its own request, and no other.
         $this->assertSame(['marie@example.com'], $recipients);
-        $this->assertNotNull($this->requestRepository->findById($requestId)->acceptedEmailSentAt);
+        [$attempt] = $this->history($requestId);
+        $this->assertSame(DecisionEmail::STATE_SENT, $attempt->state);
+        $this->assertSame(DecisionEmail::DECISION_ACCEPTED, $attempt->decision);
+        $this->assertSame(1, $attempt->attempt);
+        $this->assertFalse($attempt->isResend);
+        $this->assertNull($attempt->dueAt, 'a send started by hand has no due date');
+        $this->assertEquals($attempt->sentAt, $this->requestRepository->findById($requestId)->acceptedEmailSentAt());
     }
 
-    public function testResendIsAlwaysAvailableAfterFirstSend(): void
+    /**
+     * A resend is an e-mail of its own: the first one stays in the
+     * history, sent, and the date the family's page reads is still the
+     * first send's (R3).
+     */
+    public function testAResendIsARowOfItsOwnAndNeverMovesTheFirstSendDate(): void
     {
-        $this->editableContentService->set('registration_email_accepted_body', '<p>Bienvenue !</p>', 'rich_text', 1);
+        $this->writeBodies();
         $mailService = $this->createMock(MailService::class);
         $recipients = [];
         $this->recordRecipients($mailService, $this->exactly(2), $recipients);
         $service = $this->buildService($mailService);
-        $requestId = $this->createRequest();
+        $requestId = $this->createRequest('accepted');
 
         $service->sendAccepted($this->requestRepository->findById($requestId), '2026-2027');
+        $this->pdo->exec("UPDATE registration_decision_emails SET sent_at = '2026-03-01 08:00:00'");
         $service->sendAccepted($this->requestRepository->findById($requestId), '2026-2027');
 
         // A resend goes back to the same family, twice.
         $this->assertSame(['marie@example.com', 'marie@example.com'], $recipients);
-        $this->assertNotNull($this->requestRepository->findById($requestId)->acceptedEmailSentAt);
+        $history = $this->history($requestId);
+        $this->assertSame([DecisionEmail::STATE_SENT, DecisionEmail::STATE_SENT], array_map(
+            static fn(DecisionEmail $email) => $email->state,
+            $history
+        ));
+        $this->assertSame([false, true], array_map(static fn(DecisionEmail $email) => $email->isResend, $history));
+        $this->assertSame([1, 2], array_map(static fn(DecisionEmail $email) => $email->attempt, $history));
+        $this->assertSame(
+            '2026-03-01 08:00:00',
+            $this->requestRepository->findById($requestId)->decisionEmailSentAt?->format('Y-m-d H:i:s')
+        );
     }
 
-    public function testMailDeliveryFailureIsSurfacedNotSwallowed(): void
+    /**
+     * An SMTP failure: surfaced to the chief, recorded as a failed attempt
+     * whose message is a French sentence and never the transport's text,
+     * and the family still sees « en attente ». A retry is a second
+     * attempt, which can then succeed — the failed one stays in the
+     * history.
+     */
+    public function testMailDeliveryFailureIsSurfacedRecordedAndRetriable(): void
     {
-        $this->editableContentService->set('registration_email_refused_body', '<p>Désolé.</p>', 'rich_text', 1);
-        $mailService = $this->createStub(MailService::class);
-        $mailService->method('send')->willThrowException(new MailException('SMTP down'));
+        $this->writeBodies();
+        $mailService = $this->createMock(MailService::class);
+        $calls = 0;
+        $mailService->expects($this->exactly(2))->method('send')->willReturnCallback(function () use (&$calls): void {
+            if (++$calls === 1) {
+                throw new MailException('550 5.1.1 <marie@example.com>: Recipient address rejected');
+            }
+        });
         $service = $this->buildService($mailService);
-        $requestId = $this->createRequest();
+        $requestId = $this->createRequest('refused');
 
         try {
             $service->sendRefused($this->requestRepository->findById($requestId), '2026-2027');
@@ -166,8 +294,25 @@ class RequestEmailServiceTest extends TestCase
             // expected — never silently swallowed
         }
 
-        // *_email_sent_at stays unset so a retry is always possible.
-        $this->assertNull($this->requestRepository->findById($requestId)->refusedEmailSentAt);
+        [$failed] = $this->history($requestId);
+        $this->assertSame(DecisionEmail::STATE_FAILED, $failed->state);
+        $this->assertSame(DecisionEmail::FAILURE_MAIL_TRANSPORT, $failed->failureCode);
+        $this->assertNotNull($failed->failedAt);
+        $this->assertStringContainsString('lien de suivi', (string) $failed->failureMessage);
+        $this->assertStringNotContainsString('marie@example.com', (string) $failed->failureMessage);
+        $this->assertStringNotContainsString('550', (string) $failed->failureMessage);
+        $this->assertNull($this->requestRepository->findById($requestId)->refusedEmailSentAt());
+
+        $service->sendRefused($this->requestRepository->findById($requestId), '2026-2027');
+
+        $history = $this->history($requestId);
+        $this->assertSame([DecisionEmail::STATE_FAILED, DecisionEmail::STATE_SENT], array_map(
+            static fn(DecisionEmail $email) => $email->state,
+            $history
+        ));
+        $this->assertSame([1, 2], array_map(static fn(DecisionEmail $email) => $email->attempt, $history));
+        $this->assertFalse($history[1]->isResend, 'a retry after a failure is not a resend');
+        $this->assertNotNull($this->requestRepository->findById($requestId)->refusedEmailSentAt());
     }
 
     /**
@@ -186,7 +331,7 @@ class RequestEmailServiceTest extends TestCase
             new MailException('SMTP connect() failed. https://github.com/PHPMailer/PHPMailer/wiki/Troubleshooting')
         );
         $service = $this->buildService($mailService);
-        $requestId = $this->createRequest();
+        $requestId = $this->createRequest('refused');
 
         try {
             $service->sendRefused($this->requestRepository->findById($requestId), '2026-2027');
@@ -199,13 +344,14 @@ class RequestEmailServiceTest extends TestCase
             // journal entry written just above the throw.
             $this->assertInstanceOf(MailException::class, $e->getPrevious());
         }
+        $this->assertStringNotContainsString('SMTP', (string) $this->history($requestId)[0]->failureMessage);
     }
 
     /**
      * A failed send must leave the family's EXISTING tracking link alive:
      * the token used to be rotated and persisted before the send, so an SMTP
      * outage killed the link the parent already had while the replacement
-     * never reached them.
+     * never reached them (R6).
      */
     public function testFailedSendLeavesThePreviousTrackingLinkUsable(): void
     {
@@ -220,9 +366,35 @@ class RequestEmailServiceTest extends TestCase
             'postal_code' => '1000', 'city' => 'V', 'email' => 'p@example.com',
             'phone1' => '000', 'phone2' => null, 'remarks' => null,
         ], null, []);
+        $this->requestRepository->updateStatus($created['id'], 'refused', new \DateTimeImmutable());
 
         try {
             $service->sendRefused($this->requestRepository->findById($created['id']), '2026-2027');
+            $this->fail('Expected a RegistrationException.');
+        } catch (RegistrationException) {
+            // expected
+        }
+
+        $this->assertTrue($this->requestRepository->verifyTrackingToken($created['id'], $created['tracking_token']));
+    }
+
+    /**
+     * The same holds when the body guard refuses: no e-mail, no new link.
+     */
+    public function testAMissingBodyLeavesThePreviousTrackingLinkUsable(): void
+    {
+        $service = $this->buildService($this->createStub(MailService::class));
+        $created = $this->requestRepository->create($this->scoutYearId, [
+            'parent_name' => 'P', 'child_last_name' => 'D', 'child_first_name' => 'Léa',
+            'gender' => 'F', 'birth_date' => '2019-01-01', 'street' => 'S', 'number' => '1',
+            'postal_code' => '1000', 'city' => 'V', 'email' => 'p@example.com',
+            'phone1' => '000', 'phone2' => null, 'remarks' => null,
+        ], null, []);
+        $this->requestRepository->updateStatus($created['id'], 'accepted', null);
+
+        try {
+            $service->sendAccepted($this->requestRepository->findById($created['id']), '2026-2027');
+            $this->fail('Expected a RegistrationException.');
         } catch (RegistrationException) {
             // expected
         }
@@ -244,6 +416,7 @@ class RequestEmailServiceTest extends TestCase
             'postal_code' => '1000', 'city' => 'V', 'email' => 'p@example.com',
             'phone1' => '000', 'phone2' => null, 'remarks' => null,
         ], null, []);
+        $this->requestRepository->updateStatus($created['id'], 'accepted', null);
 
         $service->sendAccepted($this->requestRepository->findById($created['id']), '2026-2027');
 
@@ -252,6 +425,143 @@ class RequestEmailServiceTest extends TestCase
         // the service last sent to.
         $this->assertSame(['p@example.com'], $recipients);
         $this->assertFalse($this->requestRepository->verifyTrackingToken($created['id'], $created['tracking_token']));
+    }
+
+    /**
+     * The claim: while another send of this request's e-mail is in flight
+     * — another click, the automatic sending — a second one sends nothing
+     * and says so.
+     */
+    public function testASendWhileAnotherIsInFlightSendsNothing(): void
+    {
+        $this->writeBodies();
+        $mailService = $this->createMock(MailService::class);
+        $mailService->expects($this->never())->method('send');
+        $service = $this->buildService($mailService);
+        $requestId = $this->createRequest('accepted');
+        $this->assertNotNull($this->decisionEmails->insert(
+            $requestId,
+            DecisionEmail::DECISION_ACCEPTED,
+            DecisionEmail::STATE_SENDING,
+            null,
+            1,
+            false,
+            new \DateTimeImmutable()
+        ));
+
+        try {
+            $service->sendAccepted($this->requestRepository->findById($requestId), '2026-2027');
+            $this->fail('A second send must be refused while one is in flight.');
+        } catch (RegistrationException $e) {
+            $this->assertStringStartsWith('Un envoi de cet e-mail est déjà en cours', $e->getMessage());
+        }
+
+        $this->assertCount(1, $this->history($requestId));
+    }
+
+    /**
+     * « Envoyer maintenant » on an e-mail already planned takes THAT
+     * e-mail — one row, sent — rather than sending a second one beside it.
+     */
+    public function testAManualSendTakesTheScheduledEmail(): void
+    {
+        $this->writeBodies();
+        $mailService = $this->createMock(MailService::class);
+        $mailService->expects($this->once())->method('send');
+        $journal = new JournalService(new JournalRepository($this->pdo));
+        $requestId = $this->createRequest('accepted');
+        $scheduled = (new DecisionEmailService($this->decisionEmails, $journal))->schedule(
+            $this->requestRepository->findById($requestId),
+            new \DateTimeImmutable('+1 day')
+        );
+        $this->assertNotNull($scheduled);
+
+        $this->buildService($mailService)->sendAccepted($this->requestRepository->findById($requestId), '2026-2027');
+
+        $history = $this->history($requestId);
+        $this->assertCount(1, $history);
+        $this->assertSame($scheduled->id, $history[0]->id);
+        $this->assertSame(DecisionEmail::STATE_SENT, $history[0]->state);
+    }
+
+    /**
+     * A send claimed long ago and never reported back (the process died)
+     * would block the request for ever. The next send records it as
+     * interrupted — without resending it on its own — and goes ahead.
+     */
+    public function testAnInterruptedSendIsRecordedAndNoLongerBlocksTheNextOne(): void
+    {
+        $this->writeBodies();
+        $mailService = $this->createMock(MailService::class);
+        $mailService->expects($this->once())->method('send');
+        $requestId = $this->createRequest('accepted');
+        $stale = new \DateTimeImmutable('-' . (DecisionEmailService::STALE_SENDING_MINUTES + 1) . ' minutes');
+        $this->decisionEmails->insert($requestId, 'accepted', DecisionEmail::STATE_SENDING, null, 1, false, $stale);
+
+        $this->buildService($mailService)->sendAccepted($this->requestRepository->findById($requestId), '2026-2027');
+
+        $history = $this->history($requestId);
+        $this->assertSame(
+            [DecisionEmail::FAILURE_INTERRUPTED, null],
+            array_map(static fn(DecisionEmail $email) => $email->failureCode, $history)
+        );
+        $this->assertSame(DecisionEmail::STATE_SENT, $history[1]->state);
+        $this->assertSame(2, $history[1]->attempt);
+    }
+
+    /**
+     * A send claimed a moment ago is still somebody's: it is not taken for
+     * interrupted.
+     */
+    public function testARecentClaimIsNotTakenForAnInterruptedSend(): void
+    {
+        $this->writeBodies();
+        $requestId = $this->createRequest('accepted');
+        $recent = new \DateTimeImmutable('-' . (DecisionEmailService::STALE_SENDING_MINUTES - 1) . ' minutes');
+        $this->decisionEmails->insert($requestId, 'accepted', DecisionEmail::STATE_SENDING, null, 1, false, $recent);
+
+        try {
+            $this->buildService($this->createStub(MailService::class))
+                ->sendAccepted($this->requestRepository->findById($requestId), '2026-2027');
+            $this->fail('A recent claim must still block.');
+        } catch (RegistrationException) {
+            // expected
+        }
+
+        $this->assertSame([DecisionEmail::STATE_SENDING], array_map(
+            static fn(DecisionEmail $email) => $email->state,
+            $this->history($requestId)
+        ));
+    }
+
+    /**
+     * The journal says which attempt it was and whether it was a resend —
+     * never the family it went to.
+     */
+    public function testTheSentJournalEntryCarriesTheAttemptAndNothingAboutTheFamily(): void
+    {
+        $this->writeBodies();
+        $service = $this->buildService($this->createStub(MailService::class));
+        $requestId = $this->createRequest('accepted');
+
+        $service->sendAccepted($this->requestRepository->findById($requestId), '2026-2027');
+        $service->sendAccepted($this->requestRepository->findById($requestId), '2026-2027');
+
+        $rows = $this->pdo->query(
+            "SELECT description, context FROM event_log WHERE event_type = 'registration_accepted_email_sent'
+             ORDER BY id"
+        )->fetchAll(\PDO::FETCH_ASSOC);
+        $this->assertSame(
+            [
+                ['request_id' => $requestId, 'attempt' => 1, 'resend' => false],
+                ['request_id' => $requestId, 'attempt' => 2, 'resend' => true],
+            ],
+            array_map(static fn(array $row) => json_decode((string) $row['context'], true), $rows)
+        );
+        foreach ($rows as $row) {
+            $this->assertStringNotContainsString('marie@example.com', $row['description'] . $row['context']);
+            $this->assertStringNotContainsString('Léa', $row['description'] . $row['context']);
+        }
     }
 
     /**

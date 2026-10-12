@@ -38,7 +38,9 @@ attente » rattrape une décision, sauf une demande déjà encodée.
 **La famille ne voit une décision que lorsque son e-mail est parti** :
 accepter sans envoyer l'e-mail la laisse « en attente » à ses yeux.
 Les e-mails s'envoient depuis la fiche, et le bouton reste gris tant
-que leur texte n'est pas rédigé.
+que leur texte n'est pas rédigé. Après un changement de décision, la
+famille reste « en attente » jusqu'à l'e-mail de la nouvelle décision,
+même si celui de l'ancienne était déjà parti.
 
 ## La fiche d'une demande
 

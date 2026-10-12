@@ -118,6 +118,26 @@ class PurgeRegistrationRequestsHandlerTest extends TestCase
         $this->assertNotNull($this->requestRepository->findById($id));
     }
 
+    /**
+     * R7 (issue #843): a request's decision e-mails are data about that
+     * request — purged with it, kept with it. SQLite here does not enforce
+     * the schema's ON DELETE CASCADE, so this holds the explicit delete;
+     * RegistrationRequestRepositoryOnMysqlTest holds the cascade.
+     */
+    public function testThePurgeTakesTheRequestsDecisionEmailsWithIt(): void
+    {
+        $purged = $this->createRequest('refused', new \DateTimeImmutable('-3 years'));
+        $kept = $this->createRequest('refused', new \DateTimeImmutable('-1 year'), 'Noa');
+        RegistrationTestHelper::recordDecisionEmailSent($this->pdo, $purged, 'refused');
+        RegistrationTestHelper::recordDecisionEmailSent($this->pdo, $kept, 'refused');
+
+        (new PurgeRegistrationRequestsHandler())->handle([], $this->context);
+
+        $decisionEmails = new \Modules\Registration\Repository\DecisionEmailRepository($this->pdo);
+        $this->assertSame([], $decisionEmails->findForRequest($purged));
+        $this->assertCount(1, $decisionEmails->findForRequest($kept));
+    }
+
     public function testReschedulesItselfDaily(): void
     {
         (new PurgeRegistrationRequestsHandler())->handle([], $this->context);

@@ -10,6 +10,7 @@ namespace Modules\Registration\Service;
 
 use Core\Export\TabularSpreadsheet;
 use Core\Service\DateInput;
+use Modules\Registration\Repository\DecisionEmail;
 use Modules\Registration\Repository\RegistrationRequest;
 
 /**
@@ -141,26 +142,16 @@ final class RequestExportService
      */
     private function emailSentLabel(RegistrationRequest $registrationRequest): string
     {
-        $sentAt = match ($registrationRequest->status) {
-            RegistrationRequest::STATUS_ACCEPTED,
-            RegistrationRequest::STATUS_ENCODED => $registrationRequest->acceptedEmailSentAt,
-            RegistrationRequest::STATUS_REFUSED => $registrationRequest->refusedEmailSentAt,
-            default => null,
-        };
+        // Only ever the current decision's e-mail (issue #843, IT-05): an
+        // acceptance e-mail sent before the request was refused is not the
+        // refusal the family is owed.
+        $sentAt = $registrationRequest->decisionEmailSentAt;
 
         if ($sentAt !== null) {
             return $sentAt->format('d/m/Y');
         }
 
-        return in_array(
-            $registrationRequest->status,
-            [
-                RegistrationRequest::STATUS_ACCEPTED,
-                RegistrationRequest::STATUS_ENCODED,
-                RegistrationRequest::STATUS_REFUSED,
-            ],
-            true
-        ) ? 'Non envoyé' : '';
+        return DecisionEmail::decisionForStatus($registrationRequest->status) !== null ? 'Non envoyé' : '';
     }
 
     /**
