@@ -2416,7 +2416,7 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
             $this->firstRunScriptContaining($workflow, 'contents/scripts/'),
         );
         self::assertStringContainsString(
-            '\"effort\"',
+            '"effort"',
             $file,
             $workflow . ' no longer asks the model for a constrained effort estimate.',
         );
