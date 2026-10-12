@@ -87,7 +87,12 @@ final class OfflineWhitelistTest extends TestCase
 
     public function testNoEtagOutsideTheList(): void
     {
-        foreach (['/contact/extra', '/members-list', '/aidez-nous', '/finance', '/files/12'] as $path) {
+        foreach ([
+            '/contact/extra', '/members-list', '/aidez-nous', '/finance', '/files/12',
+            // Under a provider's prefix, but not one of its pages: a mass
+            // mail, a confirmation, a download.
+            '/members/12/emails/5', '/members/emails/confirm/3', '/aide/a/b', '/members/',
+        ] as $path) {
             $this->assertFalse($this->whitelist->isEtagEligible($path), $path);
         }
     }

@@ -182,9 +182,12 @@ class OfflineWhitelist
     /**
      * Whether a response for $path may carry an ETag — used by
      * Core\Http\FrontController, so the installed app's refresh can be
-     * answered « 304 non modifié ». A fixed path, or anything under a
-     * provider's prefix, regardless of who is asking: the guard has already
-     * decided whether this request may reach the path at all.
+     * answered « 304 non modifié ». A fixed path, or a provider's prefix
+     * and the pages ONE segment below it (`/news/12`, `/members/7`,
+     * `/aide/{sujet}`), regardless of who is asking: the guard has already
+     * decided whether this request may reach the path at all. Never deeper:
+     * `/news/12/poster` is a PDF, `/members/7/emails/3` a mass mail, and no
+     * provider names such a page.
      *
      * Never what decides what goes into the cache: that is the exact list
      * of Core\Offline\OfflineManifestService.
@@ -195,12 +198,23 @@ class OfflineWhitelist
             if ($entry['path'] !== null && $path === $entry['path']) {
                 return true;
             }
-            if ($entry['prefix'] !== null && self::isUnder($path, $entry['prefix'])) {
+            if ($entry['prefix'] !== null && self::isPageOf($path, $entry['prefix'])) {
                 return true;
             }
         }
 
         return false;
+    }
+
+    /** Whether $path is $prefix itself or a page exactly one segment below it. */
+    private static function isPageOf(string $path, string $prefix): bool
+    {
+        if ($path === $prefix) {
+            return true;
+        }
+        $rest = str_starts_with($path, $prefix . '/') ? substr($path, strlen($prefix) + 1) : '';
+
+        return $rest !== '' && !str_contains($rest, '/');
     }
 
     /** Whether $path is $prefix itself or a page under it. */

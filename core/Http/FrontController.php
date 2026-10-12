@@ -369,6 +369,10 @@ class FrontController
             || $response->getStatusCode() !== 200
             || ConfigurationMode::isActive()
             || !$this->offlineWhitelist->isEtagEligible($request->getPath())
+            // A download streamed from a file (an export, a PDF) is never a
+            // page the installed app keeps, and hashing it would read the
+            // whole file into memory.
+            || $response->getBodyFilePath() !== null
         ) {
             return $response;
         }
