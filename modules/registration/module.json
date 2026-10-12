@@ -2,7 +2,7 @@
   "id": "registration",
   "name": "Inscriptions",
   "description": "Inscriptions, réinscriptions, passages de branche et départs.",
-  "version": "6.14.1",
+  "version": "6.15.1",
   "enabled_by_default": false,
   "routes": [
     {
@@ -301,8 +301,8 @@
     {
       "path": "/config/inscriptions/gabarits",
       "method": "GET",
-      "controller": "Modules\\Registration\\Controller\\RegistrationConfigController",
-      "action": "templates",
+      "controller": "Modules\\Registration\\Controller\\RegistrationTemplateController",
+      "action": "index",
       "menu": "espace_admin",
       "role_min": "admin",
       "label": "",
@@ -318,6 +318,49 @@
           }
         ]
       }
+    },
+    {
+      "path": "/config/inscriptions/gabarits/{template}",
+      "method": "GET",
+      "controller": "Modules\\Registration\\Controller\\RegistrationTemplateController",
+      "action": "edit",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": "",
+      "breadcrumb": {
+        "label": "Modifier un gabarit",
+        "parents": [
+          "Espace chefs d'U"
+        ],
+        "ancestors": [
+          {
+            "label": "Formulaire d'inscription",
+            "path": "/config/inscriptions"
+          },
+          {
+            "label": "Gabarits",
+            "path": "/config/inscriptions/gabarits"
+          }
+        ]
+      }
+    },
+    {
+      "path": "/config/inscriptions/gabarits/{template}",
+      "method": "POST",
+      "controller": "Modules\\Registration\\Controller\\RegistrationTemplateController",
+      "action": "save",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/config/inscriptions/gabarits/{template}/defaut",
+      "method": "POST",
+      "controller": "Modules\\Registration\\Controller\\RegistrationTemplateController",
+      "action": "restoreDefault",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
     },
     {
       "path": "/config/inscriptions/reglages",

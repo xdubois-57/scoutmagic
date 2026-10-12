@@ -183,6 +183,9 @@
     "/config/inscriptions/demandes/{id}": {
       "id": "1"
     },
+    "/config/inscriptions/gabarits/{template}": {
+      "template": "accuse-de-reception"
+    },
     "/config/llm/providers/{id}": {
       "id": "1"
     },

@@ -184,15 +184,10 @@ class RegistrationService
         string $trackingUrl
     ): void
     {
-        $default = '<p>Bonjour,</p>'
-            . '<p>Nous avons bien reçu votre demande d\'inscription pour {{prenom_enfant}} pour l\'année scoute '
-            . '{{annee_scoute}}.</p>'
-            . '<p><strong>Ceci n\'est pas encore une acceptation.</strong> Votre demande sera examinée par '
-            . 'l\'unité.</p>'
-            . '<p>Vous pouvez suivre l\'état de votre demande à tout moment via ce lien : <a '
-            . 'href="{{lien_suivi}}">{{lien_suivi}}</a></p>'
-            . '<p>À bientôt,<br>{{nom_unite}}</p>';
-        $body = $this->substitute($this->editableContentService->get('registration_email_receipt_body', $default), [
+        // The body, its default and its variables are the « Gabarits »
+        // catalogue's (issue #843, D10).
+        $template = $this->requestEmailBody(RequestEmailTemplateService::KEY_RECEIPT);
+        $body = RequestEmailTemplateService::substitute($template, [
             'prenom_enfant' => $childFirstName,
             'annee_scoute' => $targetYearLabel,
             'lien_suivi' => $trackingUrl,
@@ -235,10 +230,8 @@ class RegistrationService
             return;
         }
 
-        $default = '<p>Nouvelle demande d\'inscription reçue pour {{prenom_enfant}} — créneau : {{creneau}}, année '
-            . '{{annee_scoute}}, reçue le {{date_reception}}.</p>'
-            . '<p><a href="{{lien_fiche}}">Voir la demande</a></p>';
-        $body = $this->substitute($this->editableContentService->get('registration_email_unit_alert_body', $default), [
+        $template = $this->requestEmailBody(RequestEmailTemplateService::KEY_UNIT_ALERT);
+        $body = RequestEmailTemplateService::substitute($template, [
             'prenom_enfant' => $childFirstName,
             'annee_scoute' => $targetYearLabel,
             'creneau' => $slotLabel,
@@ -269,15 +262,12 @@ class RegistrationService
     }
 
     /**
-     * @param array<string, string> $vars
+     * The body a submission e-mail goes out with: the unit's own, or the
+     * default it ships with — both of these have one, so this is never
+     * empty.
      */
-    private function substitute(?string $template, array $vars): string
+    private function requestEmailBody(string $key): string
     {
-        $replacements = [];
-        foreach ($vars as $key => $value) {
-            $replacements['{{' . $key . '}}'] = htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
-        }
-
-        return strtr($template ?? '', $replacements);
+        return (string) (new RequestEmailTemplateService($this->editableContentService))->bodyFor($key);
     }
 }
