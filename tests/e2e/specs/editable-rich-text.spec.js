@@ -162,3 +162,94 @@ test('a heading applied in the shared editor is still a heading after the page i
     expect(pageErrors).toEqual([]);
     expect(serverErrors).toEqual([]);
 });
+
+/**
+ * Puts $html in the open editor and the caret in the text $caretIn — the
+ * author who clicked into one line of a list before choosing a style.
+ *
+ * @param {import('@playwright/test').Locator} dialog the editor, open
+ * @param {string|null} html what the surface holds, or null to keep it
+ * @param {string} caretIn the text of the node the caret goes in
+ */
+async function caretIn(dialog, html, caretIn) {
+    await dialog.locator('#richTextEditorContent').evaluate((surface, [seed, text]) => {
+        if (seed !== null) {
+            surface.innerHTML = seed;
+        }
+        surface.focus();
+        const walker = document.createTreeWalker(surface, NodeFilter.SHOW_TEXT);
+        let node = walker.nextNode();
+        while (node && node.textContent !== text) {
+            node = walker.nextNode();
+        }
+        if (!node) {
+            throw new Error('no text « ' + text + ' » in the editor: ' + surface.innerHTML);
+        }
+        const range = document.createRange();
+        range.setStart(node, 1);
+        range.collapse(true);
+        window.getSelection().removeAllRanges();
+        window.getSelection().addRange(range);
+    }, [html, caretIn]);
+}
+
+// Issue #885. The engine's formatBlock in a list item wrapped the whole
+// list in a heading — invalid HTML the canonical form then dropped on save,
+// so the heading was gone after a reload — and « Paragraphe » could not
+// undo it on screen.
+test('a list item made a heading is still a heading after a reload, and « Paragraphe » turns either back', async ({ page }) => {
+    /** @type {string[]} */
+    const pageErrors = [];
+    page.on('pageerror', (error) => pageErrors.push(error.message));
+
+    await loginAsAdmin(page);
+    await answerCookieBanner(page);
+    await setConfigurationMode(page, true);
+
+    const block = page.locator('.editable-content[data-key="contact.text"]');
+    let original = null;
+    try {
+        let dialog = await openEditorOnContactText(page);
+        original = await dialog.locator('#richTextEditorContent').evaluate((surface) => surface.innerHTML);
+
+        await caretIn(dialog, '<ul><li>premier</li><li>deuxième</li><li>troisième</li></ul>', 'deuxième');
+        expect(await applyAndSave(page, dialog, 'H2')).toMatchObject({ success: true });
+
+        await page.reload({ waitUntil: 'load' });
+        await expect(block.locator('h2')).toHaveText('deuxième');
+        await expect(block.locator('ul')).toHaveCount(2);
+        await expect(block.locator('li')).toHaveText(['premier', 'troisième']);
+
+        // « Paragraphe » on that heading: plain text again.
+        dialog = await openEditorOnContactText(page);
+        await caretIn(dialog, null, 'deuxième');
+        expect(await applyAndSave(page, dialog, 'Paragraphe')).toMatchObject({ success: true });
+        await page.reload({ waitUntil: 'load' });
+        await expect(block.locator('h2')).toHaveCount(0);
+        await expect(block.locator('p', { hasText: 'deuxième' })).toBeVisible();
+
+        // « Paragraphe » in a list item: the item leaves its list.
+        dialog = await openEditorOnContactText(page);
+        await caretIn(dialog, null, 'premier');
+        expect(await applyAndSave(page, dialog, 'Paragraphe')).toMatchObject({ success: true });
+        await page.reload({ waitUntil: 'load' });
+        await expect(block.locator('p', { hasText: 'premier' })).toBeVisible();
+        await expect(block.locator('li')).toHaveText(['troisième']);
+    } finally {
+        if (original !== null) {
+            const restored = await openEditorOnContactText(page).catch(() => null);
+            if (restored !== null) {
+                await restored.locator('#richTextEditorContent')
+                    .evaluate((surface, html) => { surface.innerHTML = html; }, original)
+                    .catch(() => null);
+                const saved = waitForServerResponse(page, (response) =>
+                    response.url().includes('/api/editable-content') && response.request().method() === 'POST');
+                await page.getByRole('button', { name: 'Enregistrer', exact: true }).click().catch(() => null);
+                await saved.catch(() => null);
+            }
+        }
+        await setConfigurationMode(page, false).catch(() => null);
+    }
+
+    expect(pageErrors).toEqual([]);
+});

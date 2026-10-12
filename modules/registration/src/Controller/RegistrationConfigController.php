@@ -51,7 +51,8 @@ use Twig\Environment;
  *   staff's notes, the state legend, the request list of one scout year
  *   (searchable, filterable, exportable) and the bulk actions over its
  *   non-final requests;
- * - **Gabarits** (`/config/inscriptions/gabarits`, templates());
+ * - **Gabarits** (`/config/inscriptions/gabarits`): the request
+ *   e-mails' templates, in Controller\RegistrationTemplateController;
  * - **Réglages** (`/config/inscriptions/reglages`, settings()): opening
  *   and the recurring schedule, the in-year code, the capacity box (the
  *   waitlist switch, the thresholds, the capacity grid) and the
@@ -178,18 +179,6 @@ class RegistrationConfigController extends AbstractController
             '@registration/config/requests.html.twig',
             $this->buildRequestsContext($requestedYearId, $statusFilter, $search)
         );
-    }
-
-    /**
-     * GET /config/inscriptions/gabarits — « Gabarits »: the sub-page that
-     * will hold the request e-mails' templates (issue #843, IT-07). Its
-     * title and breadcrumb exist now so the rail is complete.
-     *
-     * @param array<string, string> $params
-     */
-    public function templates(Request $request, array $params): Response
-    {
-        return $this->render('@registration/config/templates.html.twig', []);
     }
 
     /**

@@ -403,4 +403,42 @@ class RegistrationServiceTest extends TestCase
             'Baladins — 1ère année'
         );
     }
+
+    /**
+     * A receipt the unit wrote in « Gabarits » (issue #843, IT-07) arrives
+     * the way the editor stores it — spaced variables, the link
+     * percent-encoded by the sanitiser — and still says the child's name
+     * and carries a working tracking link.
+     */
+    public function testACustomisedReceiptWrittenInTheEditorIsSubstituted(): void
+    {
+        (new \Modules\Registration\Service\RequestEmailTemplateService(
+            new EditableContentService(new EditableContentRepository($this->pdo))
+        ))->save(
+            'registration_email_receipt_body',
+            '<p>Merci pour {{ prenom_enfant }} : <a href="{{ lien_suivi }}">suivre la demande</a></p>',
+            1
+        );
+        $target = $this->service->resolveTargetYear(null);
+
+        $this->mailService->expects($this->once())->method('send')
+            ->willReturnCallback(function (...$args): void {
+                $this->assertSame('marie.dupont@example.com', $args[0]);
+                $this->assertStringContainsString('Merci pour Léa', $args[2]);
+                $this->assertMatchesRegularExpression(
+                    '#<a href="https://example\.com/inscriptions/suivi/\d+/[^"]+">suivre la demande</a>#',
+                    $args[2]
+                );
+                $this->assertStringNotContainsString('lien_suivi', $args[2]);
+            });
+
+        $this->service->submit(
+            (int) $target['id'],
+            (string) $target['label'],
+            $this->sampleFields(),
+            null,
+            [],
+            'Baladins'
+        );
+    }
 }

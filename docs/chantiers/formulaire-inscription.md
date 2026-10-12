@@ -617,6 +617,112 @@ aucune recommandation pour une année passée.
 
 ---
 
+## IT-07 — Sous-page Gabarits
+
+**Livré.**
+
+- **Gabarits** (`/config/inscriptions/gabarits`, nouveau
+  `Controller\RegistrationTemplateController`) : la boîte « Gabarits des
+  e-mails de demande » liste les quatre e-mails — « Accusé de réception de
+  la demande », « Alerte à l'unité », « Acceptation de la demande », « Refus
+  de la demande » — avec la description de la maquette, un badge « Par
+  défaut » / « Personnalisé » / « À rédiger » et un crayon
+  (`aria-label` / `title` « Modifier — {nom} »), dans la liste partagée
+  (`list_editor`, sans glisser ni corbeille, comme les Gabarits d'un bien en
+  location). Le bandeau de la maquette s'affiche tant que l'acceptation ou
+  le refus est « À rédiger » ; la phrase « Les e-mails de réinscription se
+  règlent dans la gestion des réinscriptions. » renvoie à
+  `/config/reinscription/reglages`.
+- **Édition** (`/config/inscriptions/gabarits/{gabarit}`, slugs
+  `accuse-de-reception`, `alerte-unite`, `acceptation`, `refus`) : l'éditeur
+  de texte riche du site (`rich_text_form_field`) avec les variables du
+  gabarit en palette fermée (« Insérer un champ », pastilles insécables) et
+  en tableau ouvert à côté ; une variable non déclarée est signalée.
+  Enregistrer (CSRF, contenu assaini par `EditableContentService`, journal
+  `registration_email_template_saved` avec la seule clé) revient à la
+  liste ; un texte vide est refusé. « Rétablir le texte par défaut »
+  (`…/defaut`, `data-confirm`, journal `registration_email_template_reset`)
+  existe pour l'accusé et l'alerte une fois personnalisés.
+- **Une seule définition de « À rédiger »** :
+  `Service\RequestEmailTemplateService::isToWrite()` (aucun corps rédigé et
+  aucun défaut). Elle donne l'état affiché, et `RequestEmailService::
+  isAcceptedBodyReady()` / `isRefusedBodyReady()` (le garde-fou de D10,
+  conservé) en sont la négation. Le service porte aussi le catalogue (clé,
+  slug, nom, description, défaut, variables), les corps par défaut (sortis
+  de `RegistrationService`) et la substitution commune aux deux expéditeurs.
+- Fil d'Ariane : Espace chefs d'U › Formulaire d'inscription › Gabarits
+  [› Modifier — {nom}] (ancêtres statiques dans `module.json`,
+  `breadcrumb_current` posé par le contrôleur). Quatre routes, toutes
+  `role_min: admin` ; la route GET existante change seulement de contrôleur.
+  Version du module 6.14.0 → 6.15.0.
+- La fiche d'une demande renvoie vers « Gabarits » (et non plus vers
+  `/config/settings`) quand l'e-mail d'acceptation ou de refus n'est pas
+  rédigé ; la phrase d'en-tête de Réglages dit que les textes se rédigent
+  dans Gabarits, le reste dans « Configuration > Paramètres ».
+- Aide : nouveau sujet `rediger-les-e-mails-de-demande` (trois questions,
+  `paths` Gabarits et ses pages d'édition) ; `gerer-les-demandes` ne couvre
+  plus Gabarits et y renvoie. `specifications.md` §17.3 et §17.6,
+  `ARCHITECTURE.md` §8.36.
+- Tests : `RequestEmailTemplateServiceTest` (catalogue, variables, états,
+  enregistrement assaini, corps vides refusés, retour au défaut, défaut
+  réenregistré, substitution sous toutes ses graphies, cohérence page /
+  garde-fou sur quatre corps stockés), `RegistrationTemplateControllerTest`
+  (quatre lignes, états, crayons, bandeau, rail, édition, enregistrement,
+  rétablissement, jeton expiré, 404, RBAC admin / chief sur les quatre
+  routes par le vrai `module.json`, fil d'Ariane complet),
+  `RegistrationServiceTest` (accusé personnalisé substitué),
+  `RegistrationRequestControllerTest` (lien de la fiche),
+  `RegistrationConfigControllerTest` (phrase de Réglages). Chaque nouvelle
+  assertion a été vue échouer en cassant ce qu'elle garde.
+
+**Décisions autonomes.**
+
+- **« Par défaut » suit toujours le texte livré** : rétablir le défaut
+  supprime la ligne de `editable_contents`, et enregistrer un texte
+  équivalent au défaut (mêmes mots, variables espacées ou non, lien encodé)
+  la supprime aussi. Un corps stocké qui ne rend rien (`<p>&nbsp;</p>`)
+  compte comme absent : « À rédiger » pour une décision, « Par défaut » pour
+  l'accusé et l'alerte, qui repartent alors avec leur défaut.
+- **Substitution par le moteur partagé `Core\Template\TokenEngine`** (celui
+  des contrats de location et du publipostage) au lieu du `strtr()` de
+  chaque expéditeur : l'éditeur enregistre `{{ prenom_enfant }}` espacé, et
+  l'assainisseur encode une variable placée dans un lien
+  (`%7B%7B…%7D%7D`) ; l'ancien remplacement n'aurait substitué ni l'un ni
+  l'autre, et le lien de suivi de la famille serait parti cassé. Les corps
+  par défaut s'écrivent désormais avec des variables espacées, comme ceux
+  qu'insère l'éditeur.
+- **Pas de nouvel argument de constructeur** pour `RequestEmailService` et
+  `RegistrationService` : ils construisent le service des gabarits à partir
+  de l'`EditableContentService` qu'ils tiennent déjà. IT-05 et IT-06
+  reprennent ces deux constructeurs en parallèle ; la modification de
+  `RequestEmailService` se limite à `hasContent()`, à la lecture du corps et
+  à la substitution.
+- **Pas d'aperçu** : le motif Rental n'en a pas. **Pas d'objet modifiable** :
+  les objets restent écrits dans le code des expéditeurs.
+- Le badge suit le vocabulaire de `status_badge` (gris, bleu-vert, rouge)
+  plutôt que les couleurs Tailwind de la maquette.
+- `/config/settings` s'appelle « Paramètres » dans le menu Configuration
+  (et est réservé au super-administrateur) : la phrase de Réglages le nomme
+  « Configuration > Paramètres », comme le menu.
+
+**Divergences avec le document.**
+
+- Vérification sur `main` (`d4efa13`, module 6.14.0) : `EditableContentService`,
+  les corps par défaut de `RegistrationService` et `isAcceptedBodyReady()` /
+  `isRefusedBodyReady()` sont bien ceux décrits. **Aucun des quatre corps
+  n'avait d'écran d'édition** — pas seulement l'acceptation et le refus
+  (IT-01) : l'accusé et l'alerte n'étaient modifiables nulle part non plus,
+  et partaient toujours avec leur défaut.
+- Le garde-fou lisait « rédigé » comme `trim(strip_tags())` non vide : un
+  paragraphe vidé dans l'éditeur (`<p>&nbsp;</p>`) comptait comme rédigé et
+  aurait envoyé un e-mail vide. La définition unique le compte comme vide.
+- La phrase de Réglages et le lien de la fiche, relevés par IT-01, sont
+  corrigés.
+
+**Reporté.** Rien.
+
+---
+
 ## IT-06 — Copie (CC) des e-mails à la famille
 
 **Livré.**
@@ -670,8 +776,9 @@ aucune recommandation pour une année passée.
   testé par Vitest) ; non soumis, il garde l'adresse enregistrée.
   Deux réglages neufs dans `module.json`, en un bloc :
   `registration_email_cc_enabled` (`1`) et `registration_email_cc_address`
-  (vide, type `email`), tous deux `editable: false` ; `version` 6.14.0 →
-  6.15.0.
+  (vide, type `email`), tous deux `editable: false` ; `version` 6.18.0
+  (IT-07 a pris 6.15.0 ; 6.16.0 et 6.17.0 vont à IT-04 et IT-05, ouvertes
+  en même temps).
 - **Appliquée aux trois e-mails à la famille** : l'accusé de réception
   (`RegistrationService`) et l'acceptation et le refus
   (`RequestEmailService`, renvois compris — un renvoi est le même
