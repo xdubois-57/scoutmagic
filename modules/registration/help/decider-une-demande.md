@@ -9,7 +9,7 @@ question: Pourquoi faut-il choisir un motif pour refuser une demande ?
 question: Que veut dire la recommandation Oui, Peut-être ou Non ?
 question: Un e-mail part-il quand j'accepte une demande ?
 paths: /config/inscriptions/demandes, /config/inscriptions/demandes/*
-related: gerer-les-demandes, capacites-et-listes-d-attente
+related: gerer-les-demandes, envoyer-l-e-mail-de-decision, capacites-et-listes-d-attente
 ---
 
 Dans l'onglet « Demandes », la colonne « Action rapide » propose
@@ -49,6 +49,7 @@ suivante pour le critère « Ancienne demande restée sans place ».
 ## Et l'e-mail ?
 
 Aucun e-mail ne part tout seul. Le message affiché après la décision le
-rappelle : envoyez l'e-mail d'acceptation ou de refus depuis la fiche
-de la demande. Tant que son gabarit n'est pas rédigé, il ne peut pas
-partir, et la famille voit toujours « en attente ».
+rappelle : envoyez l'e-mail d'acceptation ou de refus depuis le bloc
+« E-mail de décision » de la fiche. Tant que son gabarit n'est pas
+rédigé, il ne peut pas partir, et la famille voit toujours
+« en attente ».

@@ -8,7 +8,7 @@ question: Comment accepter ou refuser une demande d'inscription ?
 question: Comment répondre à une famille qui attend une place ?
 question: Combien de demandes reste-t-il à traiter ?
 paths: /config/inscriptions, /config/inscriptions/demandes, /config/inscriptions/demandes/*, /config/inscriptions/reglages
-related: capacites-et-listes-d-attente, rediger-les-e-mails-de-demande, inscrire-un-enfant, passage, annee-scoute
+related: capacites-et-listes-d-attente, envoyer-l-e-mail-de-decision, rediger-les-e-mails-de-demande, inscrire-un-enfant, passage, annee-scoute
 ---
 
 La page « Formulaire d'inscription » a quatre onglets : « Tableau de
@@ -37,18 +37,16 @@ attente » rattrape une décision, sauf une demande déjà encodée.
 
 **La famille ne voit une décision que lorsque son e-mail est parti** :
 accepter sans envoyer l'e-mail la laisse « en attente » à ses yeux.
-Les e-mails s'envoient depuis la fiche, et le bouton reste gris tant
-que leur texte n'est pas rédigé dans l'onglet « Gabarits ». Après un
-changement de décision, la famille reste « en attente » jusqu'à
-l'e-mail de la nouvelle décision, même si celui de l'ancienne était
-déjà parti.
+Les e-mails s'envoient depuis le bloc « E-mail de décision » de la
+fiche, qui a son propre sujet d'aide, une fois leur texte rédigé dans
+l'onglet « Gabarits ».
 
 ## La fiche d'une demande
 
 Tout ce que la famille a soumis, en lecture seule, plus la **section
 prévue** (jamais montrée à la famille), la **catégorie tarifaire**
-(avec une suggestion selon la taille du foyer) et des **notes
-internes**, jamais visibles ni journalisées.
+(avec une suggestion selon la taille du foyer) et une **note
+interne**, jamais visible par la famille ni journalisée.
 
 À chaque import Desk, une demande acceptée qui correspond à un seul
 membre importé (nom, prénom, date de naissance) est encodée toute

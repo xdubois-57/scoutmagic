@@ -37,7 +37,8 @@ alors enregistré.
 
 ## Ce qui est copié, et ce qui ne l'est pas
 
-Un renvoi depuis la fiche part avec la même copie que le premier envoi.
+Un renvoi depuis la fiche, « Renvoyer l'e-mail », part en copie lui
+aussi, à l'adresse réglée au moment du renvoi.
 
 Ne sont jamais copiés : l'alerte d'une nouvelle demande, qui arrive déjà
 à l'unité ; les e-mails de réinscription ; la confirmation d'une adresse

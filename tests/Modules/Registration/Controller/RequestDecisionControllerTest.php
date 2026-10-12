@@ -151,7 +151,7 @@ class RequestDecisionControllerTest extends TestCase
             [
                 'type' => 'success',
                 'message' => "Demande acceptée. Aucun e-mail n'est parti : le gabarit d'acceptation n'est pas encore "
-                    . "rédigé. La famille voit « en attente » jusqu'à son envoi.",
+                    . "rédigé (voir Gabarits). La famille voit « en attente » jusqu'à son envoi.",
             ],
             FlashMessage::get()
         );

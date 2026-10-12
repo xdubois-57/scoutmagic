@@ -713,7 +713,13 @@ class RegistrationConfigController extends AbstractController
         foreach ($this->requestRepository->findNonFinalForYear($yearId) as $registrationRequest) {
             try {
                 if ($action === 'refuse') {
-                    $this->statusService->refuse($registrationRequest, $reason);
+                    // The one door every decision takes (IT-08), as the
+                    // dialog and the fiche do.
+                    $this->decisionService->apply(
+                        $registrationRequest,
+                        RequestDecisionService::DECISION_REFUSE,
+                        $reason
+                    );
                 } else {
                     $this->statusService->withdraw($registrationRequest);
                 }
@@ -734,7 +740,16 @@ class RegistrationConfigController extends AbstractController
                 + ($action === 'refuse' ? ['refusal_reason' => $reason] : [])
         );
 
-        FlashMessage::set('success', $count . ' demande(s) traitée(s).');
+        // A refusal says whether an e-mail is leaving, like every decision
+        // (D8); a withdrawal sends none and has nothing to answer.
+        FlashMessage::set('success', $action === 'refuse'
+            ? $this->decisionService->confirmation(
+                RequestDecisionService::DECISION_REFUSE,
+                $reason,
+                $count,
+                RequestDecisionService::FROM_BULK
+            )
+            : $count . ' demande(s) traitée(s).');
         return $this->redirect(self::PATH_REQUESTS . '?year=' . $yearId);
     }
 

@@ -26,6 +26,7 @@ use Modules\Registration\Repository\AgeBracketRepository;
 use Modules\Registration\Repository\RegistrationRequestRepository;
 use Modules\Registration\Service\MigrationService;
 use Modules\Registration\Service\RegistrationException;
+use Modules\Registration\Service\RequestDecisionService;
 use Modules\Registration\Service\RequestEmailService;
 use Modules\Registration\Service\RequestStatusService;
 use Modules\Registration\Service\SlotMath;
@@ -38,12 +39,18 @@ use Twig\Environment;
  * submitted strictly read-only except "section prévue" (staff-decided,
  * scoped to the slot's own branch, never shown to a parent), "tarif"
  * (a suggestion, always overridable) and the internal notes (encrypted,
- * never journaled). Status transitions, email sending, and manual Desk-
- * tiers-number linking all live here too — see module.json's own
- * /config/inscriptions/demandes/{id}/* route family.
+ * never journaled). Status transitions and manual Desk-tiers-number
+ * linking live here too — see module.json's own
+ * /config/inscriptions/demandes/{id}/* route family. « Accepter » and
+ * « Refuser » take the decision through Service\RequestDecisionService,
+ * the one door the list's dialog and the bulk refusal use as well (issue
+ * #843, IT-08); the « E-mail de décision » block's three buttons post to
+ * Controller\RequestDecisionEmailController.
  */
 class RegistrationRequestController extends AbstractController
 {
+    private const MESSAGE_STATUS_UPDATED = 'Statut mis à jour.';
+
     public function __construct(
         protected Environment $twig,
         private RegistrationRequestRepository $requestRepository,
@@ -59,7 +66,8 @@ class RegistrationRequestController extends AbstractController
         private ScoutYearResolver $scoutYearResolver,
         private ScoutYearService $scoutYearService,
         private SlotService $slotService,
-        private MemberService $memberService
+        private MemberService $memberService,
+        private RequestDecisionService $decisionService
     ) {
     }
 
@@ -85,7 +93,11 @@ class RegistrationRequestController extends AbstractController
      */
     public function accept(Request $request, array $params): Response
     {
-        return $this->applyTransition($request, $params, fn($r) => $this->statusService->accept($r));
+        return $this->applyTransition(
+            $request,
+            $params,
+            fn($r) => $this->decide($r, RequestDecisionService::DECISION_ACCEPT, null)
+        );
     }
 
     /**
@@ -99,7 +111,11 @@ class RegistrationRequestController extends AbstractController
     {
         $reason = (string) $request->getBody('refusal_reason', '');
 
-        return $this->applyTransition($request, $params, fn($r) => $this->statusService->refuse($r, $reason));
+        return $this->applyTransition(
+            $request,
+            $params,
+            fn($r) => $this->decide($r, RequestDecisionService::DECISION_REFUSE, $reason)
+        );
     }
 
     /**
@@ -109,7 +125,11 @@ class RegistrationRequestController extends AbstractController
      */
     public function withdraw(Request $request, array $params): Response
     {
-        return $this->applyTransition($request, $params, fn($r) => $this->statusService->withdraw($r));
+        return $this->applyTransition($request, $params, function ($r): string {
+            $this->statusService->withdraw($r);
+
+            return self::MESSAGE_STATUS_UPDATED;
+        });
     }
 
     /**
@@ -119,7 +139,11 @@ class RegistrationRequestController extends AbstractController
      */
     public function revert(Request $request, array $params): Response
     {
-        return $this->applyTransition($request, $params, fn($r) => $this->statusService->revertToPending($r));
+        return $this->applyTransition($request, $params, function ($r): string {
+            $this->statusService->revertToPending($r);
+
+            return self::MESSAGE_STATUS_UPDATED;
+        });
     }
 
     /**
@@ -190,10 +214,11 @@ class RegistrationRequestController extends AbstractController
     }
 
     /**
-     * POST /config/inscriptions/demandes/{id}/notes — encrypted at rest,
-     * never journaled (module spec's own stricter rule for this one field:
-     * only the fact that a save happened is worth logging, never a diff of
-     * free-form staff text).
+     * POST /config/inscriptions/demandes/{id}/notes — « Note interne », a
+     * form and a route of its own (issue #843, IT-08): saving it never
+     * sends an e-mail and never touches the status or the decision. Encrypted
+     * at rest; only the fact that a save happened is journaled, never the
+     * text (module spec's own stricter rule for this one field).
      *
      * @param array<string, string> $params
      */
@@ -210,9 +235,8 @@ class RegistrationRequestController extends AbstractController
             return $guard;
         }
 
-        $notes = trim((string) $request->getBody('internal_notes', ''));
-        $this->requestRepository->updateInternalNotes($registrationRequest->id, $notes !== '' ? $notes : null);
-        FlashMessage::set('success', 'Notes internes enregistrées.');
+        $this->decisionService->saveNote($registrationRequest, (string) $request->getBody('internal_notes', ''));
+        FlashMessage::set('success', 'Note enregistrée.');
 
         return $this->redirectToFiche($registrationRequest->id);
     }
@@ -258,57 +282,11 @@ class RegistrationRequestController extends AbstractController
     }
 
     /**
-     * POST /config/inscriptions/demandes/{id}/send-accepted-email
+     * One of the fiche's status buttons: $transition changes the request
+     * and answers the confirmation to show.
      *
      * @param array<string, string> $params
-     */
-    public function sendAcceptedEmail(Request $request, array $params): Response
-    {
-        return $this->sendEmail($request, $params, 'sendAccepted');
-    }
-
-    /**
-     * POST /config/inscriptions/demandes/{id}/send-refused-email
-     *
-     * @param array<string, string> $params
-     */
-    public function sendRefusedEmail(Request $request, array $params): Response
-    {
-        return $this->sendEmail($request, $params, 'sendRefused');
-    }
-
-    /**
-     * @param array<string, string> $params
-     */
-    private function sendEmail(Request $request, array $params, string $method): Response
-    {
-        $registrationRequest = $this->findOrNull($params);
-        if ($registrationRequest === null) {
-            return new Response('Not Found', 404);
-        }
-        if (($guard = $this->guardCsrf(
-            $request,
-            '/config/inscriptions/demandes/' . $registrationRequest->id
-        )) !== null) {
-            return $guard;
-        }
-
-        $scoutYear = $this->scoutYearService->findById($registrationRequest->scoutYearId);
-        $yearLabel = $scoutYear['label'] ?? '';
-
-        try {
-            $this->emailService->$method($registrationRequest, $yearLabel);
-            FlashMessage::set('success', 'Email envoyé.');
-        } catch (RegistrationException $e) {
-            FlashMessage::set('error', $e->getMessage());
-        }
-
-        return $this->redirectToFiche($registrationRequest->id);
-    }
-
-    /**
-     * @param array<string, string> $params
-     * @param callable(\Modules\Registration\Repository\RegistrationRequest): void $transition
+     * @param callable(\Modules\Registration\Repository\RegistrationRequest): string $transition
      */
     private function applyTransition(Request $request, array $params, callable $transition): Response
     {
@@ -324,13 +302,34 @@ class RegistrationRequestController extends AbstractController
         }
 
         try {
-            $transition($registrationRequest);
-            FlashMessage::set('success', 'Statut mis à jour.');
+            FlashMessage::set('success', $transition($registrationRequest));
         } catch (RegistrationException $e) {
             FlashMessage::set('error', $e->getMessage());
         }
 
         return $this->redirectToFiche($registrationRequest->id);
+    }
+
+    /**
+     * A decision taken from the fiche, through the one door every decision
+     * takes (RequestDecisionService::apply()), and the confirmation that
+     * says whether an e-mail is leaving.
+     *
+     * @throws RegistrationException when the decision cannot be taken
+     */
+    private function decide(
+        \Modules\Registration\Repository\RegistrationRequest $registrationRequest,
+        string $decision,
+        ?string $reason
+    ): string {
+        $this->decisionService->apply($registrationRequest, $decision, $reason);
+
+        return $this->decisionService->confirmation(
+            $decision,
+            $reason,
+            1,
+            RequestDecisionService::FROM_REQUEST_PAGE
+        );
     }
 
     /**
@@ -405,8 +404,9 @@ class RegistrationRequestController extends AbstractController
             'fee_estimate' => $feeEstimate,
             'siblings' => $this->siblingDetails($registrationRequest, $scoutYearLabel),
             'visible_status' => $this->statusService->visibleStatus($registrationRequest),
-            'accepted_email_ready' => $this->emailService->isAcceptedBodyReady(),
-            'refused_email_ready' => $this->emailService->isRefusedBodyReady(),
+            // « E-mail de décision » (issue #843, IT-08): null while the
+            // request holds no decision, and the block is then absent.
+            'email_panel' => $this->emailService->panel($registrationRequest),
             'linked_member_year_id' => $linkedMemberYearId,
             'csrf_token' => CsrfGuard::generateToken(),
         ];

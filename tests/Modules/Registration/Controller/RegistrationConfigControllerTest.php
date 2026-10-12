@@ -1731,6 +1731,18 @@ class RegistrationConfigControllerTest extends TestCase
             ['scout_year_id' => $this->targetYearId, 'count' => 2, 'refusal_reason' => 'no_room'],
             json_decode($context, true)
         );
+        // Like every decision (issue #843, IT-08), the bulk refusal answers
+        // « un e-mail va-t-il partir ? » — here: none, its template is
+        // not written yet.
+        $this->assertSame(
+            [
+                'type' => 'success',
+                'message' => "2 demandes refusées (Pas de place). Aucun e-mail n'est parti : le gabarit de refus "
+                    . "n'est pas encore rédigé (voir Gabarits). Les familles voient « en attente » jusqu'à l'envoi "
+                    . 'de leur e-mail.',
+            ],
+            FlashMessage::get()
+        );
     }
 
     /**
