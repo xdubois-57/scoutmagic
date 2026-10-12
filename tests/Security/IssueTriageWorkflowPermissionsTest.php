@@ -2381,23 +2381,6 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
     }
 
     /**
-     * The lines of the first block scalar whose key matches $keyPattern,
-     * or null when the file has none.
-     *
-     * Shared by promptLines() and by the assertions about the backlog
-     * scan's `CANDIDATE_FILTER`, because both are the same problem: a
-     * string this repository deliberately writes ONCE under a job-level
-     * `env:` so that the two agent attempts, or the three counting steps,
-     * cannot be given subtly different versions of it. GitHub Actions
-     * supports no YAML anchors, so that entry is the only shape in which
-     * they cannot drift.
-     *
-     * Returns null rather than failing: what a missing block means
-     * differs between callers, and each says so in its own words.
-     *
-     * @return array<int, string>|null
-     */
-    /**
      * The model can propose effort but must never hold the credential that
      * updates Projects. An issue body cannot choose a project or target issue.
      * This is asserted on both event-driven and nightly triage.
@@ -2432,13 +2415,30 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
             'project-effort.sh',
             $this->firstRunScriptContaining($workflow, 'contents/scripts/'),
         );
-        self::assertMatchesRegularExpression(
-            '/\\\\\"effort\\\\\"/',
+        self::assertStringContainsString(
+            '\"effort\"',
             $file,
             $workflow . ' no longer asks the model for a constrained effort estimate.',
         );
     }
 
+    /**
+     * The lines of the first block scalar whose key matches $keyPattern,
+     * or null when the file has none.
+     *
+     * Shared by promptLines() and by the assertions about the backlog
+     * scan's `CANDIDATE_FILTER`, because both are the same problem: a
+     * string this repository deliberately writes ONCE under a job-level
+     * `env:` so that the two agent attempts, or the three counting steps,
+     * cannot be given subtly different versions of it. GitHub Actions
+     * supports no YAML anchors, so that entry is the only shape in which
+     * they cannot drift.
+     *
+     * Returns null rather than failing: what a missing block means
+     * differs between callers, and each says so in its own words.
+     *
+     * @return array<int, string>|null
+     */
     private function blockScalar(string $workflow, string $keyPattern): ?array
     {
         $block = [];
