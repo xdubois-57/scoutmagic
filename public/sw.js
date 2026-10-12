@@ -340,16 +340,26 @@ function copyCache(from, to) {
         const target = both[1];
         return source.keys().then(function (requests) {
             return Promise.all(requests.map(function (request) {
-                return target.match(request).then(function (held) {
-                    if (held) {
-                        return undefined;
-                    }
-                    return source.match(request).then(function (response) {
-                        return response ? target.put(request, response) : undefined;
-                    });
-                });
+                return copyEntryIfMissing(source, target, request);
             }));
         });
+    });
+}
+
+/**
+ * $request's entry, from $source into $target — unless $target already
+ * holds one, which is fresher (adoptPreviousVersion()).
+ *
+ * @param {Cache} source
+ * @param {Cache} target
+ * @param {Request} request
+ * @returns {Promise<void>}
+ */
+function copyEntryIfMissing(source, target, request) {
+    return target.match(request).then(function (held) {
+        return held ? undefined : source.match(request);
+    }).then(function (response) {
+        return response ? target.put(request, response) : undefined;
     });
 }
 
