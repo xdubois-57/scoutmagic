@@ -1,0 +1,129 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{# The « E-mail de décision » block of a request's fiche (issue #843, D8,
+   IT-08), from Service\DecisionEmailPanel: where the e-mail of the decision
+   the request holds now stands, the button that state allows, and every
+   attempt, newest first, never rewritten. Each button is its own POST to
+   Controller\RequestDecisionEmailController; each asks first, since an
+   e-mail that has left cannot be recalled (design.md §7.5).
+
+   Expects `panel` (DecisionEmailPanel) and `r` (the request). #}
+{% set _of_decision = panel.decision == 'refused' ? 'de refus' : "d'acceptation" %}
+{% set _child = r.childFirstName ~ ' ' ~ r.childLastName %}
+<div class="card mb-4">
+    <div class="card-body">
+        <h2 class="h5 mb-3">E-mail de décision</h2>
+        <div class="small text-body-secondary mb-1">E-mail {{ _of_decision }}</div>
+        <div class="mb-2">
+            {% if panel.state == 'sent' %}
+                {% include 'partials/status_badge.html.twig' with { status: 'success', label: 'Envoyé le ' ~ panel.at|datetime_fr } only %}
+            {% elseif panel.state == 'template_missing' %}
+                {% include 'partials/status_badge.html.twig' with { status: 'blocked', label: 'Gabarit à rédiger' } only %}
+            {% elseif panel.state == 'scheduled' %}
+                {% include 'partials/status_badge.html.twig' with { status: 'scheduled', label: 'Prévu le ' ~ panel.at|datetime_fr } only %}
+            {% elseif panel.state == 'sending' %}
+                {% include 'partials/status_badge.html.twig' with { status: 'in_progress', label: 'Envoi en cours' } only %}
+            {% elseif panel.state == 'failed' and panel.interrupted %}
+                {% include 'partials/status_badge.html.twig' with { status: 'failed', label: 'Envoi interrompu' } only %}
+            {% elseif panel.state == 'failed' %}
+                {% include 'partials/status_badge.html.twig' with { status: 'failed', label: 'Échec le ' ~ panel.at|datetime_fr } only %}
+            {% elseif panel.state == 'cancelled' %}
+                {% include 'partials/status_badge.html.twig' with { status: 'waiting', label: 'Annulé suite à un changement de décision' } only %}
+            {% else %}
+                {% include 'partials/status_badge.html.twig' with { status: 'neutral', label: 'Non planifié' } only %}
+            {% endif %}
+        </div>
+
+        <p class="small text-body-secondary mb-3">
+            {% if panel.state == 'sent' %}
+                La famille voit la décision.
+                {% if panel.lastFailedResend %}
+                    Le dernier renvoi a échoué le {{ panel.lastFailedResend.failedAt|datetime_fr }}{% if panel.lastFailedResend.failureMessage %} : {{ panel.lastFailedResend.failureMessage }}{% else %}.{% endif %}
+                {% endif %}
+                {% if not panel.templateReady %}
+                    Pour le renvoyer, son gabarit doit d'abord être rédigé — voir <a href="/config/inscriptions/gabarits">Gabarits</a>.
+                {% endif %}
+            {% elseif panel.state == 'template_missing' %}
+                Le corps de l'e-mail n'a pas encore été rédigé : rien ne peut partir. Rédigez-le dans <a href="/config/inscriptions/gabarits">Gabarits</a>.
+            {% elseif panel.state == 'scheduled' %}
+                La famille voit encore « en attente ». Changer la décision d'ici là annule cet envoi.
+            {% elseif panel.state == 'sending' %}
+                Un envoi de cet e-mail est en cours : rechargez la page dans quelques instants pour voir son résultat.
+            {% elseif panel.state == 'failed' and panel.interrupted %}
+                L'envoi lancé le {{ panel.at|datetime_fr }} a été interrompu avant d'aboutir : il n'est pas certain que la famille ait reçu cet e-mail. Elle voit toujours « en attente ».
+            {% elseif panel.state == 'failed' %}
+                L'e-mail n'a pas pu être envoyé. La famille voit toujours « en attente ».
+            {% elseif panel.state == 'cancelled' %}
+                L'e-mail prévu pour la décision précédente ne partira pas. Celui de la nouvelle décision s'envoie à la main ; d'ici là, la famille voit « en attente ».
+            {% else %}
+                L'envoi automatique est désactivé : l'e-mail s'envoie à la main.
+            {% endif %}
+        </p>
+
+        {% if panel.actions is not empty %}
+            <div class="d-flex flex-wrap gap-2 mb-3">
+                {% if 'send_now' in panel.actions %}
+                    <form method="post" action="/config/inscriptions/demandes/{{ r.id }}/e-mail/envoyer"
+                          data-confirm="Envoyer l'e-mail {{ _of_decision }} à la famille de {{ _child }} ? Il part immédiatement et ne peut pas être rappelé.">
+                        {{ csrf_field()|raw }}
+                        <button type="submit" class="btn btn-sm btn-primary">Envoyer maintenant</button>
+                    </form>
+                {% endif %}
+                {% if 'retry' in panel.actions %}
+                    <form method="post" action="/config/inscriptions/demandes/{{ r.id }}/e-mail/reessayer"
+                          data-confirm="Réessayer d'envoyer l'e-mail {{ _of_decision }} à la famille de {{ _child }} ? Il part immédiatement et ne peut pas être rappelé.">
+                        {{ csrf_field()|raw }}
+                        <button type="submit" class="btn btn-sm btn-primary">Réessayer</button>
+                    </form>
+                {% endif %}
+                {% if 'resend' in panel.actions %}
+                    <form method="post" action="/config/inscriptions/demandes/{{ r.id }}/e-mail/renvoyer"
+                          data-confirm="Renvoyer l'e-mail {{ _of_decision }} à la famille de {{ _child }} ? Il repart immédiatement, en copie à l'unité si la copie est activée, et ne peut pas être rappelé.">
+                        {{ csrf_field()|raw }}
+                        <button type="submit" class="btn btn-sm btn-outline-secondary">Renvoyer l'e-mail</button>
+                    </form>
+                {% endif %}
+            </div>
+        {% endif %}
+
+        {% if panel.history is not empty %}
+            <h3 class="small fw-semibold text-uppercase text-body-secondary mb-1">Historique</h3>
+            <ul class="list-group small">
+                {% for event in panel.history %}
+                    {% set _email = event.email %}
+                    {% set _details = [] %}
+                    {% if _email.decision != panel.decision %}
+                        {% set _details = _details|merge([_email.decision == 'refused' ? 'e-mail de refus' : "e-mail d'acceptation"]) %}
+                    {% elseif not _email.isCurrent() %}
+                        {% set _details = _details|merge(['décision précédente']) %}
+                    {% endif %}
+                    {% if _email.isResend and event.kind != 'planned' %}
+                        {% set _details = _details|merge(['renvoi']) %}
+                    {% endif %}
+                    {% if event.kind == 'planned' %}
+                        {% set _details = _details|merge(['pour le ' ~ _email.dueAt|datetime_fr]) %}
+                    {% elseif event.kind == 'failed' and _email.failureMessage %}
+                        {% set _details = _details|merge([_email.failureMessage]) %}
+                    {% elseif event.kind == 'cancelled' %}
+                        {% set _details = _details|merge(["décision changée avant l'envoi"]) %}
+                    {% endif %}
+                    <li class="list-group-item d-flex flex-wrap column-gap-3">
+                        <span class="text-body-secondary">{{ event.at|datetime_fr }}</span>
+                        <span class="fw-semibold">
+                            {%- if event.kind == 'planned' -%}Planifié
+                            {%- elseif event.kind == 'sent' -%}Envoyé
+                            {%- elseif event.kind == 'failed' -%}Échec
+                            {%- elseif event.kind == 'cancelled' -%}Annulé
+                            {%- elseif event.kind == 'interrupted' -%}Interrompu
+                            {%- else -%}Envoi en cours
+                            {%- endif -%}
+                        </span>
+                        {% if _details is not empty %}<span class="text-body-secondary">{{ _details|join(' · ') }}</span>{% endif %}
+                    </li>
+                {% endfor %}
+            </ul>
+        {% endif %}
+    </div>
+</div>

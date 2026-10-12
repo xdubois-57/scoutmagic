@@ -27,13 +27,17 @@ use Core\View\EditableContentRepository;
 use Core\View\EditableContentService;
 use Core\View\TwigFactory;
 use Modules\Registration\Controller\RegistrationRequestController;
+use Modules\Registration\Controller\RequestDecisionEmailController;
+use Modules\Registration\Repository\DecisionEmail;
 use Modules\Registration\Repository\AgeBracketRepository;
 use Modules\Registration\Repository\DecisionEmailRepository;
 use Modules\Registration\Repository\RegistrationRequestRepository;
 use Modules\Registration\Repository\RegistrationSecondaryEmailRepository;
 use Modules\Registration\Service\DecisionEmailService;
+use Modules\Registration\Service\FamilyEmailCopyService;
 use Modules\Registration\Service\HouseholdRegistrationCountService;
 use Modules\Registration\Service\MigrationService;
+use Modules\Registration\Service\RequestDecisionService;
 use Modules\Registration\Service\RequestEmailService;
 use Modules\Registration\Service\RequestStatusService;
 use PHPUnit\Framework\TestCase;
@@ -47,10 +51,16 @@ use Core\Member\Repository\SectionRepository;
  * d'une demande" (module spec Deliverable 2): status transitions and their
  * rejection when inconsistent, "section prévue" restricted to the slot's
  * own branch and never shown to parents, fee suggestion including accepted
- * requests, internal notes saved without ever being journaled, email
- * send guarded by an empty body, and manual linking (invalid/duplicate
- * Desk numbers refused, a valid one migrating through Service\
- * MigrationService — the same path Service\ReconciliationService uses).
+ * requests, internal notes saved without ever being journaled, and
+ * manual linking (invalid/duplicate Desk numbers refused, a valid one
+ * migrating through Service\MigrationService — the same path Service\
+ * ReconciliationService uses).
+ *
+ * And the fiche's « E-mail de décision » block (issue #843, IT-08): every
+ * state it renders, its three buttons through Controller\
+ * RequestDecisionEmailController (« Envoyer maintenant », « Réessayer »,
+ * « Renvoyer l'e-mail », the copy to the unit included), the independent
+ * « Note interne », and the confirmation after a decision taken here.
  *
  * @group database
  */
@@ -72,6 +82,19 @@ class RegistrationRequestControllerTest extends TestCase
     private SettingService $settingService;
     private RequestStatusService $statusService;
     private RequestEmailService $emailService;
+    private RequestDecisionEmailController $emailController;
+    private DecisionEmailService $decisionEmails;
+
+    /**
+     * Every e-mail the doubled MailService was handed: its recipient and
+     * its copy.
+     *
+     * @var list<array{to: string, cc: mixed}>
+     */
+    private array $sentMails = [];
+
+    /** How many of the next sends the doubled transport refuses. */
+    private int $mailFailures = 0;
 
     protected function setUp(): void
     {
@@ -132,9 +155,35 @@ class RegistrationRequestControllerTest extends TestCase
         $statusService = new RequestStatusService($this->requestRepository, $journalService);
         $this->statusService = $statusService;
 
+        // The doubled transport records what it is handed — the copy read
+        // by the parameter's name — and refuses the first $mailFailures.
+        $ccIndex = null;
+        foreach ((new \ReflectionMethod(MailService::class, 'send'))->getParameters() as $parameter) {
+            if ($parameter->getName() === 'cc') {
+                $ccIndex = $parameter->getPosition();
+            }
+        }
+        $this->assertNotNull($ccIndex, 'MailService::send() takes a cc.');
         $mailService = $this->createStub(MailService::class);
-        $mailService->method('send');
+        $mailService->method('send')->willReturnCallback(function (...$arguments) use ($ccIndex): void {
+            if ($this->mailFailures > 0) {
+                $this->mailFailures--;
+                throw new \Core\Mail\MailException('SMTP Error: Could not connect to smtp.example.com.');
+            }
+            $this->sentMails[] = ['to' => (string) $arguments[0], 'cc' => $arguments[$ccIndex] ?? null];
+        });
         $this->editableContentService = new EditableContentService(new EditableContentRepository($this->pdo));
+        $module = 'registration';
+        $settingService->register(FamilyEmailCopyService::SETTING_ENABLED, '1', 'boolean', 'Copie', 'desc', $module);
+        $settingService->register(FamilyEmailCopyService::SETTING_ADDRESS, '', 'email', 'Adresse', 'desc', $module);
+        $settingService->register(
+            FamilyEmailCopyService::SETTING_UNIT_ADDRESS,
+            'unite@example.com',
+            'email',
+            'Contact',
+            'desc'
+        );
+        $this->decisionEmails = new DecisionEmailService(new DecisionEmailRepository($this->pdo), $journalService);
         $emailService = new RequestEmailService(
             $this->requestRepository,
             $mailService,
@@ -142,7 +191,8 @@ class RegistrationRequestControllerTest extends TestCase
             $journalService,
             'https://example.com',
             'Unité Test',
-            new DecisionEmailService(new DecisionEmailRepository($this->pdo), $journalService)
+            $this->decisionEmails,
+            new FamilyEmailCopyService($settingService, $journalService)
         );
         $this->emailService = $emailService;
 
@@ -169,10 +219,25 @@ class RegistrationRequestControllerTest extends TestCase
         $twig->addGlobal('current_path', '/config/inscriptions/demandes/1');
         $twig->addGlobal('csp_nonce', 'test-nonce');
 
+        $decisionService = RegistrationTestHelper::decisionService(
+            $this->pdo,
+            $encryption,
+            $settingService,
+            $statusService,
+            $emailService,
+            $this->requestRepository
+        );
         $this->controller = new RegistrationRequestController(
             $twig, $this->requestRepository, $ageBracketRepository, $sectionService, $feeCategoryRepository,
             $feeEstimationService, $statusService, $emailService, $migrationService, $memberRepository,
-            $memberYearRepository, $scoutYearResolver, $scoutYearService, $slotService, $memberService
+            $memberYearRepository, $scoutYearResolver, $scoutYearService, $slotService, $memberService,
+            $decisionService
+        );
+        $this->emailController = new RequestDecisionEmailController(
+            $twig,
+            $this->requestRepository,
+            $emailService,
+            $scoutYearService
         );
 
         if (session_status() === PHP_SESSION_NONE) {
@@ -242,6 +307,45 @@ class RegistrationRequestControllerTest extends TestCase
 
         $this->assertStringContainsString('Marie Dupont', $body);
         $this->assertStringContainsString('Louveteaux', $body);
+    }
+
+    /**
+     * The fiche shows the siblings the family DECLARED, a sibling who has
+     * left the unit since included — only the recommendation's « Fratrie
+     * déjà dans l'unité » is restricted to the ones still in it (issue
+     * #843, after IT-03): one has no active enrolment this year any more,
+     * the other was never imported at all.
+     */
+    public function testShowStillListsADeclaredSiblingWhoHasLeftTheUnit(): void
+    {
+        $left = RegistrationTestHelper::insertMember($this->pdo, 'SIBLEFT');
+        $this->pdo->prepare(
+            'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted,
+                birth_date_encrypted, is_active) VALUES (?, ?, ?, ?, ?, 0)'
+        )->execute([
+            $left, $this->publicYearId,
+            $this->encryption->encrypt('PAUL', 'member_years.first_name'),
+            $this->encryption->encrypt('DUPONT', 'member_years.last_name'),
+            $this->encryption->encrypt('2015-03-01', 'member_years.birth_date'),
+        ]);
+        $neverImported = RegistrationTestHelper::insertMember($this->pdo, 'SIBNONE');
+
+        $created = $this->requestRepository->create($this->targetYearId, [
+            'parent_name' => 'Marie Dupont', 'child_last_name' => 'Dupont', 'child_first_name' => 'Léa',
+            'gender' => 'F', 'birth_date' => '2020-06-01', 'street' => 'Rue Test', 'number' => '1',
+            'postal_code' => '1000', 'city' => 'V', 'email' => 'marie@example.com',
+            'phone1' => '000', 'phone2' => null, 'remarks' => null,
+        ], null, [$left, $neverImported]);
+
+        $id = (string) $created['id'];
+        $body = (string) $this->controller->show(
+            new Request('GET', "/config/inscriptions/demandes/{$id}", [], [], [], []),
+            ['id' => $id]
+        )->getBody();
+
+        $this->assertStringContainsString('Frère(s)/sœur(s) déjà membre(s) déclaré(s)', $body);
+        $this->assertStringContainsString('Paul Dupont', $body);
+        $this->assertStringContainsString("Membre #{$neverImported}", $body);
     }
 
     public function testShowReturns404ForUnknownId(): void
@@ -493,92 +597,610 @@ class RegistrationRequestControllerTest extends TestCase
         }
     }
 
-    public function testSendAcceptedEmailDisabledUntilBodyWritten(): void
+    private function show(int $id): string
     {
-        $id = $this->createRequest();
-        $this->requestRepository->updateStatus($id, 'accepted', null);
-
-        $response = $this->controller->sendAcceptedEmail(new Request(
-            'POST', "/config/inscriptions/demandes/{$id}/send-accepted-email", [], $this->csrfBody(), [], []
-        ), ['id' => (string) $id]);
-
-        $this->assertSame(302, $response->getStatusCode());
-        $this->assertNull($this->requestRepository->findById($id)->acceptedEmailSentAt());
-    }
-
-    public function testSendAcceptedEmailSucceedsOnceBodyWritten(): void
-    {
-        $id = $this->createRequest();
-        $this->requestRepository->updateStatus($id, 'accepted', null);
-        $this->editableContentService->set('registration_email_accepted_body', '<p>Bienvenue {{prenom_enfant}} !</p>', 'rich_text', 1);
-
-        $this->controller->sendAcceptedEmail(new Request(
-            'POST', "/config/inscriptions/demandes/{$id}/send-accepted-email", [], $this->csrfBody(), [], []
-        ), ['id' => (string) $id]);
-
-        $firstSentAt = $this->requestRepository->findById($id)->acceptedEmailSentAt();
-        $this->assertNotNull($firstSentAt);
-
-        // Resend works too — a second e-mail of its own, which never moves
-        // the date of the first (R3).
-        $this->controller->sendAcceptedEmail(new Request(
-            'POST', "/config/inscriptions/demandes/{$id}/send-accepted-email", [], $this->csrfBody(), [], []
-        ), ['id' => (string) $id]);
-        $this->assertEquals($firstSentAt, $this->requestRepository->findById($id)->acceptedEmailSentAt());
-        $history = (new DecisionEmailRepository($this->pdo))->findForRequest($id);
-        $this->assertSame(['sent', 'sent'], array_map(static fn($email) => $email->state, $history));
-        $this->assertSame([false, true], array_map(static fn($email) => $email->isResend, $history));
-    }
-
-    /**
-     * The fiche shows both buttons whatever the decision. The acceptance
-     * e-mail of a refused request is refused — it used to leave, telling
-     * a family their child was accepted after the unit had said no — and
-     * the chief is told why.
-     */
-    public function testTheAcceptanceEmailOfARefusedRequestIsRefused(): void
-    {
-        $id = $this->createRequest();
-        $this->requestRepository->updateStatus($id, 'refused', new \DateTimeImmutable());
-        $this->editableContentService->set('registration_email_accepted_body', '<p>Bienvenue !</p>', 'rich_text', 1);
-
-        $this->controller->sendAcceptedEmail(new Request(
-            'POST', "/config/inscriptions/demandes/{$id}/send-accepted-email", [], $this->csrfBody(), [], []
-        ), ['id' => (string) $id]);
-
-        $this->assertSame(
-            [
-                'type' => 'error',
-                'message' => "Cette demande n'est pas acceptée : l'e-mail d'acceptation ne peut pas partir.",
-            ],
-            \Core\Http\FlashMessage::get()
-        );
-        $this->assertSame([], (new DecisionEmailRepository($this->pdo))->findForRequest($id));
-    }
-
-    /**
-     * An e-mail still to write sends the chief to where it is written —
-     * « Gabarits » (issue #843, IT-07) — and nowhere else: the site
-     * parameters page cannot write it.
-     */
-    public function testAnUnwrittenDecisionEmailPointsToGabarits(): void
-    {
-        $id = $this->createRequest();
-        $show = fn(): string => (string) $this->controller->show(
+        return (string) $this->controller->show(
             new Request('GET', "/config/inscriptions/demandes/{$id}", [], [], [], []),
             ['id' => (string) $id]
         )->getBody();
+    }
 
-        $body = $show();
-        $this->assertSame(
-            2,
-            substr_count($body, "n'a pas encore été rédigé — voir <a href=\"/config/inscriptions/gabarits\">Gabarits</a>.")
+    /**
+     * One of the block's three buttons, as the fiche posts it.
+     */
+    private function emailAction(int $id, string $action, array $body = []): \Core\Http\Response
+    {
+        $paths = ['sendNow' => 'envoyer', 'retry' => 'reessayer', 'resend' => 'renvoyer'];
+
+        return $this->emailController->$action(
+            new Request(
+                'POST',
+                "/config/inscriptions/demandes/{$id}/e-mail/{$paths[$action]}",
+                [],
+                $body === [] ? $this->csrfBody() : $body,
+                [],
+                []
+            ),
+            ['id' => (string) $id]
         );
-        $this->assertStringNotContainsString('href="/config/settings"', $body);
+    }
 
-        $this->editableContentService->set('registration_email_accepted_body', '<p>Bienvenue</p>', 'rich_text', 1);
-        $this->editableContentService->set('registration_email_refused_body', '<p>Désolé</p>', 'rich_text', 1);
-        $this->assertStringNotContainsString("n'a pas encore été rédigé", $show());
+    /**
+     * The « E-mail de décision » block alone, out of a rendered fiche.
+     */
+    private function emailBlock(int $id): string
+    {
+        $body = $this->show($id);
+        $found = preg_match(
+            '#<h2 class="h5 mb-3">E-mail de décision</h2>(.*?)</div>\s*</div>\s*(?:\{|<div|$)#s',
+            $body,
+            $m
+        );
+        $this->assertSame(1, $found, 'the fiche renders the « E-mail de décision » block');
+
+        return $m[1];
+    }
+
+    private function writeBodies(): void
+    {
+        $content = $this->editableContentService;
+        $content->set('registration_email_accepted_body', '<p>Bienvenue {{prenom_enfant}} !</p>', 'rich_text', 1);
+        $content->set('registration_email_refused_body', '<p>Désolés.</p>', 'rich_text', 1);
+    }
+
+    private function acceptedRequest(): int
+    {
+        $id = $this->createRequest();
+        $this->requestRepository->updateStatus($id, 'accepted', null);
+
+        return $id;
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function states(int $id): array
+    {
+        return array_map(
+            static fn(DecisionEmail $email): string => $email->state,
+            (new DecisionEmailRepository($this->pdo))->findForRequest($id)
+        );
+    }
+
+    /**
+     * @return array<int, string> every journal entry's type, in order
+     */
+    private function eventTypes(): array
+    {
+        return array_map(
+            'strval',
+            $this->pdo->query('SELECT event_type FROM event_log ORDER BY id')->fetchAll(\PDO::FETCH_COLUMN)
+        );
+    }
+
+    /**
+     * A pending request holds no decision, so there is no e-mail to speak
+     * of: no block at all, like the mock-up's.
+     */
+    public function testAPendingRequestHasNoDecisionEmailBlock(): void
+    {
+        $id = $this->createRequest();
+        $this->writeBodies();
+
+        $body = $this->show($id);
+
+        $this->assertStringNotContainsString('E-mail de décision', $body);
+        $this->assertStringNotContainsString('/e-mail/', $body);
+    }
+
+    /**
+     * « Gabarit à rédiger »: nothing can leave, no button — the chief is
+     * sent to « Gabarits », where the e-mail is written, and nowhere else.
+     */
+    public function testAnUnwrittenTemplateShowsGabaritARedigerAndNoButton(): void
+    {
+        $id = $this->acceptedRequest();
+
+        $block = $this->emailBlock($id);
+
+        $this->assertStringContainsString('E-mail d&#039;acceptation', $block);
+        $this->assertStringContainsString('<span class="badge text-bg-danger">Gabarit à rédiger</span>', $block);
+        $this->assertStringContainsString(
+            "Le corps de l'e-mail n'a pas encore été rédigé : rien ne peut partir. Rédigez-le dans "
+                . '<a href="/config/inscriptions/gabarits">Gabarits</a>.',
+            $block
+        );
+        $this->assertStringNotContainsString('<form', $block);
+        $this->assertStringNotContainsString('href="/config/settings"', $this->show($id));
+    }
+
+    /**
+     * « Non planifié »: the decision is taken, nothing is planned, and
+     * « Envoyer maintenant » asks before it sends (design.md §7.5).
+     */
+    public function testNoEmailYetShowsNonPlanifieAndEnvoyerMaintenant(): void
+    {
+        $id = $this->acceptedRequest();
+        $this->writeBodies();
+
+        $block = $this->emailBlock($id);
+
+        $this->assertStringContainsString('<span class="badge text-bg-secondary">Non planifié</span>', $block);
+        $this->assertStringContainsString("L'envoi automatique est désactivé : l'e-mail s'envoie à la main.", $block);
+        $this->assertMatchesRegularExpression(
+            '#<form method="post" action="/config/inscriptions/demandes/' . $id . '/e-mail/envoyer"\s+'
+                . 'data-confirm="Envoyer l\'e-mail d&\#039;acceptation à la famille de Léa Dupont \? '
+                . 'Il part immédiatement et ne peut pas être rappelé\."#',
+            $block
+        );
+        $this->assertStringContainsString('Envoyer maintenant</button>', $block);
+        $this->assertStringNotContainsString('Réessayer', $block);
+        $this->assertStringNotContainsString('Renvoyer', $block);
+        $this->assertStringNotContainsString('Historique', $block);
+    }
+
+    /**
+     * « Prévu le … » — what the automatic sending (IT-09) will plan: the
+     * date it is due, « Envoyer maintenant », and the planning in the
+     * history.
+     */
+    public function testAPlannedEmailShowsPrevuLeAndItsPlanning(): void
+    {
+        $id = $this->acceptedRequest();
+        $this->writeBodies();
+        $this->decisionEmails->schedule(
+            $this->requestRepository->findById($id),
+            new \DateTimeImmutable('2027-03-04 09:30:00')
+        );
+
+        $block = $this->emailBlock($id);
+
+        $this->assertStringContainsString(
+            '<span class="badge text-bg-warning">Prévu le 04/03/2027 à 09:30</span>',
+            $block
+        );
+        $this->assertStringContainsString("Changer la décision d'ici là annule cet envoi.", $block);
+        $this->assertStringContainsString('/e-mail/envoyer"', $block);
+        $this->assertStringContainsString('Planifié</span>', $block);
+        $this->assertStringContainsString('pour le 04/03/2027 à 09:30', $block);
+    }
+
+    /**
+     * « Envoyé le … »: the family sees the decision, « Renvoyer l'e-mail »
+     * is the only button, and the send is in the history.
+     */
+    public function testASentEmailShowsEnvoyeLeAndRenvoyer(): void
+    {
+        $id = $this->acceptedRequest();
+        $this->writeBodies();
+        $this->emailAction($id, 'sendNow');
+
+        $block = $this->emailBlock($id);
+
+        $this->assertMatchesRegularExpression(
+            '#<span class="badge text-bg-success">Envoyé le \d{2}/\d{2}/\d{4} à \d{2}:\d{2}</span>#',
+            $block
+        );
+        $this->assertStringContainsString('La famille voit la décision.', $block);
+        $this->assertStringContainsString('/e-mail/renvoyer"', $block);
+        $this->assertStringContainsString("Renvoyer l'e-mail</button>", $block);
+        $this->assertStringNotContainsString('/e-mail/envoyer"', $block);
+        $this->assertStringContainsString('Envoyé</span>', $block);
+    }
+
+    /**
+     * « Échec le … »: « Réessayer », and the history keeps the sentence
+     * written for a chief — never the transport's own text, which names
+     * the relay.
+     */
+    public function testAFailedEmailShowsEchecLeAndReessayerWithoutTheTechnicalError(): void
+    {
+        $id = $this->acceptedRequest();
+        $this->writeBodies();
+        $this->mailFailures = 1;
+        $this->emailAction($id, 'sendNow');
+
+        $block = $this->emailBlock($id);
+
+        $this->assertMatchesRegularExpression(
+            '#<span class="badge text-bg-danger">Échec le \d{2}/\d{2}/\d{4} à \d{2}:\d{2}</span>#',
+            $block
+        );
+        $this->assertStringContainsString('La famille voit toujours « en attente ».', $block);
+        $this->assertStringContainsString('/e-mail/reessayer"', $block);
+        $this->assertStringNotContainsString('/e-mail/envoyer"', $block);
+        $this->assertStringContainsString('Échec</span>', $block);
+        $this->assertStringContainsString('n&#039;a pas pu être envoyé à la famille', $block);
+        $this->assertStringNotContainsString('smtp.example.com', $this->show($id));
+        $this->assertStringNotContainsString('SMTP', $this->show($id));
+    }
+
+    /**
+     * « Annulé suite à un changement de décision »: the acceptance planned
+     * for a request refused since will not leave; the refusal is sent by
+     * hand, and the history says what became of the acceptance.
+     */
+    public function testAnEmailCancelledByAChangeOfDecisionShowsAnnule(): void
+    {
+        $id = $this->acceptedRequest();
+        $this->writeBodies();
+        $this->decisionEmails->schedule(
+            $this->requestRepository->findById($id),
+            new \DateTimeImmutable('+1 day')
+        );
+        $this->statusService->refuse($this->requestRepository->findById($id), 'other');
+
+        $block = $this->emailBlock($id);
+
+        $this->assertStringContainsString('E-mail de refus', $block);
+        $this->assertStringContainsString(
+            '<span class="badge text-bg-warning">Annulé suite à un changement de décision</span>',
+            $block
+        );
+        $this->assertStringContainsString('/e-mail/envoyer"', $block);
+        $this->assertStringContainsString('Annulé</span>', $block);
+        $this->assertStringContainsString("e-mail d&#039;acceptation · décision changée avant l&#039;envoi", $block);
+    }
+
+    /**
+     * « Envoi en cours »: a send claimed moments ago offers no button —
+     * a click now would only meet the claim.
+     */
+    public function testASendInFlightShowsEnvoiEnCoursAndNoButton(): void
+    {
+        $id = $this->acceptedRequest();
+        $this->writeBodies();
+        $this->decisionEmails->begin($this->requestRepository->findById($id), DecisionEmail::DECISION_ACCEPTED);
+
+        $block = $this->emailBlock($id);
+
+        $this->assertStringContainsString('<span class="badge text-bg-warning">Envoi en cours</span>', $block);
+        $this->assertStringNotContainsString('<form', $block);
+    }
+
+    /**
+     * A send claimed long ago and never reported back: « Envoi interrompu »,
+     * « Réessayer », and the same word in the history — never « Envoi en
+     * cours » for ever.
+     */
+    public function testASendClaimedLongAgoShowsEnvoiInterrompuAndReessayer(): void
+    {
+        $id = $this->acceptedRequest();
+        $this->writeBodies();
+        (new DecisionEmailRepository($this->pdo))->insert(
+            $id,
+            DecisionEmail::DECISION_ACCEPTED,
+            DecisionEmail::STATE_SENDING,
+            null,
+            1,
+            false,
+            new \DateTimeImmutable('-1 hour')
+        );
+
+        $block = $this->emailBlock($id);
+
+        $this->assertStringContainsString('<span class="badge text-bg-danger">Envoi interrompu</span>', $block);
+        $this->assertStringContainsString("il n'est pas certain que la famille ait reçu cet e-mail", $block);
+        $this->assertStringContainsString('/e-mail/reessayer"', $block);
+        $this->assertStringContainsString('Interrompu</span>', $block);
+        $this->assertStringNotContainsString('Envoi en cours', $block);
+
+        $this->emailAction($id, 'retry');
+
+        $this->assertSame('success', \Core\Http\FlashMessage::get()['type'] ?? null);
+        $this->assertSame(['failed', 'sent'], $this->states($id));
+    }
+
+    /**
+     * « Envoyer maintenant » sends the e-mail of the current decision once,
+     * in copy to the unit, and says so; a second one posted afterwards —
+     * a late double click, a form sent again — is refused, never turned
+     * into a resend.
+     */
+    public function testSendNowSendsOnceAndASecondSendNowIsRefused(): void
+    {
+        $id = $this->acceptedRequest();
+        $this->writeBodies();
+
+        $response = $this->emailAction($id, 'sendNow');
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame("/config/inscriptions/demandes/{$id}", $response->getHeaders()['Location'] ?? null);
+        $this->assertSame(
+            [
+                'type' => 'success',
+                'message' => "L'e-mail d'acceptation est parti : la famille voit maintenant la décision.",
+            ],
+            \Core\Http\FlashMessage::get()
+        );
+        $this->assertSame([['to' => 'marie@example.com', 'cc' => 'unite@example.com']], $this->sentMails);
+        $this->assertSame(['sent'], $this->states($id));
+
+        $this->emailAction($id, 'sendNow');
+
+        $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
+        $this->assertCount(1, $this->sentMails);
+        $this->assertSame(['sent'], $this->states($id));
+    }
+
+    /**
+     * « Envoyer maintenant » on a planned e-mail sends THAT e-mail — the
+     * row is claimed, not doubled.
+     */
+    public function testSendNowTakesThePlannedEmail(): void
+    {
+        $id = $this->acceptedRequest();
+        $this->writeBodies();
+        $this->decisionEmails->schedule(
+            $this->requestRepository->findById($id),
+            new \DateTimeImmutable('+1 day')
+        );
+
+        $this->emailAction($id, 'sendNow');
+
+        $this->assertCount(1, $this->sentMails);
+        $this->assertSame(['sent'], $this->states($id));
+    }
+
+    /**
+     * « Réessayer » after a failure: a new attempt of its own, the failure
+     * kept in the history. Without a failure, there is nothing to retry.
+     */
+    public function testRetryAfterAFailureIsANewAttemptAndNothingToRetryOtherwise(): void
+    {
+        $id = $this->acceptedRequest();
+        $this->writeBodies();
+
+        $this->emailAction($id, 'retry');
+        $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
+        $this->assertSame([], $this->states($id));
+
+        $this->mailFailures = 1;
+        $this->emailAction($id, 'sendNow');
+        $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
+        $this->assertSame(['failed'], $this->states($id));
+
+        $this->emailAction($id, 'retry');
+
+        $this->assertSame('success', \Core\Http\FlashMessage::get()['type'] ?? null);
+        $this->assertSame(['failed', 'sent'], $this->states($id));
+        $this->assertSame([['to' => 'marie@example.com', 'cc' => 'unite@example.com']], $this->sentMails);
+    }
+
+    /**
+     * « Renvoyer l'e-mail » after a success: a second e-mail, in copy to
+     * the unit too (D9, « renvois compris »), a row of its own marked as a
+     * resend, and the first send's date — what the family's view reads
+     * (R3) — never moved. Before any success there is nothing to resend.
+     */
+    public function testResendAfterASuccessCarriesTheCopyAndNeverMovesTheFirstSend(): void
+    {
+        $id = $this->acceptedRequest();
+        $this->writeBodies();
+
+        $this->emailAction($id, 'resend');
+        $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
+        $this->assertSame([], $this->sentMails);
+
+        $this->emailAction($id, 'sendNow');
+        $firstSentAt = $this->requestRepository->findById($id)->decisionEmailSentAt;
+        $this->assertNotNull($firstSentAt);
+
+        $this->emailAction($id, 'resend');
+
+        $this->assertSame(
+            ['type' => 'success', 'message' => "L'e-mail d'acceptation a été renvoyé à la famille."],
+            \Core\Http\FlashMessage::get()
+        );
+        $this->assertSame(
+            [
+                ['to' => 'marie@example.com', 'cc' => 'unite@example.com'],
+                ['to' => 'marie@example.com', 'cc' => 'unite@example.com'],
+            ],
+            $this->sentMails
+        );
+        $history = (new DecisionEmailRepository($this->pdo))->findForRequest($id);
+        $this->assertSame([false, true], array_map(static fn(DecisionEmail $email) => $email->isResend, $history));
+        $this->assertEquals($firstSentAt, $this->requestRepository->findById($id)->decisionEmailSentAt);
+        $this->assertStringContainsString('renvoi', $this->emailBlock($id));
+    }
+
+    /**
+     * The refusal e-mail goes through the same buttons, for a refused
+     * request — and only its own e-mail: the block of a refused request is
+     * about the refusal.
+     */
+    public function testARefusedRequestSendsItsRefusalEmail(): void
+    {
+        $id = $this->createRequest();
+        $this->writeBodies();
+        $this->statusService->refuse($this->requestRepository->findById($id), 'no_room');
+
+        $this->assertStringContainsString('E-mail de refus', $this->emailBlock($id));
+        $this->emailAction($id, 'sendNow');
+
+        $this->assertSame(
+            ['type' => 'success', 'message' => "L'e-mail de refus est parti : la famille voit maintenant la décision."],
+            \Core\Http\FlashMessage::get()
+        );
+        $history = (new DecisionEmailRepository($this->pdo))->findForRequest($id);
+        $this->assertSame(['refused'], array_map(static fn(DecisionEmail $email) => $email->decision, $history));
+    }
+
+    /**
+     * Every button is journaled — the request, the decision and the action,
+     * never the family's address.
+     */
+    public function testEachEmailActionIsJournaledWithoutTheFamily(): void
+    {
+        $id = $this->acceptedRequest();
+        $this->writeBodies();
+        $this->mailFailures = 1;
+
+        $this->emailAction($id, 'sendNow');
+        $this->emailAction($id, 'retry');
+        $this->emailAction($id, 'resend');
+
+        $rows = $this->pdo->query(
+            "SELECT context FROM event_log WHERE event_type = 'registration_decision_email_requested' ORDER BY id"
+        )->fetchAll(\PDO::FETCH_COLUMN);
+        $actions = array_map(static fn($context) => json_decode((string) $context, true)['action'] ?? null, $rows);
+        $this->assertSame(['send_now', 'retry', 'resend'], $actions);
+        foreach ($rows as $context) {
+            $this->assertSame($id, json_decode((string) $context, true)['request_id'] ?? null);
+            $this->assertStringNotContainsString('marie@example.com', (string) $context);
+        }
+    }
+
+    /**
+     * An expired token, or a request that does not exist, sends nothing.
+     */
+    public function testAnEmailActionWithAnInvalidTokenOrAnUnknownRequestSendsNothing(): void
+    {
+        $id = $this->acceptedRequest();
+        $this->writeBodies();
+
+        foreach (['sendNow', 'retry', 'resend'] as $action) {
+            $this->emailAction($id, $action, ['_csrf_token' => 'bad']);
+        }
+        $missing = $this->emailController->sendNow(
+            new Request('POST', '/config/inscriptions/demandes/999/e-mail/envoyer', [], $this->csrfBody(), [], []),
+            ['id' => '999']
+        );
+
+        $this->assertSame(404, $missing->getStatusCode());
+        $this->assertSame([], $this->sentMails);
+        $this->assertSame([], $this->states($id));
+    }
+
+    /**
+     * « Note interne » is saved on its own: no e-mail, no status change, no
+     * decision e-mail touched — not even one planned — and only the fact
+     * of the save in the journal.
+     */
+    public function testSavingTheNoteSendsNothingAndChangesNoStatus(): void
+    {
+        $id = $this->acceptedRequest();
+        $this->writeBodies();
+        $this->decisionEmails->schedule(
+            $this->requestRepository->findById($id),
+            new \DateTimeImmutable('+1 day')
+        );
+
+        $eventsBefore = $this->eventTypes();
+
+        $response = $this->controller->saveNotes(new Request(
+            'POST', "/config/inscriptions/demandes/{$id}/notes", [],
+            $this->csrfBody(['internal_notes' => "Rappeler la famille.\r\nAvant samedi."]), [], []
+        ), ['id' => (string) $id]);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame(['type' => 'success', 'message' => 'Note enregistrée.'], \Core\Http\FlashMessage::get());
+        $request = $this->requestRepository->findById($id);
+        $this->assertSame("Rappeler la famille.\nAvant samedi.", $request->internalNotes);
+        $this->assertSame('accepted', $request->status);
+        $this->assertNull($request->decisionEmailSentAt);
+        $this->assertSame([], $this->sentMails);
+        $this->assertSame(['scheduled'], $this->states($id));
+        $this->assertSame(
+            1,
+            (int) $this->pdo->query(
+                "SELECT COUNT(*) FROM event_log WHERE event_type = 'registration_request_note_saved'"
+            )->fetchColumn()
+        );
+        $this->assertSame(
+            ['registration_request_note_saved'],
+            array_slice($this->eventTypes(), count($eventsBefore)),
+            'the save journals that a note was saved, and nothing else happened'
+        );
+    }
+
+    /**
+     * The note box of the mock-up: « Enregistrer la note », and the promise
+     * that it never sends anything.
+     */
+    public function testTheNoteHasItsOwnFormAndSaysItSendsNothing(): void
+    {
+        $id = $this->acceptedRequest();
+
+        $body = $this->show($id);
+
+        $found = preg_match(
+            '#<form method="post" action="/config/inscriptions/demandes/' . $id . '/notes">.*?</form>#s',
+            $body,
+            $form
+        );
+        $this->assertSame(1, $found);
+        $this->assertStringContainsString('<h2 class="h5 mb-3">Note interne</h2>', $body);
+        $this->assertStringContainsString('placeholder="Visible par le Staff d\'U seulement"', $form[0]);
+        $this->assertStringContainsString('Enregistrer la note</button>', $form[0]);
+        $this->assertStringContainsString("Enregistrer la note n'envoie jamais d'e-mail.", $form[0]);
+        $this->assertStringNotContainsString('/e-mail/', $form[0]);
+    }
+
+    /**
+     * A decision taken on the fiche answers « un e-mail va-t-il partir ? »:
+     * no, send it from the block below — or no, its template is not
+     * written yet.
+     */
+    public function testADecisionOnTheFicheSaysWhetherAnEmailLeaves(): void
+    {
+        $id = $this->createRequest();
+
+        $this->controller->accept(
+            new Request('POST', "/config/inscriptions/demandes/{$id}/accept", [], $this->csrfBody(), [], []),
+            ['id' => (string) $id]
+        );
+        $this->assertSame(
+            [
+                'type' => 'success',
+                'message' => "Demande acceptée. Aucun e-mail n'est parti : le gabarit d'acceptation n'est pas encore "
+                    . "rédigé (voir Gabarits). La famille voit « en attente » jusqu'à son envoi.",
+            ],
+            \Core\Http\FlashMessage::get()
+        );
+
+        $this->writeBodies();
+        $this->controller->refuse(
+            new Request('POST', "/config/inscriptions/demandes/{$id}/refuse", [], $this->csrfBody([
+                'refusal_reason' => 'no_room',
+            ]), [], []),
+            ['id' => (string) $id]
+        );
+        $this->assertSame(
+            [
+                'type' => 'success',
+                'message' => "Demande refusée (Pas de place). Aucun e-mail n'est parti : envoyez-le avec « Envoyer "
+                    . "maintenant », ci-dessous. La famille voit « en attente » jusque-là.",
+            ],
+            \Core\Http\FlashMessage::get()
+        );
+        $this->assertSame([], $this->sentMails);
+    }
+
+    /**
+     * R3, still true with the block: a decision taken on the fiche stays
+     * « en attente » for the family until its e-mail has really left — not
+     * after the decision, not after a failed send — and shows once it has.
+     */
+    public function testTheFamilySeesPendingUntilTheEmailReallyLeaves(): void
+    {
+        $id = $this->createRequest();
+        $this->writeBodies();
+        $visible = fn(): string => $this->statusService->visibleStatus($this->requestRepository->findById($id));
+
+        $this->controller->accept(
+            new Request('POST', "/config/inscriptions/demandes/{$id}/accept", [], $this->csrfBody(), [], []),
+            ['id' => (string) $id]
+        );
+        $this->assertSame('pending', $visible());
+
+        $this->mailFailures = 1;
+        $this->emailAction($id, 'sendNow');
+        $this->assertSame('pending', $visible());
+
+        $this->emailAction($id, 'retry');
+        $this->assertSame('accepted', $visible());
     }
 
     public function testLinkRejectsUnknownDeskNumber(): void

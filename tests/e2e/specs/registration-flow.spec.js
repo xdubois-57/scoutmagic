@@ -367,14 +367,17 @@ test('a family registers a child, follows the mailed tracking link, and the admi
         // fiche the chief encodes from, not just the database.
         await expect(page.getByText(`Oui — ${PREVIOUS_UNIT}`)).toBeVisible();
         // The note written in the dialog is the fiche's own.
-        await expect(page.getByLabel('Notes internes')).toHaveValue(DECISION_NOTE);
+        await expect(page.getByLabel('Note interne', { exact: true })).toHaveValue(DECISION_NOTE);
         await expect(page.getByText('Acceptée', { exact: true })).toBeVisible();
 
         await expect(page.getByText('visible par la famille comme « en attente »')).toBeVisible();
+        // The « E-mail de décision » block (#843, IT-08): with no acceptance
+        // body written, it says so and offers no button to send anything.
+        await expect(page.getByText('Gabarit à rédiger', { exact: true })).toBeVisible();
         await expect(
-            page.locator('form[action$="/send-accepted-email"] button'),
-            'with no acceptance body written, the send button must be disabled',
-        ).toBeDisabled();
+            page.locator('form[action$="/e-mail/envoyer"]'),
+            'with no acceptance body written, nothing can be sent',
+        ).toHaveCount(0);
 
         await familyPage.goto(trackingUrl, { waitUntil: 'domcontentloaded' });
         await expect(

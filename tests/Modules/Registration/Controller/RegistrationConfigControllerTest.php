@@ -292,6 +292,36 @@ class RegistrationConfigControllerTest extends TestCase
     }
 
     /**
+     * The export's « Fratrie » column — like the list's — counts every
+     * sibling the family DECLARED, one who has left the unit since
+     * included: only the recommendation's « Fratrie déjà dans l'unité » is
+     * restricted to the ones still in it (issue #843, after IT-03).
+     */
+    public function testTheExportCountsEveryDeclaredSiblingEvenOneWhoHasLeft(): void
+    {
+        $siblings = [];
+        foreach (['SIBIN' => 1, 'SIBOUT' => 0] as $deskId => $active) {
+            $memberId = RegistrationTestHelper::insertMember($this->pdo, $deskId);
+            $this->pdo->prepare('INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, '
+                . 'last_name_encrypted, is_active) VALUES (?, ?, ?, ?, ?)')
+                ->execute([$memberId, $this->currentYearId, 'x', 'x', $active]);
+            $siblings[] = $memberId;
+        }
+        $this->requestRepository->create($this->targetYearId, [
+            'parent_name' => 'Marie Dupont', 'child_last_name' => 'Dupont', 'child_first_name' => 'Noa',
+            'gender' => 'F', 'birth_date' => '2020-06-01', 'street' => 'S', 'number' => '1',
+            'postal_code' => '1000', 'city' => 'V', 'email' => 'noa@example.com',
+            'phone1' => '000', 'phone2' => null, 'remarks' => null,
+        ], null, $siblings);
+
+        $response = $this->controller->export(new Request('GET', '/config/inscriptions/export', [], [], [], []), []);
+        $column = array_search('Fratrie', $this->headersFromResponse($response), true);
+
+        $this->assertIsInt($column);
+        $this->assertSame('2', $this->rowsFromResponse($response)[0][$column]);
+    }
+
+    /**
      * A registration request is filled in by anyone on a public form, so
      * a remark starting with `=` reaches this file. It must arrive as
      * text, never as a live formula in the chief's spreadsheet
@@ -1730,6 +1760,18 @@ class RegistrationConfigControllerTest extends TestCase
         $this->assertSame(
             ['scout_year_id' => $this->targetYearId, 'count' => 2, 'refusal_reason' => 'no_room'],
             json_decode($context, true)
+        );
+        // Like every decision (issue #843, IT-08), the bulk refusal answers
+        // « un e-mail va-t-il partir ? » — here: none, its template is
+        // not written yet.
+        $this->assertSame(
+            [
+                'type' => 'success',
+                'message' => "2 demandes refusées (Pas de place). Aucun e-mail n'est parti : le gabarit de refus "
+                    . "n'est pas encore rédigé (voir Gabarits). Les familles voient « en attente » jusqu'à l'envoi "
+                    . 'de leur e-mail.',
+            ],
+            FlashMessage::get()
         );
     }
 

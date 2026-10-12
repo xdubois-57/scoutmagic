@@ -2,7 +2,7 @@
   "id": "registration",
   "name": "Inscriptions",
   "description": "Inscriptions, réinscriptions, passages de branche et départs.",
-  "version": "6.18.1",
+  "version": "6.19.1",
   "enabled_by_default": false,
   "routes": [
     {
@@ -553,19 +553,28 @@
       "label": ""
     },
     {
-      "path": "/config/inscriptions/demandes/{id}/send-accepted-email",
+      "path": "/config/inscriptions/demandes/{id}/e-mail/envoyer",
       "method": "POST",
-      "controller": "Modules\\Registration\\Controller\\RegistrationRequestController",
-      "action": "sendAcceptedEmail",
+      "controller": "Modules\\Registration\\Controller\\RequestDecisionEmailController",
+      "action": "sendNow",
       "menu": "espace_admin",
       "role_min": "admin",
       "label": ""
     },
     {
-      "path": "/config/inscriptions/demandes/{id}/send-refused-email",
+      "path": "/config/inscriptions/demandes/{id}/e-mail/reessayer",
       "method": "POST",
-      "controller": "Modules\\Registration\\Controller\\RegistrationRequestController",
-      "action": "sendRefusedEmail",
+      "controller": "Modules\\Registration\\Controller\\RequestDecisionEmailController",
+      "action": "retry",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/config/inscriptions/demandes/{id}/e-mail/renvoyer",
+      "method": "POST",
+      "controller": "Modules\\Registration\\Controller\\RequestDecisionEmailController",
+      "action": "resend",
       "menu": "espace_admin",
       "role_min": "admin",
       "label": ""

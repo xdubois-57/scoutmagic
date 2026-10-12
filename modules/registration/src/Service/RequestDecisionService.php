@@ -27,17 +27,38 @@ use Modules\Registration\Repository\RegistrationRequestRepository;
  *   year, consultation only — R8), and, only while waitlists are managed,
  *   each pending request's recommendation (Service\RecommendationService,
  *   computed once for the whole year);
- * - decide() — what the dialog posts: the existing transition of
- *   Service\RequestStatusService (accept, or refuse with its reason), then
- *   the note. Nothing else: no e-mail leaves (the decision e-mails are
- *   still sent by hand from the fiche, until IT-09 plans them; a change
- *   of decision cancels any e-mail planned for the old one, inside the
- *   same transaction — RegistrationRequestRepository::updateStatus()).
+ * - decide() — what the dialog posts: apply(), then the note.
+ *
+ * **apply() is the one way a decision is taken** (IT-08): the dialog, the
+ * fiche's « Accepter » / « Refuser » and the bulk « Tout refuser » all go
+ * through it, so whatever a decision must also do happens on every path —
+ * a change of decision cancels any e-mail planned for the old one, inside
+ * the same transaction (RegistrationRequestRepository::updateStatus()),
+ * and the automatic sending of IT-09 will plan the new one here. Today no
+ * e-mail leaves: the decision e-mails are sent by hand from the fiche.
+ *
+ * confirmation() writes what every one of those paths says afterwards,
+ * which answers « un e-mail va-t-il partir ? » (D8).
  */
 class RequestDecisionService
 {
     public const DECISION_ACCEPT = 'accept';
     public const DECISION_REFUSE = 'refuse';
+
+    /** Where the confirmation is read: the list (the dialog), the fiche, or the bulk refusal. */
+    public const FROM_LIST = 'list';
+    public const FROM_REQUEST_PAGE = 'request_page';
+    public const FROM_BULK = 'bulk';
+
+    /**
+     * What happens to a decision's e-mail once it is taken — the answer
+     * confirmation() gives. Two cases today; IT-09 adds the automatic one
+     * (planned for « le … à … ») to emailOutcome() and to the sentence.
+     */
+    private const EMAIL_BY_HAND = 'by_hand';
+    private const EMAIL_TEMPLATE_MISSING = 'template_missing';
+
+    private const MESSAGE_UNKNOWN_DECISION = 'Décision inconnue : choisissez « Accepter » ou « Refuser ».';
 
     public function __construct(
         private RegistrationRequestRepository $requestRepository,
@@ -148,7 +169,7 @@ class RequestDecisionService
         ?string $noteAsShown = null
     ): void {
         if ($decision !== self::DECISION_ACCEPT && $decision !== self::DECISION_REFUSE) {
-            throw new RegistrationException('Décision inconnue : choisissez « Accepter » ou « Refuser ».');
+            throw new RegistrationException(self::MESSAGE_UNKNOWN_DECISION);
         }
         if (!$this->isDecidableYear($request->scoutYearId)) {
             throw new RegistrationException(
@@ -165,11 +186,7 @@ class RequestDecisionService
         $noteChanged = $note !== self::normalizeNote($noteAsShown ?? (string) $request->internalNotes);
 
         $write = function () use ($request, $decision, $note, $noteChanged, $refusalReason): void {
-            if ($decision === self::DECISION_ACCEPT) {
-                $this->statusService->accept($request);
-            } else {
-                $this->statusService->refuse($request, (string) $refusalReason);
-            }
+            $this->apply($request, $decision, $refusalReason);
 
             if ($noteChanged) {
                 $this->requestRepository->updateInternalNotes($request->id, $note !== '' ? $note : null);
@@ -186,6 +203,104 @@ class RequestDecisionService
             );
         };
         $this->requestRepository->transactional($write);
+    }
+
+    /**
+     * Takes $decision on $request — accept it, or refuse it with
+     * $refusalReason — through Service\RequestStatusService's transition,
+     * in one transaction. The one door every decision goes through (see
+     * the class comment); it checks what the transition itself checks —
+     * the status the request may leave, the reason of a refusal — and
+     * nothing about where the decision came from: the dialog only decides
+     * a pending request of a current year (decide()), while the fiche may
+     * still refuse an accepted request, or close one of a past year.
+     *
+     * @throws RegistrationException when the decision cannot be taken
+     */
+    public function apply(RegistrationRequest $request, string $decision, ?string $refusalReason = null): void
+    {
+        if ($decision !== self::DECISION_ACCEPT && $decision !== self::DECISION_REFUSE) {
+            throw new RegistrationException(self::MESSAGE_UNKNOWN_DECISION);
+        }
+
+        $this->requestRepository->transactional(function () use ($request, $decision, $refusalReason): void {
+            if ($decision === self::DECISION_ACCEPT) {
+                $this->statusService->accept($request);
+            } else {
+                $this->statusService->refuse($request, (string) $refusalReason);
+            }
+        });
+    }
+
+    /**
+     * What is said once $decision has been taken on $count requests, read
+     * $from the list, the fiche or the bulk refusal: the decision, then
+     * whether an e-mail is leaving — never on its own yet, so « Aucun e-mail
+     * n'est parti », with where to send it from, or why it cannot be sent
+     * at all (its template is not written).
+     */
+    public function confirmation(
+        string $decision,
+        ?string $refusalReason = null,
+        int $count = 1,
+        string $from = self::FROM_LIST
+    ): string {
+        $refused = $decision === self::DECISION_REFUSE;
+        $reason = $refused ? (RegistrationRequest::REFUSAL_REASON_LABELS[(string) $refusalReason] ?? null) : null;
+        $many = $count > 1;
+
+        if ($count <= 0) {
+            return $refused ? 'Aucune demande à refuser.' : 'Aucune demande à accepter.';
+        }
+
+        $done = ($many ? $count . ' demandes ' : 'Demande ')
+            . ($refused ? 'refusée' : 'acceptée') . ($many ? 's' : '')
+            . ($reason !== null ? ' (' . $reason . ')' : '') . '.';
+
+        $email = match ($this->emailOutcome($decision)) {
+            self::EMAIL_TEMPLATE_MISSING => "Aucun e-mail n'est parti : le gabarit "
+                . ($refused ? 'de refus' : "d'acceptation") . " n'est pas encore rédigé (voir Gabarits). "
+                . ($many
+                    ? "Les familles voient « en attente » jusqu'à l'envoi de leur e-mail."
+                    : "La famille voit « en attente » jusqu'à son envoi."),
+            default => "Aucun e-mail n'est parti : " . match (true) {
+                $many => 'envoyez chacun depuis la fiche de sa demande. Les familles voient',
+                $from === self::FROM_REQUEST_PAGE
+                    => "envoyez-le avec « Envoyer maintenant », ci-dessous. La famille voit",
+                default => 'envoyez-le depuis la fiche de la demande. La famille voit',
+            } . ' « en attente » jusque-là.',
+        };
+
+        return $done . ' ' . $email;
+    }
+
+    /**
+     * « Note interne », saved on its own from the fiche (IT-08): the note
+     * and nothing else — no status, no decision, no e-mail. Stored the way
+     * the dialog stores it (normalizeNote(), empty clears it), so the two
+     * compare equal afterwards. The journal says that a note was saved,
+     * never what it says.
+     */
+    public function saveNote(RegistrationRequest $request, string $note): void
+    {
+        $note = self::normalizeNote($note);
+        $this->requestRepository->updateInternalNotes($request->id, $note !== '' ? $note : null);
+
+        $this->journalService->log(
+            'registration',
+            'registration_request_note_saved',
+            'info',
+            "Note interne d'une demande d'inscription enregistrée",
+            ['request_id' => $request->id]
+        );
+    }
+
+    /**
+     * What becomes of the e-mail of a decision just taken.
+     */
+    private function emailOutcome(string $decision): string
+    {
+        return $this->isEmailReady($decision) ? self::EMAIL_BY_HAND : self::EMAIL_TEMPLATE_MISSING;
     }
 
     /**

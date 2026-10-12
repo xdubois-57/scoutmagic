@@ -77,31 +77,9 @@ class RequestDecisionController extends AbstractController
             return $this->redirect($back);
         }
 
-        FlashMessage::set('success', $this->confirmation($decision, $reason));
+        FlashMessage::set('success', $this->decisionService->confirmation($decision, $reason));
 
         return $this->redirect($back);
-    }
-
-    /**
-     * The confirmation answers « un e-mail va-t-il partir ? » (D8): never on
-     * its own yet — the decision e-mails are sent by hand from the fiche, or
-     * cannot be sent at all while their template is not written.
-     */
-    private function confirmation(string $decision, string $reason): string
-    {
-        $refused = $decision === RequestDecisionService::DECISION_REFUSE;
-        $done = $refused
-            ? 'Demande refusée (' . (RegistrationRequest::REFUSAL_REASON_LABELS[$reason] ?? '') . ').'
-            : 'Demande acceptée.';
-
-        if (!$this->decisionService->isEmailReady($decision)) {
-            return $done . " Aucun e-mail n'est parti : le gabarit "
-                . ($refused ? 'de refus' : "d'acceptation")
-                . " n'est pas encore rédigé. La famille voit « en attente » jusqu'à son envoi.";
-        }
-
-        return $done . " Aucun e-mail n'est parti : envoyez-le depuis la fiche de la demande. "
-            . "La famille voit « en attente » jusque-là.";
     }
 
     /**

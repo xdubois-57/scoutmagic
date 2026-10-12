@@ -33,6 +33,10 @@ use Tests\Modules\Registration\RegistrationTestHelper;
  * list needs to offer it, and the decision it posts — the existing
  * transition of RequestStatusService, then the note — with everything that
  * can refuse checked before anything is written.
+ *
+ * And, since IT-08, the one door every decision takes (apply()), the
+ * confirmation each path says afterwards, and the fiche's note saved on
+ * its own.
  */
 #[Group('database')]
 class RequestDecisionServiceTest extends TestCase
@@ -418,5 +422,145 @@ class RequestDecisionServiceTest extends TestCase
         ));
         $this->assertFalse(json_decode($decided[0]['context'], true)['note_changed']);
         $this->assertTrue(json_decode($decided[1]['context'], true)['note_changed']);
+    }
+
+    /**
+     * apply() is the decision itself, wherever it comes from: unlike the
+     * dialog it does not ask the request to be pending — the fiche refuses
+     * an accepted request through it — but it checks what the transition
+     * checks, and an unknown decision changes nothing.
+     */
+    public function testApplyTakesTheDecisionAndChecksWhatTheTransitionChecks(): void
+    {
+        $request = $this->file($this->targetYearId);
+
+        $this->service->apply($request, 'accept');
+        $this->assertSame('accepted', $this->requests->findById($request->id)->status);
+
+        $this->service->apply($this->requests->findById($request->id), 'refuse', 'no_room');
+        $refused = $this->requests->findById($request->id);
+        $this->assertSame('refused', $refused->status);
+        $this->assertSame('no_room', $refused->refusalReason);
+
+        $refusals = [['accept', null, 'Transition invalide'], ['withdraw', null, 'Décision inconnue']];
+        foreach ($refusals as [$decision, $reason, $message]) {
+            try {
+                $this->service->apply($this->requests->findById($request->id), $decision, $reason);
+                $this->fail("« {$decision} » on a refused request must be refused");
+            } catch (RegistrationException $e) {
+                $this->assertStringStartsWith($message, $e->getMessage());
+            }
+        }
+        $this->assertSame('refused', $this->requests->findById($request->id)->status);
+    }
+
+    public function testApplyRefusesARefusalWithoutAValidReason(): void
+    {
+        $request = $this->file($this->targetYearId);
+
+        foreach ([null, '', 'full'] as $reason) {
+            try {
+                $this->service->apply($request, 'refuse', $reason);
+                $this->fail('a refusal without a valid reason must be refused');
+            } catch (RegistrationException $e) {
+                $this->assertSame(self::REASON_REQUIRED, $e->getMessage());
+            }
+        }
+        $this->assertSame('pending', $this->requests->findById($request->id)->status);
+    }
+
+    /**
+     * The confirmation answers « un e-mail va-t-il partir ? »: no, and from
+     * where to send it — the fiche's block when read on the fiche, each
+     * request's fiche after a bulk refusal — or why it cannot leave.
+     *
+     * @return array<string, array{string, ?string, int, string, bool, string}>
+     */
+    public static function confirmationProvider(): array
+    {
+        $byHand = "Aucun e-mail n'est parti : envoyez-le depuis la fiche de la demande. "
+            . 'La famille voit « en attente » jusque-là.';
+
+        return [
+            'accepted from the list' => ['accept', null, 1, 'list', true, 'Demande acceptée. ' . $byHand],
+            'refused from the list' => ['refuse', 'other', 1, 'list', true, 'Demande refusée (Autre). ' . $byHand],
+            'accepted on the fiche' => [
+                'accept', null, 1, 'request_page', true,
+                "Demande acceptée. Aucun e-mail n'est parti : envoyez-le avec « Envoyer maintenant », ci-dessous. "
+                    . 'La famille voit « en attente » jusque-là.',
+            ],
+            'template not written' => [
+                'refuse', 'no_room', 1, 'request_page', false,
+                "Demande refusée (Pas de place). Aucun e-mail n'est parti : le gabarit de refus n'est pas encore "
+                    . "rédigé (voir Gabarits). La famille voit « en attente » jusqu'à son envoi.",
+            ],
+            'bulk refusal' => [
+                'refuse', 'no_room', 3, 'bulk', true,
+                "3 demandes refusées (Pas de place). Aucun e-mail n'est parti : envoyez chacun depuis la fiche de "
+                    . 'sa demande. Les familles voient « en attente » jusque-là.',
+            ],
+            'bulk refusal, template not written' => [
+                'refuse', 'other', 2, 'bulk', false,
+                "2 demandes refusées (Autre). Aucun e-mail n'est parti : le gabarit de refus n'est pas encore "
+                    . "rédigé (voir Gabarits). Les familles voient « en attente » jusqu'à l'envoi de leur e-mail.",
+            ],
+            'bulk refusal of one' => ['refuse', 'other', 1, 'bulk', true, 'Demande refusée (Autre). ' . $byHand],
+            'nothing to refuse' => ['refuse', 'other', 0, 'bulk', true, 'Aucune demande à refuser.'],
+        ];
+    }
+
+    #[DataProvider('confirmationProvider')]
+    public function testTheConfirmationSaysWhetherAnEmailLeaves(
+        string $decision,
+        ?string $reason,
+        int $count,
+        string $from,
+        bool $templateWritten,
+        string $expected
+    ): void {
+        if ($templateWritten) {
+            $this->content->set('registration_email_accepted_body', '<p>Bienvenue</p>', 'rich_text', 1);
+            $this->content->set('registration_email_refused_body', '<p>Désolés</p>', 'rich_text', 1);
+        }
+
+        $this->assertSame($expected, $this->service->confirmation($decision, $reason, $count, $from));
+    }
+
+    /**
+     * Each decision's own template decides: the refusal written and the
+     * acceptance not, an acceptance cannot leave and a refusal can.
+     */
+    public function testTheConfirmationReadsTheTemplateOfItsOwnDecision(): void
+    {
+        $this->content->set('registration_email_refused_body', '<p>Désolés</p>', 'rich_text', 1);
+
+        $this->assertStringContainsString("le gabarit d'acceptation", $this->service->confirmation('accept'));
+        $this->assertStringContainsString(
+            'envoyez-le depuis la fiche',
+            $this->service->confirmation('refuse', 'other')
+        );
+    }
+
+    /**
+     * The fiche's note, saved on its own: stored as the dialog stores it,
+     * emptied it is cleared, journaled without its text — and the status
+     * never moves.
+     */
+    public function testSaveNoteStoresTheNoteAloneAndJournalsWithoutItsText(): void
+    {
+        $request = $this->file($this->targetYearId);
+
+        $this->service->saveNote($request, "  Appeler lundi.\r\nSans faute.  ");
+
+        $saved = $this->requests->findById($request->id);
+        $this->assertSame("Appeler lundi.\nSans faute.", $saved->internalNotes);
+        $this->assertSame('pending', $saved->status);
+        $journal = $this->journal();
+        $this->assertSame(['registration_request_note_saved'], array_column($journal, 'event_type'));
+        $this->assertSame(['request_id' => $request->id], json_decode($journal[0]['context'], true));
+        $this->assertStringNotContainsString('Appeler', $journal[0]['description']);
+
+        $this->service->saveNote($saved, '   ');
+        $this->assertNull($this->requests->findById($request->id)->internalNotes);
     }
 }

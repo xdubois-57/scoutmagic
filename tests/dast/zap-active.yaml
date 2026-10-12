@@ -84,7 +84,9 @@ env:
         - "\\Q${DAST_TARGET}\\E/mass-mail/.*/status"
         - "\\Q${DAST_TARGET}\\E/mass-mail/.*/test-send"
         - "\\Q${DAST_TARGET}\\E/mass-mail/recipients/.*"
-        - "\\Q${DAST_TARGET}\\E/config/inscriptions/demandes/.*/send-.*"
+        # A request's « E-mail de décision » buttons: envoyer, réessayer,
+        # renvoyer — each sends the family's decision e-mail.
+        - "\\Q${DAST_TARGET}\\E/config/inscriptions/demandes/.*/e-mail/.*"
         - "\\Q${DAST_TARGET}\\E/members/.*/emails/.*/resend"
         - "\\Q${DAST_TARGET}\\E/config/notifications/test.*"
         - "\\Q${DAST_TARGET}\\E/config/support/statistics/test.*"

@@ -592,8 +592,10 @@ compte pas.
   `name_dob_blind_index` n'était lu que par le rapprochement Desk.
 - *Fratrie déjà dans l'unité* est lue sur les frères et sœurs déclarés à
   la demande (`registration_request_siblings`, liens vers des membres
-  réels au moment du dépôt) : un frère parti depuis compte encore. Le
+  réels au moment du dépôt) : ~~un frère parti depuis compte encore~~. Le
   document ne précise pas davantage ; aucun autre signal n'existe.
+  **Dépassé (IT-03b)** : le mainteneur a tranché, seuls les frères et
+  sœurs encore présents dans l'unité comptent — voir la section IT-03b.
 - Le document parle d'« explications identiques » : elles le sont, aux
   deux accords et au dixième près ci-dessus, qui ne touchent aucun des
   cinq cas des critères d'acceptation.
@@ -1234,3 +1236,263 @@ qu'ils passent par ce service.
 
 **Faits tranchés.** R5 : `MailService::send()` prend désormais `cc`
 (validation, en-tête, DKIM, multipart, file différée), documenté et testé.
+
+---
+
+## IT-03b — La fratrie ne compte que les frères et sœurs encore présents
+
+Complément d'IT-03, sur `main` en `6303f64c` (module 6.18.0).
+
+**Livré.**
+
+- **Décision du mainteneur (fait foi)** : pour le critère « Fratrie déjà
+  dans l'unité » de la recommandation, **seuls les frères et sœurs encore
+  présents dans l'unité comptent**. Jusqu'ici `RecommendationService`
+  lisait tous les frères et sœurs déclarés à la demande, si bien qu'un
+  frère parti depuis le dépôt forçait encore « Toujours Oui ».
+- **Définition de « présent »** : le membre déclaré a une inscription
+  active (`member_years.is_active = 1`, le filtre de
+  `HouseholdRepository` et de tout le roster) pour **l'année scoute en
+  cours** — `ScoutYearResolver::getCurrentPublicYear()`, l'année que le
+  module appelle partout « en cours » (capacités, Passage, fiche) — **ou
+  pour l'année visée par la demande** (`registration_requests.scout_year_id`,
+  lue sur la demande elle-même, pas une année commune au lot). Un frère
+  déjà réinscrit pour l'année visée compte ; un frère sans aucune
+  inscription active dans l'une ou l'autre ne compte plus. Un membre
+  fusionné depuis dans une autre identité est cherché sous celle-ci
+  (`members.merged_into_member_id` : la fusion déplace les `member_years`,
+  pas les liens du module). Toute fonction compte (un frère animateur est
+  dans l'unité).
+- `RegistrationRequestRepository::findPresentSiblingMemberIdsForRequests()`
+  : une requête préparée pour toute la file (pas de N+1), un `EXISTS`
+  corrélé sur `member_years` (table du cœur), lu par la recommandation
+  **seulement**. Le bloc fratrie de la page Passage (et le regroupement
+  de la répartition automatique), la fiche, la colonne « Fratrie » de la
+  liste et de l'export continuent de lire les frères et sœurs déclarés
+  (`findSiblingMemberIdsForRequests()`, `findSiblingMemberIds()`,
+  `countSiblingsForRequests()`), sans changement de sens.
+- Explications inchangées dans leur forme (« fratrie déjà présente dans
+  l'unité », « fratrie dans l'unité ») : elles deviennent vraies.
+- Tests, chacun vu rouge avant d'être vert (sur le code de `main`, ou par
+  mutation de la requête pour les cas que l'ancien code satisfaisait
+  déjà — année en cours seule, année visée seule, `is_active` ignoré,
+  jointure qui duplique, premier frère déclaré seul, fusion ignorée) :
+  `RecommendationServiceTest` (frère actif cette année, réinscrit pour
+  l'année visée seulement, inactif cette année mais réinscrit → « Toujours
+  Oui » ; parti, jamais inscrit, inactif partout → retombe dans le
+  classement, 4e sur 5 ; parti et critère en « Classement » → ne favorise
+  rien ; deux frères dont un parti → « Toujours Oui ») — le jeu de données
+  de la maquette inscrit désormais ses frères et sœurs dans l'année en
+  cours ; `RegistrationRequestRepositoryTest` (SQLite) et
+  `RegistrationRequestRepositoryOnMysqlTest` (MariaDB, avec sa prémisse
+  sur `member_years.is_active`) ; les lecteurs des frères déclarés
+  épinglés dans `PassageServiceTest`, `RegistrationRequestControllerTest`
+  (fiche) et `RegistrationConfigControllerTest` (export), chacun vu rouge
+  en restreignant les lectures déclarées aux présents.
+- Documentation : sujet d'aide `capacites-et-listes-d-attente`,
+  `specifications.md` §17.6, `ARCHITECTURE.md` §8.36. `decider-une-demande`
+  ne décrit pas le critère : inchangé. `module.json` et `schema.sql`
+  inchangés, donc version du module inchangée (6.18.0).
+
+**Décisions autonomes.**
+
+- La requête prend l'année en cours en paramètre et lit l'année visée sur
+  chaque demande (jointure) : la règle « l'année de la demande » est dans
+  la requête, pas dans l'appelant.
+- Fusion de membres suivie sur un niveau (`merged_into_member_id`, comme
+  `MemberLookupRepository::resolveIds()` de la trésorerie) : sans cela, un
+  frère déclaré sous une identité fusionnée depuis aurait cessé de compter
+  alors qu'il est toujours inscrit — une régression que ce changement
+  aurait introduite. La fiche et la page Passage, qui résolvent le nom sur
+  l'identité déclarée, ne la suivent pas (constat antérieur, non touché
+  ici).
+- Version du module inchangée : ni `module.json` ni `schema.sql` ne
+  changent, et la consigne de ce complément était de ne les toucher que si
+  nécessaire.
+
+**Divergences avec le document.**
+
+- Aucune sur les faits cités : `RecommendationService` lisait bien
+  `findSiblingMemberIdsForRequests()`, partagé avec Passage.
+- Lecture de « présent » laissée ouverte pour le mainteneur : un frère
+  encore actif cette année mais marqué « quitte » (`member_years.leaving`,
+  réponse de la famille ou décision du staff) compte, selon la définition
+  retenue, alors que la projection d'IT-02 le retire de l'année visée ; de
+  même un frère actif cette année mais absent (ou inactif) de l'import Desk
+  déjà fait pour l'année visée. Non tranché ici.
+
+**Reporté.** Rien.
+
+---
+
+## IT-08 — Fiche d'une demande : bloc « E-mail de décision », note interne indépendante
+
+**Livré.**
+
+- **Bloc « E-mail de décision »** sur la fiche (`views/_decision_email.html.twig`,
+  inclus par une ligne dans `request_detail.html.twig`), présent sur une
+  demande acceptée, encodée ou refusée, absent sur une demande en attente ou
+  retirée (comme la maquette). Il parle de l'e-mail de la décision actuelle
+  (« E-mail d'acceptation » / « E-mail de refus ») et montre un état :
+  « Non planifié », « Prévu le … », « Envoi en cours », « Envoyé le … »,
+  « Échec le … », « Envoi interrompu », « Annulé suite à un changement de
+  décision », « Gabarit à rédiger » (lien vers Gabarits). L'état est calculé par
+  `Service\DecisionEmailPanel::build()` (objet pur, testé sans base) à partir
+  des lignes d'IT-05 de la **décision en cours** seulement : un envoi gagne
+  sur tout, puis « Gabarit à rédiger » (ordre de la maquette, `scenarioFor()`),
+  puis la dernière ligne. Puis l'« Historique » : chaque planification, envoi,
+  échec, annulation de chaque ligne (`Service\DecisionEmailEvent`), décisions
+  précédentes comprises, du plus récent au plus ancien, jamais réécrit ; un
+  échec y montre la phrase écrite pour le staff au moment de l'échec
+  (`failure_message`, filtrée à l'écriture par IT-05), jamais le texte du
+  serveur SMTP (test).
+- **Trois actions**, une route POST chacune (`Controller\RequestDecisionEmailController`,
+  nouveau) : `/config/inscriptions/demandes/{id}/e-mail/envoyer` (« Envoyer
+  maintenant » : non planifié, prévu, annulé), `/e-mail/reessayer`
+  (« Réessayer » : après un échec, ou une réclamation trop ancienne),
+  `/e-mail/renvoyer` (« Renvoyer l'e-mail » : après un succès, copie à l'unité
+  comprise) — CSRF, `role_min: admin`, `data-confirm` sur chaque formulaire
+  (un e-mail parti ne se rappelle pas, design.md §7.5). Aucun envoi depuis le
+  contrôleur : `RequestEmailService::sendFromRequestPage()` recalcule le bloc,
+  **refuse une action qu'il n'offre pas à cet instant**, journalise
+  `registration_decision_email_requested` (demande, décision, action) puis
+  passe par le `deliver()` d'IT-05 (réclamation atomique, garde-fou du
+  gabarit, copie D9, issue enregistrée, rotation du jeton après succès). Les
+  deux routes et boutons provisoires d'IT-05 (`send-accepted-email`,
+  `send-refused-email`, carte « Emails d'acceptation / de refus ») sont
+  supprimés.
+- **Note interne** : carte « Note interne » de la maquette, formulaire et
+  route propres (`POST …/notes`, existante), « Enregistrer la note », « Enregistrer
+  la note n'envoie jamais d'e-mail. », espace réservé « Visible par le Staff
+  d'U seulement ». `saveNotes()` passe par `RequestDecisionService::saveNote()` :
+  la note seule (normalisée comme le dialogue l'enregistre), aucun statut,
+  aucune décision, aucun e-mail — un test le vérifie avec un e-mail
+  planifié qui reste planifié — et un journal `registration_request_note_saved`
+  qui ne porte que l'id. Message « Note enregistrée. ».
+- **Un seul chemin de décision** : `RequestDecisionService::apply()`
+  (`RequestStatusService::accept()` / `refuse()` dans une transaction). Le
+  dialogue d'IT-04 (`decide()`), « Accepter » / « Refuser » de la fiche et
+  « Tout refuser » passent tous par lui — la fiche et le refus groupé
+  appelaient jusqu'ici `RequestStatusService` directement. IT-09 y branchera
+  la planification.
+- **Confirmation après toute décision** : `RequestDecisionService::confirmation()`
+  (décision, motif, nombre, d'où elle est lue) compose le message des trois
+  chemins : « Demande acceptée. Aucun e-mail n'est parti : envoyez-le depuis
+  la fiche de la demande. » (liste), « … envoyez-le avec « Envoyer
+  maintenant », ci-dessous. » (fiche), « 3 demandes refusées (Pas de place).
+  Aucun e-mail n'est parti : envoyez chacun depuis la fiche de sa demande. »
+  (refus groupé), ou « … le gabarit de refus n'est pas encore rédigé (voir
+  Gabarits). » ; la famille voit « en attente » jusque-là. Le cas est choisi
+  par `emailOutcome()` (deux constantes) : IT-09 n'a qu'à y ajouter le cas
+  automatique et sa phrase. « Tout retirer » garde « N demande(s)
+  traitée(s). » (un retrait n'envoie rien).
+- Version du module 6.18.0 → 6.19.0 (`module.json` : trois routes neuves,
+  deux supprimées). Composition (`public/index.php`) : le contrôleur neuf, et
+  `RequestDecisionService` passé à `RegistrationRequestController`.
+- Aide : nouveau sujet `envoyer-l-e-mail-de-decision` (quatre questions,
+  `paths` de la fiche) ; `gerer-les-demandes` et `decider-une-demande` y
+  renvoient. `specifications.md` §17.3 et §17.6 (fiche, bloc, confirmation),
+  `ARCHITECTURE.md` §8.36 (un seul chemin de décision, le bloc). Le scan
+  dynamique actif exclut désormais `/config/inscriptions/demandes/*/e-mail/*`
+  à la place de `*/send-*` (`tests/dast/zap-active.yaml`) : ces routes
+  écrivent à une famille.
+- Tests : `DecisionEmailPanelTest` (12 cas : chaque état, ordre de priorité,
+  décision précédente ignorée, réclamation récente / périmée, renvoi en échec,
+  historique ordonné), `RegistrationRequestControllerTest` (rendu de chaque
+  état du bloc, envoyer maintenant une seule fois puis refus du second,
+  envoyer un e-mail prévu, réessayer, renvoyer avec copie sans déplacer le
+  premier envoi, refus, journal des trois actions sans adresse, jeton
+  invalide et 404, note sans e-mail ni changement de statut, formulaire de la
+  note, confirmation de la fiche, R3), `RegistrationRbacTest` (les trois
+  routes et la note : admin autorisé — l'action passe —, chief refusé — rien
+  ne part, rien n'est écrit), `RequestDecisionServiceTest` (`apply()`, huit
+  confirmations, `saveNote()`), `RequestEmailServiceTest` (bloc, actions
+  refusées sans envoi ni ligne), `RegistrationConfigControllerTest` (message
+  du refus groupé), `RequestDecisionControllerTest` (texte ajusté). Scénario
+  `registration-flow` : la fiche montre « Gabarit à rédiger » et aucun
+  formulaire d'envoi, « Note interne ». Les assertions neuves ont été vues
+  échouer (garde-fou de l'action retiré : quatre tests rouges). Relecture
+  `code-review` (high) : quatre défauts réels corrigés — message faux pour un
+  renvoi sans gabarit, borne de la réclamation périmée décalée d'une seconde
+  par rapport à `begin()`, réclamation périmée affichée « Échec » dans l'état
+  mais « Envoi en cours » dans l'historique, accord « Les familles voient …
+  jusqu'à son envoi » — et trois identifiants français (`fiche`) renommés ;
+  `applyDecision()` fondu dans `applyTransition()`.
+
+**Décisions autonomes.**
+
+- **L'action est vérifiée côté serveur contre l'état du bloc**, pas seulement
+  masquée (un gabarit vidé depuis le chargement de la page est refusé avec
+  son propre message, quel que soit l'état) : sans cela, un second « Envoyer maintenant » arrivé après le
+  premier (double clic tardif, formulaire renvoyé depuis l'historique du
+  navigateur) partait comme un renvoi. Un gabarit non rédigé est refusé
+  **sans** ligne d'échec (le bouton n'était pas sur la page) ;
+  `sendAccepted()` / `sendRefused()` gardent l'échec enregistré d'IT-05 pour la
+  tâche d'IT-09.
+- **« Envoi en cours »** : un état que la maquette ne dessine pas, mais que la
+  table connaît (réclamé, pas encore rapporté) ; aucun bouton. Une réclamation
+  plus vieille que `STALE_SENDING_MINUTES` (10 min) devient « Envoi
+  interrompu » (« Interrompu » dans l'historique) et offre « Réessayer », sans
+  quoi la demande serait bloquée pour toujours ; la borne est comparée
+  exactement comme `failStaleSending()` (`attempted_at <`), si bien que le
+  bouton offert est un essai que `begin()` accepte, et le nouvel essai
+  enregistre la réclamation « interrompue » (IT-05).
+- **« Envoyé le … » montre le dernier envoi** (le renvoi le plus récent) ;
+  l'historique montre le premier, et la date que lit la famille (R3) ne bouge
+  pas. Un renvoi en échec après un succès est dit sous l'état (« Le dernier
+  renvoi a échoué le … »), qui reste « Envoyé ».
+- **« Annulé suite à un changement de décision »** quand la dernière ligne de
+  la demande est un e-mail annulé par un changement de décision et qu'aucune
+  ligne n'existe pour la nouvelle. La phrase de la maquette (« Un nouvel
+  e-mail sera planifié pour la nouvelle décision. ») suppose l'envoi
+  automatique, qui n'existe pas encore : elle est remplacée par « L'e-mail
+  prévu pour la décision précédente ne partira pas. Celui de la nouvelle
+  décision s'envoie à la main ; d'ici là, la famille voit « en attente ». »,
+  avec « Envoyer maintenant ». IT-09 reprendra la phrase. « Non planifié »
+  garde celle de la maquette (« L'envoi automatique est désactivé : l'e-mail
+  s'envoie à la main. ») : il n'est en effet pas actif.
+- **`saveNote()` vit dans `RequestDecisionService`**, à côté de la note du
+  dialogue, pour une seule normalisation (fins de ligne, espaces) des deux
+  côtés ; le contrôleur de la fiche ne touche plus le dépôt pour la note.
+- **Les trois actions dans un contrôleur neuf**, comme le dialogue d'IT-04 :
+  la fiche (`RegistrationRequestController`) perd ses deux actions d'envoi et
+  ne gagne qu'un paramètre de constructeur (le service de décision, en
+  dernier).
+- Couleurs des pastilles selon `status_badge` (gris, orange, vert, rouge),
+  pas les couleurs Tailwind de la maquette ; « Envoyer maintenant » et
+  « Réessayer » en `btn-primary` (jamais affichés ensemble), « Renvoyer
+  l'e-mail » en `btn-outline-secondary`, comme la maquette.
+
+**Divergences avec le document.**
+
+- Vérifié sur `main` (`6303f64c`, module 6.18.0) : la fiche montrait deux
+  boutons « Envoyer / Renvoyer » (acceptation **et** refus) quel que soit le
+  statut, `RequestEmailService` refusait déjà l'e-mail d'une autre décision
+  (IT-05) ; la fiche et le refus groupé appelaient `RequestStatusService`
+  directement, le dialogue passait par `RequestDecisionService` — deux
+  chemins, unifiés ; la confirmation d'IT-04 était composée dans
+  `RequestDecisionController`, déplacée dans le service.
+- La maquette dessine un sélecteur « Situation à visualiser » sur le bloc :
+  c'est un outil de la maquette pour parcourir les six états, pas une
+  fonction ; il n'est pas repris.
+- Le document dit « Envoyer maintenant (non planifié / prévu) » : il est
+  aussi offert après une annulation, seul moyen d'envoyer l'e-mail de la
+  nouvelle décision tant que rien ne le planifie.
+
+**Reporté.**
+
+- Le cas automatique de la confirmation (« l'e-mail … partira le … ») et la
+  phrase de l'état « Annulé » qui l'accompagne : IT-09, dans `emailOutcome()`
+  / `confirmation()` et le partiel.
+
+**Faits tranchés.**
+
+- **R3** : toujours vrai avec le bloc — une décision prise sur la fiche reste
+  « en attente » pour la famille après la décision et après un envoi en
+  échec, et devient visible au premier envoi réussi
+  (`testTheFamilySeesPendingUntilTheEmailReallyLeaves`) ; un renvoi ne déplace
+  pas la date du premier envoi (test).
+- **R6** : inchangé — les trois boutons passent par `deliver()`, qui
+  n'enregistre le nouveau jeton qu'après l'acceptation du message.
+- **R8** : inchangé — la fiche garde ses transitions sur une année passée
+  (décision d'IT-04) ; `apply()` ne vérifie que ce que vérifie la transition.

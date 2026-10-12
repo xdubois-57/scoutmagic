@@ -11425,7 +11425,20 @@ if ($isEnabled('registration')) {
             $scoutYearResolver,
             $scoutYearService,
             $registrationSlotService,
-            $memberService
+            $memberService,
+            $registrationDecisionService
+        )
+    );
+    // The fiche's « E-mail de décision » buttons (issue #843, IT-08):
+    // « Envoyer maintenant », « Réessayer », « Renvoyer l'e-mail », all
+    // through the one sender above, copy to the unit included.
+    $frontController->registerController(
+        \Modules\Registration\Controller\RequestDecisionEmailController::class,
+        new \Modules\Registration\Controller\RequestDecisionEmailController(
+            $twig,
+            $registrationRequestRepo,
+            $registrationEmailService,
+            $scoutYearService
         )
     );
 

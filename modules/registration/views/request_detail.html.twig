@@ -27,7 +27,7 @@
                         {% include 'partials/status_badge.html.twig' with { status: 'encoded', label: 'Encodée dans Desk' } only %}
                     {% endif %}
                     {% if visible_status != r.status %}
-                        <span class="text-body-secondary small">— visible par la famille comme « {{ visible_status == 'pending' ? 'en attente' : visible_status }} » tant que l'email n'est pas envoyé</span>
+                        <span class="text-body-secondary small">— visible par la famille comme « {{ visible_status == 'pending' ? 'en attente' : visible_status }} » tant que l'e-mail n'est pas envoyé</span>
                     {% endif %}
                 </div>
 
@@ -183,58 +183,24 @@
             </div>
         </div>
 
+        {# « Note interne » (issue #843, IT-08): a form and a route of its
+           own — saving it sends nothing and changes no status. #}
         <div class="card mb-4">
             <div class="card-body">
-                <h2 class="h5 mb-3">Notes internes</h2>
-                <p class="small text-body-secondary">Jamais visibles par la famille, jamais journalisées.</p>
+                <h2 class="h5 mb-3">Note interne</h2>
                 <form method="post" action="/config/inscriptions/demandes/{{ r.id }}/notes">
                     {{ csrf_field()|raw }}
-                    <label class="visually-hidden" for="request-internal-notes-{{ r.id }}">Notes internes</label>
-                    <textarea name="internal_notes" id="request-internal-notes-{{ r.id }}" class="form-control mb-2" rows="4">{{ r.internalNotes }}</textarea>
-                    <button type="submit" class="btn btn-sm btn-outline-primary">Enregistrer</button>
+                    <label class="visually-hidden" for="request-internal-notes-{{ r.id }}">Note interne</label>
+                    <textarea name="internal_notes" id="request-internal-notes-{{ r.id }}" class="form-control mb-2" rows="4" placeholder="Visible par le Staff d'U seulement">{{ r.internalNotes }}</textarea>
+                    <div class="d-flex flex-wrap align-items-center gap-3">
+                        <button type="submit" class="btn btn-sm btn-outline-primary">Enregistrer la note</button>
+                        <span class="small text-body-secondary">Enregistrer la note n'envoie jamais d'e-mail. La famille ne la voit jamais.</span>
+                    </div>
                 </form>
             </div>
         </div>
 
-        <div class="card mb-4">
-            <div class="card-body">
-                <h2 class="h5 mb-3">Emails d'acceptation / de refus</h2>
-                <div class="row g-4">
-                    <div class="col-12 col-sm-6">
-                        <h3 class="h6">Acceptation</h3>
-                        <p class="small text-body-secondary mb-2">
-                            {{ r.acceptedEmailSentAt ? 'Envoyé le ' ~ r.acceptedEmailSentAt|french_date : 'Non envoyé' }}
-                        </p>
-                        <form method="post" action="/config/inscriptions/demandes/{{ r.id }}/send-accepted-email"
-                              data-confirm="{{ r.acceptedEmailSentAt ? 'Renvoyer' : 'Envoyer' }} l'e-mail d'acceptation à la famille de {{ r.childFirstName }} {{ r.childLastName }} ? Il part immédiatement et ne peut pas être rappelé.">
-                            {{ csrf_field()|raw }}
-                            <button type="submit" class="btn btn-sm btn-outline-primary" {{ accepted_email_ready ? '' : 'disabled' }}>
-                                {{ r.acceptedEmailSentAt ? 'Renvoyer' : 'Envoyer' }}
-                            </button>
-                        </form>
-                        {% if not accepted_email_ready %}
-                            <div class="form-text">Le corps de l'email d'acceptation n'a pas encore été rédigé — voir <a href="/config/inscriptions/gabarits">Gabarits</a>.</div>
-                        {% endif %}
-                    </div>
-                    <div class="col-12 col-sm-6">
-                        <h3 class="h6">Refus</h3>
-                        <p class="small text-body-secondary mb-2">
-                            {{ r.refusedEmailSentAt ? 'Envoyé le ' ~ r.refusedEmailSentAt|french_date : 'Non envoyé' }}
-                        </p>
-                        <form method="post" action="/config/inscriptions/demandes/{{ r.id }}/send-refused-email"
-                              data-confirm="{{ r.refusedEmailSentAt ? 'Renvoyer' : 'Envoyer' }} l'e-mail de refus à la famille de {{ r.childFirstName }} {{ r.childLastName }} ? Il part immédiatement et ne peut pas être rappelé.">
-                            {{ csrf_field()|raw }}
-                            <button type="submit" class="btn btn-sm btn-outline-primary" {{ refused_email_ready ? '' : 'disabled' }}>
-                                {{ r.refusedEmailSentAt ? 'Renvoyer' : 'Envoyer' }}
-                            </button>
-                        </form>
-                        {% if not refused_email_ready %}
-                            <div class="form-text">Le corps de l'email de refus n'a pas encore été rédigé — voir <a href="/config/inscriptions/gabarits">Gabarits</a>.</div>
-                        {% endif %}
-                    </div>
-                </div>
-            </div>
-        </div>
+        {% if email_panel %}{% include '@registration/_decision_email.html.twig' with { panel: email_panel, r: r } only %}{% endif %}
 
         {% if r.status != 'encoded' %}
             <div class="card mb-4">
