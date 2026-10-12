@@ -243,24 +243,43 @@ describe('sw.js: refreshOfflineCopies() — the pass (#883)', () => {
         expect(done.completedAt).toBeTypeOf('number');
     });
 
-    // An answer that stores nothing is a failure too, not a skip: a 500,
-    // or the login page a session that ended redirects to.
-    it('is not done when a page answered with an error or a redirect', async () => {
+    // An answer that may change is a failure, not a skip: the next pass
+    // asks again.
+    it.each([
+        ['a server error', 500],
+        ['a « come back later »', 429],
+    ])('is not done when a page answered with %s', async (_label, status) => {
         await seed();
         serve({
-            '/api/offline/manifest': manifest(['/', '/account']),
+            '/api/offline/manifest': manifest(['/', '/contact']),
             '/': html('Accueil'),
-            '/account': () => redirected(html('Connexion')),
+            '/contact': new Response('Erreur', { status }),
         });
 
         expect(await sw.refreshOfflineCopies()).toBe(false);
         expect((await readPass()).completedAt).toBeNull();
+    });
 
+    // An answer asking again will not change — a profile to complete
+    // first, the login page, a refusal — stores nothing and is no failure:
+    // counted, it would keep the pass open for ever. The copy held stays.
+    it.each([
+        ['a redirect (a profile to complete, a session that ended)', () => redirected(html('Compléter le profil'))],
+        ['a definitive refusal', () => new Response('Interdit', { status: 403 })],
+    ])('finishes despite a page answering with %s, and keeps the copy it had', async (_label, answer) => {
+        await seed();
+        await (await caches.open('content-a-1')).put('/account', html('Mon compte'));
         serve({
-            '/api/offline/manifest': manifest(['/', '/contact']),
-            '/contact': new Response('Erreur', { status: 500 }),
+            '/api/offline/manifest': manifest(['/', '/account']),
+            '/': html('Accueil'),
+            '/account': answer,
         });
-        expect(await sw.refreshOfflineCopies()).toBe(false);
+
+        expect(await sw.refreshOfflineCopies()).toBe(true);
+
+        expect(stored()).toEqual(['/', '/account']);
+        const kept = await (await caches.open('content-a-1')).match('/account');
+        expect(await kept.text()).toContain('Mon compte');
     });
 
     // Signed out and back in as someone else while a pass ran: the new

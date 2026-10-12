@@ -900,15 +900,22 @@ function refreshPage(cache, path, startedAt, scope) {
 }
 
 /**
- * The copy to store for a page's answer. An answer that stores nothing —
- * another account's page, an error, a redirect (the login page answering
- * for a session that ended) — rejects: inLanes() counts it, and a pass
- * with one is not done (settlePass()).
+ * The copy to store for a page's answer, or nothing.
+ *
+ * Nothing, and no failure, for an answer asking again will not change: a
+ * redirect — a profile to complete first, or the login page for a session
+ * that ended, after which the next page says « guest » and a new pass
+ * follows the next sign-in — or a definitive refusal (a 4xx). Counted, it
+ * would keep the pass open for ever. The copy already held stays.
+ *
+ * Rejects — inLanes() counts it, and a pass with one is not done
+ * (settlePass()) — for another account's page, and for an answer that may
+ * change: a server error, a 408, a 429.
  *
  * @param {Response} response
  * @param {Response|undefined} cached
  * @param {string} scope
- * @returns {Promise<Response>}
+ * @returns {Promise<Response|undefined>}
  */
 function stampedAnswer(response, cached, scope) {
     const served = response.headers.get('X-Offline-Scope');
@@ -920,6 +927,9 @@ function stampedAnswer(response, cached, scope) {
     }
     if (response.ok && !response.redirected) {
         return stamped(response, false);
+    }
+    if (response.redirected || isDefinitiveRefusal(response)) {
+        return Promise.resolve(undefined);
     }
     return Promise.reject(new Error('Not stored: ' + response.status));
 }
