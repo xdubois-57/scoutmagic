@@ -1480,8 +1480,11 @@ name exactly.
 
 `.github/workflows/issue-triage.yml` **writes** part of the taxonomy below:
 it applies `triage:done` plus exactly one `bug:*` verdict and removes
-`triage:pending`. It never applies or removes `status:accepted`, which
-stays a marker for a human eye that no workflow reads.
+`triage:pending`. It never applies or removes the legacy `status:accepted` label,
+which no longer authorizes implementation. For development, the maintainer
+moves an issue to **Ready** in ScoutMagic Project #1; agents read that field
+via `scripts/backlog-ready-queue.sh` and respect GitHub's native blocked-by
+relations. This is separate from the issue triage and its nightly scan.
 `issue-backlog-scan.yml` writes exactly the same labels through exactly the
 same skill file — there is one taxonomy and one method, not two.
 
