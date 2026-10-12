@@ -293,7 +293,7 @@ test('a family registers a child, follows the mailed tracking link, and the admi
             { description: `a registration receipt for ${CHILD_FIRST_NAME} addressed to ${FAMILY_EMAIL}` },
         );
         expect(receipt.raw, 'the receipt carries the unit in copy, as saved on « Réglages »')
-            .toMatch(new RegExp(`^Cc:\\s*${UNIT_COPY_EMAIL.replace(/[.]/g, '\\.')}\\s*$`, 'mi'));
+            .toMatch(new RegExp(`^Cc:\\s*${UNIT_COPY_EMAIL.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*$`, 'mi'));
         const trackingUrl = linkFromMail(receipt, '/inscriptions/suivi/');
 
         await familyPage.goto(trackingUrl, { waitUntil: 'domcontentloaded' });
