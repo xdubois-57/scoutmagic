@@ -53,10 +53,10 @@ FORM_DIR="${ISSUE_TEMPLATE_DIR:-${SCRIPT_DIR}/../.github/ISSUE_TEMPLATE}"
 # application's interface — what a unit chief reads on the site — and these
 # are read by the maintainer and by automation, never rendered to a user.
 #
-# `status:accepted` is deliberately inert: the agent must never apply or
-# remove it, and no workflow reads it. It is a marker for a human eye,
-# and it is created here so that the one hand-applied label in the set is
-# still described, coloured and reproducible like the rest.
+# `status:accepted` is a LEGACY label retained for existing issues; it is
+# inert, and neither the triage nor the development agent may set it.
+# GitHub Project #1 Status = Ready now authorizes implementation. Keep the
+# old label declared so label synchronization never deletes user metadata.
 #
 # `status:in-progress` is the mirror of it: applied by an AGENT and never by
 # a human, and read by no automation either. It says a ticket has been taken
