@@ -391,6 +391,40 @@ if the action's pinned image renames one, which is the price of the
 guarantee and the reason to re-check those names whenever the action SHA
 is bumped.
 
+**GitHub Projects effort estimate, separate from the public verdict.** Both
+triage agents return a constrained `effort` value (`S`, `M`, `L` or
+`unknown`) in the same JSON as their verdict. The rubric lives in
+`.claude/skills/triage/SKILL.md`: this is estimated *implementation effort*,
+not urgency, importance or acceptance. Neither the model nor its public
+comment can choose a project, an issue to update, a label or a priority.
+
+After the issue verdict has actually landed, a **separate shell step**
+receives repository secret `PROJECTS_TOKEN` as `GH_TOKEN` and runs the
+reviewed `scripts/project-effort.sh`. That step alone can write to
+**xdubois-57's Project #1** (ScoutMagic); it gets the issue number from
+the event or the scan's validated selection, never from model-authored
+text. The script resolves the GitHub GraphQL node IDs, adds the issue
+to the Project if missing, and fills an **empty** single-select `Effort`
+field using only the existing S/M/L option IDs. It does not change
+issues, labels, status or other project fields; an existing estimate
+(including a maintainer's correction) always wins. `unknown` leaves
+the field blank. Missing token, missing field or option, or an
+unverifiable read is an explicit **failed step**, not a success that
+quietly set nothing. The verdict already posted remains intact.
+
+**External GitHub setup required:** in Project #1, create the
+`Effort` single-select with options spelled exactly `S`, `M` and
+`L`. Set repository Actions secret `PROJECTS_TOKEN` to a GitHub
+classic PAT with `project` scope owned by an account that may edit
+this user-owned Project. GitHub's ordinary `GITHUB_TOKEN` has no
+Projects permission, so broadening the triage job's permissions
+would not work and would violate its security invariant. Neither
+triage workflow checks out the repository: each fetches the helper
+from the reviewed `main` branch. `scripts/project-effort.test.sh`
+runs offline with a fake `gh` and verifies that a manual value
+cannot be overwritten. Changes to this integration must update
+this section and the test together.
+
 That price was paid on the first live run. The list named
 `mcp__github__issue_read`; the pinned image spells those tools
 `get_issue` and `get_issue_comments`, so the triage of #181 was denied 48
