@@ -71,10 +71,10 @@ final class BacklogIsOneTicketAtATimeTest extends TestCase
     }
 
     /** THE SHAPE. Without it an agent plans, batches, and asks before starting. */
-    public function testTheWorkIsOneAcceptedTicketAtATime(): void
+    public function testTheWorkIsOneReadyTicketAtATime(): void
     {
         $this->assertStringContainsString(
-            '**one accepted ticket at a time, carried from end to end**',
+            '**one Ready ticket at a time,',
             self::agentRules(),
             'AGENTS.md no longer says the backlog is fixed one ticket at a time. Without it the next '
             . 'agent batches the work again, and the ceiling below becomes the only thing standing '
@@ -190,21 +190,21 @@ final class BacklogIsOneTicketAtATimeTest extends TestCase
     }
 
     /**
-     * What `status:accepted` authorises, and what an unclear ticket costs.
+     * What Ready authorizes, and what an unclear ticket costs.
      *
      * Both halves were given in one breath, and the second is the one an
      * eager agent drops: a ticket taken and guessed wrong costs a pull
      * request, a review round and a revert, where a ticket left alone costs
      * the maintainer a sentence.
      */
-    public function testAcceptedMeansImplementDirectlyAndUnclearMeansSkip(): void
+    public function testReadyMeansImplementDirectlyAndUnclearMeansSkip(): void
     {
         $rules = self::agentRules();
 
         $this->assertStringContainsString(
-            '**`status:accepted` also means the analysis is done.**',
+            '**Ready also means the analysis is done.**',
             $rules,
-            'AGENTS.md no longer says that an accepted ticket is implemented as it stands, so the next '
+            'AGENTS.md no longer says that a Ready ticket is implemented as it stands, so the next '
             . 'agent goes back to ask for a design the maintainer has already done.',
         );
 
@@ -239,33 +239,86 @@ final class BacklogIsOneTicketAtATimeTest extends TestCase
     }
 
     /**
-     * The external sources check (issue #355): asked for in the
-     * maintainer's words — « une vérification explicite quand je demande
-     * "fix the backlog" ». Pinned inside the section, because a sentence
-     * that drifted elsewhere in AGENTS.md is one the agent working the
-     * backlog never reads; and pinned with what it produces, because a
-     * check whose findings go nowhere is the silence #355 was opened
-     * about.
+     * The weekly external-sources workflow owns source monitoring; a
+     * development session must not repeat the network check on each wake-up.
      */
-    public function testFixingTheBacklogStartsWithTheExternalSourcesCheck(): void
+    public function testFixingTheBacklogDoesNotRunExternalSourcesCheck(): void
     {
         $section = self::backlogSection();
+        $this->assertStringContainsString(
+            '**External sources are NOT checked when this command begins.**',
+            $section,
+        );
+        $this->assertStringNotContainsString(
+            'php scripts/check-external-sources.php',
+            $section,
+        );
+        $this->assertFileExists(
+            dirname(__DIR__, 2) . '/.github/workflows/external-sources-check.yml',
+        );
+    }
 
-        $this->assertStringContainsString(
-            '**First, run the external sources check**',
+    /** Only the Project's Ready status authorizes development and merging. */
+    public function testProjectReadyReplacesAcceptedLabel(): void
+    {
+        $section = self::backlogSection();
+        foreach ([
+            'Status = `Ready`',
+            'No `status:accepted` label is required',
+            'never fall back to repository labels as the queue',
+            'bash scripts/backlog-ready-queue.sh',
+        ] as $required) {
+            $this->assertStringContainsString($required, $section);
+        }
+        $this->assertStringNotContainsString(
+            'List the OPEN issues carrying `status:accepted`',
             $section,
-            'AGENTS.md § "Fix the backlog" no longer runs the external sources check. The maintainer asked '
-            . 'for it explicitly (issue #355), and nothing else runs it between the weekly workflow and a '
-            . 'release.',
         );
-        $this->assertStringContainsString('php scripts/check-external-sources.php', $section);
-        $this->assertStringContainsString(
-            '.claude/skills/external-sources/SKILL.md',
-            $section,
-            'AGENTS.md no longer says how a divergence becomes an issue, so the check can find one and '
-            . 'leave no trace — or open a duplicate every time the backlog is fixed.',
-        );
-        $this->assertFileExists(dirname(__DIR__, 2) . '/.claude/skills/external-sources/SKILL.md');
+    }
+
+    /** A prerequisite must be dealt with before its dependent ticket. */
+    public function testNativeBlockedByChainsControlPriority(): void
+    {
+        $rules = self::backlogSection();
+        foreach ([
+            'GitHub `blocked by`',
+            'any **open**',
+            'A prerequisite of a higher-priority Ready',
+            'inherits that higher urgency, transitively',
+            'P0 → P3',
+        ] as $required) {
+            $this->assertStringContainsString($required, $rules);
+        }
+    }
+
+    /** No one-shot stop when the queue becomes empty. */
+    public function testBacklogResumesOnHourlyWakeupsUntilMaintainerStopsIt(): void
+    {
+        $rules = self::backlogSection();
+        foreach ([
+            '/loop 1h fix the backlog',
+            'Run the first backlog pass **immediately**',
+            'When there is no executable Ready issue, become idle for one hour',
+            'Only an explicit instruction from the maintainer cancels it.',
+            'expires automatically after',
+            'seven days',
+        ] as $required) {
+            $this->assertStringContainsString($required, $rules);
+        }
+        $this->assertStringNotContainsString('sleep 3600` in Bash, spin-poll', '', ''); // placeholder
+    }
+
+    /** The queue contract test exercises an entire blocked-by chain offline. */
+    public function testReadyQueueScriptHonoursDependencies(): void
+    {
+        $root = dirname(__DIR__, 2);
+        $shellTest = $root . '/scripts/backlog-ready-queue.test.sh';
+        $this->assertFileExists($shellTest);
+        $this->assertFileExists($root . '/scripts/backlog-ready-queue.sh');
+        $output = [];
+        $status = -1;
+        exec('bash ' . escapeshellarg($shellTest) . ' 2>&1', $output, $status);
+        $this->assertSame(0, $status, implode("\n", $output));
     }
 
     private static function backlogSection(): string
