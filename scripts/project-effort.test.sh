@@ -9,10 +9,12 @@ trap 'rm -rf "$tmp"' EXIT
 cat > "$tmp/gh" <<'MOCK'
 #!/usr/bin/env bash
 set -euo pipefail
-printf '%s\n' "$*" >> "$GH_TEST_CALLS"
+# Count invocations, not lines in multiline GraphQL arguments.
+printf 'CALL\n' >> "$GH_TEST_CALLS"
 case "$*" in
   *addProjectV2ItemById*) printf 'ITEM\n' ;;
   *updateProjectV2ItemFieldValue*) printf 'ITEM\n' ;;
+  *'query($item: ID!)'*) printf '%s\n' "$GH_TEST_ITEM_RESPONSE" ;;
   *) printf '%s\n' "$GH_TEST_RESPONSE" ;;
 esac
 MOCK
@@ -34,13 +36,28 @@ snapshot() {
   }}'
 }
 
+item_state() {
+  jq -n --arg exists "$1" '{
+    data: {
+      node: {
+        id: "ITEM",
+        fieldValues: {
+          pageInfo: {hasNextPage: false},
+          nodes: (if $exists == "yes" then
+            [{optionId: "OPT-L", field: {id: "FIELD"}}]
+          else [] end)
+        }
+      }
+    }
+  }'
+}
+
 run_writer() {
   : > "$tmp/calls"
   PATH="$tmp:$PATH" GH_TOKEN=fixture GITHUB_REPOSITORY=xdubois-57/scoutmagic \
-    GH_TEST_RESPONSE="$1" GH_TEST_CALLS="$tmp/calls" \
+    GH_TEST_RESPONSE="$1" GH_TEST_ITEM_RESPONSE="${2:-$(item_state no)}" GH_TEST_CALLS="$tmp/calls" \
     bash "$root/scripts/project-effort.sh" 909 M
 }
-
 # A manually set value must never be rewritten.
 run_writer "$(snapshot yes yes yes)" > "$tmp/out"
 grep -q 'already has Effort' "$tmp/out"
@@ -49,16 +66,21 @@ grep -q 'already has Effort' "$tmp/out"
 # An unset field on an existing item is written, without creating a duplicate.
 run_writer "$(snapshot yes no yes)" > "$tmp/out"
 grep -q 'Set Effort=M' "$tmp/out"
-[ "$(wc -l < "$tmp/calls")" -eq 2 ]
+[ "$(wc -l < "$tmp/calls")" -eq 3 ]
 grep -q 'updateProjectV2ItemFieldValue' "$tmp/calls"
 ! grep -q 'addProjectV2ItemById' "$tmp/calls"
 
 # A missing item is added to the intended project before writing Effort.
 run_writer "$(snapshot no no yes)" > "$tmp/out"
-[ "$(wc -l < "$tmp/calls")" -eq 3 ]
+[ "$(wc -l < "$tmp/calls")" -eq 4 ]
 grep -q 'addProjectV2ItemById' "$tmp/calls"
 grep -q 'updateProjectV2ItemFieldValue' "$tmp/calls"
 
+# A project default (or another actor) may fill Effort when the item is added.
+run_writer "$(snapshot no no yes)" "$(item_state yes)" > "$tmp/out"
+grep -q 'has acquired an Effort value' "$tmp/out"
+[ "$(wc -l < "$tmp/calls")" -eq 3 ]
+! grep -q 'updateProjectV2ItemFieldValue' "$tmp/calls"
 # Missing project configuration fails clearly without any mutation.
 if run_writer "$(snapshot yes no no)" > "$tmp/out" 2>&1; then
   echo "Missing Effort field was silently accepted." >&2
