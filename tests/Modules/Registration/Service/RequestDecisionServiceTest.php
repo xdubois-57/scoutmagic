@@ -563,4 +563,195 @@ class RequestDecisionServiceTest extends TestCase
         $this->service->saveNote($saved, '   ');
         $this->assertNull($this->requests->findById($request->id)->internalNotes);
     }
+
+    // ── The automatic sending (issue #843, IT-09) ───────────────────────
+
+    /**
+     * Off by default: a decision plans nothing and the dialog announces no
+     * date, templates written or not.
+     */
+    public function testWithTheAutomaticSendingOffADecisionPlansNothing(): void
+    {
+        $this->writeDecisionTemplates();
+        $request = $this->file($this->targetYearId);
+
+        $this->assertNull($this->service->apply($request, 'accept'));
+        $this->assertSame([], $this->emailRows());
+        $context = $this->service->dialogContext($this->targetYearId);
+        $this->assertNull($context['accepted_auto_send_at']);
+        $this->assertNull($context['refused_auto_send_at']);
+    }
+
+    /**
+     * On, apply() plans the new decision's e-mail for now + the delay, in
+     * the same transaction, and answers that due date; the dialog
+     * announces the same date for each decision whose template is written.
+     */
+    public function testWithTheAutomaticSendingOnADecisionIsPlannedForNowPlusTheDelay(): void
+    {
+        $this->writeDecisionTemplates();
+        RegistrationTestHelper::enableAutomaticDecisionEmails($this->settings, 6);
+        $request = $this->file($this->targetYearId);
+
+        $before = new \DateTimeImmutable('+6 hours');
+        $planned = $this->service->apply($request, 'refuse', 'no_room');
+        $after = new \DateTimeImmutable('+6 hours');
+
+        $this->assertNotNull($planned);
+        $this->assertGreaterThanOrEqual($before->getTimestamp() - 1, $planned->getTimestamp());
+        $this->assertLessThanOrEqual($after->getTimestamp(), $planned->getTimestamp());
+        $this->assertSame(
+            [['decision' => 'refused', 'state' => 'scheduled', 'due_at' => $planned->format('Y-m-d H:i:s')]],
+            $this->emailRows()
+        );
+        $context = $this->service->dialogContext($this->targetYearId);
+        $this->assertInstanceOf(\DateTimeImmutable::class, $context['accepted_auto_send_at']);
+        $this->assertInstanceOf(\DateTimeImmutable::class, $context['refused_auto_send_at']);
+    }
+
+    /**
+     * The dialog's decide() answers the same due date, and a decision that
+     * fails plans nothing — the planning is inside the decision's
+     * transaction.
+     */
+    public function testDecideAnswersTheDueDateAndAFailedDecisionPlansNothing(): void
+    {
+        $this->writeDecisionTemplates();
+        RegistrationTestHelper::enableAutomaticDecisionEmails($this->settings, 24);
+        $request = $this->file($this->targetYearId);
+
+        try {
+            $this->service->decide($request, 'refuse', '', 'full');
+            $this->fail('A refusal without a known reason must be refused.');
+        } catch (RegistrationException) {
+        }
+        $this->assertSame([], $this->emailRows());
+
+        $planned = $this->service->decide($request, 'accept', '', null);
+        $this->assertNotNull($planned);
+        $this->assertCount(1, $this->emailRows());
+    }
+
+    /**
+     * A template still « À rédiger » is not planned — an e-mail that could
+     * only fail — and the confirmation says the template is missing.
+     */
+    public function testADecisionWhoseTemplateIsNotWrittenIsNotPlanned(): void
+    {
+        $this->content->set('registration_email_accepted_body', '<p>Bienvenue</p>', 'rich_text', 1);
+        RegistrationTestHelper::enableAutomaticDecisionEmails($this->settings, 24);
+
+        $planned = $this->service->apply($this->file($this->targetYearId), 'refuse', 'other');
+
+        $this->assertNull($planned);
+        $this->assertSame([], $this->emailRows());
+        $this->assertStringContainsString(
+            "le gabarit de refus n'est pas encore rédigé",
+            $this->service->confirmation('refuse', 'other', 1, 'list', $planned)
+        );
+        $this->assertNull($this->service->dialogContext($this->targetYearId)['refused_auto_send_at']);
+        $this->assertNotNull($this->service->dialogContext($this->targetYearId)['accepted_auto_send_at']);
+    }
+
+    /**
+     * D7: a decision taken BEFORE the activation is not planned — switching
+     * the automatic sending on scans nothing — while one taken after is.
+     */
+    public function testDecisionsTakenBeforeTheActivationAreNotPlanned(): void
+    {
+        $this->writeDecisionTemplates();
+        $early = $this->file($this->targetYearId, 'Avant');
+        $this->service->apply($early, 'accept');
+
+        RegistrationTestHelper::enableAutomaticDecisionEmails($this->settings, 24);
+        $late = $this->file($this->targetYearId, 'Apres');
+        $this->service->apply($late, 'accept');
+
+        $rows = $this->pdo->query('SELECT registration_request_id FROM registration_decision_emails')
+            ->fetchAll(\PDO::FETCH_COLUMN);
+        $this->assertSame([$late->id], array_map('intval', $rows));
+    }
+
+    /**
+     * A request of a past scout year may still be closed from its fiche,
+     * but that is not a decision to announce on its own (R8): nothing is
+     * planned for it.
+     */
+    public function testADecisionOnAPastYearIsNeverPlanned(): void
+    {
+        $this->writeDecisionTemplates();
+        RegistrationTestHelper::enableAutomaticDecisionEmails($this->settings, 24);
+
+        $planned = $this->service->apply($this->file($this->pastYearId), 'refuse', 'other');
+
+        $this->assertNull($planned);
+        $this->assertSame([], $this->emailRows());
+        $this->assertNotNull($this->service->apply($this->file($this->currentYearId, 'Courante'), 'accept'));
+    }
+
+    /**
+     * The confirmation of a planned decision says when the e-mail leaves,
+     * from every path.
+     *
+     * @return array<string, array{string, ?string, int, string, string}>
+     */
+    public static function automaticConfirmationProvider(): array
+    {
+        $tail = " ; d'ici là, vous pouvez changer la décision sans que rien ne soit envoyé. ";
+
+        return [
+            'accepted from the list' => [
+                'accept', null, 1, 'list',
+                "Demande acceptée. L'e-mail d'acceptation partira le 13/10/2026 à 14:30" . $tail
+                    . 'La famille voit « en attente » jusque-là.',
+            ],
+            'refused on the fiche' => [
+                'refuse', 'no_room', 1, 'request_page',
+                "Demande refusée (Pas de place). L'e-mail de refus partira le 13/10/2026 à 14:30" . $tail
+                    . 'La famille voit « en attente » jusque-là.',
+            ],
+            'bulk refusal' => [
+                'refuse', 'other', 3, 'bulk',
+                '3 demandes refusées (Autre). Les e-mails de refus partiront vers le 13/10/2026 à 14:30' . $tail
+                    . 'Les familles voient « en attente » jusque-là.',
+            ],
+        ];
+    }
+
+    #[DataProvider('automaticConfirmationProvider')]
+    public function testTheConfirmationOfAPlannedDecisionSaysWhenItsEmailLeaves(
+        string $decision,
+        ?string $reason,
+        int $count,
+        string $from,
+        string $expected
+    ): void {
+        $this->writeDecisionTemplates();
+
+        $this->assertSame(
+            $expected,
+            $this->service->confirmation(
+                $decision,
+                $reason,
+                $count,
+                $from,
+                new \DateTimeImmutable('2026-10-13 14:30:00')
+            )
+        );
+    }
+
+    private function writeDecisionTemplates(): void
+    {
+        $this->content->set('registration_email_accepted_body', '<p>Bienvenue</p>', 'rich_text', 1);
+        $this->content->set('registration_email_refused_body', '<p>Désolés</p>', 'rich_text', 1);
+    }
+
+    /**
+     * @return array<int, array{decision: string, state: string, due_at: ?string}>
+     */
+    private function emailRows(): array
+    {
+        return $this->pdo->query('SELECT decision, state, due_at FROM registration_decision_emails ORDER BY id')
+            ->fetchAll(\PDO::FETCH_ASSOC);
+    }
 }

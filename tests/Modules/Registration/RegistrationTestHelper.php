@@ -40,6 +40,47 @@ class RegistrationTestHelper
         }
     }
 
+    /**
+     * Switches the automatic sending of the decision e-mails on (issue
+     * #843, IT-09) with a delay of $hours — its two settings registered
+     * from the manifest, as production does, and written the way the box
+     * writes them. A test that never calls this runs with it off, the
+     * default.
+     */
+    public static function enableAutomaticDecisionEmails(
+        \Core\Config\SettingService $settings,
+        int $hours = 24,
+        bool $enabled = true
+    ): void {
+        $manifest = json_decode(
+            (string) file_get_contents(dirname(__DIR__, 3) . '/modules/registration/module.json'),
+            true
+        );
+        $keys = [
+            \Modules\Registration\Service\AutomaticDecisionEmailService::SETTING_ENABLED,
+            \Modules\Registration\Service\AutomaticDecisionEmailService::SETTING_DELAY_HOURS,
+        ];
+        foreach (($manifest['settings'] ?? []) as $setting) {
+            if (in_array($setting['key'], $keys, true)) {
+                $settings->register(
+                    (string) $setting['key'],
+                    (string) $setting['default_value'],
+                    (string) $setting['type'],
+                    (string) $setting['label'],
+                    (string) $setting['description'],
+                    'registration',
+                    $setting['validation_regex'] ?? null,
+                    null,
+                    $setting['editable'] ?? true
+                );
+            }
+        }
+        $settings->setManyInternal([
+            $keys[0] => $enabled ? '1' : '0',
+            $keys[1] => (string) $hours,
+        ], 'registration');
+    }
+
     public static function createTables(\PDO $pdo): void
     {
         $pdo->exec('CREATE TABLE registration_requests (
@@ -410,6 +451,10 @@ class RegistrationTestHelper
      * it shows what the chief would read. The e-mail service is the
      * caller's, since a test decides whether its templates are written,
      * and so may the repository be, for a test that makes a write fail.
+     *
+     * The automatic sending (IT-09) reads its switch and delay from
+     * $settingService — off unless the test switched it on — and plans on
+     * the same `registration_decision_emails` table as the e-mail service.
      */
     public static function decisionService(
         \PDO $pdo,
@@ -419,6 +464,7 @@ class RegistrationTestHelper
         \Modules\Registration\Service\RequestEmailService $emailService,
         ?\Modules\Registration\Repository\RegistrationRequestRepository $requestRepository = null
     ): \Modules\Registration\Service\RequestDecisionService {
+        $journal = new \Core\Journal\JournalService(new \Core\Journal\JournalRepository($pdo));
         $requestRepository ??= new \Modules\Registration\Repository\RegistrationRequestRepository($pdo, $encryption);
         $scoutYearService = new \Core\Config\ScoutYearService($pdo);
         $scoutYearResolver = new \Core\ScoutYear\ScoutYearResolver(
@@ -441,7 +487,29 @@ class RegistrationTestHelper
             $emailService,
             $scoutYearService,
             $scoutYearResolver,
-            new \Core\Journal\JournalService(new \Core\Journal\JournalRepository($pdo))
+            $journal,
+            self::automaticDecisionEmails($pdo, $settingService, $emailService)
+        );
+    }
+
+    /**
+     * The automatic sending of the decision e-mails (issue #843, IT-09)
+     * over $settingService — the module's settings must be registered
+     * (registerManifestSettings()) for its switch and delay to be read and
+     * saved as in production.
+     */
+    public static function automaticDecisionEmails(
+        \PDO $pdo,
+        \Core\Config\SettingService $settingService,
+        \Modules\Registration\Service\RequestEmailService $emailService
+    ): \Modules\Registration\Service\AutomaticDecisionEmailService {
+        return new \Modules\Registration\Service\AutomaticDecisionEmailService(
+            $settingService,
+            $emailService,
+            new \Modules\Registration\Service\DecisionEmailService(
+                new \Modules\Registration\Repository\DecisionEmailRepository($pdo),
+                new \Core\Journal\JournalService(new \Core\Journal\JournalRepository($pdo))
+            )
         );
     }
 

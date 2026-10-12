@@ -813,13 +813,15 @@ class RegistrationConfigControllerTest extends TestCase
             // « Copie des e-mails d'inscription » (IT-06): the switch and
             // its address, one decision.
             '/config/inscriptions/copie',
+            // « Décisions automatiques » (IT-09): the switch and its delay.
+            '/config/inscriptions/decisions-automatiques',
         ];
         foreach ($forms as $action) {
             $form = $this->formHtml($body, $action);
             $this->assertSame(1, substr_count($form, 'type="submit"'), $action);
             $this->assertMatchesRegularExpression('/type="submit"[^>]*>\s*Enregistrer\s*</', $form, $action);
         }
-        $this->assertSame(5, preg_match_all('/>\s*Enregistrer\s*</', $body));
+        $this->assertSame(6, preg_match_all('/>\s*Enregistrer\s*</', $body));
     }
 
     /**
@@ -2132,5 +2134,141 @@ class RegistrationConfigControllerTest extends TestCase
 
         $this->assertSame('09-30', $this->settingService->get('registration_scheduled_open_at', 'registration'));
         $this->assertSame('08-31', $this->settingService->get('registration_scheduled_close_at', 'registration'));
+    }
+
+    // ── « Décisions automatiques » (issue #843, IT-09) ─────────────────
+
+    /**
+     * The first bordered sub-box of « Capacités par branche », right under
+     * the waitlist switch and above the thresholds: off by default, a
+     * delay of 24 hours, and the switch locked — with the mock-up's reason
+     * — while a decision template is « À rédiger ».
+     */
+    public function testTheAutomationSubBoxShowsItsDefaultsAndIsLockedWhileATemplateIsToWrite(): void
+    {
+        $body = $this->renderPage('settings');
+        $box = $this->formHtml($body, '/config/inscriptions/decisions-automatiques');
+
+        $capacityBox = strpos($body, 'id="registration-capacity-box"');
+        $this->assertNotFalse($capacityBox);
+        $subBox = strpos($body, 'decisions-automatiques');
+        $this->assertGreaterThan(strpos($body, 'id="waitlist_enabled"'), $subBox);
+        $this->assertLessThan(strpos($body, 'action="/config/inscriptions/seuils"'), $subBox);
+        $this->assertGreaterThan($capacityBox, $subBox);
+
+        $this->assertStringContainsString('>Décisions automatiques</h3>', $box);
+        $this->assertStringContainsString('>Envoyer automatiquement les e-mails de décision</label>', $box);
+        $this->assertMatchesRegularExpression('/<input[^>]+name="auto_send"[^>]*>/', $box);
+        $this->assertDoesNotMatchRegularExpression('/<input[^>]+name="auto_send"[^>]*\bchecked\b/', $box);
+        $this->assertMatchesRegularExpression('/<input[^>]+name="auto_send"[^>]*\bdisabled\b/', $box);
+        $this->assertStringContainsString(
+            "Indisponible : les gabarits d'acceptation et de refus ne sont pas encore rédigés",
+            $box
+        );
+        $this->assertMatchesRegularExpression(
+            '/<input[^>]+name="delay_hours"[^>]*value="24"[^>]*min="1"[^>]*max="720"/s',
+            $box
+        );
+        $this->assertStringContainsString('Délai avant envoi', $box);
+        $this->assertStringContainsString('name="_csrf_token"', $box);
+
+        $this->writeDecisionTemplates();
+        $ready = $this->formHtml($this->renderPage('settings'), '/config/inscriptions/decisions-automatiques');
+        $this->assertDoesNotMatchRegularExpression('/<input[^>]+name="auto_send"[^>]*\bdisabled\b/', $ready);
+        $this->assertStringNotContainsString('Indisponible', $ready);
+        $this->assertStringContainsString("L'e-mail d'acceptation ou de refus part après le délai ci-dessous", $ready);
+    }
+
+    /**
+     * Switched on, the switch shows checked with the stored delay — and
+     * stays usable even if a template went missing since, because
+     * switching off is always allowed.
+     */
+    public function testAnActiveSwitchShowsCheckedAndStaysUsableToSwitchOff(): void
+    {
+        RegistrationTestHelper::enableAutomaticDecisionEmails($this->settingService, 48);
+
+        $box = $this->formHtml($this->renderPage('settings'), '/config/inscriptions/decisions-automatiques');
+
+        $this->assertMatchesRegularExpression('/<input[^>]+name="auto_send"[^>]*\bchecked\b/', $box);
+        $this->assertDoesNotMatchRegularExpression('/<input[^>]+name="auto_send"[^>]*\bdisabled\b/', $box);
+        $this->assertMatchesRegularExpression('/<input[^>]+name="delay_hours"[^>]*value="48"/', $box);
+        $this->assertStringContainsString("Les gabarits d'acceptation et de refus ne sont plus tous rédigés", $box);
+        $this->assertStringNotContainsString('Indisponible', $box);
+    }
+
+    /**
+     * While the automatic sending is on, the dialog says WHEN each e-mail
+     * would leave if decided now — the mock-up's sentences — instead of
+     * « aucun e-mail ne part tout seul ».
+     */
+    public function testTheDialogSaysWhenTheEmailWouldLeaveWhileTheAutomaticSendingIsOn(): void
+    {
+        $id = $this->createRequest($this->targetYearId, 'Noa');
+        $this->writeDecisionTemplates();
+        RegistrationTestHelper::enableAutomaticDecisionEmails($this->settingService, 24);
+
+        $before = new \DateTimeImmutable('+24 hours');
+        $dialog = $this->dialogOf($this->renderPage('requests'), $id);
+        $after = new \DateTimeImmutable('+24 hours');
+
+        $this->assertMatchesRegularExpression(
+            "#Si vous acceptez : l'e-mail d'acceptation partira le (\d{2}/\d{2}/\d{4}) à \d{2}:\d{2}\. "
+                . "D'ici là, vous pouvez changer d'avis sans que rien ne soit envoyé\.#",
+            html_entity_decode($dialog, ENT_QUOTES)
+        );
+        preg_match('#partira le (\d{2}/\d{2}/\d{4})#', $dialog, $match);
+        $this->assertContains($match[1] ?? '', [$before->format('d/m/Y'), $after->format('d/m/Y')]);
+        $this->assertMatchesRegularExpression(
+            "#Si vous refusez : l'e-mail de refus partira le \d{2}/\d{2}/\d{4} à \d{2}:\d{2}\.#",
+            html_entity_decode($dialog, ENT_QUOTES)
+        );
+        $this->assertStringNotContainsString('ne part tout seul', $dialog);
+    }
+
+    /**
+     * « Tout refuser » with the automatic sending on plans one e-mail per
+     * refusal and says when they leave.
+     */
+    public function testBulkRefusalPlansEachEmailAndSaysWhenTheyLeave(): void
+    {
+        $first = $this->createRequest($this->targetYearId, 'A');
+        $second = $this->createRequest($this->targetYearId, 'B');
+        $this->writeDecisionTemplates();
+        RegistrationTestHelper::enableAutomaticDecisionEmails($this->settingService, 24);
+
+        $this->controller->bulkRefuse(new Request('POST', '/config/inscriptions/bulk/refuse', [], [
+            '_csrf_token' => CsrfGuard::generateToken(),
+            'scout_year_id' => (string) $this->targetYearId,
+            'refusal_reason' => 'other',
+        ], [], []), []);
+
+        $rows = $this->pdo->query(
+            "SELECT registration_request_id, decision, state FROM registration_decision_emails ORDER BY id"
+        )->fetchAll(\PDO::FETCH_ASSOC);
+        $this->assertSame(
+            [
+                ['registration_request_id' => $first, 'decision' => 'refused', 'state' => 'scheduled'],
+                ['registration_request_id' => $second, 'decision' => 'refused', 'state' => 'scheduled'],
+            ],
+            array_map(static fn(array $row): array => [
+                'registration_request_id' => (int) $row['registration_request_id'],
+                'decision' => $row['decision'],
+                'state' => $row['state'],
+            ], $rows)
+        );
+        $flash = FlashMessage::get();
+        $this->assertSame('success', $flash['type'] ?? null);
+        $this->assertMatchesRegularExpression(
+            '#^2 demandes refusées \(Autre\)\. Les e-mails de refus partiront vers le '
+                . '\d{2}/\d{2}/\d{4} à \d{2}:\d{2} ;#',
+            $flash['message'] ?? ''
+        );
+    }
+
+    private function writeDecisionTemplates(): void
+    {
+        $this->editableContentService->set('registration_email_accepted_body', '<p>Bienvenue</p>', 'rich_text', 1);
+        $this->editableContentService->set('registration_email_refused_body', '<p>Désolés</p>', 'rich_text', 1);
     }
 }

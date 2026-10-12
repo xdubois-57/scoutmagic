@@ -322,13 +322,14 @@ class RegistrationRequestController extends AbstractController
         string $decision,
         ?string $reason
     ): string {
-        $this->decisionService->apply($registrationRequest, $decision, $reason);
+        $plannedFor = $this->decisionService->apply($registrationRequest, $decision, $reason);
 
         return $this->decisionService->confirmation(
             $decision,
             $reason,
             1,
-            RequestDecisionService::FROM_REQUEST_PAGE
+            RequestDecisionService::FROM_REQUEST_PAGE,
+            $plannedFor
         );
     }
 
@@ -407,6 +408,10 @@ class RegistrationRequestController extends AbstractController
             // « E-mail de décision » (issue #843, IT-08): null while the
             // request holds no decision, and the block is then absent.
             'email_panel' => $this->emailService->panel($registrationRequest),
+            // Whether new decisions plan their e-mail (IT-09): what the
+            // block says under « Non planifié », « Prévu le … » and
+            // « Annulé … » depends on it.
+            'auto_send_enabled' => $this->decisionService->automaticSending()->isEnabled(),
             'linked_member_year_id' => $linkedMemberYearId,
             'csrf_token' => CsrfGuard::generateToken(),
         ];

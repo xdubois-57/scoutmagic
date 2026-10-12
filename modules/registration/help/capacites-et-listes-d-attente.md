@@ -9,7 +9,7 @@ question: Que règlent les seuils Oui et Peut-être ?
 question: Pourquoi une année de naissance est-elle annoncée complète ?
 question: Dans quel ordre les demandes en attente reçoivent-elles une place ?
 paths: /config/inscriptions, /config/inscriptions/reglages
-related: gerer-les-demandes, inscrire-un-enfant, previsions, reinscription
+related: envoi-automatique-des-e-mails-de-decision, gerer-les-demandes, inscrire-un-enfant, previsions, reinscription
 ---
 
 ## Les capacités

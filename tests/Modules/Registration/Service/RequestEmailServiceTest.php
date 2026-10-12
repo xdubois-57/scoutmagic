@@ -765,8 +765,8 @@ class RequestEmailServiceTest extends TestCase
         )->fetchAll(\PDO::FETCH_ASSOC);
         $this->assertSame(
             [
-                ['request_id' => $requestId, 'attempt' => 1, 'resend' => false],
-                ['request_id' => $requestId, 'attempt' => 2, 'resend' => true],
+                ['request_id' => $requestId, 'attempt' => 1, 'resend' => false, 'automatic' => false],
+                ['request_id' => $requestId, 'attempt' => 2, 'resend' => true, 'automatic' => false],
             ],
             array_map(static fn(array $row) => json_decode((string) $row['context'], true), $rows)
         );

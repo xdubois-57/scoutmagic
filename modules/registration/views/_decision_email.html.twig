@@ -9,7 +9,11 @@
    Controller\RequestDecisionEmailController; each asks first, since an
    e-mail that has left cannot be recalled (design.md §7.5).
 
-   Expects `panel` (DecisionEmailPanel) and `r` (the request). #}
+   Expects `panel` (DecisionEmailPanel), `r` (the request) and
+   `auto_send_enabled` — whether new decisions plan their e-mail (IT-09),
+   which is what the sentence under « Prévu le … », « Annulé … » and « Non
+   planifié » depends on: an e-mail planned before the automatic sending
+   was switched off still leaves at its due date. #}
 {% set _of_decision = panel.decision == 'refused' ? 'de refus' : "d'acceptation" %}
 {% set _child = r.childFirstName ~ ' ' ~ r.childLastName %}
 <div class="card mb-4">
@@ -47,6 +51,10 @@
                 {% endif %}
             {% elseif panel.state == 'template_missing' %}
                 Le corps de l'e-mail n'a pas encore été rédigé : rien ne peut partir. Rédigez-le dans <a href="/config/inscriptions/gabarits">Gabarits</a>.
+            {% elseif panel.state == 'scheduled' and not auto_send_enabled %}
+                L'envoi automatique est désormais désactivé, mais cet e-mail, planifié avant, partira quand même
+                à son échéance. « Envoyer maintenant » le fait partir tout de suite ; changer la décision d'ici là
+                annule cet envoi. La famille voit encore « en attente ».
             {% elseif panel.state == 'scheduled' %}
                 La famille voit encore « en attente ». Changer la décision d'ici là annule cet envoi.
             {% elseif panel.state == 'sending' %}
@@ -55,8 +63,18 @@
                 L'envoi lancé le {{ panel.at|datetime_fr }} a été interrompu avant d'aboutir : il n'est pas certain que la famille ait reçu cet e-mail. Elle voit toujours « en attente ».
             {% elseif panel.state == 'failed' %}
                 L'e-mail n'a pas pu être envoyé. La famille voit toujours « en attente ».
+            {% elseif panel.state == 'cancelled' and auto_send_enabled %}
+                {# With the automatic sending on, a change of decision plans the
+                   new e-mail at once (« Prévu le … »): this state is only
+                   reached by a decision that was not planned. #}
+                L'e-mail prévu pour la décision précédente ne partira pas, et aucun envoi n'est prévu pour la
+                nouvelle : seules les décisions prises depuis l'activation de l'envoi automatique, gabarit rédigé,
+                sont planifiées. Son e-mail s'envoie à la main ; d'ici là, la famille voit « en attente ».
             {% elseif panel.state == 'cancelled' %}
                 L'e-mail prévu pour la décision précédente ne partira pas. Celui de la nouvelle décision s'envoie à la main ; d'ici là, la famille voit « en attente ».
+            {% elseif auto_send_enabled %}
+                Aucun envoi n'est prévu pour cette décision : seules les décisions prises depuis l'activation de
+                l'envoi automatique, gabarit rédigé, sont planifiées. L'e-mail s'envoie à la main.
             {% else %}
                 L'envoi automatique est désactivé : l'e-mail s'envoie à la main.
             {% endif %}

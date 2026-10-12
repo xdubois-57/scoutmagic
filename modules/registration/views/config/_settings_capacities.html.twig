@@ -1,8 +1,8 @@
 {# « Capacités par branche » (issue #843, D3/D11): the waitlist switch,
-   then two bordered sub-boxes, each with its own « Enregistrer » — the
+   then three bordered sub-boxes, each with its own « Enregistrer » —
+   « Décisions automatiques » (_settings_automation.html.twig, IT-09), the
    thresholds of the recommendation and the public level, and the capacity
-   grid. (The « Décisions automatiques » sub-box comes with IT-09/IT-10.)
-   Requires `waitlist_enabled`, `level_thresholds`,
+   grid. Requires `automation`, `waitlist_enabled`, `level_thresholds`,
    `level_thresholds_unusable`, `threshold_min_percent`,
    `threshold_max_percent`, `default_capacity` and `capacity_rows`.
    Behaviour (the switch saved on change, the slider kept in step with the
@@ -43,6 +43,8 @@
                 s'enregistre dès que vous la cochez ou la décochez.
             </span>
         </div>
+
+        {% include '@registration/config/_settings_automation.html.twig' %}
 
         {# The thresholds stay on the page while waitlists are not
            managed: the fieldset is disabled, so nothing in it can be

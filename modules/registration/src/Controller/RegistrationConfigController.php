@@ -710,16 +710,22 @@ class RegistrationConfigController extends AbstractController
         }
 
         $count = 0;
+        // The latest due date the automatic sending planned (IT-09), for
+        // the confirmation; null when it planned nothing.
+        $plannedFor = null;
         foreach ($this->requestRepository->findNonFinalForYear($yearId) as $registrationRequest) {
             try {
                 if ($action === 'refuse') {
                     // The one door every decision takes (IT-08), as the
                     // dialog and the fiche do.
-                    $this->decisionService->apply(
+                    $planned = $this->decisionService->apply(
                         $registrationRequest,
                         RequestDecisionService::DECISION_REFUSE,
                         $reason
                     );
+                    $plannedFor = $planned !== null && ($plannedFor === null || $planned > $plannedFor)
+                        ? $planned
+                        : $plannedFor;
                 } else {
                     $this->statusService->withdraw($registrationRequest);
                 }
@@ -747,7 +753,8 @@ class RegistrationConfigController extends AbstractController
                 RequestDecisionService::DECISION_REFUSE,
                 $reason,
                 $count,
-                RequestDecisionService::FROM_BULK
+                RequestDecisionService::FROM_BULK,
+                $plannedFor
             )
             : $count . ' demande(s) traitée(s).');
         return $this->redirect(self::PATH_REQUESTS . '?year=' . $yearId);
@@ -853,6 +860,12 @@ class RegistrationConfigController extends AbstractController
             // added to a constructor several chantier iterations extend.
             // The box posts to RegistrationCopySettingsController.
             'email_copy' => (new FamilyEmailCopyService($this->settingService))->boxState(),
+
+            // « Décisions automatiques » (IT-09), the first sub-box of
+            // « Capacités par branche », read through the decision service
+            // that holds it (the planning lives in its apply()). The
+            // sub-box posts to RegistrationAutomationSettingsController.
+            'automation' => $this->decisionService->automaticSending()->boxState(),
         ];
     }
 

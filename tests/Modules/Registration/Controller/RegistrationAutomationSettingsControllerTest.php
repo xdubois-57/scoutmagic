@@ -1,0 +1,261 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Tests\Modules\Registration\Controller;
+
+use Core\Config\AppConfig;
+use Core\Config\SettingRepository;
+use Core\Config\SettingService;
+use Core\Http\FlashMessage;
+use Core\Http\FrontController;
+use Core\Http\Response;
+use Core\Http\Router;
+use Core\Journal\JournalRepository;
+use Core\Journal\JournalService;
+use Core\Mail\MailService;
+use Core\Security\AuthSession;
+use Core\Security\CsrfGuard;
+use Core\Security\EncryptionService;
+use Core\View\EditableContentRepository;
+use Core\View\EditableContentService;
+use Core\View\TwigFactory;
+use Modules\Registration\Controller\RegistrationAutomationSettingsController;
+use Modules\Registration\Repository\DecisionEmailRepository;
+use Modules\Registration\Repository\RegistrationRequestRepository;
+use Modules\Registration\Service\AutomaticDecisionEmailService;
+use Modules\Registration\Service\DecisionEmailService;
+use Modules\Registration\Service\RequestEmailService;
+use PHPUnit\Framework\TestCase;
+use Tests\DatabaseTestHelper;
+use Tests\Modules\Registration\RegistrationTestHelper;
+use Tests\RequestWithInput;
+use Twig\Environment;
+
+/**
+ * POST /config/inscriptions/decisions-automatiques — the « Décisions
+ * automatiques » sub-box of « Capacités par branche » (chantier #843, D7 /
+ * IT-09), through the module manifest's own router and the real front
+ * controller: the role boundary as declared (admin allowed, chief
+ * refused), the CSRF guard, and every refusal of the save — the switch on
+ * while a decision template is « À rédiger », an invalid delay — saving
+ * nothing.
+ */
+#[\PHPUnit\Framework\Attributes\Group('database')]
+class RegistrationAutomationSettingsControllerTest extends TestCase
+{
+    private const PATH = '/config/inscriptions/decisions-automatiques';
+
+    private \PDO $pdo;
+    private SettingService $settingService;
+    private EditableContentService $content;
+    private Environment $twig;
+    private RegistrationAutomationSettingsController $controller;
+
+    protected function setUp(): void
+    {
+        $this->pdo = DatabaseTestHelper::createTestDatabase();
+        RegistrationTestHelper::createTables($this->pdo);
+
+        $this->settingService = new SettingService(new SettingRepository($this->pdo));
+        RegistrationTestHelper::registerManifestSettings($this->settingService);
+
+        $journal = new JournalService(new JournalRepository($this->pdo));
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $emails = new DecisionEmailRepository($this->pdo);
+        $decisionEmails = new DecisionEmailService($emails, $journal);
+        $this->content = new EditableContentService(new EditableContentRepository($this->pdo));
+        $this->twig = TwigFactory::create(dirname(__DIR__, 4) . '/core/View/templates', false);
+        $this->controller = new RegistrationAutomationSettingsController(
+            $this->twig,
+            new AutomaticDecisionEmailService(
+                $this->settingService,
+                new RequestEmailService(
+                    new RegistrationRequestRepository($this->pdo, $encryption, null, $emails),
+                    $this->createStub(MailService::class),
+                    $this->content,
+                    $journal,
+                    'https://example.com',
+                    'Unité Test',
+                    $decisionEmails
+                ),
+                $decisionEmails
+            ),
+            $journal
+        );
+
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+        $_SESSION = [];
+    }
+
+    protected function tearDown(): void
+    {
+        AuthSession::logout();
+    }
+
+    public function testAdminSwitchesItOnWithADelayOnceBothTemplatesAreWritten(): void
+    {
+        AuthSession::login(1, 'admin@test.be', 'admin');
+        $this->writeTemplates();
+
+        $response = $this->post(['auto_send' => '1', 'delay_hours' => '48']);
+
+        $this->assertRedirectsToSettings($response);
+        $flash = FlashMessage::get();
+        $this->assertSame('success', $flash['type'] ?? null);
+        $this->assertStringStartsWith(
+            "Réglages enregistrés. Les e-mails d'acceptation et de refus partiront 48 h après chaque décision.",
+            $flash['message'] ?? ''
+        );
+        $this->assertSame('1', $this->stored(AutomaticDecisionEmailService::SETTING_ENABLED));
+        $this->assertSame('48', $this->stored(AutomaticDecisionEmailService::SETTING_DELAY_HOURS));
+
+        $statement = $this->pdo->prepare('SELECT context FROM event_log WHERE event_type = ?');
+        $statement->execute(['registration_decision_email_automation_saved']);
+        $this->assertSame(
+            ['enabled' => true, 'delay_hours' => 48],
+            json_decode((string) $statement->fetchColumn(), true)
+        );
+    }
+
+    /** One rung below the route's floor: refused, nothing saved. */
+    public function testOneRoleBelowIsRefused(): void
+    {
+        AuthSession::login(1, 'chief@test.be', 'chief');
+        $this->writeTemplates();
+
+        $response = $this->post(['auto_send' => '1', 'delay_hours' => '12']);
+
+        $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame('0', $this->stored(AutomaticDecisionEmailService::SETTING_ENABLED));
+        $this->assertSame('24', $this->stored(AutomaticDecisionEmailService::SETTING_DELAY_HOURS));
+    }
+
+    /** D7: impossible to switch on while a decision template is « À rédiger ». */
+    public function testSwitchingOnWithoutTheTemplatesIsRefusedAndSavesNothing(): void
+    {
+        AuthSession::login(1, 'admin@test.be', 'admin');
+        $this->content->set('registration_email_accepted_body', '<p>Bienvenue</p>', 'rich_text', 1);
+
+        $response = $this->post(['auto_send' => '1', 'delay_hours' => '12']);
+
+        $this->assertRedirectsToSettings($response);
+        $this->assertSame(
+            ['type' => 'error', 'message' => AutomaticDecisionEmailService::MESSAGE_TEMPLATES_MISSING],
+            FlashMessage::get()
+        );
+        $this->assertSame('0', $this->stored(AutomaticDecisionEmailService::SETTING_ENABLED));
+        $this->assertSame('24', $this->stored(AutomaticDecisionEmailService::SETTING_DELAY_HOURS));
+    }
+
+    public function testAnInvalidDelayIsRefusedAndSavesNothing(): void
+    {
+        AuthSession::login(1, 'admin@test.be', 'admin');
+        $this->writeTemplates();
+
+        $response = $this->post(['auto_send' => '1', 'delay_hours' => '0']);
+
+        $this->assertRedirectsToSettings($response);
+        $this->assertSame(
+            ['type' => 'error', 'message' => AutomaticDecisionEmailService::MESSAGE_DELAY_INVALID],
+            FlashMessage::get()
+        );
+        $this->assertSame('0', $this->stored(AutomaticDecisionEmailService::SETTING_ENABLED));
+    }
+
+    /** An unchecked switch is not posted: that is switching off. */
+    public function testAnUncheckedSwitchSwitchesOff(): void
+    {
+        AuthSession::login(1, 'admin@test.be', 'admin');
+        RegistrationTestHelper::enableAutomaticDecisionEmails($this->settingService, 24);
+
+        $response = $this->post(['delay_hours' => '24']);
+
+        $this->assertRedirectsToSettings($response);
+        $this->assertSame('success', FlashMessage::get()['type'] ?? null);
+        $this->assertSame('0', $this->stored(AutomaticDecisionEmailService::SETTING_ENABLED));
+    }
+
+    public function testAMissingTokenSavesNothing(): void
+    {
+        AuthSession::login(1, 'admin@test.be', 'admin');
+        $this->writeTemplates();
+
+        $response = $this->post(['auto_send' => '1', 'delay_hours' => '12'], withToken: false);
+
+        $this->assertRedirectsToSettings($response);
+        $this->assertSame('0', $this->stored(AutomaticDecisionEmailService::SETTING_ENABLED));
+    }
+
+    private function writeTemplates(): void
+    {
+        $this->content->set('registration_email_accepted_body', '<p>Bienvenue</p>', 'rich_text', 1);
+        $this->content->set('registration_email_refused_body', '<p>Désolés</p>', 'rich_text', 1);
+    }
+
+    /**
+     * @param array<string, string> $body
+     */
+    private function post(array $body, bool $withToken = true): Response
+    {
+        if ($withToken) {
+            $body['_csrf_token'] = CsrfGuard::generateToken();
+        }
+        $request = new RequestWithInput('POST', self::PATH, [], $body, [], []);
+
+        $router = $this->manifestRouter();
+        $resolved = $router->resolve($request);
+        $this->assertNotNull($resolved, 'the manifest declares POST ' . self::PATH);
+        $this->assertSame(RegistrationAutomationSettingsController::class, $resolved->controllerClass);
+        $this->assertSame('save', $resolved->action);
+
+        $configFile = sys_get_temp_dir() . '/test_registration_automation_' . uniqid() . '.php';
+        file_put_contents($configFile, "<?php\nreturn ['site_name' => 'Test', 'debug' => false];");
+        try {
+            $frontController = new FrontController($router, $this->twig, new AppConfig($configFile));
+            $frontController->registerController(RegistrationAutomationSettingsController::class, $this->controller);
+
+            return $frontController->handle($request);
+        } finally {
+            @unlink($configFile);
+        }
+    }
+
+    /** Every route of the module, as its manifest declares it. */
+    private function manifestRouter(): Router
+    {
+        $manifest = json_decode(
+            (string) file_get_contents(dirname(__DIR__, 4) . '/modules/registration/module.json'),
+            true,
+            512,
+            JSON_THROW_ON_ERROR
+        );
+        $router = new Router();
+        foreach ($manifest['routes'] as $route) {
+            $router->addRoute(
+                $route['method'],
+                $route['path'],
+                $route['controller'],
+                $route['action'],
+                $route['role_min'],
+                $route['breadcrumb'] ?? null,
+                'registration'
+            );
+        }
+
+        return $router;
+    }
+
+    private function stored(string $key): string
+    {
+        return (string) $this->settingService->get($key, 'registration', 'unset');
+    }
+
+    private function assertRedirectsToSettings(Response $response): void
+    {
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('/config/inscriptions/reglages', $response->getHeaders()['Location'] ?? null);
+    }
+}

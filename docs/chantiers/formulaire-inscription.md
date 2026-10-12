@@ -1496,3 +1496,219 @@ Complément d'IT-03, sur `main` en `6303f64c` (module 6.18.0).
   n'enregistre le nouveau jeton qu'après l'acceptation du message.
 - **R8** : inchangé — la fiche garde ses transitions sur une année passée
   (décision d'IT-04) ; `apply()` ne vérifie que ce que vérifie la transition.
+
+---
+
+## IT-09 — Envoi automatique des e-mails de décision
+
+**Livré.**
+
+- **Réglages › Capacités par branche › « Décisions automatiques »** : la
+  première sous-boîte bordée de la boîte, juste sous « Gérer les listes
+  d'attente » (`views/config/_settings_automation.html.twig`, incluse par
+  une ligne), avec son propre « Enregistrer » → `POST
+  /config/inscriptions/decisions-automatiques` (nouveau
+  `Controller\RegistrationAutomationSettingsController`, `role_min: admin`,
+  CSRF, journal `registration_decision_email_automation_saved` avec
+  l'interrupteur et le délai). L'interrupteur « Envoyer automatiquement
+  les e-mails de décision » (désactivé par défaut) et « Délai avant envoi »
+  (24 h par défaut, entier de 1 à 720) ; l'aide de la maquette ; tant que le
+  gabarit d'acceptation ou de refus est « À rédiger », l'interrupteur est
+  grisé avec la phrase « Indisponible : … (voir Gabarits) », et le serveur
+  refuse aussi l'activation (même définition qu'IT-07, lue par
+  `RequestEmailService::isAcceptedBodyReady()` / `isRefusedBodyReady()`).
+  Un délai invalide n'enregistre rien. La place de l'interrupteur d'IT-10
+  est marquée dans le gabarit (commentaire), sous le délai, avant le bouton.
+  Deux réglages neufs dans `module.json`, `editable: false` :
+  `registration_decision_email_auto_send` (`0`) et
+  `registration_decision_email_delay_hours` (`24`). Version 6.19.1 (prise sur `main` par #902 pendant cette itération) → 6.20.0.
+- **Planification** (`Service\AutomaticDecisionEmailService::plan()`),
+  appelée par `RequestDecisionService::apply()` — la porte unique d'IT-08 :
+  dialogue, fiche, « Tout refuser » — juste après la transition, **dans la
+  même transaction** : interrupteur actif et gabarit de la décision rédigé,
+  une ligne `scheduled` due à maintenant + délai
+  (`DecisionEmailService::scheduleDecision()`, le même `INSERT … SELECT`
+  conditionné au statut que l'envoi manuel). Le changement de décision a
+  déjà annulé l'ancienne ligne (`updateStatus()`, IT-05) : la nouvelle
+  attend toujours un délai complet. Rien ne parcourt les décisions
+  existantes : une décision prise avant l'activation n'est jamais planifiée.
+- **Tâche planifiée `send_decision_emails`** (`Task\SendDecisionEmailsHandler`,
+  déclarée dans `module.json`, amorcée par `seed()` dans
+  `public/scheduler-bootstrap.php` pour qu'un site réveillé par sa seule
+  crontab envoie aussi) : lit jusqu'à 20 envois échus, **quel que soit
+  l'interrupteur** (le désactiver n'annule rien), et confie chacun à
+  `RequestEmailService::sendScheduled()`, qui **réclame cette ligne-là par
+  son id** (`scheduled` → `sending`) avant tout, relit la demande après la
+  réclamation, puis suit le chemin d'un envoi manuel (`deliverAttempt()` : garde-fou du gabarit — un corps non
+  rédigé est un échec `body_not_written`, jamais un succès —, transport
+  avec la copie D9, issue consignée, jeton enregistré après succès
+  seulement, journal `automatic: true`). Une ligne prise entre-temps (par
+  « Envoyer maintenant » ou une autre passe) ou annulée est ignorée. La
+  passe journalise des comptes seulement (`registration_decision_emails_auto_sent`),
+  et se réarme dans un `finally` pour la plus proche échéance, jamais plus
+  d'une heure plus tard (le délai minimal), ou tout de suite après un lot
+  plein. **Un e-mail n'arrête jamais le lot** : une demande illisible ou
+  une erreur du transport qui n'est pas son refus est consignée sur sa
+  ligne (« rien n'est parti » avant le transport, « il n'est pas certain
+  que la famille ait reçu cet e-mail » pendant), journalisée
+  (`registration_decision_email_auto_send_error`, classe de l'erreur
+  seulement), et la passe continue.
+- **Fiche** : sous « Prévu le … », quand l'envoi automatique a été coupé
+  depuis : « L'envoi automatique est désormais désactivé, mais cet e-mail,
+  planifié avant, partira quand même à son échéance. « Envoyer
+  maintenant » le fait partir tout de suite ; … », avec « Envoyer
+  maintenant ». Sous « Non planifié » et « Annulé … » quand il est actif,
+  une phrase qui dit que seules les décisions prises depuis l'activation
+  (gabarit rédigé) sont planifiées ; coupé, les phrases d'IT-08 restent.
+- **Confirmation** : `emailOutcome()` gagne le cas automatique — « L'e-mail
+  d'acceptation partira le 13/10/2026 à 14:30 ; d'ici là, vous pouvez
+  changer la décision sans que rien ne soit envoyé. La famille voit « en
+  attente » jusque-là. », et « Les e-mails de refus partiront vers le … »
+  après « Tout refuser » (la plus tardive des échéances) ; `apply()` et
+  `decide()` renvoient l'échéance planifiée. Le dialogue de décision reprend
+  les phrases de la maquette (« Si vous acceptez : l'e-mail d'acceptation
+  partira le …. D'ici là, vous pouvez changer d'avis sans que rien ne soit
+  envoyé. », « Si vous refusez : l'e-mail de refus partira le …. »).
+- L'enregistrement de la sous-boîte répond avec les phrases de la
+  confirmation de la maquette : à partir de quand les e-mails partent, ou,
+  à la désactivation, que les N e-mails déjà planifiés partiront quand même
+  (ou échoueront tant que les gabarits manquent).
+- Composition : `public/index.php` (service, contrôleur, paramètre de
+  `RequestDecisionService`), `public/scheduler-bootstrap.php` (amorçage).
+- Documentation : `ARCHITECTURE.md` §8.36 (planification, tâche, reprise,
+  bloc), `specifications.md` §17.3 et §17.6, contenu RGPD par défaut et
+  consigne (c) du prompt (`RgpdContentService`) — l'e-mail peut désormais
+  partir sans geste du staff, après le délai ; nouveau sujet d'aide
+  `envoi-automatique-des-e-mails-de-decision` (quatre questions, Réglages) ;
+  `decider-une-demande`, `envoyer-l-e-mail-de-decision`,
+  `rediger-les-e-mails-de-demande` et `capacites-et-listes-d-attente` à jour.
+- Tests : `AutomaticDecisionEmailServiceTest` (défauts, activation refusée
+  sans gabarit, neuf délais invalides, bornes, désactivation toujours
+  permise, interrupteur gardé actif sans gabarit, confirmations, délai
+  stocké hors bornes, `plan()`),
+  `SendDecisionEmailsHandlerTest` (échéance de 24 h — rien une seconde
+  avant —, rotation du jeton et journal, annulation et reprogrammation avec
+  délai complet, gabarit absent → échec, échec SMTP, ligne réclamée par une
+  passe interrompue jamais renvoyée, envoi manuel entre-temps → ignoré,
+  décision incohérente jamais envoyée, demande illisible et erreur
+  inattendue du transport qui n'arrêtent pas le lot, interrupteur coupé →
+  l'envoi part, réarmement, lot plein), `SendDecisionEmailsHandlerOnMysqlTest` (MariaDB :
+  réclamation gagnée par une seule session, échéance comparée par le
+  serveur, deux passes sur deux sessions, **passe interrompue au milieu
+  d'un lot puis rejouée sans double envoi**, ligne laissée réclamée par une
+  passe tuée), `RegistrationAutomationSettingsControllerTest`
+  (routeur du vrai `module.json` : admin autorisé, chief refusé ; activation
+  sans gabarit, délai invalide, jeton), `RequestDecisionServiceTest`
+  (planification, décisions antérieures non planifiées, gabarit absent,
+  année passée, confirmations), `RegistrationRequestControllerTest` (fiche après
+  désactivation, décision planifiée puis changée, décision antérieure,
+  annulé avec l'envoi actif), `RegistrationConfigControllerTest` (sous-boîte,
+  six « Enregistrer », dialogue, « Tout refuser »), scénario de bout en bout
+  `registration-flow` (sous-boîte présente, désactivée, 24 h). Mutations
+  vérifiées : réclamation remplacée par `begin()`, échéance ignorée,
+  planification retirée, réclamation d'une ligne `sending` permise.
+
+**Décisions autonomes.**
+
+- **La tâche réclame la ligne échue elle-même, pas via `begin()`** —
+  donc pas via `sendAccepted()` / `sendRefused()`, qu'IT-08 avait gardés
+  pour elle. `begin()` crée une nouvelle tentative quand aucune ligne n'est
+  en jeu : si « Envoyer maintenant » avait envoyé l'e-mail prévu entre la
+  lecture des échéances et l'envoi, la tâche aurait envoyé un second
+  e-mail (un « renvoi »). `sendScheduled()` réclame l'id lu, et ignore la
+  ligne si la réclamation échoue (test). Les deux méthodes restent, utilisées
+  par les tests d'IT-05.
+- **Une décision dont le gabarit est « À rédiger » n'est pas planifiée**,
+  même interrupteur actif : un e-mail qui ne peut qu'échouer n'a rien à
+  faire dans la file, et la confirmation dit alors que le gabarit manque.
+  Le cas est rare (l'activation exige les deux gabarits, et l'éditeur
+  refuse un texte vide) ; une ligne déjà planifiée dont le gabarit
+  disparaît échoue à l'échéance, consignée `body_not_written`.
+- **Une passe interrompue ne renvoie jamais la ligne en cours** : elle
+  reste `sending` (on ne sait pas si elle est partie), la fiche la montre
+  « Envoi interrompu » avec « Réessayer » une fois périmée (règle d'IT-05 et
+  d'IT-08) ; la tâche ne la reprend pas d'elle-même.
+- **Fréquence** : poller qui se réarme à la plus proche échéance, au plus
+  une heure plus tard — le délai minimal étant d'une heure, un e-mail
+  planifié après une passe n'est jamais dû avant la suivante. Une passe par
+  heure au repos (comme `open_registration`), pas toutes les cinq minutes.
+- **Délai : entier de 1 à 720 heures.** La maquette accepte 0 (envoi
+  immédiat, qui retire le temps de corriger que le délai doit laisser) ; la
+  consigne dit « entier ≥ 1 ». La borne haute de 30 jours évite une valeur
+  absurde ; un délai stocké hors bornes se lit 24.
+- **La confirmation de la maquette (« Enregistrer les décisions
+  automatiques ? ») devient le message après l'enregistrement**, avec les
+  mêmes phrases : l'enregistrement de réglages n'est ni destructif ni un
+  envoi (design.md §7.5), et le nombre d'e-mails déjà planifiés est connu du
+  serveur. Une phrase de plus quand le délai change : les e-mails déjà
+  planifiés gardent leur échéance.
+- **Le champ du délai reste affiché et actif interrupteur coupé** (la
+  maquette le masque) : pas de JavaScript pour cette sous-boîte, et un
+  délai réglé avant l'activation est utile. L'interrupteur n'est grisé que
+  s'il est coupé et qu'un gabarit manque : le couper reste toujours
+  possible.
+- **Pas de planification pour une demande d'une année passée** : la fiche
+  peut encore clore une demande restée ouverte d'une année passée
+  (décision d'IT-04), mais ce n'est pas une décision à annoncer toute
+  seule (R8) ; son e-mail éventuel part à la main.
+- **Garder l'interrupteur actif reste permis** même si un gabarit a
+  disparu depuis (pour changer le délai) : seule l'activation exige les
+  deux gabarits ; la sous-boîte le signale, et les décisions de ce type ne
+  sont alors pas planifiées.
+- **Relecture `code-review` (high)** : corrigés — une erreur sur une ligne
+  (demande indéchiffrable) arrêtait tout le lot et réarmait la tâche en
+  boucle ; la vérification de la décision lisait la demande avant la
+  réclamation ; l'interrupteur actif ne pouvait plus être enregistré si un
+  gabarit disparaissait ; une décision sur une année passée était planifiée ;
+  la correspondance décision → gabarit était dupliquée
+  (`RequestEmailService::isBodyReady()`) ; le libellé d'année était relu à
+  chaque e-mail. Non retenus : la relance automatique d'un échec (hors du
+  document : « Réessayer » reste au staff, et le tableau de bord compte les
+  échecs dans « E-mails de décision à envoyer ») ; supprimer le poller
+  horaire au repos (il faudrait amorcer la chaîne depuis chaque décision,
+  sans filet si elle meurt) ; le coût d'un refus groupé (lectures mises en
+  cache, quatre requêtes par demande).
+- **Tâche amorcée dans `scheduler-bootstrap.php`**, pas avec les autres
+  pollers du module dans `index.php` : un e-mail dû à une famille doit
+  partir sur un site sans visite.
+- **Pas de nouveau paramètre au constructeur de `RegistrationConfigController`**
+  (seize, construit à la main par les tests) : la sous-boîte lit son état
+  par `RequestDecisionService::automaticSending()`, que le contrôleur tient
+  déjà.
+
+**Divergences avec le document.**
+
+- Vérifié sur `main` (`1fbb0a0e`, module 6.19.0) : six `scheduled_tasks`
+  (sept maintenant) ; `DecisionEmailService::schedule()`, `findDue()`,
+  `claim()` étaient prêts et sans appelant ; `emailOutcome()` avait deux cas ;
+  `RequestEmailService::sendAccepted()` / `sendRefused()` n'étaient appelés
+  que par des tests.
+- **« Un nouvel e-mail sera planifié pour la nouvelle décision. »** (état
+  « Annulé » de la maquette) : avec l'envoi automatique actif, le
+  changement de décision planifie le nouvel e-mail dans la même
+  transaction, si bien que le bloc affiche aussitôt « Prévu le … » (et
+  l'annulation dans l'historique) — c'est ce que la phrase promettait.
+  L'état « Annulé » ne se voit donc, interrupteur actif, que pour une
+  nouvelle décision **non** planifiée (prise avant l'activation) : y écrire
+  « sera planifié » serait faux. La phrase affichée dit qu'aucun envoi
+  n'est prévu pour la nouvelle décision et pourquoi.
+- La maquette n'a pas de texte pour « Prévu le … » après désactivation :
+  phrase écrite sur le modèle de sa confirmation de désactivation
+  (« … partira quand même à son échéance ; « Envoyer maintenant » … »).
+- RGPD : la page disait l'e-mail de décision « envoyé explicitement
+  (jamais automatiquement au moment de la décision) » — corrigé : il peut
+  partir automatiquement après le délai choisi, jamais au moment même.
+  Aucun flux sortant nouveau (même relais, même destinataire, même copie).
+
+**Reporté.** Rien. L'interrupteur « Accepter automatiquement les demandes
+« Oui » » et sa date sont IT-10 (place réservée dans la sous-boîte).
+
+**Faits tranchés.**
+
+- **R6** : la tâche passe par `deliverAttempt()`, qui n'enregistre le
+  nouveau jeton qu'après l'acceptation du message ; un gabarit absent ou un
+  échec SMTP laisse le lien précédent valable (tests de la tâche).
+- **R3** : toujours vrai — un e-mail planifié ne rend rien visible ; la
+  famille voit la décision à l'envoi effectif par la tâche (test).
+- **R8** : inchangé — la planification suit `apply()`, qui ne vérifie que
+  ce que vérifie la transition.

@@ -65,7 +65,7 @@ class RequestDecisionController extends AbstractController
         $noteShown = $request->getBody('internal_notes_shown');
 
         try {
-            $this->decisionService->decide(
+            $plannedFor = $this->decisionService->decide(
                 $registrationRequest,
                 $decision,
                 (string) $request->getBody('internal_notes', ''),
@@ -77,7 +77,14 @@ class RequestDecisionController extends AbstractController
             return $this->redirect($back);
         }
 
-        FlashMessage::set('success', $this->decisionService->confirmation($decision, $reason));
+        $confirmation = $this->decisionService->confirmation(
+            $decision,
+            $reason,
+            1,
+            RequestDecisionService::FROM_LIST,
+            $plannedFor
+        );
+        FlashMessage::set('success', $confirmation);
 
         return $this->redirect($back);
     }

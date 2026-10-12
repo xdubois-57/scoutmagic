@@ -999,5 +999,14 @@ function scoutmagicBootstrapScheduler(
         \Modules\Rental\Task\ExpireRentalHoldsHandler::bootstrap($schedulerService);
     }
 
+    // The automatic sending of registration decision e-mails (issue #843,
+    // IT-09). Seeded here rather than on the web path with the module's
+    // other pollers, because what it does is owed to a family at a due
+    // date: a site reached only by its crontab must send it too. The
+    // handler is auto-resolved from the manifest.
+    if (in_array('registration', $enabledModuleIds, true)) {
+        \Modules\Registration\Task\SendDecisionEmailsHandler::bootstrap($schedulerService);
+    }
+
     return $context;
 }

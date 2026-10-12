@@ -200,7 +200,7 @@
             </div>
         </div>
 
-        {% if email_panel %}{% include '@registration/_decision_email.html.twig' with { panel: email_panel, r: r } only %}{% endif %}
+        {% if email_panel %}{% include '@registration/_decision_email.html.twig' with { panel: email_panel, r: r, auto_send_enabled: auto_send_enabled } only %}{% endif %}
 
         {% if r.status != 'encoded' %}
             <div class="card mb-4">

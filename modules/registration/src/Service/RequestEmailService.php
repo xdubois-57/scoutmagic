@@ -19,8 +19,10 @@ use Modules\Registration\Repository\RegistrationRequest;
 use Modules\Registration\Repository\RegistrationRequestRepository;
 
 /**
- * Acceptance/refusal emails — always sent explicitly (module spec: never
- * automatically at a status change), never before their body has actually
+ * Acceptance/refusal emails — sent by hand from the fiche, or, when the
+ * automatic sending is on, at the due date planned when the decision was
+ * taken (issue #843, IT-09: sendScheduled(), called by Task\
+ * SendDecisionEmailsHandler) — never before their body has actually
  * been written (isAcceptedBodyReady()/isRefusedBodyReady() are the guard;
  * the fiche's « E-mail de décision » block shows « Gabarit à rédiger » and
  * no button on it — unlike the itération 4 receipt/unit-alert emails,
@@ -81,6 +83,17 @@ class RequestEmailService
 
     private const ACTION_REFUSED_UNKNOWN = "Action inconnue : rien n'a été envoyé.";
 
+    private const AUTOMATIC_NOT_STARTED_MESSAGE = "L'envoi automatique de cet e-mail n'a pas pu être lancé : rien "
+        . "n'est parti. « Réessayer » le relance.";
+
+    private const AUTOMATIC_INTERRUPTED_MESSAGE = "L'envoi automatique a été interrompu avant d'aboutir : il n'est "
+        . 'pas certain que la famille ait reçu cet e-mail.';
+
+    /** What sendScheduled() did with a due e-mail. */
+    public const SCHEDULED_SENT = 'sent';
+    public const SCHEDULED_FAILED = 'failed';
+    public const SCHEDULED_SKIPPED = 'skipped';
+
     public function __construct(
         private RegistrationRequestRepository $repository,
         private MailService $mailService,
@@ -104,6 +117,15 @@ class RequestEmailService
     public function isRefusedBodyReady(): bool
     {
         return $this->hasContent(self::REFUSED_KEY);
+    }
+
+    /**
+     * Whether the body of the $decision e-mail (DecisionEmail::DECISION_*)
+     * is written — false for an unknown decision.
+     */
+    public function isBodyReady(string $decision): bool
+    {
+        return isset(self::EMAILS[$decision]) && $this->hasContent(self::EMAILS[$decision]['key']);
     }
 
     /**
@@ -197,19 +219,144 @@ class RequestEmailService
     }
 
     /**
+     * The automatic sending of one scheduled e-mail that has come due
+     * (issue #843, IT-09) — what Task\SendDecisionEmailsHandler does for each
+     * row DecisionEmailService::findDue() returned. $yearLabel gives the
+     * label of a scout year by its id (the request's target year, which the
+     * e-mail names).
+     *
+     * **That very row is claimed first, by its id**, and nothing else is
+     * ever sent in its place: a row somebody else claimed meanwhile (a
+     * chief's « Envoyer maintenant », another scheduler pass) or cancelled
+     * (a change of decision) is SKIPPED. Going through begin() instead
+     * would have created a fresh attempt when the planned one was already
+     * gone — a second e-mail for a send that had just happened. A claimed
+     * row is never claimed again, so a pass interrupted after its claim
+     * resumes without sending it twice: the next pass does not see it.
+     *
+     * The request is read AFTER the claim, so the decision it is checked
+     * against is the one of that moment. Then the same path as a manual
+     * send: the template guard (a body not written is a FAILED attempt,
+     * never a success), the transport with the unit in copy (D9), the
+     * outcome recorded, the tracking token rotated after a success only
+     * (R6), journaled as automatic.
+     *
+     * **One e-mail never stops the others**: anything that goes wrong is
+     * recorded on that row and answered as FAILED, so the task moves on. A
+     * failure before the transport says nothing left; one during it says
+     * it is not certain whether the family received it — the fiche offers
+     * « Réessayer » either way, and nothing is resent on its own.
+     *
+     * @param callable(int): string $yearLabel
+     * @return string self::SCHEDULED_* — sent, failed (recorded on the
+     *         row), or skipped (not ours to send: claimed or cancelled by
+     *         somebody else, and left as it is)
+     */
+    public function sendScheduled(DecisionEmail $due, callable $yearLabel): string
+    {
+        if (!$this->decisionEmails->claim($due->id)) {
+            return self::SCHEDULED_SKIPPED;
+        }
+
+        try {
+            $request = $this->repository->findById($due->requestId);
+            // A claimed row still describes the request's decision — a
+            // change supersedes it in the same transaction as the status —
+            // so this only guards an inconsistent database: the e-mail of a
+            // decision the family no longer has is never sent, and the row
+            // is settled rather than left claimed.
+            if ($request === null || DecisionEmail::decisionForStatus($request->status) !== $due->decision) {
+                $this->decisionEmails->recordFailure(
+                    $due,
+                    DecisionEmail::FAILURE_INTERRUPTED,
+                    self::AUTOMATIC_NOT_STARTED_MESSAGE
+                );
+
+                // Recorded failed, so counted failed: the run's journal
+                // says what the rows say.
+                return self::SCHEDULED_FAILED;
+            }
+            $targetYearLabel = $yearLabel($request->scoutYearId);
+        } catch (\Throwable $e) {
+            $this->settleAutomaticError($due, self::AUTOMATIC_NOT_STARTED_MESSAGE, $e);
+
+            return self::SCHEDULED_FAILED;
+        }
+
+        try {
+            $this->deliverAttempt($request, $due->decision, $due, $targetYearLabel, true);
+        } catch (RegistrationException) {
+            // Recorded on the row by deliverAttempt(), and journaled.
+            return self::SCHEDULED_FAILED;
+        } catch (\Throwable $e) {
+            // Something other than the mail transport's own refusal, at an
+            // unknown point of the send: whether it left is not known. A
+            // row already recorded (sent, failed) is left as it is.
+            $this->settleAutomaticError($due, self::AUTOMATIC_INTERRUPTED_MESSAGE, $e);
+
+            return self::SCHEDULED_FAILED;
+        }
+
+        return self::SCHEDULED_SENT;
+    }
+
+    /**
+     * Records an automatic send that broke on something unexpected as
+     * failed, with a sentence for the staff, and journals the error's class
+     * — never its message, which may quote a family's data.
+     */
+    private function settleAutomaticError(DecisionEmail $due, string $message, \Throwable $error): void
+    {
+        try {
+            $this->decisionEmails->recordFailure($due, DecisionEmail::FAILURE_INTERRUPTED, $message);
+        } catch (\Throwable) {
+            // The row stays claimed and reads « Envoi interrompu » once
+            // stale (DecisionEmailPanel): still never resent on its own.
+        }
+
+        $this->journalService->log(
+            'registration',
+            'registration_decision_email_auto_send_error',
+            'warning',
+            "Erreur pendant l'envoi automatique d'un e-mail de décision",
+            ['email_id' => $due->id, 'request_id' => $due->requestId, 'error' => $error::class]
+        );
+    }
+
+    /**
      * One attempt, from the claim to its recorded outcome.
      *
      * @throws RegistrationException
      */
     private function deliver(RegistrationRequest $request, string $decision, string $targetYearLabel): void
     {
+        $this->deliverAttempt(
+            $request,
+            $decision,
+            $this->decisionEmails->begin($request, $decision),
+            $targetYearLabel,
+            false
+        );
+    }
+
+    /**
+     * Sends the $attempt its caller has claimed, and records its outcome.
+     *
+     * @throws RegistrationException when the body is not written or the
+     *         transport fails — both recorded as a failed attempt
+     */
+    private function deliverAttempt(
+        RegistrationRequest $request,
+        string $decision,
+        DecisionEmail $attempt,
+        string $targetYearLabel,
+        bool $automatic
+    ): void {
         $email = self::EMAILS[$decision];
-        $attempt = $this->decisionEmails->begin($request, $decision);
 
         // The guard D10 keeps: the template is checked on the claimed
         // attempt, so a send that cannot happen leaves a failed attempt
-        // behind — what the automatic sending will do too — and never a
-        // success.
+        // behind — the automatic sending included — and never a success.
         if (!$this->hasContent($email['key'])) {
             $this->decisionEmails->recordFailure($attempt, DecisionEmail::FAILURE_BODY_NOT_WRITTEN, $email['missing']);
 
@@ -250,7 +397,12 @@ class RequestEmailService
             $email['event'],
             'info',
             $email['journal'],
-            ['request_id' => $request->id, 'attempt' => $attempt->attempt, 'resend' => $attempt->isResend]
+            [
+                'request_id' => $request->id,
+                'attempt' => $attempt->attempt,
+                'resend' => $attempt->isResend,
+                'automatic' => $automatic,
+            ]
         );
         if (!$recorded) {
             $this->journalService->log(
