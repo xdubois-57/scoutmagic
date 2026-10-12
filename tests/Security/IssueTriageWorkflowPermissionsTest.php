@@ -2381,6 +2381,26 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
     }
 
     /**
+     * The offline shell test is part of the test suite, not an opt-in
+     * developer command that a green CI build could have skipped.
+     */
+    public function testProjectEffortShellWriterHonoursExistingValues(): void
+    {
+        $script = dirname(__DIR__, 2) . '/scripts/project-effort.test.sh';
+        self::assertFileExists($script);
+
+        $output = [];
+        $code = -1;
+        exec('bash ' . escapeshellarg($script) . ' 2>&1', $output, $code);
+
+        self::assertSame(
+            0,
+            $code,
+            "Project Effort shell tests failed:\n" . implode("\n", $output),
+        );
+    }
+
+    /**
      * The model can propose effort but must never hold the credential that
      * updates Projects. An issue body cannot choose a project or target issue.
      * This is asserted on both event-driven and nightly triage.
