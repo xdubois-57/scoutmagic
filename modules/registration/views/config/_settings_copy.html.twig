@@ -10,7 +10,7 @@
         {{ csrf_field()|raw }}
         <h2 class="h5 mb-3">Copie des e-mails d'inscription</h2>
         <div class="form-check form-switch mb-3">
-            <input class="form-check-input" type="checkbox" role="switch"
+            <input class="form-check-input" type="checkbox"
                    id="registration-cc-enabled" name="cc_enabled" value="1"
                    aria-describedby="registration-cc-enabled-help"
                    data-email-copy-switch
@@ -22,10 +22,10 @@
             </span>
         </div>
         {% if email_copy.enabled and not email_copy.resolvable %}
-            <div class="alert alert-warning small" role="status">
+            <output class="alert alert-warning small d-block" aria-live="polite">
                 Aucune adresse valide n'est disponible pour la copie : les e-mails aux familles partent sans copie.
                 Indiquez une adresse ci-dessous.
-            </div>
+            </output>
         {% endif %}
         {% include 'partials/form_field.html.twig' with {
             field_id: 'registration-cc-address',

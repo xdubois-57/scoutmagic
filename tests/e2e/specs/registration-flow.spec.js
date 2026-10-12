@@ -204,7 +204,7 @@ test('a family registers a child, follows the mailed tracking link, and the admi
     // ---------------------------------------------------------------
     await page.goto(SETTINGS_PATH, { waitUntil: 'domcontentloaded' });
     const copyBox = page.locator('form[action="/config/inscriptions/copie"]');
-    await expect(copyBox.getByRole('switch', { name: 'Mettre une adresse en copie' })).toBeChecked();
+    await expect(copyBox.getByRole('checkbox', { name: 'Mettre une adresse en copie' })).toBeChecked();
     await copyBox.getByLabel('Adresse e-mail en copie').fill(UNIT_COPY_EMAIL);
     await submitOnSettings(
         page,

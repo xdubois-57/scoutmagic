@@ -240,6 +240,8 @@ class RegistrationCopySettingsControllerTest extends TestCase
         $html = $this->renderBox(['enabled' => true, 'address' => '', 'unit_address' => '', 'resolvable' => false]);
 
         $this->assertStringContainsString('les e-mails aux familles partent sans copie', $html);
+        // Announced politely by a native live region, not a `role` on a div.
+        $this->assertMatchesRegularExpression('/<output[^>]*aria-live="polite"[^>]*>\s*Aucune adresse valide/', $html);
         $this->assertStringNotContainsString('placeholder=', $html);
     }
 
