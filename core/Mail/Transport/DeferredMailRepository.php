@@ -51,6 +51,7 @@ final class DeferredMailRepository
      *     replyTo: ?string, fromAddressOverride: ?string, fromNameOverride: ?string,
      *     extraHeaders: array<string, string>,
      *     vouchesForRecipient?: bool,
+     *     cc?: list<string>,
      *     attachments: array<int, array{name: string, content: string}>
      * } $payload
      */
@@ -355,6 +356,7 @@ final class DeferredMailRepository
          *     replyTo: ?string, fromAddressOverride: ?string, fromNameOverride: ?string,
          *     extraHeaders: array<string, string>,
          *     vouchesForRecipient?: bool,
+         *     cc?: list<string>,
          *     attachments: array<int, array{name: string, content: string}>
          * } $payload
          */

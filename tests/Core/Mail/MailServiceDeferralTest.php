@@ -206,6 +206,41 @@ class MailServiceDeferralTest extends TestCase
     }
 
     /**
+     * **The copy is part of the call, so it waits with it** (chantier
+     * #843, IT-06). A queued message that dropped its `Cc:` would drain
+     * tomorrow to the family alone, and the unit that asked to be told
+     * would never know it had not been.
+     */
+    public function testTheCopyAddressesAreQueuedWithTheMessage(): void
+    {
+        $this->serviceDeferring(MailLane::Transactional)->send(
+            to: 'parent@exemple.test',
+            subject: "Demande d'inscription reçue",
+            bodyHtml: '<p>Bonjour</p>',
+            bodyText: 'Bonjour',
+            cc: 'unite@exemple.test'
+        );
+
+        $queued = $this->repository->due(1, '2099-01-01 00:00:00');
+
+        $this->assertCount(1, $queued);
+        $this->assertSame(['unite@exemple.test'], $queued[0]->payload['cc'] ?? null);
+    }
+
+    /** And a message sent with no copy is queued with none. */
+    public function testAMessageWithoutACopyIsQueuedWithAnEmptyList(): void
+    {
+        $this->serviceDeferring(MailLane::Transactional)->send(
+            to: 'parent@exemple.test',
+            subject: 'Reçu de paiement',
+            bodyHtml: '<p>Bonjour</p>',
+            bodyText: 'Bonjour'
+        );
+
+        $this->assertSame([], $this->repository->due(1, '2099-01-01 00:00:00')[0]->payload['cc'] ?? null);
+    }
+
+    /**
      * **A real attachment is not valid UTF-8**, and `json_encode()`
      * refuses what is not. Stored raw, a PDF made the whole payload
      * encode to `false` — cast to `''`, encrypted and saved without a

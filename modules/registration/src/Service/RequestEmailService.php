@@ -69,7 +69,11 @@ class RequestEmailService
         private JournalService $journalService,
         private string $baseUrl,
         private string $siteName,
-        private DecisionEmailService $decisionEmails
+        private DecisionEmailService $decisionEmails,
+        // The unit in copy of both decision e-mails — manual send, retry
+        // and resend alike, all of which go through send() below
+        // (chantier #843, D9). Null is no copy.
+        private ?FamilyEmailCopyService $familyEmailCopy = null
     ) {
     }
 
@@ -229,7 +233,8 @@ class RequestEmailService
                 to: $request->email,
                 subject: $subject,
                 bodyHtml: $body,
-                bodyText: self::toPlainText($body)
+                bodyText: self::toPlainText($body),
+                cc: $this->familyEmailCopy?->copyAddress()
             );
         } catch (MailException $e) {
             // Nothing was written: the previous tracking link still works and

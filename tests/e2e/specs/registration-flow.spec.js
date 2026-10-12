@@ -43,6 +43,12 @@
 //      without opening anything, and every POST lands back on the
 //      sub-page its form lives on — which only a browser following the
 //      real redirect can show.
+//   7. The receipt goes out with the unit in copy (issue #843, D9): the
+//      box « Copie des e-mails d'inscription » on « Réglages » saves an
+//      address, and the message the family receives carries it in a `Cc:`
+//      header — which only the real message, read back from the mailbox,
+//      can show (PHPUnit sees a MailService double, or a PHPMailer object
+//      that was never assembled by the composition root's own wiring).
 //
 // ORDERING
 // ----------------------------------------------------------------------------
@@ -86,8 +92,8 @@ async function submitOnSettings(page, button, flash) {
 
 /**
  * Submits the « Capacités » sub-box of « Capacités par branche ». Its
- * button is scoped to the form: the page has three other « Enregistrer »
- * — the schedule's, the thresholds' and the priorities'.
+ * button is scoped to the form: the page has four other « Enregistrer »
+ * — the schedule's, the thresholds', the priorities' and the copy's.
  *
  * @param {import('@playwright/test').Page} page
  */
@@ -107,6 +113,7 @@ const FAMILY_STREET = 'Rue des Écureuils';
 const CHILD_FIRST_NAME = `Zoé${Date.now() % 100000}`;
 const CHILD_LAST_NAME = 'Verstraeten';
 const PREVIOUS_UNIT = '57e Unité Saint-Michel, Etterbeek';
+const UNIT_COPY_EMAIL = 'unite-copie@example.invalid';
 const DECISION_NOTE = 'Fratrie à confirmer par téléphone.';
 
 test('a family registers a child, follows the mailed tracking link, and the admin\'s decisions surface exactly when they should', async ({ page, browser }) => {
@@ -194,6 +201,21 @@ test('a family registers a child, follows the mailed tracking link, and the admi
     await expect(page.getByText('Sans limite', { exact: true }).first()).toBeVisible();
 
     // ---------------------------------------------------------------
+    // The unit in copy of what it writes to the family: on by default,
+    // and the address typed here is the one the receipt will carry.
+    // ---------------------------------------------------------------
+    await page.goto(SETTINGS_PATH, { waitUntil: 'domcontentloaded' });
+    const copyBox = page.locator('form[action="/config/inscriptions/copie"]');
+    await expect(copyBox.getByRole('checkbox', { name: 'Mettre une adresse en copie' })).toBeChecked();
+    await copyBox.getByLabel('Adresse e-mail en copie').fill(UNIT_COPY_EMAIL);
+    await submitOnSettings(
+        page,
+        copyBox.getByRole('button', { name: 'Enregistrer', exact: true }),
+        'Réglages enregistrés.',
+    );
+    await expect(copyBox.getByLabel('Adresse e-mail en copie')).toHaveValue(UNIT_COPY_EMAIL);
+
+    // ---------------------------------------------------------------
     // The family fills the public form — anonymous, own cookie jar,
     // consent refused: registering a child must need no non-essential
     // cookie.
@@ -272,6 +294,8 @@ test('a family registers a child, follows the mailed tracking link, and the admi
             (message) => message.to.includes(FAMILY_EMAIL) && message.text.includes(CHILD_FIRST_NAME),
             { description: `a registration receipt for ${CHILD_FIRST_NAME} addressed to ${FAMILY_EMAIL}` },
         );
+        expect(receipt.raw, 'the receipt carries the unit in copy, as saved on « Réglages »')
+            .toMatch(new RegExp(`^Cc:\\s*${UNIT_COPY_EMAIL.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*$`, 'mi'));
         const trackingUrl = linkFromMail(receipt, '/inscriptions/suivi/');
 
         await familyPage.goto(trackingUrl, { waitUntil: 'domcontentloaded' });

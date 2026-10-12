@@ -231,6 +231,33 @@ class DrainDeferredMailHandlerTest extends TestCase
     }
 
     /**
+     * **The copy survives the queue too** (chantier #843, IT-06). A
+     * message deferred with a `Cc:` must leave with it: replayed without,
+     * it would reach the family alone, and the unit that asked to be told
+     * would believe it had been.
+     */
+    public function testACopiedMessageIsReplayedWithItsCopy(): void
+    {
+        $this->queue(MailLane::Transactional, nextAttemptAt: $this->minutesAgo(5), cc: ['unite@exemple.test']);
+
+        $this->drain();
+
+        $this->assertCount(1, $this->sent);
+        $this->assertSame(['unite@exemple.test'], $this->sent[0]['cc']);
+    }
+
+    /** And a row queued before the key existed replays with no copy at all. */
+    public function testARowQueuedBeforeCopiesWereCarriedHasNone(): void
+    {
+        $this->queue(MailLane::Transactional, nextAttemptAt: $this->minutesAgo(5));
+
+        $this->drain();
+
+        $this->assertCount(1, $this->sent);
+        $this->assertSame([], $this->sent[0]['cc']);
+    }
+
+    /**
      * A replay the site declines is abandoned, not retried: every later
      * pass would decline identically until somebody lifts the suspension,
      * so walking the ladder would spend a day's attempts learning what is
@@ -404,7 +431,10 @@ class DrainDeferredMailHandlerTest extends TestCase
                 ?string $fromNameOverride = null,
                 array $extraHeaders = [],
                 MailPurpose $purpose = MailPurpose::Ordinary,
-                bool $vouchesForRecipient = false
+                bool $vouchesForRecipient = false,
+                ?string $bulkRunReference = null,
+                ?\Core\Mail\Feedback\Seed\SeedCopyContent $bulkCopy = null,
+                string|array|null $cc = null
             ): bool {
                 foreach ($attachments as $attachment) {
                     $this->temporaryPathsSeen[] = $attachment['path'];
@@ -428,6 +458,7 @@ class DrainDeferredMailHandlerTest extends TestCase
                     'subject' => $subject,
                     'purpose' => $purpose,
                     'vouches' => $vouchesForRecipient,
+                    'cc' => $cc,
                     'attachments' => $attachments,
                 ];
 
@@ -440,13 +471,15 @@ class DrainDeferredMailHandlerTest extends TestCase
 
     /**
      * @param array<int, array{name: string, content: string}> $attachments
+     * @param list<string>|null $cc
      */
     private function queue(
         MailLane $lane,
         string $nextAttemptAt,
         ?string $expiresAt = null,
         array $attachments = [],
-        ?bool $vouchesForRecipient = null
+        ?bool $vouchesForRecipient = null,
+        ?array $cc = null
     ): int {
         return $this->repository->add(
             $lane,
@@ -463,6 +496,8 @@ class DrainDeferredMailHandlerTest extends TestCase
                 // Null leaves the key out entirely, which is what a row
                 // queued before this key existed looks like.
                 ...($vouchesForRecipient === null ? [] : ['vouchesForRecipient' => $vouchesForRecipient]),
+                // Same: null is a row queued before copies were carried.
+                ...($cc === null ? [] : ['cc' => $cc]),
                 'attachments' => $attachments,
             ],
             'quota épuisé',

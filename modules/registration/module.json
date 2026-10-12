@@ -2,7 +2,7 @@
   "id": "registration",
   "name": "Inscriptions",
   "description": "Inscriptions, réinscriptions, passages de branche et départs.",
-  "version": "6.17.0",
+  "version": "6.18.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -273,6 +273,15 @@
       "method": "POST",
       "controller": "Modules\\Registration\\Controller\\RegistrationConfigController",
       "action": "savePriorities",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/config/inscriptions/copie",
+      "method": "POST",
+      "controller": "Modules\\Registration\\Controller\\RegistrationCopySettingsController",
+      "action": "save",
       "menu": "espace_admin",
       "role_min": "admin",
       "label": ""
@@ -889,6 +898,22 @@
       "type": "text",
       "label": "Adresse d'alerte de l'unité",
       "description": "Adresse email recevant une notification à chaque nouvelle demande d'inscription (prénom de l'enfant uniquement, jamais de coordonnées). Laisser vide pour désactiver cet envoi."
+    },
+    {
+      "key": "registration_email_cc_enabled",
+      "default_value": "1",
+      "type": "boolean",
+      "label": "Mettre une adresse en copie",
+      "description": "Quand actif, l'accusé de réception, l'e-mail d'acceptation et l'e-mail de refus envoyés à une famille partent avec une adresse de l'unité en copie (Cc), renvois compris. L'alerte à l'unité, les e-mails de réinscription et la confirmation d'une adresse de suivi n'en reçoivent jamais. Se règle dans l'encart « Copie des e-mails d'inscription » de la page Réglages du Formulaire d'inscription, qui l'enregistre avec l'adresse et refuse de l'activer sans adresse valide ; jamais modifié à la main.",
+      "editable": false
+    },
+    {
+      "key": "registration_email_cc_address",
+      "default_value": "",
+      "type": "email",
+      "label": "Adresse e-mail en copie",
+      "description": "Adresse mise en copie des e-mails envoyés aux familles quand « Mettre une adresse en copie » est actif. Laissée vide, c'est l'adresse par défaut de l'unité qui est utilisée : l'« Email de contact » des paramètres du site. Se règle dans l'encart « Copie des e-mails d'inscription » de la page Réglages du Formulaire d'inscription, qui vérifie l'adresse ; jamais modifié à la main.",
+      "editable": false
     },
     {
       "key": "registration_parcours_image_file_id",

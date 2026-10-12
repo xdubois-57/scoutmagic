@@ -790,7 +790,13 @@ contrôle d'accès délégué à l'unité ; (c) que la page de suivi de la famil
 qu'une fois l'email correspondant réellement envoyé, jamais au moment de la décision elle-même, et qu'après un
 changement de décision seul l'email de la nouvelle décision la rend visible ; (c bis) que l'historique de ces emails
 (dates, décision annoncée, catégorie d'un échec, jamais le texte renvoyé par le serveur d'envoi) est réservé au staff
-et supprimé avec la demande ; (d) que le
+et supprimé avec la demande ; (c ter) que
+l'accusé de réception et les emails d'acceptation et de refus partent par défaut avec une adresse de l'unité en
+copie visible (« Cc »), renvois compris — l'adresse de contact de l'unité ou une autre choisie par l'administrateur,
+qui peut aussi couper cette copie —, que cette adresse reçoit donc exactement ce que reçoit la famille (prénom de
+l'enfant, année scoute visée, adresse email de la famille, lien de suivi vers la vue minimale), et qu'aucun autre
+email du module n'est copié (ni l'alerte à l'unité, ni la réinscription, ni la confirmation d'une adresse de
+suivi) ; (d) que le
 rapprochement à l'import Desk (automatique) et le rapprochement manuel par numéro de tiers suivent tous deux
 exactement le même traitement, ne migrent jamais les données d'identité elles-mêmes (Desk reste la source faisant foi)
 mais reportent les adresses email secondaires confirmées sur la fiche du membre réel, et qu'un cas ambigu (plusieurs

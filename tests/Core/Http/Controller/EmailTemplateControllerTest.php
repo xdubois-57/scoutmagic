@@ -113,6 +113,7 @@ class EmailTemplateControllerTest extends TestCase
             /**
              * @param array<int, array{path: string, name: string}> $attachments
              * @param array<string, string> $extraHeaders
+             * @param string|list<string>|null $cc
              */
             public function send(
                 string $to,
@@ -127,7 +128,8 @@ class EmailTemplateControllerTest extends TestCase
                 \Core\Mail\MailPurpose $purpose = \Core\Mail\MailPurpose::Ordinary,
                 bool $vouchesForRecipient = false,
                 ?string $bulkRunReference = null,
-                ?\Core\Mail\Feedback\Seed\SeedCopyContent $bulkCopy = null
+                ?\Core\Mail\Feedback\Seed\SeedCopyContent $bulkCopy = null,
+                string|array|null $cc = null
             ): void {
                 $this->sent[] = ['to' => $to, 'subject' => $subject, 'html' => $bodyHtml, 'text' => $bodyText];
             }

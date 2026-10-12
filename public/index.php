@@ -11263,6 +11263,15 @@ if ($isEnabled('registration')) {
         $registrationForecastService,
         $registrationReenrollmentRepository,
     );
+    // « Copie des e-mails d'inscription » (chantier #843, IT-06): the unit
+    // in copy of the receipt, the acceptance and the refusal — shared by
+    // the two services that send them and the controller that saves the
+    // box (the page rendering the box reads it through its own instance,
+    // see RegistrationConfigController::buildSettingsContext()).
+    $registrationFamilyEmailCopy = new \Modules\Registration\Service\FamilyEmailCopyService(
+        $settingService,
+        $journalService
+    );
     $registrationService = new \Modules\Registration\Service\RegistrationService(
         $registrationRequestRepo,
         $registrationYearCodeRepo,
@@ -11273,7 +11282,8 @@ if ($isEnabled('registration')) {
         $editableContentService,
         $journalService,
         $registrationBaseUrl,
-        $registrationSiteName
+        $registrationSiteName,
+        $registrationFamilyEmailCopy
     );
     $registrationSecondaryEmailService = new \Modules\Registration\Service\SecondaryEmailService(
         $registrationSecondaryEmailRepo,
@@ -11319,6 +11329,7 @@ if ($isEnabled('registration')) {
         $registrationBaseUrl,
         $registrationSiteName,
         new \Modules\Registration\Service\DecisionEmailService($registrationDecisionEmailRepo, $journalService),
+        $registrationFamilyEmailCopy,
     );
     // Issue #843 (IT-04): the « Action rapide » column of « Demandes » and
     // its decision dialog — the recommendation's first reader.
@@ -11398,6 +11409,14 @@ if ($isEnabled('registration')) {
             $twig,
             $registrationRequestRepo,
             $registrationDecisionService
+        )
+    );
+    $frontController->registerController(
+        \Modules\Registration\Controller\RegistrationCopySettingsController::class,
+        new \Modules\Registration\Controller\RegistrationCopySettingsController(
+            $twig,
+            $registrationFamilyEmailCopy,
+            $journalService
         )
     );
     $frontController->registerController(
