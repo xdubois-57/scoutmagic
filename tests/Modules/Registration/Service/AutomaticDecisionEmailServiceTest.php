@@ -15,6 +15,7 @@ use Core\View\EditableContentService;
 use Modules\Registration\Repository\DecisionEmail;
 use Modules\Registration\Repository\DecisionEmailRepository;
 use Modules\Registration\Repository\RegistrationRequestRepository;
+use Modules\Registration\Service\AutomaticAcceptancePolicy;
 use Modules\Registration\Service\AutomaticDecisionEmailService;
 use Modules\Registration\Service\DecisionEmailService;
 use Modules\Registration\Service\RegistrationException;
@@ -35,6 +36,7 @@ use Tests\Modules\Registration\RegistrationTestHelper;
 class AutomaticDecisionEmailServiceTest extends TestCase
 {
     private \PDO $pdo;
+    private EncryptionService $encryption;
     private SettingService $settings;
     private EditableContentService $content;
     private RegistrationRequestRepository $requests;
@@ -47,6 +49,7 @@ class AutomaticDecisionEmailServiceTest extends TestCase
         $this->pdo = DatabaseTestHelper::createTestDatabase();
         RegistrationTestHelper::createTables($this->pdo);
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $this->encryption = $encryption;
 
         // From the manifest, as production registers them: the defaults
         // under test are module.json's own.
@@ -69,6 +72,22 @@ class AutomaticDecisionEmailServiceTest extends TestCase
         );
         $this->service = new AutomaticDecisionEmailService($this->settings, $emailService, $this->decisionEmails);
         $this->yearId = RegistrationTestHelper::insertScoutYear($this->pdo, '2027-2028', '2027-09-01', '2028-08-31');
+    }
+
+    /**
+     * Saves the pair the way the sub-box does — through
+     * AutomaticAcceptancePolicy::save(), which writes it with the automatic
+     * acceptance (IT-10), left off here.
+     */
+    private function save(bool $enabled, ?string $delay): string
+    {
+        $policy = new AutomaticAcceptancePolicy(
+            $this->settings,
+            RegistrationTestHelper::slotService($this->pdo, $this->encryption, $this->settings),
+            $this->service
+        );
+
+        return $policy->save($enabled, $delay, false, null);
     }
 
     public function testOffByDefaultWithADelayOfTwentyFourHoursAndNeitherSettingOnTheParametersPage(): void
@@ -103,7 +122,7 @@ class AutomaticDecisionEmailServiceTest extends TestCase
         $this->content->set('registration_email_refused_body', '<p>&nbsp;</p>', 'rich_text', 1);
 
         try {
-            $this->service->save(true, '12');
+            $this->save(true, '12');
             $this->fail('Switching on without the refusal template must be refused.');
         } catch (RegistrationException $e) {
             $this->assertSame(AutomaticDecisionEmailService::MESSAGE_TEMPLATES_MISSING, $e->getMessage());
@@ -121,10 +140,10 @@ class AutomaticDecisionEmailServiceTest extends TestCase
     public function testAnActiveSwitchCanBeKeptOnWhenATemplateWentMissingSince(): void
     {
         $this->writeTemplates();
-        $this->service->save(true, '24');
+        $this->save(true, '24');
         $this->content->set('registration_email_refused_body', '<p>&nbsp;</p>', 'rich_text', 1);
 
-        $this->service->save(true, '48');
+        $this->save(true, '48');
 
         $this->assertTrue($this->service->isEnabled());
         $this->assertSame(48, $this->service->delayHours());
@@ -137,7 +156,7 @@ class AutomaticDecisionEmailServiceTest extends TestCase
     {
         $this->writeTemplates();
 
-        $message = $this->service->save(true, ' 12 ');
+        $message = $this->save(true, ' 12 ');
 
         $this->assertTrue($this->service->isEnabled());
         $this->assertSame(12, $this->service->delayHours());
@@ -174,7 +193,7 @@ class AutomaticDecisionEmailServiceTest extends TestCase
         $this->writeTemplates();
 
         try {
-            $this->service->save(true, $delay);
+            $this->save(true, $delay);
             $this->fail("The delay « {$delay} » must be refused.");
         } catch (RegistrationException $e) {
             $this->assertSame(AutomaticDecisionEmailService::MESSAGE_DELAY_INVALID, $e->getMessage());
@@ -188,9 +207,9 @@ class AutomaticDecisionEmailServiceTest extends TestCase
     {
         $this->writeTemplates();
 
-        $this->service->save(true, '1');
+        $this->save(true, '1');
         $this->assertSame(1, $this->service->delayHours());
-        $this->service->save(true, '720');
+        $this->save(true, '720');
         $this->assertSame(720, $this->service->delayHours());
     }
 
@@ -202,7 +221,7 @@ class AutomaticDecisionEmailServiceTest extends TestCase
     {
         RegistrationTestHelper::enableAutomaticDecisionEmails($this->settings, 36);
 
-        $message = $this->service->save(false, null);
+        $message = $this->save(false, null);
 
         $this->assertFalse($this->service->isEnabled());
         $this->assertSame(36, $this->service->delayHours());
@@ -221,11 +240,11 @@ class AutomaticDecisionEmailServiceTest extends TestCase
     public function testSwitchingOffWarnsThatThePlannedEmailsStillLeave(): void
     {
         $this->writeTemplates();
-        $this->service->save(true, '24');
+        $this->save(true, '24');
         $this->service->plan($this->acceptedRequest('Un'), DecisionEmail::DECISION_ACCEPTED);
         $this->service->plan($this->acceptedRequest('Deux'), DecisionEmail::DECISION_ACCEPTED);
 
-        $message = $this->service->save(false, '24');
+        $message = $this->save(false, '24');
 
         $this->assertSame(2, $this->decisionEmails->countScheduled());
         $this->assertSame(
@@ -240,17 +259,17 @@ class AutomaticDecisionEmailServiceTest extends TestCase
         $this->content->set('registration_email_refused_body', '<p>&nbsp;</p>', 'rich_text', 1);
         $this->assertStringContainsString(
             "les 2 e-mails déjà planifiés restent prévus, mais leur envoi échouera tant que les gabarits",
-            $this->service->save(false, '24')
+            $this->save(false, '24')
         );
     }
 
     public function testChangingTheDelayLeavesThePlannedEmailsTheirDueDate(): void
     {
         $this->writeTemplates();
-        $this->service->save(true, '24');
+        $this->save(true, '24');
         $planned = $this->service->plan($this->acceptedRequest(), DecisionEmail::DECISION_ACCEPTED);
 
-        $message = $this->service->save(true, '48');
+        $message = $this->save(true, '48');
 
         $this->assertStringEndsWith(" L'e-mail déjà planifié garde son échéance.", $message);
         $this->assertEquals($planned?->dueAt, $this->decisionEmails->history($planned->requestId)[0]->dueAt);
@@ -269,7 +288,7 @@ class AutomaticDecisionEmailServiceTest extends TestCase
         $this->assertNull($this->service->plan($request, DecisionEmail::DECISION_ACCEPTED, $decidedAt));
         $this->assertSame(0, $this->decisionEmails->countScheduled());
 
-        $this->service->save(true, '24');
+        $this->save(true, '24');
         $planned = $this->service->plan($request, DecisionEmail::DECISION_ACCEPTED, $decidedAt);
 
         $this->assertNotNull($planned);

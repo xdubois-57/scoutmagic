@@ -740,6 +740,72 @@ class RequestDecisionServiceTest extends TestCase
         );
     }
 
+    /**
+     * IT-10: while the automatic acceptance runs, the dialog knows which
+     * requests it would take at its next pass — the pass's own rule — and
+     * none filed before its date of effect.
+     */
+    public function testTheDialogSaysWhichRequestsTheAutomaticAcceptanceWouldTake(): void
+    {
+        $this->writeDecisionTemplates();
+        RegistrationTestHelper::enableAutomaticDecisionEmails($this->settings, 24);
+        RegistrationTestHelper::enableAutomaticAcceptance($this->settings, '2026-01-01');
+        $first = $this->file($this->targetYearId);
+        $second = $this->file($this->targetYearId, 'Noa', '2020-03-03');
+
+        $context = $this->service->dialogContext($this->targetYearId);
+
+        $this->assertTrue($context['auto_accept']);
+        $this->assertEqualsCanonicalizing([$first->id, $second->id], $context['auto_accept_ids']);
+
+        $tomorrow = (new \DateTimeImmutable('+1 day'))->format('Y-m-d');
+        RegistrationTestHelper::enableAutomaticAcceptance($this->settings, $tomorrow);
+        $later = $this->service->dialogContext($this->targetYearId);
+        $this->assertTrue($later['auto_accept']);
+        $this->assertSame([], $later['auto_accept_ids']);
+    }
+
+    /** Off, or without one of its prerequisites, the dialog says nothing of it. */
+    public function testTheDialogSaysNothingOfTheAutomaticAcceptanceWhileItDoesNotRun(): void
+    {
+        $this->writeDecisionTemplates();
+        RegistrationTestHelper::enableAutomaticAcceptance($this->settings, '2026-01-01');
+        $this->file($this->targetYearId);
+
+        // The automatic sending is off: the acceptance cannot run.
+        $context = $this->service->dialogContext($this->targetYearId);
+
+        $this->assertFalse($context['auto_accept']);
+        $this->assertSame([], $context['auto_accept_ids']);
+    }
+
+    /**
+     * IT-10: an automatic acceptance takes the same door, and its status
+     * change says it was automatic; a refusal is never automatic.
+     */
+    public function testAnAutomaticAcceptanceIsJournaledAsSuchAndARefusalCannotBeAutomatic(): void
+    {
+        $request = $this->file($this->targetYearId);
+        $other = $this->file($this->targetYearId, 'Noa', '2020-03-03');
+
+        $this->service->apply($request, RequestDecisionService::DECISION_ACCEPT, null, true);
+
+        $this->assertSame('accepted', $this->requests->findById($request->id)?->status);
+        $entry = array_values(array_filter(
+            $this->journal(),
+            static fn(array $row): bool => $row['event_type'] === 'registration_request_status_changed'
+        ))[0];
+        $this->assertStringEndsWith('(acceptation automatique)', $entry['description']);
+        $this->assertTrue(json_decode($entry['context'], true)['automatic'] ?? false);
+
+        try {
+            $this->service->apply($other, RequestDecisionService::DECISION_REFUSE, 'no_room', true);
+            $this->fail('A refusal is never automatic.');
+        } catch (\LogicException) {
+            $this->assertSame('pending', $this->requests->findById($other->id)?->status);
+        }
+    }
+
     private function writeDecisionTemplates(): void
     {
         $this->content->set('registration_email_accepted_body', '<p>Bienvenue</p>', 'rich_text', 1);

@@ -11333,6 +11333,15 @@ if ($isEnabled('registration')) {
         $registrationEmailService,
         $registrationDecisionEmailService
     );
+    // Issue #843 (IT-10): the automatic acceptance of the « Oui » requests —
+    // its switch and date, set in the same sub-box, and the rules the
+    // decision dialog announces; the pass itself is Task\
+    // AutoAcceptRequestsHandler (seeded in public/scheduler-bootstrap.php).
+    $registrationAutomaticAcceptance = new \Modules\Registration\Service\AutomaticAcceptancePolicy(
+        $settingService,
+        $registrationSlotService,
+        $registrationAutomaticEmails
+    );
     // Issue #843 (IT-04): the « Action rapide » column of « Demandes » and
     // its decision dialog — the recommendation's first reader.
     $registrationDecisionService = new \Modules\Registration\Service\RequestDecisionService(
@@ -11350,7 +11359,8 @@ if ($isEnabled('registration')) {
         $scoutYearService,
         $scoutYearResolver,
         $journalService,
-        $registrationAutomaticEmails
+        $registrationAutomaticEmails,
+        $registrationAutomaticAcceptance
     );
     $registrationMigrationService = new \Modules\Registration\Service\MigrationService(
         $pdo,
@@ -11427,7 +11437,8 @@ if ($isEnabled('registration')) {
         new \Modules\Registration\Controller\RegistrationAutomationSettingsController(
             $twig,
             $registrationAutomaticEmails,
-            $journalService
+            $journalService,
+            $registrationAutomaticAcceptance
         )
     );
     $frontController->registerController(

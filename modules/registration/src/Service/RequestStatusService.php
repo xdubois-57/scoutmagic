@@ -56,9 +56,15 @@ class RequestStatusService
     ) {
     }
 
-    public function accept(RegistrationRequest $request): void
+    /**
+     * $automatic marks an acceptance taken by the site itself — the
+     * automatic acceptance of the « Oui » requests (issue #843, IT-10) —
+     * rather than by a member of the staff: the journal entry says so, and
+     * nothing else differs.
+     */
+    public function accept(RegistrationRequest $request, bool $automatic = false): void
     {
-        $this->transition($request, RegistrationRequest::STATUS_ACCEPTED);
+        $this->transition($request, RegistrationRequest::STATUS_ACCEPTED, null, $automatic);
     }
 
     /**
@@ -105,8 +111,12 @@ class RequestStatusService
      * @throws RegistrationException when $request's current status cannot
      *         reach $newStatus manually
      */
-    private function transition(RegistrationRequest $request, string $newStatus, ?string $refusalReason = null): void
-    {
+    private function transition(
+        RegistrationRequest $request,
+        string $newStatus,
+        ?string $refusalReason = null,
+        bool $automatic = false
+    ): void {
         $allowed = self::ALLOWED_TRANSITIONS[$request->status] ?? [];
         if (!in_array($newStatus, $allowed, true)) {
             throw new RegistrationException("Transition invalide : « {$request->status} » vers « {$newStatus} ».");
@@ -127,11 +137,17 @@ class RequestStatusService
         if ($cancelledEmails > 0) {
             $context['decision_emails_cancelled'] = $cancelledEmails;
         }
+        // Taken by the site, not by a member of the staff (IT-10): an audit
+        // must tell the two apart without reading anything else.
+        if ($automatic) {
+            $context['automatic'] = true;
+        }
         $this->journalService->log(
             'registration',
             'registration_request_status_changed',
             'info',
-            "Statut de la demande d'inscription changé : « {$request->status} » vers « {$newStatus} »",
+            "Statut de la demande d'inscription changé : « {$request->status} » vers « {$newStatus} »"
+                . ($automatic ? ' (acceptation automatique)' : ''),
             $context
         );
     }

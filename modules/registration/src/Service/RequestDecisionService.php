@@ -43,6 +43,12 @@ use Modules\Registration\Repository\RegistrationRequestRepository;
  *
  * confirmation() writes what every one of those paths says afterwards,
  * which answers « un e-mail va-t-il partir ? » (D8).
+ *
+ * The automatic acceptance of the « Oui » requests (IT-10,
+ * Service\AutomaticAcceptanceService) takes its decisions through apply()
+ * as well — no parallel path —, flagged `automatic` for the journal; the
+ * rules that decide which requests it may take are
+ * Service\AutomaticAcceptancePolicy's, which the dialog reads to say so.
  */
 class RequestDecisionService
 {
@@ -74,8 +80,18 @@ class RequestDecisionService
         private ScoutYearService $scoutYearService,
         private ScoutYearResolver $scoutYearResolver,
         private JournalService $journalService,
-        private AutomaticDecisionEmailService $automaticEmails
+        private AutomaticDecisionEmailService $automaticEmails,
+        private AutomaticAcceptancePolicy $automaticAcceptance
     ) {
+    }
+
+    /**
+     * The automatic acceptance of the « Oui » requests (IT-10) — its switch,
+     * its date of effect and the rules it accepts by.
+     */
+    public function automaticAcceptance(): AutomaticAcceptancePolicy
+    {
+        return $this->automaticAcceptance;
     }
 
     /**
@@ -100,6 +116,13 @@ class RequestDecisionService
      * automatic sending is off (IT-09): what the dialog's last sentences
      * are about.
      *
+     * `auto_accept` says whether the automatic acceptance of the « Oui »
+     * requests is running (IT-10), and `auto_accept_ids` which of the
+     * year's requests it would take at its next pass if nobody decides
+     * first — the same rule as the pass itself
+     * (AutomaticAcceptancePolicy::acceptableRequestIds()), so the dialog
+     * never announces an acceptance the pass would not make.
+     *
      * $anyPendingShown false — the list, filtered, shows no pending request,
      * hence no dialog — spares the whole year's queue, which decrypts every
      * pending request's birth date.
@@ -111,20 +134,25 @@ class RequestDecisionService
      *   accepted_email_ready: bool,
      *   refused_email_ready: bool,
      *   accepted_auto_send_at: ?\DateTimeImmutable,
-     *   refused_auto_send_at: ?\DateTimeImmutable
+     *   refused_auto_send_at: ?\DateTimeImmutable,
+     *   auto_accept: bool,
+     *   auto_accept_ids: array<int, int>
      * }
      */
     public function dialogContext(int $scoutYearId, bool $anyPendingShown = true): array
     {
         $decidable = $this->isDecidableYear($scoutYearId);
         $showRecommendation = $decidable && $this->recommendationService->isAvailableForYear($scoutYearId);
+        $recommendations = $showRecommendation && $anyPendingShown
+            ? $this->recommendationService->forYear($scoutYearId)
+            : [];
+        $autoAccept = $showRecommendation && $this->automaticAcceptance->isActive();
+        $from = $autoAccept ? $this->automaticAcceptance->effectiveFrom() : null;
 
         return [
             'decidable' => $decidable,
             'show_recommendation' => $showRecommendation,
-            'recommendations' => $showRecommendation && $anyPendingShown
-                ? $this->recommendationService->forYear($scoutYearId)
-                : [],
+            'recommendations' => $recommendations,
             'accepted_email_ready' => $this->emailService->isAcceptedBodyReady(),
             'refused_email_ready' => $this->emailService->isRefusedBodyReady(),
             'accepted_auto_send_at' => $this->automaticEmails->plannedDueAtIfDecidedNow(
@@ -133,6 +161,10 @@ class RequestDecisionService
             'refused_auto_send_at' => $this->automaticEmails->plannedDueAtIfDecidedNow(
                 DecisionEmail::DECISION_REFUSED
             ),
+            'auto_accept' => $autoAccept,
+            'auto_accept_ids' => $from !== null
+                ? AutomaticAcceptancePolicy::acceptableRequestIds($recommendations, $from)
+                : [],
         ];
     }
 
@@ -254,6 +286,10 @@ class RequestDecisionService
      * request left open a year ago is not a decision to announce on its
      * own — its e-mail, if any, is sent by hand.
      *
+     * $automatic marks an acceptance taken by the site itself (IT-10,
+     * Service\AutomaticAcceptanceService) — the journal says so. A refusal
+     * is never automatic.
+     *
      * @return \DateTimeImmutable|null when the e-mail is planned to leave,
      *         null when nothing was planned
      *
@@ -262,16 +298,20 @@ class RequestDecisionService
     public function apply(
         RegistrationRequest $request,
         string $decision,
-        ?string $refusalReason = null
+        ?string $refusalReason = null,
+        bool $automatic = false
     ): ?\DateTimeImmutable {
         if ($decision !== self::DECISION_ACCEPT && $decision !== self::DECISION_REFUSE) {
             throw new RegistrationException(self::MESSAGE_UNKNOWN_DECISION);
         }
+        if ($automatic && $decision !== self::DECISION_ACCEPT) {
+            throw new \LogicException('Only an acceptance can be automatic: the site never refuses a request.');
+        }
 
         return $this->requestRepository->transactional(
-            function () use ($request, $decision, $refusalReason): ?\DateTimeImmutable {
+            function () use ($request, $decision, $refusalReason, $automatic): ?\DateTimeImmutable {
                 if ($decision === self::DECISION_ACCEPT) {
-                    $this->statusService->accept($request);
+                    $this->statusService->accept($request, $automatic);
                 } else {
                     $this->statusService->refuse($request, (string) $refusalReason);
                 }

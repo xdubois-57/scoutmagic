@@ -9,7 +9,7 @@ question: Combien de temps après la décision la famille reçoit-elle l'e-mail 
 question: Que deviennent les e-mails prévus si je désactive l'envoi automatique ?
 question: Pourquoi ne puis-je pas activer l'envoi automatique des e-mails de décision ?
 paths: /config/inscriptions/reglages
-related: envoyer-l-e-mail-de-decision, decider-une-demande, rediger-les-e-mails-de-demande, capacites-et-listes-d-attente
+related: envoyer-l-e-mail-de-decision, acceptation-automatique-des-demandes, decider-une-demande, rediger-les-e-mails-de-demande, capacites-et-listes-d-attente
 ---
 
 Par défaut, l'e-mail d'acceptation ou de refus s'envoie à la main,
@@ -59,3 +59,6 @@ Décochez l'interrupteur et « Enregistrer ». Les nouvelles décisions ne
 planifient plus rien, mais **les e-mails déjà prévus partent quand même
 à leur échéance** : leur fiche le rappelle et propose « Envoyer
 maintenant ».
+
+L'acceptation automatique des demandes « Oui », juste en dessous, en
+dépend : décocher l'envoi automatique la décoche aussi.

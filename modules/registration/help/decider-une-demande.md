@@ -9,7 +9,7 @@ question: Pourquoi faut-il choisir un motif pour refuser une demande ?
 question: Que veut dire la recommandation Oui, Peut-être ou Non ?
 question: Un e-mail part-il quand j'accepte une demande ?
 paths: /config/inscriptions/demandes, /config/inscriptions/demandes/*
-related: envoi-automatique-des-e-mails-de-decision, gerer-les-demandes, envoyer-l-e-mail-de-decision, capacites-et-listes-d-attente
+related: envoi-automatique-des-e-mails-de-decision, acceptation-automatique-des-demandes, gerer-les-demandes, envoyer-l-e-mail-de-decision, capacites-et-listes-d-attente
 ---
 
 Dans l'onglet « Demandes », la colonne « Action rapide » propose
@@ -29,6 +29,11 @@ explique comment elle est calculée.
 
 Un « Doublon possible » signale le même enfant inscrit deux fois la
 même année : réglez-le avant de décider.
+
+Si l'acceptation automatique des demandes « Oui » est active, le
+dialogue dit aussi quand le site acceptera la demande de lui-même, à sa
+prochaine vérification, ou qu'il ne la prendra pas (doublon possible,
+hors des tranches d'âge). Vous pouvez toujours décider avant lui.
 
 La « Note interne » est celle de la fiche : ce que vous y écrivez y
 apparaît ensuite, et la famille ne la voit jamais.

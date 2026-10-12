@@ -1004,8 +1004,12 @@ function scoutmagicBootstrapScheduler(
     // other pollers, because what it does is owed to a family at a due
     // date: a site reached only by its crontab must send it too. The
     // handler is auto-resolved from the manifest.
+    // The automatic acceptance of the « Oui » requests (IT-10) joins it
+    // for the same reason: an accepted request is an e-mail planned for a
+    // family, whether or not anybody visits the site.
     if (in_array('registration', $enabledModuleIds, true)) {
         \Modules\Registration\Task\SendDecisionEmailsHandler::bootstrap($schedulerService);
+        \Modules\Registration\Task\AutoAcceptRequestsHandler::bootstrap($schedulerService);
     }
 
     return $context;

@@ -14,6 +14,7 @@ use Core\Http\Request;
 use Core\Http\Response;
 use Core\Journal\JournalService;
 use Core\Security\AuthSession;
+use Modules\Registration\Service\AutomaticAcceptancePolicy;
 use Modules\Registration\Service\AutomaticDecisionEmailService;
 use Modules\Registration\Service\RegistrationException;
 use Twig\Environment;
@@ -26,7 +27,10 @@ use Twig\Environment;
  * A controller of its own, like the copy box's: the sub-box is one
  * self-contained decision with its own « Enregistrer », and its rules —
  * no automatic sending while a decision template is « À rédiger », a delay
- * of whole hours — are Service\AutomaticDecisionEmailService's.
+ * of whole hours (Service\AutomaticDecisionEmailService); no automatic
+ * acceptance of the « Oui » requests without waitlists, the automatic
+ * sending and a date of effect (IT-10, Service\AutomaticAcceptancePolicy,
+ * which saves the four settings as one) — are the services'.
  * RegistrationConfigController renders it.
  */
 class RegistrationAutomationSettingsController extends AbstractController
@@ -36,14 +40,17 @@ class RegistrationAutomationSettingsController extends AbstractController
     public function __construct(
         protected Environment $twig,
         private AutomaticDecisionEmailService $automaticEmails,
-        private JournalService $journalService
+        private JournalService $journalService,
+        private AutomaticAcceptancePolicy $automaticAcceptance
     ) {
     }
 
     /**
-     * The switch and the delay as one: an invalid delay, or the switch on
-     * while a decision template is not written, saves nothing. A delay
-     * field that was not submitted keeps the stored delay.
+     * The whole sub-box as one: an invalid delay, the sending switched on
+     * while a decision template is not written, the acceptance switched on
+     * without its prerequisites or its date, or an invalid date, saves
+     * nothing. A delay or a date that was not submitted keeps the stored
+     * one.
      *
      * @param array<string, string> $params
      */
@@ -55,9 +62,17 @@ class RegistrationAutomationSettingsController extends AbstractController
 
         $enabled = (string) $request->getBody('auto_send', '0') === '1';
         $delay = $request->getBody('delay_hours', null);
+        $autoAccept = (string) $request->getBody('auto_accept', '0') === '1';
+        $acceptFrom = $request->getBody('auto_accept_from', null);
+        $acceptanceBefore = $this->acceptanceState();
 
         try {
-            $confirmation = $this->automaticEmails->save($enabled, is_string($delay) ? $delay : null);
+            $confirmation = $this->automaticAcceptance->save(
+                $enabled,
+                is_string($delay) ? $delay : null,
+                $autoAccept,
+                is_string($acceptFrom) ? $acceptFrom : null
+            );
         } catch (RegistrationException $e) {
             FlashMessage::set('error', $e->getMessage());
 
@@ -74,9 +89,38 @@ class RegistrationAutomationSettingsController extends AbstractController
             ['enabled' => $enabled, 'delay_hours' => $this->automaticEmails->delayHours()],
             (int) AuthSession::getUserAccountId()
         );
+        // Only when it changed — a save of the delay alone says nothing of
+        // it. A date of effect is a setting, not a person: it may be
+        // journaled.
+        $acceptanceAfter = $this->acceptanceState();
+        if ($acceptanceAfter !== $acceptanceBefore) {
+            $this->journalService->log(
+                'registration',
+                'registration_auto_accept_saved',
+                'info',
+                $autoAccept
+                    ? 'Acceptation automatique des demandes « Oui » activée'
+                    : 'Acceptation automatique des demandes « Oui » désactivée',
+                $acceptanceAfter,
+                (int) AuthSession::getUserAccountId()
+            );
+        }
 
         FlashMessage::set('success', $confirmation);
 
         return $this->redirect(self::PATH_SETTINGS);
+    }
+
+    /**
+     * The automatic acceptance's switch and date, as journaled.
+     *
+     * @return array{enabled: bool, effective_from: ?string}
+     */
+    private function acceptanceState(): array
+    {
+        return [
+            'enabled' => $this->automaticAcceptance->isSwitchOn(),
+            'effective_from' => $this->automaticAcceptance->effectiveFrom()?->format('Y-m-d'),
+        ];
     }
 }

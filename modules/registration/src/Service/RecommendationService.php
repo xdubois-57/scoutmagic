@@ -322,7 +322,8 @@ class RecommendationService
                 null,
                 null,
                 $occupied,
-                $slot['capacity']
+                $slot['capacity'],
+                receivedAt: $candidate->receivedAt
             );
             $occupied++;
         }
@@ -354,7 +355,8 @@ class RecommendationService
                 $index + 1,
                 $rankedCount,
                 $occupied,
-                $slot['capacity']
+                $slot['capacity'],
+                receivedAt: $candidate->receivedAt
             );
             $occupied++;
         }

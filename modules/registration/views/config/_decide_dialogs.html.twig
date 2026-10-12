@@ -56,8 +56,19 @@
                         </div>
                         {% if recommendation and recommendation.duplicateOfRequestId %}
                             <div class="alert alert-warning small mb-3">
-                                Doublon possible de la demande #{{ recommendation.duplicateOfRequestId }} : même enfant, même date de naissance.
+                                Doublon possible de la demande #{{ recommendation.duplicateOfRequestId }} : même enfant, même date de naissance.{% if decision.auto_accept %} Le traitement automatique ne la prendra pas.{% endif %}
                             </div>
+                        {% endif %}
+                        {# The automatic acceptance of the « Oui » requests
+                           (IT-10), while it runs: what it will do with this
+                           request — `auto_accept_ids` is the pass's own
+                           rule (AutomaticAcceptancePolicy). #}
+                        {% if decision.auto_accept %}
+                            {% if recommendation and not recommendation.isQueued() and not recommendation.duplicateOfRequestId %}
+                                <p class="small text-body-secondary mb-3" data-decide-auto-accept="never">Le traitement automatique ne prendra pas cette demande.</p>
+                            {% elseif r.id in decision.auto_accept_ids %}
+                                <p class="small text-body-secondary mb-3" data-decide-auto-accept="next">Sans décision de votre part, cette demande sera acceptée automatiquement à la prochaine vérification du site, dans l'heure.</p>
+                            {% endif %}
                         {% endif %}
                     {% endif %}
 

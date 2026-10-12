@@ -41,6 +41,8 @@ final class Recommendation
      * @param ?int $occupiedBefore the places that would be taken before it,
      *        every request ahead of it counted as accepted
      * @param ?int $capacity its slot's capacity, null = no limit
+     * @param ?\DateTimeImmutable $receivedAt when a queued request was filed —
+     *        what the automatic acceptance compares with its date of effect
      */
     public function __construct(
         public readonly int $requestId,
@@ -55,7 +57,8 @@ final class Recommendation
         public readonly ?int $rankedCount = null,
         public readonly ?int $occupiedBefore = null,
         public readonly ?int $capacity = null,
-        public readonly ?int $duplicateOfRequestId = null
+        public readonly ?int $duplicateOfRequestId = null,
+        public readonly ?\DateTimeImmutable $receivedAt = null
     ) {
     }
 

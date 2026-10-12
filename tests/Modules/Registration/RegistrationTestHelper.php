@@ -473,12 +473,15 @@ class RegistrationTestHelper
             new \Core\Import\MemberYearRepository($pdo)
         );
 
+        $slotService = self::slotService($pdo, $encryption, $settingService);
+        $automaticEmails = self::automaticDecisionEmails($pdo, $settingService, $emailService);
+
         return new \Modules\Registration\Service\RequestDecisionService(
             $requestRepository,
             $statusService,
             new \Modules\Registration\Service\RecommendationService(
                 $requestRepository,
-                self::slotService($pdo, $encryption, $settingService),
+                $slotService,
                 new \Modules\Registration\Repository\AgeBracketRepository($pdo),
                 $scoutYearService,
                 $scoutYearResolver,
@@ -488,8 +491,131 @@ class RegistrationTestHelper
             $scoutYearService,
             $scoutYearResolver,
             $journal,
-            self::automaticDecisionEmails($pdo, $settingService, $emailService)
+            $automaticEmails,
+            new \Modules\Registration\Service\AutomaticAcceptancePolicy($settingService, $slotService, $automaticEmails)
         );
+    }
+
+    /**
+     * The automatic acceptance of the « Oui » requests (issue #843, IT-10),
+     * wired as Task\AutoAcceptRequestsHandler wires it but out of the
+     * test's collaborators — over $pdo (one session), with a transport that
+     * sends nothing, and the recommendation calling $afterRecommendation
+     * (HookedRecommendationService) when given. $content is the caller's
+     * when it changes a template mid-pass: the service caches what it read.
+     *
+     * @param (\Closure(int, int): void)|null $afterRecommendation
+     */
+    public static function automaticAcceptanceService(
+        \PDO $pdo,
+        \Core\Security\EncryptionService $encryption,
+        \Core\Config\SettingService $settings,
+        \Core\Mail\MailService $mailService,
+        ?\Closure $afterRecommendation = null,
+        ?\Core\View\EditableContentService $content = null
+    ): \Modules\Registration\Service\AutomaticAcceptanceService {
+        $journal = new \Core\Journal\JournalService(new \Core\Journal\JournalRepository($pdo));
+        $decisionEmailRepository = new \Modules\Registration\Repository\DecisionEmailRepository($pdo);
+        $requests = new \Modules\Registration\Repository\RegistrationRequestRepository(
+            $pdo,
+            $encryption,
+            null,
+            $decisionEmailRepository
+        );
+        $decisionEmails = new \Modules\Registration\Service\DecisionEmailService($decisionEmailRepository, $journal);
+        $emailService = new \Modules\Registration\Service\RequestEmailService(
+            $requests,
+            $mailService,
+            $content ?? new \Core\View\EditableContentService(new \Core\View\EditableContentRepository($pdo)),
+            $journal,
+            'https://example.com',
+            'Unité Test',
+            $decisionEmails
+        );
+        $automaticEmails = new \Modules\Registration\Service\AutomaticDecisionEmailService(
+            $settings,
+            $emailService,
+            $decisionEmails
+        );
+        $slots = self::slotService($pdo, $encryption, $settings);
+        $policy = new \Modules\Registration\Service\AutomaticAcceptancePolicy($settings, $slots, $automaticEmails);
+        $scoutYears = new \Core\Config\ScoutYearService($pdo);
+        $resolver = new \Core\ScoutYear\ScoutYearResolver(
+            $scoutYears,
+            $settings,
+            new \Core\Import\MemberYearRepository($pdo)
+        );
+        $recommendations = new HookedRecommendationService(
+            $requests,
+            $slots,
+            new \Modules\Registration\Repository\AgeBracketRepository($pdo),
+            $scoutYears,
+            $resolver,
+            new \Modules\Registration\Service\PriorityOrderService($settings),
+            $afterRecommendation ?? static function (int $call, int $scoutYearId): void {
+            }
+        );
+        $decisions = new \Modules\Registration\Service\RequestDecisionService(
+            $requests,
+            new \Modules\Registration\Service\RequestStatusService($requests, $journal),
+            $recommendations,
+            $emailService,
+            $scoutYears,
+            $resolver,
+            $journal,
+            $automaticEmails,
+            $policy
+        );
+
+        return new \Modules\Registration\Service\AutomaticAcceptanceService(
+            $policy,
+            $recommendations,
+            $decisions,
+            $requests,
+            $scoutYears,
+            $journal
+        );
+    }
+
+    /**
+     * Switches the automatic acceptance of the « Oui » requests on (issue
+     * #843, IT-10) from $from (Y-m-d), written the way the sub-box writes
+     * it — its two settings registered from the manifest, as production
+     * does. The prerequisites — waitlists, the automatic sending, the
+     * acceptance template — are the test's to set.
+     */
+    public static function enableAutomaticAcceptance(
+        \Core\Config\SettingService $settings,
+        string $from,
+        bool $enabled = true
+    ): void {
+        $manifest = json_decode(
+            (string) file_get_contents(dirname(__DIR__, 3) . '/modules/registration/module.json'),
+            true
+        );
+        $keys = [
+            \Modules\Registration\Service\AutomaticAcceptancePolicy::SETTING_ENABLED,
+            \Modules\Registration\Service\AutomaticAcceptancePolicy::SETTING_EFFECTIVE_FROM,
+        ];
+        foreach (($manifest['settings'] ?? []) as $setting) {
+            if (in_array($setting['key'], $keys, true)) {
+                $settings->register(
+                    (string) $setting['key'],
+                    (string) $setting['default_value'],
+                    (string) $setting['type'],
+                    (string) $setting['label'],
+                    (string) $setting['description'],
+                    'registration',
+                    $setting['validation_regex'] ?? null,
+                    null,
+                    $setting['editable'] ?? true
+                );
+            }
+        }
+        $settings->setManyInternal([
+            \Modules\Registration\Service\AutomaticAcceptancePolicy::SETTING_ENABLED => $enabled ? '1' : '0',
+            \Modules\Registration\Service\AutomaticAcceptancePolicy::SETTING_EFFECTIVE_FROM => $from,
+        ], 'registration');
     }
 
     /**

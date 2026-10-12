@@ -369,6 +369,13 @@
                 var data = res.data || {};
                 if (data.success) {
                     applyWaitlistState(wanted);
+                    // The « Décisions automatiques » sub-box follows: its
+                    // automatic acceptance needs waitlists, and the server
+                    // has just switched it off with them
+                    // (registration-automation-settings.js).
+                    document.dispatchEvent(
+                        new CustomEvent('registration:waitlist-changed', { detail: { enabled: wanted } })
+                    );
                     window.ScoutMagicToast.show(data.message || 'Enregistré.', { variant: 'success' });
                     return;
                 }

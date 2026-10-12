@@ -782,7 +782,12 @@ suggérer une catégorie de cotisation, ou — pour l'index nom+prénom+date de 
 et à reconnaître une demande d'une année précédente refusée faute de place ; (a bis) que la « Recommandation au
 staff » (Oui / Peut-être / Non et son explication, calculée seulement quand les listes d'attente sont gérées) est une
 aide à la décision réservée aux chefs d'unité (Staff d'U), calculée à partir des données du moment et jamais
-enregistrée, qu'elle n'accepte ni ne refuse rien d'elle-même, et qu'elle n'est jamais montrée à la famille — pas plus
+enregistrée, qu'elle ne refuse jamais rien d'elle-même et n'accepte rien d'elle-même sauf si l'administrateur
+active l'acceptation automatique des demandes « Oui » — le site accepte alors lui-même, chaque heure, les demandes
+recommandées « Oui » déposées à partir d'une date choisie, dans l'ordre de priorité, sans dépasser le nombre de places
+(sauf règle « Toujours Oui »), jamais un « Peut-être », un « Non », un doublon possible ou une demande hors des
+tranches d'âge, sans jamais revenir sur une décision du staff, l'email d'acceptation partant après le délai de
+l'envoi automatique —, et qu'elle n'est jamais montrée à la famille — pas plus
 que le motif d'un refus (« Pas de place » ou « Autre »), conservé avec la demande et supprimé avec elle ; (b)
 qu'une adresse email secondaire de suivi confirmée par son propriétaire donne accès au suivi complet de la demande
 SANS validation par le staff — c'est une exposition volontaire, jamais un
