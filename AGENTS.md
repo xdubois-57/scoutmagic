@@ -440,47 +440,87 @@ Use `SchedulerService` for any delayed or timed action. Never use `sleep()`, cro
 ## "Fix the backlog" — what that instruction asks for, exactly
 
 The maintainer asks for this in French — « fixe le backlog », « répare le
-backlog » — and it is a standing instruction, not a one-off. It means
-**one accepted ticket at a time, carried from end to end**, and then the
-next.
+backlog » — or as “fix the backlog”. It means **one Ready ticket at a time,
+carried from end to end**, followed by the next. It is a **standing
+instruction** to continue checking for newly Ready work, not a one-shot
+command. Only the maintainer may ask you to stop.
 
-It can be given to several agents at once, and they will not pick the same
-ticket without being told about each other: **step 2 is the whole of the
-coordination**, and it works because creating a git ref is atomic
-server-side where applying a label or an assignee is not. Step 6 says why
-there is nothing equivalent for merging, and why this repository already
-decided it does not need one.
+**GitHub Projects is the scheduling authority.** On the user-owned
+ScoutMagic Project #1, moving an issue to the **Ready** status is the
+maintainer's explicit acceptance, scope decision and authorization to
+implement that issue, including the auto-merge procedure in § Merging
+a pull request. No `status:accepted` label is required: never select
+by it, wait for it, add it or infer Ready from it. `bug:confirmed` alone
+does not authorize development. `Todo`, `In Progress` and `Done` are not
+new-work candidates. Do not treat the absence of Project access as an
+empty backlog, and never fall back to repository labels as the queue.
 
-**First, run the external sources check** —
-`php scripts/check-external-sources.php`, before step 1. The maintainer
-asked for it on issue #355: « une vérification explicite quand je demande
-"fix the backlog" ». What it finds is a backlog item like any other: each
-divergence becomes an issue, or updates the one already open for that
-source, by `.claude/skills/external-sources/SKILL.md` — never a duplicate,
-and never a fix folded into another ticket's pull request. That issue then
-waits for `status:accepted` like everything else. A check that could not
-run (no network) is said in step 8's report, not skipped in silence.
+It can be given to several agents at once, and they will not pick the
+same ticket without being told about each other: **step 2 is the whole
+of the coordination**, and it works because creating a git ref is atomic
+server-side where applying a label or an assignee is not. Step 6 says
+why there is nothing equivalent for merging.
 
-1. **List the OPEN issues carrying `status:accepted`, lowest number
-   first.** That label, and only that label, selects the work. Nothing
-   automatic ever applies it (`.claude/skills/triage/SKILL.md` § 6 forbids
-   it), which is what makes it a decision rather than an opinion.
-   `bug:confirmed` alone selects nothing: a confirmed defect nobody has
-   accepted is a backlog item, not an instruction.
+**External sources are NOT checked when this command begins.** The
+weekly `.github/workflows/external-sources-check.yml` already runs
+`scripts/check-external-sources.php`, opens or updates divergence issues,
+and is independent of development. Do not invoke the check as a
+backlog startup step. The release gates also remain separate.
 
-   **`status:accepted` also means the analysis is done.** The maintainer
-   said so on 2026-09-25: « si le label accepted est dessus c'est que j'ai
-   déjà fait l'analyse et que l'agent peut l'implémenter directement ». So
-   an accepted ticket is implemented as it stands — a feature as readily as
-   a defect — and does not go back for a design, a roadmap or a
-   confirmation first.
+**Keep the command alive without consuming an idle agent turn.**
+When starting an interactive Claude Code session, first ensure exactly
+one scheduled hourly `fix the backlog` prompt exists for this session:
+use its built-in `/loop 1h fix the backlog` or recurring `CronCreate`
+capability. Do not create a second loop when a scheduled iteration
+re-enters this procedure. Run the first backlog pass **immediately**;
+the hourly scheduling is only for future wake-ups, not a delay before
+starting. A due wake-up while the agent is busy runs after that turn,
+never interrupts a fix. If no ticket can be taken, finish the current
+turn, keep the wake-up armed and check the Project again at the next
+hourly opportunity. Never `sleep 3600` in Bash, spin-poll, invent a
+`ScheduleWakeup` tool or start an unrequested new cloud agent.
 
-   **An accepted ticket that is not clear enough to implement is skipped.**
-   Same instruction: « si pas clair alors ignore le ticket et continue ».
-   Leave it untouched, take the next one, and name it in what you report at
-   the end. A ticket left for the maintainer costs them a sentence; a
-   ticket taken and guessed wrong costs a pull request, a review round and
-   a revert.
+**Important persistence limit:** a session-scoped `/loop` requires a
+running/resumable Claude Code session and expires automatically after
+seven days. It cannot literally run forever. Tell the maintainer if
+this scheduling capability is unavailable; do not claim it was installed.
+For continuity across session expiry or shutdown, use an explicitly
+configured **Claude Code Routine** or persistent desktop scheduler with
+an hourly schedule (each run re-evaluates the same Ready queue and uses
+the same atomic branch claims). That durable schedule is separate from
+this repository: `AGENTS.md` cannot install it or keep a terminated
+Claude Code process alive. Do not cancel a scheduled loop merely
+because the backlog is empty; cancel it only when the maintainer asks.
+
+1. **Get the open issues in Project #1 with Status = `Ready`.** Use
+   `bash scripts/backlog-ready-queue.sh`: it reads Projects using an
+   already authorized `gh` login and the native GitHub `blocked by`
+   relationships through the Issues API. The Actions secret
+   `PROJECTS_TOKEN` belongs to the Actions runner and must NOT be
+   copied to your shell or exposed to the model. The session needs
+   independent permission to **read** GitHub Projects. If it lacks
+   `gh`, the Projects scope, or the GitHub dependencies API, report the
+   access failure and defer this pass; it is NOT evidence that there is
+   nothing to do, and not authorization to use `status:accepted`.
+
+   **Prioritize prerequisite work.** A Ready issue with any **open**
+   native `blocked by` issue is not executable, even if it is P0. The
+   queue ranks ready, unblocked issues by the best priority P0 → P3
+   (missing priority last). A prerequisite of a higher-priority Ready
+   issue inherits that higher urgency, transitively; at equal effective
+   priority, favor the issue unblocking the most other Ready tickets,
+   then its own priority and oldest issue number. A dependency that is
+   closed no longer blocks. Do not invent dependencies from a description
+   or override the GitHub relationship based on guesswork.
+
+   **Ready also means the analysis is done.** The maintainer has already
+   decided it can be implemented as written, feature or bug alike; do
+   not ask for a new design approval or priority review. But a Ready
+   ticket that is still not clear enough to implement is skipped:
+   « si pas clair alors ignore le ticket et continue ». Do not guess
+   a solution. Leave the issue unchanged and report why it was skipped.
+   If all Ready items are blocked, reserved by others, or unclear, the
+   next hourly wake-up will reconsider them, including status changes.
 
 2. **Claim the first one by creating the branch `claude/issue-<n>` off
    `main` through the GitHub API**, not with a local `git push`. The call
@@ -497,8 +537,13 @@ run (no network) is said in step 8's report, not skipped in silence.
    itself costs nothing, because the branch is the first thing the work
    needed anyway.
 
-3. **Put `status:in-progress` on the issue if that label exists**, so the
-   issue list says what is being worked on. It is a signal for whoever is
+3. **After the atomic claim succeeds, mark the work In Progress.**
+   Set the Project Status to `In Progress` if the agent has authorized
+   Projects write access, and put `status:in-progress` on the issue if
+   that label exists, so both views say what is being worked on.
+   If the Project update is unavailable, report the sync failure, but
+   do not claim success for the Projects view or bypass the branch lock.
+   The label keeps its legacy signal role in the repository; It is a signal for whoever is
    reading, never a lock — step 2 is the lock, and the work proceeds
    identically without the label. **If it does not exist, do not create it,
    and do not let the API create it for you** — adding an unknown label to an
@@ -509,6 +554,9 @@ run (no network) is said in step 8's report, not skipped in silence.
    it. The script owns it, and it needs `gh`, which a remote session has not
    got.
    Take it off when the pull request merges, or when you give the ticket up.
+   Clear/transition the Project Status to `Done` only after the last PR
+   has merged and the issue has actually closed. Never mark Done when
+   CI or auto-merge is still waiting; keep In Progress during partial PRs.
 
 4. **Fix it**, under the rules in this file: a test alongside the fix,
    `vendor/bin/phpstan analyse` before committing PHP, `npm run typecheck`
@@ -578,8 +626,8 @@ run (no network) is said in step 8's report, not skipped in silence.
    actually see: never arm against a `main` that has moved into **your**
    files.
 
-7. **Verify the comment and the closure, then take `status:in-progress`
-   off** — this step and the next apply to the pull request that carries
+7. **Verify the comment and the closure, then set Project Status
+   to `Done` (if authorized), and take `status:in-progress` off** — this step and the next apply to the pull request that carries
    `Corrige #<n>`, which for a ticket delivered in several is the **last**
    one. Between the others, go back to step 4 and **keep the claim and the
    label**: the ticket is still yours and still open. Following this step
@@ -609,14 +657,28 @@ run (no network) is said in step 8's report, not skipped in silence.
    agent for ever, reported at step 8 as held by somebody who finished
    months ago.
 
-8. **Back to step 1.** When no accepted issue is left that you can take,
-   **stop and report**: what you delivered, which tickets you skipped as
-   unclear, **which one you are still waiting on an answer for** — it keeps
-   its claim and its label, so no other agent can take it and only this
-   report makes it visible — and which ones another agent held — that last list is where a
-   branch nobody is working on any more becomes visible, and it is the only
-   place any of this is mentioned. Do not idle waiting for the label to
-   appear on something new.
+8. **Back to step 1 immediately while there is work.** Re-fetch the
+   live Project and its dependencies each time, because Ready, Priority
+   and `blocked by` may have changed while a PR was being reviewed.
+   Continue with the highest-ranked claimable issue, not the next old
+   issue number from a stale list. Never wait for a new label.
+
+   **When there is no executable Ready issue, become idle for one hour,
+   not finished.** Keep the existing hourly Claude Code scheduled wake-up
+   armed. Do not busy-wait, repeatedly read the same empty queue or
+   hold an expensive agent turn open with a shell sleep. On waking,
+   inspect both newly created **and newly moved to Ready** issues,
+   changed priorities, closed dependencies and released claims, then
+   resume automatically. If scheduling is unavailable or the session
+   terminates, report that limitation honestly instead of promising to
+   keep working invisibly. A configured durable Routine may supply
+   continued hourly runs without relying on this process.
+
+   Report completed work and actionable exceptions concisely: unclear
+   tickets, blocked dependencies, issues already claimed by peers,
+   questions awaiting answers and access failures. None of these
+   conditions, nor an empty queue, authorizes stopping the **schedule**.
+   Only an explicit instruction from the maintainer cancels it.
 
 **A ticket bigger than one reviewable pull request is delivered in
 several.** No pull request carries more than about **50 changed files**; a
@@ -660,8 +722,9 @@ must be TRUE before you merge — it settles only who decides, and that was
 settled when the instruction was given.
 
 **A ticket you take and then abandon is not silently dropped**: say on that
-issue what stopped you, take `status:in-progress` off, delete the branch,
-and go to the next one. Scaling the work down is the maintainer's call and
+issue what stopped you, take `status:in-progress` off, return Project
+Status to `Ready` if you have permission, delete only your own claim
+branch, and go to the next one. Scaling the work down is the maintainer's call and
 they can only make it if they know.
 
 **The release gates are not part of this.** Dependencies, SonarQube Cloud,
@@ -763,9 +826,9 @@ reading of what they would probably want. Without it, green and
 merge-ready is where your work stops and you say so.
 
 « Fixe le backlog » **is** that instruction, standing, for **every** pull
-request that fixes accepted issues — the work is one pull request per
-accepted ticket, and the authorization covers every one of them, not the
-first. See § "Fix the backlog" above, which also says not to come back
+request that fixes issues deliberately moved to **Ready** in GitHub
+Projects — the work is one pull request per Ready ticket, and the
+authorization covers every one of them, not the first. See § "Fix the backlog" above, which also says not to come back
 for a second confirmation of it. Everything below still applies to each of
 those pull requests unchanged.
 
