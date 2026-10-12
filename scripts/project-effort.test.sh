@@ -9,8 +9,10 @@ trap 'rm -rf "$tmp"' EXIT
 cat > "$tmp/gh" <<'MOCK'
 #!/usr/bin/env bash
 set -euo pipefail
-# Count invocations, not lines in multiline GraphQL arguments.
-printf 'CALL\n' >> "$GH_TEST_CALLS"
+# Keep one log line per gh invocation, even for multiline GraphQL.
+# Retain the operation name so tests can distinguish add from update.
+printf '%s' "$*" | tr '\n' ' ' >> "$GH_TEST_CALLS"
+printf '\n' >> "$GH_TEST_CALLS"
 case "$*" in
   *addProjectV2ItemById*) printf 'ITEM\n' ;;
   *updateProjectV2ItemFieldValue*) printf 'ITEM\n' ;;
