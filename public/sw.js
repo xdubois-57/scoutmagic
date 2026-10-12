@@ -413,15 +413,27 @@ function purgeContentCachesExcept(keepScope) {
 function forgetListsExcept(keepScope) {
     return caches.open(CONFIG_CACHE_NAME).then(function (cache) {
         return Promise.all([LIST_URL, PASS_URL].map(function (url) {
-            return cache.match(url).then(function (response) {
-                return response ? response.json() : null;
-            }).catch(function () { return null; }).then(function (entry) {
-                if (keepScope !== null && entry && String(entry.scope) === keepScope) {
-                    return undefined;
-                }
-                return cache.delete(url);
-            });
+            return forgetUnlessKept(cache, url, keepScope);
         }));
+    });
+}
+
+/**
+ * Deletes the entry at $url unless it belongs to `keepScope`.
+ *
+ * @param {Cache} cache
+ * @param {string} url
+ * @param {string|null} keepScope
+ * @returns {Promise<unknown>}
+ */
+function forgetUnlessKept(cache, url, keepScope) {
+    return cache.match(url).then(function (response) {
+        return response ? response.json() : null;
+    }).catch(function () { return null; }).then(function (entry) {
+        if (keepScope !== null && entry && String(entry.scope) === keepScope) {
+            return undefined;
+        }
+        return cache.delete(url);
     });
 }
 
@@ -537,10 +549,7 @@ function refreshOfflineCopies() {
         return passInFlight;
     }
     passInFlight = getOfflineConfig().catch(function () { return null; }).then(function (config) {
-        if (!config?.consent || !config.standalone || !config.account_scope || config.account_scope === 'guest') {
-            return Promise.resolve(false);
-        }
-        return runPass(config);
+        return runPassIfAllowed(config);
     }).catch(function () {
         return false;
     }).finally(function () {
@@ -548,6 +557,19 @@ function refreshOfflineCopies() {
     });
 
     return passInFlight;
+}
+
+/**
+ * A pass, when this configuration allows one: an installed app, with
+ * consent, signed in.
+ *
+ * @returns {Promise<boolean>}
+ */
+function runPassIfAllowed(config) {
+    if (!config?.consent || !config.standalone || !config.account_scope || config.account_scope === 'guest') {
+        return Promise.resolve(false);
+    }
+    return runPass(config);
 }
 
 function runPass(config) {
@@ -560,19 +582,25 @@ function runPass(config) {
         readEntry(PASS_URL).catch(function () { return null; }),
         caches.open(cacheName),
     ]).then(function (results) {
-        const list = results[0];
-        const previous = results[1];
-        const cache = results[2];
-        if (!list) {
-            return Promise.resolve(false);
-        }
-
-        const resuming = previous?.scope === scope && previous.version === version && !previous.completedAt;
-        const startedAt = resuming ? Number(previous.startedAt) : Date.now();
-        const record = { scope: scope, version: version, startedAt: startedAt, completedAt: null };
-
-        return passOver(cache, list, record);
+        return passFrom(results[0], results[1], results[2], scope, version);
     });
+}
+
+/**
+ * The pass over $list, resuming $previous when it is this scope and
+ * version's and did not finish; none without a list.
+ *
+ * @returns {Promise<boolean>}
+ */
+function passFrom(list, previous, cache, scope, version) {
+    if (!list) {
+        return Promise.resolve(false);
+    }
+    const resuming = previous?.scope === scope && previous.version === version && !previous.completedAt;
+    const startedAt = resuming ? Number(previous.startedAt) : Date.now();
+    const record = { scope: scope, version: version, startedAt: startedAt, completedAt: null };
+
+    return passOver(cache, list, record);
 }
 
 /**

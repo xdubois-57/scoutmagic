@@ -81,18 +81,23 @@
      * @returns {boolean}
      */
     function doneThisLaunch() {
+        var last = lastLaunch();
+        return last?.scope === scope && (Date.now() - Number(last.at)) < REFRESH_AFTER_MS;
+    }
+
+    /**
+     * The launch remembered in sessionStorage, or null.
+     * @returns {{scope?: string, at?: number}|null}
+     */
+    function lastLaunch() {
+        var last = null;
         try {
-            var raw = window.sessionStorage.getItem(LAUNCH_KEY);
-            if (!raw) {
-                return false;
-            }
-            var last = JSON.parse(raw);
-            return last?.scope === scope && (Date.now() - Number(last.at)) < REFRESH_AFTER_MS;
+            last = JSON.parse(window.sessionStorage.getItem(LAUNCH_KEY) || 'null');
         } catch (e) {
             // Storage refused (private mode) or a value that is not JSON:
             // nothing says a pass already ran, so one runs.
-            return false;
         }
+        return last;
     }
 
     function rememberDone() {
