@@ -467,7 +467,7 @@ jobs:
       # ONE LINE ON PURPOSE: this string is spliced into `claude_args`
       # below, which is parsed as a command line, and a newline inside the
       # quotes would end the argument.
-      VERDICT_SCHEMA: '{\"type\":\"object\",\"additionalProperties\":false,\"required\":[\"verdict\",\"comment\",\"effort\"],\"properties\":{\"verdict\":{\"type\":\"string\",\"enum\":[\"bug:confirmed\",\"bug:not-a-bug\",\"bug:needs-info\",\"feature-request\"],\"description\":\"The triage verdict; feature requests receive no bug label.\"},\"comment\":{\"type\":\"string\",\"minLength\":1,\"description\":\"The public comment, in the issue's language.\"},\"effort\":{\"type\":\"string\",\"enum\":[\"S\",\"M\",\"L\",\"unknown\"],\"description\":\"Implementation effort for Project #1; unknown when not responsibly estimable.\"}}}'
+      VERDICT_SCHEMA: '{"type":"object","additionalProperties":false,"required":["verdict","comment","effort"],"properties":{"verdict":{"type":"string","enum":["bug:confirmed","bug:not-a-bug","bug:needs-info","feature-request"],"description":"The triage verdict; feature requests receive no bug label."},"comment":{"type":"string","minLength":1,"description":"The public comment, in the language of the issue."},"effort":{"type":"string","enum":["S","M","L","unknown"],"description":"Implementation effort for Project #1; unknown when not responsibly estimable."}}}'
 
       # Both attempts are given the identical arguments, for the same
       # reason the prompt lives in one place: an attempt that retries with
