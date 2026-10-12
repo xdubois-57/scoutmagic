@@ -46,10 +46,19 @@ class OfflinePrefetchScriptTest extends TestCase
         $this->assertStringNotContainsString('/api/offline/photo-manifest', $this->prefetchJs);
     }
 
-    public function testNeverRunsAnonymouslyOrWithoutConsent(): void
+    public function testNeverRunsWithoutConsent(): void
     {
-        $this->assertStringContainsString("config.accountScope === 'guest'", $this->prefetchJs);
         $this->assertStringContainsString('!config.consent', $this->prefetchJs);
+    }
+
+    /**
+     * A visitor not signed in gets the list only (#883): the public pages
+     * they visit are kept, nothing is downloaded ahead of them.
+     */
+    public function testAVisitorNotSignedInGetsTheListOnly(): void
+    {
+        $this->assertStringContainsString("config.account_scope === 'guest'", $this->swJs);
+        $this->assertStringContainsString('return keepListOnly(config);', $this->swJs);
     }
 
     public function testOnlyRunsInStandaloneDisplayMode(): void
