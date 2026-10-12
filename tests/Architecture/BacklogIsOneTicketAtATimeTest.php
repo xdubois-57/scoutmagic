@@ -305,7 +305,7 @@ final class BacklogIsOneTicketAtATimeTest extends TestCase
         ] as $required) {
             $this->assertStringContainsString($required, $rules);
         }
-        $this->assertStringNotContainsString('sleep 3600` in Bash, spin-poll', '', ''); // placeholder
+        $this->assertStringContainsString('Never `sleep 3600` in Bash', $rules);
     }
 
     /** The queue contract test exercises an entire blocked-by chain offline. */
