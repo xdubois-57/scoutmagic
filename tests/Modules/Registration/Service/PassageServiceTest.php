@@ -302,6 +302,35 @@ class PassageServiceTest extends TestCase
         $this->assertSame('Louveteaux A', $rows[0]['siblings'][0]['section_label']);
     }
 
+    /**
+     * The « Nouvelles inscriptions » block shows every sibling the family
+     * DECLARED, one who has left the unit since included (no active
+     * enrolment this year: no name to show, but still a row) — only the
+     * recommendation's « Fratrie déjà dans l'unité » is restricted to the
+     * ones still in it (issue #843, after IT-03).
+     */
+    public function testADeclaredSiblingWhoHasLeftTheUnitIsStillListed(): void
+    {
+        $sacha = $this->createMember('Sacha', '2015-06-01', $this->louveteauxSectionId);
+        $left = $this->createMember('Paul', '2014-06-01', $this->louveteauxSectionId);
+        $this->pdo->exec('UPDATE member_years SET is_active = 0 WHERE id = ' . $left['member_year_id']);
+
+        $created = $this->requestRepository->create($this->targetYearId, [
+            'parent_name' => 'Parent', 'child_last_name' => 'Petit', 'child_first_name' => 'Nouveau',
+            'gender' => 'H', 'birth_date' => '2019-06-01', 'street' => 'S', 'number' => '1',
+            'postal_code' => '1000', 'city' => 'V', 'email' => 'nouveau@example.com',
+            'phone1' => '000', 'phone2' => null, 'remarks' => null,
+        ], null, [$sacha['member_id'], $left['member_id']]);
+        $this->requestRepository->updateStatus($created['id'], 'accepted', null);
+
+        $rows = $this->service->getNewRegistrations($this->targetYearId, '2027-2028', '12-31', $this->currentYearId);
+
+        $this->assertCount(1, $rows);
+        $this->assertCount(2, $rows[0]['siblings']);
+        $this->assertContains(['name' => 'Sacha Dupont', 'section_label' => 'Louveteaux A'], $rows[0]['siblings']);
+        $this->assertContains(['name' => '?', 'section_label' => null], $rows[0]['siblings']);
+    }
+
     public function testNewRegistrationsOnlyIncludeAcceptedNotEncoded(): void
     {
         $accepted = $this->requestRepository->create($this->targetYearId, [

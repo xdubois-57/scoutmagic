@@ -592,8 +592,10 @@ compte pas.
   `name_dob_blind_index` n'était lu que par le rapprochement Desk.
 - *Fratrie déjà dans l'unité* est lue sur les frères et sœurs déclarés à
   la demande (`registration_request_siblings`, liens vers des membres
-  réels au moment du dépôt) : un frère parti depuis compte encore. Le
+  réels au moment du dépôt) : ~~un frère parti depuis compte encore~~. Le
   document ne précise pas davantage ; aucun autre signal n'existe.
+  **Dépassé (IT-03b)** : le mainteneur a tranché, seuls les frères et
+  sœurs encore présents dans l'unité comptent — voir la section IT-03b.
 - Le document parle d'« explications identiques » : elles le sont, aux
   deux accords et au dixième près ci-dessus, qui ne touchent aucun des
   cinq cas des critères d'acceptation.
@@ -1234,3 +1236,89 @@ qu'ils passent par ce service.
 
 **Faits tranchés.** R5 : `MailService::send()` prend désormais `cc`
 (validation, en-tête, DKIM, multipart, file différée), documenté et testé.
+
+---
+
+## IT-03b — La fratrie ne compte que les frères et sœurs encore présents
+
+Complément d'IT-03, sur `main` en `6303f64c` (module 6.18.0).
+
+**Livré.**
+
+- **Décision du mainteneur (fait foi)** : pour le critère « Fratrie déjà
+  dans l'unité » de la recommandation, **seuls les frères et sœurs encore
+  présents dans l'unité comptent**. Jusqu'ici `RecommendationService`
+  lisait tous les frères et sœurs déclarés à la demande, si bien qu'un
+  frère parti depuis le dépôt forçait encore « Toujours Oui ».
+- **Définition de « présent »** : le membre déclaré a une inscription
+  active (`member_years.is_active = 1`, le filtre de
+  `HouseholdRepository` et de tout le roster) pour **l'année scoute en
+  cours** — `ScoutYearResolver::getCurrentPublicYear()`, l'année que le
+  module appelle partout « en cours » (capacités, Passage, fiche) — **ou
+  pour l'année visée par la demande** (`registration_requests.scout_year_id`,
+  lue sur la demande elle-même, pas une année commune au lot). Un frère
+  déjà réinscrit pour l'année visée compte ; un frère sans aucune
+  inscription active dans l'une ou l'autre ne compte plus. Un membre
+  fusionné depuis dans une autre identité est cherché sous celle-ci
+  (`members.merged_into_member_id` : la fusion déplace les `member_years`,
+  pas les liens du module). Toute fonction compte (un frère animateur est
+  dans l'unité).
+- `RegistrationRequestRepository::findPresentSiblingMemberIdsForRequests()`
+  : une requête préparée pour toute la file (pas de N+1), un `EXISTS`
+  corrélé sur `member_years` (table du cœur), lu par la recommandation
+  **seulement**. Le bloc fratrie de la page Passage (et le regroupement
+  de la répartition automatique), la fiche, la colonne « Fratrie » de la
+  liste et de l'export continuent de lire les frères et sœurs déclarés
+  (`findSiblingMemberIdsForRequests()`, `findSiblingMemberIds()`,
+  `countSiblingsForRequests()`), sans changement de sens.
+- Explications inchangées dans leur forme (« fratrie déjà présente dans
+  l'unité », « fratrie dans l'unité ») : elles deviennent vraies.
+- Tests, chacun vu rouge avant d'être vert (sur le code de `main`, ou par
+  mutation de la requête pour les cas que l'ancien code satisfaisait
+  déjà — année en cours seule, année visée seule, `is_active` ignoré,
+  jointure qui duplique, premier frère déclaré seul, fusion ignorée) :
+  `RecommendationServiceTest` (frère actif cette année, réinscrit pour
+  l'année visée seulement, inactif cette année mais réinscrit → « Toujours
+  Oui » ; parti, jamais inscrit, inactif partout → retombe dans le
+  classement, 4e sur 5 ; parti et critère en « Classement » → ne favorise
+  rien ; deux frères dont un parti → « Toujours Oui ») — le jeu de données
+  de la maquette inscrit désormais ses frères et sœurs dans l'année en
+  cours ; `RegistrationRequestRepositoryTest` (SQLite) et
+  `RegistrationRequestRepositoryOnMysqlTest` (MariaDB, avec sa prémisse
+  sur `member_years.is_active`) ; les lecteurs des frères déclarés
+  épinglés dans `PassageServiceTest`, `RegistrationRequestControllerTest`
+  (fiche) et `RegistrationConfigControllerTest` (export), chacun vu rouge
+  en restreignant les lectures déclarées aux présents.
+- Documentation : sujet d'aide `capacites-et-listes-d-attente`,
+  `specifications.md` §17.6, `ARCHITECTURE.md` §8.36. `decider-une-demande`
+  ne décrit pas le critère : inchangé. `module.json` et `schema.sql`
+  inchangés, donc version du module inchangée (6.18.0).
+
+**Décisions autonomes.**
+
+- La requête prend l'année en cours en paramètre et lit l'année visée sur
+  chaque demande (jointure) : la règle « l'année de la demande » est dans
+  la requête, pas dans l'appelant.
+- Fusion de membres suivie sur un niveau (`merged_into_member_id`, comme
+  `MemberLookupRepository::resolveIds()` de la trésorerie) : sans cela, un
+  frère déclaré sous une identité fusionnée depuis aurait cessé de compter
+  alors qu'il est toujours inscrit — une régression que ce changement
+  aurait introduite. La fiche et la page Passage, qui résolvent le nom sur
+  l'identité déclarée, ne la suivent pas (constat antérieur, non touché
+  ici).
+- Version du module inchangée : ni `module.json` ni `schema.sql` ne
+  changent, et la consigne de ce complément était de ne les toucher que si
+  nécessaire.
+
+**Divergences avec le document.**
+
+- Aucune sur les faits cités : `RecommendationService` lisait bien
+  `findSiblingMemberIdsForRequests()`, partagé avec Passage.
+- Lecture de « présent » laissée ouverte pour le mainteneur : un frère
+  encore actif cette année mais marqué « quitte » (`member_years.leaving`,
+  réponse de la famille ou décision du staff) compte, selon la définition
+  retenue, alors que la projection d'IT-02 le retire de l'année visée ; de
+  même un frère actif cette année mais absent (ou inactif) de l'import Desk
+  déjà fait pour l'année visée. Non tranché ici.
+
+**Reporté.** Rien.

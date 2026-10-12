@@ -54,9 +54,13 @@ année du parcours, dans l'ordre de l'encart « Priorités » :
 
 Chaque demande est jugée sur les places qui seraient occupées si toutes
 celles qui la précèdent étaient acceptées. « Ordre d'arrivée de la
-demande » ne peut que classer. « Ancienne demande restée sans place »
-retient un enfant refusé une année précédente avec le motif « Pas de
-place ».
+demande » ne peut que classer. « Fratrie déjà dans l'unité » retient un
+enfant dont la fratrie déclarée compte encore un membre inscrit dans
+l'unité, cette année ou pour l'année demandée ; un frère ou une sœur qui
+a quitté l'unité depuis le dépôt ne compte pas. La fiche et la page
+Passage montrent toujours toute la fratrie déclarée. « Ancienne demande
+restée sans place » retient un enfant refusé une année précédente avec
+le motif « Pas de place ».
 
 > Doublon possible (même nom, même date de naissance, même année) : une
 > seule demande de l'enfant sert de référence, la plus ancienne ou celle
