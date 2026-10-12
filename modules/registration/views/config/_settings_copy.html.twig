@@ -1,0 +1,45 @@
+{# « Copie des e-mails d'inscription » (issue #843, D9): the switch and the
+   address it governs, saved together by the one « Enregistrer »
+   (Controller\RegistrationCopySettingsController, rules in
+   Service\FamilyEmailCopyService). The address field is disabled while
+   the switch is off — a disabled field is not submitted, and the stored
+   address is then kept — and public/assets/js/registration-copy-settings.js
+   follows the switch without a reload. Requires `email_copy`. #}
+<form method="post" action="/config/inscriptions/copie" class="card mb-4" id="registration-email-copy">
+    <div class="card-body">
+        {{ csrf_field()|raw }}
+        <h2 class="h5 mb-3">Copie des e-mails d'inscription</h2>
+        <div class="form-check form-switch mb-3">
+            <input class="form-check-input" type="checkbox" role="switch"
+                   id="registration-cc-enabled" name="cc_enabled" value="1"
+                   aria-describedby="registration-cc-enabled-help"
+                   data-email-copy-switch
+                   {{ email_copy.enabled ? 'checked' : '' }}>
+            <label class="form-check-label" for="registration-cc-enabled">Mettre une adresse en copie</label>
+            <span class="form-text d-block" id="registration-cc-enabled-help">
+                S'applique à l'accusé de réception, à l'acceptation et au refus, qu'ils partent à la main ou
+                automatiquement, renvois compris.
+            </span>
+        </div>
+        {% if email_copy.enabled and not email_copy.resolvable %}
+            <div class="alert alert-warning small" role="status">
+                Aucune adresse valide n'est disponible pour la copie : les e-mails aux familles partent sans copie.
+                Indiquez une adresse ci-dessous.
+            </div>
+        {% endif %}
+        {% include 'partials/form_field.html.twig' with {
+            field_id: 'registration-cc-address',
+            field_name: 'cc_address',
+            label: 'Adresse e-mail en copie',
+            type: 'email',
+            value: email_copy.address,
+            placeholder: email_copy.unit_address != '' ? email_copy.unit_address ~ " (adresse de l'unité)" : '',
+            help: "Laissée vide, c'est l'adresse par défaut de l'unité qui est utilisée.",
+            autocomplete: 'email',
+            disabled: not email_copy.enabled,
+            data: { 'email-copy-address': '1' },
+            wrapper_class: 'mb-0',
+        } only %}
+        <button type="submit" class="btn btn-primary mt-3">Enregistrer</button>
+    </div>
+</form>

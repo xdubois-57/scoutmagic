@@ -173,6 +173,7 @@ class MailService
      * @param MailPurpose $purpose What this message is, for DELIVERY purposes only, and nothing else: the
      *                             transport is the only thing that reads it, and the default transport ignores
      *                             it. Left at `Ordinary` by all but one call site — see MailPurpose.
+     * @param string|list<string>|null $cc Visible copies — see the parameter's own note.
      * @throws SuppressedRecipientException when the recipient is a
      *                                      suspended address this send
      *                                      vouches for — nothing left,
@@ -239,8 +240,38 @@ class MailService
          * Null means no copies. That is the safe default: the failure
          * mode of guessing is a silent leak.
          */
-        ?Feedback\Seed\SeedCopyContent $bulkCopy = null
+        ?Feedback\Seed\SeedCopyContent $bulkCopy = null,
+        /**
+         * Who receives a visible copy of this message — a `Cc:` header,
+         * one address or a list (chantier #843, IT-06: the unit in copy
+         * of what it writes to a family).
+         *
+         * **Last, and passed by name**, for the reason `$replyAddress` is
+         * last in the constructor: the ~95 call sites of this method must
+         * not have to learn it exists (an override repeats it, as PHP
+         * requires of any override). Null and `[]` are the same thing — no
+         * copy — which is what every one of them keeps sending.
+         *
+         * **Validated before anything else, and an invalid address sends
+         * nothing at all.** A copy that silently fell off would leave the
+         * unit believing it was told; a message that went out without the
+         * copy it was asked to carry is a different message from the one
+         * the caller sent. So a malformed address is a `MailException`
+         * like any other failure — journaled, never sent, and carrying no
+         * address in its text (SECURITY.md §11).
+         *
+         * A copy is not a correspondent the site vouches for: no bounce
+         * receipt is minted for it, and the suppression gate reads `$to`
+         * alone. It rides inside the one message, so the DKIM signature
+         * covers the header (PHPMailer signs `Cc` by default) and the
+         * deferred queue carries it with the rest of the call.
+         */
+        string|array|null $cc = null
     ): void {
+        // Before the suppression gate and before PHPMailer exists: an
+        // address that cannot be copied stops the message here, whole.
+        $copyAddresses = $this->copyAddresses($cc);
+
         // **A blocked address is one the site has stopped writing to, and
         // that has to be true of every message it sends of its own
         // accord** — not of mailings alone, which is where the rule was
@@ -328,6 +359,13 @@ class MailService
             // Recipient
             $mail->addAddress($to);
 
+            // Visible copies, validated at the top of this method.
+            // PHPMailer skips one that repeats the recipient — a copy of a
+            // message to the address it was already sent to is nothing.
+            foreach ($copyAddresses as $copyAddress) {
+                $mail->addCC($copyAddress);
+            }
+
             // Reply-To — the caller's own when it has one (a module
             // routing replies onto a booking), otherwise the site's
             // configured reply address, otherwise nothing at all and the
@@ -379,6 +417,15 @@ class MailService
             // above stays here so a captured message is byte-for-byte the
             // message that would have gone out.
             $this->transport->deliver($mail, $purpose);
+
+            // A copy the relay refused on a message that left anyway
+            // (PhpMailerTransport): the recipient has it, so this is not a
+            // failure of the send — but whoever expected the copy did not
+            // get it, and only the journal can say so.
+            $refusedCopies = PhpMailerTransport::takeRefusedCopies($mail);
+            if ($refusedCopies !== null) {
+                $this->journalRefusedCopy($refusedCopies);
+            }
 
             // **The one place the site knows it wrote to somebody.** A
             // bounce is only credited to an address a message actually
@@ -475,7 +522,8 @@ class MailService
                 $fromAddressOverride,
                 $fromNameOverride,
                 $extraHeaders,
-                $vouchesForRecipient
+                $vouchesForRecipient,
+                $copyAddresses
             );
 
             if ($payload !== null && $this->deferred?->defer($e->lane, $purpose, $payload, $reason) === true) {
@@ -718,11 +766,13 @@ class MailService
      *
      * @param array<int, array{path: string, name: string}> $attachments
      * @param array<string, string> $extraHeaders
+     * @param list<string> $cc
      * @return array{
      *     to: string, subject: string, bodyHtml: string, bodyText: string,
      *     replyTo: ?string, fromAddressOverride: ?string, fromNameOverride: ?string,
      *     extraHeaders: array<string, string>,
      *     vouchesForRecipient: bool,
+     *     cc: list<string>,
      *     attachments: array<int, array{name: string, content: string}>
      * }|null
      */
@@ -736,7 +786,8 @@ class MailService
         ?string $fromAddressOverride,
         ?string $fromNameOverride,
         array $extraHeaders,
-        bool $vouchesForRecipient
+        bool $vouchesForRecipient,
+        array $cc
     ): ?array {
         $bytes = 0;
         foreach ($attachments as $attachment) {
@@ -779,8 +830,58 @@ class MailService
             // somebody who had just been told the site had stopped writing
             // to them. A drain re-reads the gate with the right answer.
             'vouchesForRecipient' => $vouchesForRecipient,
+            // **Carried for the same reason** (chantier #843, IT-06): the
+            // copy is part of the message the caller sent. A replay without
+            // it would deliver to the family and leave the unit — which
+            // asked to be told — believing it had been.
+            'cc' => $cc,
             'attachments' => $carried,
         ];
+    }
+
+    /**
+     * Whether `send()` accepts this as an address to copy — PHPMailer's own
+     * validator, the one `addCC()` applies, so nothing accepted here is
+     * refused later. Public so that a module letting somebody TYPE such an
+     * address checks it against the same rule when it is saved, rather
+     * than a copy of the rule that could drift (chantier #843, IT-06).
+     */
+    public static function isValidAddress(string $address): bool
+    {
+        return PHPMailer::validateAddress($address);
+    }
+
+    /**
+     * The visible copies of one `send()` call, as a list — or the reason
+     * nothing is sent at all.
+     *
+     * One address or several, each checked by {@see self::isValidAddress()}.
+     * A value that is not a string, an empty string, or anything
+     * carrying a line break is invalid, and so is the whole call: the
+     * failure is journaled like any other — without the address — and the
+     * caller gets the `MailException` it already knows how to read.
+     *
+     * @param string|array<mixed>|null $cc
+     * @return list<string>
+     * @throws MailException
+     */
+    private function copyAddresses(string|array|null $cc): array
+    {
+        $candidates = is_array($cc) ? array_values($cc) : ($cc === null ? [] : [$cc]);
+
+        $addresses = [];
+        foreach ($candidates as $candidate) {
+            if (!is_string($candidate) || !self::isValidAddress($candidate)) {
+                $reason = 'Invalid Cc address: the message was not sent.';
+                $this->journalFailure($reason);
+
+                throw new MailException($reason);
+            }
+
+            $addresses[strtolower($candidate)] ??= $candidate;
+        }
+
+        return array_values($addresses);
     }
 
     /**
@@ -810,6 +911,30 @@ class MailService
             );
         } catch (\Throwable) {
             // The message is withheld either way.
+        }
+    }
+
+    /**
+     * A message that left without one of its copies, written down at
+     * `warning` — the recipient has it, so it is not `mail_send_failed`,
+     * but whoever was to be copied was not, and nobody else will say so.
+     * The relay's words with the addresses redacted, per SECURITY.md §11.
+     */
+    private function journalRefusedCopy(string $reason): void
+    {
+        try {
+            $this->journal?->log(
+                'core',
+                'mail_copy_refused',
+                'warning',
+                'E-mail envoyé, mais sa copie a été refusée par le relais',
+                [
+                    'origin' => self::callerOutsideThisNamespace(),
+                    'reason' => MailErrorRedaction::withoutAddresses($reason),
+                ]
+            );
+        } catch (\Throwable) {
+            // The message left either way.
         }
     }
 

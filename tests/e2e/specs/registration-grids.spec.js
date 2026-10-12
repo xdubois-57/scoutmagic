@@ -57,7 +57,7 @@ const DEPARTURE_COMMENT = 'Déménage à Namur cet été.';
  * before the save. Every call starts from a freshly loaded page, which
  * shows no flash, so the message cannot be a leftover.
  *
- * The button is scoped to the form: the page has four « Enregistrer ».
+ * The button is scoped to the form: the page has five « Enregistrer ».
  *
  * @param {import('@playwright/test').Page} page
  * @param {string} action the form's action

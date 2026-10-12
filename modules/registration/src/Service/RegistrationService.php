@@ -42,7 +42,10 @@ class RegistrationService
         private EditableContentService $editableContentService,
         private JournalService $journalService,
         private string $baseUrl,
-        private string $siteName
+        private string $siteName,
+        // The unit in copy of the receipt (chantier #843, D9). Null is no
+        // copy — a caller that builds this service without it.
+        private ?FamilyEmailCopyService $familyEmailCopy = null
     ) {
     }
 
@@ -135,6 +138,11 @@ class RegistrationService
         // receive that same url under the name {{lien_fiche}}, which both
         // leaked the secret into a shared staff mailbox and sent the chief
         // to the parent view instead of the fiche the placeholder promises.
+        // The one exception is deliberate (chantier #843, D9): the unit's
+        // VISIBLE copy of the family's own receipt (FamilyEmailCopyService),
+        // the same message, link included — a token that opens only the
+        // minimal view (first name, date received, status), which the
+        // staff already holds. The unit alert still never carries it.
         $trackingUrl = rtrim($this->baseUrl, '/') . "/inscriptions/suivi/{$requestId}/{$trackingToken}";
         $ficheUrl = rtrim($this->baseUrl, '/') . "/config/inscriptions/demandes/{$requestId}";
 
@@ -204,7 +212,8 @@ class RegistrationService
                 to: $to,
                 subject: "Demande d'inscription reçue",
                 bodyHtml: $body,
-                bodyText: RequestEmailService::toPlainText($body)
+                bodyText: RequestEmailService::toPlainText($body),
+                cc: $this->familyEmailCopy?->copyAddress()
             );
         } catch (MailException $e) {
             $this->journalService->log(

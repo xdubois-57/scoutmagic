@@ -538,13 +538,16 @@ class RegistrationConfigControllerTest extends TestCase
             '/config/inscriptions/seuils',
             '/config/inscriptions',
             '/config/inscriptions/priorites',
+            // « Copie des e-mails d'inscription » (IT-06): the switch and
+            // its address, one decision.
+            '/config/inscriptions/copie',
         ];
         foreach ($forms as $action) {
             $form = $this->formHtml($body, $action);
             $this->assertSame(1, substr_count($form, 'type="submit"'), $action);
             $this->assertMatchesRegularExpression('/type="submit"[^>]*>\s*Enregistrer\s*</', $form, $action);
         }
-        $this->assertSame(4, preg_match_all('/>\s*Enregistrer\s*</', $body));
+        $this->assertSame(5, preg_match_all('/>\s*Enregistrer\s*</', $body));
     }
 
     /**

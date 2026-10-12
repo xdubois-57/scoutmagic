@@ -17,6 +17,7 @@ use Core\View\EditableContentService;
 use Modules\Registration\Repository\RegistrationRequest;
 use Modules\Registration\Repository\RegistrationRequestRepository;
 use Modules\Registration\Repository\RegistrationYearCodeRepository;
+use Modules\Registration\Service\FamilyEmailCopyService;
 use Modules\Registration\Service\RegistrationException;
 use Modules\Registration\Service\RegistrationService;
 use PHPUnit\Framework\TestCase;
@@ -282,6 +283,104 @@ class RegistrationServiceTest extends TestCase
         $this->assertStringContainsString('/inscriptions/suivi/', $toParent[0]['bodyHtml']);
         $this->assertStringNotContainsString('/inscriptions/suivi/', $toUnit[0]['bodyHtml']);
         $this->assertStringContainsString('/config/inscriptions/demandes/', $toUnit[0]['bodyHtml']);
+    }
+
+    /**
+     * The receipt to the family carries the unit in copy (chantier #843,
+     * D9) — by default the unit's own address, the core « Email de
+     * contact » — and the unit alert, which already goes to the unit,
+     * carries none.
+     */
+    public function testTheReceiptCarriesTheUnitAddressInCopyAndTheUnitAlertNone(): void
+    {
+        $this->settingService->set('registration_unit_alert_email', 'alerte@example.com', 'registration');
+        $service = $this->serviceWithCopy(enabled: '1', address: '', unitAddress: 'info@unite.example.com');
+
+        $copies = $this->submitAndRecordCopies($service, 2);
+
+        $this->assertSame('info@unite.example.com', $copies['marie.dupont@example.com'] ?? 'missing');
+        $this->assertArrayHasKey('alerte@example.com', $copies);
+        $this->assertNull($copies['alerte@example.com'], 'the unit alert is never copied.');
+    }
+
+    /** An address typed in the box replaces the unit's own. */
+    public function testATypedCopyAddressReplacesTheUnitAddress(): void
+    {
+        $service = $this->serviceWithCopy('1', 'secretariat@example.com', 'info@unite.example.com');
+
+        $copies = $this->submitAndRecordCopies($service, 1);
+
+        $this->assertSame('secretariat@example.com', $copies['marie.dupont@example.com'] ?? 'missing');
+    }
+
+    /** Switched off, the receipt goes to the family alone. */
+    public function testNoCopyWhenTheOptionIsOff(): void
+    {
+        $service = $this->serviceWithCopy('0', 'secretariat@example.com', 'info@unite.example.com');
+
+        $copies = $this->submitAndRecordCopies($service, 1);
+
+        $this->assertArrayHasKey('marie.dupont@example.com', $copies);
+        $this->assertNull($copies['marie.dupont@example.com']);
+    }
+
+    private function serviceWithCopy(string $enabled, string $address, string $unitAddress): RegistrationService
+    {
+        $settings = $this->settingService;
+        $settings->register(FamilyEmailCopyService::SETTING_ENABLED, '1', 'boolean', 'Copie', 'desc', 'registration');
+        $settings->register(FamilyEmailCopyService::SETTING_ADDRESS, '', 'email', 'Adresse', 'desc', 'registration');
+        $this->settingService->register(FamilyEmailCopyService::SETTING_UNIT_ADDRESS, '', 'email', 'Contact', 'desc');
+        $this->settingService->set(FamilyEmailCopyService::SETTING_ENABLED, $enabled, 'registration');
+        $this->settingService->set(FamilyEmailCopyService::SETTING_ADDRESS, $address, 'registration');
+        $this->settingService->set(FamilyEmailCopyService::SETTING_UNIT_ADDRESS, $unitAddress);
+
+        return new RegistrationService(
+            $this->requestRepository,
+            $this->yearCodeRepository,
+            $this->scoutYearResolver,
+            $this->scoutYearService,
+            $this->settingService,
+            $this->mailService,
+            new EditableContentService(new EditableContentRepository($this->pdo)),
+            $this->journalService,
+            'https://example.com',
+            'Unité Test',
+            new FamilyEmailCopyService($this->settingService)
+        );
+    }
+
+    /**
+     * Submits one request and returns, per recipient, the `cc` its message
+     * was sent with — read by the parameter's NAME, so a reordering of
+     * `MailService::send()` cannot make this read the wrong argument.
+     *
+     * @return array<string, mixed>
+     */
+    private function submitAndRecordCopies(RegistrationService $service, int $sends): array
+    {
+        $ccIndex = self::sendParameterIndex('cc');
+        $copies = [];
+        $this->mailService->expects($this->exactly($sends))
+            ->method('send')
+            ->willReturnCallback(function (...$args) use (&$copies, $ccIndex): void {
+                $copies[(string) $args[0]] = $args[$ccIndex] ?? null;
+            });
+
+        $target = $service->resolveTargetYear(null);
+        $service->submit((int) $target['id'], (string) $target['label'], $this->sampleFields(), null, [], 'Baladins');
+
+        return $copies;
+    }
+
+    private static function sendParameterIndex(string $name): int
+    {
+        foreach ((new \ReflectionMethod(MailService::class, 'send'))->getParameters() as $parameter) {
+            if ($parameter->getName() === $name) {
+                return $parameter->getPosition();
+            }
+        }
+
+        throw new \LogicException("MailService::send() has no parameter {$name}.");
     }
 
     public function testSubmitSkipsUnitAlertWhenNoAlertEmailConfigured(): void

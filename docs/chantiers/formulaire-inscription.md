@@ -614,3 +614,166 @@ année, parmi les demandes vivantes, la plus ancienne (ou celle qui tient
 déjà une place) restant dans la file (`Recommendation::$duplicateOfRequestId`)
 — sans encore l'afficher. R8 :
 aucune recommandation pour une année passée.
+
+---
+
+## IT-06 — Copie (CC) des e-mails à la famille
+
+**Livré.**
+
+- **Cœur : `MailService::send(cc: …)`** — une adresse ou une liste, en
+  **dernier** paramètre (`string|array|null $cc = null`), toujours passé
+  par son nom : aucun des appelants existants n'a changé (PHPStan vert sur
+  `core/`, `modules/`, `public/`) ; le seul double de test qui surcharge
+  `send()` (`EmailTemplateControllerTest`) répète la signature, comme PHP
+  l'exige. Chaque adresse est validée par le validateur de PHPMailer
+  **avant tout**, porte de suppression comprise : une adresse invalide
+  (mal formée, vide, porteuse d'un saut de ligne, pas une chaîne) lève une
+  `MailException` (« Invalid Cc address: the message was not sent. »),
+  journalisée `mail_send_failed` sans l'adresse, et **rien ne part**. Les
+  copies deviennent un en-tête `Cc:` (`addCC()` ; une adresse répétée,
+  quelle que soit la casse, ou égale au destinataire, est écartée), dans le
+  message que signe DKIM (PHPMailer signe `Cc` par défaut — vérifié sur le
+  message assemblé, `h=` compris), multipart intact. Pas de reçu de rebond
+  pour une copie, et la porte de suppression ne lit que `$to`. **File
+  différée** : `payloadFor()` stocke la liste validée sous `cc`,
+  `DrainDeferredMailHandler` la rejoue (`cc: $payload['cc'] ?? []`), les
+  quatre descriptions de la charge le disent. **Une copie refusée par le
+  relais ne fait plus échouer un message parti** : en SMTP, PHPMailer
+  envoie le DATA aux destinataires acceptés puis lève « recipients
+  failed » pour les autres ; `PhpMailerTransport` suit le sort de chaque
+  destinataire et, quand tout `To:` a été accepté et seules des copies
+  refusées, arrête l'exception ; `MailService` journalise
+  `mail_copy_refused` (avertissement, adresses masquées). Sans cela, la
+  chaîne de fournisseurs renvoyait le message par le relais suivant, et
+  `RequestEmailService` croyait à un échec et ne stockait pas le jeton du
+  lien que la famille venait de recevoir.
+- **Module : boîte « Copie des e-mails d'inscription »** sur Réglages
+  (`views/config/_settings_copy.html.twig`, incluse par une ligne) :
+  interrupteur « Mettre une adresse en copie » (activé par défaut), champ
+  « Adresse e-mail en copie » avec, en indication, l'adresse de l'unité
+  (« … (adresse de l'unité) »), textes de la maquette, un seul
+  « Enregistrer » → `POST /config/inscriptions/copie`, nouveau contrôleur
+  `RegistrationCopySettingsController` (`role_min: admin`, CSRF,
+  journal sans adresse, « Réglages enregistrés. »). Règles dans le
+  nouveau `Service\FamilyEmailCopyService` : enregistrement refusé —
+  rien n'est écrit, interrupteur compris — pour une adresse invalide
+  (« Cette adresse n'est pas valide. Rien n'a été enregistré. », comme la
+  maquette) ou pour une copie activée sans adresse résoluble. Le champ est
+  désactivé quand l'interrupteur est coupé (`registration-copy-settings.js`,
+  testé par Vitest) ; non soumis, il garde l'adresse enregistrée.
+  Deux réglages neufs dans `module.json`, en un bloc :
+  `registration_email_cc_enabled` (`1`) et `registration_email_cc_address`
+  (vide, type `email`), tous deux `editable: false` ; `version` 6.14.0 →
+  6.15.0.
+- **Appliquée aux trois e-mails à la famille** : l'accusé de réception
+  (`RegistrationService`) et l'acceptation et le refus
+  (`RequestEmailService`, renvois compris — un renvoi est le même
+  `send()`), par un paramètre de constructeur facultatif en dernière
+  position et une ligne `cc:` dans chaque appel (point d'injection minimal,
+  IT-05 reprenant `RequestEmailService`).
+- **RGPD** : `rgpd_default.html` (« Copie des emails envoyés à la
+  famille », sous-section Inscriptions) et la règle 27 (c bis) du prompt de
+  `RgpdContentService` : l'adresse en copie reçoit exactement ce que reçoit
+  la famille (prénom de l'enfant, année visée, adresse de la famille, lien
+  de suivi vers la vue minimale), et aucun autre e-mail du module n'est
+  copié. Aucun sous-traitant nouveau : la copie part par le même relais.
+- Documentation : `ARCHITECTURE.md` §8.7 (le paramètre), §8.106 (la file
+  différée), §8.36 (la boîte et ses règles) ; `docs/module-development.md`
+  § E-mails ; `specifications.md` §17.3 et §17.6 ; nouveau sujet d'aide
+  `copie-des-e-mails-d-inscription` (Réglages).
+- Tests : `MailServiceCopyTest` (sans copie, une adresse, une liste
+  dédoublonnée, copie au destinataire écartée, cinq adresses invalides →
+  rien ne part et le journal ne nomme personne, en-tête signé DKIM et
+  multipart ; sur un faux relais SMTP derrière le vrai
+  `PhpMailerTransport` : copie refusée → envoi réussi, DATA une fois,
+  `mail_copy_refused` ; destinataire refusé → échec, avec ou sans copie), `MailServiceDeferralTest` (la copie est mise en file),
+  `DrainDeferredMailHandlerTest` (rejouée avec sa copie ; ligne ancienne
+  sans clé → aucune), `FamilyEmailCopyServiceTest`,
+  `RequestEmailServiceTest` (acceptation, renvoi et refus en copie ;
+  adresse saisie ; option coupée), `RegistrationServiceTest` (accusé en
+  copie, alerte jamais ; adresse saisie ; option coupée),
+  `RegistrationCopySettingsControllerTest` (routeur chargé du vrai
+  `module.json` : admin autorisé, chief refusé ; validation, jeton, rendu
+  de la boîte), `RegistrationConfigControllerTest` (un « Enregistrer » par
+  boîte : cinq), test Vitest, et le scénario `registration-flow` : la boîte
+  enregistre une adresse et l'accusé reçu par la famille porte `Cc:`.
+
+**Audit des chemins d'envoi du module.** Sept appels à
+`MailService::send()` dans `modules/registration` :
+
+- **copiés** : l'accusé de réception (`RegistrationService::
+  sendReceiptEmail()`), l'acceptation et le refus, premier envoi et
+  renvois (`RequestEmailService::send()`) ;
+- **jamais copiés, volontairement** : l'alerte à l'unité
+  (`RegistrationService::sendUnitAlertEmail()`) — elle va déjà à l'unité ;
+  les e-mails de réinscription (`Task\SendReenrollmentEmailsHandler`,
+  ouverture, deux rappels, clôture) — D9 les exclut ; la confirmation d'une
+  adresse de suivi secondaire (`SecondaryEmailService::
+  sendConfirmationEmail()`) — son lien confirme une adresse qui voit ensuite
+  toute la demande (coordonnées comprises) : une copie remettrait cette
+  capacité à une boîte partagée. Aucun autre chemin (pas de notification,
+  pas de tâche qui écrive à une famille).
+
+**Décisions autonomes.**
+
+- **« L'adresse par défaut de l'unité » est le réglage du cœur
+  `contact_email`** (« Email de contact », l'adresse publiée sur la page
+  Contact, remplie à l'installation à partir de l'adresse d'expédition).
+  Ni `mail_from_address` (l'expéditeur, souvent une boîte sans réponse), ni
+  `registration_unit_alert_email` (un interrupteur d'alerte, vide quand
+  l'alerte est coupée). Le champ l'affiche en indication.
+- **Enregistrer refuse, envoyer ne refuse jamais.** L'enregistrement de
+  la boîte refuse une configuration qui ne peut pas marcher ; mais
+  l'adresse de contact peut être effacée plus tard sur une autre page, et
+  l'accusé d'une famille n'est pas tenu en otage par la copie de l'unité :
+  à l'envoi, une copie non résoluble fait partir l'e-mail sans copie,
+  journalisé `registration_email_copy_unresolved` (sans adresse), et la
+  boîte affiche un avertissement. Côté cœur, en revanche, une adresse
+  invalide refuse tout le message, comme demandé : le module ne lui en
+  passe jamais, la boîte vérifiant l'adresse par la même fonction que
+  `send()` (`MailService::isValidAddress()`, exposée pour cela).
+- **Une adresse invalide est refusée même l'option coupée** : le réglage
+  est de type `email`, et une valeur qu'on ne voit pas agir ne s'enregistre
+  pas fausse. Option coupée, le champ n'est pas soumis et l'adresse
+  enregistrée est conservée.
+- **Les deux réglages sont `editable: false`** (absents de Configuration
+  > Paramètres, écrits par `setManyInternal()`) : la règle « pas de copie
+  activée sans adresse résoluble » porte sur le couple, qu'une liste de
+  champs indépendants ne peut pas vérifier — c'est le cas que
+  `docs/module-development.md` § « `editable: false` » décrit. Leur
+  description renvoie à la boîte.
+- **Le lien de suivi part aussi dans la boîte de l'unité**, avec la copie
+  de l'accusé et des décisions : D9 l'impose (une copie visible du même
+  message). Son jeton n'ouvre que la vue minimale (prénom, date de
+  réception, statut), que le staff connaît déjà ; la confirmation d'adresse
+  secondaire, qui ouvrirait la demande complète, n'est pas copiée. Le
+  durcissement antérieur qui avait retiré ce lien de l'alerte à l'unité
+  reste vrai : l'alerte ne le porte toujours pas.
+- **Contexte de la boîte construit dans `buildSettingsContext()`** à partir
+  du `SettingService` que `RegistrationConfigController` détient déjà : le
+  constructeur de ce contrôleur, que plusieurs itérations parallèles
+  touchent, ne change pas. L'enregistrement a son propre contrôleur.
+
+**Divergences avec le document.**
+
+- Faits vérifiés sur `d4efa13` (version 6.14.0) : `MailService::send()`
+  n'avait pas de `cc` (R5 confirmé), ni sa file différée ; les trois
+  e-mails à la famille passaient bien par `RegistrationService` et
+  `RequestEmailService`.
+- « Renvois compris » : seul un e-mail de décision a un renvoi (le bouton
+  « Renvoyer » de la fiche, même chemin que l'envoi) ; l'accusé de
+  réception n'en a aucun dans le module aujourd'hui.
+- La phrase de la maquette « qu'ils partent à la main ou automatiquement »
+  est reprise telle quelle : l'accusé part déjà automatiquement, et l'envoi
+  automatique des décisions (IT-09) devra passer par `RequestEmailService`
+  construit avec `FamilyEmailCopyService` — dans `scheduler-bootstrap.php`
+  si c'est une tâche — pour hériter de la copie.
+
+**Reporté.** Rien. À l'attention d'IT-05 (qui reprend
+`RequestEmailService`) : conserver le dernier paramètre du constructeur et
+la ligne `cc:` de l'appel à `send()` ; d'IT-08 : « Renvoyer l'e-mail »
+hérite de la copie tant qu'il passe par ce service.
+
+**Faits tranchés.** R5 : `MailService::send()` prend désormais `cc`
+(validation, en-tête, DKIM, multipart, file différée), documenté et testé.

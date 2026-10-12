@@ -234,6 +234,12 @@ interface Window {
         ) => Array<{ level: 'yes' | 'maybe' | 'no'; before: string; strong: string; after: string }>;
         init: () => void;
     };
+    // public/assets/js/registration-copy-settings.js — the box « Copie
+    // des e-mails d'inscription » of the same page, exposed for its tests.
+    ScoutMagicRegistrationCopySettings?: {
+        syncAddress: (toggle: HTMLInputElement, address: HTMLInputElement) => void;
+        init: () => void;
+    };
     // public/assets/js/pdf-thumbnail.js — the fallback for a PDF
     // thumbnail the server could not render, loaded only by the pages
     // that show receipts. `error` does not bubble, so every code path

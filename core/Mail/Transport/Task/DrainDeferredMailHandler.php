@@ -187,7 +187,11 @@ class DrainDeferredMailHandler implements TaskHandlerInterface
                 // right reading there: an authentication mail wrongly
                 // suppressed locks somebody out of the site, which is the
                 // worse of the two mistakes (D9).
-                $payload['vouchesForRecipient'] ?? false
+                $payload['vouchesForRecipient'] ?? false,
+                // **And so does the copy** (chantier #843, IT-06): a
+                // message queued with a `Cc:` leaves with it. Absent on a
+                // row queued before the key existed, which had none.
+                cc: $payload['cc'] ?? []
             );
         } catch (\Core\Mail\SuppressedRecipientException) {
             return self::SUPPRESSED;

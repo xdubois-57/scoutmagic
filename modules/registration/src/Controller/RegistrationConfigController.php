@@ -26,6 +26,7 @@ use Modules\Registration\Repository\AgeBracketRepository;
 use Modules\Registration\Repository\RegistrationRequestRepository;
 use Modules\Registration\Repository\RegistrationYearCodeRepository;
 use Modules\Registration\Repository\SlotCapacityRepository;
+use Modules\Registration\Service\FamilyEmailCopyService;
 use Modules\Registration\Service\PriorityOrder;
 use Modules\Registration\Service\PriorityOrderService;
 use Modules\Registration\Service\RecommendationService;
@@ -819,6 +820,13 @@ class RegistrationConfigController extends AbstractController
             'priority_zones' => $this->priorityZones($this->priorityOrderService->current()),
             'priority_order_unusable' => $this->priorityOrderService->storedOrderIsUnusable(),
             'priority_rank_only_message' => self::MESSAGE_RANK_ONLY_IN_ALWAYS,
+
+            // « Copie des e-mails d'inscription » (IT-06). Its rules are the
+            // service's, which reads settings only; built here over the
+            // setting service this controller already holds rather than
+            // added to a constructor several chantier iterations extend.
+            // The box posts to RegistrationCopySettingsController.
+            'email_copy' => (new FamilyEmailCopyService($this->settingService))->boxState(),
         ];
     }
 
