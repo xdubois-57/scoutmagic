@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Tests\Modules\Registration\Service;
 
+use Core\Config\SettingRepository;
+use Core\Config\SettingService;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Mail\MailException;
@@ -15,6 +17,7 @@ use Modules\Registration\Repository\DecisionEmail;
 use Modules\Registration\Repository\DecisionEmailRepository;
 use Modules\Registration\Repository\RegistrationRequestRepository;
 use Modules\Registration\Service\DecisionEmailService;
+use Modules\Registration\Service\FamilyEmailCopyService;
 use Modules\Registration\Service\RegistrationException;
 use Modules\Registration\Service\RequestEmailService;
 use PHPUnit\Framework\MockObject\Rule\InvocationOrder;
@@ -57,15 +60,66 @@ class RequestEmailServiceTest extends TestCase
         $this->scoutYearId = RegistrationTestHelper::insertScoutYear($this->pdo, '2026-2027', '2026-09-01', '2027-08-31');
     }
 
-    private function buildService(MailService $mailService): RequestEmailService
-    {
+    private function buildService(
+        MailService $mailService,
+        ?FamilyEmailCopyService $familyEmailCopy = null
+    ): RequestEmailService {
         $journal = new JournalService(new JournalRepository($this->pdo));
 
         return new RequestEmailService(
             $this->requestRepository, $mailService, $this->editableContentService,
             $journal, 'https://example.com', 'Unité Test',
-            new DecisionEmailService($this->decisionEmails, $journal)
+            new DecisionEmailService($this->decisionEmails, $journal),
+            $familyEmailCopy
         );
+    }
+
+    /**
+     * The copy settings of chantier #843 (D9) over a real setting service:
+     * the switch, the typed address, and the unit's own « Email de
+     * contact », the default.
+     */
+    private function familyEmailCopy(string $enabled, string $address, string $unitAddress): FamilyEmailCopyService
+    {
+        $settings = new SettingService(new SettingRepository($this->pdo));
+        $module = 'registration';
+        $settings->register(FamilyEmailCopyService::SETTING_ENABLED, $enabled, 'boolean', 'Copie', 'desc', $module);
+        $settings->register(FamilyEmailCopyService::SETTING_ADDRESS, $address, 'email', 'Adresse', 'desc', $module);
+        $settings->register(FamilyEmailCopyService::SETTING_UNIT_ADDRESS, $unitAddress, 'email', 'Contact', 'desc');
+
+        return new FamilyEmailCopyService($settings);
+    }
+
+    /**
+     * Record, for every doubled `send()`, the recipient and the `cc` it is
+     * handed — the copy read by the parameter's NAME, so a reordering of
+     * the signature cannot make this read another argument. The first
+     * $failures sends throw, as a relay that refuses would.
+     *
+     * @param list<array{to: string, cc: mixed}> $copies written to by the double
+     */
+    private function recordCopies(
+        MailService&\PHPUnit\Framework\MockObject\MockObject $mailService,
+        InvocationOrder $times,
+        array &$copies,
+        int $failures = 0
+    ): void {
+        $ccIndex = null;
+        foreach ((new \ReflectionMethod(MailService::class, 'send'))->getParameters() as $parameter) {
+            if ($parameter->getName() === 'cc') {
+                $ccIndex = $parameter->getPosition();
+            }
+        }
+        $this->assertNotNull($ccIndex, 'MailService::send() takes a cc.');
+
+        $mailService->expects($times)
+            ->method('send')
+            ->willReturnCallback(function (...$arguments) use (&$copies, $ccIndex, $failures): void {
+                $copies[] = ['to' => (string) $arguments[0], 'cc' => $arguments[$ccIndex] ?? null];
+                if (count($copies) <= $failures) {
+                    throw new MailException('SMTP connect() failed.');
+                }
+            });
     }
 
     /**
@@ -345,6 +399,85 @@ class RequestEmailServiceTest extends TestCase
         $this->assertFalse($history[1]->isResend, 'a retry after a failure is not a resend');
         $this->assertSame(['marie@example.com', 'marie@example.com'], $sentTo);
         $this->assertNotNull($this->requestRepository->findById($requestId)->refusedEmailSentAt());
+    }
+
+    /**
+     * Acceptance and its resend carry the unit in copy (chantier #843,
+     * D9) — by default the unit's own address — and so does a refusal.
+     */
+    public function testBothDecisionEmailsAndTheirResendsCarryTheUnitAddressInCopy(): void
+    {
+        $this->writeBodies();
+        $mailService = $this->createMock(MailService::class);
+        $copies = [];
+        $this->recordCopies($mailService, $this->exactly(3), $copies);
+        $service = $this->buildService($mailService, $this->familyEmailCopy('1', '', 'info@unite.example.com'));
+        $acceptedId = $this->createRequest('accepted');
+        $refusedId = $this->createRequest('refused', 'paul@example.com');
+
+        $service->sendAccepted($this->requestRepository->findById($acceptedId), '2026-2027');
+        $service->sendAccepted($this->requestRepository->findById($acceptedId), '2026-2027');
+        $service->sendRefused($this->requestRepository->findById($refusedId), '2026-2027');
+
+        // The family stays the recipient; the unit is the copy.
+        $this->assertSame([
+            ['to' => 'marie@example.com', 'cc' => 'info@unite.example.com'],
+            ['to' => 'marie@example.com', 'cc' => 'info@unite.example.com'],
+            ['to' => 'paul@example.com', 'cc' => 'info@unite.example.com'],
+        ], $copies);
+        $this->assertTrue($this->history($acceptedId)[1]->isResend, 'the second acceptance is a resend.');
+    }
+
+    /** A retry after a failed attempt carries the copy too. */
+    public function testARetryAfterAFailureCarriesTheCopyToo(): void
+    {
+        $this->writeBodies();
+        $mailService = $this->createMock(MailService::class);
+        $copies = [];
+        $this->recordCopies($mailService, $this->exactly(2), $copies, 1);
+        $service = $this->buildService($mailService, $this->familyEmailCopy('1', '', 'info@unite.example.com'));
+        $requestId = $this->createRequest('refused');
+
+        try {
+            $service->sendRefused($this->requestRepository->findById($requestId), '2026-2027');
+            $this->fail('the first attempt fails.');
+        } catch (RegistrationException) {
+            // expected
+        }
+        $service->sendRefused($this->requestRepository->findById($requestId), '2026-2027');
+
+        $sent = ['to' => 'marie@example.com', 'cc' => 'info@unite.example.com'];
+        $this->assertSame([$sent, $sent], $copies);
+    }
+
+    /** An address typed in the box replaces the unit's own. */
+    public function testATypedCopyAddressReplacesTheUnitAddress(): void
+    {
+        $this->writeBodies();
+        $mailService = $this->createMock(MailService::class);
+        $copies = [];
+        $this->recordCopies($mailService, $this->once(), $copies);
+        $copy = $this->familyEmailCopy('1', 'secretariat@example.com', 'info@unite.example.com');
+        $service = $this->buildService($mailService, $copy);
+
+        $service->sendRefused($this->requestRepository->findById($this->createRequest('refused')), '2026-2027');
+
+        $this->assertSame([['to' => 'marie@example.com', 'cc' => 'secretariat@example.com']], $copies);
+    }
+
+    /** Switched off, the decision goes to the family alone. */
+    public function testNoCopyWhenTheOptionIsOff(): void
+    {
+        $this->writeBodies();
+        $mailService = $this->createMock(MailService::class);
+        $copies = [];
+        $this->recordCopies($mailService, $this->once(), $copies);
+        $copy = $this->familyEmailCopy('0', 'secretariat@example.com', 'info@unite.example.com');
+        $service = $this->buildService($mailService, $copy);
+
+        $service->sendAccepted($this->requestRepository->findById($this->createRequest('accepted')), '2026-2027');
+
+        $this->assertSame([['to' => 'marie@example.com', 'cc' => null]], $copies);
     }
 
     /**

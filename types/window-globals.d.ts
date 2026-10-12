@@ -234,6 +234,12 @@ interface Window {
         ) => Array<{ level: 'yes' | 'maybe' | 'no'; before: string; strong: string; after: string }>;
         init: () => void;
     };
+    // public/assets/js/registration-copy-settings.js — the box « Copie
+    // des e-mails d'inscription » of the same page, exposed for its tests.
+    ScoutMagicRegistrationCopySettings?: {
+        syncAddress: (toggle: HTMLInputElement, address: HTMLInputElement) => void;
+        init: () => void;
+    };
     // public/assets/js/registration-decide-dialog.js — the decision
     // dialog of Formulaire d'inscription › Demandes, exposed for its tests.
     ScoutMagicDecideDialog?: {

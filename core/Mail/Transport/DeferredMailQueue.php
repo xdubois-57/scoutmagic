@@ -85,6 +85,7 @@ final class DeferredMailQueue
      *     replyTo: ?string, fromAddressOverride: ?string, fromNameOverride: ?string,
      *     extraHeaders: array<string, string>,
      *     vouchesForRecipient?: bool,
+     *     cc?: list<string>,
      *     attachments: array<int, array{name: string, content: string}>
      * } $payload
      * @return bool Whether it was taken. False means the caller's failure stands.
