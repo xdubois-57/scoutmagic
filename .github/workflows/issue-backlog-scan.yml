@@ -891,7 +891,9 @@ jobs:
       # verified issue list produced by Apply the verdicts, never model
       # instructions or a model-supplied project ID.
       - name: Set Effort on ScoutMagic Project
-        if: steps.before.outputs.candidates != '0'
+        # Some selected issues can have succeeded even if a later one
+        # failed; persist those estimates despite the scan's red result.
+        if: always() && steps.before.outputs.candidates != '0'
         env:
           GH_TOKEN: ${{ secrets.PROJECTS_TOKEN }}
         run: |
