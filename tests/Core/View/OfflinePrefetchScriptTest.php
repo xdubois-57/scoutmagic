@@ -83,7 +83,7 @@ class OfflinePrefetchScriptTest extends TestCase
         $body = $this->swFunction('fetchMissingImages(cache, images, scope)');
 
         $this->assertStringContainsString('cache.match(url)', $body);
-        $this->assertMatchesRegularExpression('/if \(cached\) \{\s*return undefined;/', $body);
+        $this->assertStringContainsString('cached ? undefined : fetch(url', $body);
     }
 
     public function testWhatLeftTheListIsDeleted(): void
@@ -96,7 +96,7 @@ class OfflinePrefetchScriptTest extends TestCase
 
     public function testPagesSendIfNoneMatchFromTheCachedEtag(): void
     {
-        $body = $this->swFunction('refreshPages(cache, pages, startedAt, scope)');
+        $body = $this->swFunction('refreshPage(cache, path, startedAt, scope)');
 
         $this->assertStringContainsString("cached.headers.get('ETag')", $body);
         $this->assertStringContainsString("headers['If-None-Match']", $body);
@@ -104,7 +104,7 @@ class OfflinePrefetchScriptTest extends TestCase
 
     public function testA304RefreshesTheCachedDateInsteadOfRedownloading(): void
     {
-        $body = $this->swFunction('refreshPages(cache, pages, startedAt, scope)');
+        $body = $this->swFunction('refreshPage(cache, path, startedAt, scope)');
 
         $this->assertStringContainsString('response.status === 304', $body);
         $this->assertStringContainsString('stamped(cached, true)', $body);

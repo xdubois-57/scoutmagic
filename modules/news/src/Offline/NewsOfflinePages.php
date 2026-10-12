@@ -32,7 +32,8 @@ final class NewsOfflinePages implements OfflinePageProvider
     public function pagesFor(Role $role, ?string $email): array
     {
         $pages = ['/news'];
-        foreach ($this->articleService->findPublicListPage($role, NewsController::LIST_PER_PAGE, 0)['articles'] as $article) {
+        $firstPage = $this->articleService->findPublicListPage($role, NewsController::LIST_PER_PAGE, 0);
+        foreach ($firstPage['articles'] as $article) {
             $pages[] = '/news/' . $article->id;
         }
 

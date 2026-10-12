@@ -61,12 +61,54 @@ class OfflineWhitelist
 {
     /** @var list<OfflineEntry> */
     private const CORE_ENTRIES = [
-        ['path' => '/', 'provider' => null, 'prefix' => null, 'label' => 'Accueil', 'role_min' => 'public', 'last' => false],
-        ['path' => '/contact', 'provider' => null, 'prefix' => null, 'label' => 'Contact', 'role_min' => 'public', 'last' => false],
-        ['path' => '/sections', 'provider' => null, 'prefix' => null, 'label' => 'Sections', 'role_min' => 'public', 'last' => false],
-        ['path' => '/rgpd', 'provider' => null, 'prefix' => null, 'label' => 'Protection des données', 'role_min' => 'public', 'last' => false],
-        ['path' => '/account', 'provider' => null, 'prefix' => null, 'label' => 'Mon compte', 'role_min' => 'identified', 'last' => false],
-        ['path' => '/notifications', 'provider' => null, 'prefix' => null, 'label' => 'Notifications', 'role_min' => 'identified', 'last' => false],
+        [
+            'path' => '/',
+            'provider' => null,
+            'prefix' => null,
+            'label' => 'Accueil',
+            'role_min' => 'public',
+            'last' => false,
+        ],
+        [
+            'path' => '/contact',
+            'provider' => null,
+            'prefix' => null,
+            'label' => 'Contact',
+            'role_min' => 'public',
+            'last' => false,
+        ],
+        [
+            'path' => '/sections',
+            'provider' => null,
+            'prefix' => null,
+            'label' => 'Sections',
+            'role_min' => 'public',
+            'last' => false,
+        ],
+        [
+            'path' => '/rgpd',
+            'provider' => null,
+            'prefix' => null,
+            'label' => 'Protection des données',
+            'role_min' => 'public',
+            'last' => false,
+        ],
+        [
+            'path' => '/account',
+            'provider' => null,
+            'prefix' => null,
+            'label' => 'Mon compte',
+            'role_min' => 'identified',
+            'last' => false,
+        ],
+        [
+            'path' => '/notifications',
+            'provider' => null,
+            'prefix' => null,
+            'label' => 'Notifications',
+            'role_min' => 'identified',
+            'last' => false,
+        ],
         [
             'path' => null,
             'provider' => LinkedMemberPages::class,
@@ -77,7 +119,14 @@ class OfflineWhitelist
         ],
         // Pre-downloaded since #883, like every other entry: the photos of
         // the Staffs page used to need a visit first.
-        ['path' => '/chefs/staffs', 'provider' => null, 'prefix' => null, 'label' => 'Staffs', 'role_min' => 'intendant', 'last' => false],
+        [
+            'path' => '/chefs/staffs',
+            'provider' => null,
+            'prefix' => null,
+            'label' => 'Staffs',
+            'role_min' => 'intendant',
+            'last' => false,
+        ],
         [
             'path' => null,
             'provider' => HelpPages::class,

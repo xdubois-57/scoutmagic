@@ -128,7 +128,14 @@ class ModuleManifest
      *         default_on_role_min: ?string
      *     }
      * > $notifications
-     * @param array<int, array{path: ?string, provider: ?string, prefix: ?string, label: string, role_min: string, last: bool}> $offline
+     * @param array<int, array{
+     *     path: ?string,
+     *     provider: ?string,
+     *     prefix: ?string,
+     *     label: string,
+     *     role_min: string,
+     *     last: bool
+     * }> $offline
      * @param array<int, string> $requires
      * @param array<int, string> $visibleWhen
      * @param array<
@@ -1156,7 +1163,8 @@ class ModuleManifest
         }
 
         if ($hasPath) {
-            if (!is_string($entry['path']) || !str_starts_with($entry['path'], '/') || str_starts_with($entry['path'], '//')) {
+            $path = $entry['path'];
+            if (!is_string($path) || !str_starts_with($path, '/') || str_starts_with($path, '//')) {
                 throw new ModuleException("{$where} path must be a string starting with a single '/'");
             }
             if (array_key_exists('prefix', $entry)) {

@@ -258,7 +258,7 @@ function readEntry(url) {
  * The list last received for this account: `{scope, pages, last}`, or
  * null. A list stored for another account says nothing about this one.
  *
- * @param {{account_scope?: unknown}|null} config
+ * @param {{account_scope?: string|number}|null} config
  * @returns {Promise<{scope: string, pages: string[], last: string[]}|null>}
  */
 function getOfflineList(config) {
@@ -450,13 +450,11 @@ self.addEventListener('message', function (event) {
         // submits the logout form, so this message is the first — and
         // often only — moment the worker is told the identity behind the
         // caches it holds has changed (issue #252).
+        const scope = String(data.account_scope);
         lastConfigWrite = storeOfflineConfig(data).then(function () {
-            if (!data.consent) {
-                return purgeAllContentCaches();
-            }
-            return purgeContentCachesExcept(String(data.account_scope)).then(function () {
-                return adoptPreviousVersion(String(data.account_scope), String(data.version));
-            });
+            return data.consent ? purgeContentCachesExcept(scope) : purgeAllContentCaches();
+        }).then(function () {
+            return data.consent ? adoptPreviousVersion(scope, String(data.version)) : undefined;
         }).catch(function () {});
         event.waitUntil(lastConfigWrite);
     } else if (data.type === 'purge-content-caches') {
@@ -510,12 +508,12 @@ let passInFlight = null;
  * @returns {Promise<boolean>} whether a pass ran to its end
  */
 function refreshOfflineCopies() {
-    if (passInFlight) {
+    if (passInFlight !== null) {
         return passInFlight;
     }
     passInFlight = getOfflineConfig().catch(function () { return null; }).then(function (config) {
         if (!config?.consent || !config.standalone || !config.account_scope || config.account_scope === 'guest') {
-            return false;
+            return Promise.resolve(false);
         }
         return runPass(config);
     }).catch(function () {
@@ -541,26 +539,52 @@ function runPass(config) {
         const previous = results[1];
         const cache = results[2];
         if (!list) {
-            return false;
+            return Promise.resolve(false);
         }
 
-        const resuming = previous && previous.scope === scope && previous.version === version && !previous.completedAt;
+        const resuming = previous?.scope === scope && previous.version === version && !previous.completedAt;
         const startedAt = resuming ? Number(previous.startedAt) : Date.now();
         const record = { scope: scope, version: version, startedAt: startedAt, completedAt: null };
 
-        return storeEntry(LIST_URL, { scope: scope, pages: list.pages, last: list.last })
-            .then(function () { return storeEntry(PASS_URL, record); })
-            .then(function () { return refreshPages(cache, list.pages, startedAt, scope); })
-            .then(function () { return imagesOf(cache, list.pages); })
-            .then(function (images) { return fetchMissingImages(cache, images, scope); })
-            .then(function () { return refreshPages(cache, list.last, startedAt, scope); })
-            .then(function () { return pruneCopies(cache, list.pages.concat(list.last)); })
-            .then(function () {
-                record.completedAt = Date.now();
-                return storeEntry(PASS_URL, record);
-            })
-            .then(function () { return true; });
+        return passOver(cache, list, record);
     });
+}
+
+/**
+ * The steps of one pass, in order, over $list into $cache; $record is
+ * stored as it starts and again, completed, once every step has run.
+ *
+ * @param {Cache} cache
+ * @param {{pages: string[], last: string[]}} list
+ * @param {{scope: string, version: string, startedAt: number, completedAt: number|null}} record
+ * @returns {Promise<boolean>}
+ */
+function passOver(cache, list, record) {
+    const scope = record.scope;
+    const startedAt = record.startedAt;
+
+    return storeEntry(LIST_URL, { scope: scope, pages: list.pages, last: list.last })
+        .then(function () { return storeEntry(PASS_URL, record); })
+        .then(function () { return refreshPages(cache, list.pages, startedAt, scope); })
+        .then(function () { return imagesOf(cache, list.pages); })
+        .then(function (images) { return fetchMissingImages(cache, images, scope); })
+        .then(function () { return refreshPages(cache, list.last, startedAt, scope); })
+        .then(function () { return pruneCopies(cache, list.pages.concat(list.last)); })
+        .then(function () {
+            record.completedAt = Date.now();
+            return storeEntry(PASS_URL, record);
+        })
+        .then(function () { return true; });
+}
+
+/**
+ * A path the list may hold: a string starting with a single '/'.
+ *
+ * @param {unknown} path
+ * @returns {boolean}
+ */
+function isPlainPath(path) {
+    return typeof path === 'string' && path.startsWith('/') && !path.startsWith('//');
 }
 
 /**
@@ -584,12 +608,9 @@ function fetchManifest(scope) {
             if (!data || !Array.isArray(data.pages)) {
                 return null;
             }
-            const plain = function (path) {
-                return typeof path === 'string' && path.startsWith('/') && !path.startsWith('//');
-            };
             return {
-                pages: data.pages.filter(plain),
-                last: Array.isArray(data.last) ? data.last.filter(plain) : [],
+                pages: data.pages.filter(isPlainPath),
+                last: Array.isArray(data.last) ? data.last.filter(isPlainPath) : [],
             };
         })
         .catch(function () { return null; });
@@ -641,29 +662,47 @@ function inLanes(items, work) {
  */
 function refreshPages(cache, pages, startedAt, scope) {
     return inLanes(pages, function (path) {
-        return cache.match(path).then(function (cached) {
-            if (storedSince(cached, startedAt)) {
-                return undefined;
-            }
-            const headers = {};
-            const etag = cached ? cached.headers.get('ETag') : null;
-            if (etag) {
-                headers['If-None-Match'] = etag;
-            }
-            return fetch(path, { credentials: 'same-origin', headers: headers }).then(function (response) {
-                const served = response.headers.get('X-Offline-Scope');
-                if (served !== null && served !== scope) {
-                    return undefined;
-                }
-                if (response.status === 304 && cached) {
-                    return stamped(cached, true).then(function (copy) { return cache.put(path, copy); });
-                }
-                if (response.ok && !response.redirected) {
-                    return stamped(response, false).then(function (copy) { return cache.put(path, copy); });
-                }
-                return undefined;
-            });
-        });
+        return refreshPage(cache, path, startedAt, scope);
+    });
+}
+
+/**
+ * One page of refreshPages(): asked again unless stored since $startedAt,
+ * with the ETag of the copy held, and stored stamped.
+ *
+ * @returns {Promise<void>}
+ */
+function refreshPage(cache, path, startedAt, scope) {
+    let cached;
+
+    return cache.match(path).then(function (match) {
+        cached = match;
+        if (storedSince(cached, startedAt)) {
+            return undefined;
+        }
+        const headers = {};
+        const etag = cached ? cached.headers.get('ETag') : null;
+        if (etag) {
+            headers['If-None-Match'] = etag;
+        }
+        return fetch(path, { credentials: 'same-origin', headers: headers });
+    }).then(function (response) {
+        if (!response) {
+            return undefined;
+        }
+        const served = response.headers.get('X-Offline-Scope');
+        if (served !== null && served !== scope) {
+            return undefined;
+        }
+        if (response.status === 304 && cached) {
+            return stamped(cached, true);
+        }
+        if (response.ok && !response.redirected) {
+            return stamped(response, false);
+        }
+        return undefined;
+    }).then(function (copy) {
+        return copy ? cache.put(path, copy) : undefined;
     });
 }
 
@@ -703,16 +742,16 @@ function imageVariantsIn(html) {
 function fetchMissingImages(cache, images, scope) {
     return inLanes(images, function (url) {
         return cache.match(url).then(function (cached) {
-            if (cached) {
+            return cached ? undefined : fetch(url, { credentials: 'same-origin' });
+        }).then(function (response) {
+            if (!response) {
                 return undefined;
             }
-            return fetch(url, { credentials: 'same-origin' }).then(function (response) {
-                const served = response.headers.get('X-Offline-Scope');
-                if (response.ok && !response.redirected && (served === null || served === scope)) {
-                    return cache.put(url, response);
-                }
-                return undefined;
-            });
+            const served = response.headers.get('X-Offline-Scope');
+            if (response.ok && !response.redirected && (served === null || served === scope)) {
+                return cache.put(url, response);
+            }
+            return undefined;
         });
     });
 }
@@ -1169,7 +1208,7 @@ function handleNavigate(request, url, preloadResponse, event) {
  */
 function variantResponse(request, event) {
     return fetch(request).then(function (response) {
-        keepAlive(event, storeVariantIfListed(request, response.clone()).catch(function () {}));
+        keepAlive(event, storeVariantIfListed(request, response.clone()));
         return response;
     }, function () {
         return caches.match(request);
@@ -1187,6 +1226,9 @@ function storeVariantIfListed(request, response) {
         return Promise.resolve();
     }
 
+    // Never rejects: a copy not stored must not fail the image it was for.
+    let cacheName = null;
+
     return getOfflineConfig().then(function (config) {
         if (!config?.consent || !config.standalone) {
             return undefined;
@@ -1195,16 +1237,13 @@ function storeVariantIfListed(request, response) {
         if (served !== null && served !== String(config.account_scope)) {
             return undefined;
         }
-        return getOfflineList(config).then(function (list) {
-            if (!isListed(referrer, list)) {
-                return undefined;
-            }
-            const cacheName = CONTENT_CACHE_PREFIX + config.account_scope + '-' + config.version;
-            return caches.open(cacheName).then(function (cache) {
-                return cache.put(request, response);
-            });
-        });
-    });
+        cacheName = CONTENT_CACHE_PREFIX + String(config.account_scope) + '-' + String(config.version);
+        return getOfflineList(config);
+    }).then(function (list) {
+        return cacheName !== null && isListed(referrer, list) ? caches.open(cacheName) : undefined;
+    }).then(function (cache) {
+        return cache ? cache.put(request, response) : undefined;
+    }).catch(function () {});
 }
 
 /**

@@ -86,6 +86,8 @@
             var last = JSON.parse(raw);
             return last?.scope === scope && (Date.now() - Number(last.at)) < REFRESH_AFTER_MS;
         } catch (e) {
+            // Storage refused (private mode) or a value that is not JSON:
+            // nothing says a pass already ran, so one runs.
             return false;
         }
     }

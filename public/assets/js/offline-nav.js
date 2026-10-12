@@ -77,30 +77,49 @@
         var maxAgeMs = (Number(config.stalenessDays) || 30) * DAY_MS;
 
         return caches.has(cacheName).then(function (exists) {
-            if (!exists) {
-                return new Set();
-            }
-            return caches.open(cacheName).then(function (cache) {
-                return cache.keys().then(function (requests) {
-                    return Promise.all(requests.map(function (request) {
-                        var url = new URL(request.url);
-                        if (url.search !== '' || IMAGE_VARIANT_PATH.test(url.pathname)) {
-                            return null;
-                        }
-                        return cache.match(request).then(function (copy) {
-                            var age = copy ? Date.now() - Date.parse(copy.headers.get('Date') || '') : Number.NaN;
-                            return age >= -CLOCK_SKEW_TOLERANCE_MS && age <= maxAgeMs ? url.pathname : null;
-                        });
-                    }));
-                });
-            }).then(function (paths) {
-                return new Set(paths.filter(function (path) { return path !== null; }));
-            });
+            return exists ? caches.open(cacheName) : null;
+        }).then(function (cache) {
+            return cache ? freshPagesIn(cache, maxAgeMs) : new Set();
         }).catch(function () {
             return new Set();
         }).then(function (pages) {
             availablePages = pages;
             applyState();
+        });
+    }
+
+    /**
+     * The pages $cache holds a copy of that is young enough to open:
+     * paths only, never a query string or an image variant.
+     *
+     * @param {Cache} cache
+     * @param {number} maxAgeMs
+     * @returns {Promise<Set<string>>}
+     */
+    function freshPagesIn(cache, maxAgeMs) {
+        return cache.keys().then(function (requests) {
+            return Promise.all(requests.map(function (request) {
+                return freshPathOf(cache, request, maxAgeMs);
+            }));
+        }).then(function (paths) {
+            return new Set(paths.filter(function (path) { return path !== null; }));
+        });
+    }
+
+    /**
+     * @param {Cache} cache
+     * @param {Request} request
+     * @param {number} maxAgeMs
+     * @returns {Promise<string|null>}
+     */
+    function freshPathOf(cache, request, maxAgeMs) {
+        var url = new URL(request.url);
+        if (url.search !== '' || IMAGE_VARIANT_PATH.test(url.pathname)) {
+            return Promise.resolve(null);
+        }
+        return cache.match(request).then(function (copy) {
+            var age = copy ? Date.now() - Date.parse(copy.headers.get('Date') || '') : Number.NaN;
+            return age >= -CLOCK_SKEW_TOLERANCE_MS && age <= maxAgeMs ? url.pathname : null;
         });
     }
 
