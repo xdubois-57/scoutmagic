@@ -308,9 +308,10 @@ automatically; you do not name them.
 which carries no `bug:*` label at all** — see § A feature request below for why. Every other
 issue gets exactly one verdict.
 
-**Never touch `status:accepted`.** It is applied by hand, it means the
-maintainer has decided to do the work, and nothing automatic reads it.
-Applying it would be inventing a decision that is not yours.
+**Never touch `status:accepted`.** This is a legacy label and no longer
+authorizes development. The maintainer signals authorization by moving an
+issue to **Ready** on ScoutMagic GitHub Project #1. Triage never moves
+Project statuses or accepts work on the maintainer's behalf.
 
 **You cannot invent a label, and should not try.** The verdicts above are
 a closed set in the schema, and the workflow maps them to the taxonomy
