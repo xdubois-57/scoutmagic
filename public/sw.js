@@ -669,8 +669,11 @@ function keepListOnly(config) {
 }
 
 /**
- * $list stored for $record's scope, and the windows told; nothing without
- * a list.
+ * $list stored for $record's scope, what left it removed, and the windows
+ * told; nothing without a list. The removal is a pass's own last step
+ * (passOver()): a copy is served whatever the list says, so a page that
+ * left it — a member unlinked, a role lowered — stays readable offline
+ * until removed. It fetches nothing, so Data Saver loses nothing to it.
  *
  * @param {{pages: string[], last: string[]}|null} list
  * @param {{scope: string, version: string}} record
@@ -680,7 +683,11 @@ function keepList(list, record) {
     if (!list) {
         return Promise.resolve(false);
     }
+    const kept = list.pages.concat(list.last);
+
     return storeEntry(LIST_URL, { scope: record.scope, pages: list.pages, last: list.last })
+        .then(function () { return caches.open(CONTENT_CACHE_PREFIX + record.scope + '-' + record.version); })
+        .then(function (cache) { return pruneCopies(cache, kept); })
         .then(function () { return announcePassDone(record); })
         .then(function () { return true; });
 }
@@ -962,10 +969,29 @@ function fetchMissingImages(cache, images, scope) {
             if (response.ok && !response.redirected && (served === null || served === scope)) {
                 return cache.put(url, response);
             }
+            // A definitive refusal — a file deleted while a listed article
+            // still shows it, an image this person may not see: nothing to
+            // keep and nothing a later pass would get. Counted, it would
+            // keep the pass open for ever.
+            if (isDefinitiveRefusal(response)) {
+                return undefined;
+            }
             // Stored nothing: counted, like a refreshed page (stampedAnswer()).
             throw new Error('Not stored: ' + response.status);
         });
     });
+}
+
+/**
+ * A 4xx that asking again will not change: not a redirect (an expired
+ * session), not 408 nor 429 (the server asking to come back later).
+ *
+ * @param {Response} response
+ * @returns {boolean}
+ */
+function isDefinitiveRefusal(response) {
+    return !response.redirected && response.status >= 400 && response.status < 500
+        && response.status !== 408 && response.status !== 429;
 }
 
 /**

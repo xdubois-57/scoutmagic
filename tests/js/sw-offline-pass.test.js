@@ -184,6 +184,36 @@ describe('sw.js: refreshOfflineCopies() — the pass (#883)', () => {
         expect(stored()).toEqual(['/files/8/thumb', '/news']);
     });
 
+    it('finishes despite an image refused for good — a file deleted while an article still shows it', async () => {
+        await seed();
+        serve({
+            '/api/offline/manifest': manifest(['/news/3']),
+            '/news/3': html('<img src="/files/5/md"><img src="/files/6/md">'),
+            '/files/5/md': new Response('interdit', { status: 403 }),
+            '/files/6/md': new Response('webp-6'),
+        });
+
+        expect(await sw.refreshOfflineCopies()).toBe(true);
+
+        expect(stored()).toEqual(['/files/6/md', '/news/3']);
+        expect((await readPass()).completedAt).toBeTypeOf('number');
+    });
+
+    it.each([
+        ['a server error', 503],
+        ['a « come back later »', 429],
+    ])('stays open on %s for an image: a later pass may get it', async (_label, status) => {
+        await seed();
+        serve({
+            '/api/offline/manifest': manifest(['/news/3']),
+            '/news/3': html('<img src="/files/5/md">'),
+            '/files/5/md': new Response('plus tard', { status }),
+        });
+
+        expect(await sw.refreshOfflineCopies()).toBe(false);
+        expect((await readPass()).completedAt).toBeNull();
+    });
+
     // The list came, then the network went: every page fails. Such a pass
     // must not count as done — the page would remember the launch and not
     // ask again for a day — and the next one resumes it.
@@ -338,6 +368,19 @@ describe('sw.js: refreshOfflineCopies() — the pass (#883)', () => {
         expect(asked).toEqual(['/api/offline/manifest']);
         const list = await (await (await caches.open('offline-config')).match(sw.LIST_URL)).json();
         expect(list.pages).toEqual(['/', '/contact']);
+    });
+
+    it('removes what left the list when it keeps only the list, fetching nothing', async () => {
+        await seed();
+        const content = await caches.open('content-a-1');
+        await content.put('/members/12', html('Plus lié à ce compte'));
+        await content.put('/contact', html('Contact'));
+        const asked = serve({ '/api/offline/manifest': manifest(['/', '/contact']) });
+
+        expect(await sw.refreshOfflineCopies(true)).toBe(true);
+
+        expect(asked).toEqual(['/api/offline/manifest']);
+        expect(stored()).toEqual(['/contact']);
     });
 
     it('keeps only the list for a visitor not signed in, so the public pages they visit are kept', async () => {
