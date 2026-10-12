@@ -28,8 +28,10 @@ use Core\View\EditableContentService;
 use Core\View\TwigFactory;
 use Modules\Registration\Controller\RegistrationRequestController;
 use Modules\Registration\Repository\AgeBracketRepository;
+use Modules\Registration\Repository\DecisionEmailRepository;
 use Modules\Registration\Repository\RegistrationRequestRepository;
 use Modules\Registration\Repository\RegistrationSecondaryEmailRepository;
+use Modules\Registration\Service\DecisionEmailService;
 use Modules\Registration\Service\HouseholdRegistrationCountService;
 use Modules\Registration\Service\MigrationService;
 use Modules\Registration\Service\RequestEmailService;
@@ -134,7 +136,13 @@ class RegistrationRequestControllerTest extends TestCase
         $mailService->method('send');
         $this->editableContentService = new EditableContentService(new EditableContentRepository($this->pdo));
         $emailService = new RequestEmailService(
-            $this->requestRepository, $mailService, $this->editableContentService, $journalService, 'https://example.com', 'Unité Test'
+            $this->requestRepository,
+            $mailService,
+            $this->editableContentService,
+            $journalService,
+            'https://example.com',
+            'Unité Test',
+            new DecisionEmailService(new DecisionEmailRepository($this->pdo), $journalService)
         );
         $this->emailService = $emailService;
 
@@ -495,7 +503,7 @@ class RegistrationRequestControllerTest extends TestCase
         ), ['id' => (string) $id]);
 
         $this->assertSame(302, $response->getStatusCode());
-        $this->assertNull($this->requestRepository->findById($id)->acceptedEmailSentAt);
+        $this->assertNull($this->requestRepository->findById($id)->acceptedEmailSentAt());
     }
 
     public function testSendAcceptedEmailSucceedsOnceBodyWritten(): void
@@ -508,13 +516,44 @@ class RegistrationRequestControllerTest extends TestCase
             'POST', "/config/inscriptions/demandes/{$id}/send-accepted-email", [], $this->csrfBody(), [], []
         ), ['id' => (string) $id]);
 
-        $this->assertNotNull($this->requestRepository->findById($id)->acceptedEmailSentAt);
+        $firstSentAt = $this->requestRepository->findById($id)->acceptedEmailSentAt();
+        $this->assertNotNull($firstSentAt);
 
-        // Resend works too.
+        // Resend works too — a second e-mail of its own, which never moves
+        // the date of the first (R3).
         $this->controller->sendAcceptedEmail(new Request(
             'POST', "/config/inscriptions/demandes/{$id}/send-accepted-email", [], $this->csrfBody(), [], []
         ), ['id' => (string) $id]);
-        $this->assertNotNull($this->requestRepository->findById($id)->acceptedEmailSentAt);
+        $this->assertEquals($firstSentAt, $this->requestRepository->findById($id)->acceptedEmailSentAt());
+        $history = (new DecisionEmailRepository($this->pdo))->findForRequest($id);
+        $this->assertSame(['sent', 'sent'], array_map(static fn($email) => $email->state, $history));
+        $this->assertSame([false, true], array_map(static fn($email) => $email->isResend, $history));
+    }
+
+    /**
+     * The fiche shows both buttons whatever the decision. The acceptance
+     * e-mail of a refused request is refused — it used to leave, telling
+     * a family their child was accepted after the unit had said no — and
+     * the chief is told why.
+     */
+    public function testTheAcceptanceEmailOfARefusedRequestIsRefused(): void
+    {
+        $id = $this->createRequest();
+        $this->requestRepository->updateStatus($id, 'refused', new \DateTimeImmutable());
+        $this->editableContentService->set('registration_email_accepted_body', '<p>Bienvenue !</p>', 'rich_text', 1);
+
+        $this->controller->sendAcceptedEmail(new Request(
+            'POST', "/config/inscriptions/demandes/{$id}/send-accepted-email", [], $this->csrfBody(), [], []
+        ), ['id' => (string) $id]);
+
+        $this->assertSame(
+            [
+                'type' => 'error',
+                'message' => "Cette demande n'est pas acceptée : l'e-mail d'acceptation ne peut pas partir.",
+            ],
+            \Core\Http\FlashMessage::get()
+        );
+        $this->assertSame([], (new DecisionEmailRepository($this->pdo))->findForRequest($id));
     }
 
     /**

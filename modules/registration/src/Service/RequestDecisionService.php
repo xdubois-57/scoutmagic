@@ -30,7 +30,9 @@ use Modules\Registration\Repository\RegistrationRequestRepository;
  * - decide() — what the dialog posts: the existing transition of
  *   Service\RequestStatusService (accept, or refuse with its reason), then
  *   the note. Nothing else: no e-mail leaves (the decision e-mails are
- *   still sent by hand from the fiche, until IT-05 and IT-09 plan them).
+ *   still sent by hand from the fiche, until IT-09 plans them; a change
+ *   of decision cancels any e-mail planned for the old one, inside the
+ *   same transaction — RegistrationRequestRepository::updateStatus()).
  */
 class RequestDecisionService
 {

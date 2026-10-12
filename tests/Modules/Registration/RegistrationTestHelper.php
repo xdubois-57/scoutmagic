@@ -68,8 +68,6 @@ class RegistrationTestHelper
             fee_category_id INTEGER,
             internal_notes_encrypted BLOB,
             linked_member_id INTEGER UNIQUE,
-            accepted_email_sent_at TEXT,
-            refused_email_sent_at TEXT,
             refusal_reason TEXT,
             final_at TEXT,
             address_normalized_blind_index TEXT,
@@ -80,6 +78,32 @@ class RegistrationTestHelper
             FOREIGN KEY (intended_section_id) REFERENCES sections(id),
             FOREIGN KEY (fee_category_id) REFERENCES fee_categories(id),
             FOREIGN KEY (linked_member_id) REFERENCES members(id)
+        )');
+
+        // modules/registration/schema.sql's registration_decision_emails
+        // (issue #843, IT-05), as SQLite can hold it: the ENUMs become TEXT,
+        // and the UNIQUE active_request_id keeps the claim's meaning — SQLite,
+        // like MySQL, lets several rows carry NULL there.
+        $pdo->exec('CREATE TABLE registration_decision_emails (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            registration_request_id INTEGER NOT NULL,
+            decision TEXT NOT NULL,
+            state TEXT NOT NULL DEFAULT "scheduled",
+            due_at TEXT,
+            attempt INTEGER NOT NULL DEFAULT 1,
+            is_resend INTEGER NOT NULL DEFAULT 0,
+            attempted_at TEXT,
+            sent_at TEXT,
+            failed_at TEXT,
+            failure_code TEXT,
+            failure_message TEXT,
+            cancelled_at TEXT,
+            cancel_reason TEXT,
+            superseded_at TEXT,
+            active_request_id INTEGER UNIQUE,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (registration_request_id) REFERENCES registration_requests(id) ON DELETE CASCADE
         )');
 
         $pdo->exec('CREATE TABLE registration_request_siblings (
@@ -188,6 +212,38 @@ class RegistrationTestHelper
             updated_by_user_account_id INTEGER
         )');
         $pdo->exec('CREATE UNIQUE INDEX idx_rpn_member_year ON registration_passage_notes (member_id, scout_year_id)');
+    }
+
+    /**
+     * Records that the $decision e-mail of a request went out, through the
+     * real repository — what a fixture needs where it used to stamp a
+     * column on the request (issue #843, IT-05). The request must hold that
+     * decision, as for a real send.
+     *
+     * @return int the id of the sent e-mail
+     */
+    public static function recordDecisionEmailSent(
+        \PDO $pdo,
+        int $requestId,
+        string $decision,
+        ?\DateTimeImmutable $at = null
+    ): int {
+        $repository = new \Modules\Registration\Repository\DecisionEmailRepository($pdo);
+        $at ??= new \DateTimeImmutable();
+        $id = $repository->insert(
+            $requestId,
+            $decision,
+            \Modules\Registration\Repository\DecisionEmail::STATE_SENDING,
+            null,
+            1,
+            false,
+            $at
+        );
+        if ($id === null || !$repository->markSent($id, $at)) {
+            throw new \LogicException("Request {$requestId} cannot be sent a '{$decision}' e-mail.");
+        }
+
+        return $id;
     }
 
     /**

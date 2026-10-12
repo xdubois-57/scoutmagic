@@ -86,7 +86,11 @@ class RequestDecisionControllerTest extends TestCase
                 $this->content,
                 $journal,
                 'https://example.com',
-                'Unité Test'
+                'Unité Test',
+                new \Modules\Registration\Service\DecisionEmailService(
+                    new \Modules\Registration\Repository\DecisionEmailRepository($this->pdo),
+                    $journal
+                )
             )
         );
         $this->controller = new RequestDecisionController(
