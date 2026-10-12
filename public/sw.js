@@ -319,20 +319,31 @@ function isListed(url, list) {
 function adoptPreviousVersion(scope, version) {
     const prefix = CONTENT_CACHE_PREFIX + scope + '-';
     const current = prefix + version;
+    let previous = [];
 
     return caches.keys().then(function (names) {
-        const previous = names.filter(function (name) {
+        previous = names.filter(function (name) {
             return name.startsWith(prefix) && name !== current;
         });
-        if (previous.length === 0) {
-            return undefined;
-        }
-        return readEntry(LIST_URL).catch(function () { return null; }).then(function (list) {
-            return adoptListed(previous, current, list?.scope === scope ? list : null);
-        }).then(function () {
-            return Promise.all(previous.map(function (name) { return caches.delete(name); }));
-        });
+        return previous.length === 0 ? undefined : storedListFor(scope);
+    }).then(function (list) {
+        return previous.length === 0 ? undefined : adoptListed(previous, current, list ?? null);
+    }).then(function () {
+        return Promise.all(previous.map(function (name) { return caches.delete(name); }));
     }).then(function () {});
+}
+
+/**
+ * The list stored for $scope, or null when none is, or it is another
+ * account's.
+ *
+ * @param {string} scope
+ * @returns {Promise<{pages: string[], last: string[]}|null>}
+ */
+function storedListFor(scope) {
+    return readEntry(LIST_URL).catch(function () { return null; }).then(function (list) {
+        return list?.scope === scope ? list : null;
+    });
 }
 
 /**
@@ -547,11 +558,12 @@ function announcePassDone(record) {
     if (!self.clients) {
         return Promise.resolve();
     }
+    // Never rejects: an announcement that fails must not fail the pass.
     return self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function (windows) {
         windows.forEach(function (client) {
             client.postMessage({ type: 'offline-refresh-done', scope: scope });
         });
-    });
+    }).catch(function () {});
 }
 
 // --- #883: the pass that keeps the list offline ---
@@ -711,7 +723,7 @@ function settlePass(record, failed) {
     }
     record.completedAt = Date.now();
     return storeEntry(PASS_URL, record).then(function () {
-        return announcePassDone(record).catch(function () {});
+        return announcePassDone(record);
     }).then(function () { return true; });
 }
 
@@ -908,7 +920,7 @@ function fetchMissingImages(cache, images, scope) {
                 return cache.put(url, response);
             }
             // Stored nothing: counted, like a refreshed page (stampedAnswer()).
-            return Promise.reject(new Error('Not stored: ' + response.status));
+            throw new Error('Not stored: ' + response.status);
         });
     });
 }
