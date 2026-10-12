@@ -249,6 +249,65 @@ class TrackingControllerTest extends TestCase
         }
     }
 
+    /**
+     * Issue #843, IT-04: what the decision dialog writes — the internal
+     * note, the refusal reason — stays on the staff side. Refused from the
+     * dialog with a note and « Pas de place », then its e-mail gone, the
+     * request shows « Refusée » to the family, and nothing else of the
+     * decision: neither tracking view carries the note or the reason.
+     */
+    public function testNothingTheDecisionDialogWritesReachesEitherTrackingView(): void
+    {
+        $note = 'Famille rappelée : pas de place chez les Baladins';
+        $settings = new \Core\Config\SettingService(new \Core\Config\SettingRepository($this->pdo));
+        RegistrationTestHelper::registerManifestSettings($settings);
+        foreach ([
+            \Core\ScoutYear\ScoutYearResolver::SETTING_PUBLIC_YEAR => 'Public',
+            \Core\ScoutYear\ScoutYearResolver::SETTING_STAFF_YEAR => 'Staff',
+        ] as $key => $label) {
+            $settings->register($key, '0', 'number', $label, 'desc', null, '^[0-9]+$', null, false);
+        }
+        $request = $this->requestRepository->findById($this->created['id']);
+        $this->assertNotNull($request);
+        $settings->setInternal(\Core\ScoutYear\ScoutYearResolver::SETTING_PUBLIC_YEAR, (string) $request->scoutYearId);
+        $journal = new JournalService(new JournalRepository($this->pdo));
+        $decisions = RegistrationTestHelper::decisionService(
+            $this->pdo,
+            $this->encryption,
+            $settings,
+            new RequestStatusService($this->requestRepository, $journal),
+            new \Modules\Registration\Service\RequestEmailService(
+                $this->requestRepository,
+                $this->createStub(MailService::class),
+                new \Core\View\EditableContentService(new \Core\View\EditableContentRepository($this->pdo)),
+                $journal,
+                'https://example.com',
+                'Unité Test'
+            )
+        );
+
+        $decisions->decide(
+            $request,
+            'refuse',
+            $note,
+            \Modules\Registration\Repository\RegistrationRequest::REFUSAL_NO_ROOM
+        );
+        $this->assertSame($note, $this->requestRepository->findById($this->created['id'])?->internalNotes);
+        $before = [$this->tokenView(), $this->linkedView()];
+        $this->requestRepository->markRefusedEmailSent($this->created['id']);
+        $after = [$this->tokenView(), $this->linkedView()];
+
+        foreach ($after as $body) {
+            $this->assertStringContainsString('Refusée', $body, 'the refusal itself is visible once its e-mail left');
+        }
+        foreach (array_merge($before, $after) as $body) {
+            $this->assertStringNotContainsString('Famille rappelée', $body);
+            $this->assertStringNotContainsString('Pas de place', $body);
+            $this->assertStringNotContainsString('no_room', $body);
+            $this->assertStringNotContainsString('Note interne', $body);
+        }
+    }
+
     private function tokenView(): string
     {
         $path = '/inscriptions/suivi/' . $this->created['id'] . '/' . $this->created['tracking_token'];

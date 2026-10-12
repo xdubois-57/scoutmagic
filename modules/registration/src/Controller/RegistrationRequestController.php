@@ -89,13 +89,17 @@ class RegistrationRequestController extends AbstractController
     }
 
     /**
-     * POST /config/inscriptions/demandes/{id}/refuse
+     * POST /config/inscriptions/demandes/{id}/refuse — with its reason,
+     * « Pas de place » or « Autre » (issue #843 D6): a refusal without one
+     * is refused by RequestStatusService::refuse() and changes nothing.
      *
      * @param array<string, string> $params
      */
     public function refuse(Request $request, array $params): Response
     {
-        return $this->applyTransition($request, $params, fn($r) => $this->statusService->refuse($r));
+        $reason = (string) $request->getBody('refusal_reason', '');
+
+        return $this->applyTransition($request, $params, fn($r) => $this->statusService->refuse($r, $reason));
     }
 
     /**

@@ -20,6 +20,7 @@
                         {% include 'partials/status_badge.html.twig' with { status: 'confirmed', label: 'Acceptée' } only %}
                     {% elseif r.status == 'refused' %}
                         {% include 'partials/status_badge.html.twig' with { status: 'refused', label: 'Refusée' } only %}
+                        {% if r.refusalReasonLabel %}<span class="small">Motif : {{ r.refusalReasonLabel }}</span>{% endif %}
                     {% elseif r.status == 'withdrawn' %}
                         {% include 'partials/status_badge.html.twig' with { status: 'cancelled', label: 'Retirée' } only %}
                     {% elseif r.status == 'encoded' %}
@@ -33,13 +34,13 @@
                 <div class="d-flex flex-wrap gap-2">
                     {% if r.status == 'pending' %}
                         <form method="post" action="/config/inscriptions/demandes/{{ r.id }}/accept">{{ csrf_field()|raw }}<button type="submit" class="btn btn-sm btn-primary">Accepter</button></form>
-                        <form method="post" action="/config/inscriptions/demandes/{{ r.id }}/refuse"
-                              data-confirm="Refuser la demande de {{ r.childFirstName }} {{ r.childLastName }} ? La famille ne le saura que si vous envoyez l'e-mail de refus.">{{ csrf_field()|raw }}<button type="submit" class="btn btn-sm btn-outline-danger">Refuser</button></form>
+                        <form method="post" action="/config/inscriptions/demandes/{{ r.id }}/refuse" class="d-flex flex-wrap gap-2 align-items-center"
+                              data-confirm="Refuser la demande de {{ r.childFirstName }} {{ r.childLastName }} avec le motif choisi ? La famille ne le saura que si vous envoyez l'e-mail de refus.">{{ csrf_field()|raw }}{% include '@registration/_refusal_reason_field.html.twig' with { field_id: 'refusal-reason-' ~ r.id } only %}<button type="submit" class="btn btn-sm btn-outline-danger">Refuser</button></form>
                         <form method="post" action="/config/inscriptions/demandes/{{ r.id }}/withdraw"
                               data-confirm="Retirer la demande de {{ r.childFirstName }} {{ r.childLastName }} ? Elle sort de la liste des demandes à traiter.">{{ csrf_field()|raw }}<button type="submit" class="btn btn-sm btn-outline-secondary">Retirer</button></form>
                     {% elseif r.status == 'accepted' %}
-                        <form method="post" action="/config/inscriptions/demandes/{{ r.id }}/refuse"
-                              data-confirm="Refuser une demande déjà acceptée ? {{ r.childFirstName }} {{ r.childLastName }} perd sa place, et la famille a peut-être déjà reçu l'e-mail d'acceptation.">{{ csrf_field()|raw }}<button type="submit" class="btn btn-sm btn-outline-danger">Refuser</button></form>
+                        <form method="post" action="/config/inscriptions/demandes/{{ r.id }}/refuse" class="d-flex flex-wrap gap-2 align-items-center"
+                              data-confirm="Refuser une demande déjà acceptée, avec le motif choisi ? {{ r.childFirstName }} {{ r.childLastName }} perd sa place, et la famille a peut-être déjà reçu l'e-mail d'acceptation.">{{ csrf_field()|raw }}{% include '@registration/_refusal_reason_field.html.twig' with { field_id: 'refusal-reason-' ~ r.id } only %}<button type="submit" class="btn btn-sm btn-outline-danger">Refuser</button></form>
                         <form method="post" action="/config/inscriptions/demandes/{{ r.id }}/withdraw"
                               data-confirm="Retirer une demande déjà acceptée ? {{ r.childFirstName }} {{ r.childLastName }} perd sa place, et la famille a peut-être déjà reçu l'e-mail d'acceptation.">{{ csrf_field()|raw }}<button type="submit" class="btn btn-sm btn-outline-secondary">Retirer</button></form>
                         <form method="post" action="/config/inscriptions/demandes/{{ r.id }}/revert">{{ csrf_field()|raw }}<button type="submit" class="btn btn-sm btn-outline-secondary">Revenir en attente</button></form>
