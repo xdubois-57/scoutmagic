@@ -31,6 +31,7 @@ use Core\View\TwigFactory;
 use Modules\Registration\Controller\RegistrationConfigController;
 use Modules\Registration\Controller\RegistrationRequestController;
 use Modules\Registration\Controller\RequestDecisionController;
+use Modules\Registration\Controller\RequestDecisionEmailController;
 use Modules\Registration\Repository\AgeBracketRepository;
 use Modules\Registration\Repository\RegistrationRequestRepository;
 use Modules\Registration\Repository\RegistrationYearCodeRepository;
@@ -62,6 +63,8 @@ class RegistrationRbacTest extends TestCase
     private RegistrationConfigController $configController;
     private RegistrationRequestController $requestController;
     private RequestDecisionController $decisionController;
+    private RequestDecisionEmailController $emailController;
+    private int $mailsSent = 0;
     private RegistrationRequestRepository $requestRepository;
     private SettingService $settingService;
     private int $requestId;
@@ -142,23 +145,38 @@ class RegistrationRbacTest extends TestCase
         $twig->addGlobal('csp_nonce', 'test-nonce');
         $this->twig = $twig;
 
+        $mailService = $this->createStub(\Core\Mail\MailService::class);
+        $mailService->method('send')->willReturnCallback(function (): void {
+            $this->mailsSent++;
+        });
+        $emailService = new \Modules\Registration\Service\RequestEmailService(
+            $requestRepository,
+            $mailService,
+            $editableContentService,
+            $journalService,
+            'https://example.com',
+            'Unité Test',
+            new \Modules\Registration\Service\DecisionEmailService(
+                new \Modules\Registration\Repository\DecisionEmailRepository($this->pdo),
+                $journalService
+            )
+        );
+        // Both decision e-mails written, so what answers each e-mail
+        // button below is the role check and nothing else.
+        $editableContentService->set('registration_email_accepted_body', '<p>Bienvenue</p>', 'rich_text', 1);
+        $editableContentService->set('registration_email_refused_body', '<p>Désolés</p>', 'rich_text', 1);
         $decisionService = RegistrationTestHelper::decisionService(
             $this->pdo,
             $encryption,
             $settingService,
             $statusService,
-            new \Modules\Registration\Service\RequestEmailService(
-                $requestRepository,
-                $this->createStub(\Core\Mail\MailService::class),
-                $editableContentService,
-                $journalService,
-                'https://example.com',
-                'Unité Test',
-                new \Modules\Registration\Service\DecisionEmailService(
-                    new \Modules\Registration\Repository\DecisionEmailRepository($this->pdo),
-                    $journalService
-                )
-            )
+            $emailService
+        );
+        $this->emailController = new RequestDecisionEmailController(
+            $twig,
+            $requestRepository,
+            $emailService,
+            $scoutYearService
         );
         $this->decisionController = new RequestDecisionController($twig, $requestRepository, $decisionService);
         $this->requestRepository = $requestRepository;
@@ -172,13 +190,14 @@ class RegistrationRbacTest extends TestCase
         );
         $this->requestController = new RegistrationRequestController(
             $twig, $requestRepository, $ageBracketRepository, $sectionService, $feeCategoryRepository, $feeEstimationService,
-            $statusService, $this->createStub(\Modules\Registration\Service\RequestEmailService::class),
+            $statusService, $emailService,
             $this->createStub(\Modules\Registration\Service\MigrationService::class),
             new MemberRepository($this->pdo), new MemberYearRepository($this->pdo), $scoutYearResolver, $scoutYearService, $slotService,
             new MemberService(
     new MemberYearRepository($this->pdo),
     new MemberProfileRepository($connection, $encryption)
-)
+),
+            $decisionService
         );
 
         if (session_status() === PHP_SESSION_NONE) {
@@ -315,6 +334,84 @@ class RegistrationRbacTest extends TestCase
         $this->assertSame(403, $response->getStatusCode());
         $this->assertSame('pending', $this->requestRepository->findById($this->requestId)?->status);
         $this->assertNull($this->requestRepository->findById($this->requestId)?->internalNotes);
+    }
+
+    /**
+     * The fiche's own POSTs that issue #843 (IT-08) added or reworked: the
+     * three buttons of the « E-mail de décision » block, and « Note
+     * interne ». The request is accepted with both templates written and a
+     * valid token, so the action itself would go through: what answers is
+     * the role check.
+     *
+     * @return array<string, array{string, string, string}>
+     */
+    public static function fichePostProvider(): array
+    {
+        return [
+            'send now' => ['/e-mail/envoyer', RequestDecisionEmailController::class, 'sendNow'],
+            'retry' => ['/e-mail/reessayer', RequestDecisionEmailController::class, 'retry'],
+            'resend' => ['/e-mail/renvoyer', RequestDecisionEmailController::class, 'resend'],
+            'note' => ['/notes', RegistrationRequestController::class, 'saveNotes'],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('fichePostProvider')]
+    public function testAdminMayUseTheFichePosts(string $suffix, string $controllerClass, string $action): void
+    {
+        AuthSession::login(1, 'admin@test.be', 'admin');
+        $this->requestRepository->updateStatus($this->requestId, 'accepted', null);
+        // « Réessayer » needs a failure to retry and « Renvoyer » a success
+        // to resend: the e-mail is brought to the state its button needs.
+        $repository = new \Modules\Registration\Repository\DecisionEmailRepository($this->pdo);
+        if ($action === 'retry' || $action === 'resend') {
+            $emailId = (int) $repository->insert(
+                $this->requestId,
+                'accepted',
+                'sending',
+                null,
+                1,
+                false,
+                new \DateTimeImmutable()
+            );
+            $now = new \DateTimeImmutable();
+            $action === 'retry'
+                ? $repository->markFailed($emailId, 'mail_transport', "L'e-mail n'est pas parti.", $now)
+                : $repository->markSent($emailId, $now);
+        }
+
+        $response = $this->dispatchFichePost($suffix, $controllerClass, $action);
+
+        $this->assertSame(302, $response->getStatusCode(), (string) $response->getBody());
+        $this->assertSame(
+            'success',
+            \Core\Http\FlashMessage::get()['type'] ?? null,
+            'the action itself went through, which a redirect alone would not prove'
+        );
+        $this->assertSame($action === 'saveNotes' ? 0 : 1, $this->mailsSent);
+        if ($action === 'saveNotes') {
+            $this->assertSame('Note de la fiche', $this->requestRepository->findById($this->requestId)?->internalNotes);
+        }
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('fichePostProvider')]
+    public function testOneRoleBelowMayNotUseTheFichePosts(
+        string $suffix,
+        string $controllerClass,
+        string $action
+    ): void
+    {
+        AuthSession::login(1, 'chief@test.be', 'chief');
+        $this->requestRepository->updateStatus($this->requestId, 'accepted', null);
+
+        $response = $this->dispatchFichePost($suffix, $controllerClass, $action);
+
+        $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame(0, $this->mailsSent);
+        $this->assertNull($this->requestRepository->findById($this->requestId)?->internalNotes);
+        $this->assertSame(
+            [],
+            (new \Modules\Registration\Repository\DecisionEmailRepository($this->pdo))->findForRequest($this->requestId)
+        );
     }
 
     /**
@@ -459,6 +556,37 @@ class RegistrationRbacTest extends TestCase
         file_put_contents($configFile, "<?php\nreturn ['site_name' => 'Test', 'debug' => false];");
         $fc = new FrontController($router, $this->twig, new AppConfig($configFile));
         $fc->registerController(RequestDecisionController::class, $this->decisionController);
+
+        return $fc->handle($request);
+    }
+
+    /**
+     * POSTs one of the fiche's own forms through the manifest's router and
+     * the real front controller, with a valid token.
+     */
+    private function dispatchFichePost(string $suffix, string $controllerClass, string $action): \Core\Http\Response
+    {
+        $path = '/config/inscriptions/demandes/' . $this->requestId . $suffix;
+        $request = new Request('POST', $path, [], [
+            '_csrf_token' => \Core\Security\CsrfGuard::generateToken(),
+            'internal_notes' => 'Note de la fiche',
+        ], [], []);
+
+        $router = $this->manifestRouter();
+        $resolved = $router->resolve($request);
+        $this->assertNotNull($resolved, "the manifest declares POST {$path}");
+        $this->assertSame($controllerClass, $resolved->controllerClass);
+        $this->assertSame($action, $resolved->action);
+
+        $configFile = sys_get_temp_dir() . '/test_registration_config_' . uniqid() . '.php';
+        file_put_contents($configFile, "<?php\nreturn ['site_name' => 'Test', 'debug' => false];");
+        $fc = new FrontController($router, $this->twig, new AppConfig($configFile));
+        $fc->registerController(
+            $controllerClass,
+            $controllerClass === RequestDecisionEmailController::class
+                ? $this->emailController
+                : $this->requestController
+        );
 
         return $fc->handle($request);
     }

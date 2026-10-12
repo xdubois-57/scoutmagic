@@ -21,12 +21,15 @@ use Modules\Registration\Repository\RegistrationRequestRepository;
 /**
  * Acceptance/refusal emails — always sent explicitly (module spec: never
  * automatically at a status change), never before their body has actually
- * been written (isAcceptedBodyReady()/isRefusedBodyReady() are the guard
- * Controller\RegistrationRequestController disables the send button on —
- * unlike the itération 4 receipt/unit-alert emails, these ship with NO
- * default body: a chief must write one, or the request stays visibly
- * "en cours" to the parent forever, per Service\RequestStatusService::
- * visibleStatus()).
+ * been written (isAcceptedBodyReady()/isRefusedBodyReady() are the guard;
+ * the fiche's « E-mail de décision » block shows « Gabarit à rédiger » and
+ * no button on it — unlike the itération 4 receipt/unit-alert emails,
+ * these ship with NO default body: a chief must write one, or the request
+ * stays visibly "en cours" to the parent forever, per Service\
+ * RequestStatusService::visibleStatus()).
+ *
+ * The fiche's block is panel(), and its three buttons are
+ * sendFromRequestPage() (issue #843, IT-08).
  *
  * **Every send is an attempt recorded by Service\DecisionEmailService**
  * (issue #843, IT-05): claimed before the transport — so two clicks, or a
@@ -62,6 +65,22 @@ class RequestEmailService
         ],
     ];
 
+    /**
+     * What a fiche button answers when the block no longer offers it.
+     *
+     * @var array<string, string>
+     */
+    private const ACTION_REFUSED = [
+        DecisionEmailPanel::ACTION_SEND_NOW => "Cet e-mail ne peut plus être envoyé d'ici : il est déjà parti, en "
+            . "cours d'envoi ou en échec. Rechargez la fiche pour voir où il en est.",
+        DecisionEmailPanel::ACTION_RETRY => "Il n'y a pas d'échec à réessayer : rechargez la fiche pour voir où en est "
+            . "cet e-mail.",
+        DecisionEmailPanel::ACTION_RESEND => "Cet e-mail n'est pas encore parti, ou un envoi est en cours : il ne peut "
+            . "pas être renvoyé. Rechargez la fiche pour voir où il en est.",
+    ];
+
+    private const ACTION_REFUSED_UNKNOWN = "Action inconnue : rien n'a été envoyé.";
+
     public function __construct(
         private RegistrationRequestRepository $repository,
         private MailService $mailService,
@@ -85,6 +104,72 @@ class RequestEmailService
     public function isRefusedBodyReady(): bool
     {
         return $this->hasContent(self::REFUSED_KEY);
+    }
+
+    /**
+     * The « E-mail de décision » block of $request's fiche (issue #843,
+     * IT-08), or null when the request holds no decision.
+     */
+    public function panel(RegistrationRequest $request): ?DecisionEmailPanel
+    {
+        $decision = DecisionEmail::decisionForStatus($request->status);
+        if ($decision === null) {
+            return null;
+        }
+
+        return DecisionEmailPanel::build(
+            $request,
+            $this->decisionEmails->history($request->id),
+            $this->hasContent(self::EMAILS[$decision]['key']),
+            new \DateTimeImmutable()
+        );
+    }
+
+    /**
+     * One of the fiche's three buttons — « Envoyer maintenant »,
+     * « Réessayer », « Renvoyer l'e-mail » (DecisionEmailPanel::ACTION_*) —
+     * on the e-mail of the decision $request holds now. The action must be
+     * one the block offers at this moment: a second « Envoyer maintenant »
+     * posted after the first went out (a double click that arrived late, a
+     * form sent again from the browser history) is refused instead of
+     * becoming a resend nobody asked for. Then the one send path below,
+     * copy to the unit included (D9).
+     *
+     * Journaled before the send, with the action — the outcome journals
+     * itself (sent, or the transport's failure).
+     *
+     * @return string the decision whose e-mail left (DecisionEmail::DECISION_*)
+     *
+     * @throws RegistrationException when the action is not offered, or the
+     *         send fails (recorded as a failed attempt)
+     */
+    public function sendFromRequestPage(RegistrationRequest $request, string $action, string $targetYearLabel): string
+    {
+        $panel = $this->panel($request);
+        if ($panel === null) {
+            throw new RegistrationException(
+                "Cette demande n'a pas de décision : aucun e-mail de décision ne peut partir."
+            );
+        }
+        // Before the action check: a template emptied since the page was
+        // loaded is the reason, whatever the state (a sent e-mail included).
+        if (!$panel->templateReady) {
+            throw new RegistrationException(self::EMAILS[$panel->decision]['missing']);
+        }
+        if (!$panel->allows($action)) {
+            throw new RegistrationException(self::ACTION_REFUSED[$action] ?? self::ACTION_REFUSED_UNKNOWN);
+        }
+
+        $this->journalService->log(
+            'registration',
+            'registration_decision_email_requested',
+            'info',
+            "Envoi d'un e-mail de décision demandé depuis la fiche",
+            ['request_id' => $request->id, 'decision' => $panel->decision, 'action' => $action]
+        );
+        $this->deliver($request, $panel->decision, $targetYearLabel);
+
+        return $panel->decision;
     }
 
     /**
@@ -199,7 +284,7 @@ class RequestEmailService
      *         the best-effort submission emails (itération 4), a staff-
      *         triggered send must surface its own failure so the button
      *         doesn't silently claim success (Controller\
-     *         RegistrationRequestController shows the error, deliver()
+     *         RequestDecisionEmailController shows the error, deliver()
      *         records the attempt as failed, and retrying is always
      *         available).
      *

@@ -16,6 +16,7 @@ use Core\View\EditableContentService;
 use Modules\Registration\Repository\DecisionEmail;
 use Modules\Registration\Repository\DecisionEmailRepository;
 use Modules\Registration\Repository\RegistrationRequestRepository;
+use Modules\Registration\Service\DecisionEmailPanel;
 use Modules\Registration\Service\DecisionEmailService;
 use Modules\Registration\Service\FamilyEmailCopyService;
 use Modules\Registration\Service\RegistrationException;
@@ -785,5 +786,95 @@ class RequestEmailServiceTest extends TestCase
             "Bonjour Ma'lo & bienvenue",
             RequestEmailService::toPlainText('<p>Bonjour Ma&#039;lo &amp; bienvenue</p>')
         );
+    }
+
+    /**
+     * The fiche's block (IT-08): none for a request without a decision,
+     * and the decision's own template decides whether it is « Gabarit à
+     * rédiger ».
+     */
+    public function testThePanelFollowsTheDecisionAndItsOwnTemplate(): void
+    {
+        $service = $this->buildService($this->createStub(MailService::class));
+        $this->editableContentService->set('registration_email_refused_body', '<p>Désolé.</p>', 'rich_text', 1);
+
+        $this->assertNull($service->panel($this->requestRepository->findById($this->createRequest())));
+        $this->assertSame(
+            DecisionEmailPanel::STATE_TEMPLATE_MISSING,
+            $service->panel($this->requestRepository->findById($this->createRequest('accepted')))?->state
+        );
+        $this->assertSame(
+            DecisionEmailPanel::STATE_NONE,
+            $service->panel($this->requestRepository->findById($this->createRequest('refused')))?->state
+        );
+    }
+
+    /**
+     * A fiche button the block does not offer sends nothing and records
+     * nothing — an unwritten template included: the button is not on the
+     * page, so nothing claims to have tried.
+     */
+    public function testAFicheActionTheBlockDoesNotOfferSendsAndRecordsNothing(): void
+    {
+        $mailService = $this->createMock(MailService::class);
+        $mailService->expects($this->never())->method('send');
+        $service = $this->buildService($mailService);
+        $unwritten = $this->createRequest('accepted');
+
+        try {
+            $service->sendFromRequestPage(
+                $this->requestRepository->findById($unwritten),
+                DecisionEmailPanel::ACTION_SEND_NOW,
+                ''
+            );
+            $this->fail('An unwritten template sends nothing.');
+        } catch (RegistrationException $e) {
+            $this->assertSame("Le corps de l'email d'acceptation n'a pas encore été rédigé.", $e->getMessage());
+        }
+
+        $this->writeBodies();
+        $pending = $this->createRequest();
+        $accepted = $this->createRequest('accepted');
+        $refusals = [
+            [$pending, DecisionEmailPanel::ACTION_SEND_NOW, "Cette demande n'a pas de décision"],
+            [$accepted, DecisionEmailPanel::ACTION_RETRY, "Il n'y a pas d'échec à réessayer"],
+            [$accepted, DecisionEmailPanel::ACTION_RESEND, "Cet e-mail n'est pas encore parti"],
+            [$accepted, 'delete', 'Action inconnue'],
+        ];
+        foreach ($refusals as [$id, $action, $message]) {
+            try {
+                $service->sendFromRequestPage($this->requestRepository->findById($id), $action, '');
+                $this->fail("« {$action} » must be refused");
+            } catch (RegistrationException $e) {
+                $this->assertStringStartsWith($message, $e->getMessage());
+            }
+        }
+
+        foreach ([$unwritten, $pending, $accepted] as $id) {
+            $this->assertSame([], $this->history($id));
+        }
+    }
+
+    /**
+     * A template emptied after the e-mail went out: « Renvoyer l'e-mail »,
+     * posted from a page loaded before, is refused for that reason — not
+     * with « pas encore parti », which would be false.
+     */
+    public function testAResendWithoutATemplateAnyMoreSaysTheTemplateIsMissing(): void
+    {
+        $service = $this->buildService($this->createStub(MailService::class));
+        $this->writeBodies();
+        $id = $this->createRequest('accepted');
+        $request = $this->requestRepository->findById($id);
+        $service->sendFromRequestPage($request, DecisionEmailPanel::ACTION_SEND_NOW, '');
+        $this->editableContentService->set('registration_email_accepted_body', '<p>&nbsp;</p>', 'rich_text', 1);
+
+        try {
+            $service->sendFromRequestPage($request, DecisionEmailPanel::ACTION_RESEND, '');
+            $this->fail('A resend without a template sends nothing.');
+        } catch (RegistrationException $e) {
+            $this->assertSame("Le corps de l'email d'acceptation n'a pas encore été rédigé.", $e->getMessage());
+        }
+        $this->assertCount(1, $this->history($id));
     }
 }
