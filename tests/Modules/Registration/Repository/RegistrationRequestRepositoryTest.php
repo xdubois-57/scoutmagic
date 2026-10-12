@@ -644,6 +644,43 @@ class RegistrationRequestRepositoryTest extends TestCase
     }
 
     /**
+     * transactional() (issue #843, IT-04): the work commits as a whole, or
+     * a throw rolls all of it back and is rethrown; inside a transaction
+     * already open, it is that one that decides.
+     */
+    public function testTransactionalCommitsTheWholeWorkOrNoneOfIt(): void
+    {
+        $id = $this->repository->create($this->scoutYearId, $this->sampleFields(), null, [])['id'];
+
+        $this->repository->transactional(function () use ($id): void {
+            $this->repository->updateStatus($id, 'accepted', null);
+            $this->repository->updateInternalNotes($id, 'Gardée');
+        });
+        $this->assertSame('accepted', $this->repository->findById($id)?->status);
+        $this->assertSame('Gardée', $this->repository->findById($id)?->internalNotes);
+
+        try {
+            $this->repository->transactional(function () use ($id): void {
+                $this->repository->updateStatus($id, 'refused', new \DateTimeImmutable(), 'other');
+                throw new \RuntimeException('note write failed');
+            });
+            $this->fail('the failure was swallowed');
+        } catch (\RuntimeException $e) {
+            $this->assertSame('note write failed', $e->getMessage());
+        }
+        $this->assertSame('accepted', $this->repository->findById($id)?->status);
+        $this->assertFalse($this->pdo->inTransaction());
+
+        $this->pdo->beginTransaction();
+        $this->repository->transactional(function () use ($id): void {
+            $this->repository->updateInternalNotes($id, 'Dans la transaction ouverte');
+        });
+        $this->assertTrue($this->pdo->inTransaction(), 'an outer transaction is left for its owner to end');
+        $this->pdo->rollBack();
+        $this->assertSame('Gardée', $this->repository->findById($id)?->internalNotes);
+    }
+
+    /**
      * The queue's candidates: the live requests of one year — pending,
      * accepted, encoded — in order of filing, with the birth date and the
      * child key and nothing else of the fiche.

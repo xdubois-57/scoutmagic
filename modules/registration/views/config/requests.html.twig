@@ -8,6 +8,7 @@
         {% include '@registration/config/_notes.html.twig' %}
         {% include '@registration/config/_states.html.twig' %}
         {% include '@registration/config/_request_list.html.twig' %}
+        {% include '@registration/config/_decide_dialogs.html.twig' %}
         {% include '@registration/config/_non_final.html.twig' %}
     </div>
 
@@ -16,4 +17,5 @@
 
 {% block scripts %}
 <script src="{{ asset('/assets/js/rich-text-field.js') }}" defer></script>
+<script src="{{ asset('/assets/js/registration-decide-dialog.js') }}" defer></script>
 {% endblock %}

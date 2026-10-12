@@ -562,6 +562,15 @@
       "label": ""
     },
     {
+      "path": "/config/inscriptions/demandes/{id}/decision",
+      "method": "POST",
+      "controller": "Modules\\Registration\\Controller\\RequestDecisionController",
+      "action": "decide",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
       "path": "/departs",
       "method": "GET",
       "controller": "Modules\\Registration\\Controller\\DeparturesController",

@@ -622,7 +622,7 @@ class RegistrationRequestRepository
             ? self::normalizeRefusalReason($refusalReason)
             : null;
 
-        return $this->atomically(function () use ($id, $status, $finalAt, $storedReason): int {
+        return $this->transactional(function () use ($id, $status, $finalAt, $storedReason): int {
             // The request row first, then its e-mails — the order the send
             // path reads them in (DecisionEmailRepository::insert() selects
             // FROM this row), so a send racing this change either sees the
@@ -642,32 +642,6 @@ class RegistrationRequestRepository
             // e-mail scheduled.
             return $this->decisionEmails->supersedeForRequest($id, new \DateTimeImmutable());
         });
-    }
-
-    /**
-     * Runs $work in a transaction of its own, or inside the caller's when
-     * one is already open (PDO refuses a nested beginTransaction()).
-     *
-     * @template T
-     * @param callable(): T $work
-     * @return T
-     */
-    private function atomically(callable $work): mixed
-    {
-        if ($this->pdo->inTransaction()) {
-            return $work();
-        }
-
-        $this->pdo->beginTransaction();
-        try {
-            $result = $work();
-            $this->pdo->commit();
-
-            return $result;
-        } catch (\Throwable $e) {
-            $this->pdo->rollBack();
-            throw $e;
-        }
     }
 
     /**
@@ -781,6 +755,37 @@ class RegistrationRequestRepository
     }
 
     /**
+     * Runs $work in one transaction on this repository's connection — or
+     * inside the one already open, which then decides. What the decision
+     * dialog needs (Service\RequestDecisionService::decide()): its status
+     * and its note land together or not at all. updateStatus(),
+     * linkToMemberAndEncode() and deleteById() go through it too, so the
+     * decision e-mails they supersede or delete (issue #843, IT-05) commit
+     * or roll back with whatever transaction they run in.
+     *
+     * @template T
+     * @param callable(): T $work
+     * @return T
+     */
+    public function transactional(callable $work): mixed
+    {
+        if ($this->pdo->inTransaction()) {
+            return $work();
+        }
+
+        $this->pdo->beginTransaction();
+        try {
+            $result = $work();
+            $this->pdo->commit();
+
+            return $result;
+        } catch (\Throwable $e) {
+            $this->pdo->rollBack();
+            throw $e;
+        }
+    }
+
+    /**
      * Chiffré au repos, jamais journalisé (module spec's own stricter
      * privacy rule for this one field — Controller\
      * RegistrationRequestController::saveNotes() never logs its content,
@@ -839,7 +844,7 @@ class RegistrationRequestRepository
      */
     public function linkToMemberAndEncode(int $id, int $memberId, \DateTimeImmutable $finalAt): void
     {
-        $this->atomically(function () use ($id, $memberId, $finalAt): void {
+        $this->transactional(function () use ($id, $memberId, $finalAt): void {
             $stmt = $this->pdo->prepare(
                 "UPDATE registration_requests SET linked_member_id = ?, status = 'encoded', final_at = ? WHERE id = ?"
             );
@@ -886,7 +891,7 @@ class RegistrationRequestRepository
      */
     public function deleteById(int $id): void
     {
-        $this->atomically(function () use ($id): void {
+        $this->transactional(function () use ($id): void {
             $this->decisionEmails->deleteForRequest($id);
 
             $stmt = $this->pdo->prepare('DELETE FROM registration_requests WHERE id = ?');

@@ -69,6 +69,9 @@ class RegistrationRequestControllerTest extends TestCase
     private int $targetYearId;
     private int $publicYearId;
     private EncryptionService $encryption;
+    private SettingService $settingService;
+    private RequestStatusService $statusService;
+    private RequestEmailService $emailService;
 
     protected function setUp(): void
     {
@@ -91,6 +94,7 @@ class RegistrationRequestControllerTest extends TestCase
         $feeCategoryRepository->create('NORM', 'Tarif normal');
 
         $settingService = new SettingService(new SettingRepository($this->pdo));
+        $this->settingService = $settingService;
         $settingService->register('registration_reference_date', '12-31', 'text', 'Réf', 'desc', 'registration');
         $settingService->register('registration_threshold_yes_percent', '70', 'number', 'Oui', 'desc', 'registration');
         $settingService->register(
@@ -126,6 +130,7 @@ class RegistrationRequestControllerTest extends TestCase
         $this->journalRepository = new JournalRepository($this->pdo);
         $journalService = new JournalService($this->journalRepository);
         $statusService = new RequestStatusService($this->requestRepository, $journalService);
+        $this->statusService = $statusService;
 
         $mailService = $this->createStub(MailService::class);
         $mailService->method('send');
@@ -139,6 +144,7 @@ class RegistrationRequestControllerTest extends TestCase
             'Unité Test',
             new DecisionEmailService(new DecisionEmailRepository($this->pdo), $journalService)
         );
+        $this->emailService = $emailService;
 
         $secondaryEmailRepository = new RegistrationSecondaryEmailRepository($this->pdo, $encryption);
         $memberEmailRepository = new MemberEmailRepository($this->pdo, $encryption);
@@ -274,6 +280,133 @@ class RegistrationRequestControllerTest extends TestCase
         $this->controller->accept(new Request('POST', "/config/inscriptions/demandes/{$id}/accept", [], ['_csrf_token' => 'bad'], [], []), ['id' => (string) $id]);
 
         $this->assertSame('pending', $this->requestRepository->findById($id)->status);
+    }
+
+    /**
+     * Issue #843 D6: a refusal from the fiche carries its reason — stored
+     * with the status, and shown beside « Refusée ».
+     */
+    public function testARefusalFromTheFicheStoresItsReason(): void
+    {
+        $id = $this->createRequest();
+
+        $this->controller->refuse(
+            new Request('POST', "/config/inscriptions/demandes/{$id}/refuse", [], $this->csrfBody([
+                'refusal_reason' => 'other',
+            ]), [], []),
+            ['id' => (string) $id]
+        );
+
+        $refused = $this->requestRepository->findById($id);
+        $this->assertSame('refused', $refused->status);
+        $this->assertSame('other', $refused->refusalReason);
+        $body = (string) $this->controller->show(
+            new Request('GET', "/config/inscriptions/demandes/{$id}", [], [], [], []),
+            ['id' => (string) $id]
+        )->getBody();
+        $this->assertStringContainsString('<span class="small">Motif : Autre</span>', $body);
+    }
+
+    /**
+     * @return array<string, array{array<string, string>}>
+     */
+    public static function missingReasonProvider(): array
+    {
+        return [
+            'no reason' => [[]],
+            'empty reason' => [['refusal_reason' => '']],
+            'unknown reason' => [['refusal_reason' => 'full']],
+        ];
+    }
+
+    /**
+     * A refusal without a valid reason changes nothing, from a pending
+     * request as from an accepted one, and says why.
+     *
+     * @param array<string, string> $reason
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('missingReasonProvider')]
+    public function testARefusalFromTheFicheWithoutAValidReasonChangesNothing(array $reason): void
+    {
+        $pendingId = $this->createRequest();
+        $acceptedId = $this->createRequest('2020-07-01');
+        $this->requestRepository->updateStatus($acceptedId, 'accepted', null);
+
+        foreach ([$pendingId, $acceptedId] as $id) {
+            $this->controller->refuse(
+                new Request('POST', "/config/inscriptions/demandes/{$id}/refuse", [], $this->csrfBody($reason), [], []),
+                ['id' => (string) $id]
+            );
+            $flash = \Core\Http\FlashMessage::get();
+            $this->assertSame('error', $flash['type'] ?? null);
+            $this->assertSame(RequestStatusService::MESSAGE_REFUSAL_REASON_REQUIRED, $flash['message'] ?? null);
+        }
+
+        $this->assertSame('pending', $this->requestRepository->findById($pendingId)->status);
+        $this->assertSame('accepted', $this->requestRepository->findById($acceptedId)->status);
+    }
+
+    /**
+     * Both « Refuser » forms of the fiche — on a pending and on an accepted
+     * request — ask for the reason, and cannot be sent without one.
+     */
+    public function testBothRefusalFormsOfTheFicheAskForTheReason(): void
+    {
+        $pendingId = $this->createRequest();
+        $acceptedId = $this->createRequest('2020-07-01');
+        $this->requestRepository->updateStatus($acceptedId, 'accepted', null);
+
+        foreach ([$pendingId, $acceptedId] as $id) {
+            $body = (string) $this->controller->show(
+                new Request('GET', "/config/inscriptions/demandes/{$id}", [], [], [], []),
+                ['id' => (string) $id]
+            )->getBody();
+            $found = preg_match(
+                '#<form method="post" action="/config/inscriptions/demandes/' . $id . '/refuse".*?</form>#s',
+                $body,
+                $form
+            );
+            $this->assertSame(1, $found, "request #{$id} can be refused from its fiche");
+            $this->assertStringContainsString('data-confirm="', $form[0]);
+            $this->assertMatchesRegularExpression('#<select[^>]+name="refusal_reason"[^>]* required#', $form[0]);
+            // No reason chosen in advance: the empty one is selected.
+            $this->assertStringContainsString('<option value="" selected>Motif du refus…</option>', $form[0]);
+            $this->assertSame(1, substr_count($form[0], ' selected'));
+            $this->assertStringContainsString('<option value="no_room">Pas de place</option>', $form[0]);
+            $this->assertStringContainsString('<option value="other">Autre</option>', $form[0]);
+        }
+    }
+
+    /**
+     * The note written from the decision dialog (issue #843, IT-04) is the
+     * fiche's own internal note — the same field, shown there.
+     */
+    public function testTheNoteWrittenFromTheDecisionDialogShowsOnTheFiche(): void
+    {
+        $id = $this->createRequest();
+        $decisions = RegistrationTestHelper::decisionService(
+            $this->pdo,
+            $this->encryption,
+            $this->settingService,
+            $this->statusService,
+            $this->emailService
+        );
+
+        $decisions->decide(
+            $this->requestRepository->findById($id),
+            'accept',
+            'Fratrie confirmée par téléphone.',
+            null
+        );
+
+        $body = (string) $this->controller->show(
+            new Request('GET', "/config/inscriptions/demandes/{$id}", [], [], [], []),
+            ['id' => (string) $id]
+        )->getBody();
+        $this->assertMatchesRegularExpression(
+            '#<textarea name="internal_notes"[^>]*>Fratrie confirmée par téléphone\.</textarea>#u',
+            $body
+        );
     }
 
     public function testIntendedSectionAcceptedWhenInSlotBranch(): void

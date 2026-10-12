@@ -405,6 +405,47 @@ class RegistrationTestHelper
     }
 
     /**
+     * The decision dialog's service (issue #843, IT-04), wired out of real
+     * collaborators — the recommendation included, so a page rendered with
+     * it shows what the chief would read. The e-mail service is the
+     * caller's, since a test decides whether its templates are written,
+     * and so may the repository be, for a test that makes a write fail.
+     */
+    public static function decisionService(
+        \PDO $pdo,
+        \Core\Security\EncryptionService $encryption,
+        \Core\Config\SettingService $settingService,
+        \Modules\Registration\Service\RequestStatusService $statusService,
+        \Modules\Registration\Service\RequestEmailService $emailService,
+        ?\Modules\Registration\Repository\RegistrationRequestRepository $requestRepository = null
+    ): \Modules\Registration\Service\RequestDecisionService {
+        $requestRepository ??= new \Modules\Registration\Repository\RegistrationRequestRepository($pdo, $encryption);
+        $scoutYearService = new \Core\Config\ScoutYearService($pdo);
+        $scoutYearResolver = new \Core\ScoutYear\ScoutYearResolver(
+            $scoutYearService,
+            $settingService,
+            new \Core\Import\MemberYearRepository($pdo)
+        );
+
+        return new \Modules\Registration\Service\RequestDecisionService(
+            $requestRepository,
+            $statusService,
+            new \Modules\Registration\Service\RecommendationService(
+                $requestRepository,
+                self::slotService($pdo, $encryption, $settingService),
+                new \Modules\Registration\Repository\AgeBracketRepository($pdo),
+                $scoutYearService,
+                $scoutYearResolver,
+                new \Modules\Registration\Service\PriorityOrderService($settingService)
+            ),
+            $emailService,
+            $scoutYearService,
+            $scoutYearResolver,
+            new \Core\Journal\JournalService(new \Core\Journal\JournalRepository($pdo))
+        );
+    }
+
+    /**
      * The module's own projection, wired out of real collaborators.
      *
      * IT-17 scopes name matching to the projected population of the

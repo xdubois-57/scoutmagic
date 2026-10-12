@@ -46,6 +46,10 @@ class RequestStatusService
         RegistrationRequest::STATUS_ENCODED => [],
     ];
 
+    /** What a refusal without a valid reason answers, wherever it came from. */
+    public const MESSAGE_REFUSAL_REASON_REQUIRED =
+        'Choisissez le motif du refus : « Pas de place » ou « Autre ». La demande n\'a pas été modifiée.';
+
     public function __construct(
         private RegistrationRequestRepository $repository,
         private JournalService $journalService
@@ -62,21 +66,29 @@ class RequestStatusService
      * REFUSAL_*, issue #843 D6), stored with the status: « Pas de place »
      * is what makes the same child's request of a later year an
      * « Ancienne demande restée sans place » (Service\RecommendationService).
-     * Null records a refusal with no known reason — what every caller that
-     * does not ask for one yet still produces, and what never counts as
-     * « Pas de place ». Any other value is refused before anything is
-     * written.
+     * Every refusal carries one — the decision dialog, the fiche and the
+     * bulk refusal all ask for it (IT-04) — so anything else, the empty
+     * string included, is refused before anything is written.
      *
-     * @throws RegistrationException on an unknown reason, or a status that
-     *         cannot be refused
+     * @throws RegistrationException on a missing or unknown reason, or a
+     *         status that cannot be refused
      */
-    public function refuse(RegistrationRequest $request, ?string $reason = null): void
+    public function refuse(RegistrationRequest $request, string $reason): void
     {
-        if ($reason !== null && !isset(RegistrationRequest::REFUSAL_REASON_LABELS[$reason])) {
-            throw new RegistrationException('Motif de refus invalide : choisissez « Pas de place » ou « Autre ».');
+        if (!self::isRefusalReason($reason)) {
+            throw new RegistrationException(self::MESSAGE_REFUSAL_REASON_REQUIRED);
         }
 
         $this->transition($request, RegistrationRequest::STATUS_REFUSED, $reason);
+    }
+
+    /**
+     * Whether $reason is one of the two a refusal may carry — what a caller
+     * refusing several requests checks once, before the first one.
+     */
+    public static function isRefusalReason(?string $reason): bool
+    {
+        return $reason !== null && isset(RegistrationRequest::REFUSAL_REASON_LABELS[$reason]);
     }
 
     public function withdraw(RegistrationRequest $request): void

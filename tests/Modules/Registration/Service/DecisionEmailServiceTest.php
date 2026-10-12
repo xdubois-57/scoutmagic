@@ -276,7 +276,7 @@ class DecisionEmailServiceTest extends TestCase
         $this->service->recordSuccess($sent);
         $this->service->schedule($this->reload($request->id), new \DateTimeImmutable('+1 day'));
 
-        $this->statusService->refuse($this->reload($request->id));
+        $this->statusService->refuse($this->reload($request->id), RegistrationRequest::REFUSAL_OTHER);
         $attempt = $this->service->begin($this->reload($request->id), DecisionEmail::DECISION_REFUSED);
 
         $this->assertSame(1, $attempt->attempt);
@@ -313,7 +313,7 @@ class DecisionEmailServiceTest extends TestCase
         $request = $this->request('accepted');
         $inFlight = $this->service->begin($request, DecisionEmail::DECISION_ACCEPTED);
 
-        $this->statusService->refuse($this->reload($request->id));
+        $this->statusService->refuse($this->reload($request->id), RegistrationRequest::REFUSAL_OTHER);
         $attempt = $this->service->begin($this->reload($request->id), DecisionEmail::DECISION_REFUSED);
 
         $this->assertSame(DecisionEmail::DECISION_REFUSED, $attempt->decision);
