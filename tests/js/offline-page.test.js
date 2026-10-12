@@ -196,10 +196,12 @@ describe('offline-page.js: « Accueil » only when the home page is saved', () =
         expect(document.getElementById('offline-home-link').classList.contains('d-none')).toBe(true);
     });
 
-    it('falls back to the service worker\'s own default of seven days', async () => {
-        const tenDaysAgo = new Date(Date.now() - 10 * 86400000).toUTCString();
+    // The setting's own default, as in the worker and offline-nav.js: a
+    // home page shown as saved must be one the worker will serve.
+    it('falls back to the service worker\'s own default of thirty days', async () => {
+        const longAgo = new Date(Date.now() - 31 * 86400000).toUTCString();
         const { staleness_days: _unset, ...withoutThreshold } = CONFIG;
-        globalThis.caches = storage({ 'content-7-1.0': { '/': tenDaysAgo } }, withoutThreshold);
+        globalThis.caches = storage({ 'content-7-1.0': { '/': longAgo } }, withoutThreshold);
 
         await loadOfflinePage(DOM);
         await settle();

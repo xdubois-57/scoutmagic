@@ -333,8 +333,10 @@ describe('sw.js: networkFirstWithCacheFallback()', () => {
         expect(await sw.networkFirstWithCacheFallback(request, url, config, undefined, undefined, true)).toBe(offline);
     });
 
-    it('defaults to a 7-day window when staleness_days is absent', async () => {
-        const old = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toUTCString();
+    // The setting's own default (30, ARCHITECTURE.md) — the same figure
+    // offline-nav.js uses to show a link as available offline.
+    it('defaults to a 30-day window when staleness_days is absent', async () => {
+        const old = new Date(Date.now() - 31 * 24 * 60 * 60 * 1000).toUTCString();
         const offline = makeResponse('<body>offline page</body>');
         global.caches = createCachesFake({
             [cacheName]: { [request.url]: makeResponse('<body>stale</body>', { headers: { date: old } }) },

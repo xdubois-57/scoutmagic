@@ -247,14 +247,21 @@ class OfflineManifestServiceTest extends TestCase
         $this->offlineWhitelist->registerModuleEntries('test', [
             ['path' => null, 'provider' => FixedPages::class, 'prefix' => '/test', 'label' => 'Test', 'role_min' => 'public', 'last' => false],
         ]);
-        $this->providers->register(new FixedPages(['/test/1', '/testing', '/finance', '//evil.example/test', 'https://evil.example/test', '/test/2']));
+        $outside = [
+            '/testing', '/finance', '//evil.example/test', 'https://evil.example/test',
+            // Under the prefix as a string, not as a path once resolved.
+            '/test/../finance', '/test/./7', '/test//7',
+            // Not an exact address: the list never holds a query or a fragment.
+            '/test/7?page=2', '/test/7#top', '/test\\..\\finance',
+        ];
+        $this->providers->register(new FixedPages(['/test/1', ...$outside, '/test/2']));
 
         $pages = $this->buildService()->buildManifest(Role::PUBLIC, null)['pages'];
 
         $this->assertContains('/test/1', $pages);
         $this->assertContains('/test/2', $pages);
-        foreach (['/testing', '/finance', '//evil.example/test', 'https://evil.example/test'] as $outside) {
-            $this->assertNotContains($outside, $pages);
+        foreach ($outside as $path) {
+            $this->assertNotContains($path, $pages);
         }
     }
 

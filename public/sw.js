@@ -198,6 +198,12 @@ const APP_SHELL_URLS = APP_SHELL_BASE_URLS.concat(VERSIONED_ICON_URLS);
 const CONFIG_CACHE_NAME = 'offline-config';
 const CONFIG_URL = 'https://offline-config.internal/v1';
 const CONTENT_CACHE_PREFIX = 'content-';
+// The `offline_cache_staleness_days` setting's own default (SettingService,
+// ARCHITECTURE.md), for a configuration that carries none or a value that
+// is not a positive number. offline-nav.js and offline-page.js fall back to
+// the same figure: a link shown as available offline must be one this
+// worker will actually serve.
+const DEFAULT_STALENESS_DAYS = 30;
 
 // --- #883: the exact list, and the pass that keeps it ---
 //
@@ -1316,7 +1322,7 @@ function cachedCopy(request, cacheName, config, reason) {
 
         const dateHeader = cached.headers.get('date');
         const ageMs = dateHeader ? Date.now() - new Date(dateHeader).getTime() : Infinity;
-        const stalenessDays = config.staleness_days || 7;
+        const stalenessDays = Number(config.staleness_days) || DEFAULT_STALENESS_DAYS;
         // Freshness is stated positively, and that is what makes it
         // right: an unparseable Date header gives NaN and a future-dated
         // one a negative age, and NEITHER is greater than the threshold —

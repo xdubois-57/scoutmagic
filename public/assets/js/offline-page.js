@@ -72,7 +72,7 @@
         // The worker's own threshold, from the same config and with the
         // same default as cachedCopy(): the figure baked into this page
         // when it was precached outlives a change of the setting.
-        const days = config.staleness_days || 7;
+        const days = Number(config.staleness_days) || 30;
         const name = 'content-' + config.account_scope + '-' + config.version;
         if (!(await caches.has(name))) {
             return false;

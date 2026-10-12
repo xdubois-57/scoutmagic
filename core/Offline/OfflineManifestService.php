@@ -77,9 +77,30 @@ class OfflineManifestService
         // dropped rather than handed to the browser to cache.
         return array_values(array_filter(
             $provider->pagesFor($role, $email),
-            static fn (string $path): bool => str_starts_with($path, '/')
-                && !str_starts_with($path, '//')
-                && OfflineWhitelist::isUnder((string) parse_url($path, PHP_URL_PATH), (string) $entry['prefix'])
+            static fn (string $path): bool => self::isPlainPath($path)
+                && OfflineWhitelist::isUnder($path, (string) $entry['prefix'])
         ));
+    }
+
+    /**
+     * A path of this site and nothing else, checked as it will be cached:
+     * one leading '/', no empty, '.' or '..' segment (`/news/../finance`
+     * starts with `/news/` and is not under it), no query string and no
+     * fragment — the list holds exact addresses, and `/news?page=2` is
+     * not `/news`. Rejected rather than normalised: a provider that emits
+     * such a path is wrong, and the list does not guess what it meant.
+     */
+    private static function isPlainPath(string $path): bool
+    {
+        if (!str_starts_with($path, '/') || strpbrk($path, "?#\\") !== false) {
+            return false;
+        }
+        foreach (explode('/', substr($path, 1)) as $segment) {
+            if ($segment === '' || $segment === '.' || $segment === '..') {
+                return $path === '/';
+            }
+        }
+
+        return true;
     }
 }
