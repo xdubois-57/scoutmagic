@@ -657,13 +657,25 @@ function keepListOnly(config) {
     const record = { scope: String(config.account_scope), version: String(config.version) };
 
     return fetchManifest(record.scope).then(function (list) {
-        if (!list) {
-            return false;
-        }
-        return storeEntry(LIST_URL, { scope: record.scope, pages: list.pages, last: list.last })
-            .then(function () { return announcePassDone(record); })
-            .then(function () { return true; });
+        return keepList(list, record);
     });
+}
+
+/**
+ * $list stored for $record's scope, and the windows told; nothing without
+ * a list.
+ *
+ * @param {{pages: string[], last: string[]}|null} list
+ * @param {{scope: string, version: string}} record
+ * @returns {Promise<boolean>}
+ */
+function keepList(list, record) {
+    if (!list) {
+        return Promise.resolve(false);
+    }
+    return storeEntry(LIST_URL, { scope: record.scope, pages: list.pages, last: list.last })
+        .then(function () { return announcePassDone(record); })
+        .then(function () { return true; });
 }
 
 function runPass(config) {
