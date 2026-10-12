@@ -94,10 +94,12 @@ async function expectRendered(images) {
 
 test('the list is held offline without being opened, with its images, and nothing else is kept', async ({ page, context }) => {
     // A whole journey — an article published, two passes run, the network
-    // cut and restored, the article back to draft and deleted: past the
-    // default 60 s on a CI runner that measures coverage, while each step
+    // cut and restored, the article back to draft and deleted: about 50 s
+    // locally, and past 120 s on a busy CI runner that measures coverage,
+    // where it was cut off in its last step. The same budget as the other
+    // long journeys (rental-lifecycle, groups-mentions), while each step
     // keeps its own timeout.
-    test.setTimeout(scaled(120_000));
+    test.setTimeout(scaled(240_000));
     await fakeTheInstalledApp(context);
 
     /** @type {string[]} */
