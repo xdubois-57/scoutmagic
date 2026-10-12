@@ -903,13 +903,21 @@ jobs:
             echo "No successfully triaged issues with effort values."
             exit 0
           fi
+          failed=0
           while read -r issue effort; do
             if [ "$effort" = unknown ]; then
               echo "Issue #$issue cannot be estimated yet; leaving Effort blank."
               continue
             fi
-            bash "$RUNNER_TEMP/triage-scripts/project-effort.sh" "$issue" "$effort"
+            if ! bash "$RUNNER_TEMP/triage-scripts/project-effort.sh" "$issue" "$effort"; then
+              echo "::error title=Project Effort sync failed::Issue #$issue was triaged, but its effort could not be written."
+              failed=$(( failed + 1 ))
+            fi
           done < "$file"
+          if [ "$failed" -gt 0 ]; then
+            echo "::error title=Project Effort sync incomplete::$failed item(s) failed, but later items were still processed."
+            exit 1
+          fi
 
       - name: Remove the extracts from the runner
         if: always()
