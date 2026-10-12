@@ -85,6 +85,11 @@ function serve(routes) {
     return asked;
 }
 
+/** The pass record the worker stored. */
+async function readPass() {
+    return (await (await caches.open('offline-config')).match(sw.PASS_URL)).json();
+}
+
 function manifest(pages, last = [], headers = {}) {
     return new Response(JSON.stringify({ pages, last }), { status: 200, headers: { 'Content-Type': 'application/json', ...headers } });
 }
@@ -177,6 +182,35 @@ describe('sw.js: refreshOfflineCopies() — the pass (#883)', () => {
         await sw.refreshOfflineCopies();
 
         expect(stored()).toEqual(['/files/8/thumb', '/news']);
+    });
+
+    // The list came, then the network went: every page fails. Such a pass
+    // must not count as done — the page would remember the launch and not
+    // ask again for a day — and the next one resumes it.
+    it('is not done when a fetch failed, and the next pass resumes it', async () => {
+        await seed();
+        serve({
+            '/api/offline/manifest': manifest(['/', '/contact']),
+            '/': html('Accueil'),
+            '/contact': () => { throw new TypeError('Failed to fetch'); },
+        });
+
+        expect(await sw.refreshOfflineCopies()).toBe(false);
+        const open = await readPass();
+        expect(open.completedAt).toBeNull();
+        expect(stored()).toEqual(['/']);
+
+        const asked = serve({
+            '/api/offline/manifest': manifest(['/', '/contact']),
+            '/contact': html('Contact'),
+        });
+        expect(await sw.refreshOfflineCopies()).toBe(true);
+
+        expect(asked).not.toContain('/');
+        expect(stored()).toEqual(['/', '/contact']);
+        const done = await readPass();
+        expect(done.startedAt).toBe(open.startedAt);
+        expect(done.completedAt).toBeTypeOf('number');
     });
 
     it('resumes an interrupted pass, asking only for what it has not stored yet', async () => {

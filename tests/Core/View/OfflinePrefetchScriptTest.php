@@ -113,8 +113,12 @@ class OfflinePrefetchScriptTest extends TestCase
 
     public function testEveryImageAndPageFetchIsBestEffort(): void
     {
-        // One failed fetch must never abort the rest of the pass.
-        $this->assertStringContainsString('.catch(function () {})', $this->swFunction('inLanes(items, work)'));
+        // One failed fetch must never abort the rest of the pass — and is
+        // counted, so that a pass with failures is not marked done.
+        $body = $this->swFunction('inLanes(items, work)');
+        $this->assertStringContainsString('.catch(function () {', $body);
+        $this->assertStringContainsString('failures += 1;', $body);
+        $this->assertStringContainsString('if (failed > 0)', $this->swFunction('settlePass(record, failed)'));
     }
 
     // --- offline-cache.js: the standalone flag itself ---

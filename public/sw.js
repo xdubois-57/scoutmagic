@@ -626,18 +626,40 @@ function passOver(cache, list, record) {
     const scope = record.scope;
     const startedAt = record.startedAt;
 
+    // What could not be fetched — the network gone after the list came:
+    // counted, so that such a pass is not taken for a finished one.
+    let failed = 0;
+    const count = function (failures) { failed += failures; };
+
     return storeEntry(LIST_URL, { scope: scope, pages: list.pages, last: list.last })
         .then(function () { return storeEntry(PASS_URL, record); })
         .then(function () { return refreshPages(cache, list.pages, startedAt, scope); })
+        .then(count)
         .then(function () { return imagesOf(cache, list.pages); })
         .then(function (images) { return fetchMissingImages(cache, images, scope); })
+        .then(count)
         .then(function () { return refreshPages(cache, list.last, startedAt, scope); })
+        .then(count)
         .then(function () { return pruneCopies(cache, list.pages.concat(list.last)); })
-        .then(function () {
-            record.completedAt = Date.now();
-            return storeEntry(PASS_URL, record);
-        })
-        .then(function () { return true; });
+        .then(function () { return settlePass(record, failed); });
+}
+
+/**
+ * Marks the pass done only when nothing failed. A pass with failures stays
+ * open — `completedAt` null — so the next request resumes it, asking only
+ * for what is still missing, and the page is told nothing: it would
+ * otherwise remember the launch as done and not ask again for a day.
+ *
+ * @param {{completedAt: number|null}} record
+ * @param {number} failed
+ * @returns {Promise<boolean>} whether the pass is done
+ */
+function settlePass(record, failed) {
+    if (failed > 0) {
+        return Promise.resolve(false);
+    }
+    record.completedAt = Date.now();
+    return storeEntry(PASS_URL, record).then(function () { return true; });
 }
 
 /**
@@ -704,16 +726,19 @@ function storedSince(cached, startedAt) {
 /** Runs $work over $items, PASS_CONCURRENCY at a time, never failing. */
 function inLanes(items, work) {
     const queue = items.slice();
+    let failures = 0;
     const lanes = [];
     for (let i = 0; i < Math.min(PASS_CONCURRENCY, queue.length); i++) {
         lanes.push((function next() {
             if (queue.length === 0) {
                 return Promise.resolve();
             }
-            return Promise.resolve(work(queue.shift())).catch(function () {}).then(next);
+            return Promise.resolve(work(queue.shift())).catch(function () {
+                failures += 1;
+            }).then(next);
         })());
     }
-    return Promise.all(lanes);
+    return Promise.all(lanes).then(function () { return failures; });
 }
 
 /**
