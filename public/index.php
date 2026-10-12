@@ -11181,10 +11181,15 @@ if ($isEnabled('registration')) {
     $registrationBaseUrl = (string) ($settingService->get('base_url') ?: '');
     $registrationSiteName = (string) ($settingService->get('site_name') ?: 'Unité scoute');
 
+    // One decision-email repository for the request repository (which
+    // supersedes those e-mails on a status change) and the service that
+    // sends them (issue #843, IT-05).
+    $registrationDecisionEmailRepo = new \Modules\Registration\Repository\DecisionEmailRepository($pdo);
     $registrationRequestRepo = new \Modules\Registration\Repository\RegistrationRequestRepository(
         $pdo,
         $encryptionService,
-        $householdRepository
+        $householdRepository,
+        $registrationDecisionEmailRepo
     );
     $registrationYearCodeRepo = new \Modules\Registration\Repository\RegistrationYearCodeRepository($pdo);
     $registrationAgeBracketRepo = new \Modules\Registration\Repository\AgeBracketRepository($pdo);
@@ -11302,6 +11307,7 @@ if ($isEnabled('registration')) {
         $journalService,
         $registrationBaseUrl,
         $registrationSiteName,
+        new \Modules\Registration\Service\DecisionEmailService($registrationDecisionEmailRepo, $journalService),
     );
     // Issue #843 (IT-04): the « Action rapide » column of « Demandes » and
     // its decision dialog — the recommendation's first reader.

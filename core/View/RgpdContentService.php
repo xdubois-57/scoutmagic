@@ -787,7 +787,10 @@ que le motif d'un refus (« Pas de place » ou « Autre »), conservé avec la d
 qu'une adresse email secondaire de suivi confirmée par son propriétaire donne accès au suivi complet de la demande
 SANS validation par le staff — c'est une exposition volontaire, jamais un
 contrôle d'accès délégué à l'unité ; (c) que la page de suivi de la famille n'affiche une acceptation ou un refus
-qu'une fois l'email correspondant réellement envoyé, jamais au moment de la décision elle-même ; (d) que le
+qu'une fois l'email correspondant réellement envoyé, jamais au moment de la décision elle-même, et qu'après un
+changement de décision seul l'email de la nouvelle décision la rend visible ; (c bis) que l'historique de ces emails
+(dates, décision annoncée, catégorie d'un échec, jamais le texte renvoyé par le serveur d'envoi) est réservé au staff
+et supprimé avec la demande ; (d) que le
 rapprochement à l'import Desk (automatique) et le rapprochement manuel par numéro de tiers suivent tous deux
 exactement le même traitement, ne migrent jamais les données d'identité elles-mêmes (Desk reste la source faisant foi)
 mais reportent les adresses email secondaires confirmées sur la fiche du membre réel, et qu'un cas ambigu (plusieurs

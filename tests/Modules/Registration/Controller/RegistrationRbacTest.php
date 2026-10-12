@@ -153,7 +153,11 @@ class RegistrationRbacTest extends TestCase
                 $editableContentService,
                 $journalService,
                 'https://example.com',
-                'Unité Test'
+                'Unité Test',
+                new \Modules\Registration\Service\DecisionEmailService(
+                    new \Modules\Registration\Repository\DecisionEmailRepository($this->pdo),
+                    $journalService
+                )
             )
         );
         $this->decisionController = new RequestDecisionController($twig, $requestRepository, $decisionService);

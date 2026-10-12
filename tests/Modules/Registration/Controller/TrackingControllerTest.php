@@ -136,7 +136,7 @@ class TrackingControllerTest extends TestCase
     public function testTokenViewShowsTheAcceptanceOnceItsEmailWentOut(): void
     {
         $this->requestRepository->updateStatus($this->created['id'], 'accepted', null);
-        $this->requestRepository->markAcceptedEmailSent($this->created['id']);
+        RegistrationTestHelper::recordDecisionEmailSent($this->pdo, $this->created['id'], 'accepted');
 
         $body = $this->controller->showByToken(
             new Request('GET', '/inscriptions/suivi/' . $this->created['id'] . '/' . $this->created['tracking_token'], [], [], [], []),
@@ -144,6 +144,31 @@ class TrackingControllerTest extends TestCase
         )->getBody();
 
         $this->assertStringContainsString('Acceptée', $body);
+    }
+
+    /**
+     * R3 on the family's own page: the acceptance e-mail went out, then the
+     * unit refused. Both views go back to « en attente » — the acceptance
+     * e-mail says nothing about the refusal — until the refusal e-mail
+     * itself leaves.
+     */
+    public function testAChangedDecisionStaysHiddenUntilItsOwnEmailLeaves(): void
+    {
+        $this->requestRepository->updateStatus($this->created['id'], 'accepted', null);
+        RegistrationTestHelper::recordDecisionEmailSent($this->pdo, $this->created['id'], 'accepted');
+        $this->assertStringContainsString('Acceptée', $this->tokenView());
+
+        $this->requestRepository->updateStatus($this->created['id'], 'refused', new \DateTimeImmutable());
+        foreach (['token' => $this->tokenView(), 'linked' => $this->linkedView()] as $view => $body) {
+            $this->assertStringContainsString('En attente d&#039;examen', $body, $view);
+            $this->assertStringNotContainsString('Refusée', $body, $view);
+            $this->assertStringNotContainsString('Acceptée', $body, $view);
+        }
+
+        RegistrationTestHelper::recordDecisionEmailSent($this->pdo, $this->created['id'], 'refused');
+        foreach (['token' => $this->tokenView(), 'linked' => $this->linkedView()] as $view => $body) {
+            $this->assertStringContainsString('Refusée', $body, $view);
+        }
     }
 
     public function testFullViewHidesARefusalUntilItsEmailIsSent(): void
@@ -234,7 +259,7 @@ class TrackingControllerTest extends TestCase
             new \DateTimeImmutable(),
             \Modules\Registration\Repository\RegistrationRequest::REFUSAL_NO_ROOM
         );
-        $this->requestRepository->markRefusedEmailSent($this->created['id']);
+        RegistrationTestHelper::recordDecisionEmailSent($this->pdo, $this->created['id'], 'refused');
         $refusedPages = [$this->tokenView(), $this->linkedView()];
         foreach ($refusedPages as $body) {
             $this->assertStringContainsString('Refusée', $body, 'the refusal itself is visible once its e-mail left');
@@ -282,7 +307,11 @@ class TrackingControllerTest extends TestCase
                 new \Core\View\EditableContentService(new \Core\View\EditableContentRepository($this->pdo)),
                 $journal,
                 'https://example.com',
-                'Unité Test'
+                'Unité Test',
+                new \Modules\Registration\Service\DecisionEmailService(
+                    new \Modules\Registration\Repository\DecisionEmailRepository($this->pdo),
+                    $journal
+                )
             )
         );
 
@@ -294,7 +323,7 @@ class TrackingControllerTest extends TestCase
         );
         $this->assertSame($note, $this->requestRepository->findById($this->created['id'])?->internalNotes);
         $before = [$this->tokenView(), $this->linkedView()];
-        $this->requestRepository->markRefusedEmailSent($this->created['id']);
+        RegistrationTestHelper::recordDecisionEmailSent($this->pdo, $this->created['id'], 'refused');
         $after = [$this->tokenView(), $this->linkedView()];
 
         foreach ($after as $body) {

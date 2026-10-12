@@ -149,7 +149,7 @@ class RequestStatusServiceTest extends TestCase
 
         $this->assertSame('pending', $this->service->visibleStatus($accepted));
 
-        $this->requestRepository->markAcceptedEmailSent($request->id);
+        RegistrationTestHelper::recordDecisionEmailSent($this->pdo, $request->id, 'accepted');
         $afterEmail = $this->requestRepository->findById($request->id);
         $this->assertSame('accepted', $this->service->visibleStatus($afterEmail));
     }
@@ -175,9 +175,97 @@ class RequestStatusServiceTest extends TestCase
 
         $this->assertSame('pending', $this->service->visibleStatus($refused));
 
-        $this->requestRepository->markRefusedEmailSent($request->id);
+        RegistrationTestHelper::recordDecisionEmailSent($this->pdo, $request->id, 'refused');
         $afterEmail = $this->requestRepository->findById($request->id);
         $this->assertSame('refused', $this->service->visibleStatus($afterEmail));
+    }
+
+    public function testVisibleStatusShowsEncodedOnceTheAcceptanceEmailWasSent(): void
+    {
+        $request = $this->createRequest();
+        $memberId = RegistrationTestHelper::insertMember($this->pdo, 'M3');
+        $this->service->accept($request);
+        RegistrationTestHelper::recordDecisionEmailSent($this->pdo, $request->id, 'accepted');
+        // Encoding does not change the decision the family was told: the
+        // acceptance e-mail still counts for it.
+        $this->requestRepository->linkToMemberAndEncode($request->id, $memberId, new \DateTimeImmutable());
+
+        $this->assertSame('encoded', $this->service->visibleStatus($this->requestRepository->findById($request->id)));
+    }
+
+    /**
+     * R3: the acceptance e-mail went out, then the chief refused. The
+     * family must keep seeing « en attente » until the REFUSAL e-mail
+     * leaves — the old acceptance date announces nothing about it.
+     */
+    public function testAnEarlierDecisionsEmailNeverRevealsTheNewDecision(): void
+    {
+        $request = $this->createRequest();
+        $this->service->accept($request);
+        RegistrationTestHelper::recordDecisionEmailSent($this->pdo, $request->id, 'accepted');
+        $this->assertSame('accepted', $this->service->visibleStatus($this->requestRepository->findById($request->id)));
+
+        $this->service->refuse($this->requestRepository->findById($request->id), RegistrationRequest::REFUSAL_OTHER);
+        $refused = $this->requestRepository->findById($request->id);
+        $this->assertSame('pending', $this->service->visibleStatus($refused));
+        $this->assertNull($refused->decisionEmailSentAt);
+
+        RegistrationTestHelper::recordDecisionEmailSent($this->pdo, $request->id, 'refused');
+        $this->assertSame('refused', $this->service->visibleStatus($this->requestRepository->findById($request->id)));
+    }
+
+    /**
+     * R3, the same decision taken twice: accepted and told, back to
+     * pending, accepted again. The first acceptance e-mail belonged to the
+     * first decision; the second acceptance waits for its own.
+     */
+    public function testAReAcceptanceWaitsForItsOwnEmail(): void
+    {
+        $request = $this->createRequest();
+        $this->service->accept($request);
+        RegistrationTestHelper::recordDecisionEmailSent($this->pdo, $request->id, 'accepted');
+
+        $this->service->revertToPending($this->requestRepository->findById($request->id));
+        $this->service->accept($this->requestRepository->findById($request->id));
+
+        $this->assertSame('pending', $this->service->visibleStatus($this->requestRepository->findById($request->id)));
+
+        RegistrationTestHelper::recordDecisionEmailSent($this->pdo, $request->id, 'accepted');
+        $this->assertSame('accepted', $this->service->visibleStatus($this->requestRepository->findById($request->id)));
+    }
+
+    /**
+     * D8: a change of decision cancels the e-mail still planned for the old
+     * one, and the journal entry of the change says how many — a count,
+     * nothing about the family.
+     */
+    public function testAChangeOfDecisionCancelsTheScheduledEmailAndJournalsTheCount(): void
+    {
+        $request = $this->createRequest();
+        $this->service->accept($request);
+        $repository = new \Modules\Registration\Repository\DecisionEmailRepository($this->pdo);
+        $scheduled = $repository->insert(
+            $request->id,
+            'accepted',
+            'scheduled',
+            new \DateTimeImmutable('+1 day'),
+            1,
+            false,
+            new \DateTimeImmutable()
+        );
+        $this->assertNotNull($scheduled);
+
+        $this->service->refuse($this->requestRepository->findById($request->id), RegistrationRequest::REFUSAL_OTHER);
+
+        $email = $repository->findById($scheduled);
+        $this->assertSame('cancelled', $email?->state);
+        $this->assertSame('decision_changed', $email?->cancelReason);
+
+        $context = json_decode((string) $this->pdo->query(
+            "SELECT context FROM event_log WHERE event_type = 'registration_request_status_changed'
+             ORDER BY id DESC LIMIT 1"
+        )->fetchColumn(), true);
+        $this->assertSame(1, $context['decision_emails_cancelled'] ?? null);
     }
 
     public function testVisibleStatusPassesThroughPendingAndWithdrawnUnchanged(): void

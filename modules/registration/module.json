@@ -2,7 +2,7 @@
   "id": "registration",
   "name": "Inscriptions",
   "description": "Inscriptions, réinscriptions, passages de branche et départs.",
-  "version": "6.16.1",
+  "version": "6.17.1",
   "enabled_by_default": false,
   "routes": [
     {

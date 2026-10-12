@@ -142,7 +142,11 @@ class RegistrationConfigControllerTest extends TestCase
                 $editableContentService,
                 $journalService,
                 'https://example.com',
-                'Unité Test'
+                'Unité Test',
+                new \Modules\Registration\Service\DecisionEmailService(
+                    new \Modules\Registration\Repository\DecisionEmailRepository($this->pdo),
+                    $journalService
+                )
             )
         );
 
@@ -456,7 +460,7 @@ class RegistrationConfigControllerTest extends TestCase
         $this->requestRepository->updateStatus($encoded, 'encoded', new \DateTimeImmutable());
         $refused = $this->createRequest($this->targetYearId, 'Refusee');
         $this->requestRepository->updateStatus($refused, 'refused', new \DateTimeImmutable());
-        $this->requestRepository->markRefusedEmailSent($refused);
+        RegistrationTestHelper::recordDecisionEmailSent($this->pdo, $refused, 'refused');
         $withdrawn = $this->createRequest($this->targetYearId, 'Retiree');
         $this->requestRepository->updateStatus($withdrawn, 'withdrawn', new \DateTimeImmutable());
         // Current year (an in-year registration made with the code): one
