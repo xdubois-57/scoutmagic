@@ -2,7 +2,7 @@
   "id": "registration",
   "name": "Inscriptions",
   "description": "Inscriptions, réinscriptions, passages de branche et départs.",
-  "version": "6.14.0",
+  "version": "6.15.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -514,6 +514,15 @@
       "method": "POST",
       "controller": "Modules\\Registration\\Controller\\RegistrationRequestController",
       "action": "sendRefusedEmail",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/config/inscriptions/demandes/{id}/decision",
+      "method": "POST",
+      "controller": "Modules\\Registration\\Controller\\RequestDecisionController",
+      "action": "decide",
       "menu": "espace_admin",
       "role_min": "admin",
       "label": ""

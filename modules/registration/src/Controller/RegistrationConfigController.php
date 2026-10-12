@@ -23,6 +23,7 @@ use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\View\EditableContentService;
 use Modules\Registration\Repository\AgeBracketRepository;
+use Modules\Registration\Repository\RegistrationRequest;
 use Modules\Registration\Repository\RegistrationRequestRepository;
 use Modules\Registration\Repository\RegistrationYearCodeRepository;
 use Modules\Registration\Repository\SlotCapacityRepository;
@@ -31,6 +32,7 @@ use Modules\Registration\Service\PriorityOrderService;
 use Modules\Registration\Service\RecommendationService;
 use Modules\Registration\Service\RecurringMonthDay;
 use Modules\Registration\Service\RegistrationException;
+use Modules\Registration\Service\RequestDecisionService;
 use Modules\Registration\Service\RequestExportService;
 use Modules\Registration\Service\RequestStatusService;
 use Modules\Registration\Service\SlotMath;
@@ -108,6 +110,7 @@ class RegistrationConfigController extends AbstractController
         private SectionService $sectionService,
         private EditableContentService $editableContentService,
         private RequestStatusService $statusService,
+        private RequestDecisionService $decisionService,
         private JournalService $journalService,
         private SettingService $settingService,
         private RequestExportService $requestExportService,
@@ -708,11 +711,19 @@ class RegistrationConfigController extends AbstractController
             return $this->redirect(self::PATH_REQUESTS . '?year=' . $yearId);
         }
 
+        // Every refusal carries its reason (issue #843 D6), checked once
+        // before the first request: a missing one refuses nothing at all.
+        $reason = (string) $request->getBody('refusal_reason', '');
+        if ($action === 'refuse' && !RequestStatusService::isRefusalReason($reason)) {
+            FlashMessage::set('error', RequestStatusService::MESSAGE_REFUSAL_REASON_REQUIRED);
+            return $this->redirect(self::PATH_REQUESTS . '?year=' . $yearId);
+        }
+
         $count = 0;
         foreach ($this->requestRepository->findNonFinalForYear($yearId) as $registrationRequest) {
             try {
                 if ($action === 'refuse') {
-                    $this->statusService->refuse($registrationRequest);
+                    $this->statusService->refuse($registrationRequest, $reason);
                 } else {
                     $this->statusService->withdraw($registrationRequest);
                 }
@@ -730,6 +741,7 @@ class RegistrationConfigController extends AbstractController
                 ? 'Refus en masse des demandes non clôturées'
                 : 'Retrait en masse des demandes non clôturées',
             ['scout_year_id' => $yearId, 'count' => $count]
+                + ($action === 'refuse' ? ['refusal_reason' => $reason] : [])
         );
 
         FlashMessage::set('success', $count . ' demande(s) traitée(s).');
@@ -751,6 +763,12 @@ class RegistrationConfigController extends AbstractController
         $isPastYear = $selectedYear['start_date'] < $publicYear['start_date'];
 
         $years = $this->resolveSelectableYears($publicYear);
+        $requestRows = $this->buildFilteredRequestRows($selectedYearId, $selectedYear, $statusFilter, $search);
+        $anyPendingShown = in_array(
+            RegistrationRequest::STATUS_PENDING,
+            array_map(static fn(array $row) => $row['request']->status, $requestRows),
+            true
+        );
 
         return [
             'csrf_token' => CsrfGuard::generateToken(),
@@ -764,11 +782,15 @@ class RegistrationConfigController extends AbstractController
             'selected_year' => $selectedYear,
             'is_past_year' => $isPastYear,
 
-            'request_rows' => $this->buildFilteredRequestRows($selectedYearId, $selectedYear, $statusFilter, $search),
+            'request_rows' => $requestRows,
             'status_filter' => $statusFilter,
             'search' => $search,
 
             'non_final_count' => count($this->requestRepository->findNonFinalForYear($selectedYearId)),
+
+            // The « Action rapide » column and its decision dialogs (issue
+            // #843, IT-04): views/config/_decide_dialogs.html.twig.
+            'decision' => $this->decisionService->dialogContext($selectedYearId, $anyPendingShown),
         ];
     }
 

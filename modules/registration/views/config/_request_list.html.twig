@@ -1,7 +1,8 @@
 {# The request list of one scout year: year selector, filters, search,
    export and table. Requires `selected_year`, `is_past_year`,
    `selectable_years`, `target_year_id`, `current_year_id`, `status_filter`,
-   `search` and `request_rows`. #}
+   `search`, `request_rows` and `decision` (Service\RequestDecisionService::
+   dialogContext(): the « Action rapide » column, issue #843 IT-04). #}
 <div class="card mb-4">
     <div class="card-body">
         <h2 class="h5 mb-3">Demandes — année {{ selected_year.label }}{% if is_past_year %} <span class="badge text-bg-secondary">Consultation seule</span>{% endif %}</h2>
@@ -74,15 +75,21 @@
                         <th>Fratrie</th>
                         <th>État</th>
                         <th>E-mail de décision</th>
-                        <th></th>
+                        <th>Action rapide</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for row in request_rows %}
                         {% set r = row.request %}
+                        {% set recommendation = decision.recommendations[r.id] ?? null %}
                         <tr>
                             <td>{{ r.receivedAt|french_date }}</td>
-                            <td>{{ r.childFirstName }} {{ r.childLastName }}</td>
+                            <td>
+                                <a href="/config/inscriptions/demandes/{{ r.id }}">{{ r.childFirstName }} {{ r.childLastName }}</a>
+                                {% if recommendation and recommendation.duplicateOfRequestId %}
+                                    <div><span class="badge text-bg-warning">Doublon possible de #{{ recommendation.duplicateOfRequestId }}</span></div>
+                                {% endif %}
+                            </td>
                             <td>{{ row.slot_label }}</td>
                             <td>{{ row.intended_section_label ?? '—' }}</td>
                             <td>{{ row.sibling_count > 0 ? row.sibling_count : '—' }}</td>
@@ -108,7 +115,19 @@
                                     —
                                 {% endif %}
                             </td>
-                            <td><a href="/config/inscriptions/demandes/{{ r.id }}" class="btn btn-sm btn-outline-secondary">Ouvrir</a></td>
+                            <td>
+                                {# A decision only on a pending request of a year
+                                   still open to one — never on a past year,
+                                   consultation only (R8). The dialog it opens is
+                                   _decide_dialogs.html.twig's. #}
+                                {% if decision.decidable and r.status == 'pending' %}
+                                    <button type="button" class="btn btn-sm btn-outline-primary"
+                                            data-bs-toggle="modal" data-bs-target="#decide-{{ r.id }}"
+                                            aria-label="Décider — {{ r.childFirstName }} {{ r.childLastName }}">Décider</button>
+                                {% else %}
+                                    <span class="text-body-secondary">—</span>
+                                {% endif %}
+                            </td>
                         </tr>
                     {% else %}
                         {% include 'partials/empty_state.html.twig' with {

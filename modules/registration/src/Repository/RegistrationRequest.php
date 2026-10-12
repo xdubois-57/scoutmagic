@@ -136,4 +136,18 @@ final class RegistrationRequest
     {
         return self::STATUS_LABELS[$this->status] ?? $this->status;
     }
+
+    /**
+     * « Pas de place » / « Autre » for a refused request whose reason is
+     * known, null otherwise — what the fiche shows beside « Refusée », and
+     * only there: a family never sees why (issue #843 D6).
+     */
+    public function refusalReasonLabel(): ?string
+    {
+        if ($this->status !== self::STATUS_REFUSED || $this->refusalReason === null) {
+            return null;
+        }
+
+        return self::REFUSAL_REASON_LABELS[$this->refusalReason] ?? null;
+    }
 }

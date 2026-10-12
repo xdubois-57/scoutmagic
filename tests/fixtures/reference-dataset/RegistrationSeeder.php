@@ -200,7 +200,14 @@ final class RegistrationSeeder
             try {
                 match ($declared['status']) {
                     RegistrationRequest::STATUS_ACCEPTED => $this->statusService->accept($request),
-                    RegistrationRequest::STATUS_REFUSED => $this->statusService->refuse($request),
+                    // « Autre »: the table says nothing about why, and
+                    // « Pas de place » would rank a later request of the
+                    // same child first (« Ancienne demande restée sans
+                    // place »), which nothing here means to model.
+                    RegistrationRequest::STATUS_REFUSED => $this->statusService->refuse(
+                        $request,
+                        RegistrationRequest::REFUSAL_OTHER
+                    ),
                     RegistrationRequest::STATUS_WITHDRAWN => $this->statusService->withdraw($request),
                 };
             } catch (RegistrationException) {

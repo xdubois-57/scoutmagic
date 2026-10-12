@@ -614,3 +614,168 @@ année, parmi les demandes vivantes, la plus ancienne (ou celle qui tient
 déjà une place) restant dans la file (`Recommendation::$duplicateOfRequestId`)
 — sans encore l'afficher. R8 :
 aucune recommandation pour une année passée.
+
+---
+
+## IT-04 — Colonne « Action rapide », dialogue de décision, motif de refus
+
+**Livré.**
+
+- **Colonne « Action rapide »** dans la liste de « Demandes » : « Décider »
+  sur chaque demande en attente, « — » sur toutes les autres, et aucun
+  bouton sur une année passée. Le nom de l'enfant ouvre la fiche (il
+  remplace la colonne sans titre « Ouvrir », comme dans la maquette) ; un
+  doublon possible porte la pastille « Doublon possible de #… » sur sa
+  ligne.
+- **Dialogue de décision** (`views/config/_decide_dialogs.html.twig`, une
+  ligne d'inclusion dans `requests.html.twig`) : une modale Bootstrap par
+  demande en attente, rendue par le serveur et ouverte par l'API de
+  données de Bootstrap — titre « Décider — {enfant} », année de parcours ·
+  section prévue · reçue le … ; la recommandation et son explication sur
+  fond vert / jaune / rouge, ou gris sans recommandation, **seulement si
+  les listes d'attente sont gérées** ; l'avertissement « Doublon possible
+  de la demande #… : même enfant, même date de naissance. » ; « Note
+  interne » (le champ de la fiche, montré tel qu'enregistré) ; « Annuler »,
+  « Refuser », « Accepter ». « Refuser » fait apparaître le « Motif du
+  refus » (« Pas de place » / « Autre », déjà « Pas de place » quand la
+  recommandation est Non) et devient « Confirmer le refus », désactivé
+  sans motif. Les phrases sur l'e-mail : « aucun e-mail ne part tout
+  seul » par décision dont le gabarit est rédigé, la phrase « gabarits pas
+  rédigés » de la maquette quand aucun ne l'est (et une phrase par
+  décision quand un seul l'est).
+- **Nouveau contrôleur, nouvelle route** : `POST
+  /config/inscriptions/demandes/{id}/decision`
+  (`Controller\RequestDecisionController::decide()`, `role_min: admin`),
+  sur `Service\RequestDecisionService` : `dialogContext()` (ce que la liste
+  affiche) et `decide()` — décision connue, année non passée, demande
+  toujours en attente, puis, dans une seule transaction
+  (`RegistrationRequestRepository::transactional()`), la transition
+  existante de `RequestStatusService` (accepter, ou refuser avec son
+  motif), la note si elle a changé et le journal
+  `registration_request_decided` (id, décision, `note_changed`, jamais la
+  note). Retour à la liste avec son
+  année, son filtre d'état et sa recherche, et un message qui dit
+  qu'aucun e-mail n'est parti (et pourquoi : à envoyer depuis la fiche, ou
+  gabarit pas rédigé). `RegistrationConfigController` ne reçoit que le
+  service, en un paramètre, et passe son contexte à la vue.
+- **Motif exigé partout** : `RequestStatusService::refuse()` prend
+  désormais un motif obligatoire (`string`), et un motif absent, vide ou
+  inconnu est refusé avant toute écriture
+  (`MESSAGE_REFUSAL_REASON_REQUIRED`). La fiche (les deux formulaires
+  « Refuser », demande en attente et acceptée) et « Tout refuser »
+  portent un sélecteur obligatoire (`views/_refusal_reason_field.html.twig`,
+  partagé) ; « Tout refuser » vérifie le motif avant la première demande,
+  si bien qu'un motif manquant ne refuse rien du tout. La fiche affiche
+  « Motif : … » à côté de « Refusée ».
+- JS : `public/assets/js/registration-decide-dialog.js` (bascule
+  Refuser → motif + « Confirmer le refus », envoi unique — un double clic
+  ne poste pas deux fois —, réinitialisation à la fermeture ; aucune
+  écriture de balisage ni d'adresse — puits CodeQL relus) et `tests/js/registration-decide-dialog.test.js`, qui importe le
+  vrai fichier.
+- Tests : `RequestDecisionServiceTest` (contexte, accepter, refuser,
+  refus sans motif / motif inconnu / décision inconnue sans rien changer,
+  note comprise, année passée, demande plus en attente, note inchangée
+  non réécrite, journal sans donnée personnelle),
+  `RequestDecisionControllerTest` (redirection et filtres, messages,
+  jeton invalide, 404), `RegistrationRbacTest` (admin décide, chief
+  refusé), `RegistrationConfigControllerTest` (colonne, dialogue rendu,
+  recommandation colorée, motif pré-rempli, listes d'attente non gérées,
+  doublon, note, phrases d'e-mail, année passée sans bouton, refus groupé
+  avec et sans motif), `RegistrationRequestControllerTest` (refus depuis
+  la fiche avec et sans motif, sélecteur présent, note du dialogue sur la
+  fiche), `RequestStatusServiceTest`, `TrackingControllerTest` (rien de ce
+  qu'écrit le dialogue — note, motif — n'apparaît dans le suivi par jeton
+  ni dans le suivi complet). Scénario de bout en bout
+  `registration-flow` : la décision passe par le dialogue (refus essayé
+  puis annulé, note, acceptation, note retrouvée sur la fiche) ;
+  `registration-grids` ouvre la fiche par le nom de l'enfant.
+- Documentation : nouveau sujet d'aide `decider-une-demande` (le sujet
+  `gerer-les-demandes` est à 477 mots, sous la borne de 500),
+  `specifications.md` §17.6, `ARCHITECTURE.md` §8.36. Version du module
+  6.14.0 → 6.15.0. Le service de recommandation est désormais construit
+  dans `public/index.php`.
+
+**Décisions autonomes.**
+
+- **Une modale par demande, rendue par le serveur**, plutôt qu'une seule
+  remplie en JavaScript : l'adresse du formulaire (`action`) et tout le
+  texte (nom, explication, note) viennent de Twig, échappés, et le script
+  n'a aucun puits CodeQL à garder ; le dialogue se teste en PHPUnit sur le
+  vrai rendu. Seules les demandes en attente d'une année décidable en
+  ont une.
+- **Le dialogue est la confirmation du refus** : pas de `data-confirm` en
+  plus sur son formulaire (l'adresse `/decision` ne relève d'ailleurs pas
+  du motif destructif de `UxConventionsTest`) — « Refuser » puis
+  « Confirmer le refus » (`btn-danger`, design.md §7.4) font déjà les deux
+  temps. Sur la fiche et pour « Tout refuser », le sélecteur de motif est
+  **dans le formulaire**, obligatoire (`required`), et le `data-confirm`
+  existant reste : pas de nouveau script, et la règle de confirmation des
+  POST destructifs est tenue telle quelle.
+- **Le motif est obligatoire dans le service**, pas seulement dans les
+  contrôleurs : `refuse(string $reason)`. Le constructeur du jeu de
+  données de référence refuse désormais ses demandes « Autre » : sa table
+  ne dit pas pourquoi, et « Pas de place » aurait changé le classement
+  des demandes ultérieures du même enfant.
+- **Boutons du dialogue** selon design.md §7.4 : « Accepter » en
+  `btn-primary` (la maquette dessine un bouton vert), « Décider » en
+  `btn-outline-primary` (un seul bouton primaire par écran), avec un
+  `aria-label` « Décider — {enfant} » pour qu'un lecteur d'écran sache
+  quelle ligne il ouvre.
+- **La note n'est écrite que si elle a changé par rapport à celle que le
+  dialogue affichait** (champ caché `internal_notes_shown`) : laissée
+  telle quelle, elle n'écrase pas une note complétée sur la fiche depuis
+  le chargement de la liste ; les fins de ligne ne comptent pas (un
+  navigateur poste CRLF) ; vide, elle s'efface, comme dans la fiche.
+- **Statut et note dans une transaction** : une note qui ne peut pas
+  s'écrire annule la décision et ses entrées de journal.
+- **Une décision n'est prise que sur une demande toujours en attente** :
+  décidée entre-temps (autre onglet, autre chef), elle n'est pas décidée
+  une seconde fois, et rien ne change.
+- Le retour à la liste reprend le filtre d'état et la recherche du
+  dialogue (champs cachés), filtre validé contre la liste des états.
+- La couleur « Peut-être » est le jaune de Bootstrap (`warning`), et le
+  fond des quatre états utilise les variantes `*-subtle`, lisibles en
+  thème sombre.
+
+- **Non retenu, à la relecture** : bloquer aussi les transitions de la
+  fiche sur une année passée. La fiche les permet aujourd'hui, et c'est
+  le seul moyen de clôturer une demande restée ouverte d'une année
+  passée (le refus groupé y est refusé, et une demande non clôturée
+  bloque le changement d'année) ; IT-04 ne change pas ce comportement.
+
+**Divergences avec le document.**
+
+- Vérifié sur `main` (`d4efa13`) : `RequestStatusService::refuse()`
+  prenait un motif facultatif (IT-03) et la fiche comme le refus groupé
+  n'en passaient aucun ; le service de recommandation n'était lu par
+  aucune page ni construit dans `public/index.php` ; version 6.14.0.
+- **Le refus groupé reste « Tout refuser »** sur les demandes non
+  clôturées de l'année choisie, avec son motif. La maquette dessine une
+  sélection de demandes (cases à cocher, « Refuser la sélection » /
+  « Retirer la sélection ») ; ni la section IT-04 ni une autre itération
+  ne la demandent, et IT-04 n'a demandé que le motif. Signalé au
+  pilotage. De même, les filtres en pastilles de la maquette ne sont pas
+  faits (le filtre par liste déroulante reste).
+- L'en-tête du dialogue reprend le libellé de créneau de la liste
+  (« Baladins — 2ᵉ année », « Non déterminé » hors des tranches d'âge)
+  plutôt que celui de la maquette (« Louveteaux · 1re année », « Hors des
+  tranches d'âge ») : le dialogue dit ce que dit sa ligne.
+- Le motif de la fiche et du refus groupé est un sélecteur dans le
+  formulaire, confirmé par la boîte de confirmation commune, et non un
+  champ dans cette boîte comme dans la maquette (la boîte du site
+  n'accepte pas de liste déroulante).
+
+**Reporté.**
+
+- La phrase « Le traitement automatique ne la prendra pas » et
+  « Sans décision de votre part, cette demande sera acceptée
+  automatiquement… » : IT-10. La planification des e-mails et la phrase
+  « l'e-mail … partira le … » : IT-05 / IT-09 (le dialogue et la
+  confirmation n'affichent que « aucun e-mail ne part tout seul »).
+- L'édition indépendante de la note et le bloc « E-mail de décision » de
+  la fiche : IT-08.
+
+**Faits tranchés.** R8 : sur une année passée, ni bouton « Décider » ni
+dialogue, et le serveur refuse une décision qui y arriverait quand même
+(rien ne change). D6 : tout refus porte son motif — dialogue, fiche, refus
+groupé — et le serveur refuse un refus sans motif valide.

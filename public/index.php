@@ -11314,6 +11314,24 @@ if ($isEnabled('registration')) {
         $registrationBaseUrl,
         $registrationSiteName,
     );
+    // Issue #843 (IT-04): the « Action rapide » column of « Demandes » and
+    // its decision dialog — the recommendation's first reader.
+    $registrationDecisionService = new \Modules\Registration\Service\RequestDecisionService(
+        $registrationRequestRepo,
+        $registrationStatusService,
+        new \Modules\Registration\Service\RecommendationService(
+            $registrationRequestRepo,
+            $registrationSlotService,
+            $registrationAgeBracketRepo,
+            $scoutYearService,
+            $scoutYearResolver,
+            new \Modules\Registration\Service\PriorityOrderService($settingService)
+        ),
+        $registrationEmailService,
+        $scoutYearService,
+        $scoutYearResolver,
+        $journalService
+    );
     $registrationMigrationService = new \Modules\Registration\Service\MigrationService(
         $pdo,
         $registrationRequestRepo,
@@ -11351,10 +11369,19 @@ if ($isEnabled('registration')) {
             $sectionService,
             $editableContentService,
             $registrationStatusService,
+            $registrationDecisionService,
             $journalService,
             $settingService,
             new \Modules\Registration\Service\RequestExportService(),
             new \Modules\Registration\Service\PriorityOrderService($settingService)
+        )
+    );
+    $frontController->registerController(
+        \Modules\Registration\Controller\RequestDecisionController::class,
+        new \Modules\Registration\Controller\RequestDecisionController(
+            $twig,
+            $registrationRequestRepo,
+            $registrationDecisionService
         )
     );
     $frontController->registerController(

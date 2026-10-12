@@ -25,6 +25,8 @@ use Modules\Registration\Repository\AgeBracketRepository;
 use Modules\Registration\Repository\RegistrationRequestRepository;
 use Modules\Registration\Repository\RegistrationYearCodeRepository;
 use Modules\Registration\Repository\SlotCapacityRepository;
+use Core\Mail\MailService;
+use Modules\Registration\Service\RequestEmailService;
 use Modules\Registration\Service\RequestStatusService;
 use Modules\Registration\Service\SlotService;
 use PHPUnit\Framework\TestCase;
@@ -61,6 +63,7 @@ class RegistrationConfigControllerTest extends TestCase
     private JournalRepository $journalRepository;
     private SlotCapacityRepository $slotCapacityRepository;
     private \Twig\Environment $twig;
+    private EditableContentService $editableContentService;
 
     protected function setUp(): void
     {
@@ -124,8 +127,23 @@ class RegistrationConfigControllerTest extends TestCase
     new MemberProfileRepository($connection, $encryption, new \Core\Badge\MemberBadgeRepository($this->pdo))
 );
         $editableContentService = new EditableContentService(new EditableContentRepository($this->pdo));
+        $this->editableContentService = $editableContentService;
         $journalService = new JournalService(new JournalRepository($this->pdo));
         $statusService = new RequestStatusService($this->requestRepository, $journalService);
+        $decisionService = RegistrationTestHelper::decisionService(
+            $this->pdo,
+            $encryption,
+            $settingService,
+            $statusService,
+            new RequestEmailService(
+                $this->requestRepository,
+                $this->createStub(MailService::class),
+                $editableContentService,
+                $journalService,
+                'https://example.com',
+                'Unité Test'
+            )
+        );
 
         $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
         $moduleViews = dirname(__DIR__, 4) . '/modules/registration/views';
@@ -143,7 +161,7 @@ class RegistrationConfigControllerTest extends TestCase
         $this->controller = new RegistrationConfigController(
             $twig, $ageBracketRepository, $slotCapacityRepository, $yearCodeRepository,
             $scoutYearResolver, $this->scoutYearService, $this->requestRepository, $slotService, $sectionService,
-            $editableContentService, $statusService, $journalService, $settingService,
+            $editableContentService, $statusService, $decisionService, $journalService, $settingService,
             new \Modules\Registration\Service\RequestExportService(),
             new \Modules\Registration\Service\PriorityOrderService($settingService)
         );
@@ -489,6 +507,220 @@ class RegistrationConfigControllerTest extends TestCase
         $this->assertStringContainsString('Tout refuser (1)', $body);
         $this->assertStringNotContainsString('Vérification des capacités', $body);
         $this->assertStringNotContainsString('name="capacity[', $body);
+    }
+
+    /**
+     * Issue #843, IT-04 — the « Action rapide » column: « Décider » on each
+     * pending request, « — » on every other one, and the dialog it opens,
+     * one per pending request, posting to the decision route. The child's
+     * name opens the fiche.
+     */
+    public function testTheActionColumnOffersADecisionOnPendingRequestsOnly(): void
+    {
+        $pendingId = $this->createRequest($this->targetYearId, 'Noa');
+        $acceptedId = $this->createRequest($this->targetYearId, 'Ilan', '2020-02-02');
+        $this->requestRepository->updateStatus($acceptedId, 'accepted', null);
+
+        $body = $this->renderPage('requests');
+
+        $this->assertStringContainsString('<th>Action rapide</th>', $body);
+        $this->assertStringContainsString('data-bs-target="#decide-' . $pendingId . '"', $body);
+        $this->assertStringContainsString('aria-label="Décider — Noa Dupont">Décider</button>', $body);
+        $this->assertStringNotContainsString('#decide-' . $acceptedId . '"', $body);
+        $this->assertStringNotContainsString('id="decide-' . $acceptedId . '"', $body);
+        $this->assertStringContainsString(
+            '<a href="/config/inscriptions/demandes/' . $acceptedId . '">Ilan Dupont</a>',
+            $body
+        );
+
+        $dialog = $this->dialogOf($body, $pendingId);
+        $this->assertStringContainsString('Décider — Noa Dupont', $dialog);
+        $this->assertStringContainsString(
+            'action="/config/inscriptions/demandes/' . $pendingId . '/decision"',
+            $dialog
+        );
+        $this->assertMatchesRegularExpression(
+            '/Baladins — \dᵉ année · section prévue non définie · reçue le \d/u',
+            $dialog
+        );
+        foreach (['Note interne', 'Motif du refus', 'Pas de place', 'Autre'] as $label) {
+            $this->assertStringContainsString($label, $dialog);
+        }
+        $this->assertMatchesRegularExpression('#data-bs-dismiss="modal">Annuler</button>#', $dialog);
+        $this->assertMatchesRegularExpression('#data-decide-refuse>Refuser</button>#', $dialog);
+        $this->assertMatchesRegularExpression(
+            '#name="decision" value="refuse"\s+class="btn btn-danger" hidden disabled data-decide-refuse-confirm>'
+                . 'Confirmer le refus#',
+            $dialog
+        );
+        $this->assertMatchesRegularExpression(
+            '#name="decision" value="accept"\s+class="btn btn-primary">Accepter#',
+            $dialog
+        );
+        // The reason is hidden until « Refuser » is pressed.
+        $this->assertStringContainsString('<div hidden data-decide-reason>', $dialog);
+    }
+
+    /**
+     * R8: a past year is consultation only — no « Décider », no dialog. The
+     * current year, open to in-year registrations, still has them.
+     */
+    public function testAPastYearOffersNoDecisionButTheCurrentYearDoes(): void
+    {
+        $pastId = $this->createRequest($this->pastYearId, 'Ancienne');
+        $currentId = $this->createRequest($this->currentYearId, 'Actuelle', '2019-04-04');
+
+        $past = $this->renderPage('requests', ['year' => (string) $this->pastYearId]);
+        $current = $this->renderPage('requests', ['year' => (string) $this->currentYearId]);
+
+        $this->assertStringContainsString('Ancienne', $past);
+        $this->assertStringContainsString('<th>Action rapide</th>', $past);
+        $this->assertStringNotContainsString('data-decide-form', $past);
+        $this->assertStringNotContainsString('#decide-' . $pastId . '"', $past);
+        $this->assertStringNotContainsString('/decision"', $past);
+
+        $this->assertStringContainsString('data-bs-target="#decide-' . $currentId . '"', $current);
+        $this->assertStringContainsString('id="decide-' . $currentId . '"', $current);
+    }
+
+    /**
+     * The recommendation and its explanation, coloured by its level, while
+     * waitlists are managed — « Oui » on a slot with room, « Non » on a
+     * closed one, which also presets the reason to « Pas de place ».
+     */
+    public function testTheDialogShowsTheRecommendationColouredByItsLevel(): void
+    {
+        $id = $this->createRequest($this->targetYearId, 'Noa');
+
+        $open = $this->dialogOf($this->renderPage('requests'), $id);
+
+        $this->assertStringContainsString('Recommandation', $open);
+        $this->assertMatchesRegularExpression(
+            '/class="border rounded p-3 mb-3 bg-success-subtle[^"]*" data-decide-recommendation="yes">/',
+            $open
+        );
+        $this->assertMatchesRegularExpression('/<div class="small">Oui — [^<]+<\/div>/u', $open);
+        $this->assertStringContainsString('<option value="" selected>Choisir…</option>', $open);
+        $this->assertStringContainsString('<option value="no_room">Pas de place</option>', $open);
+
+        $this->slotCapacityRepository->upsert($this->baladinsId, 1, 0);
+        $this->slotCapacityRepository->upsert($this->baladinsId, 2, 0);
+        $closed = $this->dialogOf($this->renderPage('requests'), $id);
+
+        $this->assertMatchesRegularExpression(
+            '/class="border rounded p-3 mb-3 bg-danger-subtle[^"]*" data-decide-recommendation="no">/',
+            $closed
+        );
+        $this->assertMatchesRegularExpression('/<div class="small">Non — [^<]+<\/div>/u', $closed);
+        $this->assertStringContainsString('<option value="no_room" selected>Pas de place</option>', $closed);
+        $this->assertStringContainsString('<option value="">Choisir…</option>', $closed);
+    }
+
+    /**
+     * Waitlists not managed: no recommendation at all — no box, not an
+     * empty one — and no reason preset, whatever the capacity.
+     */
+    public function testTheDialogShowsNoRecommendationWhileWaitlistsAreNotManaged(): void
+    {
+        $id = $this->createRequest($this->targetYearId, 'Noa');
+        $this->slotCapacityRepository->upsert($this->baladinsId, 1, 0);
+        $this->slotCapacityRepository->upsert($this->baladinsId, 2, 0);
+        $this->settingService->set('registration_waitlist_enabled', '0', 'registration');
+
+        $dialog = $this->dialogOf($this->renderPage('requests'), $id);
+
+        $this->assertStringContainsString('Décider — Noa Dupont', $dialog);
+        $this->assertStringNotContainsString('Recommandation', $dialog);
+        $this->assertStringNotContainsString('data-decide-recommendation', $dialog);
+        $this->assertStringContainsString('<option value="" selected>Choisir…</option>', $dialog);
+    }
+
+    /**
+     * A possible duplicate — the same child filed twice — says so, in the
+     * dialog and on its row, and has no recommendation (grey box).
+     */
+    public function testAPossibleDuplicateIsFlaggedInItsDialogAndOnItsRow(): void
+    {
+        $firstId = $this->createRequest($this->targetYearId, 'Noa');
+        $secondId = $this->createRequest($this->targetYearId, 'Noa');
+
+        $body = $this->renderPage('requests');
+        $second = $this->dialogOf($body, $secondId);
+
+        $this->assertStringContainsString(
+            'Doublon possible de la demande #' . $firstId . ' : même enfant, même date de naissance.',
+            $second
+        );
+        $this->assertMatchesRegularExpression(
+            '/class="border rounded p-3 mb-3 bg-body-tertiary" data-decide-recommendation="none">/',
+            $second
+        );
+        $this->assertStringContainsString('Pas de recommandation tant que le doublon possible', $second);
+        $this->assertStringContainsString('Doublon possible de #' . $firstId . '</span>', $body);
+        $this->assertStringNotContainsString('Doublon possible de', $this->dialogOf($body, $firstId));
+    }
+
+    /**
+     * The note shows as stored, ready to be completed; and the e-mail
+     * sentences say that nothing leaves on its own — or that nothing can
+     * leave while the templates are not written.
+     */
+    public function testTheDialogCarriesTheNoteAndSaysWhetherAnEmailCanLeave(): void
+    {
+        $id = $this->createRequest($this->targetYearId, 'Noa');
+        $this->requestRepository->updateInternalNotes($id, 'Appeler les parents avant d\'accepter.');
+
+        $none = $this->dialogOf($this->renderPage('requests'), $id);
+
+        $this->assertMatchesRegularExpression(
+            '#<textarea[^>]+name="internal_notes"[^>]*placeholder="Visible par le Staff d&\#039;U seulement"[^>]*>'
+                . 'Appeler les parents avant d&\#039;accepter.</textarea>#',
+            $none
+        );
+        $this->assertStringContainsString(
+            '<input type="hidden" name="internal_notes_shown" value="Appeler les parents avant d&#039;accepter.">',
+            $none
+        );
+        $this->assertStringContainsString(
+            "Aucun e-mail de décision ne peut partir tant que les gabarits d'acceptation et de refus ne sont "
+                . 'pas rédigés',
+            $none
+        );
+        $this->assertStringNotContainsString('ne part tout seul', $none);
+
+        $this->editableContentService->set('registration_email_accepted_body', '<p>Bienvenue</p>', 'rich_text', 1);
+        $half = $this->dialogOf($this->renderPage('requests'), $id);
+        $this->assertStringContainsString(
+            "Si vous acceptez : aucun e-mail ne part tout seul, vous l'envoyez depuis la fiche.",
+            $half
+        );
+        $this->assertStringContainsString(
+            "Si vous refusez : aucun e-mail ne peut partir tant que le gabarit de refus n'est pas rédigé",
+            $half
+        );
+
+        $this->editableContentService->set('registration_email_refused_body', '<p>Désolés</p>', 'rich_text', 1);
+        $both = $this->dialogOf($this->renderPage('requests'), $id);
+        $this->assertStringContainsString(
+            "Si vous refusez : aucun e-mail ne part tout seul, vous l'envoyez depuis la fiche.",
+            $both
+        );
+        $this->assertStringNotContainsString('ne peut partir', $both);
+    }
+
+    /**
+     * One request's decision dialog, out of a rendered « Demandes » page.
+     */
+    private function dialogOf(string $body, int $requestId): string
+    {
+        $found = preg_match(
+            '/<div class="modal fade" id="decide-' . $requestId . '".*?(?=<div class="modal fade" id="decide-|\z)/s',
+            $body,
+            $match
+        );
+        $this->assertSame(1, $found, "the page carries the decision dialog of request #{$requestId}");
+
+        return $match[0];
     }
 
     /**
@@ -1470,12 +1702,82 @@ class RegistrationConfigControllerTest extends TestCase
 
         $token = CsrfGuard::generateToken();
         $this->controller->bulkRefuse(new Request('POST', '/config/inscriptions/bulk/refuse', [], [
-            '_csrf_token' => $token, 'scout_year_id' => (string) $this->targetYearId,
+            '_csrf_token' => $token, 'scout_year_id' => (string) $this->targetYearId, 'refusal_reason' => 'no_room',
         ], [], []), []);
 
         $this->assertSame('refused', $this->requestRepository->findById($id1)->status);
         $this->assertSame('refused', $this->requestRepository->findById($id2)->status);
         $this->assertSame('pending', $this->requestRepository->findById($otherYearId)->status);
+        // Every refusal of the batch carries the reason chosen once (D6).
+        $this->assertSame('no_room', $this->requestRepository->findById($id1)->refusalReason);
+        $this->assertSame('no_room', $this->requestRepository->findById($id2)->refusalReason);
+        $context = (string) $this->pdo->query(
+            "SELECT context FROM event_log WHERE event_type = 'registration_bulk_action'"
+        )->fetchColumn();
+        $this->assertSame(
+            ['scout_year_id' => $this->targetYearId, 'count' => 2, 'refusal_reason' => 'no_room'],
+            json_decode($context, true)
+        );
+    }
+
+    /**
+     * « Tout refuser » without a reason, or with one that is not « Pas de
+     * place » / « Autre », refuses nothing at all — not the first request
+     * and then an error — and says why.
+     *
+     * @return array<string, array{array<string, string>}>
+     */
+    public static function missingBulkReasonProvider(): array
+    {
+        return [
+            'no reason' => [[]],
+            'empty reason' => [['refusal_reason' => '']],
+            'unknown reason' => [['refusal_reason' => 'full']],
+        ];
+    }
+
+    /**
+     * @param array<string, string> $reason
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('missingBulkReasonProvider')]
+    public function testBulkRefuseWithoutAValidReasonRefusesNothing(array $reason): void
+    {
+        $id1 = $this->createRequest($this->targetYearId, 'A');
+        $id2 = $this->createRequest($this->targetYearId, 'B');
+
+        $response = $this->controller->bulkRefuse(new Request('POST', '/config/inscriptions/bulk/refuse', [], [
+            '_csrf_token' => CsrfGuard::generateToken(), 'scout_year_id' => (string) $this->targetYearId,
+        ] + $reason, [], []), []);
+
+        $this->assertSame('pending', $this->requestRepository->findById($id1)->status);
+        $this->assertSame('pending', $this->requestRepository->findById($id2)->status);
+        $this->assertSame(
+            '/config/inscriptions/demandes?year=' . $this->targetYearId,
+            $response->getHeaders()['Location'] ?? null
+        );
+        $flash = FlashMessage::get();
+        $this->assertSame('error', $flash['type'] ?? null);
+        $this->assertSame(RequestStatusService::MESSAGE_REFUSAL_REASON_REQUIRED, $flash['message'] ?? null);
+        $this->assertSame(
+            0,
+            (int) $this->pdo->query("SELECT COUNT(*) FROM event_log WHERE event_type = 'registration_bulk_action'")
+                ->fetchColumn()
+        );
+    }
+
+    /**
+     * « Tout retirer » asks for no reason: a withdrawal is not a refusal.
+     */
+    public function testBulkWithdrawNeedsNoReason(): void
+    {
+        $id = $this->createRequest($this->targetYearId);
+
+        $this->controller->bulkWithdraw(new Request('POST', '/config/inscriptions/bulk/withdraw', [], [
+            '_csrf_token' => CsrfGuard::generateToken(), 'scout_year_id' => (string) $this->targetYearId,
+        ], [], []), []);
+
+        $this->assertSame('withdrawn', $this->requestRepository->findById($id)->status);
+        $this->assertNull($this->requestRepository->findById($id)->refusalReason);
     }
 
     public function testBulkActionsRefusedForPastYear(): void
@@ -1484,7 +1786,7 @@ class RegistrationConfigControllerTest extends TestCase
 
         $token = CsrfGuard::generateToken();
         $this->controller->bulkRefuse(new Request('POST', '/config/inscriptions/bulk/refuse', [], [
-            '_csrf_token' => $token, 'scout_year_id' => (string) $this->pastYearId,
+            '_csrf_token' => $token, 'scout_year_id' => (string) $this->pastYearId, 'refusal_reason' => 'other',
         ], [], []), []);
 
         $this->assertSame('pending', $this->requestRepository->findById($id)->status);
@@ -1659,6 +1961,12 @@ class RegistrationConfigControllerTest extends TestCase
             'refuse all' => [
                 'bulkRefuse',
                 '/config/inscriptions/bulk/refuse',
+                ['scout_year_id' => 'TARGET', 'refusal_reason' => 'no_room'],
+                '/config/inscriptions/demandes?year=TARGET',
+            ],
+            'refuse all, no reason' => [
+                'bulkRefuse',
+                '/config/inscriptions/bulk/refuse',
                 ['scout_year_id' => 'TARGET'],
                 '/config/inscriptions/demandes?year=TARGET',
             ],
@@ -1671,7 +1979,7 @@ class RegistrationConfigControllerTest extends TestCase
             'refuse all, past year' => [
                 'bulkRefuse',
                 '/config/inscriptions/bulk/refuse',
-                ['scout_year_id' => 'PAST'],
+                ['scout_year_id' => 'PAST', 'refusal_reason' => 'no_room'],
                 '/config/inscriptions/demandes?year=PAST',
             ],
         ];
