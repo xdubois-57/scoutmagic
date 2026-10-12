@@ -98,7 +98,7 @@ if [ -z "$option_id" ]; then
 fi
 
 item_json="$(jq -c --arg project "$project_id" \
-  '[.data.repository.issue.projectItems.nodes[]? | select(.project.id == $project)] | first // empty' \
+  '[.data.repository.issue.projectItems.nodes[]? | select(.project.id == $project)] | .[0] // empty' \
   <<< "$snapshot")"
 if [ -n "$item_json" ]; then
   if [ "$(jq -r '.fieldValues.pageInfo.hasNextPage' <<< "$item_json")" != false ]; then
