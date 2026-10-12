@@ -249,7 +249,8 @@ class RequestEmailService
      *
      * @param callable(int): string $yearLabel
      * @return string self::SCHEDULED_* — sent, failed (recorded on the
-     *         row), or skipped (not ours to send)
+     *         row), or skipped (not ours to send: claimed or cancelled by
+     *         somebody else, and left as it is)
      */
     public function sendScheduled(DecisionEmail $due, callable $yearLabel): string
     {
@@ -271,7 +272,9 @@ class RequestEmailService
                     self::AUTOMATIC_NOT_STARTED_MESSAGE
                 );
 
-                return self::SCHEDULED_SKIPPED;
+                // Recorded failed, so counted failed: the run's journal
+                // says what the rows say.
+                return self::SCHEDULED_FAILED;
             }
             $targetYearLabel = $yearLabel($request->scoutYearId);
         } catch (\Throwable $e) {

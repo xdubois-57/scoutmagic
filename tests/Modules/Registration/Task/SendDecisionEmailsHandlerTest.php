@@ -332,6 +332,11 @@ class SendDecisionEmailsHandlerTest extends TestCase
         $this->assertSame(DecisionEmail::STATE_FAILED, $rows[0]->state);
         $this->assertSame(DecisionEmail::FAILURE_INTERRUPTED, $rows[0]->failureCode);
         $this->assertStringContainsString("rien n'est parti", (string) $rows[0]->failureMessage);
+        // The run counts it as what its row now says: failed.
+        $this->assertSame(
+            ['sent' => 0, 'failed' => 1, 'skipped' => 0],
+            $this->journalContext('registration_decision_emails_auto_sent')
+        );
     }
 
     // ── One e-mail never stops the others ───────────────────────────────

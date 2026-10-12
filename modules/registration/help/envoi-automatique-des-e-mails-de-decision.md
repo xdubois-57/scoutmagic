@@ -30,23 +30,27 @@ Rédigez-les d'abord dans « Gabarits ».
 
 ## Ce qui se passe ensuite
 
-Chaque acceptation ou refus — depuis le dialogue de décision, la fiche ou
-« Tout refuser » — planifie son e-mail pour l'heure de la décision plus
-le délai. Le dialogue et le message après la décision donnent la date ;
-la fiche montre « Prévu le », suivi de cette date, et « Envoyer
-maintenant » le fait partir tout de suite.
+Une acceptation ou un refus pris après l'activation — depuis le dialogue
+de décision, la fiche ou « Tout refuser » —, sur une demande de l'année
+en cours ou de l'année visée et dont le gabarit est rédigé, planifie son
+e-mail pour l'heure de la décision plus le délai. Le dialogue et le
+message après la décision donnent la date ; la fiche montre « Prévu le »,
+suivi de cette date, et « Envoyer maintenant » le fait partir tout de
+suite.
 
 Tant que l'e-mail n'est pas parti, vous pouvez changer d'avis : changer
 la décision annule l'e-mail prévu, et celui de la nouvelle décision
 attend à nouveau le délai complet. La famille voit « en attente »
 jusqu'à l'envoi.
 
-Les décisions prises **avant** l'activation ne sont pas planifiées :
-leur e-mail s'envoie toujours depuis la fiche.
+Les autres décisions ne sont pas planifiées : celles prises **avant**
+l'activation, et celles qui closent une demande d'une année passée. Leur
+e-mail s'envoie depuis la fiche, avec « Envoyer maintenant ».
 
-Le site n'envoie jamais deux fois le même e-mail. Si un envoi a été
-interrompu sans qu'on sache s'il est parti, la fiche le dit, « Envoi
-interrompu », et c'est à vous de choisir « Réessayer ». Un échec reste
+Deux envois du même e-mail ne peuvent pas partir en même temps. Mais si
+un envoi a été interrompu après que le serveur d'envoi l'a accepté, la
+fiche dit « Envoi interrompu » et la famille l'a peut-être déjà reçu :
+vérifiez auprès d'elle avant de choisir « Réessayer ». Un échec reste
 visible dans l'« Historique » de la fiche.
 
 ## Le désactiver

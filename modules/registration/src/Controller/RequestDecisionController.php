@@ -77,13 +77,14 @@ class RequestDecisionController extends AbstractController
             return $this->redirect($back);
         }
 
-        FlashMessage::set('success', $this->decisionService->confirmation(
+        $confirmation = $this->decisionService->confirmation(
             $decision,
             $reason,
             1,
             RequestDecisionService::FROM_LIST,
             $plannedFor
-        ));
+        );
+        FlashMessage::set('success', $confirmation);
 
         return $this->redirect($back);
     }
