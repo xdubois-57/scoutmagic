@@ -15,9 +15,10 @@
 // When:
 //
 // - only in the INSTALLED app ('display-mode: standalone'), with
-//   functional consent, and never under Data Saver. A visitor not signed
-//   in asks too: the worker then keeps the list only, so that the public
-//   pages they visit are kept, and downloads nothing ahead;
+//   functional consent. Under Data Saver, and for a visitor not signed
+//   in, the worker keeps the list only (`listOnly`): the pages on it are
+//   kept as they are visited, nothing is downloaded ahead — without a list
+//   no page would be kept at all;
 // - once per launch, remembered in sessionStorage, which an installed app
 //   keeps for as long as its window lives — and again after
 //   REFRESH_AFTER_MS for an app left open for days;
@@ -56,9 +57,9 @@
         return;
     }
     var connection = /** @type {any} */ (navigator).connection;
-    if (connection?.saveData === true) {
-        return;
-    }
+    var request = connection?.saveData === true
+        ? { type: 'offline-refresh', listOnly: true }
+        : { type: 'offline-refresh' };
     var scope = config.accountScope + '|' + config.version;
     if (doneThisLaunch()) {
         return;
@@ -131,7 +132,7 @@
     function askForRefresh() {
         navigator.serviceWorker.ready.then(function (registration) {
             if (registration.active) {
-                registration.active.postMessage({ type: 'offline-refresh' });
+                registration.active.postMessage(request);
             }
         }).catch(function () {
             // No worker: nothing is held offline, nothing to refresh.

@@ -531,9 +531,11 @@ self.addEventListener('message', function (event) {
         // with consent, once per launch). Run here rather than in the page
         // so that moving to another page of the app does not interrupt it.
         // The configuration that page just sent is written first.
-        // A finished pass announces itself (settlePass()).
+        // A finished pass announces itself (settlePass()). `listOnly`
+        // (Data Saver): the list is kept, nothing is downloaded ahead.
+        const listOnly = data.listOnly === true;
         event.waitUntil(lastConfigWrite.then(function () {
-            return refreshOfflineCopies();
+            return refreshOfflineCopies(listOnly);
         }).catch(function () {}));
     }
 });
@@ -595,11 +597,12 @@ let passInFlight = null;
  * Only ever for an installed app, with consent, signed in: the same gate
  * as every other write of this worker.
  *
+ * @param {boolean} [listOnly] the list kept, nothing downloaded ahead (Data Saver)
  * @returns {Promise<boolean>} whether a pass ran to its end
  */
-function refreshOfflineCopies() {
+function refreshOfflineCopies(listOnly = false) {
     return getOfflineConfig().catch(function () { return null; }).then(function (config) {
-        return joinOrRunPass(config);
+        return joinOrRunPass(config, listOnly);
     });
 }
 
@@ -607,17 +610,19 @@ function refreshOfflineCopies() {
  * The pass running for this configuration's account and version, joined;
  * else a new one. A pass started for another account — signed out and
  * back in as someone else while it ran — is never joined: its end would
- * be taken for this account's.
+ * be taken for this account's — nor a list-only one by a request for a
+ * full pass.
  *
+ * @param {boolean} listOnly
  * @returns {Promise<boolean>}
  */
-function joinOrRunPass(config) {
-    const key = String(config?.account_scope) + '|' + String(config?.version);
+function joinOrRunPass(config, listOnly) {
+    const key = String(config?.account_scope) + '|' + String(config?.version) + (listOnly ? '|list' : '');
     if (passInFlight !== null && passInFlight.key === key) {
         return passInFlight.promise;
     }
     const pass = { key: key, promise: Promise.resolve(false) };
-    pass.promise = runPassIfAllowed(config).catch(function () {
+    pass.promise = runPassIfAllowed(config, listOnly).catch(function () {
         return false;
     }).finally(function () {
         if (passInFlight === pass) {
@@ -631,16 +636,18 @@ function joinOrRunPass(config) {
 
 /**
  * A pass, when this configuration allows one: an installed app, with
- * consent. A visitor not signed in gets the list only — the public pages
- * are then kept as they are visited, never downloaded ahead.
+ * consent. A visitor not signed in, and anyone under Data Saver, gets the
+ * list only — its pages are then kept as they are visited, never
+ * downloaded ahead.
  *
+ * @param {boolean} listOnly
  * @returns {Promise<boolean>}
  */
-function runPassIfAllowed(config) {
+function runPassIfAllowed(config, listOnly) {
     if (!config?.consent || !config.standalone || !config.account_scope) {
         return Promise.resolve(false);
     }
-    if (config.account_scope === 'guest') {
+    if (listOnly || config.account_scope === 'guest') {
         return keepListOnly(config);
     }
     return runPass(config);
@@ -648,7 +655,7 @@ function runPassIfAllowed(config) {
 
 /**
  * The list stored, and nothing fetched ahead: what a visitor not signed in
- * gets. Without it no page would ever be written for them — a page is
+ * gets, and anyone under Data Saver. Without it no page would ever be written for them — a page is
  * kept only when the stored list names it.
  *
  * @returns {Promise<boolean>}

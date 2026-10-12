@@ -329,6 +329,17 @@ describe('sw.js: refreshOfflineCopies() — the pass (#883)', () => {
         expect(asked).toEqual([]);
     });
 
+    it('keeps only the list when asked for it (Data Saver), even signed in', async () => {
+        await seed();
+        const asked = serve({ '/api/offline/manifest': manifest(['/', '/contact']), '/': html('Accueil') });
+
+        expect(await sw.refreshOfflineCopies(true)).toBe(true);
+
+        expect(asked).toEqual(['/api/offline/manifest']);
+        const list = await (await (await caches.open('offline-config')).match(sw.LIST_URL)).json();
+        expect(list.pages).toEqual(['/', '/contact']);
+    });
+
     it('keeps only the list for a visitor not signed in, so the public pages they visit are kept', async () => {
         await seed({ ...CONFIG, account_scope: 'guest' });
         const asked = serve({ '/api/offline/manifest': manifest(['/', '/contact']), '/': html('Accueil') });

@@ -81,7 +81,10 @@ class OfflinePrefetchScriptTest extends TestCase
      */
     public function testThePageAsksTheWorkerAndRemembersOnlyAFinishedPass(): void
     {
-        $this->assertStringContainsString("postMessage({ type: 'offline-refresh' })", $this->prefetchJs);
+        $this->assertStringContainsString("{ type: 'offline-refresh' }", $this->prefetchJs);
+        // Under Data Saver the list is still kept, only nothing is downloaded ahead.
+        $this->assertStringContainsString("{ type: 'offline-refresh', listOnly: true }", $this->prefetchJs);
+        $this->assertStringContainsString('postMessage(request)', $this->prefetchJs);
         $this->assertStringContainsString("event.data?.type === 'offline-refresh-done'", $this->prefetchJs);
         $this->assertStringNotContainsString('caches.open', $this->prefetchJs);
         $this->assertStringContainsString("data.type === 'offline-refresh'", $this->swJs);

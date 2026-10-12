@@ -76,7 +76,6 @@ describe('offline-prefetch.js: when it asks', () => {
     it.each([
         ['outside the installed app', () => standalone(false), {}],
         ['without functional consent', () => {}, { consent: false }],
-        ['under Data Saver', () => { /** @type {any} */ (navigator).connection = { saveData: true }; }, {}],
     ])('never asks %s', async (_label, arrange, overrides) => {
         arrange();
         config(overrides);
@@ -92,6 +91,15 @@ describe('offline-prefetch.js: when it asks', () => {
         await settle();
 
         expect(postMessage).toHaveBeenCalledWith(ASK);
+    });
+
+    it('asks for the list only under Data Saver: visited pages are kept, nothing is downloaded ahead', async () => {
+        /** @type {any} */ (navigator).connection = { saveData: true };
+        config();
+        await boot();
+        await settle();
+
+        expect(postMessage).toHaveBeenCalledWith({ type: 'offline-refresh', listOnly: true });
     });
 
     it('never asks without a service worker', async () => {
