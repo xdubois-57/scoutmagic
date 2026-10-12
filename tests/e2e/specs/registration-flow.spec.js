@@ -92,8 +92,9 @@ async function submitOnSettings(page, button, flash) {
 
 /**
  * Submits the « Capacités » sub-box of « Capacités par branche ». Its
- * button is scoped to the form: the page has four other « Enregistrer »
- * — the schedule's, the thresholds', the priorities' and the copy's.
+ * button is scoped to the form: the page has five other « Enregistrer »
+ * — the schedule's, the automatic decisions', the thresholds', the
+ * priorities' and the copy's.
  *
  * @param {import('@playwright/test').Page} page
  */
@@ -214,6 +215,15 @@ test('a family registers a child, follows the mailed tracking link, and the admi
         'Réglages enregistrés.',
     );
     await expect(copyBox.getByLabel('Adresse e-mail en copie')).toHaveValue(UNIT_COPY_EMAIL);
+
+    // « Décisions automatiques » (#843, IT-09): off by default, a delay of
+    // 24 hours, and the switch locked while the acceptance and refusal
+    // templates are still to write — which they are on a fresh install.
+    const automationBox = page.locator('form[action="/config/inscriptions/decisions-automatiques"]');
+    const autoSend = automationBox.getByRole('checkbox', { name: 'Envoyer automatiquement les e-mails de décision' });
+    await expect(autoSend).not.toBeChecked();
+    await expect(autoSend).toBeDisabled();
+    await expect(automationBox.getByLabel('Délai avant envoi')).toHaveValue('24');
 
     // ---------------------------------------------------------------
     // The family fills the public form — anonymous, own cookie jar,

@@ -98,6 +98,35 @@ class DecisionEmailRepository
     }
 
     /**
+     * The earliest due date among the scheduled e-mails, or null when none
+     * is scheduled — when the automatic sending (Task\
+     * SendDecisionEmailsHandler) next has something to do.
+     */
+    public function findEarliestDueAt(): ?\DateTimeImmutable
+    {
+        $stmt = $this->pdo->prepare(
+            "SELECT MIN(due_at) FROM registration_decision_emails WHERE state = 'scheduled' AND due_at IS NOT NULL"
+        );
+        $stmt->execute();
+        $value = $stmt->fetchColumn();
+
+        return DateInput::fromStorage(is_string($value) ? $value : null);
+    }
+
+    /**
+     * How many e-mails are scheduled and not yet claimed — what the
+     * « Décisions automatiques » box warns about when the automatic
+     * sending is switched off: those still leave at their due date.
+     */
+    public function countScheduled(): int
+    {
+        $stmt = $this->pdo->prepare("SELECT COUNT(*) FROM registration_decision_emails WHERE state = 'scheduled'");
+        $stmt->execute();
+
+        return (int) $stmt->fetchColumn();
+    }
+
+    /**
      * Creates one e-mail of $decision for a request, in state 'scheduled'
      * (a planned send) or 'sending' (a send claimed by its own creator).
      *

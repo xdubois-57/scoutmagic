@@ -9,14 +9,15 @@ question: Que faire quand l'e-mail de décision n'a pas pu partir ?
 question: Comment renvoyer l'e-mail de décision à une famille ?
 question: Enregistrer la note interne envoie-t-il un e-mail ?
 paths: /config/inscriptions/demandes/*
-related: gerer-les-demandes, decider-une-demande, rediger-les-e-mails-de-demande, copie-des-e-mails-d-inscription
+related: envoi-automatique-des-e-mails-de-decision, gerer-les-demandes, decider-une-demande, rediger-les-e-mails-de-demande, copie-des-e-mails-d-inscription
 ---
 
-Une décision ne part pas toute seule chez la famille : **elle ne la voit
-qu'une fois son e-mail parti**. D'ici là, sa page de suivi dit toujours
-« en attente ». Le message affiché après chaque décision le rappelle,
-qu'elle soit prise depuis la liste, depuis la fiche ou avec « Tout
-refuser ».
+La famille ne voit une décision **qu'une fois son e-mail parti**. D'ici
+là, sa page de suivi dit toujours « en attente ». L'e-mail part à la
+main, ou tout seul après un délai si l'envoi automatique est activé
+(voir *Envoyer automatiquement les e-mails de décision*). Le message
+affiché après chaque décision dit lequel des deux, qu'elle soit prise
+depuis la liste, depuis la fiche ou avec « Tout refuser ».
 
 ## Le bloc « E-mail de décision »
 
@@ -24,8 +25,9 @@ Sur la fiche d'une demande acceptée ou refusée, ce bloc dit où en est
 l'e-mail de la décision actuelle :
 
 - « Non planifié » : rien n'est parti, « Envoyer maintenant » l'envoie ;
-- « Prévu le », suivi de la date : l'envoi est planifié,
-  « Envoyer maintenant » le fait partir tout de suite ;
+- « Prévu le », suivi de la date : l'envoi automatique est planifié,
+  « Envoyer maintenant » le fait partir tout de suite ; il part même si
+  l'envoi automatique a été désactivé depuis ;
 - « Envoyé le », suivi de la date : la famille voit la décision ;
 - « Échec le », suivi de la date : l'e-mail n'a pas pu partir,
   « Réessayer » relance l'envoi ;

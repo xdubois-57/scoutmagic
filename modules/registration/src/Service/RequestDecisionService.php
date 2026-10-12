@@ -11,6 +11,8 @@ namespace Modules\Registration\Service;
 use Core\Config\ScoutYearService;
 use Core\Journal\JournalService;
 use Core\ScoutYear\ScoutYearResolver;
+use Core\View\DateFilterExtension;
+use Modules\Registration\Repository\DecisionEmail;
 use Modules\Registration\Repository\RegistrationRequest;
 use Modules\Registration\Repository\RegistrationRequestRepository;
 
@@ -34,8 +36,10 @@ use Modules\Registration\Repository\RegistrationRequestRepository;
  * through it, so whatever a decision must also do happens on every path —
  * a change of decision cancels any e-mail planned for the old one, inside
  * the same transaction (RegistrationRequestRepository::updateStatus()),
- * and the automatic sending of IT-09 will plan the new one here. Today no
- * e-mail leaves: the decision e-mails are sent by hand from the fiche.
+ * and, while the automatic sending is on (IT-09), the new decision's
+ * e-mail is planned in that same transaction, with a full delay
+ * (Service\AutomaticDecisionEmailService::plan()). Otherwise no e-mail
+ * leaves on its own: the decision e-mails are sent by hand from the fiche.
  *
  * confirmation() writes what every one of those paths says afterwards,
  * which answers « un e-mail va-t-il partir ? » (D8).
@@ -52,9 +56,11 @@ class RequestDecisionService
 
     /**
      * What happens to a decision's e-mail once it is taken — the answer
-     * confirmation() gives. Two cases today; IT-09 adds the automatic one
-     * (planned for « le … à … ») to emailOutcome() and to the sentence.
+     * confirmation() gives: planned by the automatic sending (« partira le
+     * … »), to send by hand, or impossible while its template is not
+     * written.
      */
+    private const EMAIL_AUTOMATIC = 'automatic';
     private const EMAIL_BY_HAND = 'by_hand';
     private const EMAIL_TEMPLATE_MISSING = 'template_missing';
 
@@ -67,8 +73,18 @@ class RequestDecisionService
         private RequestEmailService $emailService,
         private ScoutYearService $scoutYearService,
         private ScoutYearResolver $scoutYearResolver,
-        private JournalService $journalService
+        private JournalService $journalService,
+        private AutomaticDecisionEmailService $automaticEmails
     ) {
+    }
+
+    /**
+     * The automatic sending of the decision e-mails (IT-09) — its switch,
+     * its delay and the box on « Réglages » that sets them.
+     */
+    public function automaticSending(): AutomaticDecisionEmailService
+    {
+        return $this->automaticEmails;
     }
 
     /**
@@ -79,8 +95,10 @@ class RequestDecisionService
      * id, empty while waitlists are not managed (`show_recommendation`
      * false) — the dialog then shows no recommendation box at all, not an
      * empty one. The two `*_email_ready` flags say whether the decision
-     * e-mails could be sent from the fiche, which is what the dialog's last
-     * sentences are about.
+     * e-mails could be sent from the fiche, and the two `*_auto_send_at`
+     * when each would leave on its own if decided now — null while the
+     * automatic sending is off (IT-09): what the dialog's last sentences
+     * are about.
      *
      * $anyPendingShown false — the list, filtered, shows no pending request,
      * hence no dialog — spares the whole year's queue, which decrypts every
@@ -91,7 +109,9 @@ class RequestDecisionService
      *   show_recommendation: bool,
      *   recommendations: array<int, Recommendation>,
      *   accepted_email_ready: bool,
-     *   refused_email_ready: bool
+     *   refused_email_ready: bool,
+     *   accepted_auto_send_at: ?\DateTimeImmutable,
+     *   refused_auto_send_at: ?\DateTimeImmutable
      * }
      */
     public function dialogContext(int $scoutYearId, bool $anyPendingShown = true): array
@@ -107,6 +127,12 @@ class RequestDecisionService
                 : [],
             'accepted_email_ready' => $this->emailService->isAcceptedBodyReady(),
             'refused_email_ready' => $this->emailService->isRefusedBodyReady(),
+            'accepted_auto_send_at' => $this->automaticEmails->plannedDueAtIfDecidedNow(
+                DecisionEmail::DECISION_ACCEPTED
+            ),
+            'refused_auto_send_at' => $this->automaticEmails->plannedDueAtIfDecidedNow(
+                DecisionEmail::DECISION_REFUSED
+            ),
         ];
     }
 
@@ -131,9 +157,7 @@ class RequestDecisionService
      */
     public function isEmailReady(string $decision): bool
     {
-        return $decision === self::DECISION_REFUSE
-            ? $this->emailService->isRefusedBodyReady()
-            : $this->emailService->isAcceptedBodyReady();
+        return $this->emailService->isBodyReady(self::emailDecision($decision));
     }
 
     /**
@@ -159,6 +183,9 @@ class RequestDecisionService
      * never journals either. The status change journals itself, reason
      * code included (RequestStatusService).
      *
+     * @return \DateTimeImmutable|null when the decision's e-mail is planned
+     *         to leave (apply()), null when it is not
+     *
      * @throws RegistrationException when the decision cannot be taken
      */
     public function decide(
@@ -167,7 +194,7 @@ class RequestDecisionService
         string $note,
         ?string $refusalReason,
         ?string $noteAsShown = null
-    ): void {
+    ): ?\DateTimeImmutable {
         if ($decision !== self::DECISION_ACCEPT && $decision !== self::DECISION_REFUSE) {
             throw new RegistrationException(self::MESSAGE_UNKNOWN_DECISION);
         }
@@ -185,8 +212,8 @@ class RequestDecisionService
         $note = self::normalizeNote($note);
         $noteChanged = $note !== self::normalizeNote($noteAsShown ?? (string) $request->internalNotes);
 
-        $write = function () use ($request, $decision, $note, $noteChanged, $refusalReason): void {
-            $this->apply($request, $decision, $refusalReason);
+        $write = function () use ($request, $decision, $note, $noteChanged, $refusalReason): ?\DateTimeImmutable {
+            $plannedFor = $this->apply($request, $decision, $refusalReason);
 
             if ($noteChanged) {
                 $this->requestRepository->updateInternalNotes($request->id, $note !== '' ? $note : null);
@@ -201,8 +228,11 @@ class RequestDecisionService
                     : "Demande d'inscription refusée depuis le dialogue de décision",
                 ['request_id' => $request->id, 'decision' => $decision, 'note_changed' => $noteChanged]
             );
+
+            return $plannedFor;
         };
-        $this->requestRepository->transactional($write);
+
+        return $this->requestRepository->transactional($write);
     }
 
     /**
@@ -215,35 +245,62 @@ class RequestDecisionService
      * a pending request of a current year (decide()), while the fiche may
      * still refuse an accepted request, or close one of a past year.
      *
+     * Then, while the automatic sending is on, the e-mail of the new
+     * decision is planned for now + the delay, in the same transaction —
+     * after the transition, which has just cancelled the e-mail planned for
+     * the old decision, so a change of decision always starts a full delay
+     * again (D8). A decision that fails plans nothing, and neither does one
+     * on a request of a past scout year (consultation only, R8): closing a
+     * request left open a year ago is not a decision to announce on its
+     * own — its e-mail, if any, is sent by hand.
+     *
+     * @return \DateTimeImmutable|null when the e-mail is planned to leave,
+     *         null when nothing was planned
+     *
      * @throws RegistrationException when the decision cannot be taken
      */
-    public function apply(RegistrationRequest $request, string $decision, ?string $refusalReason = null): void
-    {
+    public function apply(
+        RegistrationRequest $request,
+        string $decision,
+        ?string $refusalReason = null
+    ): ?\DateTimeImmutable {
         if ($decision !== self::DECISION_ACCEPT && $decision !== self::DECISION_REFUSE) {
             throw new RegistrationException(self::MESSAGE_UNKNOWN_DECISION);
         }
 
-        $this->requestRepository->transactional(function () use ($request, $decision, $refusalReason): void {
-            if ($decision === self::DECISION_ACCEPT) {
-                $this->statusService->accept($request);
-            } else {
-                $this->statusService->refuse($request, (string) $refusalReason);
+        return $this->requestRepository->transactional(
+            function () use ($request, $decision, $refusalReason): ?\DateTimeImmutable {
+                if ($decision === self::DECISION_ACCEPT) {
+                    $this->statusService->accept($request);
+                } else {
+                    $this->statusService->refuse($request, (string) $refusalReason);
+                }
+
+                // The switch first: it is a cached setting, the year two
+                // queries — and a bulk refusal asks once per request.
+                if (!$this->automaticEmails->isEnabled() || !$this->isDecidableYear($request->scoutYearId)) {
+                    return null;
+                }
+
+                return $this->automaticEmails->plan($request, self::emailDecision($decision))?->dueAt;
             }
-        });
+        );
     }
 
     /**
      * What is said once $decision has been taken on $count requests, read
      * $from the list, the fiche or the bulk refusal: the decision, then
-     * whether an e-mail is leaving — never on its own yet, so « Aucun e-mail
-     * n'est parti », with where to send it from, or why it cannot be sent
-     * at all (its template is not written).
+     * whether an e-mail is leaving — on its own at $plannedFor, the due
+     * date apply() answered (the latest one, for a bulk refusal), or not:
+     * « Aucun e-mail n'est parti », with where to send it from, or why it
+     * cannot be sent at all (its template is not written).
      */
     public function confirmation(
         string $decision,
         ?string $refusalReason = null,
         int $count = 1,
-        string $from = self::FROM_LIST
+        string $from = self::FROM_LIST,
+        ?\DateTimeImmutable $plannedFor = null
     ): string {
         $refused = $decision === self::DECISION_REFUSE;
         $reason = $refused ? (RegistrationRequest::REFUSAL_REASON_LABELS[(string) $refusalReason] ?? null) : null;
@@ -257,7 +314,13 @@ class RequestDecisionService
             . ($refused ? 'refusée' : 'acceptée') . ($many ? 's' : '')
             . ($reason !== null ? ' (' . $reason . ')' : '') . '.';
 
-        $email = match ($this->emailOutcome($decision)) {
+        $email = match ($this->emailOutcome($decision, $plannedFor)) {
+            self::EMAIL_AUTOMATIC => ($many
+                ? 'Les e-mails ' . ($refused ? 'de refus' : "d'acceptation") . ' partiront vers le '
+                : ($refused ? "L'e-mail de refus partira le " : "L'e-mail d'acceptation partira le "))
+                . DateFilterExtension::datetimeFr($plannedFor)
+                . " ; d'ici là, vous pouvez changer la décision sans que rien ne soit envoyé. "
+                . ($many ? 'Les familles voient' : 'La famille voit') . ' « en attente » jusque-là.',
             self::EMAIL_TEMPLATE_MISSING => "Aucun e-mail n'est parti : le gabarit "
                 . ($refused ? 'de refus' : "d'acceptation") . " n'est pas encore rédigé (voir Gabarits). "
                 . ($many
@@ -296,11 +359,26 @@ class RequestDecisionService
     }
 
     /**
-     * What becomes of the e-mail of a decision just taken.
+     * What becomes of the e-mail of a decision just taken: planned when
+     * apply() answered a due date, else by hand, or nothing at all while
+     * its template is not written.
      */
-    private function emailOutcome(string $decision): string
+    private function emailOutcome(string $decision, ?\DateTimeImmutable $plannedFor): string
     {
-        return $this->isEmailReady($decision) ? self::EMAIL_BY_HAND : self::EMAIL_TEMPLATE_MISSING;
+        return match (true) {
+            $plannedFor !== null => self::EMAIL_AUTOMATIC,
+            $this->isEmailReady($decision) => self::EMAIL_BY_HAND,
+            default => self::EMAIL_TEMPLATE_MISSING,
+        };
+    }
+
+    /**
+     * The decision e-mail (DecisionEmail::DECISION_*) of a decision taken
+     * here (self::DECISION_*).
+     */
+    private static function emailDecision(string $decision): string
+    {
+        return $decision === self::DECISION_REFUSE ? DecisionEmail::DECISION_REFUSED : DecisionEmail::DECISION_ACCEPTED;
     }
 
     /**

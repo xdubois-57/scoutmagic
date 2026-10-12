@@ -788,7 +788,10 @@ qu'une adresse email secondaire de suivi confirmée par son propriétaire donne 
 SANS validation par le staff — c'est une exposition volontaire, jamais un
 contrôle d'accès délégué à l'unité ; (c) que la page de suivi de la famille n'affiche une acceptation ou un refus
 qu'une fois l'email correspondant réellement envoyé, jamais au moment de la décision elle-même, et qu'après un
-changement de décision seul l'email de la nouvelle décision la rend visible ; (c bis) que l'historique de ces emails
+changement de décision seul l'email de la nouvelle décision la rend visible ; que cet email part soit à la main depuis
+la fiche, soit — si l'administrateur active l'envoi automatique des emails de décision — automatiquement après un
+délai qu'il règle (24 heures par défaut), un changement de décision pendant ce délai annulant l'envoi prévu ; (c bis)
+que l'historique de ces emails
 (dates, décision annoncée, catégorie d'un échec, jamais le texte renvoyé par le serveur d'envoi) est réservé au staff
 et supprimé avec la demande ; (c ter) que
 l'accusé de réception et les emails d'acceptation et de refus partent par défaut avec une adresse de l'unité en

@@ -25,9 +25,12 @@ use Modules\Registration\Repository\RegistrationRequest;
  * updateStatus() supersedes it in the same transaction as the status
  * itself, whichever path changed it.
  *
- * Planning with a delay (schedule(), reschedule()) is the automatic
- * sending's (IT-09), which owns the delay setting; a send a chief starts
- * by hand is created already claimed, with no due date.
+ * Planning with a delay (schedule(), scheduleDecision()) is the automatic
+ * sending's (IT-09): Service\AutomaticDecisionEmailService owns the
+ * setting and the delay and plans the e-mail when a decision is taken,
+ * Task\SendDecisionEmailsHandler consumes the due ones (findDue(), then
+ * RequestEmailService::sendScheduled(), which claims each). A send a chief
+ * starts by hand is created already claimed, with no due date.
  */
 class DecisionEmailService
 {
@@ -65,9 +68,22 @@ class DecisionEmailService
             return null;
         }
 
-        [$attempt, $isResend] = $this->nextAttempt($request->id, $decision);
+        return $this->scheduleDecision($request->id, $decision, $dueAt);
+    }
+
+    /**
+     * Plans the $decision e-mail of request $requestId, due at $dueAt — for
+     * a caller that has just taken that decision and holds the request as
+     * it was read before (Service\AutomaticDecisionEmailService::plan()).
+     * The status is checked by the insert itself, in the same statement:
+     * null when the request does not hold $decision (any more), or already
+     * has an e-mail in play.
+     */
+    public function scheduleDecision(int $requestId, string $decision, \DateTimeImmutable $dueAt): ?DecisionEmail
+    {
+        [$attempt, $isResend] = $this->nextAttempt($requestId, $decision);
         $id = $this->repository->insert(
-            $request->id,
+            $requestId,
             $decision,
             DecisionEmail::STATE_SCHEDULED,
             $dueAt,
@@ -84,7 +100,7 @@ class DecisionEmailService
             'registration_decision_email_scheduled',
             'info',
             'E-mail de décision planifié',
-            ['request_id' => $request->id, 'decision' => $decision, 'due_at' => $dueAt->format('Y-m-d H:i:s')]
+            ['request_id' => $requestId, 'decision' => $decision, 'due_at' => $dueAt->format('Y-m-d H:i:s')]
         );
 
         return $this->repository->findById($id);
@@ -175,13 +191,29 @@ class DecisionEmailService
     }
 
     /**
-     * The scheduled e-mails due now, oldest first.
+     * The scheduled e-mails due at $now (by default, now), oldest first.
      *
      * @return array<int, DecisionEmail>
      */
-    public function findDue(int $limit): array
+    public function findDue(int $limit, ?\DateTimeImmutable $now = null): array
     {
-        return $this->repository->findDue(new \DateTimeImmutable(), $limit);
+        return $this->repository->findDue($now ?? new \DateTimeImmutable(), $limit);
+    }
+
+    /**
+     * When the next scheduled e-mail is due, or null when none is.
+     */
+    public function nextDueAt(): ?\DateTimeImmutable
+    {
+        return $this->repository->findEarliestDueAt();
+    }
+
+    /**
+     * How many e-mails are scheduled and still waiting for their due date.
+     */
+    public function countScheduled(): int
+    {
+        return $this->repository->countScheduled();
     }
 
     /**

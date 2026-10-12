@@ -11310,6 +11310,10 @@ if ($isEnabled('registration')) {
         $registrationRequestRepo,
         $journalService
     );
+    $registrationDecisionEmailService = new \Modules\Registration\Service\DecisionEmailService(
+        $registrationDecisionEmailRepo,
+        $journalService
+    );
     $registrationEmailService = new \Modules\Registration\Service\RequestEmailService(
         $registrationRequestRepo,
         $mailService,
@@ -11317,8 +11321,17 @@ if ($isEnabled('registration')) {
         $journalService,
         $registrationBaseUrl,
         $registrationSiteName,
-        new \Modules\Registration\Service\DecisionEmailService($registrationDecisionEmailRepo, $journalService),
+        $registrationDecisionEmailService,
         $registrationFamilyEmailCopy,
+    );
+    // Issue #843 (IT-09): the automatic sending of the decision e-mails —
+    // planned by every decision (RequestDecisionService::apply()), set in
+    // the « Décisions automatiques » sub-box, sent by Task\
+    // SendDecisionEmailsHandler (seeded in public/scheduler-bootstrap.php).
+    $registrationAutomaticEmails = new \Modules\Registration\Service\AutomaticDecisionEmailService(
+        $settingService,
+        $registrationEmailService,
+        $registrationDecisionEmailService
     );
     // Issue #843 (IT-04): the « Action rapide » column of « Demandes » and
     // its decision dialog — the recommendation's first reader.
@@ -11336,7 +11349,8 @@ if ($isEnabled('registration')) {
         $registrationEmailService,
         $scoutYearService,
         $scoutYearResolver,
-        $journalService
+        $journalService,
+        $registrationAutomaticEmails
     );
     $registrationMigrationService = new \Modules\Registration\Service\MigrationService(
         $pdo,
@@ -11405,6 +11419,14 @@ if ($isEnabled('registration')) {
         new \Modules\Registration\Controller\RegistrationCopySettingsController(
             $twig,
             $registrationFamilyEmailCopy,
+            $journalService
+        )
+    );
+    $frontController->registerController(
+        \Modules\Registration\Controller\RegistrationAutomationSettingsController::class,
+        new \Modules\Registration\Controller\RegistrationAutomationSettingsController(
+            $twig,
+            $registrationAutomaticEmails,
             $journalService
         )
     );

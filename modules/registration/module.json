@@ -2,7 +2,7 @@
   "id": "registration",
   "name": "Inscriptions",
   "description": "Inscriptions, réinscriptions, passages de branche et départs.",
-  "version": "6.19.1",
+  "version": "6.20.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -281,6 +281,15 @@
       "path": "/config/inscriptions/copie",
       "method": "POST",
       "controller": "Modules\\Registration\\Controller\\RegistrationCopySettingsController",
+      "action": "save",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/config/inscriptions/decisions-automatiques",
+      "method": "POST",
+      "controller": "Modules\\Registration\\Controller\\RegistrationAutomationSettingsController",
       "action": "save",
       "menu": "espace_admin",
       "role_min": "admin",
@@ -925,6 +934,23 @@
       "editable": false
     },
     {
+      "key": "registration_decision_email_auto_send",
+      "default_value": "0",
+      "type": "boolean",
+      "label": "Envoyer automatiquement les e-mails de décision",
+      "description": "Quand actif, chaque acceptation ou refus d'une demande d'inscription planifie l'e-mail de décision à la famille, qui part après le délai « Délai avant envoi » ; changer la décision d'ici là annule cet envoi et en planifie un nouveau, avec un délai complet. Les décisions prises avant l'activation ne sont pas planifiées, et le désactiver n'annule pas les e-mails déjà planifiés. Ne peut pas être activé tant que le gabarit d'acceptation ou de refus est à rédiger. Se règle dans la sous-boîte « Décisions automatiques » de l'encart « Capacités par branche », page Réglages du Formulaire d'inscription ; jamais modifié à la main.",
+      "editable": false
+    },
+    {
+      "key": "registration_decision_email_delay_hours",
+      "default_value": "24",
+      "type": "number",
+      "label": "Délai avant envoi (heures)",
+      "description": "Nombre d'heures entre une décision et le départ automatique de son e-mail, quand « Envoyer automatiquement les e-mails de décision » est actif : le temps de corriger une erreur avant que la famille soit prévenue. Nombre entier de 1 à 720. Un nouveau délai vaut pour les décisions prises ensuite ; les e-mails déjà planifiés gardent leur échéance. Se règle dans la sous-boîte « Décisions automatiques » de la page Réglages du Formulaire d'inscription ; jamais modifié à la main.",
+      "validation_regex": "^([1-9]|[1-9]\\d|[1-6]\\d\\d|7[01]\\d|720)$",
+      "editable": false
+    },
+    {
       "key": "registration_parcours_image_file_id",
       "default_value": "0",
       "type": "number",
@@ -1034,6 +1060,10 @@
     {
       "key": "send_reenrollment_emails",
       "handler": "Modules\\Registration\\Task\\SendReenrollmentEmailsHandler"
+    },
+    {
+      "key": "send_decision_emails",
+      "handler": "Modules\\Registration\\Task\\SendDecisionEmailsHandler"
     }
   ],
   "storage": {},

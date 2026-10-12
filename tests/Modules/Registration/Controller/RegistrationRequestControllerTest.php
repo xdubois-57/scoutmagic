@@ -740,14 +740,14 @@ class RegistrationRequestControllerTest extends TestCase
     }
 
     /**
-     * « Prévu le … » — what the automatic sending (IT-09) will plan: the
-     * date it is due, « Envoyer maintenant », and the planning in the
-     * history.
+     * « Prévu le … » — what the automatic sending (IT-09) plans: the date
+     * it is due, « Envoyer maintenant », and the planning in the history.
      */
     public function testAPlannedEmailShowsPrevuLeAndItsPlanning(): void
     {
         $id = $this->acceptedRequest();
         $this->writeBodies();
+        RegistrationTestHelper::enableAutomaticDecisionEmails($this->settingService);
         $this->decisionEmails->schedule(
             $this->requestRepository->findById($id),
             new \DateTimeImmutable('2027-03-04 09:30:00')
@@ -759,7 +759,11 @@ class RegistrationRequestControllerTest extends TestCase
             '<span class="badge text-bg-warning">Prévu le 04/03/2027 à 09:30</span>',
             $block
         );
-        $this->assertStringContainsString("Changer la décision d'ici là annule cet envoi.", $block);
+        $this->assertStringContainsString(
+            "La famille voit encore « en attente ». Changer la décision d'ici là annule cet envoi.",
+            $block
+        );
+        $this->assertStringNotContainsString('désormais désactivé', $block);
         $this->assertStringContainsString('/e-mail/envoyer"', $block);
         $this->assertStringContainsString('Planifié</span>', $block);
         $this->assertStringContainsString('pour le 04/03/2027 à 09:30', $block);
@@ -1279,5 +1283,152 @@ class RegistrationRequestControllerTest extends TestCase
         $this->assertStringContainsString("<title>Demande #{$id} — Formulaire d'inscription", $body);
         $this->assertStringContainsString('Lier à un membre Desk', $body);
         $this->assertStringNotContainsString('rapproch', mb_strtolower($body));
+    }
+
+    // ── The automatic sending (issue #843, IT-09) ───────────────────────
+
+    /**
+     * Switching the automatic sending off cancels nothing: an e-mail
+     * planned before still shows « Prévu le … », the block says it will
+     * leave all the same, and « Envoyer maintenant » is offered.
+     */
+    public function testAPlannedEmailAfterTheSwitchWasTurnedOffSaysItStillLeaves(): void
+    {
+        $id = $this->createRequest();
+        $this->writeBodies();
+        RegistrationTestHelper::enableAutomaticDecisionEmails($this->settingService);
+        $this->controller->accept(
+            new Request('POST', "/config/inscriptions/demandes/{$id}/accept", [], $this->csrfBody(), [], []),
+            ['id' => (string) $id]
+        );
+        RegistrationTestHelper::enableAutomaticDecisionEmails($this->settingService, 24, false);
+
+        $block = $this->emailBlock($id);
+
+        $this->assertSame(['scheduled'], $this->states($id));
+        $this->assertMatchesRegularExpression('#<span class="badge text-bg-warning">Prévu le [^<]+</span>#', $block);
+        $this->assertStringContainsString(
+            "L'envoi automatique est désormais désactivé, mais cet e-mail, planifié avant, partira quand même",
+            $block
+        );
+        $this->assertStringContainsString('Envoyer maintenant</button>', $block);
+        $this->assertStringContainsString('/e-mail/envoyer"', $block);
+
+        // And « Envoyer maintenant » sends that very e-mail, once.
+        $this->emailAction($id, 'sendNow');
+        $this->assertCount(1, $this->sentMails);
+        $this->assertSame(['sent'], $this->states($id));
+    }
+
+    /**
+     * With the automatic sending on, a decision taken on the fiche is
+     * planned for now + the delay, and the confirmation says when it
+     * leaves; changing the decision before then cancels it and plans the
+     * new one with a FULL delay again.
+     */
+    public function testADecisionOnTheFicheIsPlannedAndAChangeReplansWithAFullDelay(): void
+    {
+        $id = $this->createRequest();
+        $this->writeBodies();
+        RegistrationTestHelper::enableAutomaticDecisionEmails($this->settingService, 24);
+
+        $before = new \DateTimeImmutable('+24 hours');
+        $this->controller->accept(
+            new Request('POST', "/config/inscriptions/demandes/{$id}/accept", [], $this->csrfBody(), [], []),
+            ['id' => (string) $id]
+        );
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertSame('success', $flash['type'] ?? null);
+        $this->assertMatchesRegularExpression(
+            "#^Demande acceptée\. L'e-mail d'acceptation partira le \d{2}/\d{2}/\d{4} à \d{2}:\d{2} ; d'ici là, "
+                . 'vous pouvez changer la décision sans que rien ne soit envoyé\. La famille voit « en attente » '
+                . 'jusque-là\.$#',
+            $flash['message'] ?? ''
+        );
+        $accepted = (new DecisionEmailRepository($this->pdo))->findForRequest($id);
+        $this->assertCount(1, $accepted);
+        $this->assertSame('scheduled', $accepted[0]->state);
+        $this->assertGreaterThanOrEqual($before->getTimestamp() - 1, $accepted[0]->dueAt?->getTimestamp());
+        $this->assertLessThanOrEqual(
+            (new \DateTimeImmutable('+24 hours'))->getTimestamp(),
+            $accepted[0]->dueAt?->getTimestamp()
+        );
+
+        // A change of decision an hour later — simulated by moving the
+        // first planning back — still restarts the full 24 hours.
+        $this->pdo->exec("UPDATE registration_decision_emails SET created_at = datetime(created_at, '-1 hour'), "
+            . "due_at = datetime(due_at, '-1 hour')");
+        $this->controller->refuse(
+            new Request('POST', "/config/inscriptions/demandes/{$id}/refuse", [], $this->csrfBody([
+                'refusal_reason' => 'other',
+            ]), [], []),
+            ['id' => (string) $id]
+        );
+
+        $rows = (new DecisionEmailRepository($this->pdo))->findForRequest($id);
+        $this->assertSame(
+            ['cancelled', 'scheduled'],
+            array_map(static fn(DecisionEmail $e): string => $e->state, $rows)
+        );
+        $this->assertSame('refused', $rows[1]->decision);
+        $this->assertGreaterThanOrEqual(
+            (new \DateTimeImmutable('+24 hours'))->getTimestamp() - 5,
+            $rows[1]->dueAt?->getTimestamp()
+        );
+        $this->assertSame([], $this->sentMails);
+
+        // The block shows the new planning, the cancellation in the history.
+        $block = $this->emailBlock($id);
+        $this->assertStringContainsString('E-mail de refus', $block);
+        $this->assertMatchesRegularExpression('#Prévu le [^<]+</span>#', $block);
+        $this->assertStringContainsString('Annulé</span>', $block);
+    }
+
+    /**
+     * A decision taken while the automatic sending was off is not planned
+     * when it is switched on afterwards — the block says no e-mail is
+     * planned for it, and only a manual send makes it leave.
+     */
+    public function testADecisionTakenBeforeTheActivationStaysUnplanned(): void
+    {
+        $id = $this->createRequest();
+        $this->writeBodies();
+        $this->controller->accept(
+            new Request('POST', "/config/inscriptions/demandes/{$id}/accept", [], $this->csrfBody(), [], []),
+            ['id' => (string) $id]
+        );
+        RegistrationTestHelper::enableAutomaticDecisionEmails($this->settingService, 24);
+
+        $block = $this->emailBlock($id);
+
+        $this->assertSame([], $this->states($id));
+        $this->assertStringContainsString('Non planifié</span>', $block);
+        $this->assertStringContainsString(
+            "Aucun envoi n'est prévu pour cette décision : seules les décisions prises depuis l'activation de",
+            $block
+        );
+        $this->assertStringNotContainsString("L'envoi automatique est désactivé", $block);
+        $this->assertStringContainsString('Envoyer maintenant</button>', $block);
+    }
+
+    /**
+     * « Annulé suite à un changement de décision » with the automatic
+     * sending on: the new decision was taken before the activation, so
+     * the block does not promise an e-mail nobody planned.
+     */
+    public function testACancelledEmailWithTheAutomaticSendingOnSaysTheNewDecisionIsNotPlanned(): void
+    {
+        $id = $this->acceptedRequest();
+        $this->writeBodies();
+        $this->decisionEmails->schedule($this->requestRepository->findById($id), new \DateTimeImmutable('+1 day'));
+        $this->statusService->refuse($this->requestRepository->findById($id), 'other');
+        RegistrationTestHelper::enableAutomaticDecisionEmails($this->settingService, 24);
+
+        $block = $this->emailBlock($id);
+
+        $this->assertStringContainsString('Annulé suite à un changement de décision</span>', $block);
+        $this->assertStringContainsString("aucun envoi n'est prévu pour la", $block);
+        $this->assertStringNotContainsString("Celui de la nouvelle décision s'envoie à la main ; d'ici là", $block);
+        $this->assertStringContainsString('Envoyer maintenant</button>', $block);
     }
 }

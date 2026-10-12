@@ -18,7 +18,8 @@ les quatre e-mails qu'une demande d'inscription peut déclencher :
 - « Alerte à l'unité », envoyé à l'adresse d'alerte de l'unité à chaque
   nouvelle demande ;
 - « Acceptation de la demande » et « Refus de la demande », envoyés à la
-  famille depuis la fiche d'une demande, une fois la décision prise.
+  famille depuis la fiche d'une demande, une fois la décision prise — ou
+  tout seuls après un délai, si l'envoi automatique est activé.
 
 ## L'état de chaque e-mail
 
