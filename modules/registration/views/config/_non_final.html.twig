@@ -1,6 +1,8 @@
 {# The selected year's requests still open (pending or accepted), with the
    two bulk actions that close them. Never offered on a past year, which is
-   consultation-only — the controller refuses it too. Requires
+   consultation-only — the controller refuses it too. « Tout refuser »
+   carries the reason of every refusal it makes (issue #843 D6): the form
+   cannot be sent without one, and the server refuses it too. Requires
    `non_final_count`, `selected_year` and `is_past_year`. #}
 <div class="card mb-4">
     <div class="card-body">
@@ -8,10 +10,11 @@
         <p class="small text-body-secondary">{{ non_final_count }} demande(s) en attente ou acceptée(s) pour l'année {{ selected_year.label }}.</p>
         {% if not is_past_year and non_final_count > 0 %}
             <div class="d-flex flex-wrap gap-2">
-                <form method="post" action="/config/inscriptions/bulk/refuse"
-                      data-confirm="Refuser les {{ non_final_count }} demande(s) non clôturée(s) de l'année {{ selected_year.label }} ? Cette action ne peut pas être annulée en masse.">
+                <form method="post" action="/config/inscriptions/bulk/refuse" class="d-flex flex-wrap gap-2 align-items-center"
+                      data-confirm="Refuser les {{ non_final_count }} demande(s) non clôturée(s) de l'année {{ selected_year.label }} avec le motif choisi ? Cette action ne peut pas être annulée en masse.">
                     {{ csrf_field()|raw }}
                     <input type="hidden" name="scout_year_id" value="{{ selected_year.id }}">
+                    {% include '@registration/_refusal_reason_field.html.twig' with { field_id: 'bulk-refusal-reason' } only %}
                     <button type="submit" class="btn btn-outline-danger btn-sm">Tout refuser ({{ non_final_count }})</button>
                 </form>
                 <form method="post" action="/config/inscriptions/bulk/withdraw"

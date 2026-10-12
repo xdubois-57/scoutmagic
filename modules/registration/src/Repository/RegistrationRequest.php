@@ -85,8 +85,13 @@ final class RegistrationRequest
         public readonly ?int $feeCategoryId = null,
         public readonly ?string $internalNotes = null,
         public readonly ?int $linkedMemberId = null,
-        public readonly ?\DateTimeImmutable $acceptedEmailSentAt = null,
-        public readonly ?\DateTimeImmutable $refusedEmailSentAt = null,
+        // When the e-mail of the decision this request holds NOW first went
+        // out — the acceptance for an accepted or encoded request, the
+        // refusal for a refused one — or null (issue #843, IT-05, R3). An
+        // earlier decision's e-mail never counts, and a resend never moves
+        // the date. Filled by RegistrationRequestRepository from
+        // registration_decision_emails, never stored on the request.
+        public readonly ?\DateTimeImmutable $decisionEmailSentAt = null,
         public readonly ?\DateTimeImmutable $finalAt = null,
         // Issue #331. `null` means the question was never put — not that
         // the family answered « non » — and `previousUnitName` is only
@@ -118,6 +123,28 @@ final class RegistrationRequest
         return null;
     }
 
+    /**
+     * The first send of this request's acceptance e-mail, when acceptance
+     * is its current decision — what the fiche and the request list show
+     * under « Acceptation ». Null for a request that is not accepted.
+     */
+    public function acceptedEmailSentAt(): ?\DateTimeImmutable
+    {
+        return DecisionEmail::decisionForStatus($this->status) === DecisionEmail::DECISION_ACCEPTED
+            ? $this->decisionEmailSentAt
+            : null;
+    }
+
+    /**
+     * The same for a refusal.
+     */
+    public function refusedEmailSentAt(): ?\DateTimeImmutable
+    {
+        return DecisionEmail::decisionForStatus($this->status) === DecisionEmail::DECISION_REFUSED
+            ? $this->decisionEmailSentAt
+            : null;
+    }
+
     public function isFinal(): bool
     {
         return in_array($this->status, self::FINAL_STATUSES, true);
@@ -135,5 +162,19 @@ final class RegistrationRequest
     public function statusLabel(): string
     {
         return self::STATUS_LABELS[$this->status] ?? $this->status;
+    }
+
+    /**
+     * « Pas de place » / « Autre » for a refused request whose reason is
+     * known, null otherwise — what the fiche shows beside « Refusée », and
+     * only there: a family never sees why (issue #843 D6).
+     */
+    public function refusalReasonLabel(): ?string
+    {
+        if ($this->status !== self::STATUS_REFUSED || $this->refusalReason === null) {
+            return null;
+        }
+
+        return self::REFUSAL_REASON_LABELS[$this->refusalReason] ?? null;
     }
 }

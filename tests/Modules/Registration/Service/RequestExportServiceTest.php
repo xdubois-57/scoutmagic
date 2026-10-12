@@ -66,15 +66,11 @@ class RequestExportServiceTest extends TestCase
             $values['desiredSectionId'],
             $values['status'],
             $values['receivedAt'],
-            $overrides['intendedSectionId'] ?? null,
-            null,
-            $overrides['internalNotes'] ?? null,
-            null,
-            $overrides['acceptedEmailSentAt'] ?? null,
-            $overrides['refusedEmailSentAt'] ?? null,
-            null,
-            $overrides['previousUnitAnswer'] ?? null,
-            $overrides['previousUnitName'] ?? null
+            intendedSectionId: $overrides['intendedSectionId'] ?? null,
+            internalNotes: $overrides['internalNotes'] ?? null,
+            decisionEmailSentAt: $overrides['decisionEmailSentAt'] ?? null,
+            previousUnitAnswer: $overrides['previousUnitAnswer'] ?? null,
+            previousUnitName: $overrides['previousUnitName'] ?? null
         );
     }
 
@@ -203,7 +199,7 @@ class RequestExportServiceTest extends TestCase
         $accepted = $this->sheetRows([[
             'request' => $this->request([
                 'status' => RegistrationRequest::STATUS_ACCEPTED,
-                'acceptedEmailSentAt' => new \DateTimeImmutable('2026-03-01 08:00:00'),
+                'decisionEmailSentAt' => new \DateTimeImmutable('2026-03-01 08:00:00'),
             ]),
             'slot_label' => '',
             'sibling_count' => 0,
@@ -211,7 +207,7 @@ class RequestExportServiceTest extends TestCase
         $refused = $this->sheetRows([[
             'request' => $this->request([
                 'status' => RegistrationRequest::STATUS_REFUSED,
-                'refusedEmailSentAt' => new \DateTimeImmutable('2026-03-02 08:00:00'),
+                'decisionEmailSentAt' => new \DateTimeImmutable('2026-03-02 08:00:00'),
             ]),
             'slot_label' => '',
             'sibling_count' => 0,

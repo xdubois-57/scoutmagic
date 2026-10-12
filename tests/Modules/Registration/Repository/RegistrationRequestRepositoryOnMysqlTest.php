@@ -99,6 +99,47 @@ class RegistrationRequestRepositoryOnMysqlTest extends TestCase
         );
     }
 
+    /**
+     * « E-mails de décision à envoyer » (issue #843, IT-01 then IT-05): a
+     * correlated NOT EXISTS over registration_decision_emails, choosing the
+     * decision with a CASE on the request's status — on the engine that
+     * runs it. Sent for the current decision: not counted. Sent for an
+     * earlier decision, planned, or never planned: counted.
+     */
+    public function testTheDecisionEmailCountReadsTheEmailTable(): void
+    {
+        $toldAccepted = $this->create($this->yearId, 'Ana');
+        $this->repository->updateStatus($toldAccepted, 'accepted', null);
+        RegistrationTestHelper::recordDecisionEmailSent($this->pdo, $toldAccepted, 'accepted');
+
+        $toldThenRefused = $this->create($this->yearId, 'Eli');
+        $this->repository->updateStatus($toldThenRefused, 'accepted', null);
+        RegistrationTestHelper::recordDecisionEmailSent($this->pdo, $toldThenRefused, 'accepted');
+        $this->repository->updateStatus($toldThenRefused, 'refused', new \DateTimeImmutable());
+
+        $planned = $this->create($this->yearId, 'Noa');
+        $this->repository->updateStatus($planned, 'refused', new \DateTimeImmutable());
+        (new \Modules\Registration\Repository\DecisionEmailRepository($this->pdo))->insert(
+            $planned,
+            'refused',
+            'scheduled',
+            new \DateTimeImmutable('+1 day'),
+            1,
+            false,
+            new \DateTimeImmutable()
+        );
+
+        $neverPlanned = $this->create($this->yearId, 'Tom');
+        $this->repository->updateStatus($neverPlanned, 'encoded', new \DateTimeImmutable());
+        $this->create($this->yearId, 'Zoé');
+
+        $this->assertSame(3, $this->repository->countDecisionEmailsToSendForYears([$this->yearId]));
+        $this->assertSame(0, $this->repository->countDecisionEmailsToSendForYears([$this->previousYearId]));
+
+        RegistrationTestHelper::recordDecisionEmailSent($this->pdo, $toldThenRefused, 'refused');
+        $this->assertSame(2, $this->repository->countDecisionEmailsToSendForYears([$this->yearId]));
+    }
+
     private function create(int $yearId, string $firstName): int
     {
         return $this->repository->create($yearId, [

@@ -70,7 +70,7 @@ class RequestStatusServiceTest extends TestCase
     public function testRefuseAndWithdrawAreFinalWithFinalAtSet(): void
     {
         $refused = $this->createRequest();
-        $this->service->refuse($refused);
+        $this->service->refuse($refused, RegistrationRequest::REFUSAL_OTHER);
         $this->assertNotNull($this->requestRepository->findById($refused->id)->finalAt);
 
         $withdrawn = $this->createRequest();
@@ -81,7 +81,7 @@ class RequestStatusServiceTest extends TestCase
     public function testRevertToPendingClearsFinalAt(): void
     {
         $request = $this->createRequest();
-        $this->service->refuse($request);
+        $this->service->refuse($request, RegistrationRequest::REFUSAL_OTHER);
 
         $this->service->revertToPending($this->requestRepository->findById($request->id));
 
@@ -110,7 +110,9 @@ class RequestStatusServiceTest extends TestCase
 
         foreach (['accept', 'refuse', 'withdraw', 'revertToPending'] as $method) {
             try {
-                $this->service->$method($encoded);
+                $method === 'refuse'
+                    ? $this->service->refuse($encoded, RegistrationRequest::REFUSAL_NO_ROOM)
+                    : $this->service->$method($encoded);
                 $this->fail("Expected RegistrationException for {$method}() on an encoded request");
             } catch (RegistrationException) {
                 // expected
@@ -122,11 +124,11 @@ class RequestStatusServiceTest extends TestCase
     public function testRefusingAnAlreadyRefusedRequestIsRejected(): void
     {
         $request = $this->createRequest();
-        $this->service->refuse($request);
+        $this->service->refuse($request, RegistrationRequest::REFUSAL_OTHER);
         $refused = $this->requestRepository->findById($request->id);
 
         $this->expectException(RegistrationException::class);
-        $this->service->refuse($refused);
+        $this->service->refuse($refused, RegistrationRequest::REFUSAL_OTHER);
     }
 
     public function testAcceptingAnAlreadyAcceptedRequestIsRejected(): void
@@ -147,7 +149,7 @@ class RequestStatusServiceTest extends TestCase
 
         $this->assertSame('pending', $this->service->visibleStatus($accepted));
 
-        $this->requestRepository->markAcceptedEmailSent($request->id);
+        RegistrationTestHelper::recordDecisionEmailSent($this->pdo, $request->id, 'accepted');
         $afterEmail = $this->requestRepository->findById($request->id);
         $this->assertSame('accepted', $this->service->visibleStatus($afterEmail));
     }
@@ -168,14 +170,102 @@ class RequestStatusServiceTest extends TestCase
     public function testVisibleStatusHidesRefusalUntilEmailSent(): void
     {
         $request = $this->createRequest();
-        $this->service->refuse($request);
+        $this->service->refuse($request, RegistrationRequest::REFUSAL_OTHER);
         $refused = $this->requestRepository->findById($request->id);
 
         $this->assertSame('pending', $this->service->visibleStatus($refused));
 
-        $this->requestRepository->markRefusedEmailSent($request->id);
+        RegistrationTestHelper::recordDecisionEmailSent($this->pdo, $request->id, 'refused');
         $afterEmail = $this->requestRepository->findById($request->id);
         $this->assertSame('refused', $this->service->visibleStatus($afterEmail));
+    }
+
+    public function testVisibleStatusShowsEncodedOnceTheAcceptanceEmailWasSent(): void
+    {
+        $request = $this->createRequest();
+        $memberId = RegistrationTestHelper::insertMember($this->pdo, 'M3');
+        $this->service->accept($request);
+        RegistrationTestHelper::recordDecisionEmailSent($this->pdo, $request->id, 'accepted');
+        // Encoding does not change the decision the family was told: the
+        // acceptance e-mail still counts for it.
+        $this->requestRepository->linkToMemberAndEncode($request->id, $memberId, new \DateTimeImmutable());
+
+        $this->assertSame('encoded', $this->service->visibleStatus($this->requestRepository->findById($request->id)));
+    }
+
+    /**
+     * R3: the acceptance e-mail went out, then the chief refused. The
+     * family must keep seeing « en attente » until the REFUSAL e-mail
+     * leaves — the old acceptance date announces nothing about it.
+     */
+    public function testAnEarlierDecisionsEmailNeverRevealsTheNewDecision(): void
+    {
+        $request = $this->createRequest();
+        $this->service->accept($request);
+        RegistrationTestHelper::recordDecisionEmailSent($this->pdo, $request->id, 'accepted');
+        $this->assertSame('accepted', $this->service->visibleStatus($this->requestRepository->findById($request->id)));
+
+        $this->service->refuse($this->requestRepository->findById($request->id), RegistrationRequest::REFUSAL_OTHER);
+        $refused = $this->requestRepository->findById($request->id);
+        $this->assertSame('pending', $this->service->visibleStatus($refused));
+        $this->assertNull($refused->decisionEmailSentAt);
+
+        RegistrationTestHelper::recordDecisionEmailSent($this->pdo, $request->id, 'refused');
+        $this->assertSame('refused', $this->service->visibleStatus($this->requestRepository->findById($request->id)));
+    }
+
+    /**
+     * R3, the same decision taken twice: accepted and told, back to
+     * pending, accepted again. The first acceptance e-mail belonged to the
+     * first decision; the second acceptance waits for its own.
+     */
+    public function testAReAcceptanceWaitsForItsOwnEmail(): void
+    {
+        $request = $this->createRequest();
+        $this->service->accept($request);
+        RegistrationTestHelper::recordDecisionEmailSent($this->pdo, $request->id, 'accepted');
+
+        $this->service->revertToPending($this->requestRepository->findById($request->id));
+        $this->service->accept($this->requestRepository->findById($request->id));
+
+        $this->assertSame('pending', $this->service->visibleStatus($this->requestRepository->findById($request->id)));
+
+        RegistrationTestHelper::recordDecisionEmailSent($this->pdo, $request->id, 'accepted');
+        $this->assertSame('accepted', $this->service->visibleStatus($this->requestRepository->findById($request->id)));
+    }
+
+    /**
+     * D8: a change of decision cancels the e-mail still planned for the old
+     * one, and the journal entry of the change says how many — a count,
+     * nothing about the family.
+     */
+    public function testAChangeOfDecisionCancelsTheScheduledEmailAndJournalsTheCount(): void
+    {
+        $request = $this->createRequest();
+        $this->service->accept($request);
+        $repository = new \Modules\Registration\Repository\DecisionEmailRepository($this->pdo);
+        $scheduled = $repository->insert(
+            $request->id,
+            'accepted',
+            'scheduled',
+            new \DateTimeImmutable('+1 day'),
+            1,
+            false,
+            new \DateTimeImmutable()
+        );
+        $this->assertNotNull($scheduled);
+
+        $this->service->refuse($this->requestRepository->findById($request->id), RegistrationRequest::REFUSAL_OTHER);
+
+        $email = $repository->findById($scheduled);
+        $this->assertSame('cancelled', $email?->state);
+        $this->assertSame('decision_changed', $email?->cancelReason);
+
+        $context = json_decode((string) $this->pdo->query(
+            "SELECT context FROM event_log WHERE event_type = 'registration_request_status_changed'
+             ORDER BY id DESC LIMIT 1"
+        )->fetchColumn(), true);
+        $this->assertSame(1, $context['decision_emails_cancelled'] ?? null);
     }
 
     public function testVisibleStatusPassesThroughPendingAndWithdrawnUnchanged(): void
@@ -228,18 +318,33 @@ class RequestStatusServiceTest extends TestCase
     }
 
     /**
-     * The existing callers refuse without a reason, and still can: the
-     * refusal is recorded with none known.
+     * Every refusal carries its reason since IT-04 — the dialog, the fiche
+     * and the bulk refusal all ask for one: an empty one is refused like an
+     * unknown one, before anything is written.
      */
-    public function testARefusalWithoutAReasonStillWorks(): void
+    public function testARefusalWithoutAReasonChangesNothing(): void
     {
         $request = $this->createRequest();
 
-        $this->service->refuse($request);
+        try {
+            $this->service->refuse($request, '');
+            $this->fail('a refusal without a reason was accepted');
+        } catch (RegistrationException $e) {
+            $this->assertSame(RequestStatusService::MESSAGE_REFUSAL_REASON_REQUIRED, $e->getMessage());
+        }
 
-        $refused = $this->requestRepository->findById($request->id);
-        $this->assertSame('refused', $refused?->status);
-        $this->assertNull($refused->refusalReason);
+        $this->assertSame('pending', $this->requestRepository->findById($request->id)?->status);
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM event_log')->fetchColumn());
+    }
+
+    public function testOnlyTheTwoReasonsAreRefusalReasons(): void
+    {
+        $this->assertTrue(RequestStatusService::isRefusalReason(RegistrationRequest::REFUSAL_NO_ROOM));
+        $this->assertTrue(RequestStatusService::isRefusalReason(RegistrationRequest::REFUSAL_OTHER));
+        $this->assertFalse(RequestStatusService::isRefusalReason(null));
+        $this->assertFalse(RequestStatusService::isRefusalReason(''));
+        $this->assertFalse(RequestStatusService::isRefusalReason('full'));
+        $this->assertFalse(RequestStatusService::isRefusalReason('Pas de place'));
     }
 
     /**
@@ -253,7 +358,7 @@ class RequestStatusServiceTest extends TestCase
             $this->service->refuse($request, 'full');
             $this->fail('an unknown reason was accepted');
         } catch (RegistrationException $e) {
-            $this->assertSame('Motif de refus invalide : choisissez « Pas de place » ou « Autre ».', $e->getMessage());
+            $this->assertSame(RequestStatusService::MESSAGE_REFUSAL_REASON_REQUIRED, $e->getMessage());
         }
 
         $this->assertSame('pending', $this->requestRepository->findById($request->id)?->status);

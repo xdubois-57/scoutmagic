@@ -183,7 +183,7 @@ test('the departures and passage grids save on change, with no save button anywh
     // One request exists on a canonical run — registration-flow's. first()
     // keeps a developer's re-run against a lived-in instance from tripping
     // on its own older copies.
-    await page.getByRole('row', { name: /Zoé/ }).first().getByRole('link', { name: 'Ouvrir' }).click();
+    await page.getByRole('row', { name: /Zoé/ }).first().getByRole('link', { name: /Zoé/ }).click();
     await page.waitForURL(/\/config\/inscriptions\/demandes\/\d+$/, { waitUntil: 'domcontentloaded' });
 
     // Waited for by the STATUS each POST produces, not by the URL.
@@ -218,7 +218,7 @@ test('the departures and passage grids save on change, with no save button anywh
     // Back to the final state.
     // ---------------------------------------------------------------
     await page.goto('/config/inscriptions/demandes', { waitUntil: 'domcontentloaded' });
-    await page.getByRole('row', { name: /Zoé/ }).first().getByRole('link', { name: 'Ouvrir' }).click();
+    await page.getByRole('row', { name: /Zoé/ }).first().getByRole('link', { name: /Zoé/ }).click();
     await page.waitForURL(/\/config\/inscriptions\/demandes\/\d+$/, { waitUntil: 'domcontentloaded' });
     await page.getByRole('button', { name: 'Retirer' }).click();
     await page.waitForURL(/\/config\/inscriptions\/demandes\/\d+$/, { waitUntil: 'domcontentloaded' });

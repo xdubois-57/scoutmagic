@@ -8,11 +8,13 @@ declare(strict_types=1);
 
 namespace Modules\Registration\Service;
 
+use Core\Exception\UserFacingMessage;
 use Core\Journal\JournalService;
 use Core\Mail\MailException;
 use Core\Mail\MailService;
 use Core\Security\CapabilityToken;
 use Core\View\EditableContentService;
+use Modules\Registration\Repository\DecisionEmail;
 use Modules\Registration\Repository\RegistrationRequest;
 use Modules\Registration\Repository\RegistrationRequestRepository;
 
@@ -25,11 +27,40 @@ use Modules\Registration\Repository\RegistrationRequestRepository;
  * default body: a chief must write one, or the request stays visibly
  * "en cours" to the parent forever, per Service\RequestStatusService::
  * visibleStatus()).
+ *
+ * **Every send is an attempt recorded by Service\DecisionEmailService**
+ * (issue #843, IT-05): claimed before the transport — so two clicks, or a
+ * click racing the automatic sending, send one e-mail and not two — then
+ * recorded as sent or failed, never overwriting an earlier attempt. An
+ * attempt refused by the body guard is recorded as failed too: an e-mail
+ * nobody wrote never passes for one that left.
  */
 class RequestEmailService
 {
     private const ACCEPTED_KEY = RequestEmailTemplateService::KEY_ACCEPTED;
     private const REFUSED_KEY = RequestEmailTemplateService::KEY_REFUSED;
+
+    /**
+     * What differs between the two e-mails.
+     *
+     * @var array<string, array{key: string, subject: string, missing: string, event: string, journal: string}>
+     */
+    private const EMAILS = [
+        DecisionEmail::DECISION_ACCEPTED => [
+            'key' => self::ACCEPTED_KEY,
+            'subject' => "Votre demande d'inscription a été acceptée",
+            'missing' => "Le corps de l'email d'acceptation n'a pas encore été rédigé.",
+            'event' => 'registration_accepted_email_sent',
+            'journal' => "Email d'acceptation envoyé",
+        ],
+        DecisionEmail::DECISION_REFUSED => [
+            'key' => self::REFUSED_KEY,
+            'subject' => "Votre demande d'inscription a été refusée",
+            'missing' => "Le corps de l'email de refus n'a pas encore été rédigé.",
+            'event' => 'registration_refused_email_sent',
+            'journal' => 'Email de refus envoyé',
+        ],
+    ];
 
     public function __construct(
         private RegistrationRequestRepository $repository,
@@ -38,7 +69,9 @@ class RequestEmailService
         private JournalService $journalService,
         private string $baseUrl,
         private string $siteName,
-        // The unit in copy of both decision e-mails, resends included
+        private DecisionEmailService $decisionEmails,
+        // The unit in copy of both decision e-mails — manual send, retry
+        // and resend alike, all of which go through send() below
         // (chantier #843, D9). Null is no copy.
         private ?FamilyEmailCopyService $familyEmailCopy = null
     ) {
@@ -55,45 +88,94 @@ class RequestEmailService
     }
 
     /**
-     * @throws RegistrationException when the body hasn't been written yet
+     * Sends — or resends — the acceptance e-mail of an accepted (or
+     * encoded) request.
+     *
+     * @throws RegistrationException when the request is not accepted,
+     *         another send of it is in flight, the body hasn't been written
+     *         yet, or the transport failed — the last two recorded as a
+     *         failed attempt
      */
     public function sendAccepted(RegistrationRequest $request, string $targetYearLabel): void
     {
-        if (!$this->isAcceptedBodyReady()) {
-            throw new RegistrationException("Le corps de l'email d'acceptation n'a pas encore été rédigé.");
-        }
-
-        $this->send($request, self::ACCEPTED_KEY, "Votre demande d'inscription a été acceptée", $targetYearLabel);
-        $this->repository->markAcceptedEmailSent($request->id);
-
-        $this->journalService->log(
-            'registration',
-            'registration_accepted_email_sent',
-            'info',
-            "Email d'acceptation envoyé",
-            ['request_id' => $request->id]
-        );
+        $this->deliver($request, DecisionEmail::DECISION_ACCEPTED, $targetYearLabel);
     }
 
     /**
-     * @throws RegistrationException when the body hasn't been written yet
+     * Sends — or resends — the refusal e-mail of a refused request.
+     *
+     * @throws RegistrationException as sendAccepted()
      */
     public function sendRefused(RegistrationRequest $request, string $targetYearLabel): void
     {
-        if (!$this->isRefusedBodyReady()) {
-            throw new RegistrationException("Le corps de l'email de refus n'a pas encore été rédigé.");
+        $this->deliver($request, DecisionEmail::DECISION_REFUSED, $targetYearLabel);
+    }
+
+    /**
+     * One attempt, from the claim to its recorded outcome.
+     *
+     * @throws RegistrationException
+     */
+    private function deliver(RegistrationRequest $request, string $decision, string $targetYearLabel): void
+    {
+        $email = self::EMAILS[$decision];
+        $attempt = $this->decisionEmails->begin($request, $decision);
+
+        // The guard D10 keeps: the template is checked on the claimed
+        // attempt, so a send that cannot happen leaves a failed attempt
+        // behind — what the automatic sending will do too — and never a
+        // success.
+        if (!$this->hasContent($email['key'])) {
+            $this->decisionEmails->recordFailure($attempt, DecisionEmail::FAILURE_BODY_NOT_WRITTEN, $email['missing']);
+
+            throw new RegistrationException($email['missing']);
         }
 
-        $this->send($request, self::REFUSED_KEY, "Votre demande d'inscription a été refusée", $targetYearLabel);
-        $this->repository->markRefusedEmailSent($request->id);
+        try {
+            $trackingToken = $this->send($request, $email['key'], $email['subject'], $targetYearLabel);
+        } catch (RegistrationException $e) {
+            // Gated here, at the write: the row keeps a sentence a chief
+            // may read, never the transport's own text (send() journals
+            // that).
+            $this->decisionEmails->recordFailure(
+                $attempt,
+                DecisionEmail::FAILURE_MAIL_TRANSPORT,
+                UserFacingMessage::from($e, "L'e-mail n'a pas pu être envoyé à la famille.")
+            );
+
+            throw $e;
+        }
+
+        // The message is out: that is recorded first, so nothing after it
+        // can leave a delivered e-mail looking unsent. Only then does the
+        // link it carries replace the family's previous one (R6) — a
+        // failure there leaves the old link working, never a dead one.
+        try {
+            $recorded = $this->decisionEmails->recordSuccess($attempt);
+        } catch (\Throwable) {
+            // A database error here must not cost the family its new link:
+            // the message is out, so the token it carries is stored all the
+            // same, and the lost record is journaled below.
+            $recorded = false;
+        }
+        $this->repository->storeTrackingTokenHash($request->id, $trackingToken);
 
         $this->journalService->log(
             'registration',
-            'registration_refused_email_sent',
+            $email['event'],
             'info',
-            'Email de refus envoyé',
-            ['request_id' => $request->id]
+            $email['journal'],
+            ['request_id' => $request->id, 'attempt' => $attempt->attempt, 'resend' => $attempt->isResend]
         );
+        if (!$recorded) {
+            $this->journalService->log(
+                'registration',
+                'registration_decision_email_outcome_lost',
+                'warning',
+                "Un e-mail de décision est parti, mais son envoi n'a pas pu être consigné dans l'historique",
+                ['request_id' => $request->id, 'email_id' => $attempt->id]
+            );
+        }
     }
 
     /**
@@ -117,20 +199,24 @@ class RequestEmailService
      *         the best-effort submission emails (itération 4), a staff-
      *         triggered send must surface its own failure so the button
      *         doesn't silently claim success (Controller\
-     *         RegistrationRequestController shows the error and leaves
-     *         *_email_sent_at untouched, so retrying is always available).
+     *         RegistrationRequestController shows the error, deliver()
+     *         records the attempt as failed, and retrying is always
+     *         available).
+     *
+     * @return string the raw tracking token the e-mail carries, for
+     *         deliver() to persist once the send is recorded
      */
     private function send(
         RegistrationRequest $request,
         string $contentKey,
         string $subject,
         string $targetYearLabel
-    ): void
+    ): string
     {
         // The token is minted here but only PERSISTED once the mail is
-        // actually out (below). Persisting first — what this method used to
-        // do — meant a delivery failure killed the link the family already
-        // had while never handing them the replacement.
+        // actually out (deliver()). Persisting first — what this method
+        // used to do — meant a delivery failure killed the link the family
+        // already had while never handing them the replacement.
         $trackingToken = CapabilityToken::generate();
         $trackingUrl = rtrim($this->baseUrl, '/') . "/inscriptions/suivi/{$request->id}/{$trackingToken}";
 
@@ -152,7 +238,7 @@ class RequestEmailService
             );
         } catch (MailException $e) {
             // Nothing was written: the previous tracking link still works and
-            // *_email_sent_at is untouched, so retrying really is free. Worth
+            // the attempt is recorded as failed, so retrying is free. Worth
             // a journal entry all the same — a flash message disappears with
             // the page, and a unit whose SMTP is broken has otherwise no
             // trace that a parent was never told anything.
@@ -179,7 +265,7 @@ class RequestEmailService
             );
         }
 
-        $this->repository->storeTrackingTokenHash($request->id, $trackingToken);
+        return $trackingToken;
     }
 
     /**

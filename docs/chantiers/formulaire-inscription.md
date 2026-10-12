@@ -723,6 +723,342 @@ aucune recommandation pour une année passée.
 
 ---
 
+## IT-04 — Colonne « Action rapide », dialogue de décision, motif de refus
+
+**Livré.**
+
+- **Colonne « Action rapide »** dans la liste de « Demandes » : « Décider »
+  sur chaque demande en attente, « — » sur toutes les autres, et aucun
+  bouton sur une année passée. Le nom de l'enfant ouvre la fiche (il
+  remplace la colonne sans titre « Ouvrir », comme dans la maquette) ; un
+  doublon possible porte la pastille « Doublon possible de #… » sur sa
+  ligne.
+- **Dialogue de décision** (`views/config/_decide_dialogs.html.twig`, une
+  ligne d'inclusion dans `requests.html.twig`) : une modale Bootstrap par
+  demande en attente, rendue par le serveur et ouverte par l'API de
+  données de Bootstrap — titre « Décider — {enfant} », année de parcours ·
+  section prévue · reçue le … ; la recommandation et son explication sur
+  fond vert / jaune / rouge, ou gris sans recommandation, **seulement si
+  les listes d'attente sont gérées** ; l'avertissement « Doublon possible
+  de la demande #… : même enfant, même date de naissance. » ; « Note
+  interne » (le champ de la fiche, montré tel qu'enregistré) ; « Annuler »,
+  « Refuser », « Accepter ». « Refuser » fait apparaître le « Motif du
+  refus » (« Pas de place » / « Autre », déjà « Pas de place » quand la
+  recommandation est Non) et devient « Confirmer le refus », désactivé
+  sans motif. Les phrases sur l'e-mail : « aucun e-mail ne part tout
+  seul » par décision dont le gabarit est rédigé, la phrase « gabarits pas
+  rédigés » de la maquette quand aucun ne l'est (et une phrase par
+  décision quand un seul l'est).
+- **Nouveau contrôleur, nouvelle route** : `POST
+  /config/inscriptions/demandes/{id}/decision`
+  (`Controller\RequestDecisionController::decide()`, `role_min: admin`),
+  sur `Service\RequestDecisionService` : `dialogContext()` (ce que la liste
+  affiche) et `decide()` — décision connue, année non passée, demande
+  toujours en attente, puis, dans une seule transaction
+  (`RegistrationRequestRepository::transactional()`), la transition
+  existante de `RequestStatusService` (accepter, ou refuser avec son
+  motif), la note si elle a changé et le journal
+  `registration_request_decided` (id, décision, `note_changed`, jamais la
+  note). Retour à la liste avec son
+  année, son filtre d'état et sa recherche, et un message qui dit
+  qu'aucun e-mail n'est parti (et pourquoi : à envoyer depuis la fiche, ou
+  gabarit pas rédigé). `RegistrationConfigController` ne reçoit que le
+  service, en un paramètre, et passe son contexte à la vue.
+- **Motif exigé partout** : `RequestStatusService::refuse()` prend
+  désormais un motif obligatoire (`string`), et un motif absent, vide ou
+  inconnu est refusé avant toute écriture
+  (`MESSAGE_REFUSAL_REASON_REQUIRED`). La fiche (les deux formulaires
+  « Refuser », demande en attente et acceptée) et « Tout refuser »
+  portent un sélecteur obligatoire (`views/_refusal_reason_field.html.twig`,
+  partagé) ; « Tout refuser » vérifie le motif avant la première demande,
+  si bien qu'un motif manquant ne refuse rien du tout. La fiche affiche
+  « Motif : … » à côté de « Refusée ».
+- JS : `public/assets/js/registration-decide-dialog.js` (bascule
+  Refuser → motif + « Confirmer le refus », envoi unique — un double clic
+  ne poste pas deux fois —, réinitialisation à la fermeture ; aucune
+  écriture de balisage ni d'adresse — puits CodeQL relus) et `tests/js/registration-decide-dialog.test.js`, qui importe le
+  vrai fichier.
+- Tests : `RequestDecisionServiceTest` (contexte, accepter, refuser,
+  refus sans motif / motif inconnu / décision inconnue sans rien changer,
+  note comprise, année passée, demande plus en attente, note inchangée
+  non réécrite, journal sans donnée personnelle),
+  `RequestDecisionControllerTest` (redirection et filtres, messages,
+  jeton invalide, 404), `RegistrationRbacTest` (admin décide, chief
+  refusé), `RegistrationConfigControllerTest` (colonne, dialogue rendu,
+  recommandation colorée, motif pré-rempli, listes d'attente non gérées,
+  doublon, note, phrases d'e-mail, année passée sans bouton, refus groupé
+  avec et sans motif), `RegistrationRequestControllerTest` (refus depuis
+  la fiche avec et sans motif, sélecteur présent, note du dialogue sur la
+  fiche), `RequestStatusServiceTest`, `TrackingControllerTest` (rien de ce
+  qu'écrit le dialogue — note, motif — n'apparaît dans le suivi par jeton
+  ni dans le suivi complet). Scénario de bout en bout
+  `registration-flow` : la décision passe par le dialogue (refus essayé
+  puis annulé, note, acceptation, note retrouvée sur la fiche) ;
+  `registration-grids` ouvre la fiche par le nom de l'enfant.
+- Documentation : nouveau sujet d'aide `decider-une-demande` (le sujet
+  `gerer-les-demandes` est à 477 mots, sous la borne de 500),
+  `specifications.md` §17.6, `ARCHITECTURE.md` §8.36. Version du module
+  6.15.0 → 6.16.0 (6.14.0 → 6.15.0 avant la fusion d'IT-07, qui a pris 6.15.0). Le service de recommandation est désormais construit
+  dans `public/index.php`.
+
+**Décisions autonomes.**
+
+- **Une modale par demande, rendue par le serveur**, plutôt qu'une seule
+  remplie en JavaScript : l'adresse du formulaire (`action`) et tout le
+  texte (nom, explication, note) viennent de Twig, échappés, et le script
+  n'a aucun puits CodeQL à garder ; le dialogue se teste en PHPUnit sur le
+  vrai rendu. Seules les demandes en attente d'une année décidable en
+  ont une.
+- **Le dialogue est la confirmation du refus** : pas de `data-confirm` en
+  plus sur son formulaire (l'adresse `/decision` ne relève d'ailleurs pas
+  du motif destructif de `UxConventionsTest`) — « Refuser » puis
+  « Confirmer le refus » (`btn-danger`, design.md §7.4) font déjà les deux
+  temps. Sur la fiche et pour « Tout refuser », le sélecteur de motif est
+  **dans le formulaire**, obligatoire (`required`), et le `data-confirm`
+  existant reste : pas de nouveau script, et la règle de confirmation des
+  POST destructifs est tenue telle quelle.
+- **Le motif est obligatoire dans le service**, pas seulement dans les
+  contrôleurs : `refuse(string $reason)`. Le constructeur du jeu de
+  données de référence refuse désormais ses demandes « Autre » : sa table
+  ne dit pas pourquoi, et « Pas de place » aurait changé le classement
+  des demandes ultérieures du même enfant.
+- **Boutons du dialogue** selon design.md §7.4 : « Accepter » en
+  `btn-primary` (la maquette dessine un bouton vert), « Décider » en
+  `btn-outline-primary` (un seul bouton primaire par écran), avec un
+  `aria-label` « Décider — {enfant} » pour qu'un lecteur d'écran sache
+  quelle ligne il ouvre.
+- **La note n'est écrite que si elle a changé par rapport à celle que le
+  dialogue affichait** (champ caché `internal_notes_shown`) : laissée
+  telle quelle, elle n'écrase pas une note complétée sur la fiche depuis
+  le chargement de la liste ; les fins de ligne ne comptent pas (un
+  navigateur poste CRLF) ; vide, elle s'efface, comme dans la fiche.
+- **Statut et note dans une transaction** : une note qui ne peut pas
+  s'écrire annule la décision et ses entrées de journal.
+- **Une décision n'est prise que sur une demande toujours en attente** :
+  décidée entre-temps (autre onglet, autre chef), elle n'est pas décidée
+  une seconde fois, et rien ne change.
+- Le retour à la liste reprend le filtre d'état et la recherche du
+  dialogue (champs cachés), filtre validé contre la liste des états.
+- La couleur « Peut-être » est le jaune de Bootstrap (`warning`), et le
+  fond des quatre états utilise les variantes `*-subtle`, lisibles en
+  thème sombre.
+
+- **Non retenu, à la relecture** : bloquer aussi les transitions de la
+  fiche sur une année passée. La fiche les permet aujourd'hui, et c'est
+  le seul moyen de clôturer une demande restée ouverte d'une année
+  passée (le refus groupé y est refusé, et une demande non clôturée
+  bloque le changement d'année) ; IT-04 ne change pas ce comportement.
+
+**Divergences avec le document.**
+
+- Vérifié sur `main` (`d4efa13`) : `RequestStatusService::refuse()`
+  prenait un motif facultatif (IT-03) et la fiche comme le refus groupé
+  n'en passaient aucun ; le service de recommandation n'était lu par
+  aucune page ni construit dans `public/index.php` ; version 6.14.0.
+- **Le refus groupé reste « Tout refuser »** sur les demandes non
+  clôturées de l'année choisie, avec son motif. La maquette dessine une
+  sélection de demandes (cases à cocher, « Refuser la sélection » /
+  « Retirer la sélection ») ; ni la section IT-04 ni une autre itération
+  ne la demandent, et IT-04 n'a demandé que le motif. Signalé au
+  pilotage. De même, les filtres en pastilles de la maquette ne sont pas
+  faits (le filtre par liste déroulante reste).
+- L'en-tête du dialogue reprend le libellé de créneau de la liste
+  (« Baladins — 2ᵉ année », « Non déterminé » hors des tranches d'âge)
+  plutôt que celui de la maquette (« Louveteaux · 1re année », « Hors des
+  tranches d'âge ») : le dialogue dit ce que dit sa ligne.
+- Le motif de la fiche et du refus groupé est un sélecteur dans le
+  formulaire, confirmé par la boîte de confirmation commune, et non un
+  champ dans cette boîte comme dans la maquette (la boîte du site
+  n'accepte pas de liste déroulante).
+
+**Reporté.**
+
+- La phrase « Le traitement automatique ne la prendra pas » et
+  « Sans décision de votre part, cette demande sera acceptée
+  automatiquement… » : IT-10. La planification des e-mails et la phrase
+  « l'e-mail … partira le … » : IT-05 / IT-09 (le dialogue et la
+  confirmation n'affichent que « aucun e-mail ne part tout seul »).
+- L'édition indépendante de la note et le bloc « E-mail de décision » de
+  la fiche : IT-08.
+
+**Faits tranchés.** R8 : sur une année passée, ni bouton « Décider » ni
+dialogue, et le serveur refuse une décision qui y arriverait quand même
+(rien ne change). D6 : tout refus porte son motif — dialogue, fiche, refus
+groupé — et le serveur refuse un refus sans motif valide.
+
+---
+
+## IT-05 — Modèle des e-mails de décision
+
+**Livré.**
+
+- **Table `registration_decision_emails`** (`schema.sql`) : une ligne par
+  e-mail d'acceptation ou de refus prévu ou tenté — premier envoi,
+  nouvelle tentative après un échec, renvoi après un succès —, jamais une
+  ligne par demande réécrite. Décision (`accepted` / `refused`), état
+  (`scheduled` → `sending` → `sent` | `failed`, ou `cancelled`), échéance
+  (NULL pour un envoi lancé à la main), numéro de tentative, indicateur de
+  renvoi, dates de tentative, d'envoi et d'échec, catégorie technique de
+  l'échec (`body_not_written`, `mail_transport`, `interrupted`) et phrase
+  en français filtrée à l'écriture (`UserFacingMessage`), motif
+  d'annulation (`decision_changed`), `superseded_at`, horodatages ; index
+  `(state, due_at)` ; clé étrangère vers `registration_requests` (même
+  module) `ON DELETE CASCADE`. Les deux colonnes
+  `accepted_email_sent_at` / `refused_email_sent_at` disparaissent, sans
+  migration (`modules/registration/drops.sql`). Version 6.15.0 (IT-07) → 6.17.0
+  (6.16.0 est pris par IT-04, en parallèle).
+- **`Repository\DecisionEmailRepository`** (et l'objet `DecisionEmail`) :
+  créer, réclamer, marquer envoyé ou en échec, reprogrammer, rendre
+  obsolète, lire l'historique, les échéances et la date du premier envoi.
+  Aucune ligne dans un état final n'est réécrite : chaque écriture est un
+  UPDATE conditionnel qui nomme l'état qu'il quitte.
+- **`Service\DecisionEmailService`** : planifier (`schedule()`, échéance
+  donnée — le délai viendra d'IT-09), reprogrammer, ouvrir une tentative
+  réclamée (`begin()`), enregistrer un succès ou un échec, historique,
+  échéances et réclamation pour la tâche d'IT-09.
+- **`RequestEmailService` repris** : chaque envoi passe par `begin()`
+  (réclamation atomique), puis le garde-fou du corps non rédigé
+  (l'échec est enregistré, l'exception levée, jamais un succès), le
+  transport, et `recordSuccess()` / `recordFailure()`. Après la fusion
+  d'IT-07, le garde-fou et la substitution sont ceux de
+  `RequestEmailTemplateService` (`isToWrite()`, la seule définition
+  d'« À rédiger », et `substitute()`) : un corps vidé par l'éditeur
+  (`<p>&nbsp;</p>`) est un échec enregistré, comme un corps absent. Rotation du jeton
+  de suivi après un succès seulement (inchangée, R6). Le journal de
+  l'envoi porte le numéro de tentative et le renvoi, jamais la famille.
+- **Changer une décision annule l'envoi devenu obsolète** :
+  `RegistrationRequestRepository::updateStatus()` écrit le statut puis,
+  dans la même transaction, rend obsolètes les e-mails de l'ancienne
+  décision — un e-mail encore prévu est annulé (« Annulé suite à un
+  changement de décision ») et ne peut plus être réclamé, un e-mail
+  envoyé, en échec ou en cours garde son état et est seulement daté. Le
+  nombre d'annulés revient à `RequestStatusService`, qui le journalise.
+  Aucun e-mail de l'ancienne décision ne peut plus être lancé ; un envoi
+  dont le transport était déjà en cours à cet instant (quelques secondes)
+  se termine et est consigné, sans rien rendre visible à la famille.
+  `linkToMemberAndEncode()` fait de même pour une demande liée depuis un
+  autre état qu'« acceptée » (le lien manuel ne vérifie pas le statut),
+  en gardant les e-mails d'acceptation.
+- **Compteur « E-mails de décision à envoyer »** : lit la nouvelle table
+  (acceptées, encodées ou refusées sans e-mail envoyé de leur décision en
+  cours — prévu, en échec ou jamais planifié), test sur MariaDB.
+- Documentation : `ARCHITECTURE.md` §8.36, `specifications.md` §17.2,
+  §17.3, §17.5, §17.6, contenu RGPD par défaut et consigne du prompt
+  (`RgpdContentService`, règle 27), sujet d'aide `gerer-les-demandes`.
+- Tests : `DecisionEmailRepositoryTest`, `DecisionEmailRepositoryOnMysqlTest`
+  (prémisses du moteur, INSERT … SELECT, index UNIQUE, deux sessions qui
+  créent ou réclament le même e-mail, deux envois simultanés de bout en
+  bout → un seul e-mail, cascade), `DecisionEmailServiceTest`,
+  `RequestEmailServiceTest` (gabarit absent → échec enregistré, envoi
+  manuel, renvoi, échec SMTP puis nouvelle tentative, envoi interrompu,
+  envoi concurrent), `RequestStatusServiceTest` (masqué avant envoi,
+  visible après, changement de décision, ré-acceptation),
+  `TrackingControllerTest`, `RegistrationRequestRepositoryTest` et
+  `…OnMysqlTest` (compteur, obsolescence, effacement),
+  `PurgeRegistrationRequestsHandlerTest`, `RegistrationRequestControllerTest`
+  (renvoi, e-mail d'acceptation d'une demande refusée).
+
+**Décisions autonomes.**
+
+- **Une ligne par tentative**, pas une ligne par e-mail mise à jour : une
+  nouvelle tentative et un renvoi sont des lignes à part, ce qui rend
+  l'historique d'IT-08 exact par construction (« jamais écrasé »).
+- **La réclamation vit sur la ligne du domaine**, pas dans
+  `sent_email_claims` : le passage `scheduled` → `sending` par UPDATE
+  conditionnel, ou la création directement en `sending`, et la colonne
+  `active_request_id` (l'id de la demande tant que l'e-mail est prévu ou en
+  cours, NULL ensuite) sous index UNIQUE, qui refuse un second e-mail en jeu
+  pour la même demande (SQLSTATE 23000, la règle de
+  `SentEmailClaimRepository`). La création est un `INSERT … SELECT … FROM
+  registration_requests WHERE status IN (…)` : un envoi qui croise un
+  changement de décision ne crée rien. C'est le précédent de
+  `NotificationRepository::claimForEmail()` (une ligne de domaine existe),
+  que le document autorisait (« ou verrou équivalent »).
+- **L'obsolescence est faite par `updateStatus()`, pas par un service** :
+  c'est la seule écriture par laquelle passe tout changement de statut
+  (fiche, actions groupées, dialogue d'IT-04), et la même transaction
+  garantit qu'aucun e-mail de l'ancienne décision ne reste réclamable. Le
+  constructeur de `RequestStatusService` ne change pas, ce qui laisse IT-04,
+  qui tourne en parallèle, sans conflit sémantique.
+- **L'erreur technique n'est jamais stockée telle quelle** : la ligne garde
+  une catégorie et une phrase en français écrite au moment de l'échec ; le
+  texte du serveur SMTP, qui cite souvent l'adresse du destinataire, n'est
+  pas conservé — le précédent de la sonde de délivrabilité. Il reste dans
+  le journal, comme avant cette itération.
+- **Un e-mail ne part que pour la décision en cours** : l'e-mail
+  d'acceptation d'une demande refusée (ou en attente) est refusé avec un
+  message, et rien n'est enregistré. La fiche montrait et acceptait les
+  deux boutons quel que soit le statut : un e-mail d'acceptation pouvait
+  partir après un refus.
+- **Un envoi réclamé il y a plus de 10 minutes sans issue** (processus mort
+  entre la réclamation et le résultat) est enregistré « interrompu » au
+  prochain envoi manuel, avec une phrase qui dit qu'on ne sait pas s'il est
+  parti ; il n'est jamais renvoyé tout seul. Un envoi seulement lent qui
+  finit par aboutir transforme cette interruption en « envoyé » : c'est la
+  seule ligne finale qu'une écriture modifie, parce qu'elle consignait une
+  issue inconnue.
+- **Le succès est consigné avant l'enregistrement du nouveau jeton** : une
+  erreur de base de données après l'envoi laisse l'ancien lien valable et
+  l'e-mail marqué envoyé, jamais un e-mail parti qui paraît en cours.
+- **La fiche n'est pas refaite** (IT-08) : `RegistrationRequest` expose
+  `acceptedEmailSentAt()` / `refusedEmailSentAt()` (le premier envoi de la
+  décision en cours, null sinon), ce que les vues lisaient déjà sous ce
+  nom ; aucun gabarit Twig n'est modifié.
+- **Après la fusion d'IT-04** : `RegistrationRequestRepository` n'a plus
+  qu'un utilitaire de transaction, `transactional()` d'IT-04, rendu
+  générique (il renvoie la valeur du travail) et utilisé par
+  `updateStatus()`, `linkToMemberAndEncode()` et `deleteById()`. Le
+  dialogue de décision appelle la transition dans sa propre transaction :
+  l'annulation des e-mails obsolètes s'y exécute et s'annule avec elle.
+  Les phrases du dialogue (« aucun e-mail ne part tout seul ») restent
+  vraies : IT-05 ne planifie rien.
+- Les deux colonnes supprimées sont retirées par `drops.sql` plutôt que
+  laissées en place : elles n'auraient plus rien voulu dire, et le
+  comparateur de schéma signale une colonne non déclarée à chaque
+  migration.
+
+**Divergences avec le document.**
+
+- Faits vérifiés contre `main` (`d4efa13`) : `visibleStatus()` lisait bien
+  un horodatage par type ; le compteur d'IT-01 aussi ; la rotation du jeton
+  se faisait déjà après le succès seulement (R6 tenait avant cette
+  itération), alors qu'`ARCHITECTURE.md` décrivait encore une rotation
+  avant l'envoi (`rotateTrackingToken()`, méthode disparue) — corrigé.
+- #740 (effacement RGPD) et #724 (sa première partie) sont ouverts et non
+  implémentés : aucun effacement ciblé n'existe aujourd'hui. Le seul chemin
+  de suppression d'une demande est la purge de rétention.
+
+**Reporté.**
+
+- Le bloc « E-mail de décision » de la fiche (états, historique,
+  « Envoyer maintenant », « Réessayer », « Renvoyer l'e-mail ») : IT-08.
+- La planification avec délai et la tâche qui consomme les échéances
+  (`schedule()`, `findDue()`, `claim()` sont prêts) : IT-09.
+
+**Faits tranchés.**
+
+- **R3** : `visibleStatus()` suit l'envoi réel de l'e-mail **de la décision
+  en cours** — `decisionEmailSentAt`, le premier `sent_at` des lignes
+  envoyées, non obsolètes, de la décision que porte la demande. Un e-mail
+  d'une décision précédente (acceptée puis refusée, ou acceptée, remise en
+  attente puis acceptée à nouveau) ne rend jamais la nouvelle visible ; un
+  renvoi est une ligne à part et ne déplace jamais la date du premier
+  envoi. Le mécanisme à un horodatage par type est supprimé.
+- **R6** : le jeton n'est enregistré qu'après l'acceptation du message par
+  le transport ; un échec SMTP ou un gabarit absent laisse le lien
+  précédent valable (tests dédiés). La réclamation ne touche pas au jeton.
+- **R7** : la table suit la demande — `deleteById()`, par lequel passe la
+  purge `purge_registration_requests`, supprime ses lignes dans la même
+  transaction, et `ON DELETE CASCADE` couvre tout autre chemin (testé sur
+  MariaDB). Elle est rattachée à la demande par son id seul, donc tout
+  effacement futur d'une demande (#740) l'emporte. La liste blanche de
+  `BackupService::CONFIG_ONLY_TABLES` / `InstanceReset` ne grandit pas :
+  la table est une donnée, vidée par la remise à zéro et sauvegardée comme
+  les autres. Contenu RGPD mis à jour (historique des e-mails, réservé au
+  staff, supprimé avec la demande).
+
+---
+
 ## IT-06 — Copie (CC) des e-mails à la famille
 
 **Livré.**
@@ -887,10 +1223,14 @@ aucune recommandation pour une année passée.
   construit avec `FamilyEmailCopyService` — dans `scheduler-bootstrap.php`
   si c'est une tâche — pour hériter de la copie.
 
-**Reporté.** Rien. À l'attention d'IT-05 (qui reprend
-`RequestEmailService`) : conserver le dernier paramètre du constructeur et
-la ligne `cc:` de l'appel à `send()` ; d'IT-08 : « Renvoyer l'e-mail »
-hérite de la copie tant qu'il passe par ce service.
+**Reporté.** Rien. Fusion avec IT-04 et IT-05 : le paramètre facultatif
+`FamilyEmailCopyService` suit désormais `DecisionEmailService` dans le
+constructeur de `RequestEmailService`, et la ligne `cc:` est sur le chemin
+d'envoi d'IT-05 — envoi manuel, nouvel essai après un échec et renvoi
+passent tous par `RequestEmailService::send()` et portent la copie (testés
+dans `RequestEmailServiceTest`). À l'attention d'IT-08 et d'IT-09 :
+« Renvoyer l'e-mail » et l'envoi automatique héritent de la copie tant
+qu'ils passent par ce service.
 
 **Faits tranchés.** R5 : `MailService::send()` prend désormais `cc`
 (validation, en-tête, DKIM, multipart, file différée), documenté et testé.

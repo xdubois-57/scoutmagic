@@ -28,8 +28,10 @@ use Core\View\EditableContentService;
 use Core\View\TwigFactory;
 use Modules\Registration\Controller\RegistrationRequestController;
 use Modules\Registration\Repository\AgeBracketRepository;
+use Modules\Registration\Repository\DecisionEmailRepository;
 use Modules\Registration\Repository\RegistrationRequestRepository;
 use Modules\Registration\Repository\RegistrationSecondaryEmailRepository;
+use Modules\Registration\Service\DecisionEmailService;
 use Modules\Registration\Service\HouseholdRegistrationCountService;
 use Modules\Registration\Service\MigrationService;
 use Modules\Registration\Service\RequestEmailService;
@@ -67,6 +69,9 @@ class RegistrationRequestControllerTest extends TestCase
     private int $targetYearId;
     private int $publicYearId;
     private EncryptionService $encryption;
+    private SettingService $settingService;
+    private RequestStatusService $statusService;
+    private RequestEmailService $emailService;
 
     protected function setUp(): void
     {
@@ -89,6 +94,7 @@ class RegistrationRequestControllerTest extends TestCase
         $feeCategoryRepository->create('NORM', 'Tarif normal');
 
         $settingService = new SettingService(new SettingRepository($this->pdo));
+        $this->settingService = $settingService;
         $settingService->register('registration_reference_date', '12-31', 'text', 'Réf', 'desc', 'registration');
         $settingService->register('registration_threshold_yes_percent', '70', 'number', 'Oui', 'desc', 'registration');
         $settingService->register(
@@ -124,13 +130,21 @@ class RegistrationRequestControllerTest extends TestCase
         $this->journalRepository = new JournalRepository($this->pdo);
         $journalService = new JournalService($this->journalRepository);
         $statusService = new RequestStatusService($this->requestRepository, $journalService);
+        $this->statusService = $statusService;
 
         $mailService = $this->createStub(MailService::class);
         $mailService->method('send');
         $this->editableContentService = new EditableContentService(new EditableContentRepository($this->pdo));
         $emailService = new RequestEmailService(
-            $this->requestRepository, $mailService, $this->editableContentService, $journalService, 'https://example.com', 'Unité Test'
+            $this->requestRepository,
+            $mailService,
+            $this->editableContentService,
+            $journalService,
+            'https://example.com',
+            'Unité Test',
+            new DecisionEmailService(new DecisionEmailRepository($this->pdo), $journalService)
         );
+        $this->emailService = $emailService;
 
         $secondaryEmailRepository = new RegistrationSecondaryEmailRepository($this->pdo, $encryption);
         $memberEmailRepository = new MemberEmailRepository($this->pdo, $encryption);
@@ -268,6 +282,133 @@ class RegistrationRequestControllerTest extends TestCase
         $this->assertSame('pending', $this->requestRepository->findById($id)->status);
     }
 
+    /**
+     * Issue #843 D6: a refusal from the fiche carries its reason — stored
+     * with the status, and shown beside « Refusée ».
+     */
+    public function testARefusalFromTheFicheStoresItsReason(): void
+    {
+        $id = $this->createRequest();
+
+        $this->controller->refuse(
+            new Request('POST', "/config/inscriptions/demandes/{$id}/refuse", [], $this->csrfBody([
+                'refusal_reason' => 'other',
+            ]), [], []),
+            ['id' => (string) $id]
+        );
+
+        $refused = $this->requestRepository->findById($id);
+        $this->assertSame('refused', $refused->status);
+        $this->assertSame('other', $refused->refusalReason);
+        $body = (string) $this->controller->show(
+            new Request('GET', "/config/inscriptions/demandes/{$id}", [], [], [], []),
+            ['id' => (string) $id]
+        )->getBody();
+        $this->assertStringContainsString('<span class="small">Motif : Autre</span>', $body);
+    }
+
+    /**
+     * @return array<string, array{array<string, string>}>
+     */
+    public static function missingReasonProvider(): array
+    {
+        return [
+            'no reason' => [[]],
+            'empty reason' => [['refusal_reason' => '']],
+            'unknown reason' => [['refusal_reason' => 'full']],
+        ];
+    }
+
+    /**
+     * A refusal without a valid reason changes nothing, from a pending
+     * request as from an accepted one, and says why.
+     *
+     * @param array<string, string> $reason
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('missingReasonProvider')]
+    public function testARefusalFromTheFicheWithoutAValidReasonChangesNothing(array $reason): void
+    {
+        $pendingId = $this->createRequest();
+        $acceptedId = $this->createRequest('2020-07-01');
+        $this->requestRepository->updateStatus($acceptedId, 'accepted', null);
+
+        foreach ([$pendingId, $acceptedId] as $id) {
+            $this->controller->refuse(
+                new Request('POST', "/config/inscriptions/demandes/{$id}/refuse", [], $this->csrfBody($reason), [], []),
+                ['id' => (string) $id]
+            );
+            $flash = \Core\Http\FlashMessage::get();
+            $this->assertSame('error', $flash['type'] ?? null);
+            $this->assertSame(RequestStatusService::MESSAGE_REFUSAL_REASON_REQUIRED, $flash['message'] ?? null);
+        }
+
+        $this->assertSame('pending', $this->requestRepository->findById($pendingId)->status);
+        $this->assertSame('accepted', $this->requestRepository->findById($acceptedId)->status);
+    }
+
+    /**
+     * Both « Refuser » forms of the fiche — on a pending and on an accepted
+     * request — ask for the reason, and cannot be sent without one.
+     */
+    public function testBothRefusalFormsOfTheFicheAskForTheReason(): void
+    {
+        $pendingId = $this->createRequest();
+        $acceptedId = $this->createRequest('2020-07-01');
+        $this->requestRepository->updateStatus($acceptedId, 'accepted', null);
+
+        foreach ([$pendingId, $acceptedId] as $id) {
+            $body = (string) $this->controller->show(
+                new Request('GET', "/config/inscriptions/demandes/{$id}", [], [], [], []),
+                ['id' => (string) $id]
+            )->getBody();
+            $found = preg_match(
+                '#<form method="post" action="/config/inscriptions/demandes/' . $id . '/refuse".*?</form>#s',
+                $body,
+                $form
+            );
+            $this->assertSame(1, $found, "request #{$id} can be refused from its fiche");
+            $this->assertStringContainsString('data-confirm="', $form[0]);
+            $this->assertMatchesRegularExpression('#<select[^>]+name="refusal_reason"[^>]* required#', $form[0]);
+            // No reason chosen in advance: the empty one is selected.
+            $this->assertStringContainsString('<option value="" selected>Motif du refus…</option>', $form[0]);
+            $this->assertSame(1, substr_count($form[0], ' selected'));
+            $this->assertStringContainsString('<option value="no_room">Pas de place</option>', $form[0]);
+            $this->assertStringContainsString('<option value="other">Autre</option>', $form[0]);
+        }
+    }
+
+    /**
+     * The note written from the decision dialog (issue #843, IT-04) is the
+     * fiche's own internal note — the same field, shown there.
+     */
+    public function testTheNoteWrittenFromTheDecisionDialogShowsOnTheFiche(): void
+    {
+        $id = $this->createRequest();
+        $decisions = RegistrationTestHelper::decisionService(
+            $this->pdo,
+            $this->encryption,
+            $this->settingService,
+            $this->statusService,
+            $this->emailService
+        );
+
+        $decisions->decide(
+            $this->requestRepository->findById($id),
+            'accept',
+            'Fratrie confirmée par téléphone.',
+            null
+        );
+
+        $body = (string) $this->controller->show(
+            new Request('GET', "/config/inscriptions/demandes/{$id}", [], [], [], []),
+            ['id' => (string) $id]
+        )->getBody();
+        $this->assertMatchesRegularExpression(
+            '#<textarea name="internal_notes"[^>]*>Fratrie confirmée par téléphone\.</textarea>#u',
+            $body
+        );
+    }
+
     public function testIntendedSectionAcceptedWhenInSlotBranch(): void
     {
         $id = $this->createRequest('2020-06-01'); // falls into Baladins (entry age 6)
@@ -362,7 +503,7 @@ class RegistrationRequestControllerTest extends TestCase
         ), ['id' => (string) $id]);
 
         $this->assertSame(302, $response->getStatusCode());
-        $this->assertNull($this->requestRepository->findById($id)->acceptedEmailSentAt);
+        $this->assertNull($this->requestRepository->findById($id)->acceptedEmailSentAt());
     }
 
     public function testSendAcceptedEmailSucceedsOnceBodyWritten(): void
@@ -375,13 +516,44 @@ class RegistrationRequestControllerTest extends TestCase
             'POST', "/config/inscriptions/demandes/{$id}/send-accepted-email", [], $this->csrfBody(), [], []
         ), ['id' => (string) $id]);
 
-        $this->assertNotNull($this->requestRepository->findById($id)->acceptedEmailSentAt);
+        $firstSentAt = $this->requestRepository->findById($id)->acceptedEmailSentAt();
+        $this->assertNotNull($firstSentAt);
 
-        // Resend works too.
+        // Resend works too — a second e-mail of its own, which never moves
+        // the date of the first (R3).
         $this->controller->sendAcceptedEmail(new Request(
             'POST', "/config/inscriptions/demandes/{$id}/send-accepted-email", [], $this->csrfBody(), [], []
         ), ['id' => (string) $id]);
-        $this->assertNotNull($this->requestRepository->findById($id)->acceptedEmailSentAt);
+        $this->assertEquals($firstSentAt, $this->requestRepository->findById($id)->acceptedEmailSentAt());
+        $history = (new DecisionEmailRepository($this->pdo))->findForRequest($id);
+        $this->assertSame(['sent', 'sent'], array_map(static fn($email) => $email->state, $history));
+        $this->assertSame([false, true], array_map(static fn($email) => $email->isResend, $history));
+    }
+
+    /**
+     * The fiche shows both buttons whatever the decision. The acceptance
+     * e-mail of a refused request is refused — it used to leave, telling
+     * a family their child was accepted after the unit had said no — and
+     * the chief is told why.
+     */
+    public function testTheAcceptanceEmailOfARefusedRequestIsRefused(): void
+    {
+        $id = $this->createRequest();
+        $this->requestRepository->updateStatus($id, 'refused', new \DateTimeImmutable());
+        $this->editableContentService->set('registration_email_accepted_body', '<p>Bienvenue !</p>', 'rich_text', 1);
+
+        $this->controller->sendAcceptedEmail(new Request(
+            'POST', "/config/inscriptions/demandes/{$id}/send-accepted-email", [], $this->csrfBody(), [], []
+        ), ['id' => (string) $id]);
+
+        $this->assertSame(
+            [
+                'type' => 'error',
+                'message' => "Cette demande n'est pas acceptée : l'e-mail d'acceptation ne peut pas partir.",
+            ],
+            \Core\Http\FlashMessage::get()
+        );
+        $this->assertSame([], (new DecisionEmailRepository($this->pdo))->findForRequest($id));
     }
 
     /**

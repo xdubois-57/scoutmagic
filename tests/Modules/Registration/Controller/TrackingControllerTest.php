@@ -136,7 +136,7 @@ class TrackingControllerTest extends TestCase
     public function testTokenViewShowsTheAcceptanceOnceItsEmailWentOut(): void
     {
         $this->requestRepository->updateStatus($this->created['id'], 'accepted', null);
-        $this->requestRepository->markAcceptedEmailSent($this->created['id']);
+        RegistrationTestHelper::recordDecisionEmailSent($this->pdo, $this->created['id'], 'accepted');
 
         $body = $this->controller->showByToken(
             new Request('GET', '/inscriptions/suivi/' . $this->created['id'] . '/' . $this->created['tracking_token'], [], [], [], []),
@@ -144,6 +144,31 @@ class TrackingControllerTest extends TestCase
         )->getBody();
 
         $this->assertStringContainsString('Acceptée', $body);
+    }
+
+    /**
+     * R3 on the family's own page: the acceptance e-mail went out, then the
+     * unit refused. Both views go back to « en attente » — the acceptance
+     * e-mail says nothing about the refusal — until the refusal e-mail
+     * itself leaves.
+     */
+    public function testAChangedDecisionStaysHiddenUntilItsOwnEmailLeaves(): void
+    {
+        $this->requestRepository->updateStatus($this->created['id'], 'accepted', null);
+        RegistrationTestHelper::recordDecisionEmailSent($this->pdo, $this->created['id'], 'accepted');
+        $this->assertStringContainsString('Acceptée', $this->tokenView());
+
+        $this->requestRepository->updateStatus($this->created['id'], 'refused', new \DateTimeImmutable());
+        foreach (['token' => $this->tokenView(), 'linked' => $this->linkedView()] as $view => $body) {
+            $this->assertStringContainsString('En attente d&#039;examen', $body, $view);
+            $this->assertStringNotContainsString('Refusée', $body, $view);
+            $this->assertStringNotContainsString('Acceptée', $body, $view);
+        }
+
+        RegistrationTestHelper::recordDecisionEmailSent($this->pdo, $this->created['id'], 'refused');
+        foreach (['token' => $this->tokenView(), 'linked' => $this->linkedView()] as $view => $body) {
+            $this->assertStringContainsString('Refusée', $body, $view);
+        }
     }
 
     public function testFullViewHidesARefusalUntilItsEmailIsSent(): void
@@ -234,7 +259,7 @@ class TrackingControllerTest extends TestCase
             new \DateTimeImmutable(),
             \Modules\Registration\Repository\RegistrationRequest::REFUSAL_NO_ROOM
         );
-        $this->requestRepository->markRefusedEmailSent($this->created['id']);
+        RegistrationTestHelper::recordDecisionEmailSent($this->pdo, $this->created['id'], 'refused');
         $refusedPages = [$this->tokenView(), $this->linkedView()];
         foreach ($refusedPages as $body) {
             $this->assertStringContainsString('Refusée', $body, 'the refusal itself is visible once its e-mail left');
@@ -246,6 +271,69 @@ class TrackingControllerTest extends TestCase
             $this->assertStringNotContainsString('Pas de place', $body);
             $this->assertStringNotContainsString('no_room', $body);
             $this->assertStringNotContainsString('recommandation', mb_strtolower($body));
+        }
+    }
+
+    /**
+     * Issue #843, IT-04: what the decision dialog writes — the internal
+     * note, the refusal reason — stays on the staff side. Refused from the
+     * dialog with a note and « Pas de place », then its e-mail gone, the
+     * request shows « Refusée » to the family, and nothing else of the
+     * decision: neither tracking view carries the note or the reason.
+     */
+    public function testNothingTheDecisionDialogWritesReachesEitherTrackingView(): void
+    {
+        $note = 'Famille rappelée : pas de place chez les Baladins';
+        $settings = new \Core\Config\SettingService(new \Core\Config\SettingRepository($this->pdo));
+        RegistrationTestHelper::registerManifestSettings($settings);
+        foreach ([
+            \Core\ScoutYear\ScoutYearResolver::SETTING_PUBLIC_YEAR => 'Public',
+            \Core\ScoutYear\ScoutYearResolver::SETTING_STAFF_YEAR => 'Staff',
+        ] as $key => $label) {
+            $settings->register($key, '0', 'number', $label, 'desc', null, '^[0-9]+$', null, false);
+        }
+        $request = $this->requestRepository->findById($this->created['id']);
+        $this->assertNotNull($request);
+        $settings->setInternal(\Core\ScoutYear\ScoutYearResolver::SETTING_PUBLIC_YEAR, (string) $request->scoutYearId);
+        $journal = new JournalService(new JournalRepository($this->pdo));
+        $decisions = RegistrationTestHelper::decisionService(
+            $this->pdo,
+            $this->encryption,
+            $settings,
+            new RequestStatusService($this->requestRepository, $journal),
+            new \Modules\Registration\Service\RequestEmailService(
+                $this->requestRepository,
+                $this->createStub(MailService::class),
+                new \Core\View\EditableContentService(new \Core\View\EditableContentRepository($this->pdo)),
+                $journal,
+                'https://example.com',
+                'Unité Test',
+                new \Modules\Registration\Service\DecisionEmailService(
+                    new \Modules\Registration\Repository\DecisionEmailRepository($this->pdo),
+                    $journal
+                )
+            )
+        );
+
+        $decisions->decide(
+            $request,
+            'refuse',
+            $note,
+            \Modules\Registration\Repository\RegistrationRequest::REFUSAL_NO_ROOM
+        );
+        $this->assertSame($note, $this->requestRepository->findById($this->created['id'])?->internalNotes);
+        $before = [$this->tokenView(), $this->linkedView()];
+        RegistrationTestHelper::recordDecisionEmailSent($this->pdo, $this->created['id'], 'refused');
+        $after = [$this->tokenView(), $this->linkedView()];
+
+        foreach ($after as $body) {
+            $this->assertStringContainsString('Refusée', $body, 'the refusal itself is visible once its e-mail left');
+        }
+        foreach (array_merge($before, $after) as $body) {
+            $this->assertStringNotContainsString('Famille rappelée', $body);
+            $this->assertStringNotContainsString('Pas de place', $body);
+            $this->assertStringNotContainsString('no_room', $body);
+            $this->assertStringNotContainsString('Note interne', $body);
         }
     }
 

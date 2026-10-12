@@ -240,6 +240,13 @@ interface Window {
         syncAddress: (toggle: HTMLInputElement, address: HTMLInputElement) => void;
         init: () => void;
     };
+    // public/assets/js/registration-decide-dialog.js — the decision
+    // dialog of Formulaire d'inscription › Demandes, exposed for its tests.
+    ScoutMagicDecideDialog?: {
+        canConfirmRefusal: (reason: string) => boolean;
+        setRefusing: (dialog: HTMLElement, refusing: boolean) => void;
+        init: () => void;
+    };
     // public/assets/js/pdf-thumbnail.js — the fallback for a PDF
     // thumbnail the server could not render, loaded only by the pages
     // that show receipts. `error` does not bubble, so every code path

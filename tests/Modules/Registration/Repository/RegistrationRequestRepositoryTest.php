@@ -7,6 +7,7 @@ namespace Tests\Modules\Registration\Repository;
 use Core\Member\Household\HouseholdKey;
 use Core\Member\Household\HouseholdRepository;
 use Core\Security\EncryptionService;
+use Modules\Registration\Repository\DecisionEmailRepository;
 use Modules\Registration\Repository\RegistrationRequest;
 use Modules\Registration\Repository\RegistrationRequestRepository;
 use PHPUnit\Framework\TestCase;
@@ -370,13 +371,13 @@ class RegistrationRequestRepositoryTest extends TestCase
 
         $this->repository->updateStatus($ids['accepted_unsent'], 'accepted', null);
         $this->repository->updateStatus($ids['accepted_sent'], 'accepted', null);
-        $this->repository->markAcceptedEmailSent($ids['accepted_sent']);
+        RegistrationTestHelper::recordDecisionEmailSent($this->pdo, $ids['accepted_sent'], 'accepted');
         $this->repository->updateStatus($ids['encoded_unsent'], 'encoded', new \DateTimeImmutable());
         $this->repository->updateStatus($ids['encoded_sent'], 'encoded', new \DateTimeImmutable());
-        $this->repository->markAcceptedEmailSent($ids['encoded_sent']);
+        RegistrationTestHelper::recordDecisionEmailSent($this->pdo, $ids['encoded_sent'], 'accepted');
         $this->repository->updateStatus($ids['refused_unsent'], 'refused', new \DateTimeImmutable());
         $this->repository->updateStatus($ids['refused_sent'], 'refused', new \DateTimeImmutable());
-        $this->repository->markRefusedEmailSent($ids['refused_sent']);
+        RegistrationTestHelper::recordDecisionEmailSent($this->pdo, $ids['refused_sent'], 'refused');
         $this->repository->updateStatus($ids['withdrawn'], 'withdrawn', new \DateTimeImmutable());
 
         return $ids;
@@ -408,12 +409,18 @@ class RegistrationRequestRepositoryTest extends TestCase
         $this->assertSame(3, $this->repository->countDecisionEmailsToSendForYears([$this->scoutYearId]));
 
         // Sending the refusal takes it out of the count, and only it.
-        $this->repository->markRefusedEmailSent($ids['refused_unsent']);
+        RegistrationTestHelper::recordDecisionEmailSent($this->pdo, $ids['refused_unsent'], 'refused');
         $this->assertSame(2, $this->repository->countDecisionEmailsToSendForYears([$this->scoutYearId]));
 
         // A refused request whose ACCEPTANCE e-mail went out earlier (the
         // decision changed) still owes its refusal e-mail.
         $this->repository->updateStatus($ids['accepted_sent'], 'refused', new \DateTimeImmutable());
+        $this->assertSame(3, $this->repository->countDecisionEmailsToSendForYears([$this->scoutYearId]));
+
+        // Accepted again after that: the first acceptance e-mail announced
+        // an earlier decision, and this one is owed its own (R3).
+        $this->repository->updateStatus($ids['accepted_sent'], 'pending', null);
+        $this->repository->updateStatus($ids['accepted_sent'], 'accepted', null);
         $this->assertSame(3, $this->repository->countDecisionEmailsToSendForYears([$this->scoutYearId]));
     }
 
@@ -439,6 +446,141 @@ class RegistrationRequestRepositoryTest extends TestCase
 
         $this->assertNotEmpty($hidden);
         $this->assertSame(count($hidden), $this->repository->countDecisionEmailsToSendForYears([$this->scoutYearId]));
+    }
+
+    /**
+     * IT-01's definition, read from the decision e-mail table (IT-05): an
+     * e-mail planned, failed or interrupted has not left, and the decision
+     * stays counted until one of ITS decision is sent.
+     */
+    public function testAPlannedOrFailedDecisionEmailIsStillToSend(): void
+    {
+        $ids = $this->seedDashboardStates($this->scoutYearId);
+        $emails = new DecisionEmailRepository($this->pdo);
+        $now = new \DateTimeImmutable();
+        $emails->insert($ids['accepted_unsent'], 'accepted', 'scheduled', $now->modify('+1 day'), 1, false, $now);
+        $failed = (int) $emails->insert($ids['refused_unsent'], 'refused', 'sending', null, 1, false, $now);
+        $emails->markFailed($failed, 'mail_transport', 'Échec.', $now);
+
+        $this->assertSame(3, $this->repository->countDecisionEmailsToSendForYears([$this->scoutYearId]));
+    }
+
+    /**
+     * D8: the status write and the end of the old decision's e-mails are
+     * one unit of work. The planned e-mail is cancelled, and the count
+     * comes back to the caller for its journal entry.
+     */
+    public function testUpdateStatusSupersedesTheOldDecisionsEmails(): void
+    {
+        $id = $this->repository->create($this->scoutYearId, $this->sampleFields(), null, [])['id'];
+        $this->repository->updateStatus($id, 'accepted', null);
+        $emails = new DecisionEmailRepository($this->pdo);
+        $now = new \DateTimeImmutable();
+        $sent = RegistrationTestHelper::recordDecisionEmailSent($this->pdo, $id, 'accepted');
+        $planned = (int) $emails->insert($id, 'accepted', 'scheduled', $now->modify('+1 day'), 2, true, $now);
+
+        $this->assertSame(1, $this->repository->updateStatus($id, 'refused', $now));
+
+        $this->assertSame('cancelled', $emails->findById($planned)?->state);
+        $this->assertSame('sent', $emails->findById($sent)?->state);
+        $this->assertNotNull($emails->findById($sent)?->supersededAt);
+        $this->assertSame(0, $this->repository->updateStatus($id, 'pending', null));
+    }
+
+    /**
+     * What a request read carries: the first send of its CURRENT
+     * decision's e-mail, and nothing for an earlier decision — in a single
+     * read and in a list read alike.
+     */
+    public function testARequestCarriesOnlyItsCurrentDecisionsEmailDate(): void
+    {
+        $toldThenRefused = $this->repository->create($this->scoutYearId, $this->sampleFields(), null, [])['id'];
+        $this->repository->updateStatus($toldThenRefused, 'accepted', null);
+        RegistrationTestHelper::recordDecisionEmailSent(
+            $this->pdo,
+            $toldThenRefused,
+            'accepted',
+            new \DateTimeImmutable('2026-09-01 08:00:00')
+        );
+        $told = $this->repository->create(
+            $this->scoutYearId,
+            $this->sampleFields(['child_first_name' => 'Noa', 'email' => 'noa@example.com']),
+            null,
+            []
+        )['id'];
+        $this->repository->updateStatus($told, 'accepted', null);
+        RegistrationTestHelper::recordDecisionEmailSent(
+            $this->pdo,
+            $told,
+            'accepted',
+            new \DateTimeImmutable('2026-09-02 08:00:00')
+        );
+
+        $this->repository->updateStatus($toldThenRefused, 'refused', new \DateTimeImmutable());
+
+        $single = $this->repository->findById($toldThenRefused);
+        $this->assertNull($single?->decisionEmailSentAt);
+        $this->assertNull($single?->acceptedEmailSentAt(), 'an acceptance e-mail is shown only for an acceptance');
+        $this->assertNull($single?->refusedEmailSentAt());
+
+        $listed = [];
+        foreach ($this->repository->findAllForYear($this->scoutYearId) as $request) {
+            $listed[$request->id] = $request->decisionEmailSentAt?->format('Y-m-d H:i:s');
+        }
+        $this->assertSame([$toldThenRefused => null, $told => '2026-09-02 08:00:00'], $listed);
+        $this->assertSame(
+            '2026-09-02 08:00:00',
+            $this->repository->findById($told)?->acceptedEmailSentAt()?->format('Y-m-d H:i:s')
+        );
+    }
+
+    /**
+     * Encoding keeps an acceptance: its e-mail still announces the
+     * decision. A request linked from another state has changed decision,
+     * and what was written for the old one is obsolete — a refusal still
+     * planned is cancelled, not left to leave after the child was encoded.
+     */
+    public function testEncodingKeepsTheAcceptanceEmailsAndSupersedesAnyOther(): void
+    {
+        $emails = new DecisionEmailRepository($this->pdo);
+        $now = new \DateTimeImmutable();
+
+        $accepted = $this->repository->create($this->scoutYearId, $this->sampleFields(), null, [])['id'];
+        $this->repository->updateStatus($accepted, 'accepted', null);
+        $told = RegistrationTestHelper::recordDecisionEmailSent($this->pdo, $accepted, 'accepted');
+        $member = RegistrationTestHelper::insertMember($this->pdo, 'D1');
+        $this->repository->linkToMemberAndEncode($accepted, $member, $now);
+        $this->assertTrue($emails->findById($told)?->isCurrent());
+        $this->assertNotNull($this->repository->findById($accepted)?->decisionEmailSentAt);
+
+        $refused = $this->repository->create(
+            $this->scoutYearId,
+            $this->sampleFields(['child_first_name' => 'Noa', 'email' => 'noa@example.com']),
+            null,
+            []
+        )['id'];
+        $this->repository->updateStatus($refused, 'refused', $now);
+        $planned = (int) $emails->insert($refused, 'refused', 'scheduled', $now->modify('+1 day'), 1, false, $now);
+        $member = RegistrationTestHelper::insertMember($this->pdo, 'D2');
+        $this->repository->linkToMemberAndEncode($refused, $member, $now);
+        $this->assertSame('cancelled', $emails->findById($planned)?->state);
+        $this->assertNull($emails->findActiveForRequest($refused));
+    }
+
+    /**
+     * R7: a request's decision e-mails go with it — explicitly, since the
+     * SQLite fixture does not enforce the schema's cascade.
+     */
+    public function testDeleteByIdTakesTheRequestsDecisionEmailsWithIt(): void
+    {
+        $gone = $this->repository->create($this->scoutYearId, $this->sampleFields(), null, [])['id'];
+        $this->repository->updateStatus($gone, 'refused', new \DateTimeImmutable());
+        RegistrationTestHelper::recordDecisionEmailSent($this->pdo, $gone, 'refused');
+
+        $this->repository->deleteById($gone);
+
+        $this->assertNull($this->repository->findById($gone));
+        $this->assertSame([], (new DecisionEmailRepository($this->pdo))->findForRequest($gone));
     }
 
     public function testCountAcceptedNotEncodedCountsOnlyAcceptedRequestsOfThoseYears(): void
@@ -499,6 +641,43 @@ class RegistrationRequestRepositoryTest extends TestCase
         $this->repository->updateStatus($id, 'refused', new \DateTimeImmutable(), 'full');
         $this->assertNull($this->repository->findById($id)?->refusalReason);
         $this->assertSame('refused', $this->repository->findById($id)?->status);
+    }
+
+    /**
+     * transactional() (issue #843, IT-04): the work commits as a whole, or
+     * a throw rolls all of it back and is rethrown; inside a transaction
+     * already open, it is that one that decides.
+     */
+    public function testTransactionalCommitsTheWholeWorkOrNoneOfIt(): void
+    {
+        $id = $this->repository->create($this->scoutYearId, $this->sampleFields(), null, [])['id'];
+
+        $this->repository->transactional(function () use ($id): void {
+            $this->repository->updateStatus($id, 'accepted', null);
+            $this->repository->updateInternalNotes($id, 'Gardée');
+        });
+        $this->assertSame('accepted', $this->repository->findById($id)?->status);
+        $this->assertSame('Gardée', $this->repository->findById($id)?->internalNotes);
+
+        try {
+            $this->repository->transactional(function () use ($id): void {
+                $this->repository->updateStatus($id, 'refused', new \DateTimeImmutable(), 'other');
+                throw new \RuntimeException('note write failed');
+            });
+            $this->fail('the failure was swallowed');
+        } catch (\RuntimeException $e) {
+            $this->assertSame('note write failed', $e->getMessage());
+        }
+        $this->assertSame('accepted', $this->repository->findById($id)?->status);
+        $this->assertFalse($this->pdo->inTransaction());
+
+        $this->pdo->beginTransaction();
+        $this->repository->transactional(function () use ($id): void {
+            $this->repository->updateInternalNotes($id, 'Dans la transaction ouverte');
+        });
+        $this->assertTrue($this->pdo->inTransaction(), 'an outer transaction is left for its owner to end');
+        $this->pdo->rollBack();
+        $this->assertSame('Gardée', $this->repository->findById($id)?->internalNotes);
     }
 
     /**

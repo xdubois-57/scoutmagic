@@ -64,6 +64,7 @@ import { answerConfirmation, waitForConfirmReady } from '../support/confirm-dial
 import { answerCookieBanner } from '../support/cookie-banner.js';
 import { loginAsAdmin } from '../support/admin-login.js';
 import { linkFromMail, waitForMail } from '../support/maildrop.js';
+import { closeModal, openModal } from '../support/modal.js';
 import { waitOutHumanCheckDelay } from '../support/human-check.js';
 
 const SETTINGS_PATH = '/config/inscriptions/reglages';
@@ -113,6 +114,7 @@ const CHILD_FIRST_NAME = `Zoé${Date.now() % 100000}`;
 const CHILD_LAST_NAME = 'Verstraeten';
 const PREVIOUS_UNIT = '57e Unité Saint-Michel, Etterbeek';
 const UNIT_COPY_EMAIL = 'unite-copie@example.invalid';
+const DECISION_NOTE = 'Fratrie à confirmer par téléphone.';
 
 test('a family registers a child, follows the mailed tracking link, and the admin\'s decisions surface exactly when they should', async ({ page, browser }) => {
     /** @type {string[]} */
@@ -313,21 +315,60 @@ test('a family registers a child, follows the mailed tracking link, and the admi
         }
 
         // ---------------------------------------------------------------
-        // The admin accepts — and the family must NOT see it yet: no
-        // acceptance-email body is written on this instance, so the
-        // decision stays invisible until that email really goes out.
+        // The admin accepts from the list's decision dialog (« Action
+        // rapide », issue #843 IT-04) — and the family must NOT see it
+        // yet: no acceptance-email body is written on this instance, so
+        // the decision stays invisible until that email really goes out.
+        //
+        // « Refuser » is tried first and taken back: it must ask for the
+        // reason before anything can be confirmed, and closing the dialog
+        // must put it back as it was. That half is the dialog's script,
+        // which only a browser under the real CSP runs.
         // ---------------------------------------------------------------
         await page.goto('/config/inscriptions/demandes', { waitUntil: 'domcontentloaded' });
+        const requestRow = page.getByRole('row', { name: new RegExp(CHILD_FIRST_NAME) });
+        const decide = requestRow.getByRole('button', { name: /^Décider/ });
+        // The dialog is one Bootstrap modal per request, opened through
+        // support/modal.js so nothing is aimed at it before Bootstrap says
+        // it is open (#520).
+        const dialogId = String(await decide.getAttribute('data-bs-target')).replace(/^#/, '');
+        let dialog = await openModal(page, dialogId, () => decide.click());
+        await expect(dialog.getByRole('heading', { name: `Décider — ${CHILD_FIRST_NAME} ${CHILD_LAST_NAME}` }))
+            .toBeVisible();
+        await expect(dialog.getByText('Aucun e-mail de décision ne peut partir', { exact: false })).toBeVisible();
+
+        await dialog.getByRole('button', { name: 'Refuser', exact: true }).click();
+        const confirmRefusal = dialog.getByRole('button', { name: 'Confirmer le refus' });
+        const reason = dialog.getByLabel('Motif du refus');
+        await expect(confirmRefusal).toBeVisible();
+        await reason.selectOption('');
+        await expect(confirmRefusal, 'no refusal without its reason').toBeDisabled();
+        await reason.selectOption('other');
+        await expect(confirmRefusal).toBeEnabled();
+        await closeModal(page, dialogId, () => dialog.getByRole('button', { name: 'Annuler' }).click());
+
+        dialog = await openModal(page, dialogId, () => decide.click());
+        await expect(dialog.getByRole('button', { name: 'Confirmer le refus' }), 'a closed dialog opens afresh')
+            .toBeHidden();
+        await dialog.getByLabel('Note interne').fill(DECISION_NOTE);
+        await dialog.getByRole('button', { name: 'Accepter', exact: true }).click();
+        await expect(
+            page.getByRole('alert').filter({ hasText: "Demande acceptée. Aucun e-mail n'est parti" }),
+            'the decision lands back on the list, and says that no e-mail left',
+        ).toBeVisible();
+        expect(new URL(page.url()).pathname).toBe('/config/inscriptions/demandes');
+
         await page.getByRole('row', { name: new RegExp(CHILD_FIRST_NAME) })
-            .getByRole('link', { name: 'Ouvrir' }).click();
+            .getByRole('link', { name: new RegExp(CHILD_FIRST_NAME) }).click();
         await page.waitForURL(/\/config\/inscriptions\/demandes\/\d+$/, { waitUntil: 'domcontentloaded' });
 
         await expect(page.getByText(CHILD_LAST_NAME).first()).toBeVisible();
         // What the family answered about a previous unit reaches the
         // fiche the chief encodes from, not just the database.
         await expect(page.getByText(`Oui — ${PREVIOUS_UNIT}`)).toBeVisible();
-        await page.getByRole('button', { name: 'Accepter', exact: true }).click();
-        await page.waitForURL(/\/config\/inscriptions\/demandes\/\d+$/, { waitUntil: 'domcontentloaded' });
+        // The note written in the dialog is the fiche's own.
+        await expect(page.getByLabel('Notes internes')).toHaveValue(DECISION_NOTE);
+        await expect(page.getByText('Acceptée', { exact: true })).toBeVisible();
 
         await expect(page.getByText('visible par la famille comme « en attente »')).toBeVisible();
         await expect(
