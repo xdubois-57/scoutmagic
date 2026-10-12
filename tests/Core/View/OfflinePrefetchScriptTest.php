@@ -104,7 +104,7 @@ class OfflinePrefetchScriptTest extends TestCase
 
     public function testA304RefreshesTheCachedDateInsteadOfRedownloading(): void
     {
-        $body = $this->swFunction('refreshPage(cache, path, startedAt, scope)');
+        $body = $this->swFunction('stampedAnswer(response, cached, scope)');
 
         $this->assertStringContainsString('response.status === 304', $body);
         $this->assertStringContainsString('stamped(cached, true)', $body);

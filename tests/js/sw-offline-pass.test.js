@@ -213,6 +213,49 @@ describe('sw.js: refreshOfflineCopies() — the pass (#883)', () => {
         expect(done.completedAt).toBeTypeOf('number');
     });
 
+    // An answer that stores nothing is a failure too, not a skip: a 500,
+    // or the login page a session that ended redirects to.
+    it('is not done when a page answered with an error or a redirect', async () => {
+        await seed();
+        serve({
+            '/api/offline/manifest': manifest(['/', '/account']),
+            '/': html('Accueil'),
+            '/account': () => redirected(html('Connexion')),
+        });
+
+        expect(await sw.refreshOfflineCopies()).toBe(false);
+        expect((await readPass()).completedAt).toBeNull();
+
+        serve({
+            '/api/offline/manifest': manifest(['/', '/contact']),
+            '/contact': new Response('Erreur', { status: 500 }),
+        });
+        expect(await sw.refreshOfflineCopies()).toBe(false);
+    });
+
+    // Signed out and back in as someone else while a pass ran: the new
+    // account's request starts its own pass instead of taking the other's.
+    it('never lets another account join a pass that is running', async () => {
+        await seed();
+        let release;
+        serve({
+            '/api/offline/manifest': manifest(['/']),
+            '/': () => new Promise((resolve) => { release = () => resolve(html('Accueil de a')); }),
+        });
+        const first = sw.refreshOfflineCopies();
+        await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+
+        await seed({ ...CONFIG, account_scope: 'b' });
+        const asked = serve({ '/api/offline/manifest': manifest(['/'], [], { 'X-Offline-Scope': 'b' }), '/': html('Accueil de b', { 'X-Offline-Scope': 'b' }) });
+        const second = sw.refreshOfflineCopies();
+
+        expect(second).not.toBe(first);
+        expect(await second).toBe(true);
+        expect(asked).toContain('/api/offline/manifest');
+        release();
+        await first;
+    });
+
     it('resumes an interrupted pass, asking only for what it has not stored yet', async () => {
         const startedAt = Date.now() - 60 * 1000;
         await seed(CONFIG, { [sw.PASS_URL]: { scope: 'a', version: '1', startedAt, completedAt: null } });
@@ -291,16 +334,25 @@ describe('sw.js: announcePassDone() — every window hears that the pass finishe
         const matchAll = vi.fn(async () => windows);
         self.clients = /** @type {any} */ ({ matchAll });
 
-        await sw.announcePassDone();
+        // The pass's own record, never the configuration current when it
+        // ends: another account may have signed in since.
+        await seed({ ...CONFIG, account_scope: 'b' });
+        await sw.announcePassDone({ scope: 'a', version: '1' });
 
         expect(matchAll).toHaveBeenCalledWith({ type: 'window', includeUncontrolled: true });
         windows.forEach((client) => {
             expect(client.postMessage).toHaveBeenCalledWith({ type: 'offline-refresh-done', scope: 'a|1' });
         });
+        delete self.clients;
     });
 });
 
 describe('sw.js: adoptPreviousVersion() — an update no longer starts from nothing (#883)', () => {
+    // What account a's list holds: what an update may carry over.
+    beforeEach(async () => {
+        await seed(CONFIG, { [sw.LIST_URL]: { scope: 'a', pages: ['/', '/contact'], last: [] } });
+    });
+
     it('carries the previous version\'s copies over, dates intact, and drops the old cache', async () => {
         const date = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toUTCString();
         await (await caches.open('content-a-1')).put('/contact', html('Contact', { Date: date }));
@@ -340,6 +392,32 @@ describe('sw.js: adoptPreviousVersion() — an update no longer starts from noth
         await sw.adoptPreviousVersion('a', '2');
 
         expect(stored('content-a-2')).toEqual(['/contact']);
+        expect(caches.stores.has('content-a-1')).toBe(false);
+    });
+
+    // A previous build kept pages under broader rules — another member's
+    // fiche under « /members/ ». The new list never named it: it is not
+    // carried over, and nor is an image no kept page shows.
+    it('carries over only what the account\'s list holds, and the images its pages show', async () => {
+        const previous = await caches.open('content-a-1');
+        await previous.put('/contact', html('<img src="/files/5/md" alt="">'));
+        await previous.put('/files/5/md', new Response('webp-5'));
+        await previous.put('/members/99', html('Une autre fiche'));
+        await previous.put('/files/9/thumb', new Response('plus montrée'));
+
+        await sw.adoptPreviousVersion('a', '2');
+
+        expect(stored('content-a-2')).toEqual(['/contact', '/files/5/md']);
+        expect(caches.stores.has('content-a-1')).toBe(false);
+    });
+
+    it('carries nothing over before the account has a list, and still drops the old cache', async () => {
+        await seed(CONFIG, { [sw.LIST_URL]: { scope: 'b', pages: ['/contact'], last: [] } });
+        await (await caches.open('content-a-1')).put('/contact', html('Contact'));
+
+        await sw.adoptPreviousVersion('a', '2');
+
+        expect(stored('content-a-2')).toEqual([]);
         expect(caches.stores.has('content-a-1')).toBe(false);
     });
 

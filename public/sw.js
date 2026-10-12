@@ -323,15 +323,39 @@ function adoptPreviousVersion(scope, version) {
         if (previous.length === 0) {
             return undefined;
         }
-        // caches.keys() lists by creation, oldest first.
-        const copy = previous.slice().reverse().reduce(function (done, name) {
-            return done.then(function () { return copyCache(name, current); });
-        }, Promise.resolve());
-
-        return copy.then(function () {
+        return readEntry(LIST_URL).catch(function () { return null; }).then(function (list) {
+            return adoptListed(previous, current, list?.scope === scope ? list : null);
+        }).then(function () {
             return Promise.all(previous.map(function (name) { return caches.delete(name); }));
         });
     }).then(function () {});
+}
+
+/**
+ * The previous copies carried into $current, then pruned to $list: what
+ * the account's list holds and the images its pages show, never a page a
+ * previous build kept under a broader rule. No list stored for this
+ * account yet: nothing is adopted — the first pass fills the cache.
+ *
+ * @param {string[]} previous
+ * @param {string} current
+ * @param {{pages: string[], last: string[]}|null} list
+ * @returns {Promise<unknown>}
+ */
+function adoptListed(previous, current, list) {
+    if (!list) {
+        return Promise.resolve();
+    }
+    // caches.keys() lists by creation, oldest first.
+    const copy = previous.slice().reverse().reduce(function (done, name) {
+        return done.then(function () { return copyCache(name, current); });
+    }, Promise.resolve());
+
+    return copy.then(function () {
+        return caches.open(current);
+    }).then(function (cache) {
+        return pruneCopies(cache, list.pages.concat(list.last));
+    });
 }
 
 function copyCache(from, to) {
@@ -492,10 +516,9 @@ self.addEventListener('message', function (event) {
         // with consent, once per launch). Run here rather than in the page
         // so that moving to another page of the app does not interrupt it.
         // The configuration that page just sent is written first.
+        // A finished pass announces itself (settlePass()).
         event.waitUntil(lastConfigWrite.then(function () {
             return refreshOfflineCopies();
-        }).then(function (done) {
-            return done ? announcePassDone() : undefined;
         }).catch(function () {}));
     }
 });
@@ -508,17 +531,21 @@ self.addEventListener('message', function (event) {
  * on this message (offline-prefetch.js). Missed, every later page of the
  * launch would start a whole pass again.
  *
- * The scope says whose pass it was: a window of another account ignores it.
+ * The scope is the pass's own — whose pages it downloaded — never the
+ * configuration current when it ends: a window of another account ignores
+ * it.
  *
+ * @param {{scope: string, version: string}} record
  * @returns {Promise<void>}
  */
-function announcePassDone() {
-    return getOfflineConfig().then(function (config) {
-        const scope = String(config?.account_scope) + '|' + String(config?.version);
-        return self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function (windows) {
-            windows.forEach(function (client) {
-                client.postMessage({ type: 'offline-refresh-done', scope: scope });
-            });
+function announcePassDone(record) {
+    const scope = record.scope + '|' + record.version;
+    if (!self.clients) {
+        return Promise.resolve();
+    }
+    return self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function (windows) {
+        windows.forEach(function (client) {
+            client.postMessage({ type: 'offline-refresh-done', scope: scope });
         });
     });
 }
@@ -529,7 +556,7 @@ function announcePassDone() {
  * The pass running now, if one is: a second request while it runs joins
  * it rather than starting another.
  *
- * @type {Promise<boolean>|null}
+ * @type {{key: string, promise: Promise<boolean>}|null}
  */
 let passInFlight = null;
 
@@ -555,18 +582,35 @@ let passInFlight = null;
  * @returns {Promise<boolean>} whether a pass ran to its end
  */
 function refreshOfflineCopies() {
-    if (passInFlight !== null) {
-        return passInFlight;
+    return getOfflineConfig().catch(function () { return null; }).then(function (config) {
+        return joinOrRunPass(config);
+    });
+}
+
+/**
+ * The pass running for this configuration's account and version, joined;
+ * else a new one. A pass started for another account — signed out and
+ * back in as someone else while it ran — is never joined: its end would
+ * be taken for this account's.
+ *
+ * @returns {Promise<boolean>}
+ */
+function joinOrRunPass(config) {
+    const key = String(config?.account_scope) + '|' + String(config?.version);
+    if (passInFlight !== null && passInFlight.key === key) {
+        return passInFlight.promise;
     }
-    passInFlight = getOfflineConfig().catch(function () { return null; }).then(function (config) {
-        return runPassIfAllowed(config);
-    }).catch(function () {
+    const pass = { key: key, promise: Promise.resolve(false) };
+    pass.promise = runPassIfAllowed(config).catch(function () {
         return false;
     }).finally(function () {
-        passInFlight = null;
+        if (passInFlight === pass) {
+            passInFlight = null;
+        }
     });
+    passInFlight = pass;
 
-    return passInFlight;
+    return pass.promise;
 }
 
 /**
@@ -659,7 +703,9 @@ function settlePass(record, failed) {
         return Promise.resolve(false);
     }
     record.completedAt = Date.now();
-    return storeEntry(PASS_URL, record).then(function () { return true; });
+    return storeEntry(PASS_URL, record).then(function () {
+        return announcePassDone(record).catch(function () {});
+    }).then(function () { return true; });
 }
 
 /**
@@ -778,20 +824,35 @@ function refreshPage(cache, path, startedAt, scope) {
         if (!response) {
             return undefined;
         }
-        const served = response.headers.get('X-Offline-Scope');
-        if (served !== null && served !== scope) {
-            return undefined;
-        }
-        if (response.status === 304 && cached) {
-            return stamped(cached, true);
-        }
-        if (response.ok && !response.redirected) {
-            return stamped(response, false);
-        }
-        return undefined;
+        return stampedAnswer(response, cached, scope);
     }).then(function (copy) {
         return copy ? cache.put(path, copy) : undefined;
     });
+}
+
+/**
+ * The copy to store for a page's answer. An answer that stores nothing —
+ * another account's page, an error, a redirect (the login page answering
+ * for a session that ended) — rejects: inLanes() counts it, and a pass
+ * with one is not done (settlePass()).
+ *
+ * @param {Response} response
+ * @param {Response|undefined} cached
+ * @param {string} scope
+ * @returns {Promise<Response>}
+ */
+function stampedAnswer(response, cached, scope) {
+    const served = response.headers.get('X-Offline-Scope');
+    if (served !== null && served !== scope) {
+        return Promise.reject(new Error('Served to another account'));
+    }
+    if (response.status === 304 && cached) {
+        return stamped(cached, true);
+    }
+    if (response.ok && !response.redirected) {
+        return stamped(response, false);
+    }
+    return Promise.reject(new Error('Not stored: ' + response.status));
 }
 
 /**
@@ -839,7 +900,8 @@ function fetchMissingImages(cache, images, scope) {
             if (response.ok && !response.redirected && (served === null || served === scope)) {
                 return cache.put(url, response);
             }
-            return undefined;
+            // Stored nothing: counted, like a refreshed page (stampedAnswer()).
+            return Promise.reject(new Error('Not stored: ' + response.status));
         });
     });
 }
