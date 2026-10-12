@@ -3,7 +3,7 @@
 // decides WHEN the installed app's offline copies are refreshed, and asks
 // the worker to do it (#883). The work itself — pages, images, help,
 // pruning — is public/sw.js's refreshOfflineCopies(), covered in
-// tests/js/sw.test.js.
+// tests/js/sw-offline-pass.test.js.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 function config(overrides = {}) {

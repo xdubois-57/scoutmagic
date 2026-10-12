@@ -40,7 +40,11 @@ final class LinkedMemberPages implements OfflinePageProvider
         $scoutYearId = $this->scoutYearService->getEffectiveYear(ScoutYearSession::getPreviewId(), $role)->id;
         $members = $this->excludeTemporaryMember($this->memberService->getLinkedMembers($email, $scoutYearId), $email);
 
-        return array_values(array_map(static fn (MemberProfile $m): string => '/members/' . $m->memberId, $members));
+        // The fiche is named after the member's year (MemberController::show()).
+        return array_values(array_map(
+            static fn (MemberProfile $member): string => '/members/' . $member->memberYearId,
+            $members
+        ));
     }
 
     /**

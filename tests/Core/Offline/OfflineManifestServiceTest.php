@@ -106,6 +106,7 @@ class OfflineManifestServiceTest extends TestCase
         ];
     }
 
+    /** @return int the member_years id, which is what /members/{id} names */
     private function createLinkedMember(string $email, string $deskId): int
     {
         $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('{$deskId}')");
@@ -128,7 +129,7 @@ class OfflineManifestServiceTest extends TestCase
         $stmt = $this->pdo->prepare('INSERT INTO member_functions (member_year_id, function_id, section_id, is_main_function) VALUES (?, ?, ?, 1)');
         $stmt->execute([$memberYearId, $functionId, $this->sectionId]);
 
-        return $memberId;
+        return $memberYearId;
     }
 
     // --- RBAC boundaries ---
@@ -172,8 +173,14 @@ class OfflineManifestServiceTest extends TestCase
 
     // --- The fiches of the linked members, and of nobody else ---
 
+    /**
+     * /members/{id} names a member_years row, not a member (MemberController::show()).
+     * A member with no year of their own comes first, so that the two ids
+     * differ and a page named after the wrong one cannot pass for right.
+     */
     public function testEachLinkedMembersOwnFicheIsHeld(): void
     {
+        $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('DESK0')");
         $first = $this->createLinkedMember('parent@test.example', 'DESK1');
         $second = $this->createLinkedMember('parent@test.example', 'DESK2');
         $this->createLinkedMember('other@test.example', 'DESK3');
