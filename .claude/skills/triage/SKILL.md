@@ -1,12 +1,41 @@
 ---
 name: triage
-description: How to triage one issue on this repository — search for a duplicate, read the reported area against the actual code, and return one verdict (a comment in the reporter's language plus the verdict that decides the labels). The workflow applies it; the agent writes nothing itself. Invoked by .github/workflows/issue-triage.yml on every issue opened or reopened, and again when a reporter answers a bug:needs-info question. AGENTS.md, ARCHITECTURE.md and SECURITY.md remain the source of truth for the code itself.
+description: How to triage one issue on this repository — search for a duplicate, read the reported area against the actual code, and return one verdict and an S/M/L/unknown effort estimate (the comment and label decision remain independent). The workflow applies it; the agent writes nothing itself. Invoked by .github/workflows/issue-triage.yml on every issue opened or reopened, and again when a reporter answers a bug:needs-info question. AGENTS.md, ARCHITECTURE.md and SECURITY.md remain the source of truth for the code itself.
 ---
 
 # Triaging an issue
 
-An issue arrived. Your job is to decide what it is, say so once, and leave
-the labels in a state a human can act on. Nothing else.
+An issue arrived. Your job is to decide what it is, say so once, leave
+the labels in a state a human can act on, and estimate the implementation
+effort for the maintainer. The effort is planning metadata, NOT a verdict.
+
+## Estimate the effort for GitHub Projects
+
+Return an `effort` value with every verdict. Use exactly one of `S`, `M`,
+`L` or `unknown`. This is **technical implementation effort**, not urgency,
+impact, acceptance, or priority. Look at the code, tests, migrations,
+integration points and the change the ticket actually requires.
+
+- **S** — localised change, a few hours including its focused tests.
+- **M** — several files/components, roughly one to a few days including tests.
+- **L** — cross-module or architectural work, a sizeable migration, or
+  multi-stage work taking several days or more.
+- **unknown** — insufficient information to scope a real change, no work to
+  implement (`bug:not-a-bug` with no follow-up), or a security report whose
+  details must stay private. Never invent confidence.
+
+Estimate a feature request's *need*, not an implementation the reporter
+dreamed up. For `bug:needs-info`, `unknown` is appropriate unless the
+specific code change and its scope are already clear. If the issue is
+re-triaged, give a fresh estimate; the workflow does NOT replace a value
+someone already entered into the Project.
+
+The workflow alone writes an **unset** single-select `Effort` field on
+ScoutMagic Project #1. Never put the estimate into the reporter's public
+triage comment, never invent a GitHub label, never change
+`status:accepted` or the issue's status, and never choose a priority.
+You have no Project write tools or project token: return the schema's
+`effort` enum and let the trusted workflow apply it after the verdict.
 
 ## What you can and cannot do
 
