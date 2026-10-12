@@ -58,6 +58,7 @@ import { answerConfirmation, waitForConfirmReady } from '../support/confirm-dial
 import { answerCookieBanner } from '../support/cookie-banner.js';
 import { loginAsAdmin } from '../support/admin-login.js';
 import { linkFromMail, waitForMail } from '../support/maildrop.js';
+import { closeModal, openModal } from '../support/modal.js';
 import { waitOutHumanCheckDelay } from '../support/human-check.js';
 
 const SETTINGS_PATH = '/config/inscriptions/reglages';
@@ -303,9 +304,13 @@ test('a family registers a child, follows the mailed tracking link, and the admi
         await page.goto('/config/inscriptions/demandes', { waitUntil: 'domcontentloaded' });
         const requestRow = page.getByRole('row', { name: new RegExp(CHILD_FIRST_NAME) });
         const decide = requestRow.getByRole('button', { name: /^Décider/ });
-        const dialog = page.getByRole('dialog', { name: `Décider — ${CHILD_FIRST_NAME} ${CHILD_LAST_NAME}` });
-        await decide.click();
-        await expect(dialog).toBeVisible();
+        // The dialog is one Bootstrap modal per request, opened through
+        // support/modal.js so nothing is aimed at it before Bootstrap says
+        // it is open (#520).
+        const dialogId = String(await decide.getAttribute('data-bs-target')).replace(/^#/, '');
+        let dialog = await openModal(page, dialogId, () => decide.click());
+        await expect(dialog.getByRole('heading', { name: `Décider — ${CHILD_FIRST_NAME} ${CHILD_LAST_NAME}` }))
+            .toBeVisible();
         await expect(dialog.getByText('Aucun e-mail de décision ne peut partir', { exact: false })).toBeVisible();
 
         await dialog.getByRole('button', { name: 'Refuser', exact: true }).click();
@@ -316,12 +321,11 @@ test('a family registers a child, follows the mailed tracking link, and the admi
         await expect(confirmRefusal, 'no refusal without its reason').toBeDisabled();
         await reason.selectOption('other');
         await expect(confirmRefusal).toBeEnabled();
-        await dialog.getByRole('button', { name: 'Annuler' }).click();
-        await expect(dialog).toBeHidden();
+        await closeModal(page, dialogId, () => dialog.getByRole('button', { name: 'Annuler' }).click());
 
-        await decide.click();
-        await expect(dialog).toBeVisible();
-        await expect(dialog.getByRole('button', { name: 'Confirmer le refus' })).toBeHidden();
+        dialog = await openModal(page, dialogId, () => decide.click());
+        await expect(dialog.getByRole('button', { name: 'Confirmer le refus' }), 'a closed dialog opens afresh')
+            .toBeHidden();
         await dialog.getByLabel('Note interne').fill(DECISION_NOTE);
         await dialog.getByRole('button', { name: 'Accepter', exact: true }).click();
         await expect(
