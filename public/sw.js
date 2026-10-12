@@ -225,6 +225,10 @@ const PASS_URL = 'https://offline-config.internal/pass';
 // a server clock that drifts cannot make a copy look done or undone.
 const STORED_AT_HEADER = 'X-Offline-Stored-At';
 const PASS_CONCURRENCY = 2;
+// How long an unfinished pass is resumed rather than started again: long
+// enough to cover an app closed mid-pass and reopened, short enough that a
+// pass which keeps failing does not keep its first copies unchecked.
+const PASS_RESUME_WITHIN_MS = 60 * 60 * 1000;
 const MANIFEST_URL = '/api/offline/manifest';
 const IMAGE_VARIANT_PATH = /^\/files\/\d+\/(thumb|md)$/;
 
@@ -650,7 +654,10 @@ function passFrom(list, previous, cache, scope, version) {
     if (!list) {
         return Promise.resolve(false);
     }
-    const resuming = previous?.scope === scope && previous.version === version && !previous.completedAt;
+    // Resumed only while recent: a pass that keeps failing stays open, and
+    // resuming it for ever would never re-ask a page stamped early in it.
+    const resuming = previous?.scope === scope && previous.version === version && !previous.completedAt
+        && Date.now() - Number(previous.startedAt) < PASS_RESUME_WITHIN_MS;
     const startedAt = resuming ? Number(previous.startedAt) : Date.now();
     const record = { scope: scope, version: version, startedAt: startedAt, completedAt: null };
 

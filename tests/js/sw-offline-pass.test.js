@@ -256,6 +256,23 @@ describe('sw.js: refreshOfflineCopies() — the pass (#883)', () => {
         await first;
     });
 
+    // A pass left open for hours — one that keeps failing — is started
+    // again, so a page stamped early in it is asked again too.
+    it('starts again rather than resume a pass left open for more than an hour', async () => {
+        const startedAt = Date.now() - 2 * 60 * 60 * 1000;
+        await seed(CONFIG, { [sw.PASS_URL]: { scope: 'a', version: '1', startedAt, completedAt: null } });
+        await (await caches.open('content-a-1')).put('/', html('Ancienne', { [sw.STORED_AT_HEADER]: String(startedAt + 1000) }));
+        const asked = serve({
+            '/api/offline/manifest': manifest(['/']),
+            '/': html('Accueil'),
+        });
+
+        expect(await sw.refreshOfflineCopies()).toBe(true);
+
+        expect(asked).toContain('/');
+        expect((await readPass()).startedAt).toBeGreaterThan(startedAt);
+    });
+
     it('resumes an interrupted pass, asking only for what it has not stored yet', async () => {
         const startedAt = Date.now() - 60 * 1000;
         await seed(CONFIG, { [sw.PASS_URL]: { scope: 'a', version: '1', startedAt, completedAt: null } });

@@ -143,6 +143,17 @@ class OfflineManifestServiceTest extends TestCase
         $this->assertContains('/aide/installer-application', $manifest['last']);
     }
 
+    /**
+     * The assistant's page, a reserved id no topic lists, is held from
+     * chief up — the role its route requires — and for nobody below.
+     */
+    public function testTheAssistantPageIsHeldForAChiefAndNotForAMember(): void
+    {
+        $this->assertContains('/aide/assistant', $this->buildService()->buildManifest(Role::CHIEF, null)['last']);
+        $this->assertNotContains('/aide/assistant', $this->buildService()->buildManifest(Role::IDENTIFIED, null)['last']);
+        $this->assertNotContains('/aide/assistant', $this->buildService()->buildManifest(Role::PUBLIC, null)['last']);
+    }
+
     public function testGuestNeverGetsAMemberPageEvenIfSomehowGivenAnEmail(): void
     {
         $this->createLinkedMember('parent@test.example', 'DESK1');
