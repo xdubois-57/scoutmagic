@@ -131,6 +131,46 @@ GRAPHQL
   fi
 fi
 
+
+# Read the item again immediately before writing, including when it was just
+# added: auto-add workflows or Project default values may have populated it
+# since the initial snapshot. A maintainer's value always takes precedence.
+item_query=$(cat <<'GRAPHQL'
+query($item: ID!) {
+  node(id: $item) {
+    ... on ProjectV2Item {
+      id
+      fieldValues(first: 100) {
+        pageInfo { hasNextPage }
+        nodes {
+          ... on ProjectV2ItemFieldSingleSelectValue {
+            optionId
+            field { ... on ProjectV2SingleSelectField { id } }
+          }
+        }
+      }
+    }
+  }
+}
+GRAPHQL
+)
+current="$(gh api graphql -f query="$item_query" -f item="$item_id")"
+if [ "$(jq -r '.data.node.id // empty' <<< "$current")" != "$item_id" ]; then
+  echo "Could not re-read project item $item_id; refusing to change Effort." >&2
+  exit 1
+fi
+if [ "$(jq -r '.data.node.fieldValues.pageInfo.hasNextPage' <<< "$current")" != false ]; then
+  echo "Cannot safely inspect every current field value." >&2
+  exit 1
+fi
+current_effort="$(jq -r --arg field "$field_id" \
+  '.data.node.fieldValues.nodes[]? | select(.field.id == $field) | .optionId // empty' \
+  <<< "$current")"
+if [ -n "$current_effort" ]; then
+  echo "Issue #$issue has acquired an Effort value; leaving it unchanged."
+  exit 0
+fi
+
 mutation=$(cat <<'GRAPHQL'
 mutation($project: ID!, $item: ID!, $field: ID!, $option: String!) {
   updateProjectV2ItemFieldValue(input: {
