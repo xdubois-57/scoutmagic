@@ -724,6 +724,31 @@ class RegistrationRequestRepository
     }
 
     /**
+     * Runs $work in one transaction on this repository's connection — or
+     * inside the one already open, which then decides. What the decision
+     * dialog needs (Service\RequestDecisionService::decide()): its status
+     * and its note land together or not at all.
+     *
+     * @param callable(): void $work
+     */
+    public function transactional(callable $work): void
+    {
+        if ($this->pdo->inTransaction()) {
+            $work();
+            return;
+        }
+
+        $this->pdo->beginTransaction();
+        try {
+            $work();
+            $this->pdo->commit();
+        } catch (\Throwable $e) {
+            $this->pdo->rollBack();
+            throw $e;
+        }
+    }
+
+    /**
      * Chiffré au repos, jamais journalisé (module spec's own stricter
      * privacy rule for this one field — Controller\
      * RegistrationRequestController::saveNotes() never logs its content,

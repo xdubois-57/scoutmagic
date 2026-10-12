@@ -1,0 +1,118 @@
+{# The decision dialogs of the « Action rapide » column (issue #843, IT-04):
+   one Bootstrap modal per pending request of a year still open to a
+   decision, opened by its row's « Décider » button through Bootstrap's own
+   data API, posted to /config/inscriptions/demandes/{id}/decision
+   (Controller\RequestDecisionController). Nothing on a past year (R8).
+
+   The recommendation and its explanation show only while waitlists are
+   managed — `decision.show_recommendation` — and nowhere but here: never on
+   a page a family can open. « Refuser » does not refuse: it shows the
+   reason and turns into « Confirmer le refus », disabled until a reason is
+   chosen (public/assets/js/registration-decide-dialog.js) — the dialog is
+   the refusal's confirmation, and the server refuses a refusal without a
+   valid reason anyway. The reason is preset to « Pas de place » when the
+   recommendation says Non.
+
+   Requires `request_rows`, `decision`, `status_filter` and `search`. #}
+{% if decision.decidable %}
+    {% for row in request_rows|filter(row => row.request.status == 'pending') %}
+        {% set r = row.request %}
+        {% set recommendation = decision.recommendations[r.id] ?? null %}
+        {% embed 'partials/modal.html.twig' with {
+            id: 'decide-' ~ r.id,
+            title: 'Décider — ' ~ r.childFirstName ~ ' ' ~ r.childLastName,
+            r: r,
+            row: row,
+            recommendation: recommendation,
+            decision: decision,
+            status_filter: status_filter,
+            search: search,
+        } only %}
+            {% block body %}
+                <form method="post" action="/config/inscriptions/demandes/{{ r.id }}/decision"
+                      id="decide-form-{{ r.id }}" data-decide-form>
+                    {{ csrf_field()|raw }}
+                    {# The list the dialog was opened from, to come back to. #}
+                    <input type="hidden" name="list_status" value="{{ status_filter }}">
+                    <input type="hidden" name="list_q" value="{{ search }}">
+                    {# The note as displayed: left untouched, it must not
+                       overwrite one saved on the fiche since this page was
+                       loaded (RequestDecisionService::decide()). #}
+                    <input type="hidden" name="internal_notes_shown" value="{{ r.internalNotes }}">
+
+                    <p class="small text-body-secondary mb-3">
+                        {{ row.slot_label }} · {{ row.intended_section_label ?? 'section prévue non définie' }} · reçue le {{ r.receivedAt|french_date }}
+                    </p>
+
+                    {% if decision.show_recommendation %}
+                        {% set tone = {
+                            yes: 'bg-success-subtle border-success-subtle text-success-emphasis',
+                            maybe: 'bg-warning-subtle border-warning-subtle text-warning-emphasis',
+                            no: 'bg-danger-subtle border-danger-subtle text-danger-emphasis',
+                        }[(recommendation.level ?? '')] ?? 'bg-body-tertiary' %}
+                        <div class="border rounded p-3 mb-3 {{ tone }}" data-decide-recommendation="{{ recommendation.level ?? 'none' }}">
+                            <div class="small fw-semibold text-uppercase mb-1">Recommandation</div>
+                            <div class="small">{{ recommendation ? recommendation.explanation : 'Pas de recommandation pour cette demande.' }}</div>
+                        </div>
+                        {% if recommendation and recommendation.duplicateOfRequestId %}
+                            <div class="alert alert-warning small mb-3">
+                                Doublon possible de la demande #{{ recommendation.duplicateOfRequestId }} : même enfant, même date de naissance.
+                            </div>
+                        {% endif %}
+                    {% endif %}
+
+                    {% include 'partials/form_field.html.twig' with {
+                        field_id: 'decide-note-' ~ r.id,
+                        field_name: 'internal_notes',
+                        label: 'Note interne',
+                        type: 'textarea',
+                        rows: 3,
+                        value: r.internalNotes,
+                        placeholder: "Visible par le Staff d'U seulement",
+                    } only %}
+
+                    <div hidden data-decide-reason>
+                        {% include '@registration/_refusal_reason_field.html.twig' with {
+                            field_id: 'decide-reason-' ~ r.id,
+                            in_dialog: true,
+                            selected: (recommendation.level ?? '') == 'no' ? 'no_room' : '',
+                        } only %}
+                    </div>
+
+                    {# « Un e-mail va-t-il partir ? » (D8). Never on its own
+                       yet: the decision e-mails are sent by hand from the
+                       fiche, and not at all while their template is not
+                       written. #}
+                    <div class="rounded bg-body-tertiary p-3 small text-body-secondary">
+                        {% if not decision.accepted_email_ready and not decision.refused_email_ready %}
+                            Aucun e-mail de décision ne peut partir tant que les gabarits d'acceptation et de refus ne sont pas rédigés (voir <a href="/config/inscriptions/gabarits">Gabarits</a>). D'ici là, la famille voit toujours « en attente ».
+                        {% else %}
+                            <div>
+                                {% if decision.accepted_email_ready %}
+                                    Si vous acceptez : aucun e-mail ne part tout seul, vous l'envoyez depuis la fiche.
+                                {% else %}
+                                    Si vous acceptez : aucun e-mail ne peut partir tant que le gabarit d'acceptation n'est pas rédigé (voir <a href="/config/inscriptions/gabarits">Gabarits</a>). D'ici là, la famille voit toujours « en attente ».
+                                {% endif %}
+                            </div>
+                            <div class="mt-1">
+                                {% if decision.refused_email_ready %}
+                                    Si vous refusez : aucun e-mail ne part tout seul, vous l'envoyez depuis la fiche.
+                                {% else %}
+                                    Si vous refusez : aucun e-mail ne peut partir tant que le gabarit de refus n'est pas rédigé (voir <a href="/config/inscriptions/gabarits">Gabarits</a>). D'ici là, la famille voit toujours « en attente ».
+                                {% endif %}
+                            </div>
+                        {% endif %}
+                    </div>
+                </form>
+            {% endblock %}
+            {% block footer %}
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Annuler</button>
+                <button type="button" class="btn btn-outline-danger" data-decide-refuse>Refuser</button>
+                <button type="submit" form="decide-form-{{ r.id }}" name="decision" value="refuse"
+                        class="btn btn-danger" hidden disabled data-decide-refuse-confirm>Confirmer le refus</button>
+                <button type="submit" form="decide-form-{{ r.id }}" name="decision" value="accept"
+                        class="btn btn-primary">Accepter</button>
+            {% endblock %}
+        {% endembed %}
+    {% endfor %}
+{% endif %}

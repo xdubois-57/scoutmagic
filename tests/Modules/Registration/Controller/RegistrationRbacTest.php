@@ -30,6 +30,7 @@ use Core\View\EditableContentService;
 use Core\View\TwigFactory;
 use Modules\Registration\Controller\RegistrationConfigController;
 use Modules\Registration\Controller\RegistrationRequestController;
+use Modules\Registration\Controller\RequestDecisionController;
 use Modules\Registration\Repository\AgeBracketRepository;
 use Modules\Registration\Repository\RegistrationRequestRepository;
 use Modules\Registration\Repository\RegistrationYearCodeRepository;
@@ -60,6 +61,8 @@ class RegistrationRbacTest extends TestCase
     private Environment $twig;
     private RegistrationConfigController $configController;
     private RegistrationRequestController $requestController;
+    private RequestDecisionController $decisionController;
+    private RegistrationRequestRepository $requestRepository;
     private SettingService $settingService;
     private int $requestId;
 
@@ -139,10 +142,27 @@ class RegistrationRbacTest extends TestCase
         $twig->addGlobal('csp_nonce', 'test-nonce');
         $this->twig = $twig;
 
+        $decisionService = RegistrationTestHelper::decisionService(
+            $this->pdo,
+            $encryption,
+            $settingService,
+            $statusService,
+            new \Modules\Registration\Service\RequestEmailService(
+                $requestRepository,
+                $this->createStub(\Core\Mail\MailService::class),
+                $editableContentService,
+                $journalService,
+                'https://example.com',
+                'Unité Test'
+            )
+        );
+        $this->decisionController = new RequestDecisionController($twig, $requestRepository, $decisionService);
+        $this->requestRepository = $requestRepository;
         $this->configController = new RegistrationConfigController(
             $twig, $ageBracketRepository, $slotCapacityRepository, new RegistrationYearCodeRepository($this->pdo),
             $scoutYearResolver, $scoutYearService, $requestRepository, $slotService,
-            $sectionService, $editableContentService, $statusService, $journalService, $settingService,
+            $sectionService, $editableContentService, $statusService, $decisionService, $journalService,
+            $settingService,
             new \Modules\Registration\Service\RequestExportService(),
             new \Modules\Registration\Service\PriorityOrderService($settingService)
         );
@@ -266,6 +286,34 @@ class RegistrationRbacTest extends TestCase
     }
 
     /**
+     * The decision dialog's route (issue #843, IT-04) takes the role of the
+     * list it lives on: an admin decides — the request is accepted — and a
+     * chief, one rung below, is refused before anything changes. A valid
+     * token on both, so what answers is the role check.
+     */
+    public function testAdminMayDecideFromTheDialog(): void
+    {
+        AuthSession::login(1, 'admin@test.be', 'admin');
+
+        $response = $this->dispatchDecisionPost();
+
+        $this->assertSame(302, $response->getStatusCode(), (string) $response->getBody());
+        $this->assertSame('accepted', $this->requestRepository->findById($this->requestId)?->status);
+        $this->assertSame('Note du dialogue', $this->requestRepository->findById($this->requestId)?->internalNotes);
+    }
+
+    public function testOneRoleBelowMayNotDecideFromTheDialog(): void
+    {
+        AuthSession::login(1, 'chief@test.be', 'chief');
+
+        $response = $this->dispatchDecisionPost();
+
+        $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame('pending', $this->requestRepository->findById($this->requestId)?->status);
+        $this->assertNull($this->requestRepository->findById($this->requestId)?->internalNotes);
+    }
+
+    /**
      * The two pages issue #843 gave a full breadcrumb: a sub-page hangs
      * under « Formulaire d'inscription », the fiche under « Demandes » too,
      * each a real link (design.md §7.3), the menu label at the root.
@@ -380,6 +428,33 @@ class RegistrationRbacTest extends TestCase
         file_put_contents($configFile, "<?php\nreturn ['site_name' => 'Test', 'debug' => false];");
         $fc = new FrontController($router, $this->twig, new AppConfig($configFile));
         $fc->registerController(RegistrationConfigController::class, $this->configController);
+
+        return $fc->handle($request);
+    }
+
+    /**
+     * POSTs an acceptance from the decision dialog through the manifest's
+     * router and the real front controller.
+     */
+    private function dispatchDecisionPost(): \Core\Http\Response
+    {
+        $path = '/config/inscriptions/demandes/' . $this->requestId . '/decision';
+        $request = new Request('POST', $path, [], [
+            '_csrf_token' => \Core\Security\CsrfGuard::generateToken(),
+            'decision' => 'accept',
+            'internal_notes' => 'Note du dialogue',
+        ], [], []);
+
+        $router = $this->manifestRouter();
+        $resolved = $router->resolve($request);
+        $this->assertNotNull($resolved, 'the manifest declares POST /config/inscriptions/demandes/{id}/decision');
+        $this->assertSame(RequestDecisionController::class, $resolved->controllerClass);
+        $this->assertSame('decide', $resolved->action);
+
+        $configFile = sys_get_temp_dir() . '/test_registration_config_' . uniqid() . '.php';
+        file_put_contents($configFile, "<?php\nreturn ['site_name' => 'Test', 'debug' => false];");
+        $fc = new FrontController($router, $this->twig, new AppConfig($configFile));
+        $fc->registerController(RequestDecisionController::class, $this->decisionController);
 
         return $fc->handle($request);
     }

@@ -1,0 +1,48 @@
+{# The reason a refusal carries (issue #843 D6) — « Pas de place » or
+   « Autre » — written once for the three places that refuse:
+
+   - inside an inline « Refuser » form, the fiche's (request_detail.html.twig)
+     and « Tout refuser » (config/_non_final.html.twig): a compact select,
+     its label visually hidden, none chosen in advance and `required`, so
+     the browser refuses to send the form without one;
+   - in the decision dialog (config/_decide_dialogs.html.twig, `in_dialog`):
+     a labelled field with its help, hidden until « Refuser » is pressed —
+     never `required` there, since a hidden invalid field would block
+     « Accepter » too — `selected` presetting a reason, and
+     registration-decide-dialog.js keeping « Confirmer le refus » disabled
+     without one.
+
+   RequestStatusService::refuse() refuses a refusal without a valid reason
+   on the server anyway. Requires `field_id`; `in_dialog` and `selected`
+   are optional. #}
+{% set _in_dialog = in_dialog|default(false) %}
+{% set _selected = selected|default('') %}
+{% set _options = [
+    { value: '', label: _in_dialog ? 'Choisir…' : 'Motif du refus…', selected: _selected == '' },
+    { value: 'no_room', label: 'Pas de place', selected: _selected == 'no_room' },
+    { value: 'other', label: 'Autre', selected: _selected == 'other' },
+] %}
+{% if _in_dialog %}
+    {% include 'partials/form_field.html.twig' with {
+        field_id: field_id,
+        field_name: 'refusal_reason',
+        label: 'Motif du refus',
+        type: 'select',
+        options: _options,
+        help: "Un refus « Pas de place » compte pour le critère « Ancienne demande restée sans place » l'année suivante.",
+        data: { 'decide-reason-select': '' },
+    } only %}
+{% else %}
+    {% include 'partials/form_field.html.twig' with {
+        field_id: field_id,
+        field_name: 'refusal_reason',
+        label: 'Motif du refus',
+        label_visually_hidden: true,
+        type: 'select',
+        size: 'sm',
+        required: true,
+        wrapper_class: '',
+        control_class_extra: 'w-auto',
+        options: _options,
+    } only %}
+{% endif %}
