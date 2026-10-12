@@ -16,14 +16,18 @@ class Board
     /** @var string[] */
     public const VOTE_MODES = ['unlimited', 'budget'];
 
-    /** @var string[] */
-    public const ANTI_DUPLICATE_MODES = ['cookie', 'auth'];
+    /**
+     * Who may open the board — Service\BoardAccess says what each means.
+     *
+     * @var string[]
+     */
+    public const ACCESS_MODES = ['animators', 'identified', 'public'];
+
+    /** What a board is created with, by hand or from an event (issue #833). */
+    public const DEFAULT_ACCESS_MODE = 'animators';
 
     /** @var string[] */
     public const AUTO_CLOSE_DELAYS = ['none', '2h', '24h', '3d', '7d'];
-
-    /** @var string[] */
-    public const LINK_VISIBILITIES = ['identified', 'chief', 'unit_chief', 'superadmin'];
 
     public function __construct(
         public readonly int $id,
@@ -33,11 +37,10 @@ class Board
         public readonly string $token,
         public readonly ?string $shortCode,
         public readonly string $status,
-        public readonly bool $listed,
+        public readonly string $accessMode,
         public readonly string $voteMode,
         public readonly int $voteBudget,
         public readonly bool $votesVisible,
-        public readonly string $antiDuplicateMode,
         public readonly int $maxCommentLength,
         public readonly string $autoCloseDelay,
         public readonly ?string $autoCloseAt,
@@ -45,7 +48,6 @@ class Board
         public readonly ?int $createdBy,
         public readonly bool $closeNotifyEnabled,
         public readonly ?string $closeNotifyEmail,
-        public readonly string $linkVisibility,
         public readonly string $createdAt,
         public readonly ?string $closedAt
     ) {

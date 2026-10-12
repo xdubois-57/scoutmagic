@@ -211,4 +211,101 @@ class TrackingControllerTest extends TestCase
         $this->assertSame(403, $response->getStatusCode());
         $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM registration_secondary_emails')->fetchColumn());
     }
+
+    /**
+     * Issue #843: the recommendation, its explanation and the refusal
+     * reason are the staff's alone. Neither tracking view — by token, or
+     * linked to the visitor's account — shows any of them, even when the
+     * request has a recommendation and, once refused « Pas de place », a
+     * visible refusal.
+     */
+    public function testNeitherTrackingViewShowsTheRecommendationOrTheRefusalReason(): void
+    {
+        $explanation = $this->recommendationFor($this->created['id']);
+        $this->assertStringStartsWith('Oui — ', $explanation, 'the request has a recommendation to hide');
+
+        $pages = [
+            $this->tokenView(),
+            $this->linkedView(),
+        ];
+        $this->requestRepository->updateStatus(
+            $this->created['id'],
+            'refused',
+            new \DateTimeImmutable(),
+            \Modules\Registration\Repository\RegistrationRequest::REFUSAL_NO_ROOM
+        );
+        $this->requestRepository->markRefusedEmailSent($this->created['id']);
+        $refusedPages = [$this->tokenView(), $this->linkedView()];
+        foreach ($refusedPages as $body) {
+            $this->assertStringContainsString('Refusée', $body, 'the refusal itself is visible once its e-mail left');
+        }
+
+        foreach (array_merge($pages, $refusedPages) as $body) {
+            $this->assertStringNotContainsString($explanation, $body);
+            $this->assertStringNotContainsString('Toujours Oui', $body);
+            $this->assertStringNotContainsString('Pas de place', $body);
+            $this->assertStringNotContainsString('no_room', $body);
+            $this->assertStringNotContainsString('recommandation', mb_strtolower($body));
+        }
+    }
+
+    private function tokenView(): string
+    {
+        $path = '/inscriptions/suivi/' . $this->created['id'] . '/' . $this->created['tracking_token'];
+
+        return (string) $this->controller->showByToken(
+            new Request('GET', $path, [], [], [], []),
+            ['id' => (string) $this->created['id'], 'token' => $this->created['tracking_token']]
+        )->getBody();
+    }
+
+    private function linkedView(): string
+    {
+        AuthSession::login(1, 'marie@example.com', 'identified');
+        try {
+            return (string) $this->controller->showLinked(
+                new Request('GET', '/inscriptions/suivi/demande/' . $this->created['id'], [], [], [], []),
+                ['id' => (string) $this->created['id']]
+            )->getBody();
+        } finally {
+            AuthSession::logout();
+        }
+    }
+
+    /**
+     * The explanation the staff would read for request $id — computed by the
+     * real service, on a slot with room left.
+     */
+    private function recommendationFor(int $id): string
+    {
+        $settings = new \Core\Config\SettingService(new \Core\Config\SettingRepository($this->pdo));
+        RegistrationTestHelper::registerManifestSettings($settings);
+        foreach ([
+            \Core\ScoutYear\ScoutYearResolver::SETTING_PUBLIC_YEAR => 'Public',
+            \Core\ScoutYear\ScoutYearResolver::SETTING_STAFF_YEAR => 'Staff',
+        ] as $key => $label) {
+            $settings->register($key, '0', 'number', $label, 'desc', null, '^[0-9]+$', null, false);
+        }
+        $request = $this->requestRepository->findById($id);
+        $this->assertNotNull($request);
+        $settings->setInternal(\Core\ScoutYear\ScoutYearResolver::SETTING_PUBLIC_YEAR, (string) $request->scoutYearId);
+        $baladins = RegistrationTestHelper::insertAgeBranch($this->pdo, 'BALA', 'Baladins', 10);
+        (new \Modules\Registration\Repository\SlotCapacityRepository($this->pdo))->upsert($baladins, 2, 15);
+
+        $scoutYears = new \Core\Config\ScoutYearService($this->pdo);
+        $service = new \Modules\Registration\Service\RecommendationService(
+            $this->requestRepository,
+            RegistrationTestHelper::slotService($this->pdo, $this->encryption, $settings),
+            new \Modules\Registration\Repository\AgeBracketRepository($this->pdo),
+            $scoutYears,
+            new \Core\ScoutYear\ScoutYearResolver(
+                $scoutYears,
+                $settings,
+                new \Core\Import\MemberYearRepository($this->pdo)
+            ),
+            new \Modules\Registration\Service\PriorityOrderService($settings)
+        );
+
+        return (string) $service->forRequest($request)?->explanation;
+    }
 }

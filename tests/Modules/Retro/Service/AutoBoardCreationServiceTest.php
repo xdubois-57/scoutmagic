@@ -53,8 +53,8 @@ class AutoBoardCreationServiceTest extends TestCase
         $this->assertSame("Rétrospective Camp d'été - Baladins - 2026-08-05", $board->title);
         $this->assertSame('2026-08-10', $board->boardDate);
         $this->assertSame(42, $board->calendarEventId);
-        $this->assertSame('chief', $board->linkVisibility);
-        $this->assertTrue($board->listed);
+        // Issue #833: the same default as a board created by hand.
+        $this->assertSame('animators', $board->accessMode);
         $this->assertNull($board->createdBy);
     }
 

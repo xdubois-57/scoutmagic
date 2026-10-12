@@ -202,4 +202,61 @@ class RequestStatusServiceTest extends TestCase
             $this->assertStringNotContainsString('Dupont', (string) $row['context']);
         }
     }
+
+    /**
+     * The refusal reason travels with the refusal (issue #843, D6): stored
+     * on the request, journalled as a code, and gone once the request is
+     * put back in the pending list.
+     */
+    public function testARefusalCarriesItsReasonUntilTheRequestIsReverted(): void
+    {
+        $request = $this->createRequest();
+
+        $this->service->refuse($request, RegistrationRequest::REFUSAL_NO_ROOM);
+
+        $refused = $this->requestRepository->findById($request->id);
+        $this->assertSame('refused', $refused?->status);
+        $this->assertSame(RegistrationRequest::REFUSAL_NO_ROOM, $refused->refusalReason);
+        $context = (string) $this->pdo->query(
+            "SELECT context FROM event_log WHERE event_type = 'registration_request_status_changed' "
+            . 'ORDER BY id DESC LIMIT 1'
+        )->fetchColumn();
+        $this->assertSame(['request_id' => $request->id, 'refusal_reason' => 'no_room'], json_decode($context, true));
+
+        $this->service->revertToPending($refused);
+        $this->assertNull($this->requestRepository->findById($request->id)?->refusalReason);
+    }
+
+    /**
+     * The existing callers refuse without a reason, and still can: the
+     * refusal is recorded with none known.
+     */
+    public function testARefusalWithoutAReasonStillWorks(): void
+    {
+        $request = $this->createRequest();
+
+        $this->service->refuse($request);
+
+        $refused = $this->requestRepository->findById($request->id);
+        $this->assertSame('refused', $refused?->status);
+        $this->assertNull($refused->refusalReason);
+    }
+
+    /**
+     * An unknown reason is refused before anything is written.
+     */
+    public function testAnUnknownRefusalReasonChangesNothing(): void
+    {
+        $request = $this->createRequest();
+
+        try {
+            $this->service->refuse($request, 'full');
+            $this->fail('an unknown reason was accepted');
+        } catch (RegistrationException $e) {
+            $this->assertSame('Motif de refus invalide : choisissez « Pas de place » ou « Autre ».', $e->getMessage());
+        }
+
+        $this->assertSame('pending', $this->requestRepository->findById($request->id)?->status);
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM event_log')->fetchColumn());
+    }
 }

@@ -20,7 +20,7 @@
                 <h3 class="h5 mb-3">Connexion confirmée</h3>
                 {% if signed_in_here|default(false) %}
                     <p>Vous pouvez continuer sur ce navigateur.</p>
-                    <a href="/" class="btn btn-primary">Accéder au site</a>
+                    <a href="{{ continue_to|default('/') }}" class="btn btn-primary">Continuer</a>
                 {% else %}
                     <p>
                         Retournez à la fenêtre où vous avez demandé le lien : c'est là que vous êtes connecté.

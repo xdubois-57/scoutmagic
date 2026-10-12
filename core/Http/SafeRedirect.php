@@ -56,6 +56,33 @@ final class SafeRedirect
     }
 
     /**
+     * The stricter rule for an address a visitor is sent back to after
+     * logging in (Core\Security\LoginReturn, issue #833).
+     *
+     * That address arrives in a link anybody can build and send — « log in
+     * here » pointing at `/login?return=…` — so it gets less benefit of the
+     * doubt than internalPath() gives a form's own hidden field: on top of
+     * everything internalPath() refuses, no `//` and no `\` anywhere, and no
+     * `:` before the query string, where only a scheme would put one. A path
+     * the site serves never needs any of the three.
+     */
+    public static function loginReturnPath(string $url, string $fallback = '/'): string
+    {
+        if (self::internalPath($url, '') === '') {
+            return $fallback;
+        }
+        if (str_contains($url, '//') || str_contains($url, '\\')) {
+            return $fallback;
+        }
+        $beforeQuery = strtok($url, '?#');
+        if ($beforeQuery === false || str_contains($beforeQuery, ':')) {
+            return $fallback;
+        }
+
+        return $url;
+    }
+
+    /**
      * Reduce a possibly-absolute URL (typically a `Referer` header) to its
      * own path+query and validate that as an internal path. A same-origin
      * referer keeps the user on the page they came from; a cross-origin one

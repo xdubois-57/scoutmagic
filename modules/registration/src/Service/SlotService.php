@@ -54,6 +54,13 @@ class SlotService
     public const DEFAULT_YES_PERCENT = 70;
     public const DEFAULT_MAYBE_PERCENT = 100;
 
+    /**
+     * « Gérer les listes d'attente »: off, the families see no level and no
+     * recommendation is computed (issue #843, D3). On by default, as
+     * module.json declares it.
+     */
+    public const SETTING_WAITLIST_ENABLED = 'registration_waitlist_enabled';
+
     public function __construct(
         private PassageRosterRepository $roster,
         private ScoutYearService $scoutYearService,
@@ -64,6 +71,15 @@ class SlotService
         private ForecastService $forecastService,
         private ReenrollmentRepository $reenrollmentRepository
     ) {
+    }
+
+    /**
+     * Whether waitlists are managed — the same key, the same default and
+     * the same comparison wherever the module asks.
+     */
+    public function waitlistEnabled(): bool
+    {
+        return $this->settingService->get(self::SETTING_WAITLIST_ENABLED, 'registration', '1') === '1';
     }
 
     public function referenceMonthDay(): string

@@ -1,5 +1,6 @@
 // End-to-end: a rétrospective board — anonymous words, live polling,
-// votes, a chief's moderation, and the token that IS the access control.
+// votes, a chief's moderation, and the token that is a public board's
+// only key.
 //
 // WHY THIS SCENARIO EXISTS
 // ----------------------------------------------------------------------------
@@ -26,9 +27,12 @@
 //     replaces body AND votes with placeholders — a data-minimisation
 //     rule enforced in serializeComment(), observable only across two
 //     differently-privileged browsers.
-//   - The unguessable token is the whole access control: regenerating the
-//     link must kill the old URL immediately (404) while the new one
-//     carries every word and vote across.
+//   - On a « Lien public » board (issue #833) the unguessable token is the
+//     whole access control: regenerating the link must kill the old URL
+//     immediately (404) while the new one carries every word and vote
+//     across. The two other access modes need a login and are
+//     Tests\Modules\Retro\Controller\RetroBoardControllerTest's, route by
+//     route.
 //
 // WHAT IT DELIBERATELY LEAVES ALONE
 // ----------------------------------------------------------------------------
@@ -51,8 +55,8 @@
 //   - the points budget → VoteServiceTest (a budget respected, refunded on
 //     an unvote, unaffected by another voter's spend) and
 //     RetroBoardControllerTest::testAddPointAndRemovePointForBudgetMode;
-//   - anti-duplicate by login rather than by cookie → RetroBoardController
-//     Test::testToggleLikeRequiresLoginWhenAntiDuplicateModeIsAuth. Its
+//   - votes keyed by login rather than by cookie → RetroBoardController
+//     Test::testToggleLikeRequiresLoginOnABoardForIdentifiedMembers. Its
 //     twin — the SESSION standing in for the cookie when consent is
 //     refused — is the one half that needs a real cookie jar, and the
 //     scenario above already drives it.
@@ -60,11 +64,18 @@
 // The second scenario in this file is the one chief-side behaviour none of
 // that can reach, because it is the browser itself that decides what the
 // server receives.
+//
+// The third is the way IN to a board that needs a login (issue #833): the
+// link a chief hands out sends a logged-out member through the login page
+// and BACK to the board — a round trip of a short-link redirect, a
+// server redirect, a session-held return path and auth.js's own redirect
+// that no single PHP or Vitest test runs end to end — and the same
+// member is refused once the board is narrowed to the animators.
 import { expect, test } from '@playwright/test';
 
 import { answerConfirmation } from '../support/confirm-dialog.js';
 import { answerCookieBanner } from '../support/cookie-banner.js';
-import { loginAsAdmin } from '../support/admin-login.js';
+import { loginAsAdmin, logoutControl, submitMemberLogin } from '../support/admin-login.js';
 import { openModal } from '../support/modal.js';
 import { scaled } from '../support/timeouts.js';
 
@@ -122,9 +133,10 @@ test('two anonymous visitors write and vote on a live board, a chief moderates, 
     });
 
     // ---------------------------------------------------------------
-    // A chief creates the board through the real form. The defaults are
-    // the interesting configuration: like-mode votes, cookie-based
-    // anti-duplicate — the anonymous path.
+    // A chief creates the board through the real form: like-mode votes
+    // (the default) on a « Lien public » board — the anonymous path, votes
+    // deduplicated by the cookie. The default access is « Animateurs »
+    // (issue #833), which no anonymous visitor could open.
     // ---------------------------------------------------------------
     await loginAsAdmin(page);
     await page.goto('/retro', { waitUntil: 'domcontentloaded' });
@@ -132,6 +144,8 @@ test('two anonymous visitors write and vote on a live board, a chief moderates, 
     await page.waitForURL('**/retro/create', { waitUntil: 'domcontentloaded' });
 
     await page.getByLabel('Titre').fill(BOARD_TITLE);
+    await expect(page.getByLabel('Animateurs', { exact: true })).toBeChecked();
+    await page.getByLabel('Lien public', { exact: true }).check();
     await page.getByRole('button', { name: 'Créer la rétrospective' }).click();
     await page.waitForURL('**/retro', { waitUntil: 'domcontentloaded' });
 
@@ -415,5 +429,67 @@ test('a board linked to a calendar event derives its title server-side, from a f
     await expect(page.locator('#retro-date')).toBeDisabled();
 
     expect(serverErrors, 'the application returned a server error').toEqual([]);
+    expect(pageErrors, 'uncaught JavaScript error in the browser').toEqual([]);
+});
+
+test('a member who follows the link of a board for members logs in and lands back on it, and is refused once it is for animators only', async ({ page, browser }) => {
+    test.setTimeout(scaled(90_000));
+
+    const title = `Rétro membres E2E ${Date.now()}`;
+    /** @type {string[]} */
+    const pageErrors = [];
+    page.on('pageerror', (error) => pageErrors.push(error.message));
+
+    await loginAsAdmin(page);
+    await page.goto('/retro/create', { waitUntil: 'domcontentloaded' });
+    await page.getByLabel('Titre').fill(title);
+    await page.getByLabel('Membre identifié', { exact: true }).check();
+    await page.getByRole('button', { name: 'Créer la rétrospective' }).click();
+    await page.waitForURL('**/retro', { waitUntil: 'domcontentloaded' });
+
+    const boardCard = page.locator('.card', { hasText: title });
+    await expect(boardCard.getByText('Membre identifié')).toBeVisible();
+    await boardCard.getByRole('link', { name: 'Configurer' }).click();
+    await page.waitForURL(/\/retro\/\d+\/edit$/, { waitUntil: 'domcontentloaded' });
+    const editUrl = page.url();
+    const shareUrl = (await page.locator('.text-break', { hasText: '/s/' }).innerText()).trim();
+
+    const memberContext = await browser.newContext();
+    try {
+        const member = await memberContext.newPage();
+        /** @type {string[]} */
+        const memberErrors = [];
+        member.on('pageerror', (error) => memberErrors.push(error.message));
+
+        // Logged out: the board sends the visitor to log in, carrying the
+        // board's own address as the way back.
+        await member.goto(shareUrl, { waitUntil: 'domcontentloaded' });
+        await expect(member).toHaveURL(/\/login\?return=%2Fr%2F[^&]+$/);
+        const boardPath = decodeURIComponent(new URL(member.url()).searchParams.get('return') ?? '');
+        await answerCookieBanner(member);
+
+        // …and back to that board, not to the home page.
+        await submitMemberLogin(member);
+        await member.waitForURL(`**${boardPath}`, { waitUntil: 'domcontentloaded' });
+        await expect(member.getByRole('heading', { name: title })).toBeVisible();
+        await expect(logoutControl(member)).toBeVisible();
+
+        // Nobody has voted yet, so the chief may still narrow the board.
+        await page.goto(editUrl, { waitUntil: 'domcontentloaded' });
+        await page.getByLabel('Animateurs', { exact: true }).check();
+        await page.getByRole('button', { name: 'Enregistrer' }).click();
+        await page.waitForURL('**/retro', { waitUntil: 'domcontentloaded' });
+
+        // The same member, still logged in, is now refused — by the board,
+        // not sent round the login page again.
+        const refused = await member.goto(boardPath, { waitUntil: 'domcontentloaded' });
+        expect(refused?.status()).toBe(403);
+        await expect(member.getByText('Cette rétrospective est réservée aux animateurs.')).toBeVisible();
+
+        expect(memberErrors, 'uncaught JavaScript error in the member\'s browser').toEqual([]);
+    } finally {
+        await memberContext.close();
+    }
+
     expect(pageErrors, 'uncaught JavaScript error in the browser').toEqual([]);
 });

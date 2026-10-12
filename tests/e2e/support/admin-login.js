@@ -46,6 +46,36 @@ export function logoutControl(page) {
  * @param {string} passwordVariable
  */
 async function loginWithPassword(page, emailVariable, passwordVariable) {
+    await page.goto('/login', { waitUntil: 'domcontentloaded' });
+    await submitPasswordForm(page, emailVariable, passwordVariable);
+
+    // auth.js redirects to / on success and reveals an inline error
+    // otherwise. Waiting on the redirect (rather than on the fetch) is
+    // what makes a failed login fail here, loudly, instead of surfacing
+    // three assertions later as a puzzling 302 to /login.
+    await page.waitForURL('**/', { waitUntil: 'domcontentloaded' });
+
+    // Proof that a session was really established, rather than merely
+    // that the browser navigated somewhere: partials/nav.html.twig offers
+    // the logout control to an authenticated visitor and to nobody else.
+    // Failing here, in the helper, beats letting a silently-anonymous
+    // session surface three assertions later as a puzzling redirect back
+    // to /login.
+    await expect(logoutControl(page)).toBeVisible();
+}
+
+/**
+ * Fill and send the password tab of the login page the browser is
+ * ALREADY on — without deciding where it lands afterwards. Split out of
+ * loginWithPassword() for the scenarios that arrive on /login from
+ * another page (issue #833: /login?return=…) and assert the way back
+ * themselves.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {string} emailVariable
+ * @param {string} passwordVariable
+ */
+async function submitPasswordForm(page, emailVariable, passwordVariable) {
     const email = process.env[emailVariable];
     const password = process.env[passwordVariable];
 
@@ -56,8 +86,6 @@ async function loginWithPassword(page, emailVariable, passwordVariable) {
             + 'accounts and exports their credentials.',
         );
     }
-
-    await page.goto('/login', { waitUntil: 'domcontentloaded' });
 
     // Three tabs (magic link, password, passkey) each carry their own
     // "Adresse email" field, so every locator below is scoped to the
@@ -83,20 +111,6 @@ async function loginWithPassword(page, emailVariable, passwordVariable) {
     await passwordTab.getByRole('checkbox').check();
 
     await passwordTab.getByRole('button', { name: 'Se connecter' }).click();
-
-    // auth.js redirects to / on success and reveals an inline error
-    // otherwise. Waiting on the redirect (rather than on the fetch) is
-    // what makes a failed login fail here, loudly, instead of surfacing
-    // three assertions later as a puzzling 302 to /login.
-    await page.waitForURL('**/', { waitUntil: 'domcontentloaded' });
-
-    // Proof that a session was really established, rather than merely
-    // that the browser navigated somewhere: partials/nav.html.twig offers
-    // the logout control to an authenticated visitor and to nobody else.
-    // Failing here, in the helper, beats letting a silently-anonymous
-    // session surface three assertions later as a puzzling redirect back
-    // to /login.
-    await expect(logoutControl(page)).toBeVisible();
 }
 
 /**
@@ -127,4 +141,15 @@ export async function loginAsMember(page) {
     await loginWithPassword(page, 'E2E_MEMBER_EMAIL', 'E2E_MEMBER_PASSWORD');
 
     await expect(page.getByRole('button', { name: "Espace chefs d'U" })).toHaveCount(0);
+}
+
+/**
+ * Log the ordinary member in from the login page the browser already
+ * shows, and leave the landing to the caller — the page that sent the
+ * visitor there is the one expected back (issue #833).
+ *
+ * @param {import('@playwright/test').Page} page
+ */
+export async function submitMemberLogin(page) {
+    await submitPasswordForm(page, 'E2E_MEMBER_EMAIL', 'E2E_MEMBER_PASSWORD');
 }

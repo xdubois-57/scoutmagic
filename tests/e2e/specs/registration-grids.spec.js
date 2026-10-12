@@ -20,13 +20,13 @@
 // that dropped one.
 //
 // The scenario also drives the waitlist switch on /config/inscriptions/
-// reglages, which is the third shape of "the browser decides" on this module: the
-// switch is a plain checkbox, so turning it OFF sends no field at all, and
-// the two thresholds stay on screen but disabled — a disabled field is not
-// submitted either — so what the server does with those absences decides
-// whether the thresholds survive the save. A round trip through a real form
-// is the only place that is observable — a PHPUnit request array is
-// written by the test, and would carry whatever the test believed.
+// reglages, the third save-on-change control of this module (issue #843,
+// IT-03): turning it off greys the two thresholds out on the spot — still
+// shown, disabled, their stored values kept — and the page reloaded says
+// the same. It then saves the thresholds and the « Priorités » with their
+// own buttons: the priorities' fields are renamed by the page's script from
+// the connected lists they sit in when the form is sent, which only a real
+// browser, under the real CSP, can show working.
 //
 // ORDERING
 // ----------------------------------------------------------------------------
@@ -48,8 +48,8 @@ const MEMBER_NAME = 'Kaa Serpent';
 const DEPARTURE_COMMENT = 'Déménage à Namur cet été.';
 
 /**
- * Submits the « Capacités par branche » form of /config/inscriptions/
- * reglages and waits for the page its redirect renders.
+ * Submits one form of /config/inscriptions/reglages and waits for the page
+ * its redirect renders.
  *
  * The barrier is the flash message the save leaves, not the URL: this POST
  * redirects to the address the browser is ALREADY on, so `waitForURL`
@@ -57,15 +57,35 @@ const DEPARTURE_COMMENT = 'Déménage à Namur cet été.';
  * before the save. Every call starts from a freshly loaded page, which
  * shows no flash, so the message cannot be a leftover.
  *
- * The button is scoped to the form: the page has another « Enregistrer »,
- * the schedule's.
+ * The button is scoped to the form: the page has four « Enregistrer ».
  *
  * @param {import('@playwright/test').Page} page
+ * @param {string} action the form's action
+ * @param {string} flash the message the save leaves
  */
-async function saveCapacities(page) {
-    await page.locator('form[action="/config/inscriptions"]')
+async function saveSettingsForm(page, action, flash) {
+    await page.locator(`form[action="${action}"]`)
         .getByRole('button', { name: 'Enregistrer', exact: true }).click();
-    await expect(page.getByRole('alert').filter({ hasText: 'Configuration enregistrée.' })).toBeVisible();
+    await expect(page.getByRole('alert').filter({ hasText: flash })).toBeVisible();
+}
+
+/**
+ * Flips « Gérer les listes d'attente », which saves on change, and waits
+ * for the server's answer.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {boolean} on
+ */
+async function setWaitlist(page, on) {
+    const saved = waitForServerResponse(
+        page,
+        (response) => response.url().endsWith('/config/inscriptions/listes-attente')
+            && response.request().method() === 'POST',
+    );
+    const toggle = page.getByRole('checkbox', { name: "Gérer les listes d'attente" });
+    await (on ? toggle.check() : toggle.uncheck());
+    const response = await saved;
+    expect(response.status(), 'the waitlist switch saved').toBe(200);
 }
 
 test('the departures and passage grids save on change, with no save button anywhere', async ({ page }) => {
@@ -228,8 +248,14 @@ test('the departures and passage grids save on change, with no save button anywh
     expect(storedYes, 'the threshold must have a stored value to lose').not.toBe('');
     expect(storedMaybe, 'the threshold must have a stored value to lose').not.toBe('');
 
-    await page.getByRole('switch', { name: "Gérer les listes d'attente" }).uncheck();
-    await saveCapacities(page);
+    await setWaitlist(page, false);
+    await expect(
+        yesThreshold(),
+        'a threshold without effect is greyed out on the spot, not hidden',
+    ).toBeDisabled();
+    await expect(page.getByText('(sans effet tant que les listes d\'attente ne sont pas gérées)')).toBeVisible();
+
+    await page.goto('/config/inscriptions/reglages', { waitUntil: 'domcontentloaded' });
     await expect(
         yesThreshold(),
         'a threshold without effect stays on screen, greyed out rather than editable',
@@ -243,14 +269,40 @@ test('the departures and passage grids save on change, with no save button anywh
     await expect(page.getByRole('columnheader', { name: 'Restant' })).toHaveCount(0);
 
     await page.goto('/config/inscriptions/reglages', { waitUntil: 'domcontentloaded' });
-    await page.getByRole('switch', { name: "Gérer les listes d'attente" }).check();
-    await saveCapacities(page);
+    await setWaitlist(page, true);
     await expect(yesThreshold(), 'the threshold is editable again once waitlists are managed').toBeEnabled();
+    await page.goto('/config/inscriptions/reglages', { waitUntil: 'domcontentloaded' });
+    await expect(yesThreshold(), 'and still is after a reload').toBeEnabled();
     await expect(
         yesThreshold(),
         'a threshold greyed out while the waitlist was off must come back unchanged',
     ).toHaveValue(storedYes);
     await expect(maybeThreshold()).toHaveValue(storedMaybe);
+
+    // The thresholds sub-box saves with its own button; the slider follows
+    // the field once it is left.
+    await yesThreshold().fill('65');
+    await yesThreshold().press('Tab');
+    await expect(page.getByRole('slider', { name: "Oui jusqu'à ce pourcentage de places occupées" })).toHaveValue('65');
+    await saveSettingsForm(page, '/config/inscriptions/seuils', 'Seuils enregistrés.');
+    await expect(yesThreshold()).toHaveValue('65');
+    await yesThreshold().fill(storedYes);
+    await saveSettingsForm(page, '/config/inscriptions/seuils', 'Seuils enregistrés.');
+    await expect(yesThreshold()).toHaveValue(storedYes);
+
+    // « Priorités »: the order shown is the order saved, under the zone each
+    // criterion sits in.
+    const priorities = page.locator('form[action="/config/inscriptions/priorites"]');
+    await expect(priorities.getByText("Limite : le nombre de places de l'année de parcours")).toBeVisible();
+    await saveSettingsForm(page, '/config/inscriptions/priorites', 'Priorités enregistrées.');
+    await expect(
+        page.locator('#priority-always .list-editor-item'),
+        'the default « Toujours Oui » survives a save of the page as shown',
+    ).toHaveText([/Fratrie déjà dans l'unité/]);
+    await expect(page.locator('#priority-rank .list-editor-item')).toHaveText([
+        /Ancienne demande restée sans place/,
+        /Ordre d'arrivée de la demande/,
+    ]);
 
     await page.goto('/config/inscriptions', { waitUntil: 'domcontentloaded' });
     await expect(page.getByRole('columnheader', { name: 'Niveau public' })).toBeVisible();

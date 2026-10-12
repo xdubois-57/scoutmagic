@@ -325,10 +325,10 @@ class RegistrationRequestRepository
     }
 
     /**
-     * One `?` per id, for an `IN (…)` whose values all travel as bound
+     * One `?` per value, for an `IN (…)` whose values all travel as bound
      * parameters.
      *
-     * @param array<int, int> $ids
+     * @param array<int, int|string> $ids
      */
     private static function placeholdersFor(array $ids): string
     {
@@ -589,11 +589,109 @@ class RegistrationRequestRepository
      * RegistrationRequest::FINAL_STATUSES (module spec: retention counters
      * start there, never at received_at), and cleared back to NULL by
      * "revenir en attente" — the one transition that leaves a final state.
+     *
+     * The refusal reason (issue #843, D6) is written with the status, in
+     * the same statement, so it can never describe a status the request no
+     * longer has: kept only when $status is 'refused' and $refusalReason is
+     * one of RegistrationRequest::REFUSAL_*, cleared by every other
+     * transition — a request put back in the pending list was not refused
+     * for lack of room any more.
      */
-    public function updateStatus(int $id, string $status, ?\DateTimeImmutable $finalAt): void
+    public function updateStatus(
+        int $id,
+        string $status,
+        ?\DateTimeImmutable $finalAt,
+        ?string $refusalReason = null
+    ): void {
+        $storedReason = $status === RegistrationRequest::STATUS_REFUSED
+            ? self::normalizeRefusalReason($refusalReason)
+            : null;
+
+        $stmt = $this->pdo->prepare(
+            'UPDATE registration_requests SET status = ?, final_at = ?, refusal_reason = ? WHERE id = ?'
+        );
+        $stmt->execute([$status, $finalAt?->format('Y-m-d H:i:s'), $storedReason, $id]);
+    }
+
+    /**
+     * Every live request of one scout year — pending, accepted or encoded —
+     * as Service\RecommendationService's queue reads it (issue #843, D5):
+     * the pending ones are queued, and all three decide which request of a
+     * child filed twice is « la plus ancienne ». Refused and withdrawn
+     * requests are closed, so a child filing again after one of those is
+     * not a duplicate to settle.
+     *
+     * Only the birth date of a pending request is decrypted — the queue
+     * needs its slot and nothing else of the fiche, and an accepted or
+     * encoded one only for its child key and its filing. Ordered by filing
+     * (received_at, then id), the queue's own tie-break.
+     *
+     * @return array<QueueCandidate>
+     */
+    public function findQueueCandidatesForYear(int $scoutYearId): array
     {
-        $stmt = $this->pdo->prepare('UPDATE registration_requests SET status = ?, final_at = ? WHERE id = ?');
-        $stmt->execute([$status, $finalAt?->format('Y-m-d H:i:s'), $id]);
+        $stmt = $this->pdo->prepare(
+            "SELECT id, status, received_at, name_dob_blind_index, birth_date_encrypted
+             FROM registration_requests
+             WHERE scout_year_id = ? AND status IN ('pending', 'accepted', 'encoded')
+             ORDER BY received_at ASC, id ASC"
+        );
+        $stmt->execute([$scoutYearId]);
+
+        return array_map(
+            fn(array $row) => new QueueCandidate(
+                id: (int) $row['id'],
+                status: (string) $row['status'],
+                receivedAt: DateInput::requireFromStorage((string) $row['received_at'], 'received_at'),
+                nameDobBlindIndex: (string) $row['name_dob_blind_index'],
+                birthDate: $row['status'] === RegistrationRequest::STATUS_PENDING
+                    ? $this->encryption->decrypt($row['birth_date_encrypted'], 'registration_requests.birth_date')
+                    : null
+            ),
+            $stmt->fetchAll(\PDO::FETCH_ASSOC)
+        );
+    }
+
+    /**
+     * « Ancienne demande restée sans place » (issue #843, D5): for each
+     * child key among $nameDobBlindIndexes, the label of the most recent
+     * scout year STARTING BEFORE $beforeStartDate in which that child had a
+     * request refused with the reason 'no_room'.
+     *
+     * A refusal without a recorded reason does not count — nobody said it
+     * was for lack of room — and neither does one of the same year or a
+     * later one: the criterion is about a family who already waited.
+     *
+     * @param array<string> $nameDobBlindIndexes
+     * @param string $beforeStartDate a scout year's start date, "YYYY-MM-DD"
+     * @return array<string, string> blind index => scout year label (keys
+     *         without such a refusal are absent)
+     */
+    public function findNoRoomRefusalYearLabels(array $nameDobBlindIndexes, string $beforeStartDate): array
+    {
+        $keys = array_values(array_unique($nameDobBlindIndexes));
+        if ($keys === []) {
+            return [];
+        }
+
+        $stmt = $this->pdo->prepare(
+            "SELECT r.name_dob_blind_index, y.label, y.start_date
+             FROM registration_requests r
+             JOIN scout_years y ON y.id = r.scout_year_id
+             WHERE r.status = 'refused' AND r.refusal_reason = 'no_room' AND y.start_date < ?
+               AND r.name_dob_blind_index IN (" . self::placeholdersFor($keys) . ')
+             ORDER BY y.start_date ASC, r.id ASC'
+        );
+        $stmt->execute(array_merge([$beforeStartDate], $keys));
+
+        $labels = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            // Ascending, so the last row written for a key is its most
+            // recent year.
+            $labels[(string) $row['name_dob_blind_index']] = (string) $row['label'];
+        }
+
+        return $labels;
     }
 
     public function updateIntendedSection(int $id, ?int $sectionId): void
@@ -811,8 +909,22 @@ class RegistrationRequestRepository
                     $row['previous_unit_name_encrypted'],
                     'registration_requests.previous_unit_name'
                 )
-                : null
+                : null,
+            refusalReason: self::normalizeRefusalReason(
+                isset($row['refusal_reason']) ? (string) $row['refusal_reason'] : null
+            )
         );
+    }
+
+    /**
+     * The column is an ENUM of two reasons plus NULL (schema.sql). Anything
+     * else is no known reason — never a value MySQL would coerce to the
+     * empty string, and never one a reading would mistake for « Pas de
+     * place ».
+     */
+    private static function normalizeRefusalReason(?string $reason): ?string
+    {
+        return isset(RegistrationRequest::REFUSAL_REASON_LABELS[(string) $reason]) ? $reason : null;
     }
 
     /**

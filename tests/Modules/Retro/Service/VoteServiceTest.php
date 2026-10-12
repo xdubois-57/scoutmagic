@@ -43,8 +43,8 @@ class VoteServiceTest extends TestCase
     private function createBoard(string $voteMode, int $budget = 5): Board
     {
         $id = $this->boardRepository->create(
-            'Board', '2026-07-01', null, bin2hex(random_bytes(8)), null, true, $voteMode, $budget,
-            true, 'cookie', 140, '7d', null, null
+            'Board', '2026-07-01', null, bin2hex(random_bytes(8)), null, 'public', $voteMode, $budget,
+            true, 140, '7d', null, null
         );
 
         return $this->boardRepository->findById($id);

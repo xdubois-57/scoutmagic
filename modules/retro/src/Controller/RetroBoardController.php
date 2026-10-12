@@ -18,12 +18,14 @@ use Core\Http\Request;
 use Core\Http\Response;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
+use Core\Security\LoginReturn;
 use Core\Security\Role;
 use Core\View\MenuBuilder;
 use Modules\Retro\Repository\Board;
 use Modules\Retro\Repository\BoardRepository;
 use Modules\Retro\Repository\Comment;
 use Modules\Retro\Repository\CommentRepository;
+use Modules\Retro\Service\BoardAccess;
 use Modules\Retro\Service\BoardService;
 use Modules\Retro\Service\CommentService;
 use Modules\Retro\Service\ModerationService;
@@ -69,9 +71,40 @@ class RetroBoardController extends AbstractController
         private ?ModerationService $moderationService,
         private CookieConsentService $cookieConsentService,
         private SettingService $settingService,
-        private ScoutYearResolver $scoutYearService
+        private ScoutYearResolver $scoutYearService,
+        private BoardAccess $access = new BoardAccess()
     ) {
         parent::__construct($twig);
+    }
+
+    /**
+     * The board's access mode applied to this request, before anything
+     * else is done with the board (issue #833): null when the reader may
+     * go on, the refusal otherwise. Every /r/{token} route calls it — the
+     * rule itself lives in Service\BoardAccess, never here.
+     *
+     * Nobody logged in: a page is sent to the login page, which brings the
+     * visitor back to this board once logged in (LoginReturn, issue #833);
+     * a script gets a 401 it can say something about. Logged in below the
+     * board's floor: a 403, page or JSON alike.
+     */
+    private function refuse(Board $board, Request $request, bool $json): ?Response
+    {
+        $decision = $this->access->decide(
+            $board,
+            Role::fromString(AuthSession::getRole()),
+            AuthSession::isAuthenticated()
+        );
+
+        return match ($decision) {
+            BoardAccess::ALLOWED => null,
+            BoardAccess::LOGIN_REQUIRED => $json
+                ? $this->json(['success' => false, 'error' => BoardAccess::LOGIN_MESSAGE], 401)
+                : $this->redirect(LoginReturn::loginUrl('/r/' . $board->token)),
+            default => $json
+                ? $this->json(['success' => false, 'error' => BoardAccess::FORBIDDEN_MESSAGE], 403)
+                : $this->forbidden(BoardAccess::FORBIDDEN_MESSAGE, $request),
+        };
     }
 
     /**
@@ -115,8 +148,9 @@ class RetroBoardController extends AbstractController
             return 'disabled';
         }
 
-        $mode = (string) ($this->settingService->get('retro_moderation_mode', 'retro') ?: 'disabled');
-        return in_array($mode, ['disabled', 'warning', 'enforced'], true) ? $mode : 'disabled';
+        // « Avertissement » unless the unit chose otherwise (issue #833).
+        $mode = (string) ($this->settingService->get('retro_moderation_mode', 'retro') ?: 'warning');
+        return in_array($mode, ['disabled', 'warning', 'enforced'], true) ? $mode : 'warning';
     }
 
     /**
@@ -127,6 +161,9 @@ class RetroBoardController extends AbstractController
         $board = $this->boardRepository->findByToken((string) ($params['token'] ?? ''));
         if ($board === null) {
             return new Response('Not Found', 404);
+        }
+        if (($refusal = $this->refuse($board, $request, false)) !== null) {
+            return $refusal;
         }
 
         $viewerRole = Role::fromString(AuthSession::getRole());
@@ -172,7 +209,7 @@ class RetroBoardController extends AbstractController
             'token' => $board->token,
             'is_unit_chief' => $isUnitChief,
             'can_vote' => $canVote,
-            'vote_requires_auth' => $board->antiDuplicateMode === 'auth',
+            'votes_keyed_by_account' => $this->access->keysVotesByAccount($board),
             'columns' => $byColumn,
             'ai_available' => $this->moderationService !== null && $this->moderationService->isAvailable(),
             'polling_interval_seconds' => (int) ($this->settingService->get(
@@ -240,6 +277,9 @@ class RetroBoardController extends AbstractController
         if ($board === null) {
             return new Response('Not Found', 404);
         }
+        if (($refusal = $this->refuse($board, $request, false)) !== null) {
+            return $refusal;
+        }
 
         $baseUrl = rtrim((string) ($this->settingService->get('base_url') ?: ''), '/');
         $url = $baseUrl . $this->boardService->publicUrl($board);
@@ -267,6 +307,9 @@ class RetroBoardController extends AbstractController
         $board = $this->boardRepository->findByToken((string) ($params['token'] ?? ''));
         if ($board === null) {
             return $this->json(['error' => 'Introuvable.'], 404);
+        }
+        if (($refusal = $this->refuse($board, $request, true)) !== null) {
+            return $refusal;
         }
 
         $viewerRole = Role::fromString(AuthSession::getRole());
@@ -304,6 +347,9 @@ class RetroBoardController extends AbstractController
         $board = $this->boardRepository->findByToken((string) ($params['token'] ?? ''));
         if ($board === null) {
             return $this->json(['success' => false, 'error' => 'Introuvable.'], 404);
+        }
+        if (($refusal = $this->refuse($board, $request, true)) !== null) {
+            return $refusal;
         }
 
         $data = json_decode($request->getRawBody(), true);
@@ -350,6 +396,9 @@ class RetroBoardController extends AbstractController
         $board = $this->boardRepository->findByToken((string) ($params['token'] ?? ''));
         if ($board === null) {
             return $this->json(['success' => false, 'error' => 'Introuvable.'], 404);
+        }
+        if (($refusal = $this->refuse($board, $request, true)) !== null) {
+            return $refusal;
         }
 
         $data = json_decode($request->getRawBody(), true);
@@ -406,6 +455,9 @@ class RetroBoardController extends AbstractController
         [$board, $comment, $error] = $this->resolveBoardAndComment($params);
         if ($error !== null) {
             return $error;
+        }
+        if (($refusal = $this->refuse($board, $request, true)) !== null) {
+            return $refusal;
         }
 
         $data = json_decode($request->getRawBody(), true);
@@ -480,6 +532,9 @@ class RetroBoardController extends AbstractController
         if ($error !== null) {
             return $error;
         }
+        if (($refusal = $this->refuse($board, $request, true)) !== null) {
+            return $refusal;
+        }
 
         $data = json_decode($request->getRawBody(), true);
         if (!is_array($data) || !CsrfGuard::validateToken((string) ($data['_csrf_token'] ?? ''))) {
@@ -521,6 +576,17 @@ class RetroBoardController extends AbstractController
      */
     private function setHidden(Request $request, array $params, bool $hidden): Response
     {
+        // The board's own access mode first, like every other route (issue
+        // #833): somebody who may not open the board is asked to log in or
+        // refused for that reason, not told about a moderation right.
+        [$board, $comment, $error] = $this->resolveBoardAndComment($params);
+        if ($error !== null) {
+            return $error;
+        }
+        if (($refusal = $this->refuse($board, $request, true)) !== null) {
+            return $refusal;
+        }
+
         if (!$this->isUnitChief(Role::fromString(AuthSession::getRole()))) {
             // JSON, not forbidden(): this endpoint is only ever called by
             // the board's own script and answers nothing but JSON, so the
@@ -530,11 +596,6 @@ class RetroBoardController extends AbstractController
                 ['success' => false, 'error' => "Seul un chef d'unité peut masquer ou rétablir un commentaire."],
                 403
             );
-        }
-
-        [, $comment, $error] = $this->resolveBoardAndComment($params);
-        if ($error !== null) {
-            return $error;
         }
 
         $data = json_decode($request->getRawBody(), true);
@@ -568,21 +629,24 @@ class RetroBoardController extends AbstractController
 
     private function canVote(Board $board, Role $viewerRole): bool
     {
-        return $board->antiDuplicateMode !== 'auth' || $viewerRole->hasAccess(Role::IDENTIFIED);
+        return !$this->access->keysVotesByAccount($board) || $viewerRole->hasAccess(Role::IDENTIFIED);
     }
 
     /**
-     * Cookie mode: the anonymous functional cookie (or the PHP session id
-     * as a same-visit-only fallback when consent is refused — module spec:
-     * "Best-effort — if consent is refused, voting still works, just
-     * without duplicate protection"). Auth mode: the account id, prefixed
-     * distinctly so the two modes can never collide even if a board's mode
-     * changes after votes were cast under the other one. Null only when
-     * auth mode requires a login the visitor doesn't have.
+     * Follows from the board's access mode (Service\BoardAccess, issue
+     * #833). A public board: the anonymous functional cookie (or the PHP
+     * session id as a same-visit-only fallback when consent is refused —
+     * module spec: "Best-effort — if consent is refused, voting still
+     * works, just without duplicate protection"). A board that needs a
+     * login: the account id, prefixed distinctly so the two keyings can
+     * never collide. Either way it only ever feeds the one-way HMAC of
+     * retro_votes.voter_hash — nothing stores it. Null only when the board
+     * needs a login the visitor doesn't have, which refuse() has already
+     * turned away.
      */
     private function resolveVoterIdentifier(Request $request, Board $board): ?string
     {
-        if ($board->antiDuplicateMode === 'auth') {
+        if ($this->access->keysVotesByAccount($board)) {
             $userId = AuthSession::getUserAccountId();
             return $userId !== null ? 'account:' . $userId : null;
         }

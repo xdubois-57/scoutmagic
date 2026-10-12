@@ -61,10 +61,12 @@ seuls le jour et le mois comptent. Le 29 février est refusé, puisqu'il
 n'existe pas chaque année.
 
 Dans « Capacités par branche », une case vide signifie **pas de
-limite** ; pour fermer une branche, écrivez **0**. L'interrupteur
-« Gérer les listes d'attente » décide si les familles voient la
-disponibilité des places. Les seuils et le calcul des places occupées
-ont leur propre sujet d'aide, lié ci-dessous.
+limite** ; pour fermer une branche, écrivez **0**. La case « Gérer les
+listes d'attente » décide si les familles voient la disponibilité des
+places et si le site calcule une recommandation, réservée au Staff d'U,
+pour les demandes en attente. Les seuils, les
+« Priorités » et le calcul des places occupées ont leur propre sujet
+d'aide, lié ci-dessous.
 
 ## Avant le changement d'année
 

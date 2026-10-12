@@ -2,7 +2,7 @@
   "id": "registration",
   "name": "Inscriptions",
   "description": "Inscriptions, réinscriptions, passages de branche et départs.",
-  "version": "6.13.1",
+  "version": "6.14.1",
   "enabled_by_default": false,
   "routes": [
     {
@@ -246,6 +246,33 @@
       "method": "POST",
       "controller": "Modules\\Registration\\Controller\\RegistrationConfigController",
       "action": "save",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/config/inscriptions/listes-attente",
+      "method": "POST",
+      "controller": "Modules\\Registration\\Controller\\RegistrationConfigController",
+      "action": "saveWaitlist",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/config/inscriptions/seuils",
+      "method": "POST",
+      "controller": "Modules\\Registration\\Controller\\RegistrationConfigController",
+      "action": "saveThresholds",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/config/inscriptions/priorites",
+      "method": "POST",
+      "controller": "Modules\\Registration\\Controller\\RegistrationConfigController",
+      "action": "savePriorities",
       "menu": "espace_admin",
       "role_min": "admin",
       "label": ""
@@ -771,7 +798,7 @@
       "default_value": "1",
       "type": "boolean",
       "label": "Gérer les listes d'attente",
-      "description": "Quand actif, la page publique annonce à côté de chaque année de naissance si les places sont « Disponible », « Limitée » ou « Complet », et la page Formulaire d'inscription de l'Espace chefs d'U affiche le restant et le niveau vu par le public. Quand inactif, rien de tout cela n'apparaît nulle part et les deux seuils « Oui jusqu'à … % » et « Peut-être jusqu'à … % » sont sans effet, leurs valeurs étant conservées. Se règle aussi depuis l'encart « Capacités par branche » du Formulaire d'inscription."
+      "description": "Quand actif, la page publique annonce à côté de chaque année de naissance si les places sont « Disponible », « Limitée » ou « Complet », la page Formulaire d'inscription de l'Espace chefs d'U affiche le restant et le niveau vu par le public, et chaque demande en attente reçoit une recommandation Oui / Peut-être / Non. Quand inactif, rien de tout cela n'apparaît nulle part, aucune recommandation n'est calculée, et les deux seuils « Oui jusqu'à … % » et « Peut-être jusqu'à … % » ainsi que les priorités sont sans effet, leurs valeurs étant conservées. Se règle aussi depuis l'encart « Capacités par branche » du Formulaire d'inscription."
     },
     {
       "key": "registration_reference_date",
@@ -795,6 +822,14 @@
       "label": "Peut-être jusqu'à … % de places occupées",
       "description": "Pourcentage d'occupation d'une année de parcours jusqu'auquel elle est « Peut-être » — « Limitée » pour les familles ; au-delà, elle est « Non » — « Complet ». Borne incluse. Nombre entier de 1 à 120, supérieur au seuil « Oui ». Au-delà de 100, l'unité accepte plus de monde que de places en comptant sur les départs non annoncés. Se règle dans l'encart « Capacités par branche » du Formulaire d'inscription.",
       "validation_regex": "^([1-9]|[1-9]\\d|1[01]\\d|120)$"
+    },
+    {
+      "key": "registration_priority_order",
+      "default_value": "{\"always\":[\"sibling\"],\"rank\":[\"previous_no_room\",\"arrival\"],\"off\":[]}",
+      "type": "text",
+      "label": "Priorités de la recommandation",
+      "description": "Ordre des critères qui départagent les demandes d'une même année de parcours : « Toujours Oui » (ces demandes passent en premier, sont toujours recommandées « Oui » et peuvent dépasser la capacité), « Classement » (les autres demandes sont classées par ces critères, de haut en bas, puis par date de dépôt) et « Désactivés ». Par défaut : fratrie déjà dans l'unité en « Toujours Oui » ; ancienne demande restée sans place puis ordre d'arrivée en « Classement ». Se règle dans l'encart « Priorités » de la page Réglages du Formulaire d'inscription, qui vérifie chaque critère ; jamais modifié à la main.",
+      "editable": false
     },
     {
       "key": "registration_unit_alert_email",

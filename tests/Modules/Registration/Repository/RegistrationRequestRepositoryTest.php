@@ -461,4 +461,122 @@ class RegistrationRequestRepositoryTest extends TestCase
         $this->assertSame(0, $this->repository->countAcceptedNotEncodedForYears([]));
         $this->assertSame(1, $this->repository->countPendingForYears([$this->scoutYearId, $this->scoutYearId]));
     }
+
+    /**
+     * The refusal reason (issue #843, D6) is written with the status, read
+     * back on the request, and never outlives the refusal: any other
+     * transition clears it, and a reason is only ever stored with
+     * « refused ».
+     */
+    public function testTheRefusalReasonIsStoredWithTheRefusalAndClearedByAnyOtherStatus(): void
+    {
+        $id = $this->repository->create($this->scoutYearId, $this->sampleFields(), null, [])['id'];
+        $this->assertNull($this->repository->findById($id)?->refusalReason);
+
+        $this->repository->updateStatus($id, 'refused', new \DateTimeImmutable(), RegistrationRequest::REFUSAL_NO_ROOM);
+        $this->assertSame(RegistrationRequest::REFUSAL_NO_ROOM, $this->repository->findById($id)?->refusalReason);
+
+        $this->repository->updateStatus($id, 'refused', new \DateTimeImmutable(), RegistrationRequest::REFUSAL_OTHER);
+        $this->assertSame(RegistrationRequest::REFUSAL_OTHER, $this->repository->findById($id)?->refusalReason);
+
+        $this->repository->updateStatus($id, 'pending', null, RegistrationRequest::REFUSAL_NO_ROOM);
+        $this->assertNull($this->repository->findById($id)?->refusalReason);
+        $stored = $this->pdo->query("SELECT refusal_reason FROM registration_requests WHERE id = {$id}")->fetchColumn();
+        $this->assertNull($stored);
+    }
+
+    /**
+     * A refusal without a reason — every caller that does not ask for one
+     * yet — and an unknown reason both store none.
+     */
+    public function testARefusalWithoutAKnownReasonStoresNone(): void
+    {
+        $id = $this->repository->create($this->scoutYearId, $this->sampleFields(), null, [])['id'];
+
+        $this->repository->updateStatus($id, 'refused', new \DateTimeImmutable());
+        $this->assertNull($this->repository->findById($id)?->refusalReason);
+
+        $this->repository->updateStatus($id, 'refused', new \DateTimeImmutable(), 'full');
+        $this->assertNull($this->repository->findById($id)?->refusalReason);
+        $this->assertSame('refused', $this->repository->findById($id)?->status);
+    }
+
+    /**
+     * The queue's candidates: the live requests of one year — pending,
+     * accepted, encoded — in order of filing, with the birth date and the
+     * child key and nothing else of the fiche.
+     */
+    public function testQueueCandidatesAreTheLiveRequestsOfOneYearInOrderOfFiling(): void
+    {
+        $otherYearId = RegistrationTestHelper::insertScoutYear($this->pdo, '2027-2028', '2027-09-01', '2028-08-31');
+        $create = fn(array $fields): int => $this->repository->create(
+            $this->scoutYearId,
+            $this->sampleFields($fields),
+            null,
+            []
+        )['id'];
+        $late = $create(['child_first_name' => 'Tard']);
+        $early = $create(['birth_date' => '2018-01-02']);
+        $refused = $create(['child_first_name' => 'Non']);
+        $this->repository->create($otherYearId, $this->sampleFields(), null, []);
+        $this->pdo->exec("UPDATE registration_requests SET received_at = '2026-10-05 10:00:00' WHERE id = {$late}");
+        $this->pdo->exec("UPDATE registration_requests SET received_at = '2026-10-01 10:00:00' WHERE id = {$early}");
+        $this->repository->updateStatus($early, 'accepted', null);
+        $this->repository->updateStatus($refused, 'refused', new \DateTimeImmutable());
+
+        $candidates = $this->repository->findQueueCandidatesForYear($this->scoutYearId);
+
+        $this->assertSame([$early, $late], array_map(static fn($c) => $c->id, $candidates));
+        $this->assertSame(['accepted', 'pending'], array_map(static fn($c) => $c->status, $candidates));
+        // Only a pending request's birth date is decrypted: it is the one
+        // placed in a slot.
+        $this->assertNull($candidates[0]->birthDate);
+        $this->assertSame('2019-05-12', $candidates[1]->birthDate);
+        $this->assertSame('2026-10-01 10:00:00', $candidates[0]->receivedAt->format('Y-m-d H:i:s'));
+        $this->assertSame(
+            $this->encryption->blindIndex(
+                RegistrationRequestRepository::normalizeForNameDobBlindIndex('Dupont', 'Tard', '2019-05-12'),
+                'registration_name_dob'
+            ),
+            $candidates[1]->nameDobBlindIndex
+        );
+    }
+
+    /**
+     * « Ancienne demande restée sans place »: per child key, the most recent
+     * EARLIER year with a refusal « Pas de place » — not « Autre », not a
+     * refusal without a reason, not a refusal of the same year or a later
+     * one.
+     */
+    public function testNoRoomRefusalsAreReadPerChildFromEarlierYearsOnly(): void
+    {
+        $older = RegistrationTestHelper::insertScoutYear($this->pdo, '2024-2025', '2024-09-01', '2025-08-31');
+        $previous = RegistrationTestHelper::insertScoutYear($this->pdo, '2025-2026', '2025-09-01', '2026-08-31');
+        $later = RegistrationTestHelper::insertScoutYear($this->pdo, '2027-2028', '2027-09-01', '2028-08-31');
+
+        $refuse = function (int $yearId, string $firstName, ?string $reason): string {
+            $fields = $this->sampleFields(['child_first_name' => $firstName]);
+            $id = $this->repository->create($yearId, $fields, null, [])['id'];
+            $this->repository->updateStatus($id, 'refused', new \DateTimeImmutable(), $reason);
+
+            return $this->encryption->blindIndex(
+                RegistrationRequestRepository::normalizeForNameDobBlindIndex('Dupont', $firstName, '2019-05-12'),
+                'registration_name_dob'
+            );
+        };
+        $twice = $refuse($older, 'Deux', RegistrationRequest::REFUSAL_NO_ROOM);
+        $refuse($previous, 'Deux', RegistrationRequest::REFUSAL_NO_ROOM);
+        $other = $refuse($previous, 'Autre', RegistrationRequest::REFUSAL_OTHER);
+        $none = $refuse($previous, 'Sans', null);
+        $sameYear = $refuse($this->scoutYearId, 'Même', RegistrationRequest::REFUSAL_NO_ROOM);
+        $laterYear = $refuse($later, 'Après', RegistrationRequest::REFUSAL_NO_ROOM);
+
+        $labels = $this->repository->findNoRoomRefusalYearLabels(
+            [$twice, $other, $none, $sameYear, $laterYear, $twice],
+            '2026-09-01'
+        );
+
+        $this->assertSame([$twice => '2025-2026'], $labels);
+        $this->assertSame([], $this->repository->findNoRoomRefusalYearLabels([], '2026-09-01'));
+    }
 }

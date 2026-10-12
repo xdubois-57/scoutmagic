@@ -206,6 +206,34 @@ interface Window {
             }
         ) => void;
     };
+    // public/assets/js/list-editor.js — the refresh of a list's « empty »
+    // sentence and move arrows, for a caller that moves a row itself.
+    ScoutMagicListEditor?: {
+        refresh: (list: HTMLElement) => void;
+    };
+    // public/assets/js/registration-capacity-settings.js — the pure parts
+    // of Formulaire d'inscription › Réglages, exposed for its tests.
+    ScoutMagicRegistrationSettings?: {
+        commitNumber: (draft: string, last: number, min: number, max: number) => number;
+        movePair: (
+            which: 'yes' | 'maybe',
+            value: number,
+            pair: { yes: number; maybe: number },
+            bounds?: { min: number; max: number }
+        ) => { yes: number; maybe: number };
+        sliderGeometry: (
+            pair: { yes: number; maybe: number },
+            bounds?: { min: number; max: number }
+        ) => { yes: number; maybe: number; no: number; full: number };
+        barLength: (fraction: number, withHalfThumb: boolean) => string;
+        maxOccupiedFor: (capacity: number, percent: number) => number;
+        placesOccupied: (count: number) => string;
+        exampleLines: (
+            capacity: number,
+            pair: { yes: number; maybe: number }
+        ) => Array<{ level: 'yes' | 'maybe' | 'no'; before: string; strong: string; after: string }>;
+        init: () => void;
+    };
     // public/assets/js/pdf-thumbnail.js — the fallback for a PDF
     // thumbnail the server could not render, loaded only by the pages
     // that show receipts. `error` does not bubble, so every code path

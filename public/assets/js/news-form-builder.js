@@ -196,15 +196,10 @@
             editable.setAttribute('aria-labelledby', labelledBy);
         }
         editable.innerHTML = sanitizeHtml(initialHtml);
-        editable.addEventListener('input', function () {
+        function changed() {
             if (onChange) onChange(sanitizeHtml(editable.innerHTML));
-        });
-        // A paste is rebuilt in the shared canonical form before it lands
-        // (issue #844) — Word's and Google Docs' styled spans become the
-        // <strong>/<em> the toolbar makes, instead of markup its buttons
-        // cannot toggle off. Images are part of this editor's grammar; the
-        // paste fires `input`, so onChange above still sees it.
-        window.ScoutMagicRichText.wireSurface(editable, { images: true });
+        }
+        editable.addEventListener('input', changed);
 
         var imageInput = document.createElement('input');
         imageInput.type = 'file';
@@ -232,22 +227,31 @@
             btn.className = 'btn btn-sm btn-outline-secondary';
             btn.title = cmd.title;
             btn.innerHTML = cmd.label ? '<strong>' + cmd.label + '</strong>' : '<i class="bi ' + cmd.icon + '"></i>';
-            btn.addEventListener('click', function () {
-                editable.focus();
-                if (cmd.command === 'createLink') {
-                    // Shared: captures the selection, asks, normalizes the
-                    // URL and gives focus back. See rich-text-link.js.
-                    window.ScoutMagicRichText.insertLink(editable);
-                    return;
-                }
-                if (cmd.command === 'insertImage') {
+            if (cmd.command === 'insertImage') {
+                // The one button of this editor alone: an upload, then an
+                // <img> at the caret.
+                btn.addEventListener('click', function () {
+                    editable.focus();
                     imageInput.click();
-                } else {
-                    document.execCommand(cmd.command, false, cmd.value || null);
-                }
-            });
+                });
+            } else {
+                // Every standard button is the shared toolbar's (#885):
+                // H2/H3/« Paragraphe » in a list item move the item out of
+                // its list rather than wrap the list in a heading, and
+                // formatBlock gets its value in the angle brackets every
+                // engine accepts — a bare `h2`, what this editor sent,
+                // is not one of them.
+                btn.dataset.command = cmd.command;
+                if (cmd.value) btn.dataset.value = cmd.value;
+            }
             toolbar.appendChild(btn);
         });
+        // Also rebuilds a paste in the shared canonical form before it lands
+        // (issue #844) — Word's and Google Docs' styled spans become the
+        // <strong>/<em> the toolbar makes, instead of markup its buttons
+        // cannot toggle off. Images are part of this editor's grammar. A
+        // move made by hand fires no `input`, so every command reports here.
+        window.ScoutMagicRichText.wireToolbar(toolbar, editable, changed, { images: true });
 
         // Uploads via a dedicated endpoint (the article itself may not
         // exist yet, so this can't wait for the main form's own
