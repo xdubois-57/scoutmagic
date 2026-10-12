@@ -35,6 +35,12 @@ use Modules\Registration\Repository\RegistrationRequestRepository;
  *    The number of places is the limit that bites at the end: the locked
  *    line after « Classement » in the « Priorités » box.
  *
+ * « Fratrie déjà dans l'unité » counts a declared sibling only while they
+ * are still in the unit — an active enrolment in the current scout year or
+ * in the year the request targets
+ * (RegistrationRequestRepository::findPresentSiblingMemberIdsForRequests()).
+ * The screens that show the siblings keep showing every declared one.
+ *
  * Left out of the queue, with an explanation and no level: a possible
  * duplicate — the same child (`name_dob_blind_index`) filed twice in the
  * same year — except the one request of that child that stays (its
@@ -208,10 +214,15 @@ class RecommendationService
             }
         }
 
+        $publicYear = $this->scoutYearResolver->getCurrentPublicYear();
+
         // Each criterion is read only when it is evaluated: a disabled one
-        // costs no query, and cannot leak into an explanation.
+        // costs no query, and cannot leak into an explanation. A declared
+        // sibling counts only while still in the unit — an active enrolment
+        // in the current year or in the year the request targets — not
+        // because the family named them once (the maintainer's decision).
         $siblings = in_array(PriorityOrder::CRITERION_SIBLING, $evaluated, true)
-            ? $this->requestRepository->findSiblingMemberIdsForRequests($queuedIds)
+            ? $this->requestRepository->findPresentSiblingMemberIdsForRequests($queuedIds, (int) $publicYear['id'])
             : [];
         $previousNoRoom = in_array(PriorityOrder::CRITERION_PREVIOUS_NO_ROOM, $evaluated, true)
             ? $this->requestRepository->findNoRoomRefusalYearLabels($childKeys, (string) $year['start_date'])
@@ -219,7 +230,6 @@ class RecommendationService
 
         $facts = ['siblings' => $siblings, 'previous_no_room' => $previousNoRoom];
 
-        $publicYear = $this->scoutYearResolver->getCurrentPublicYear();
         $slotRows = [];
         foreach ($this->slotService->capacityBreakdownForYear(
             (int) $year['id'],

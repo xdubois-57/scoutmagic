@@ -309,6 +309,45 @@ class RegistrationRequestControllerTest extends TestCase
         $this->assertStringContainsString('Louveteaux', $body);
     }
 
+    /**
+     * The fiche shows the siblings the family DECLARED, a sibling who has
+     * left the unit since included — only the recommendation's « Fratrie
+     * déjà dans l'unité » is restricted to the ones still in it (issue
+     * #843, after IT-03): one has no active enrolment this year any more,
+     * the other was never imported at all.
+     */
+    public function testShowStillListsADeclaredSiblingWhoHasLeftTheUnit(): void
+    {
+        $left = RegistrationTestHelper::insertMember($this->pdo, 'SIBLEFT');
+        $this->pdo->prepare(
+            'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted,
+                birth_date_encrypted, is_active) VALUES (?, ?, ?, ?, ?, 0)'
+        )->execute([
+            $left, $this->publicYearId,
+            $this->encryption->encrypt('PAUL', 'member_years.first_name'),
+            $this->encryption->encrypt('DUPONT', 'member_years.last_name'),
+            $this->encryption->encrypt('2015-03-01', 'member_years.birth_date'),
+        ]);
+        $neverImported = RegistrationTestHelper::insertMember($this->pdo, 'SIBNONE');
+
+        $created = $this->requestRepository->create($this->targetYearId, [
+            'parent_name' => 'Marie Dupont', 'child_last_name' => 'Dupont', 'child_first_name' => 'Léa',
+            'gender' => 'F', 'birth_date' => '2020-06-01', 'street' => 'Rue Test', 'number' => '1',
+            'postal_code' => '1000', 'city' => 'V', 'email' => 'marie@example.com',
+            'phone1' => '000', 'phone2' => null, 'remarks' => null,
+        ], null, [$left, $neverImported]);
+
+        $id = (string) $created['id'];
+        $body = (string) $this->controller->show(
+            new Request('GET', "/config/inscriptions/demandes/{$id}", [], [], [], []),
+            ['id' => $id]
+        )->getBody();
+
+        $this->assertStringContainsString('Frère(s)/sœur(s) déjà membre(s) déclaré(s)', $body);
+        $this->assertStringContainsString('Paul Dupont', $body);
+        $this->assertStringContainsString("Membre #{$neverImported}", $body);
+    }
+
     public function testShowReturns404ForUnknownId(): void
     {
         $response = $this->controller->show(new Request('GET', '/config/inscriptions/demandes/999', [], [], [], []), ['id' => '999']);
