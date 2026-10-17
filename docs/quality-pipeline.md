@@ -391,6 +391,25 @@ if the action's pinned image renames one, which is the price of the
 guarantee and the reason to re-check those names whenever the action SHA
 is bumped.
 
+**The verdict also carries planning metadata, applied by steps of their
+own** (issue #923). Beside the verdict and the comment, both agents return
+`effort` (`S`/`M`/`L`/`unknown`), `category` (`test`/`idea`/`confirmed_bug`)
+and `blocked_by` (issue numbers, each with the passage that proves it) — all
+closed or validated shapes, and **no field for a priority**, which is the
+maintainer's alone and which no workflow, script or agent writes
+(`tests/Security/BacklogProjectScriptsTest`, `IssueTriageWorkflowPermissionsTest`).
+After the verdict has landed and been verified, a step holding only
+`github.token` runs `scripts/triage-title.sh` (the `[Bug]` / `[Test]` /
+`[Idée]` prefix, derived from the verdict and the category, rest of the title
+untouched) and `scripts/triage-dependencies.sh` (the native `blocked by`
+links: issues only, open only, no self link, no cycle, never a removal); a
+second step holding only `PROJECTS_TOKEN` runs `scripts/project-effort.sh`
+(`Effort`, only when empty). None of them can cost the reporter their answer,
+each is red and visible when it fails, and each is tested offline by its
+`.test.sh` neighbour, which PHPUnit runs. The setup, the other Project
+workflows (`project-canceled-sync.yml`, `backlog-project.yml`,
+`project-backfill.yml`) and the hourly watch are in `docs/backlog-automation.md`.
+
 That price was paid on the first live run. The list named
 `mcp__github__issue_read`; the pinned image spells those tools
 `get_issue` and `get_issue_comments`, so the triage of #181 was denied 48
@@ -1312,6 +1331,7 @@ change to either.
 | `SONAR_TOKEN` | the `sonarqube` job in `checks.yml`, `check-sonar-release.sh`, `release.yml`'s SonarCloud evidence job | no Quality Gate on pull requests; the release gate fails closed; a tag's Release workflow refuses for want of the analysis |
 | `CLAUDE_CODE_OAUTH_TOKEN` | `claude-review.yml`, `issue-triage.yml`, `issue-backlog-scan.yml`, `external-sources-check.yml` | the review job fails at authentication, and no issue is ever triaged — neither on arrival nor overnight; a divergent external source still gets its issue, with the script's report and no analysis |
 | `SUPPORT_TRIAGE_TOKEN` | the `extract` step of `issue-triage.yml` and `issue-backlog-scan.yml` | no support ticket extract is ever fetched: a cited reference is reported in the step's log and the triage runs on the issue alone, green |
+| `PROJECTS_TOKEN` | one step each of `issue-triage.yml`, `issue-backlog-scan.yml`, `project-canceled-sync.yml`, `backlog-project.yml` and `project-backfill.yml` — the only places `ProjectWorkflowsTest` lets name it | `Effort` is never filled (the step goes red **after** the verdict is posted, which stays intact); Canceled issues are not closed (the hourly run goes red); `backlog-project.yml` fails, so a session without `gh` cannot read the queue or record a claim. Nothing is silent |
 
 `CLAUDE_CODE_OAUTH_TOKEN` is generated with `claude setup-token` and spends
 a Claude subscription rather than a metered API key. It is tied to the
@@ -1321,6 +1341,17 @@ person who generated it.
 Tickets › « Générer un nouveau jeton » — shown once, and pasted here; the
 site keeps only its hash (ARCHITECTURE.md §8.49sexies). Generating a new
 one there invalidates this one at once, so the two are rotated together.
+
+`PROJECTS_TOKEN` is a **classic personal access token with the `project`
+scope**, owned by an account that may edit Project #1: `github.token` has no
+permission on a user-owned Project, so there is no narrower credential. It is
+the most powerful secret here that is not a model credential, which is why
+`Tests\Security\ProjectWorkflowsTest` keeps the list of workflows allowed to
+name it closed, each in exactly one step that starts no model and
+interpolates no input into a shell, and why it is never given to an agent
+(sessions without `gh` dispatch `backlog-project.yml` instead). It cannot write
+an issue, so every issue write uses `github.token` in a step of its own.
+It is tied to the person who created it; rotate it with the account.
 
 One thing about `CLAUDE_CODE_OAUTH_TOKEN` that the extract makes worth
 writing down: the extract is anonymised before it leaves the support site
@@ -1343,6 +1374,29 @@ guarantee, and it is the one the tests hold.
 The support site's address, `https://…` with no trailing slash. A variable
 rather than a literal in the workflow so that the file names no host, and
 rather than a secret because it is not one.
+
+### GitHub Project #1
+
+*github.com/users/xdubois-57/projects/1* — outside the repository, so nothing
+reports a mistake in it until a script fails on it.
+
+| Field | Type | Exact contents | Read / written by |
+|---|---|---|---|
+| `Status` | single select | `Todo`, `Ready`, `In Progress`, `Done`, `Canceled` | queue, `project-agent.sh`, `project-canceled-sync.sh` |
+| `Priority` | single select | `P0`…`P3` (anything starting `P0`…`P3` is ranked) | **read** by the queue; written by the maintainer only |
+| `Effort` | single select | `S`, `M`, `L` | `project-effort.sh`, only when empty |
+| `Agent` | **text** | free label of a session, e.g. `Claude A1` | `project-agent.sh` |
+
+A renamed option or field is not a silent failure: the scripts look fields and
+options up by name and stop with `Status option missing` / `Agent field
+missing` / `Effort option missing`. The failure that **is** silent is the
+other direction — an issue never added to the Project is not in the queue
+(`project-effort.sh` adds the ones it estimates and nothing else does; enable
+the Project's own *Auto-add to project* workflow if every new issue should
+appear). `Ready` replaced the `status:accepted` label as the
+authorisation to develop; `Canceled` closes the issue as `not_planned`
+within the hour (`project-canceled-sync.yml`, a schedule because GitHub sends
+no event for a user-owned Project).
 
 ### GitHub Apps
 
@@ -1480,8 +1534,9 @@ name exactly.
 
 `.github/workflows/issue-triage.yml` **writes** part of the taxonomy below:
 it applies `triage:done` plus exactly one `bug:*` verdict and removes
-`triage:pending`. It never applies or removes `status:accepted`, which
-stays a marker for a human eye that no workflow reads.
+`triage:pending`. It never applies or removes `status:accepted`, a legacy
+label that no workflow or agent reads any more: Status = Ready on Project #1
+is what authorises development (`docs/backlog-automation.md`).
 `issue-backlog-scan.yml` writes exactly the same labels through exactly the
 same skill file — there is one taxonomy and one method, not two.
 
@@ -1896,6 +1951,28 @@ nothing**:
   arrangement safe is that the *blocking* half is somewhere else entirely:
   `rich-text-commands.spec.js` in the browser suite, which cannot be green
   without having run the twelve commands.
+
+- **Scheduled workflows stop by themselves, and `Canceled` stops closing.**
+  GitHub disables the `schedule:` trigger of a workflow in a repository with
+  no activity for 60 days, with an e-mail to the last committer and no red
+  run anywhere. `project-canceled-sync.yml` and `external-sources-check.yml`
+  are such workflows: a quiet repository would leave a Canceled issue open
+  and a moved federation page unreported, and every check would stay green
+  because none would have run. The signal is the **Actions tab showing a
+  scheduled run in the last hour (the sync) or week (the sources check)**;
+  a repository that is being worked on keeps them alive, and *Run workflow*
+  re-enables one that was switched off.
+- **An issue that is not on the Project is not in the queue.** The queue is
+  the Project's `Ready` items; an open issue never added to it is invisible
+  to `fix the backlog`, and the queue is then correct, short and green.
+  `project-effort.sh` adds the issues it estimates; nothing else does. If
+  every new issue should appear, enable the Project's *Auto-add to project*
+  workflow — which is Project configuration, not repository content.
+- **A Routine that is paused or deleted looks exactly like an empty
+  backlog.** The hourly watch (`docs/backlog-automation.md`) is configured in
+  Claude Code, not in this repository, so nothing here reports that it is gone.
+  Its run list is the only signal: a Routine with no run in the last hour is
+  not watching.
 
 The habit that catches these is cheap: ask what a green result would look
 like if the thing had not run at all. When the answer is "the same", the

@@ -10,8 +10,10 @@
 # diverge; nothing the agent says can add one. The agent's job is the part
 # a script cannot do: open the changed page, understand what moved, find
 # the new address, read the new amounts, and draft the ticket — by the
-# method in .claude/skills/external-sources/SKILL.md, the same file an
-# agent follows when « fixe le backlog » runs the check by hand.
+# method in .claude/skills/external-sources/SKILL.md. This weekly watch is
+# independent of « fixe le backlog » (issue #923 took the check out of its
+# start): the issues it opens are developed once the maintainer moves them
+# to Ready.
 #
 # THE MODEL DOES NOT WRITE. Same split as issue-backlog-scan.yml: the
 # agent holds read tools (the checkout, the web, the GitHub read tools)

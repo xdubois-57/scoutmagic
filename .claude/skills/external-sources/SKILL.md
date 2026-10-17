@@ -1,6 +1,6 @@
 ---
 name: external-sources
-description: How to act on what scripts/check-external-sources.php reports — the federation pages (lesscouts.be) and provider consoles the site depends on. Run the check, examine each divergence (moved page, changed content, changed fees amounts, dead console link), and open one issue per source or update the one already open for it, never a duplicate. Used by .github/workflows/external-sources-check.yml every week, and by an agent told to « fixe le backlog » (AGENTS.md). Core\ExternalSource\ExternalSources is the register; issue #355 is why it exists.
+description: How to act on what scripts/check-external-sources.php reports — the federation pages (lesscouts.be) and provider consoles the site depends on. Run the check, examine each divergence (moved page, changed content, changed fees amounts, dead console link), and open one issue per source or update the one already open for it, never a duplicate. Used by .github/workflows/external-sources-check.yml every week. It is deliberately not run by « fixe le backlog » (AGENTS.md), which only develops Ready issues; the issues this skill opens wait for the maintainer to move them to Ready. Core\ExternalSource\ExternalSources is the register; issue #355 is why it exists.
 ---
 
 # Watching the external sources
@@ -128,7 +128,7 @@ another source's issue.
 
 - **Not a fix.** The check files issues; it does not change the register,
   the templates or the defaults. That is a pull request, off `main`, for an
-  issue the maintainer has accepted — the same as any other ticket.
+  issue the maintainer has moved to Ready — the same as any other ticket.
 - **Not the release gate's bypass.** `scripts/release.sh` runs the same
   script as its sixth gate and refuses on exit 1. The answer to a refusal
   is the fix, or `--skip-sources-gate` on the maintainer's explicit say-so

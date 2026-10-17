@@ -53,15 +53,18 @@ FORM_DIR="${ISSUE_TEMPLATE_DIR:-${SCRIPT_DIR}/../.github/ISSUE_TEMPLATE}"
 # application's interface — what a unit chief reads on the site — and these
 # are read by the maintainer and by automation, never rendered to a user.
 #
-# `status:accepted` is deliberately inert: the agent must never apply or
-# remove it, and no workflow reads it. It is a marker for a human eye,
-# and it is created here so that the one hand-applied label in the set is
-# still described, coloured and reproducible like the rest.
+# `status:accepted` is a LEGACY label, kept so existing issues keep what they
+# carry: it is inert, the agent must never apply or remove it, and no
+# workflow or backlog agent reads it. Work is authorised by Status = Ready on
+# GitHub Project #1 (issue #923, AGENTS.md § "Fix the backlog"), which
+# replaced it entirely. It is declared here so a label sync never deletes the
+# history it records.
 #
 # `status:in-progress` is the mirror of it: applied by an AGENT and never by
 # a human, and read by no automation either. It says a ticket has been taken
 # (AGENTS.md § "Fix the backlog", step 3) so that a glance at the issue list
-# shows what is in flight. It is a SIGNAL and not a lock — the lock is the
+# shows what is in flight; the Project's In Progress status and Agent field
+# say the same, and equally lock nothing. It is a SIGNAL and not a lock — the lock is the
 # `claude/issue-<n>` ref, because creating one is atomic where applying a
 # label is not — so nothing breaks when this label is missing, and an agent
 # that cannot apply it carries on.
@@ -76,7 +79,7 @@ LABELS=(
     "bug:confirmed|b60205|A real defect, understood"
     "bug:not-a-bug|cfd3d7|Works as designed, or user error"
     "bug:needs-info|d876e3|Blocked on an answer from the reporter"
-    "status:accepted|0e8a16|The maintainer will do it — applied by hand, read by no automation"
+    "status:accepted|0e8a16|Legacy, no longer read — Ready on Project #1 now authorises work"
     "status:in-progress|1d76db|An agent has claimed it — applied by an agent, cleared when its pull request merges"
 )
 

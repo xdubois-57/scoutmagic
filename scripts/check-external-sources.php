@@ -14,14 +14,15 @@ declare(strict_types=1);
  * page, and prints one line per source — divergences first. Exits 0 when
  * everything conforms, 1 on any divergence, 2 when it could not run.
  *
- * Three callers, one verdict:
+ * Two callers, one verdict:
  * - `scripts/release.sh`'s sixth gate, « Sources externes », which refuses
  *   the release on exit 1;
  * - `.github/workflows/external-sources-check.yml`, weekly, where Claude
  *   reads this report and opens or updates an issue per divergence
  *   (`.claude/skills/external-sources/SKILL.md`);
- * - an agent told to « fixe le backlog » (AGENTS.md), before it lists the
- *   accepted issues.
+ *
+ * « Fixe le backlog » no longer runs it (issue #923): the weekly workflow files
+ * the divergences as issues, and an issue is developed once it is Ready.
  *
  * Everything that decides lives in Core\ExternalSource\ExternalSourceChecker,
  * tested on recorded pages; this file only wires the real network in, and
