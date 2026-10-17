@@ -1,0 +1,52 @@
+{
+  "_comment": "One-off catch-up for issue #923 (§ 9 « Migration initiale »). Efforts are the HISTORICAL estimates of the 2026-10-12 audit in the issue's appendix, not values already in the Project; project-effort.sh writes one only when the field is EMPTY, re-reading it just before. `unknown` writes nothing. Priority is never part of this file. Dependencies are only those the issue text itself proves.",
+  "efforts": {
+    "923": "L",
+    "919": "M",
+    "918": "M",
+    "916": "M",
+    "914": "M",
+    "912": "M",
+    "911": "S",
+    "909": "M",
+    "907": "M",
+    "905": "M",
+    "895": "L",
+    "891": "M",
+    "890": "M",
+    "881": "M",
+    "878": "S",
+    "847": "L",
+    "846": "M",
+    "843": "L",
+    "841": "M",
+    "831": "M",
+    "805": "M",
+    "791": "L",
+    "760": "M",
+    "754": "L",
+    "753": "L",
+    "740": "L",
+    "737": "unknown",
+    "735": "unknown",
+    "730": "M",
+    "729": "M",
+    "728": "unknown",
+    "724": "L",
+    "718": "L",
+    "661": "M",
+    "625": "L",
+    "616": "unknown",
+    "449": "L",
+    "423": "L",
+    "401": "M",
+    "369": "M"
+  },
+  "dependencies": [
+    {
+      "issue": 740,
+      "blocked_by": 724,
+      "evidence": "Le corps de #740 dit : « Dépend de #724 — RGPD Partie 1 : demandes d’accès, politique et registre des traitements. »"
+    }
+  ]
+}
