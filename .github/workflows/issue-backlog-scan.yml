@@ -266,6 +266,17 @@ jobs:
         `triage:pending` and the closing of a `bug:not-a-bug` issue
         are handled for you.
 
+        Every entry also carries `effort`, `category` and `blocked_by`,
+        and the skill file's sections on them say how to choose each.
+        They are planning metadata: none appears in a public comment,
+        none is a label, and you still write nothing. Never choose,
+        suggest or mention a PRIORITY anywhere: that decision belongs to
+        the maintainer and the schema has no field for it. List in
+        `blocked_by` only an issue that must be finished BEFORE this one
+        can start, with the passage that proves it; a pull request, a
+        parent or related ticket or an issue already delivered is not a
+        prerequisite, and when in doubt the list stays empty.
+
         Work them one at a time, oldest first: read the issue — its
         body AND its comments, in order — read the code, reach the
         verdict, write the entry, move on.
@@ -353,7 +364,19 @@ jobs:
       #
       # ONE LINE ON PURPOSE: spliced into `claude_args`, which is parsed
       # as a command line.
-      SCAN_SCHEMA: '{"type":"object","additionalProperties":false,"required":["verdicts"],"properties":{"verdicts":{"type":"array","maxItems":5,"items":{"type":"object","additionalProperties":false,"required":["issue","verdict","comment"],"properties":{"issue":{"type":"integer","description":"The issue number, which must be one of those this run selected."},"verdict":{"type":"string","enum":["bug:confirmed","bug:not-a-bug","bug:needs-info","feature-request"]},"comment":{"type":"string","minLength":1,"description":"The comment to post on that issue, in the language of the issue."}}}},"note":{"type":"string","description":"Anything the run could not do, and why. Read by a human, never applied."}}}'
+      SCAN_SCHEMA: '{"type":"object","additionalProperties":false,"required":["verdicts"],"properties":{"verdicts":{"type":"array","maxItems":5,"items":{"type":"object","additionalProperties":false,"required":["issue","verdict","comment","effort","category","blocked_by"],"properties":{"issue":{"type":"integer","description":"The issue number, which must be one of those this run selected."},"verdict":{"type":"string","enum":["bug:confirmed","bug:not-a-bug","bug:needs-info","feature-request"]},"comment":{"type":"string","minLength":1,"description":"The comment to post on that issue, in the language of the issue."},"effort":{"type":"string","enum":["S","M","L","unknown"],"description":"Technical implementation effort; unknown when it cannot be defended. Never shown in the comment."},"category":{"type":"string","enum":["test","idea","confirmed_bug"],"description":"What the work is, for the title prefix: test (mainly tests), confirmed_bug (only with bug:confirmed), otherwise idea."},"blocked_by":{"type":"array","maxItems":5,"items":{"type":"object","additionalProperties":false,"required":["issue","evidence"],"properties":{"issue":{"type":"integer","minimum":1,"description":"The number of an existing issue that must be finished before this one can start."},"evidence":{"type":"string","minLength":1,"maxLength":400,"description":"The passage that establishes the prerequisite."}}},"description":"Certain prerequisites only; empty when in doubt."}}}},"note":{"type":"string","description":"Anything the run could not do, and why. Read by a human, never applied."}}}'
+
+      # WHAT A USABLE ENTRY IS, defined once because three places ask (the
+      # count after each attempt and the application). A jq program, run
+      # against the agent's JSON as data; see issue-triage.yml's
+      # VERDICT_VALID for why the enums are re-checked although the schema
+      # already enforces them.
+      ENTRY_VALID: >-
+        (.issue | type == "number") and (.comment | type == "string") and (.comment | length > 0)
+        and (.effort == "S" or .effort == "M" or .effort == "L" or .effort == "unknown")
+        and (.category == "test" or .category == "idea" or .category == "confirmed_bug")
+        and ((.blocked_by // []) | type == "array")
+        and all((.blocked_by // [])[]; (.issue | type == "number") and (.evidence | type == "string"))
 
       # Both attempts are given the identical arguments — see
       # issue-triage.yml's TRIAGE_ARGS for why each half of this list is
@@ -468,7 +491,7 @@ jobs:
           set -euo pipefail
 
           mkdir -p "${RUNNER_TEMP}/triage-scripts"
-          for script in support-triage-extract.sh triage-comment-gate.sh; do
+          for script in support-triage-extract.sh triage-comment-gate.sh project-effort.sh triage-title.sh triage-dependencies.sh; do
             gh api -H 'Accept: application/vnd.github.raw+json' \
               "repos/${GITHUB_REPOSITORY}/contents/scripts/${script}?ref=main" \
               > "${RUNNER_TEMP}/triage-scripts/${script}"
@@ -570,7 +593,7 @@ jobs:
           returned=0
           if [ -n "${VERDICTS_JSON}" ]; then
             returned="$(printf '%s' "${VERDICTS_JSON}" \
-              | jq '[.verdicts[]? | select((.issue | type == "number") and (.comment | length > 0))] | length' \
+              | jq "[.verdicts[]? | select(${ENTRY_VALID})] | length" \
               2>/dev/null || echo 0)"
           fi
 
@@ -662,7 +685,7 @@ jobs:
           count() {
             [ -n "${1}" ] || { echo 0; return; }
             printf '%s' "${1}" \
-              | jq '[.verdicts[]? | select((.issue | type == "number") and (.comment | length > 0))] | length' \
+              | jq "[.verdicts[]? | select(${ENTRY_VALID})] | length" \
               2>/dev/null || echo 0
           }
 
@@ -703,8 +726,8 @@ jobs:
           # the same selected issue would pass every check above and
           # produce five comments on one report.
           printf '%s' "${verdicts_json}" \
-            | jq -c '[.verdicts[]? | select((.issue | type == "number") and (.comment | length > 0))]
-                     | unique_by(.issue)[]' \
+            | jq -c "[.verdicts[]? | select(${ENTRY_VALID})]
+                     | unique_by(.issue)[]" \
             > "${entries}"
 
           while IFS= read -r entry; do
@@ -816,6 +839,16 @@ jobs:
               continue
             fi
 
+            # Queue the follow-up writes for THIS issue — only now that it
+            # is in the selection and its verdict has landed. The two steps
+            # after this one read the file; the model's text reaches them
+            # only as the closed enums and issue numbers `ENTRY_VALID`
+            # checked, plus the evidence strings the dependency script
+            # logs and ignores.
+            printf '%s' "${entry}" \
+              | jq -c '{issue, verdict, category, effort, blocked_by: (.blocked_by // [])}' \
+              >> "${RUNNER_TEMP}/triage-followups.jsonl"
+
             echo "Applied ${verdict} to issue #${issue}."
             applied=$(( applied + 1 ))
           done < "${entries}"
@@ -872,10 +905,68 @@ jobs:
           printed in full for this reason."
           exit 1
 
+      # THE FOLLOW-UP WRITES (issue #923), issue by issue, for the issues the
+      # step above applied a verdict to and no others. Same split as
+      # issue-triage.yml: the title and the native `blocked by` links need
+      # only `github.token`; Effort needs the PROJECTS_TOKEN secret, which
+      # is in the step after this one and in no other. A failure on one
+      # issue is reported and the rest are still processed; the verdicts are
+      # already on their issues, so none of this can cost a reporter an
+      # answer.
+      - name: Normalise the titles and record the prerequisites
+        if: always() && steps.before.outputs.candidates != '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          file="${RUNNER_TEMP}/triage-followups.jsonl"
+          [ -s "${file}" ] || { echo "No applied verdicts to follow up."; exit 0; }
+          failed=0
+          while IFS= read -r entry; do
+            issue="$(printf '%s' "${entry}" | jq -r '.issue')"
+            verdict="$(printf '%s' "${entry}" | jq -r '.verdict')"
+            category="$(printf '%s' "${entry}" | jq -r '.category')"
+            blocked_by="$(printf '%s' "${entry}" | jq -c '.blocked_by')"
+            bash "${RUNNER_TEMP}/triage-scripts/triage-title.sh" "${issue}" "${verdict}" "${category}" || failed=$(( failed + 1 ))
+            bash "${RUNNER_TEMP}/triage-scripts/triage-dependencies.sh" "${issue}" "${blocked_by}" || failed=$(( failed + 1 ))
+          done < "${file}"
+          if [ "${failed}" -gt 0 ]; then
+            echo "::error title=Title or dependency sync incomplete::${failed} operation(s) failed; the others were still processed."
+            exit 1
+          fi
+
+      # THE ONLY STEP THAT HOLDS THE PROJECTS TOKEN. The agent never sees it
+      # and the issue list comes from the step above, not from model text.
+      - name: Set Effort on ScoutMagic Project
+        if: always() && steps.before.outputs.candidates != '0'
+        env:
+          GH_TOKEN: ${{ secrets.PROJECTS_TOKEN }}
+        run: |
+          set -euo pipefail
+          file="${RUNNER_TEMP}/triage-followups.jsonl"
+          [ -s "${file}" ] || { echo "No applied verdicts to follow up."; exit 0; }
+          failed=0
+          while IFS= read -r entry; do
+            issue="$(printf '%s' "${entry}" | jq -r '.issue')"
+            effort="$(printf '%s' "${entry}" | jq -r '.effort')"
+            if [ "${effort}" = unknown ]; then
+              echo "Issue #${issue} cannot be estimated yet; leaving Effort blank."
+              continue
+            fi
+            if ! bash "${RUNNER_TEMP}/triage-scripts/project-effort.sh" "${issue}" "${effort}"; then
+              echo "::error title=Project Effort sync failed::Issue #${issue} was triaged, but its effort could not be written."
+              failed=$(( failed + 1 ))
+            fi
+          done < "${file}"
+          if [ "${failed}" -gt 0 ]; then
+            echo "::error title=Project Effort sync incomplete::${failed} item(s) failed, but later items were still processed."
+            exit 1
+          fi
+
       # THE EXTRACTS LEAVE WITH THE RUNNER — see issue-triage.yml's last
       # step for why this is written down rather than left to the
       # platform. `always()`, so a red run leaves nothing behind either.
       - name: Remove the extracts from the runner
         if: always()
         run: |
-          rm -rf -- "${GITHUB_WORKSPACE}/support-extract" "${RUNNER_TEMP}/triage-scripts"
+          rm -rf -- "${GITHUB_WORKSPACE}/support-extract" "${RUNNER_TEMP}/triage-scripts" "${RUNNER_TEMP}/triage-followups.jsonl"

@@ -1,0 +1,64 @@
+# One-off catch-up of the open issues onto the Project conventions of issue
+# #923 (§ 9, « Migration initiale »), run BY HAND by the maintainer from the
+# Actions tab. Not scheduled: it exists to be run once, and again only if
+# scripts/project-backfill.json changes.
+#
+#   - Effort is filled from the historical audit in that file, ONLY where the
+#     Project's field is empty (re-read just before each write; `unknown`
+#     writes nothing). Needs the PROJECTS_TOKEN secret.
+#   - The native `blocked by` links the issue texts prove (#740 on #724) are
+#     recorded, never removing a link. Needs only `issues: write`.
+#   - Priority is not in the data and not in either script: it is the
+#     maintainer's alone.
+#
+# Each step holds exactly one credential, every issue is reported on its own
+# line, and a failure on one does not stop the others. The job refuses any ref
+# but `main` and fetches the scripts and their data from `main`.
+name: Project backfill
+
+permissions: {}
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: project-backfill
+  cancel-in-progress: false
+
+jobs:
+  backfill:
+    name: Backfill Effort and dependencies
+    if: github.repository == 'xdubois-57/scoutmagic' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Fetch the scripts from main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/scripts"
+          for script in project-backfill.sh project-backfill.json project-effort.sh triage-dependencies.sh; do
+            gh api -H 'Accept: application/vnd.github.raw+json' \
+              "repos/${GITHUB_REPOSITORY}/contents/scripts/${script}?ref=main" \
+              > "${RUNNER_TEMP}/scripts/${script}"
+            [ -s "${RUNNER_TEMP}/scripts/${script}" ] || {
+              echo "::error title=Script missing::scripts/${script} could not be read from main."
+              exit 1
+            }
+          done
+
+      - name: Record the native blocked-by links
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash "${RUNNER_TEMP}/scripts/project-backfill.sh" dependencies
+
+      # THE ONLY STEP THAT HOLDS THE PROJECTS TOKEN.
+      - name: Fill the empty Effort fields
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.PROJECTS_TOKEN }}
+        run: bash "${RUNNER_TEMP}/scripts/project-backfill.sh" effort

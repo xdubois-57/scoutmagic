@@ -106,6 +106,28 @@
 # what a green result would look like if the thing had not run at all.
 # Until this file verified its own outcome, the answer here was "the same".
 #
+# THE VERDICT CARRIES THREE MORE FIELDS, none of them a label and none of
+# them written by the model (issue #923):
+#
+#   - `category` (test | idea | confirmed_bug) → the title prefix [Test] /
+#     [Idée] / [Bug], applied by scripts/triage-title.sh, which derives the
+#     prefix from the verdict AND the category and keeps the rest of the
+#     title verbatim;
+#   - `blocked_by` (issue numbers + the passage that proves each) → GitHub's
+#     native `blocked by` links, recorded by scripts/triage-dependencies.sh,
+#     which refuses pull requests, closed issues, self links and cycles and
+#     never removes a link;
+#   - `effort` (S | M | L | unknown) → the `Effort` field of Project #1,
+#     written by scripts/project-effort.sh only when it is EMPTY.
+#
+# Each is applied by a step of its own AFTER the verdict has landed and been
+# verified, so none of them can cost the reporter their answer, and the
+# credential each needs is in that step alone: `github.token` (issues: write)
+# for the title and the links, the PROJECTS_TOKEN secret for Effort and for
+# nothing else. The model holds neither and names no issue, no project and
+# no field. `Priority` is the maintainer's alone: the verdict has no field
+# for it and no step here knows the word.
+#
 # THE SUPPORT TICKET EXTRACT, and what it changed about the guarantees
 # above. A reporter who sent a support ticket from their site can cite
 # its reference in the bug form (`.github/ISSUE_TEMPLATE/bug.yml`), and
@@ -375,6 +397,18 @@ jobs:
         `triage:pending` and the closing of a `bug:not-a-bug` issue are
         handled for you; do not mention them in the JSON.
 
+        YOUR JSON ALSO CARRIES `effort`, `category` AND `blocked_by`, and
+        the skill file's sections on them say how to choose each. They
+        are planning metadata: none appears in the public comment, none
+        is a label, and you still write nothing. Never choose, suggest
+        or mention a PRIORITY, in the comment or anywhere else: that
+        decision belongs to the maintainer and the schema has no field
+        for it. List in `blocked_by` only an issue that must be finished
+        BEFORE this one can start, with the passage of the ticket or of
+        that issue which proves it; a reference to a pull request, a
+        parent or related ticket, or an issue already delivered is not a
+        prerequisite. When in doubt, leave `blocked_by` empty.
+
         THE ISSUE MAY HAVE BEEN HERE BEFORE. An earlier triage — perhaps
         your own — can have asked the reporter for a missing fact and
         labelled the issue `bug:needs-info`. When they answer, this
@@ -463,7 +497,23 @@ jobs:
       # ONE LINE ON PURPOSE: this string is spliced into `claude_args`
       # below, which is parsed as a command line, and a newline inside the
       # quotes would end the argument.
-      VERDICT_SCHEMA: '{"type":"object","additionalProperties":false,"required":["verdict","comment"],"properties":{"verdict":{"type":"string","enum":["bug:confirmed","bug:not-a-bug","bug:needs-info","feature-request"],"description":"The triage verdict. feature-request is the one case that carries no bug:* label at all."},"comment":{"type":"string","minLength":1,"description":"The comment to post on the issue, in the language of the issue, following the structure in the skill file."}}}'
+      VERDICT_SCHEMA: '{"type":"object","additionalProperties":false,"required":["verdict","comment","effort","category","blocked_by"],"properties":{"verdict":{"type":"string","enum":["bug:confirmed","bug:not-a-bug","bug:needs-info","feature-request"],"description":"The triage verdict. feature-request is the one case that carries no bug:* label at all."},"comment":{"type":"string","minLength":1,"description":"The comment to post on the issue, in the language of the issue, following the structure in the skill file."},"effort":{"type":"string","enum":["S","M","L","unknown"],"description":"Technical implementation effort; unknown when it cannot be defended. Never shown in the comment."},"category":{"type":"string","enum":["test","idea","confirmed_bug"],"description":"What the work is, for the title prefix: test (mainly tests), confirmed_bug (only with bug:confirmed), otherwise idea."},"blocked_by":{"type":"array","maxItems":5,"items":{"type":"object","additionalProperties":false,"required":["issue","evidence"],"properties":{"issue":{"type":"integer","minimum":1,"description":"The number of an existing issue that must be finished before this one can start."},"evidence":{"type":"string","minLength":1,"maxLength":400,"description":"The passage that establishes the prerequisite."}}},"description":"Certain prerequisites only; empty when in doubt."}}}'
+
+      # WHAT A USABLE VERDICT IS, defined once because three steps ask. A
+      # jq program, not shell: it runs against the agent's JSON as data. The
+      # fields beyond verdict and comment are checked even though
+      # `--json-schema` should already guarantee them, for the reason the
+      # first check gives — a run that proceeds on JSON it could not read
+      # applies nonsense to somebody's report. `blocked_by` may be absent in
+      # a retry's output and counts as empty; an `effort` or a `category`
+      # outside its enum makes the whole verdict unusable, so the retry gets
+      # a chance to produce one.
+      VERDICT_VALID: >-
+        has("verdict") and (.comment | type == "string") and (.comment | length > 0)
+        and (.effort == "S" or .effort == "M" or .effort == "L" or .effort == "unknown")
+        and (.category == "test" or .category == "idea" or .category == "confirmed_bug")
+        and ((.blocked_by // []) | type == "array")
+        and all((.blocked_by // [])[]; (.issue | type == "number") and (.evidence | type == "string"))
 
       # Both attempts are given the identical arguments, for the same
       # reason the prompt lives in one place: an attempt that retries with
@@ -683,7 +733,7 @@ jobs:
           set -euo pipefail
 
           mkdir -p "${RUNNER_TEMP}/triage-scripts"
-          for script in support-triage-extract.sh triage-comment-gate.sh; do
+          for script in support-triage-extract.sh triage-comment-gate.sh project-effort.sh triage-title.sh triage-dependencies.sh; do
             gh api -H 'Accept: application/vnd.github.raw+json' \
               "repos/${GITHUB_REPOSITORY}/contents/scripts/${script}?ref=main" \
               > "${RUNNER_TEMP}/triage-scripts/${script}"
@@ -806,7 +856,7 @@ jobs:
           # report.
           if [ -n "${VERDICT_JSON}" ] \
             && printf '%s' "${VERDICT_JSON}" \
-              | jq -e 'has("verdict") and has("comment") and (.comment | length > 0)' >/dev/null 2>&1
+              | jq -e "${VERDICT_VALID}" >/dev/null 2>&1
           then
             echo "The first attempt returned a verdict."
             echo "have_verdict=true" >> "${GITHUB_OUTPUT}"
@@ -893,7 +943,7 @@ jobs:
 
           usable() {
             [ -n "${1}" ] && printf '%s' "${1}" \
-              | jq -e 'has("verdict") and (.comment | type == "string") and (.comment | length > 0)' \
+              | jq -e "${VERDICT_VALID}" \
                 >/dev/null 2>&1
           }
 
@@ -1008,6 +1058,15 @@ jobs:
           # tolerated 404s above safe to tolerate.
           echo "bug_label=${bug_label}" >> "${GITHUB_OUTPUT}"
 
+          # What the three follow-up steps below apply. Single-line values
+          # from enums and integers, plus the evidence strings inside the
+          # compact JSON — `jq -c` escapes every newline, so nothing here
+          # can start a second output.
+          echo "verdict=${verdict}" >> "${GITHUB_OUTPUT}"
+          echo "category=$(printf '%s' "${verdict_json}" | jq -r '.category')" >> "${GITHUB_OUTPUT}"
+          echo "effort=$(printf '%s' "${verdict_json}" | jq -r '.effort')" >> "${GITHUB_OUTPUT}"
+          echo "blocked_by=$(printf '%s' "${verdict_json}" | jq -c '.blocked_by // []')" >> "${GITHUB_OUTPUT}"
+
           echo "Applied ${verdict} to issue #${ISSUE_NUMBER}."
 
       # The point of the whole exercise: an issue nobody triaged must not
@@ -1063,6 +1122,47 @@ jobs:
           fi
 
           echo "Issue #${ISSUE_NUMBER} carries a triage verdict, and only one."
+
+      # THE THREE FOLLOW-UP WRITES (issue #923), after the verdict has landed
+      # and been verified, and each with only the credential it needs. They
+      # run whether or not the label verification above passed — a verdict
+      # that was applied deserves its title and its links — but never when
+      # the verdict itself was not applied. A failure here is red and
+      # visible, and costs the reporter nothing: their answer is already on
+      # the issue.
+      - name: Normalise the title and record the prerequisites
+        if: always() && steps.apply.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          VERDICT: ${{ steps.apply.outputs.verdict }}
+          CATEGORY: ${{ steps.apply.outputs.category }}
+          BLOCKED_BY: ${{ steps.apply.outputs.blocked_by }}
+        run: |
+          set -euo pipefail
+          failed=0
+          bash "${RUNNER_TEMP}/triage-scripts/triage-title.sh" "${ISSUE_NUMBER}" "${VERDICT}" "${CATEGORY}" || failed=1
+          bash "${RUNNER_TEMP}/triage-scripts/triage-dependencies.sh" "${ISSUE_NUMBER}" "${BLOCKED_BY}" || failed=1
+          exit "${failed}"
+
+      # THE ONLY STEP THAT HOLDS THE PROJECTS TOKEN. It is the PAT behind the
+      # PROJECTS_TOKEN secret (scope `project`), which `github.token` cannot
+      # replace: a user-owned Project is outside any repository permission.
+      # The agent never sees it, and the script writes the `Effort` field of
+      # the one issue this run is about, only if that field is empty.
+      - name: Set Effort on ScoutMagic Project
+        if: always() && steps.apply.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ secrets.PROJECTS_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          EFFORT: ${{ steps.apply.outputs.effort }}
+        run: |
+          set -euo pipefail
+          if [ "${EFFORT}" = unknown ]; then
+            echo "No defensible effort estimate for issue #${ISSUE_NUMBER}; leaving Effort blank."
+            exit 0
+          fi
+          bash "${RUNNER_TEMP}/triage-scripts/project-effort.sh" "${ISSUE_NUMBER}" "${EFFORT}"
 
       # THE EXTRACT LEAVES WITH THE RUNNER, and not by accident. A hosted
       # runner is discarded after the job, but "the platform will clean

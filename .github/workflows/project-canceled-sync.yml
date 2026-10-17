@@ -1,0 +1,97 @@
+# Close, as « not planned », the issues the maintainer CANCELED on ScoutMagic
+# Project #1 (issue #923 § 7).
+#
+# Status = `Canceled` on the Project is the maintainer's decision not to do a
+# piece of work; this workflow makes the GitHub issue say so: `closed`, with
+# state_reason `not_planned` (« Not planned »), and a short French note
+# explaining why it was closed. It is NOT « Done »: nothing says the issue
+# was fixed, no label changes, and the fixed-comment workflow — which listens
+# to merged pull requests — has no reason to run.
+#
+# WHY A SCHEDULE. GitHub sends no workflow event when an item of a USER-owned
+# Project changes (Projects v2 webhooks exist for organisations only), so
+# the change is found by looking. The reconciliation therefore runs hourly,
+# and a cancellation takes effect within about an hour. Run it by hand from
+# the Actions tab for an immediate effect.
+#
+# TWO TOKENS, TWO STEPS. The PROJECTS_TOKEN secret (a classic PAT scoped
+# `project`) can read the user-owned Project and cannot write an issue; the
+# repository token can write the issue and cannot see the Project. So the
+# first step reads the Project with the PAT and writes nothing, and the
+# second closes exactly the issues it listed with `github.token`. Neither is
+# ever given to an agent: this workflow starts no model at all.
+#
+# Scripts come from `main` through the API, like the triage workflows', and
+# the job refuses any other ref: a dispatch against a branch must not run
+# edited code with the PAT.
+#
+# IDEMPOTENT AND NARROW. Only OPEN issues of this repository on Project #1
+# are considered (drafts and pull requests are not issues); one already closed,
+# for ANY reason, is left exactly as it is; a failure on one issue is reported
+# and the others still run. A Project that cannot be read fails the run and
+# closes nothing — a red job, never a quiet « nothing to cancel ».
+name: Canceled sync
+
+permissions: {}
+
+on:
+  schedule:
+    # Off the hour on purpose — see docs/quality-pipeline.md on scheduled
+    # runs landing late at :00.
+    - cron: '17 * * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: canceled-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: Close the canceled issues
+    if: github.repository == 'xdubois-57/scoutmagic' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      # Reading the scripts from `main` through the API, and closing issues.
+      contents: read
+      issues: write
+    steps:
+      - name: Fetch the scripts from main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/scripts"
+          for script in project-lib.sh project-canceled-sync.sh; do
+            gh api -H 'Accept: application/vnd.github.raw+json' \
+              "repos/${GITHUB_REPOSITORY}/contents/scripts/${script}?ref=main" \
+              > "${RUNNER_TEMP}/scripts/${script}"
+            [ -s "${RUNNER_TEMP}/scripts/${script}" ] || {
+              echo "::error title=Script missing::scripts/${script} could not be read from main."
+              exit 1
+            }
+          done
+
+      # THE ONLY STEP THAT HOLDS THE PROJECTS TOKEN. It writes nothing.
+      - name: List the issues canceled on the Project
+        env:
+          GH_TOKEN: ${{ secrets.PROJECTS_TOKEN }}
+        run: |
+          set -euo pipefail
+          bash "${RUNNER_TEMP}/scripts/project-canceled-sync.sh" list > "${RUNNER_TEMP}/canceled.txt"
+          echo "Canceled and still open: $(grep -c '[0-9]' "${RUNNER_TEMP}/canceled.txt" || true)"
+
+      - name: Close them as not planned
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          failed=0
+          while IFS= read -r number; do
+            [ -n "${number}" ] || continue
+            bash "${RUNNER_TEMP}/scripts/project-canceled-sync.sh" close "${number}" || failed=$(( failed + 1 ))
+          done < "${RUNNER_TEMP}/canceled.txt"
+          if [ "${failed}" -gt 0 ]; then
+            echo "::error title=Canceled sync incomplete::${failed} issue(s) could not be closed; the others were."
+            exit 1
+          fi
