@@ -32,10 +32,10 @@ les quatre e-mails qu'une demande d'inscription peut déclencher :
 
 L'acceptation et le refus n'ont pas de texte par défaut : une décision
 se formule avec les mots de l'unité. Tant que l'un des deux est « À
-rédiger », un avertissement le rappelle en haut de l'onglet, et le
-bouton « Envoyer » de la fiche reste grisé. La famille continue alors de
-voir sa demande « en attente » : elle ne découvre une décision que par
-son e-mail.
+rédiger », un avertissement le rappelle en haut de l'onglet, et la
+fiche d'une demande dit « Gabarit à rédiger », sans bouton d'envoi. La
+famille continue alors de voir sa demande « en attente » : elle ne
+découvre une décision que par son e-mail.
 
 ## Modifier un texte
 
@@ -50,6 +50,10 @@ liste celles que chaque e-mail connaît : l'alerte à l'unité, par
 exemple, peut citer le créneau et le lien vers la fiche, mais jamais les
 coordonnées de la famille. Une variable que l'e-mail ne connaît pas est
 signalée au-dessus de l'éditeur, car elle partirait telle quelle.
+
+**Gardez le lien de suivi dans l'acceptation et le refus** : chaque
+e-mail de décision remplace le lien de suivi que la famille avait reçu,
+et l'ancien cesse de fonctionner.
 
 ## Revenir au texte par défaut
 

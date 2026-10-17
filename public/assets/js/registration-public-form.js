@@ -188,8 +188,9 @@
             return;
         }
 
+        // « Louveteaux · 1re année », the staff screens' spelling.
         var text = 'Branche prévue : ' + match.branch_label
-            + ' — ' + match.year_in_branch + 'ᵉ année.';
+            + ' · ' + match.year_in_branch + (match.year_in_branch === 1 ? 're' : 'e') + ' année.';
         if (waitlistEnabled && match.level && LEVEL_LABELS[match.level]) {
             text += ' ' + LEVEL_LABELS[match.level] + '.';
         }

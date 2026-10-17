@@ -362,6 +362,9 @@ class PassageServiceTest extends TestCase
 
         $names = array_map(fn($row) => $row['request']->childFirstName, $rows);
         $this->assertSame(['Accepted'], $names);
+        // « Créneau visé », named as every staff screen of the module names
+        // it (IT-11): born in 2019, a Louveteau of the 1st year in 2027.
+        $this->assertSame('Louveteaux · 1re année', $rows[0]['slot_label']);
     }
 
     /**

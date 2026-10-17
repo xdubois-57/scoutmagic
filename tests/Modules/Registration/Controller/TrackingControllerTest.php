@@ -241,10 +241,11 @@ class TrackingControllerTest extends TestCase
      * Issue #843: the recommendation, its explanation and the refusal
      * reason are the staff's alone. Neither tracking view — by token, or
      * linked to the visitor's account — shows any of them, even when the
-     * request has a recommendation and, once refused « Pas de place », a
-     * visible refusal.
+     * request has a recommendation and, once refused for either reason, a
+     * visible refusal (« Autre » completed by IT-11).
      */
-    public function testNeitherTrackingViewShowsTheRecommendationOrTheRefusalReason(): void
+    #[\PHPUnit\Framework\Attributes\DataProvider('refusalReasons')]
+    public function testNeitherTrackingViewShowsTheRecommendationOrTheRefusalReason(string $reason): void
     {
         $explanation = $this->recommendationFor($this->created['id']);
         $this->assertStringStartsWith('Oui — ', $explanation, 'the request has a recommendation to hide');
@@ -253,23 +254,72 @@ class TrackingControllerTest extends TestCase
             $this->tokenView(),
             $this->linkedView(),
         ];
-        $this->requestRepository->updateStatus(
-            $this->created['id'],
-            'refused',
-            new \DateTimeImmutable(),
-            \Modules\Registration\Repository\RegistrationRequest::REFUSAL_NO_ROOM
-        );
+        $this->requestRepository->updateStatus($this->created['id'], 'refused', new \DateTimeImmutable(), $reason);
         RegistrationTestHelper::recordDecisionEmailSent($this->pdo, $this->created['id'], 'refused');
         $refusedPages = [$this->tokenView(), $this->linkedView()];
         foreach ($refusedPages as $body) {
             $this->assertStringContainsString('Refusée', $body, 'the refusal itself is visible once its e-mail left');
         }
 
+        $label = \Modules\Registration\Repository\RegistrationRequest::REFUSAL_REASON_LABELS[$reason];
         foreach (array_merge($pages, $refusedPages) as $body) {
             $this->assertStringNotContainsString($explanation, $body);
             $this->assertStringNotContainsString('Toujours Oui', $body);
             $this->assertStringNotContainsString('Pas de place', $body);
             $this->assertStringNotContainsString('no_room', $body);
+            $this->assertStringNotContainsString('recommandation', mb_strtolower($body));
+            // The reason as the fiche shows it (« Motif : … »), whichever
+            // it is — « Autre » as a word of its own, since the full view
+            // legitimately says « Autre unité Les Scouts ».
+            $this->assertStringNotContainsString('Motif', $body);
+            $this->assertDoesNotMatchRegularExpression('/(>|:)\s*' . preg_quote($label, '/') . '\s*</u', $body);
+        }
+    }
+
+    /**
+     * @return array<string, array{string}>
+     */
+    public static function refusalReasons(): array
+    {
+        return [
+            'Pas de place' => [\Modules\Registration\Repository\RegistrationRequest::REFUSAL_NO_ROOM],
+            'Autre' => [\Modules\Registration\Repository\RegistrationRequest::REFUSAL_OTHER],
+        ];
+    }
+
+    /**
+     * Issue #843, IT-10/IT-11: an acceptance the site took on its own is,
+     * for the family, an acceptance like any other — hidden until its
+     * e-mail left, then « Acceptée », and nothing more: neither tracking
+     * view says it was automatic, nor why the site took it.
+     */
+    public function testAnAutomaticAcceptanceReadsToTheFamilyAsAPlainAcceptance(): void
+    {
+        $explanation = $this->recommendationFor($this->created['id']);
+        $request = $this->requestRepository->findById($this->created['id']);
+        $this->assertNotNull($request);
+        $journal = new JournalService(new JournalRepository($this->pdo));
+
+        (new RequestStatusService($this->requestRepository, $journal))->accept($request, automatic: true);
+        $marked = $this->pdo->query(
+            "SELECT COUNT(*) FROM event_log WHERE event_type = 'registration_request_status_changed'"
+                . " AND context LIKE '%\"automatic\":true%'"
+        )->fetchColumn();
+        $this->assertSame(1, (int) $marked, 'the staff side does mark the acceptance automatic');
+        $before = [$this->tokenView(), $this->linkedView()];
+        RegistrationTestHelper::recordDecisionEmailSent($this->pdo, $this->created['id'], 'accepted');
+        $after = [$this->tokenView(), $this->linkedView()];
+
+        foreach ($before as $body) {
+            $this->assertStringContainsString('En attente d&#039;examen', $body, 'hidden until its e-mail left');
+        }
+        foreach ($after as $body) {
+            $this->assertStringContainsString('Acceptée', $body);
+        }
+        foreach (array_merge($before, $after) as $body) {
+            $this->assertStringNotContainsString('automatique', $body);
+            $this->assertStringNotContainsString($explanation, $body);
+            $this->assertStringNotContainsString('Toujours Oui', $body);
             $this->assertStringNotContainsString('recommandation', mb_strtolower($body));
         }
     }

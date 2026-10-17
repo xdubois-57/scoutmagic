@@ -273,6 +273,24 @@ class RegistrationRequestControllerTest extends TestCase
         $this->assertStringContainsString('Léa', $response->getBody());
         $this->assertStringContainsString('Dupont', $response->getBody());
         $this->assertStringContainsString('Baladins', $response->getBody());
+        // « Créneau », named as the mock-up names it (IT-11).
+        $this->assertMatchesRegularExpression(
+            '#>Créneau</span><br>Baladins · \d(re|e) année\s*<#u',
+            (string) $response->getBody()
+        );
+    }
+
+    /** A child born outside every age bracket: « Hors des tranches d'âge ». */
+    public function testTheFicheNamesARequestOutsideTheBrackets(): void
+    {
+        $id = $this->createRequest('1990-01-01');
+
+        $body = (string) $this->controller->show(
+            new Request('GET', "/config/inscriptions/demandes/{$id}", [], [], [], []),
+            ['id' => (string) $id]
+        )->getBody();
+
+        $this->assertStringContainsString('>Créneau</span><br>Hors des tranches d&#039;âge', $body);
     }
 
     /**
@@ -306,7 +324,9 @@ class RegistrationRequestControllerTest extends TestCase
         $body = $response->getBody();
 
         $this->assertStringContainsString('Marie Dupont', $body);
-        $this->assertStringContainsString('Louveteaux', $body);
+        // Named as the request's own « Créneau » is (IT-11).
+        $this->assertStringContainsString('Louveteaux · 2e année', $body);
+        $this->assertStringNotContainsString('ᵉ année', $body);
     }
 
     /**

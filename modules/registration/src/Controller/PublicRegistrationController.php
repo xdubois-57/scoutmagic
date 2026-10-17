@@ -25,6 +25,7 @@ use Modules\Registration\Repository\RegistrationRequest;
 use Modules\Registration\Service\RegistrationService;
 use Modules\Registration\Service\RegistrationSubmissionReceipt;
 use Modules\Registration\Repository\ReenrollmentRepository;
+use Modules\Registration\Service\RecommendationService;
 use Modules\Registration\Service\ReenrollmentService;
 use Modules\Registration\Service\RegistrationYearCodeSession;
 use Modules\Registration\Service\SlotMath;
@@ -178,7 +179,7 @@ class PublicRegistrationController extends AbstractController
         $desiredSectionId = $this->resolveDesiredSectionId($request, $slot);
         $siblingMemberIds = AuthSession::isAuthenticated() ? $this->extractSiblingIds($request) : [];
 
-        $slotLabel = $this->slotLabel($brackets, $slot);
+        $slotLabel = RecommendationService::requestSlotLabel($brackets, $slot);
 
         $requestId = $this->registrationService->submit(
             (int) $target['id'],
@@ -620,23 +621,5 @@ class PublicRegistrationController extends AbstractController
         }
 
         return array_values(array_intersect($submitted, $allowed));
-    }
-
-    /**
-     * @param array<\Modules\Registration\Repository\AgeBracket> $brackets
-     * @param array{age_branch_id: int, year_in_branch: int}|null $slot
-     */
-    private function slotLabel(array $brackets, ?array $slot): string
-    {
-        if ($slot === null) {
-            return 'Non déterminé';
-        }
-        foreach ($brackets as $bracket) {
-            if ($bracket->ageBranchId === $slot['age_branch_id']) {
-                return $bracket->branchLabel . ' — ' . $slot['year_in_branch'] . 'ᵉ année';
-            }
-        }
-
-        return 'Non déterminé';
     }
 }

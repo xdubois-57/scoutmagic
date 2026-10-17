@@ -42,7 +42,10 @@ use Modules\Registration\Repository\RegistrationRequestRepository;
  * could not be planned is rolled back and ends the pass: an accepted
  * family is never left without an answer. Anything else unexpected about
  * one request is rolled back and journaled too, and leaves that slot to a
- * person; the other slots go on.
+ * person; the other slots go on. So does a recommendation that cannot be
+ * computed: that year is skipped for the pass — before its first slot, or
+ * from the slot whose recomputation failed under its lock — journaled
+ * once, and the next years are still processed.
  *
  * **Waitlists switched off elsewhere** (Configuration > Paramètres) switch
  * the automatic acceptance off at the next pass, as the box does at once.
@@ -89,7 +92,12 @@ class AutomaticAcceptanceService
         }
 
         foreach ($this->openYearIds() as $yearId) {
-            $queues = AutomaticAcceptancePolicy::queuesBySlot($this->recommendationService->forYear($yearId));
+            $queues = $this->queuesFor($yearId);
+            // A year whose recommendation cannot be computed is skipped;
+            // the next one is still processed.
+            if ($queues === null) {
+                continue;
+            }
             foreach ($queues as $slotKey => $queue) {
                 // Nothing to take here: no lock to hold either.
                 if (AutomaticAcceptancePolicy::nextAcceptable($queue, $from) === null) {
@@ -102,6 +110,11 @@ class AutomaticAcceptanceService
                 if ($result['stop'] || $outcome['accepted'] >= self::MAX_ACCEPTANCES_PER_RUN) {
                     $outcome['more'] = !$result['stop'];
                     break 2;
+                }
+                // Its recommendation failed under the lock: the year's other
+                // slots would only fail the same way.
+                if ($result['skip_year']) {
+                    continue 2;
                 }
             }
         }
@@ -123,15 +136,16 @@ class AutomaticAcceptanceService
      * The slot $slotKey (« age branch id:year in branch ») of $yearId, under
      * its lock: take its next acceptable request, recompute, again, until
      * nothing is left to take or $budget is spent. `stop` ends the whole
-     * pass — an acceptance whose e-mail could not be planned.
+     * pass — an acceptance whose e-mail could not be planned; `skip_year`
+     * the rest of the year — a recomputation that failed.
      *
-     * @return array{accepted: int, busy: bool, stop: bool}
+     * @return array{accepted: int, busy: bool, stop: bool, skip_year: bool}
      */
     private function processSlot(int $yearId, string $slotKey, \DateTimeImmutable $from, int $budget): array
     {
         [$ageBranchId, $yearInBranch] = array_map('intval', explode(':', $slotKey));
         if (!$this->requestRepository->acquireAutoAcceptLock($yearId, $ageBranchId, $yearInBranch)) {
-            return ['accepted' => 0, 'busy' => true, 'stop' => false];
+            return ['accepted' => 0, 'busy' => true, 'stop' => false, 'skip_year' => false];
         }
 
         $accepted = 0;
@@ -140,7 +154,10 @@ class AutomaticAcceptanceService
             while ($accepted < $budget) {
                 // Recomputed under the lock, after every acceptance: the
                 // queue moves with each decision, by hand or not.
-                $queues = AutomaticAcceptancePolicy::queuesBySlot($this->recommendationService->forYear($yearId));
+                $queues = $this->queuesFor($yearId);
+                if ($queues === null) {
+                    return ['accepted' => $accepted, 'busy' => false, 'stop' => false, 'skip_year' => true];
+                }
                 $next = AutomaticAcceptancePolicy::nextAcceptable($queues[$slotKey] ?? [], $from);
                 // A request already tried is never tried twice in a pass.
                 if ($next === null || isset($tried[$next->requestId])) {
@@ -149,7 +166,7 @@ class AutomaticAcceptanceService
                 $tried[$next->requestId] = true;
                 $result = $this->acceptOne($next, $yearId);
                 if ($result === self::UNPLANNED) {
-                    return ['accepted' => $accepted, 'busy' => false, 'stop' => true];
+                    return ['accepted' => $accepted, 'busy' => false, 'stop' => true, 'skip_year' => false];
                 }
                 // FAILED: this request needs a person — the slot waits for
                 // it, the other slots go on.
@@ -166,7 +183,34 @@ class AutomaticAcceptanceService
             $this->requestRepository->releaseAutoAcceptLock($yearId, $ageBranchId, $yearInBranch);
         }
 
-        return ['accepted' => $accepted, 'busy' => false, 'stop' => false];
+        return ['accepted' => $accepted, 'busy' => false, 'stop' => false, 'skip_year' => false];
+    }
+
+    /**
+     * The queues of $yearId, slot by slot (AutomaticAcceptancePolicy::
+     * queuesBySlot()), or null when its recommendation cannot be computed —
+     * journaled with the year and the error's class only. Only the
+     * computation is contained here: an acceptance's own outcome is
+     * acceptOne()'s, and an unplanned e-mail still ends the pass.
+     *
+     * @return array<string, array<int, Recommendation>>|null
+     */
+    private function queuesFor(int $yearId): ?array
+    {
+        try {
+            return AutomaticAcceptancePolicy::queuesBySlot($this->recommendationService->forYear($yearId));
+        } catch (\Throwable $e) {
+            $this->journalService->log(
+                'registration',
+                'registration_auto_accept_recommendation_failed',
+                'warning',
+                "Acceptation automatique : la recommandation d'une année n'a pas pu être calculée, "
+                    . 'rien n\'y est accepté pour ce passage',
+                ['scout_year_id' => $yearId, 'error' => $e::class]
+            );
+
+            return null;
+        }
     }
 
     /**

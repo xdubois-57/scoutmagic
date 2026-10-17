@@ -114,7 +114,7 @@ describe('registration-public-form.js', () => {
             await boot();
             type('2018-05-04');
 
-            expect(hint()).toBe('Branche prévue : Louveteaux — 1ᵉ année. Disponible.');
+            expect(hint()).toBe('Branche prévue : Louveteaux · 1re année. Disponible.');
         });
 
         it('reads the birth YEAR only — the day is not known ahead of this form', async () => {
@@ -124,7 +124,7 @@ describe('registration-public-form.js', () => {
             type('2014-01-01');
 
             expect(hint()).toBe(december);
-            expect(hint()).toMatch(/Éclaireurs — 2ᵉ année/);
+            expect(hint()).toMatch(/Éclaireurs · 2e année/);
         });
 
         it('names each public level in French', async () => {
@@ -143,14 +143,14 @@ describe('registration-public-form.js', () => {
             await boot();
             type('2013-06-01');
 
-            expect(hint()).toBe('Branche prévue : Éclaireurs — 3ᵉ année.');
+            expect(hint()).toBe('Branche prévue : Éclaireurs · 3e année.');
         });
 
         it('says nothing about a level when the row carries none', async () => {
             await boot();
             type('2012-06-01');
 
-            expect(hint()).toBe('Branche prévue : Pionniers — 1ᵉ année.');
+            expect(hint()).toBe('Branche prévue : Pionniers · 1re année.');
         });
 
         it('names the target year when the child is outside every branch', async () => {
@@ -181,7 +181,7 @@ describe('registration-public-form.js', () => {
             field().value = '2018-05-04';
             await boot();
 
-            expect(hint()).toBe('Branche prévue : Louveteaux — 1ᵉ année. Disponible.');
+            expect(hint()).toBe('Branche prévue : Louveteaux · 1re année. Disponible.');
         });
 
         it('leaves the section list alone until a branch is known', async () => {
@@ -293,7 +293,7 @@ describe('registration-public-form.js', () => {
             await boot();
 
             expect(() => type('2018-05-04')).not.toThrow();
-            expect(hint()).toBe('Branche prévue : Louveteaux — 1ᵉ année. Disponible.');
+            expect(hint()).toBe('Branche prévue : Louveteaux · 1re année. Disponible.');
         });
 
         it('offers every section when the row carries no branch id', async () => {

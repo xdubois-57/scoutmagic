@@ -25,6 +25,7 @@ use Core\Security\CsrfGuard;
 use Modules\Registration\Repository\AgeBracketRepository;
 use Modules\Registration\Repository\RegistrationRequestRepository;
 use Modules\Registration\Service\MigrationService;
+use Modules\Registration\Service\RecommendationService;
 use Modules\Registration\Service\RegistrationException;
 use Modules\Registration\Service\RequestDecisionService;
 use Modules\Registration\Service\RequestEmailService;
@@ -396,7 +397,7 @@ class RegistrationRequestController extends AbstractController
             // number, never the child's name, which the page itself shows.
             'breadcrumb_current' => 'Demande #' . $registrationRequest->id,
             'scout_year_label' => $scoutYearLabel,
-            'slot_label' => $this->slotLabel($brackets, $slot),
+            'slot_label' => RecommendationService::requestSlotLabel($brackets, $slot),
             'desired_section_label' => $registrationRequest->desiredSectionId !== null
                 ? ($sectionLabels[$registrationRequest->desiredSectionId] ?? '—')
                 : null,
@@ -454,9 +455,10 @@ class RegistrationRequestController extends AbstractController
 
             $birthYear = MemberYearService::extractBirthYear($profile->birthDate);
             $effective = $memberYearService->getEffectiveAge($birthYear, $profile->scoutYearOffset, $referenceYear);
-            $sectionLabel = $effective->branchName !== null
-                ? $effective->branchName . ' — ' . $effective->yearInBranch . 'ᵉ année'
-                : 'Hors tranche d\'âge';
+            // Named as the request's own « Créneau » is (IT-11).
+            $sectionLabel = $effective->branchName !== null && $effective->yearInBranch !== null
+                ? RecommendationService::yearOfJourneyLabel($effective->branchName, $effective->yearInBranch)
+                : RecommendationService::OUTSIDE_BRACKETS_LABEL;
 
             $details[] = [
                 'name' => trim($profile->firstName . ' ' . $profile->lastName),
@@ -504,23 +506,5 @@ class RegistrationRequestController extends AbstractController
         }
 
         return false;
-    }
-
-    /**
-     * @param array<\Modules\Registration\Repository\AgeBracket> $brackets
-     * @param array{age_branch_id: int, year_in_branch: int}|null $slot
-     */
-    private function slotLabel(array $brackets, ?array $slot): string
-    {
-        if ($slot === null) {
-            return 'Non déterminé';
-        }
-        foreach ($brackets as $bracket) {
-            if ($bracket->ageBranchId === $slot['age_branch_id']) {
-                return $bracket->branchLabel . ' — ' . $slot['year_in_branch'] . 'ᵉ année';
-            }
-        }
-
-        return 'Non déterminé';
     }
 }

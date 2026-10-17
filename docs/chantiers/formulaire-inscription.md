@@ -1866,7 +1866,13 @@ Complément d'IT-03, sur `main` en `6303f64c` (module 6.18.0).
   (`registration_request_auto_accept_failed`, classe de l'erreur
   seulement) et laisse son année de parcours à une personne ; le passage
   continue avec les autres, sur le modèle d'IT-09 (« un e-mail n'arrête
-  jamais le lot »).
+  jamais le lot »). De même, une recommandation qui ne peut pas être
+  calculée fait sauter l'année pour ce passage (avant sa première année
+  de parcours, ou à partir de celle dont le recalcul sous verrou a
+  échoué), journalisée une fois
+  (`registration_auto_accept_recommendation_failed`), et les années
+  suivantes sont traitées (relevé par CodeRabbit sur la PR #920, intégré
+  par IT-11).
 - **La date reste affichée interrupteur coupé** (la maquette la masque) et
   vaut aujourd'hui tant qu'aucune n'est enregistrée : même choix que le
   délai d'IT-09.
@@ -1924,7 +1930,297 @@ Complément d'IT-03, sur `main` en `6303f64c` (module 6.18.0).
   le verrou de l'année de parcours). Le verrou par année de parcours et la
   relecture du statut sous verrou de ligne couvrent les passages entre eux
   et la demande elle-même, pas une décision manuelle sur une voisine.
+  Ouvert depuis : #919.
 
 **Faits tranchés.** R8 : l'acceptation automatique ne parcourt que l'année
 en cours et les suivantes ; une demande d'une année passée n'est jamais
 acceptée automatiquement (test).
+
+---
+
+## IT-11 — Finition : documentation, aide, tests de bout en bout, définition de terminé
+
+**Livré.**
+
+- **Reliquat d'IT-10** (#920, fusionnée en `f6cb7e6e` avant que la
+  correction d'une remarque de CodeRabbit soit poussée) : une exception de
+  `RecommendationService::forYear()` arrêtait tout le passage
+  d'acceptation automatique. `AutomaticAcceptanceService::queuesFor()`
+  contient désormais le seul calcul : une année dont la recommandation ne
+  peut pas être calculée est sautée pour ce passage — avant sa première
+  année de parcours, ou à partir de celle dont le recalcul sous verrou a
+  échoué —, journalisée une fois
+  `registration_auto_accept_recommendation_failed` (année et classe de
+  l'erreur), et les années suivantes sont traitées ; un e-mail impossible à
+  planifier arrête toujours le passage. Deux tests dans
+  `AutomaticAcceptanceServiceTest`
+  (`testAYearWhoseRecommendationFailsIsSkippedAndTheNextYearIsStillProcessed`,
+  `testARecomputationThatFailsUnderTheLockSkipsTheRestOfThatYear`), vus
+  rouges sans la correction (l'exception remonte). La version sauvegardée
+  ne sautait que l'année de parcours sous verrou, puis reprenait les
+  autres années de parcours de la même année avec la file lue avant
+  l'échec : chacune reprenait son verrou, recalculait, échouait et
+  journalisait à son tour (relevé par la relecture `code-review`) ; `ARCHITECTURE.md` §8.36 et la
+  section IT-10 ci-dessus. Avec lui, le chaînage optionnel demandé par
+  SonarCloud (S6582) dans `registration-automation-settings.js`.
+- **Libellé du créneau aligné sur la maquette** (écart relevé par IT-04) :
+  l'en-tête du dialogue de décision, la colonne « Créneau » de la liste,
+  l'export et la fiche disent « Louveteaux · 1re année » (au lieu de
+  « Louveteaux — 1ᵉ année ») et « Hors des tranches d'âge » (au lieu de
+  « Non déterminé »), par une seule fonction,
+  `RecommendationService::requestSlotLabel()`, qui reprend le nom que la
+  recommandation et la grille des capacités donnaient déjà à une année de
+  parcours. Les quatre copies privées de `slotLabel()` disparaissent : la
+  page Passage et l'alerte à l'unité (variable `creneau`) disent la même
+  chose ; la fratrie de la fiche aussi
+  (`RecommendationService::yearOfJourneyLabel()`), et l'indice du
+  formulaire public (« Branche prévue : Louveteaux · 1re année. »,
+  `registration-public-form.js`) ne dit plus « 1ᵉ année ». Le champ de la
+  fiche s'appelle « Créneau », comme dans la maquette (« Créneau (calculé) »
+  avant).
+- **Test de régression « rien de réservé au Staff d'U dans une vue
+  publique »**, complété plutôt que dupliqué : dans `TrackingControllerTest`,
+  le test existant porte sur les **deux** motifs de refus (« Autre »
+  manquait) et vérifie qu'aucun « Motif » n'apparaît, dans le suivi par
+  jeton comme dans le suivi complet ; un nouveau test vérifie qu'une
+  **acceptation automatique** se lit pour la famille comme une acceptation
+  ordinaire (« en attente » jusqu'à l'envoi, puis « Acceptée », sans
+  « automatique » ni recommandation), alors que le journal la marque. Le
+  formulaire public était déjà couvert
+  (`PublicRegistrationControllerTest::testThePublicFormNeverShowsARequestsRecommendation`).
+  Les nouvelles assertions ont été vues échouer en affichant le motif et
+  « (acceptation automatique) » dans la vue par jeton.
+- **Scénario de bout en bout `registration-templates.spec.js`** : les deux
+  scénarios existants ne couvraient que la moitié « rien n'est rédigé ».
+  Celui-ci rédige l'acceptation et le refus dans « Gabarits » (éditeur de
+  texte riche, variables insérées par « Insérer un champ »), vérifie que
+  l'envoi automatique devient activable et que l'acceptation automatique
+  suit sur la page sans rechargement (sans rien enregistrer), accepte la
+  demande depuis le dialogue (créneau au format de la maquette), envoie
+  l'e-mail depuis la fiche par « Envoyer maintenant », lit le message reçu
+  (texte rédigé, prénom et lien de suivi substitués, unité en copie) et
+  ouvre son lien côté famille : « Acceptée », sans rien de réservé au Staff
+  d'U. Trois passages consécutifs verts avec les deux autres scénarios du
+  module ; `docs/developpement.md` décrit les trois (la description de
+  `registration-flow` parlait encore des « trois encarts repliés »).
+- **Documentation relue de bout en bout** contre le code livré :
+  `specifications.md` §17.6 (gabarits de décision envoyés aussi
+  automatiquement et lien de suivi remplacé à chaque e-mail de décision ;
+  année sautée quand la recommandation échoue ; créneau du dialogue),
+  `ARCHITECTURE.md` §8.36 (en-tête du dialogue ; « aucun e-mail ne part »
+  du dialogue, devenu inexact depuis IT-09). Aide :
+  `rediger-les-e-mails-de-demande` (« le bouton « Envoyer » de la fiche
+  reste grisé » — il n'y a plus de bouton depuis IT-08, la fiche dit
+  « Gabarit à rédiger » ; garder le lien de suivi dans les e-mails de
+  décision), `suivre-une-demande` (l'e-mail de décision apporte un nouveau
+  lien, l'ancien ne fonctionne plus), `capacites-et-listes-d-attente` (un
+  frère encore inscrit cette année compte même si son départ est annoncé),
+  `decider-une-demande` (« le changer d'ici là » désignait la décision).
+  `design.md` : rien à changer. RGPD : aucun flux sortant apparu depuis
+  IT-10 (la copie d'IT-06 et l'envoi automatique d'IT-09 partent par le
+  même relais et sont déjà décrits).
+- Tests ajoutés ou complétés : `RecommendationServiceTest`
+  (`testARequestsSlotIsNamedAsTheMockUpNamesIt`),
+  `RegistrationConfigControllerTest` (en-tête du dialogue et cellule de la
+  liste, `testARequestOutsideTheBracketsIsNamedAsTheMockUpNamesIt`),
+  `RegistrationRequestControllerTest` (créneau de la fiche,
+  `testTheFicheNamesARequestOutsideTheBrackets`), `TrackingControllerTest`,
+  `AutomaticAcceptanceServiceTest`, le scénario de bout en bout.
+- `module.json` et `schema.sql` inchangés : version du module inchangée
+  (6.21.0).
+
+**Décisions autonomes.**
+
+- **Un seul libellé pour une demande hors des tranches d'âge**, « Hors des
+  tranches d'âge » (celui du dialogue de la maquette), partout où le module
+  nomme un créneau ; la maquette écrit « hors tranches » dans la cellule de
+  la liste et sur la fiche, une abréviation du même. La page Passage, la
+  fratrie de la fiche, l'alerte à l'unité et l'indice du formulaire public
+  ne sont pas dessinés par la maquette ; ils suivent le même libellé pour
+  qu'un enfant n'ait pas deux noms de créneau d'un écran à l'autre (relevé
+  par la relecture `code-review`).
+- **La date de prise d'effet reste une borne sur la date de dépôt** (lecture
+  d'IT-10, consigne de l'itération) ; l'aide du champ, la confirmation de
+  l'enregistrement (« les demandes recommandées « Oui » déposées depuis
+  cette date »), le sujet d'aide (« une demande déposée avant la date … »)
+  et le dialogue (« à la prochaine vérification du site, dans l'heure »,
+  affiché pour les seules demandes que le passage prendrait) disent tous
+  la même chose que `AutomaticAcceptancePolicy::nextAcceptable()`. La
+  maquette, elle, la lit comme une date de début du traitement (« sera
+  acceptée automatiquement à partir du … », toutes les demandes en
+  attente) : question laissée au mainteneur, sans changement de code ici.
+- **Fratrie** (IT-03b) : la définition retenue est gardée — un frère ou une
+  sœur inscrit cette année mais marqué « quitte » compte encore ; l'aide le
+  dit désormais. Question toujours ouverte pour le mainteneur.
+- **Le scénario de bout en bout n'enregistre aucune automatisation** : une
+  acceptation automatique laissée active accepterait les demandes des
+  scénarios suivants (et bloquerait le changement d'année de
+  `scout-year-transition.spec.js`) ; les gabarits, eux, restent rédigés,
+  rien après lui ne les lit.
+- **Autres écarts de libellé relevés au journal, gardés** : le fil d'Ariane
+  du Tableau de bord sans dernier maillon (convention du dépôt, IT-01) ; le
+  motif de refus de la fiche et de « Tout refuser » dans le formulaire et
+  non dans la boîte de confirmation (la boîte du site n'accepte pas de liste
+  déroulante, IT-04) ; la confirmation « Enregistrer les décisions
+  automatiques ? » devenue le message après l'enregistrement (design.md
+  §7.5, IT-09) ; le délai et la date affichés interrupteur coupé (IT-09,
+  IT-10) ; la phrase de l'état « Annulé » (IT-08, IT-09) ; le dialogue « à
+  la prochaine vérification » (IT-10, ci-dessus). Chacun a sa raison dans
+  la section de son itération.
+
+**Divergences avec le document.**
+
+- Vérifié sur `main` (`97e82e08`, module 6.21.0) : les faits cités par la
+  section IT-11 sont ceux décrits ; la correction CodeRabbit d'IT-10 n'était
+  pas sur `main`.
+- Le document demandait le test de régression « dans aucune vue publique de
+  suivi » : il existait depuis IT-03 et IT-04 pour la recommandation, ses
+  explications et le motif « Pas de place » ; il manquait le motif « Autre »
+  et l'acceptation automatique.
+
+**Reporté** (à ouvrir en issue par le pilotage, décrit dans le rapport) :
+
+- Un gabarit d'acceptation ou de refus rédigé **sans** la variable « Lien de
+  suivi » fait perdre son lien à la famille : chaque e-mail de décision
+  enregistre un nouveau jeton (`RequestEmailService::deliverAttempt()` →
+  `storeTrackingTokenHash()`), que le corps le porte ou non. L'aide le dit
+  désormais ; le code ne l'empêche pas.
+
+**Hors périmètre / suites.** Issues ouvertes pendant le chantier, aucune
+traitée ici : #890 (double comptage d'une demande acceptée non rattachée
+dont l'enfant est déjà projeté), #891 (deux années de référence quand la
+date de référence tombe avant septembre), #905 (gabarits hors du registre
+e-mails du cœur), #907 (sélection multiple et filtres en pastilles de la
+maquette — fermée, non retenue), #909 (première migration interrompue au
+bout de 20 s à l'installation), #911 (bac à sable des e-mails sans les
+copies), #912 (scan dynamique passif instable en CI), #914 (chaîne de
+fusion de membres et liens de fratrie), #916 (garde « destinataire refusé »
+et domaines internationalisés), #918 (un envoi automatique en échec ne
+prévient personne), #919 (acceptation manuelle simultanée et capacité).
+
+**Définition de terminé — passe finale** (case par case, avec la preuve ;
+`main` en `97e82e08` plus cette PR).
+
+- [x] **Quatre sous-pages par `page_picker`, fil d'Ariane complet** — IT-01
+  (#887) ; `RegistrationConfigControllerTest::testEachSubPageCarriesTheTitleAndTheRailWithItselfSelected`,
+  `RegistrationRbacTest::testTheSubPagesAndTheFicheCarryTheirFullBreadcrumb`,
+  `RegistrationTemplateControllerTest::testTheListAndTheEditPageCarryTheFullBreadcrumb` ;
+  scénario `registration-flow` (rail). Le Tableau de bord n'a pas de
+  dernier maillon « › Tableau de bord » (convention du dépôt, IT-01).
+- [x] **Aucun bloc repliable** — `testNoSubPageFoldsAnythingAway` ;
+  `registration-flow` (aucun `data-bs-toggle="collapse"` dans le contenu).
+- [x] **Tableau de bord : 4 métriques en grille 4/2, puis la vérification
+  des capacités ; ni bannière ni bouton d'année** —
+  `testTheDashboardShowsTheFourFiguresWithTheirLabelsFourThenTwoPerRow`,
+  `testTheDashboardShowsTheCapacityCheckOfTheTargetYearAndNoYearControl`.
+- [x] **Plus de liste « non rapprochées », plus de « rapprochée »** —
+  `testNoSubPageListsTheAcceptedRequestsMissingFromDesk`, l'assertion
+  « rapproch » sur chaque sous-page de `RegistrationConfigControllerTest` ;
+  `grep -ri rapproch modules/registration/views modules/registration/help`
+  vide (refait ici).
+- [x] **Colonne « Action rapide » et dialogue** —
+  `testTheActionColumnOffersADecisionOnPendingRequestsOnly`,
+  `testTheDialogShowsTheRecommendationColouredByItsLevel`,
+  `testTheDialogCarriesTheNoteAndSaysWhetherAnEmailCanLeave`,
+  `RequestDecisionServiceTest`, `RequestDecisionControllerTest`,
+  `tests/js/registration-decide-dialog.test.js` ; scénarios
+  `registration-flow` et `registration-templates`.
+- [x] **Seuils « Oui jusqu'à X % » / « Peut-être jusqu'à Y % » (1–120 %),
+  mêmes seuils publics, champs synchronisés, exemple chiffré** —
+  `SlotServiceTest::testTheLevelReadsTheOccupancyThroughTheStoredThresholds`,
+  `PublicRegistrationControllerTest::testThePublicLevelReadsTheSameThresholdsAsTheRecommendation`,
+  `testTheThresholdFieldsAndTheSliderAreWholePercentagesFromOneToOneHundredTwenty`,
+  `tests/js/registration-capacity-settings.test.js` ; `registration-grids`.
+- [x] **Listes d'attente non gérées : grisé, valeurs conservées, aucune
+  recommandation** — `testTheThresholdsStayVisibleButDisabledWhileTheSwitchIsOff`,
+  `testThresholdsAreNotSavedWhileTheWaitlistIsOff`,
+  `RecommendationServiceTest::testNothingIsComputedWhileWaitlistsAreNotManaged`,
+  `testTheDialogShowsNoRecommendationWhileWaitlistsAreNotManaged` ;
+  `registration-grids`.
+- [x] **Priorités par listes connectées, limite verrouillée** —
+  `testThePrioritiesBoxShowsTheThreeConnectedZonesInTheirDefaultOrder`,
+  `testThePrioritiesAreSavedAndShownInTheOrderChosen`,
+  `testOrdreDArriveeCannotBeToujoursOui`, `PriorityOrderTest` ;
+  `registration-grids`.
+- [x] **Projection unique, décalages, silence = reste, « dont N sans
+  réponse », R1** — `SlotServiceTest::testTheProjectionPlacesAnimesHeldBackOrMovedAheadByTheirRealYear`,
+  `testAnUnansweredReenrollmentCountsAsStayingAndIsShownAsSuch`,
+  `testAnEncodedRequestOccupiesExactlyOnePlace` (R1, IT-02),
+  `RegistrationConfigControllerTest::testTheCapacityCheckShowsHowManyProjectedAnimesHaveNotAnswered`.
+- [x] **Motif « Pas de place / Autre » partout ; « Ancienne demande restée
+  sans place »** — `RegistrationRequestControllerTest::testARefusalFromTheFicheStoresItsReason`,
+  `RegistrationConfigControllerTest::testBulkRefuseWithoutAValidReasonRefusesNothing`,
+  `RequestDecisionServiceTest::testRefusingStoresItsReason`,
+  `RecommendationServiceTest::testOnlyAnEarlierRefusalForLackOfRoomCounts`,
+  `testAnOldRefusalForLackOfRoomCanBeToujoursOui`.
+- [x] **Doublons exclus sauf le plus ancien ; hors tranches sans
+  recommandation** — `RecommendationServiceTest::testADuplicateIsJudgedAgainstTheOldestLiveRequest`,
+  `testAPendingRequestOfAChildAlreadyAcceptedIsTheDuplicateEvenWhenOlder`,
+  `testTheFiveExplanationsOfTheMockupAreReproducedWordForWord` (#401, #414).
+- [x] **E-mails automatiques différés (24 h), désactivés par défaut et
+  tant qu'un gabarit est « À rédiger »** —
+  `AutomaticDecisionEmailServiceTest::testOffByDefaultWithADelayOfTwentyFourHoursAndNeitherSettingOnTheParametersPage`,
+  `testSwitchingOnIsRefusedWhileADecisionTemplateIsToWrite`,
+  `SendDecisionEmailsHandlerTest::testAnEmailLeavesAtItsDueDateAndNotASecondBefore`,
+  `RequestDecisionServiceTest::testDecisionsTakenBeforeTheActivationAreNotPlanned` ;
+  `registration-flow` (verrouillé) et `registration-templates` (activable).
+- [x] **Changement de décision : annulation, reprogrammation, jamais
+  d'ancien e-mail** —
+  `SendDecisionEmailsHandlerTest::testAChangeOfDecisionCancelsThePlannedEmailAndTheNewOneWaitsAFullDelay`,
+  `testTheEmailOfADecisionTheRequestNoLongerHoldsIsNeverSent`,
+  `RegistrationRequestControllerTest::testADecisionOnTheFicheIsPlannedAndAChangeReplansWithAFullDelay`,
+  `DecisionEmailRepositoryOnMysqlTest`.
+- [x] **Fiche : état, historique, Envoyer maintenant / Réessayer / Renvoyer ;
+  note indépendante ; confirmation** — `DecisionEmailPanelTest` (12 cas),
+  `RegistrationRequestControllerTest::testSendNowSendsOnceAndASecondSendNowIsRefused`,
+  `testRetryAfterAFailureIsANewAttemptAndNothingToRetryOtherwise`,
+  `testResendAfterASuccessCarriesTheCopyAndNeverMovesTheFirstSend`,
+  `testSavingTheNoteSendsNothingAndChangesNoStatus`,
+  `testADecisionOnTheFicheSaysWhetherAnEmailLeaves` ;
+  `registration-templates` (« Envoyer maintenant » de bout en bout).
+- [x] **Page parent « en attente » jusqu'à l'envoi ; recommandation dans
+  aucune vue publique** — `RequestStatusServiceTest::testVisibleStatusHidesAcceptanceUntilEmailSent`,
+  `RegistrationRequestControllerTest::testTheFamilySeesPendingUntilTheEmailReallyLeaves`,
+  `TrackingControllerTest::testNeitherTrackingViewShowsTheRecommendationOrTheRefusalReason`
+  (deux motifs, IT-11), `testNothingTheDecisionDialogWritesReachesEitherTrackingView`,
+  `testAnAutomaticAcceptanceReadsToTheFamilyAsAPlainAcceptance` (IT-11),
+  `PublicRegistrationControllerTest::testThePublicFormNeverShowsARequestsRecommendation` ;
+  `registration-flow` et `registration-templates`.
+- [x] **Acceptation automatique : désactivée par défaut, prise d'effet,
+  ordre de la file, un à la fois, capacité, journal distinct, idempotente**
+  — `AutomaticAcceptanceServiceTest::testNothingIsAcceptedWhileItIsOff`,
+  `testARequestFiledBeforeTheDateOfEffectIsNeverAccepted`,
+  `testEveryOuiRequestIsAcceptedInQueueOrderWithItsEmailPlanned`,
+  `testItStopsAtTheFirstRequestThatIsNotOuiAndNeverAcceptsPeutEtreOrNon`,
+  `testAOuiThresholdAbove100PercentNeverTakesTheSlotBeyondItsPlaces`,
+  `testAToujoursOuiRequestMayTakeAFullSlotBeyondItsCapacity`,
+  `testTheJournalTellsAnAutomaticAcceptanceApartWithoutPersonalData`,
+  `testASecondPassAcceptsNothingMore`,
+  `AutomaticAcceptanceServiceOnMysqlTest::testTwoOverlappingPassesAcceptEachRequestOnce`.
+  **Réserves** : « capacité jamais dépassée » est vrai pour l'acceptation
+  automatique seule ; une acceptation **manuelle** simultanée d'une autre
+  demande de la même année de parcours peut la faire dépasser d'une place
+  (#919). « Prise d'effet » s'entend de la date de dépôt, pas d'une date
+  de début de traitement comme dans la maquette (voir « Décisions
+  autonomes »).
+- [x] **Gabarits : les 4 avec leur état et un crayon** —
+  `RegistrationTemplateControllerTest::testTheListShowsTheFourEmailsWithTheirDescriptionStateAndPencil`,
+  `RequestEmailTemplateServiceTest` ; `registration-templates`.
+- [x] **Copie : activée par défaut, adresse de l'unité, 3 e-mails et leurs
+  renvois, `MailService` étendu** — `MailServiceCopyTest`,
+  `MailServiceDeferralTest`, `DrainDeferredMailHandlerTest`,
+  `FamilyEmailCopyServiceTest::testByDefaultTheUnitAddressIsInCopy`,
+  `RequestEmailServiceTest::testBothDecisionEmailsAndTheirResendsCarryTheUnitAddressInCopy`,
+  `RegistrationServiceTest` (accusé) ; `Cc:` lu dans la boîte aux lettres
+  par `registration-flow` (accusé) et `registration-templates`
+  (acceptation).
+- [x] **Phrase de rattrapage retirée ; explication du code ; sélecteurs de
+  date natifs** — `RegistrationConfigControllerTest::testTheSettingsPageCarriesTheFormTheCodeAndTheCapacities`
+  (« Ce code permet… », aucun « rattrapage »),
+  `testTheScheduleIsShownInNativeDatePickersAtItsNextOccurrence`.
+- [x] **Version montée dans chaque PR concernée ; documentation et aide à
+  jour ; PHPUnit, PHPStan, Vitest et typecheck verts** — 6.11.0 → 6.21.0
+  par #887, #892, #901, #904, #906, #908, #910, #915, #917, #920 (#913 et
+  cette PR ne touchent ni `module.json` ni `schema.sql`) ; documentation
+  relue ici ; sur cette PR : PHPStan sans erreur, PHPUnit 24 846 tests, 148 905 assertions, 4 sautés (les mêmes que sur `main` dans ce conteneur), sur MariaDB,
+  Vitest 3 032 tests (159 fichiers, `npm run test:coverage`), typecheck sans nouvelle constatation.
