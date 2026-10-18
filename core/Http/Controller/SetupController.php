@@ -1032,9 +1032,14 @@ class SetupController extends AbstractController
         // else is put back afterwards, so the rest of the request keeps the
         // limit the host chose rather than the last slice's.
         $previousLimit = (int) ini_get('max_execution_time');
+        // set_time_limit() sets the time left rather than adding to it, so a
+        // host more generous than one slice keeps its own figure: a single
+        // long ALTER TABLE is only ever stopped by this limit, never by the
+        // runner's budget, which is read between statements.
+        $sliceTimeLimit = $previousLimit === 0 ? 0 : max($previousLimit, self::MIGRATION_SLICE_SECONDS + 60);
 
         try {
-            return $this->runSlicesUntilComplete($runner, $schemaFiles, $previousLimit !== 0);
+            return $this->runSlicesUntilComplete($runner, $schemaFiles, $sliceTimeLimit);
         } finally {
             if ($previousLimit !== 0) {
                 @set_time_limit($previousLimit);
@@ -1044,18 +1049,20 @@ class SetupController extends AbstractController
 
     /**
      * @param array<string> $schemaFiles
+     * @param int $sliceTimeLimit seconds granted afresh before each slice;
+     *   0 leaves the process's limit untouched
      *
      * @throws IncompleteMigrationException
      */
-    private function runSlicesUntilComplete(MigrationRunner $runner, array $schemaFiles, bool $extendTimeLimit): MigrationResult
+    private function runSlicesUntilComplete(MigrationRunner $runner, array $schemaFiles, int $sliceTimeLimit): MigrationResult
     {
         $deadline = microtime(true) + self::MIGRATION_WAIT_SECONDS;
         $stalledSlices = 0;
         $previousProgress = null;
 
         while (true) {
-            if ($extendTimeLimit) {
-                @set_time_limit(self::MIGRATION_SLICE_SECONDS + 60);
+            if ($sliceTimeLimit !== 0) {
+                @set_time_limit($sliceTimeLimit);
             }
             $result = $runner->migrate($schemaFiles);
             if ($result->complete) {

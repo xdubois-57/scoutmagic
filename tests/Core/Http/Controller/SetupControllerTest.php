@@ -985,6 +985,45 @@ class SetupControllerTest extends TestCase
     }
 
     /**
+     * set_time_limit() sets the time left rather than adding to it, so the
+     * slices must never hand a generous host less than it already gives:
+     * a long ALTER TABLE is stopped by that limit alone (#909 review).
+     *
+     * @group database
+     */
+    #[\PHPUnit\Framework\Attributes\Group('database')]
+    public function testInstallDatabaseNeverShortensAHostTimeLimitLongerThanASlice(): void
+    {
+        [$pdo, $params] = $this->connectToTestDatabase();
+        $limitsSeen = new \ArrayObject();
+        set_time_limit(300);
+
+        try {
+            $controller = new SetupController(
+                $this->twig,
+                $this->secretManager,
+                $this->dkimManager,
+                $this->schemaPath,
+                migrationRunnerFactory: $this->runnerOutOfTimeForItsFirstSlices(2, $limitsSeen)
+            );
+            $token = \Core\Security\CsrfGuard::generateToken();
+            $_POST['_csrf_token'] = $token;
+            $request = new Request('POST', '/setup/install-database', [], array_merge($params, ['_csrf_token' => $token]), [], []);
+
+            $json = json_decode($controller->installDatabase($request, [])->getBody(), true);
+            $limitAfter = ini_get('max_execution_time');
+        } finally {
+            set_time_limit(0);
+        }
+
+        $this->assertTrue($json['success'], $json['message'] ?? '');
+        $this->assertSame(['300', '300', '300'], $limitsSeen->getArrayCopy());
+        $this->assertSame('300', $limitAfter, 'the host limit is put back once the schema is whole');
+
+        $this->dropAllTables($pdo);
+    }
+
+    /**
      * Issue #909, the other half: when the schema cannot be finished — here
      * another process holds the migration lock for the whole wait — the
      * answer is an explicit refusal, never `migrated: true`.
@@ -1712,18 +1751,29 @@ class SetupControllerTest extends TestCase
      * A runner whose first $slices migrate() calls stop before doing any
      * work, each reporting a little more progress, as one does on a host
      * too slow to finish within its time budget (#909). The call after
-     * that runs the real migration.
+     * that runs the real migration. Each call records the
+     * max_execution_time it ran under in $limitsSeen.
      *
+     * @param \ArrayObject<int, string>|null $limitsSeen
      * @return \Closure(\Core\Database\Connection): \Core\Database\MigrationRunner
      */
-    private function runnerOutOfTimeForItsFirstSlices(int $slices): \Closure
+    private function runnerOutOfTimeForItsFirstSlices(int $slices, ?\ArrayObject $limitsSeen = null): \Closure
     {
+        $limitsSeen ??= new \ArrayObject();
+
         return static fn (\Core\Database\Connection $connection): \Core\Database\MigrationRunner => new class (
             $connection,
-            $slices
+            $slices,
+            $limitsSeen
         ) extends \Core\Database\MigrationRunner {
-            public function __construct(\Core\Database\Connection $connection, private int $slicesLeft)
-            {
+            /**
+             * @param \ArrayObject<int, string> $limitsSeen max_execution_time as each slice found it
+             */
+            public function __construct(
+                \Core\Database\Connection $connection,
+                private int $slicesLeft,
+                private \ArrayObject $limitsSeen
+            ) {
                 parent::__construct(
                     $connection,
                     new \Core\Database\SchemaIntrospector($connection->getPdo()),
@@ -1734,6 +1784,7 @@ class SetupControllerTest extends TestCase
 
             public function migrate(array $schemaFiles): \Core\Database\MigrationResult
             {
+                $this->limitsSeen[] = (string) ini_get('max_execution_time');
                 if ($this->slicesLeft-- > 0) {
                     return new \Core\Database\MigrationResult(
                         executedStatements: [],
