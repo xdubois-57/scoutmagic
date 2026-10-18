@@ -214,6 +214,69 @@ final class RentalStayRepositoryOnMysqlTest extends TestCase
     }
 
     /**
+     * Why the test below has to hold the clock (issue #938). A save writes
+     * `updated_at = now`, to the second, so the SAME value saved in a later
+     * second is a changed row on this engine, and reads as true. The
+     * repository is right: the row did change. A test that assumed two
+     * saves in a row share a second failed whenever the second turned
+     * between them.
+     */
+    public function testTheSameValueSavedInALaterSecondIsAChangedRow(): void
+    {
+        $inventoryId = $this->inventoryLine();
+        $this->assertTrue($this->repository->setInventoryValue($inventoryId, ReadingPhase::ARRIVAL, '4', null));
+
+        $this->waitForTheNextSecond();
+
+        $this->assertTrue(
+            $this->repository->setInventoryValue($inventoryId, ReadingPhase::ARRIVAL, '4', null),
+            'Only updated_at moved, and this engine counts that as a changed row.'
+        );
+    }
+
+    /**
+     * Runs two saves of the same value and returns what the second answered —
+     * but only once both provably fell inside one clock second, so that
+     * nothing differs between them but the clock the repository itself
+     * reads. When the second turned in between, the pair is run again: the
+     * saves are idempotent, so repeating them changes nothing.
+     *
+     * @param callable(): mixed $firstSave
+     * @param callable(): bool $repeatedSave
+     */
+    private function repeatedSaveAnswer(callable $firstSave, callable $repeatedSave): bool
+    {
+        for ($attempt = 0; $attempt < 5; $attempt++) {
+            $this->waitForRoomInTheCurrentSecond();
+            $second = (int) floor(microtime(true));
+
+            $firstSave();
+            $answer = $repeatedSave();
+
+            if ((int) floor(microtime(true)) === $second) {
+                return $answer;
+            }
+        }
+
+        $this->fail('Two saves never fell inside one clock second; the machine is too slow for this test.');
+    }
+
+    /** Leaves at least 0.4 s before the second turns: far more than two saves take. */
+    private function waitForRoomInTheCurrentSecond(): void
+    {
+        $fraction = fmod(microtime(true), 1.0);
+        if ($fraction > 0.6) {
+            usleep((int) ((1.0 - $fraction) * 1_000_000) + 20_000);
+        }
+    }
+
+    private function waitForTheNextSecond(): void
+    {
+        $fraction = fmod(microtime(true), 1.0);
+        usleep((int) ((1.0 - $fraction) * 1_000_000) + 20_000);
+    }
+
+    /**
      * The engine-specific half: on this engine a save that changes nothing
      * reports no row, exactly like a refused one, and the service must
      * tell them apart rather than refuse a manager who re-typed the same
@@ -230,7 +293,11 @@ final class RentalStayRepositoryOnMysqlTest extends TestCase
         $service->setInventoryValue($booking, $inventoryId, ReadingPhase::ARRIVAL, '4', null);
         $service->recordReading($booking, $this->assetId, $meterId, ReadingPhase::ARRIVAL, '1000', $at, null, null, 7);
         // Same value, same second: no row changes, and nothing is refused.
-        $this->assertFalse($this->repository->setInventoryValue($inventoryId, ReadingPhase::ARRIVAL, '4', null));
+        // "Same second" is made true rather than hoped for (issue #938).
+        $this->assertFalse($this->repeatedSaveAnswer(
+            static fn () => $service->setInventoryValue($booking, $inventoryId, ReadingPhase::ARRIVAL, '4', null),
+            fn (): bool => $this->repository->setInventoryValue($inventoryId, ReadingPhase::ARRIVAL, '4', null)
+        ));
         $service->setInventoryValue($booking, $inventoryId, ReadingPhase::ARRIVAL, '4', null);
         $service->recordReading($booking, $this->assetId, $meterId, ReadingPhase::ARRIVAL, '1000', $at, null, null, 7);
 
