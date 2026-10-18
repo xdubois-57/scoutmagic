@@ -470,15 +470,37 @@ class RedirectServiceTest extends TestCase
     }
 
     /**
-     * Every outcome is kept for the attention page (#718 § C point 9): a
-     * failure, so the page can say the SOS number is stuck…
+     * An operator's refusal is kept for the attention page (#718 § C
+     * point 9), so the page can say the SOS number is stuck…
      */
-    public function testAFailureIsKeptForTheAttentionPage(): void
+    public function testAnOperatorRefusalIsKeptForTheAttentionPage(): void
+    {
+        $provider = $this->createStub(PhoneProviderInterface::class);
+        $provider->method('readForwardingState')->willReturn(new ForwardingState(true, '+32470000000'));
+        $provider->method('setForwarding')->willThrowException(new ProviderException('Refusé par l\'opérateur.'));
+        $this->providerConfigService->method('getActiveProvider')->willReturn($provider);
+        $this->memberService->method('findProfileByMemberAndYear')
+            ->willReturn($this->profile(1, 'Akela', '+32470000001', 'akela@test.be'));
+        $this->userAccountRepository->method('findFirstSuperAdmin')->willReturn(null);
+        $settings = $this->createMock(SosSettingsService::class);
+        $settings->expects($this->once())->method('recordRedirectOutcome')->with(true, $this->anything());
+        $this->settingsService = $settings;
+
+        $this->expectException(SosException::class);
+        $this->service()->apply(1, null, 100);
+    }
+
+    /**
+     * …but not a missing operator: that is « not configured », read from the
+     * configuration, and recording it would later read as the operator
+     * having refused.
+     */
+    public function testNoOperatorIsNotRecordedAsARefusal(): void
     {
         $this->providerConfigService->method('getActiveProvider')->willReturn(null);
         $this->userAccountRepository->method('findFirstSuperAdmin')->willReturn(null);
         $settings = $this->createMock(SosSettingsService::class);
-        $settings->expects($this->once())->method('recordRedirectOutcome')->with(true, $this->anything());
+        $settings->expects($this->never())->method('recordRedirectOutcome');
         $this->settingsService = $settings;
 
         $this->expectException(SosException::class);
