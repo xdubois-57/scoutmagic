@@ -12,6 +12,9 @@ use Core\Attention\AttentionPoint;
 use Core\Attention\AttentionPointProvider;
 use Core\Config\SettingService;
 use Core\Maintenance\Remote\RemoteBackupDestination;
+use Core\Storage\Location\Config\LocalLocationConfig;
+use Core\Storage\Location\StorageLocation;
+use Core\Storage\Location\StorageLocationType;
 
 /**
  * What the maintenance settings leave undone, before anything has failed
@@ -25,7 +28,8 @@ use Core\Maintenance\Remote\RemoteBackupDestination;
  *   once one is chosen, by design: an operational alert every new site
  *   carried from day one would be an alert nobody reads. A point on this
  *   page is not a notification, which is why the maintainer asked for this
- *   one to show at once;
+ *   one to show at once. A destination that is a directory of the site's
+ *   own disk is not off-site either (see isOnThisServersDisk());
  * - **automatic updates switched off**, or **a published version the
  *   configured level will not install on its own** (a major release under
  *   a « minor » level, `GitHubWebhookService::isBumpAllowed()`).
@@ -79,8 +83,22 @@ class MaintenanceAttentionProvider implements AttentionPointProvider
     /** @return AttentionPoint[] */
     private function noOffsiteBackup(): array
     {
-        if ($this->remoteBackup->isConfigured()) {
+        $location = $this->remoteBackup->location();
+        if ($location !== null && !$this->isOnThisServersDisk($location)) {
             return [];
+        }
+
+        if ($location !== null) {
+            return [new AttentionPoint(
+                title: 'Les sauvegardes « hors site » restent sur le disque du site',
+                why: "La destination choisie, « " . $location->label . " », est un dossier du disque où se trouve "
+                    . "le site : si l'hébergement est perdu, les sauvegardes le sont avec lui. Choisissez un "
+                    . 'emplacement externe — Google Drive, un partage WebDAV, un stockage S3 — ou un disque monté '
+                    . "depuis une autre machine.",
+                actionLabel: 'Changer de destination',
+                actionUrl: '/config/maintenance/sauvegarde-automatique',
+                severity: AttentionPoint::SEVERITY_ATTENTION
+            )];
         }
 
         return [new AttentionPoint(
@@ -140,6 +158,33 @@ class MaintenanceAttentionProvider implements AttentionPointProvider
         }
 
         return $latest;
+    }
+
+    /**
+     * Whether an off-site destination is in fact a directory of the site's
+     * own disk — a « Disque du serveur » location may be chosen, since it
+     * can resume an upload like any other.
+     *
+     * A path relative to `storage/` is on that disk by construction. An
+     * absolute one may be a mount from another machine, which is a real
+     * off-site copy; told apart by the filesystem device, the one fact a
+     * page can read without touching the network: the same device as
+     * `storage/` is the same disk. A path that cannot be read raises no
+     * claim either way — the off-site alerts already measure what reaches it.
+     */
+    private function isOnThisServersDisk(StorageLocation $location): bool
+    {
+        if ($location->type !== StorageLocationType::Local || !$location->config instanceof LocalLocationConfig) {
+            return false;
+        }
+        if (!$location->config->isAbsolute()) {
+            return true;
+        }
+
+        $target = @stat($location->config->path);
+        $storage = @stat($this->basePath . '/storage');
+
+        return $target !== false && $storage !== false && $target['dev'] === $storage['dev'];
     }
 
     private function installedVersion(): string

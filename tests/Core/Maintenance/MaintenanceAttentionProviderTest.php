@@ -11,6 +11,7 @@ use Core\Maintenance\VersionFile;
 use Core\Security\EncryptionService;
 use Core\Storage\Location\Backend\StorageBackendFactory;
 use Core\Storage\Location\Config\GoogleDriveLocationConfig;
+use Core\Storage\Location\Config\LocalLocationConfig;
 use Core\Storage\Location\StorageLocationRepository;
 use Core\Storage\Location\StorageLocationType;
 use PHPUnit\Framework\TestCase;
@@ -55,6 +56,8 @@ class MaintenanceAttentionProviderTest extends TestCase
     protected function tearDown(): void
     {
         @unlink($this->basePath . '/VERSION');
+        @rmdir($this->basePath . '/storage');
+        @rmdir($this->basePath . '/ailleurs');
         @rmdir($this->basePath);
     }
 
@@ -110,6 +113,51 @@ class MaintenanceAttentionProviderTest extends TestCase
         $this->destination->choose(999);
 
         $this->assertSame(["Aucune sauvegarde hors site n'est configurée"], $this->titles());
+    }
+
+    /**
+     * A « Disque du serveur » location can be chosen as the off-site
+     * destination; under storage/ it is the site's own disk, and losing the
+     * server loses the backups with it.
+     */
+    public function testADestinationOnTheSitesOwnDiskIsNotOffSite(): void
+    {
+        $this->destination->choose($this->localLocation('Dossier du site', 'backups-copie'));
+
+        $points = $this->points();
+
+        $this->assertCount(1, $points);
+        $this->assertSame('Les sauvegardes « hors site » restent sur le disque du site', $points[0]->title);
+        $this->assertStringContainsString('« Dossier du site »', $points[0]->why);
+    }
+
+    public function testAnAbsolutePathOnTheSameDeviceIsNotOffSiteEither(): void
+    {
+        mkdir($this->basePath . '/storage');
+        mkdir($this->basePath . '/ailleurs');
+        $this->destination->choose($this->localLocation('Autre dossier', $this->basePath . '/ailleurs'));
+
+        $this->assertSame(['Les sauvegardes « hors site » restent sur le disque du site'], $this->titles());
+    }
+
+    /** A disk mounted from elsewhere is a real off-site copy: another device. */
+    public function testAnAbsolutePathOnAnotherDeviceCountsAsOffSite(): void
+    {
+        mkdir($this->basePath . '/storage');
+        $other = '/proc';
+        $here = @stat($this->basePath . '/storage');
+        $there = @stat($other);
+        if ($here === false || $there === false || $here['dev'] === $there['dev']) {
+            $this->markTestSkipped('needs a second filesystem to point at');
+        }
+        $this->destination->choose($this->localLocation('Disque monté', $other));
+
+        $this->assertSame([], $this->points());
+    }
+
+    private function localLocation(string $label, string $path): int
+    {
+        return $this->locations->create(StorageLocationType::Local, $label, new LocalLocationConfig($path), null);
     }
 
     public function testAutomaticUpdatesSwitchedOffIsAnAttentionPointNamingAWaitingVersion(): void
