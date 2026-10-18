@@ -32,13 +32,12 @@ class RegistrationRequestRepository
     private const CTX_TRACKING_TOKEN = 'registration_requests.tracking_token';
 
     /**
-     * A `password_hash()` of a value no request holds, at the cost
-     * PASSWORD_DEFAULT hashes at: verifyTrackingToken() checks a presented
-     * token against it when the request does not exist, so an unknown id
-     * pays the same bcrypt cost as a known one and the endpoint's latency
-     * does not tell which ids exist.
+     * A `password_hash()` of a random value no request holds, made once per
+     * process on first use rather than written in the code: a hash literal
+     * is a credential-shaped string for every scanner, and this one would
+     * guard nothing. See dummyTrackingHash().
      */
-    private const DUMMY_TRACKING_HASH = '$2y$12$SISHNIutj2H4ftLn1E57vO2EpE9V00VWRHrlvXIQXcJIlqVsVMccW';
+    private static ?string $dummyTrackingHash = null;
 
     private HouseholdRepository $households;
 
@@ -251,7 +250,7 @@ class RegistrationRequestRepository
 
         $matches = password_verify(
             $token,
-            $row === false ? self::DUMMY_TRACKING_HASH : (string) $row['tracking_token_hash']
+            $row === false ? self::dummyTrackingHash() : (string) $row['tracking_token_hash']
         );
         if ($row === false) {
             return false;
@@ -261,6 +260,18 @@ class RegistrationRequestRepository
         );
 
         return $matches && $expiresAt !== null && ($now ?? new \DateTimeImmutable()) < $expiresAt;
+    }
+
+    /**
+     * What verifyTrackingToken() checks a presented token against when the
+     * request does not exist, at the cost PASSWORD_DEFAULT hashes at: an
+     * unknown id then pays the same bcrypt cost as a known one, and the
+     * endpoint's latency does not tell which ids exist. (The very first
+     * unknown id of a process also pays for making it.)
+     */
+    private static function dummyTrackingHash(): string
+    {
+        return self::$dummyTrackingHash ??= password_hash(bin2hex(random_bytes(16)), PASSWORD_DEFAULT);
     }
 
     /**
