@@ -1054,8 +1054,11 @@ class SetupController extends AbstractController
      *
      * @throws IncompleteMigrationException
      */
-    private function runSlicesUntilComplete(MigrationRunner $runner, array $schemaFiles, int $sliceTimeLimit): MigrationResult
-    {
+    private function runSlicesUntilComplete(
+        MigrationRunner $runner,
+        array $schemaFiles,
+        int $sliceTimeLimit
+    ): MigrationResult {
         $deadline = microtime(true) + self::MIGRATION_WAIT_SECONDS;
         $stalledSlices = 0;
         $previousProgress = null;
