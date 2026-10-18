@@ -301,10 +301,9 @@ class TrackingControllerTest extends TestCase
         $journal = new JournalService(new JournalRepository($this->pdo));
 
         (new RequestStatusService($this->requestRepository, $journal))->accept($request, automatic: true);
-        $marked = $this->pdo->query(
-            "SELECT COUNT(*) FROM event_log WHERE event_type = 'registration_request_status_changed'"
-                . " AND context LIKE '%\"automatic\":true%'"
-        )->fetchColumn();
+        $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM event_log WHERE event_type = ? AND context LIKE ?');
+        $stmt->execute(['registration_request_status_changed', '%"automatic":true%']);
+        $marked = $stmt->fetchColumn();
         $this->assertSame(1, (int) $marked, 'the staff side does mark the acceptance automatic');
         $before = [$this->tokenView(), $this->linkedView()];
         RegistrationTestHelper::recordDecisionEmailSent($this->pdo, $this->created['id'], 'accepted');

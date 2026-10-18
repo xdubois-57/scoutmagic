@@ -205,7 +205,7 @@ class AutomaticAcceptanceService
                 'registration_auto_accept_recommendation_failed',
                 'warning',
                 "Acceptation automatique : la recommandation d'une année n'a pas pu être calculée, "
-                    . 'rien n\'y est accepté pour ce passage',
+                    . 'ses demandes restantes sont laissées pour ce passage',
                 ['scout_year_id' => $yearId, 'error' => $e::class]
             );
 

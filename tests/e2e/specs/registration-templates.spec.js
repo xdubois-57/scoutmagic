@@ -90,14 +90,18 @@ async function writeTemplate(page, name, text, fields) {
 test('a decision e-mail written in « Gabarits » is sent from the fiche and shows the family its decision', async ({ page, browser }) => {
     /** @type {string[]} */
     const pageErrors = [];
-    page.on('pageerror', (error) => pageErrors.push(error.message));
     /** @type {string[]} */
     const serverErrors = [];
-    page.on('response', (response) => {
-        if (response.status() >= 500) {
-            serverErrors.push(`HTTP ${response.status()} on ${response.url()}`);
-        }
-    });
+    /** @param {import('@playwright/test').Page} watched */
+    const collectErrors = (watched) => {
+        watched.on('pageerror', (error) => pageErrors.push(error.message));
+        watched.on('response', (response) => {
+            if (response.status() >= 500) {
+                serverErrors.push(`HTTP ${response.status()} on ${response.url()}`);
+            }
+        });
+    };
+    collectErrors(page);
 
     await loginAsAdmin(page);
     await answerCookieBanner(page);
@@ -213,6 +217,7 @@ test('a decision e-mail written in « Gabarits » is sent from the fiche and sho
     const family = await browser.newContext();
     try {
         const familyPage = await family.newPage();
+        collectErrors(familyPage);
         await familyPage.goto(trackingUrl, { waitUntil: 'domcontentloaded' });
         const trackingMain = familyPage.locator('#main-content');
         await expect(trackingMain.getByText(childFirstName)).toBeVisible();
