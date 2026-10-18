@@ -487,7 +487,7 @@ function renderImport(){
   $('#impResult').innerHTML=''; renderLast();
 }
 function renderLast(){
-  const y=$('#impYear').value;
+  const y=esc($('#impYear').value);
   $('#lastImport').innerHTML= LAST[y]?`<b>Dernier import de ${y}</b><div class="small">${LAST[y]} · <a href="#">Voir son rapport</a> · <a href="#">Historique de ${y}</a></div>`
     :`<b>Dernier import de ${y}</b><div class="small muted">Aucun import pour ${y}.</div>`;
 }
@@ -495,11 +495,11 @@ $('#impYear').addEventListener('change',renderLast);
 seg('periodSeg','p',v=>{period=v;renderImport()});
 $('#simConfig').addEventListener('change',renderImport);
 $('#importForm').addEventListener('submit',e=>{
-  e.preventDefault(); const y=$('#impYear').value; const a=allowed();
+  e.preventDefault(); const raw=$('#impYear').value; const y=esc(raw); const a=allowed();
   const ok=()=>{$('#impResult').innerHTML=`<div class="alert ok small">Import réussi dans ${y}. <a href="#">Voir le rapport</a></div>`};
-  if(!a.normal.includes(y)){ // config mode, year outside the usual rule
-    confirmImport(`Importer dans ${y} ?`,`${y} n'est importable qu'en mode configuration. Le fichier remplacera les membres de ${y}.`,'Importer dans '+y,ok); return; }
-  if(period==='between'&&y===PUB){
+  if(!a.normal.includes(raw)){ // config mode, year outside the usual rule
+    confirmImport(`Importer dans ${raw} ?`,`${raw} n'est importable qu'en mode configuration. Le fichier remplacera les membres de ${raw}.`,'Importer dans '+raw,ok); return; }
+  if(period==='between'&&raw===PUB){
     confirmImport(`Importer dans l'année publique ${PUB} ?`,`L'année suivante ${NEXT} est déjà importable. Ce fichier modifiera les données de ${PUB}, l'année que voient les familles aujourd'hui.`,'Importer dans '+PUB,ok); return; }
   ok();
 });
