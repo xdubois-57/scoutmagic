@@ -86,7 +86,7 @@ class PassageOptimizationServiceTest extends TestCase
 
         $this->service = new PassageOptimizationService(
             RegistrationTestHelper::passageService($this->pdo, $this->encryption),
-            RegistrationTestHelper::projectedPopulation($this->pdo, $this->encryption, $this->settingService),
+            RegistrationTestHelper::projectedPopulation($this->pdo, $this->encryption),
             $this->requestRepository,
             $this->reenrollmentRepository,
             $this->notes = new PassageNoteRepository($this->pdo, $this->encryption),

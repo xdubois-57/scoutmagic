@@ -26,11 +26,9 @@ use Core\Service\DateInput;
  * per-setting side-effect hook.
  *
  * Recurring, never a one-shot: `registration_scheduled_open_at` holds a
- * day/month only ("MM-DD", e.g. "09-30" — Core\Config\SettingService key,
- * same convention as SlotService::referenceMonthDay()'s own
- * `registration_reference_date`), deliberately never a year, so the same
- * configuration auto-fires every scout year without a chief re-entering
- * it annually. Fires at most once per occurrence, on the first poll at or
+ * day/month only ("MM-DD", e.g. "09-30" — Core\Config\SettingService
+ * key), deliberately never a year, so the same configuration auto-fires
+ * every scout year without a chief re-entering it annually. Fires at most once per occurrence, on the first poll at or
  * shortly after the configured day — see dueDateForYear() and the
  * configurable catch-up window: a cron that missed the day itself still
  * catches up, while a date configured (or a module enabled) months later

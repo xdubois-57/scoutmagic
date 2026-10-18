@@ -66,7 +66,6 @@ class RegistrationRequestController extends AbstractController
         private MemberYearRepository $memberYearRepository,
         private ScoutYearResolver $scoutYearResolver,
         private ScoutYearService $scoutYearService,
-        private SlotService $slotService,
         private MemberService $memberService,
         private RequestDecisionService $decisionService
     ) {
@@ -439,10 +438,7 @@ class RegistrationRequestController extends AbstractController
     ): array
     {
         $publicYear = $this->scoutYearResolver->getCurrentPublicYear();
-        $referenceYear = SlotMath::referenceCalendarYear(
-            MemberYearService::referenceYearFromScoutYearLabel($targetScoutYearLabel),
-            $this->slotService->referenceMonthDay()
-        );
+        $referenceYear = MemberYearService::referenceYearFromScoutYearLabel($targetScoutYearLabel);
         $memberYearService = new MemberYearService();
 
         $details = [];
@@ -479,10 +475,7 @@ class RegistrationRequestController extends AbstractController
         string $scoutYearLabel
     ): ?array
     {
-        $referenceYear = SlotMath::referenceCalendarYear(
-            MemberYearService::referenceYearFromScoutYearLabel($scoutYearLabel),
-            $this->slotService->referenceMonthDay()
-        );
+        $referenceYear = MemberYearService::referenceYearFromScoutYearLabel($scoutYearLabel);
 
         return SlotMath::slotForBirthDate($brackets, $registrationRequest->birthDate, $referenceYear);
     }

@@ -326,7 +326,7 @@ class RegistrationTestHelper
     ): \Modules\Registration\Service\PassageOptimizationService {
         return new \Modules\Registration\Service\PassageOptimizationService(
             self::passageService($pdo, $encryption),
-            self::projectedPopulation($pdo, $encryption, $settingService),
+            self::projectedPopulation($pdo, $encryption),
             new \Modules\Registration\Repository\RegistrationRequestRepository($pdo, $encryption),
             new \Modules\Registration\Repository\ReenrollmentRepository($pdo, $encryption),
             new \Modules\Registration\Repository\PassageNoteRepository($pdo, $encryption),
@@ -397,7 +397,7 @@ class RegistrationTestHelper
     new \Core\Member\Repository\MemberProfileRepository($connection, $encryption)
 ),
             self::departureLink($pdo, $encryption, $settingService),
-            self::projectedPopulation($pdo, $encryption, $settingService),
+            self::projectedPopulation($pdo, $encryption),
             new \Core\Member\SectionService(
     new \Core\Member\Repository\SectionRepository($connection),
     new \Core\Member\Repository\MemberProfileRepository($connection, $encryption, new \Core\Badge\MemberBadgeRepository($pdo))
@@ -648,8 +648,7 @@ class RegistrationTestHelper
      */
     public static function projectedPopulation(
         \PDO $pdo,
-        \Core\Security\EncryptionService $encryption,
-        \Core\Config\SettingService $settingService
+        \Core\Security\EncryptionService $encryption
     ): \Modules\Registration\Service\ProjectedPopulationService {
         $connection = \Core\Database\Connection::withPdo($pdo);
         $sectionService = new \Core\Member\SectionService(
@@ -670,7 +669,6 @@ class RegistrationTestHelper
 
         return new \Modules\Registration\Service\ProjectedPopulationService(
             new \Modules\Registration\Service\ForecastService(new \Modules\Registration\Repository\PassageRosterRepository($pdo, $encryption), $encryption, $sectionService, $passageService),
-            self::slotService($pdo, $encryption, $settingService),
             new \Core\Config\ScoutYearService($pdo),
             $sectionService,
             $requestRepository,

@@ -150,7 +150,7 @@ class ReenrollmentControllerTest extends TestCase
             $this->settingService,
             $memberService,
             RegistrationTestHelper::departureLink($this->pdo, $this->encryption, $this->settingService),
-            RegistrationTestHelper::projectedPopulation($this->pdo, $this->encryption, $this->settingService),
+            RegistrationTestHelper::projectedPopulation($this->pdo, $this->encryption),
             $sectionService
         );
 

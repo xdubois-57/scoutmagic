@@ -6,8 +6,6 @@ namespace Tests\Modules\Registration\Service;
 
 use Core\Badge\MemberBadgeRepository;
 use Core\Config\ScoutYearService;
-use Core\Config\SettingRepository;
-use Core\Config\SettingService;
 use Core\Database\Connection;
 use Core\Member\SectionService;
 use Core\Security\EncryptionService;
@@ -88,12 +86,9 @@ class ProjectedPopulationServiceTest extends TestCase
         );
         $this->forecastService = new ForecastService(new \Modules\Registration\Repository\PassageRosterRepository($this->pdo, $this->encryption), $this->encryption, $sectionService, $passageService);
 
-        $settingService = new SettingService(new SettingRepository($this->pdo));
-        $slotService = RegistrationTestHelper::slotService($this->pdo, $this->encryption, $settingService);
 
         $this->provider = new ProjectedPopulationService(
             $this->forecastService,
-            $slotService,
             new ScoutYearService($this->pdo),
             $sectionService,
             $this->requestRepository,
@@ -323,8 +318,7 @@ class ProjectedPopulationServiceTest extends TestCase
             $this->currentYearId,
             '2026-2027',
             $this->targetYearId,
-            '2027-2028',
-            '12-31'
+            '2027-2028'
         );
     }
 

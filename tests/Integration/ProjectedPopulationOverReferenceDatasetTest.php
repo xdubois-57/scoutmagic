@@ -6,8 +6,6 @@ namespace Tests\Integration;
 
 use Core\Badge\MemberBadgeRepository;
 use Core\Config\ScoutYearService;
-use Core\Config\SettingRepository;
-use Core\Config\SettingService;
 use Core\Database\Connection;
 use Core\Member\SectionService;
 use Core\Security\EncryptionService;
@@ -95,11 +93,6 @@ final class ProjectedPopulationOverReferenceDatasetTest extends TestCase
 
         $this->provider = new ProjectedPopulationService(
             $this->forecastService,
-            RegistrationTestHelper::slotService(
-                $this->pdo,
-                $encryption,
-                new SettingService(new SettingRepository($this->pdo))
-            ),
             new ScoutYearService($this->pdo),
             $sectionService,
             $requestRepository,
@@ -289,8 +282,7 @@ final class ProjectedPopulationOverReferenceDatasetTest extends TestCase
             $this->yearIds[$this->currentLabel],
             $this->currentLabel,
             $this->targetYearId(),
-            $this->targetLabel,
-            '12-31'
+            $this->targetLabel
         );
     }
 

@@ -79,7 +79,6 @@ class RegistrationRbacTest extends TestCase
         $ageBracketRepository = new AgeBracketRepository($this->pdo);
 
         $settingService = new SettingService(new SettingRepository($this->pdo));
-        $settingService->register('registration_reference_date', '12-31', 'text', 'Réf', 'desc', 'registration');
         $settingService->register('registration_threshold_yes_percent', '70', 'number', 'Oui', 'desc', 'registration');
         $settingService->register(
             'registration_threshold_maybe_percent',
@@ -192,7 +191,8 @@ class RegistrationRbacTest extends TestCase
             $twig, $requestRepository, $ageBracketRepository, $sectionService, $feeCategoryRepository, $feeEstimationService,
             $statusService, $emailService,
             $this->createStub(\Modules\Registration\Service\MigrationService::class),
-            new MemberRepository($this->pdo), new MemberYearRepository($this->pdo), $scoutYearResolver, $scoutYearService, $slotService,
+            new MemberRepository($this->pdo), new MemberYearRepository($this->pdo),
+            $scoutYearResolver, $scoutYearService,
             new MemberService(
     new MemberYearRepository($this->pdo),
     new MemberProfileRepository($connection, $encryption)

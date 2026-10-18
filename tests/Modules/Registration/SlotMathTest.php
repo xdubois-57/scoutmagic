@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Modules\Registration;
 
+use Core\Member\MemberYearService;
 use Modules\Registration\Repository\AgeBracket;
 use Modules\Registration\Service\SlotMath;
 use PHPUnit\Framework\TestCase;
@@ -25,35 +26,60 @@ class SlotMathTest extends TestCase
         return new AgeBracket(ageBranchId: 3, branchLabel: 'Éclaireurs', branchSortOrder: 30, entryAge: 12, durationYears: 4);
     }
 
-    public function testReferenceCalendarYearUsesStartYearWhenReferenceIsInSeptToDec(): void
+    public function testBirthYearForSlotCountsFromTheScoutYearStartYear(): void
     {
-        $this->assertSame(2026, SlotMath::referenceCalendarYear(2026, '12-31'));
-        $this->assertSame(2026, SlotMath::referenceCalendarYear(2026, '09-01'));
-    }
-
-    public function testReferenceCalendarYearUsesEndYearWhenReferenceIsInJanToAug(): void
-    {
-        $this->assertSame(2027, SlotMath::referenceCalendarYear(2026, '01-15'));
-        $this->assertSame(2027, SlotMath::referenceCalendarYear(2026, '08-31'));
-    }
-
-    public function testBirthYearForSlotWithDefaultReferenceDate(): void
-    {
-        // Target scout year "2026-2027" (start year 2026), default 12-31 ⇒
-        // reference calendar year 2026. Louveteaux entry age 8, so
-        // year-in-branch 1 ⇒ age 8 ⇒ birth year 2026 - 8 = 2018.
-        $referenceYear = SlotMath::referenceCalendarYear(2026, '12-31');
+        // Target scout year "2026-2027" ⇒ start year 2026. Louveteaux entry
+        // age 8, so year-in-branch 1 ⇒ birth year 2026 - 8 = 2018.
+        $referenceYear = MemberYearService::referenceYearFromScoutYearLabel('2026-2027');
         $this->assertSame(2018, SlotMath::birthYearForSlot($this->louveteaux(), 1, $referenceYear));
         $this->assertSame(2015, SlotMath::birthYearForSlot($this->louveteaux(), 4, $referenceYear));
     }
 
-    public function testBirthYearForSlotShiftsWithNonDefaultReferenceDate(): void
+    public function testTheBirthDayWithinTheYearNeverChangesTheSlot(): void
     {
-        // A reference date in January falls in the scout year's SECOND
-        // calendar year (2027), one later than the default's 2026 — every
-        // birth year shifts by exactly one.
-        $referenceYear = SlotMath::referenceCalendarYear(2026, '01-15');
-        $this->assertSame(2019, SlotMath::birthYearForSlot($this->louveteaux(), 1, $referenceYear));
+        $brackets = [$this->baladins(), $this->louveteaux(), $this->eclaireurs()];
+
+        $this->assertSame(
+            SlotMath::slotForBirthDate($brackets, '2017-01-01', 2026),
+            SlotMath::slotForBirthDate($brackets, '2017-12-31', 2026)
+        );
+    }
+
+    /**
+     * Issue #891: a request and a member born the same year must land in
+     * the same slot, or the capacity check weighs one cohort's requests
+     * against another's occupancy. Members go through
+     * MemberYearService::getEffectiveAge(); requests through SlotMath —
+     * checked here over every federation branch and every year in it.
+     */
+    public function testARequestLandsInTheSlotOfAMemberBornTheSameYear(): void
+    {
+        $brackets = [];
+        foreach (MemberYearService::BRANCHES as $index => $branch) {
+            $brackets[] = new AgeBracket(
+                ageBranchId: $index + 1,
+                branchLabel: $branch['name'],
+                branchSortOrder: ($index + 1) * 10,
+                entryAge: $branch['age_min'],
+                durationYears: $branch['age_max'] - $branch['age_min'] + 1
+            );
+        }
+        $referenceYear = MemberYearService::referenceYearFromScoutYearLabel('2026-2027');
+        $memberYearService = new MemberYearService();
+
+        foreach ($brackets as $bracket) {
+            for ($yearInBranch = 1; $yearInBranch <= $bracket->durationYears; $yearInBranch++) {
+                $birthYear = SlotMath::birthYearForSlot($bracket, $yearInBranch, $referenceYear);
+                $member = $memberYearService->getEffectiveAge($birthYear, 0, $referenceYear);
+
+                $this->assertSame($bracket->branchLabel, $member->branchName);
+                $this->assertSame($yearInBranch, $member->yearInBranch);
+                $this->assertSame(
+                    ['age_branch_id' => $bracket->ageBranchId, 'year_in_branch' => $yearInBranch],
+                    SlotMath::slotForBirthDate($brackets, $birthYear . '-06-30', $referenceYear)
+                );
+            }
+        }
     }
 
     public function testSlotForBirthDateFindsTheCoveringBracket(): void

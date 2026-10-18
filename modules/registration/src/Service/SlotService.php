@@ -82,13 +82,6 @@ class SlotService
         return $this->settingService->get(self::SETTING_WAITLIST_ENABLED, 'registration', '1') === '1';
     }
 
-    public function referenceMonthDay(): string
-    {
-        $value = (string) $this->settingService->get('registration_reference_date', 'registration', '12-31');
-
-        return preg_match('/^\d{2}-\d{2}$/', $value) === 1 ? $value : '12-31';
-    }
-
     /**
      * Gives every configured slot (branch × year-in-branch) that has NO
      * row at all a real, stored capacity of DEFAULT_CAPACITY. Returns how
@@ -138,10 +131,7 @@ class SlotService
     public function birthYearsByBranch(string $targetScoutYearLabel): array
     {
         $brackets = $this->ageBracketRepository->findAllOrdered();
-        $referenceYear = SlotMath::referenceCalendarYear(
-            MemberYearService::referenceYearFromScoutYearLabel($targetScoutYearLabel),
-            $this->referenceMonthDay()
-        );
+        $referenceYear = MemberYearService::referenceYearFromScoutYearLabel($targetScoutYearLabel);
 
         $result = [];
         foreach ($brackets as $bracket) {
@@ -271,10 +261,7 @@ class SlotService
     public function birthYearSlotsForPublic(string $targetScoutYearLabel, array $publicLevels): array
     {
         $brackets = $this->ageBracketRepository->findAllOrdered();
-        $referenceYear = SlotMath::referenceCalendarYear(
-            MemberYearService::referenceYearFromScoutYearLabel($targetScoutYearLabel),
-            $this->referenceMonthDay()
-        );
+        $referenceYear = MemberYearService::referenceYearFromScoutYearLabel($targetScoutYearLabel);
 
         $levelByBirthYear = [];
         foreach ($publicLevels as $level => $years) {
@@ -339,10 +326,7 @@ class SlotService
         $thresholds = $this->levelThresholds();
         $brackets = $this->ageBracketRepository->findAllOrdered();
         $capacities = $this->slotCapacityRepository->findAllAsMap();
-        $referenceYear = SlotMath::referenceCalendarYear(
-            MemberYearService::referenceYearFromScoutYearLabel($targetScoutYearLabel),
-            $this->referenceMonthDay()
-        );
+        $referenceYear = MemberYearService::referenceYearFromScoutYearLabel($targetScoutYearLabel);
 
         $occupancy = $this->occupancyBySlot($targetScoutYearId, $targetScoutYearLabel, $currentScoutYearId, $brackets);
 
@@ -414,13 +398,11 @@ class SlotService
         int $currentScoutYearId,
         array $brackets
     ): array {
-        $referenceMonthDay = $this->referenceMonthDay();
         $rows = $this->forecastService->projectedRows(
             $currentScoutYearId,
             $this->scoutYearLabel($currentScoutYearId),
             $targetScoutYearId,
-            $targetScoutYearLabel,
-            $referenceMonthDay
+            $targetScoutYearLabel
         );
 
         $encodedByMemberId = [];
@@ -464,10 +446,7 @@ class SlotService
         $unplaced = array_diff_key($encodedByMemberId, $placedMemberIds);
         if ($unplaced !== []) {
             $deskTargetYear = $this->roster->findStayingStates(array_keys($unplaced), $targetScoutYearId);
-            $referenceYear = SlotMath::referenceCalendarYear(
-                MemberYearService::referenceYearFromScoutYearLabel($targetScoutYearLabel),
-                $referenceMonthDay
-            );
+            $referenceYear = MemberYearService::referenceYearFromScoutYearLabel($targetScoutYearLabel);
             foreach ($unplaced as $memberId => $request) {
                 if (($deskTargetYear[$memberId] ?? true) === false) {
                     continue;

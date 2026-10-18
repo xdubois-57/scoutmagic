@@ -37,7 +37,6 @@ class ProjectedPopulationService implements ProjectedPopulationProvider
 {
     public function __construct(
         private ForecastService $forecastService,
-        private SlotService $slotService,
         private ScoutYearService $scoutYearService,
         private SectionService $sectionService,
         private RegistrationRequestRepository $requestRepository,
@@ -247,8 +246,7 @@ class ProjectedPopulationService implements ProjectedPopulationProvider
             (int) $currentYear['id'],
             (string) $currentYear['label'],
             $targetScoutYearId,
-            (string) $targetYear['label'],
-            $this->slotService->referenceMonthDay()
+            (string) $targetYear['label']
         );
     }
 
