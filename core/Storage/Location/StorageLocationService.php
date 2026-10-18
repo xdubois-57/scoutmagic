@@ -8,8 +8,10 @@ declare(strict_types=1);
 
 namespace Core\Storage\Location;
 
+use Core\Config\AppClock;
 use Core\Exception\UserFacingException;
 use Core\Exception\UserFacingMessage;
+use Core\Service\DateInput;
 use Core\Storage\Location\Backend\ManagedRootFolderBackend;
 use Core\Storage\Location\Backend\StorageBackendFactory;
 use Core\Storage\Location\Config\LocalLocationConfig;
@@ -921,7 +923,30 @@ class StorageLocationService
         }
 
         $this->repository->recordCheckResult($location->id, $error === null, $error);
+        if ($error === null) {
+            $this->keepTheProofThatTheGrantOutlivedItsEnd($location);
+        }
         unset($this->locationsById[$location->id]);
+    }
+
+    /**
+     * A check that succeeded after a Drive grant's announced end proves the
+     * end no longer applies — and that proof must outlive the next check
+     * (#718 § C point 10.4). Read from the latest check alone, a failure
+     * weeks later for an unrelated reason would bring the disproved end
+     * back as an urgent « l'autorisation a pris fin ». So the end is dropped
+     * from the stored config the moment it is disproved.
+     */
+    private function keepTheProofThatTheGrantOutlivedItsEnd(StorageLocation $location): void
+    {
+        $config = $location->config;
+        if (!$config instanceof Config\GoogleDriveLocationConfig || $config->grantExpiresAt === '') {
+            return;
+        }
+        $end = DateInput::fromStorage($config->grantExpiresAt, AppClock::zone());
+        if ($end !== null && $end <= AppClock::now()) {
+            $this->repository->updateConfig($location->id, $config->withGrantEndDisproved());
+        }
     }
 
     /**

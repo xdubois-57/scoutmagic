@@ -239,6 +239,17 @@ class StorageLocationRepository
     }
 
     /**
+     * The configuration alone — no label, no secret, and the restore's
+     * note left where it is: for what the site itself learns about a
+     * location, never for an administrator's save.
+     */
+    public function updateConfig(int $id, LocationConfig $config): void
+    {
+        $stmt = $this->pdo->prepare('UPDATE storage_locations SET config = ? WHERE id = ?');
+        $stmt->execute([self::encodeConfig($config), $id]);
+    }
+
+    /**
      * Promotes $id to the sole default, demoting whichever held it before
      * — in a transaction, so a read in between never observes zero or two.
      */

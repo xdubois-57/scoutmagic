@@ -180,6 +180,18 @@ final class GoogleDriveLocationConfig implements LocationConfig
     }
 
     /**
+     * The same grant, its announced end dropped: a check succeeded after
+     * it, which proves it no longer applies (#718 § C point 10.4). Kept as
+     * « observed, nothing to count down », so a later failure for some
+     * other reason is reported as that failure — never as the end coming
+     * back.
+     */
+    public function withGrantEndDisproved(): self
+    {
+        return new self($this->clientId, $this->folderId, $this->connectedAt, true, '');
+    }
+
+    /**
      * @param array<string, mixed> $raw
      */
     private static function text(array $raw, string $key): string
