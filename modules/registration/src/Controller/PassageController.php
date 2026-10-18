@@ -690,7 +690,9 @@ class PassageController extends AbstractController
     ): bool
     {
         $brackets = $this->ageBracketRepository->findAllOrdered();
-        $referenceYear = MemberYearService::referenceYearFromScoutYearLabel($this->targetYearLabelFor($registrationRequest));
+        $referenceYear = MemberYearService::referenceYearFromScoutYearLabel(
+            $this->targetYearLabelFor($registrationRequest)
+        );
         $slot = SlotMath::slotForBirthDate($brackets, $registrationRequest->birthDate, $referenceYear);
         if ($slot === null) {
             return false;

@@ -191,7 +191,8 @@ class RegistrationRbacTest extends TestCase
             $twig, $requestRepository, $ageBracketRepository, $sectionService, $feeCategoryRepository, $feeEstimationService,
             $statusService, $emailService,
             $this->createStub(\Modules\Registration\Service\MigrationService::class),
-            new MemberRepository($this->pdo), new MemberYearRepository($this->pdo), $scoutYearResolver, $scoutYearService,
+            new MemberRepository($this->pdo), new MemberYearRepository($this->pdo),
+            $scoutYearResolver, $scoutYearService,
             new MemberService(
     new MemberYearRepository($this->pdo),
     new MemberProfileRepository($connection, $encryption)
