@@ -73,6 +73,8 @@ class RegistrationRequestRepositoryTest extends TestCase
         $this->assertStringNotContainsString('Dupont', (string) $row['child_last_name_encrypted']);
         $this->assertStringNotContainsString('marie.dupont@example.com', (string) $row['email_encrypted']);
         $this->assertNotSame('', $row['tracking_token_hash']);
+        $this->assertNotSame('', (string) $row['tracking_token_encrypted']);
+        $this->assertNotNull($row['tracking_expires_at']);
 
         $found = $this->repository->findById($created['id']);
         $this->assertNotNull($found);
@@ -282,6 +284,150 @@ class RegistrationRequestRepositoryTest extends TestCase
         $this->assertTrue($this->repository->verifyTrackingToken($created['id'], $created['tracking_token']));
         $this->assertFalse($this->repository->verifyTrackingToken($created['id'], 'wrong-token'));
         $this->assertFalse($this->repository->verifyTrackingToken(999999, $created['tracking_token']));
+    }
+
+    /**
+     * Issue #932: the token is stored twice, for two questions — hashed
+     * ("is this the token?") and encrypted ("what is this request's
+     * link?") — and never in clear. Both come from the one generation, in
+     * the one insert.
+     */
+    public function testTheTokenIsStoredHashedAndEncryptedNeverInClearAndReadsBack(): void
+    {
+        $created = $this->repository->create($this->scoutYearId, $this->sampleFields(), null, []);
+
+        $row = $this->pdo->query(
+            'SELECT tracking_token_hash, tracking_token_encrypted FROM registration_requests WHERE id = '
+            . $created['id']
+        )->fetch(\PDO::FETCH_ASSOC);
+        $this->assertStringNotContainsString($created['tracking_token'], (string) $row['tracking_token_hash']);
+        $this->assertStringNotContainsString($created['tracking_token'], (string) $row['tracking_token_encrypted']);
+        $this->assertTrue(password_verify($created['tracking_token'], (string) $row['tracking_token_hash']));
+        $this->assertSame($created['tracking_token'], $this->repository->trackingLinkOf($created['id'])['token'] ?? null);
+    }
+
+    public function testTheCiphertextIsBoundToItsContext(): void
+    {
+        $created = $this->repository->create($this->scoutYearId, $this->sampleFields(), null, []);
+        $stored = (string) $this->pdo->query(
+            'SELECT tracking_token_encrypted FROM registration_requests WHERE id = ' . $created['id']
+        )->fetchColumn();
+
+        $this->assertSame($created['tracking_token'], $this->encryption->decrypt($stored, 'registration_requests.tracking_token'));
+        $this->expectException(\Throwable::class);
+        $this->encryption->decrypt($stored, 'registration_requests.email');
+    }
+
+    public function testNoLinkIsReadForAnUnknownRequestOrOneFiledBeforeTheTokenWasStored(): void
+    {
+        $created = $this->repository->create($this->scoutYearId, $this->sampleFields(), null, []);
+        $this->assertNull($this->repository->trackingLinkOf(999999));
+
+        $this->pdo->exec('UPDATE registration_requests SET tracking_token_encrypted = NULL WHERE id = ' . $created['id']);
+
+        $this->assertNull($this->repository->trackingLinkOf($created['id']));
+        // The hash is still there; the expiry still decides the public view.
+        $this->assertTrue($this->repository->verifyTrackingToken($created['id'], $created['tracking_token']));
+    }
+
+    /**
+     * Issue #932: valid if and only if the token is right, the request
+     * exists, and now is STRICTLY before the expiry — at the exact instant
+     * of expiry the link is already dead.
+     */
+    public function testTheLinkIsValidUpToButNotAtTheExactExpiry(): void
+    {
+        $received = new \DateTimeImmutable('2026-10-18 12:00:00');
+        $created = $this->repository->create($this->scoutYearId, $this->sampleFields(), null, [], 18, $received);
+        $token = $created['tracking_token'];
+        $expiry = new \DateTimeImmutable('2028-04-18 12:00:00');
+
+        $this->assertSame(
+            '2028-04-18 12:00:00',
+            (string) $this->pdo->query(
+                'SELECT tracking_expires_at FROM registration_requests WHERE id = ' . $created['id']
+            )->fetchColumn()
+        );
+        $this->assertTrue($this->repository->verifyTrackingToken($created['id'], $token, $received));
+        $this->assertTrue($this->repository->verifyTrackingToken($created['id'], $token, $expiry->modify('-1 second')));
+        $this->assertFalse($this->repository->verifyTrackingToken($created['id'], $token, $expiry));
+        $this->assertFalse($this->repository->verifyTrackingToken($created['id'], $token, $expiry->modify('+1 second')));
+        $this->assertFalse($this->repository->verifyTrackingToken($created['id'], $token, $expiry->modify('+3 years')));
+    }
+
+    public function testAnExpiredLinkLeavesTheRequestAndTheLinkReadableForTheEmails(): void
+    {
+        $created = $this->repository->create(
+            $this->scoutYearId,
+            $this->sampleFields(),
+            null,
+            [],
+            18,
+            new \DateTimeImmutable('-3 years')
+        );
+
+        $this->assertFalse($this->repository->verifyTrackingToken($created['id'], $created['tracking_token']));
+        $this->assertNotNull($this->repository->findById($created['id']), 'the request itself is untouched');
+        $link = $this->repository->trackingLinkOf($created['id']);
+        $this->assertSame($created['tracking_token'], $link['token'] ?? null);
+        $this->assertLessThan(new \DateTimeImmutable(), $link['expires_at']);
+    }
+
+    public function testTheExpiryIsComputedFromTheFilingMomentAndWrittenWithIt(): void
+    {
+        $received = new \DateTimeImmutable('2026-08-31 10:00:00');
+        $created = $this->repository->create($this->scoutYearId, $this->sampleFields(), null, [], 6, $received);
+
+        $row = $this->pdo->query(
+            'SELECT received_at, tracking_expires_at FROM registration_requests WHERE id = ' . $created['id']
+        )->fetch(\PDO::FETCH_ASSOC);
+
+        $this->assertSame('2026-08-31 10:00:00', $row['received_at']);
+        $this->assertSame('2027-02-28 10:00:00', $row['tracking_expires_at']);
+    }
+
+    /**
+     * A row that predates the expiry column reads as expired — the
+     * environment is still in test, nothing is migrated (issue #932).
+     */
+    public function testARowWithoutAnExpiryIsExpired(): void
+    {
+        $created = $this->repository->create($this->scoutYearId, $this->sampleFields(), null, []);
+        $this->pdo->exec('UPDATE registration_requests SET tracking_expires_at = NULL WHERE id = ' . $created['id']);
+
+        $this->assertFalse($this->repository->verifyTrackingToken($created['id'], $created['tracking_token']));
+    }
+
+    /**
+     * An unknown request id is checked against a dummy hash of the same
+     * cost as a real one, so its latency does not tell which ids exist: the
+     * dummy must be a valid hash at the cost PASSWORD_DEFAULT uses, the
+     * same one on every call, and must never match a presented token.
+     */
+    public function testAnUnknownRequestPaysTheSameHashCostAsAKnownOne(): void
+    {
+        $method = new \ReflectionMethod(RegistrationRequestRepository::class, 'dummyTrackingHash');
+        $dummy = $method->invoke(null);
+
+        $info = password_get_info($dummy);
+        $this->assertSame('bcrypt', $info['algoName']);
+        $this->assertSame(
+            password_get_info(password_hash('x', PASSWORD_DEFAULT))['options']['cost'],
+            $info['options']['cost']
+        );
+        $this->assertSame($dummy, $method->invoke(null));
+        $this->assertFalse(password_verify('dummy-token-never-issued', $dummy));
+        $this->assertFalse($this->repository->verifyTrackingToken(999999, 'dummy-token-never-issued'));
+    }
+
+    /** A removed request leaves nothing to follow — before its expiry too. */
+    public function testADeletedRequestNoLongerHasALink(): void
+    {
+        $created = $this->repository->create($this->scoutYearId, $this->sampleFields(), null, []);
+        $this->pdo->exec('DELETE FROM registration_requests WHERE id = ' . $created['id']);
+
+        $this->assertFalse($this->repository->verifyTrackingToken($created['id'], $created['tracking_token']));
+        $this->assertNull($this->repository->trackingLinkOf($created['id']));
     }
 
     public function testFindAllByEmailBlindIndexMatchesOnlySameEmail(): void

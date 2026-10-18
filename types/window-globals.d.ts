@@ -244,7 +244,7 @@ interface Window {
     // automatic acceptance of the sub-box « Décisions automatiques » of the
     // same page, exposed for its tests.
     ScoutMagicRegistrationAutomationSettings?: {
-        missingPrerequisite: (waitlist: boolean, autoSend: boolean, templateReady: boolean) => string | null;
+        missingPrerequisite: (waitlist: boolean, autoSend: boolean) => string | null;
         sync: (form: HTMLFormElement) => void;
         init: () => void;
     };

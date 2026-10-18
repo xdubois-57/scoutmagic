@@ -65,8 +65,8 @@ class AutoAcceptRequestsHandlerTest extends TestCase
         (new SlotCapacityRepository($this->pdo))->upsert($louveteaux, 1, 15);
 
         $content = new EditableContentService(new EditableContentRepository($this->pdo));
-        $content->set('registration_email_accepted_body', '<p>Bienvenue</p>', 'rich_text', 1);
-        $content->set('registration_email_refused_body', '<p>Désolés</p>', 'rich_text', 1);
+        $content->set('registration_email_accepted_body', '<p>Bienvenue {{ lien_suivi }}</p>', 'rich_text', 1);
+        $content->set('registration_email_refused_body', '<p>Désolés {{ lien_suivi }}</p>', 'rich_text', 1);
         RegistrationTestHelper::enableAutomaticDecisionEmails($this->settings, 24);
 
         $this->requests = new RegistrationRequestRepository($this->pdo, $encryption);

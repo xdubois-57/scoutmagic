@@ -6,25 +6,24 @@
 // #843 IT-10).
 //
 // What is pinned: « Accepter automatiquement les demandes « Oui » » is
-// usable only while waitlists are managed, the automatic sending is ticked
-// and the acceptance template is written — the server's order —, is
-// unchecked and disabled the moment one goes, shows the help text naming
-// the missing one, and follows « Gérer les listes d'attente » through the
+// usable only while waitlists are managed and the automatic sending is
+// ticked — the server's order —, is unchecked and disabled the moment one
+// goes, shows the help text naming the missing one, and follows « Gérer les listes d'attente » through the
 // event the capacity script dispatches once saved.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-function box({ waitlist = true, send = true, template = true, accept = false } = {}) {
-    const missing = !waitlist ? 'waitlist' : !send ? 'auto_send' : !template ? 'template' : null;
+function box({ waitlist = true, send = true, accept = false } = {}) {
+    const missing = !waitlist ? 'waitlist' : !send ? 'auto_send' : null;
     const help = (key) => `<span data-auto-accept-help="${key}" ${(missing ?? 'ready') === key ? '' : 'hidden'}>${key}</span>`;
 
     return `<form method="post" action="/config/inscriptions/decisions-automatiques" data-decision-automation
-              data-waitlist-enabled="${waitlist ? '1' : '0'}" data-acceptance-template-ready="${template ? '1' : '0'}">
+              data-waitlist-enabled="${waitlist ? '1' : '0'}">
         <input type="checkbox" id="registration-auto-send" name="auto_send" value="1"
                data-auto-send-switch ${send ? 'checked' : ''}>
         <input type="checkbox" id="registration-auto-accept" name="auto_accept" value="1"
                data-auto-accept-switch ${accept && missing === null ? 'checked' : ''} ${missing === null ? '' : 'disabled'}>
         <span id="registration-auto-accept-help">
-            ${help('waitlist')}${help('auto_send')}${help('template')}${help('ready')}
+            ${help('waitlist')}${help('auto_send')}${help('ready')}
         </span>
         <button type="submit">Enregistrer</button>
     </form>`;
@@ -62,10 +61,9 @@ describe('registration-automation-settings.js', () => {
         await load(box());
         const { missingPrerequisite } = window.ScoutMagicRegistrationAutomationSettings;
 
-        expect(missingPrerequisite(true, true, true)).toBeNull();
-        expect(missingPrerequisite(false, false, false)).toBe('waitlist');
-        expect(missingPrerequisite(true, false, false)).toBe('auto_send');
-        expect(missingPrerequisite(true, true, false)).toBe('template');
+        expect(missingPrerequisite(true, true)).toBeNull();
+        expect(missingPrerequisite(false, false)).toBe('waitlist');
+        expect(missingPrerequisite(true, false)).toBe('auto_send');
     });
 
     it('leaves a switched-on acceptance as rendered when nothing is missing', async () => {
@@ -101,15 +99,6 @@ describe('registration-automation-settings.js', () => {
 
         expect(accept.disabled).toBe(false);
         expect(shownHelp()).toBe('ready');
-    });
-
-    it('stays unavailable while the acceptance template is not written', async () => {
-        const { send, accept } = await load(box({ template: false }));
-
-        send.dispatchEvent(new Event('change'));
-
-        expect(accept.disabled).toBe(true);
-        expect(shownHelp()).toBe('template');
     });
 
     it('follows « Gérer les listes d\'attente » once the server saved it', async () => {

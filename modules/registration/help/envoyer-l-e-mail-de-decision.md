@@ -34,9 +34,7 @@ l'e-mail de la décision actuelle :
 - « Envoi interrompu » : un envoi resté sans réponse, peut-être parti,
   peut-être pas ; « Réessayer » le relance ;
 - « Annulé suite à un changement de décision » : l'e-mail prévu pour
-  l'ancienne décision ne partira pas ;
-- « Gabarit à rédiger » : le texte de cet e-mail n'existe pas encore,
-  rien ne peut partir. Le lien mène à « Gabarits », où il se rédige.
+  l'ancienne décision ne partira pas.
 
 Le bloc n'apparaît pas sur une demande en attente ou retirée : il n'y a
 pas de décision à annoncer.
@@ -48,6 +46,14 @@ rappelle pas. « Renvoyer l'e-mail » apparaît une fois l'e-mail envoyé :
 utile quand une famille ne le retrouve pas. Chaque envoi, nouvel essai ou
 renvoi part avec la copie à l'unité, si elle est activée dans
 « Réglages ».
+
+Rien n'est à rédiger avant d'envoyer : l'acceptation et le refus ont un
+texte fourni par le site (voir *Rédiger les e-mails envoyés pour une
+demande d'inscription*). **Chaque e-mail reprend le lien de suivi reçu
+au dépôt**, sans en créer un : renvoyer ou réessayer ne le change pas. Un
+texte qui aurait perdu son lien n'est jamais envoyé : l'essai est noté
+« Échec », avec la raison. Si le lien a expiré, l'e-mail part quand même
+et prévient la famille que le suivi public n'est plus accessible.
 
 L'« Historique » garde chaque étape — planifié, envoyé, échec, annulé —
 sans jamais en effacer une, avec la date de chacune. Un échec y porte une

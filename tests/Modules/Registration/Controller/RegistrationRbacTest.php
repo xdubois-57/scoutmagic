@@ -162,14 +162,13 @@ class RegistrationRbacTest extends TestCase
         );
         // Both decision e-mails written, so what answers each e-mail
         // button below is the role check and nothing else.
-        $editableContentService->set('registration_email_accepted_body', '<p>Bienvenue</p>', 'rich_text', 1);
-        $editableContentService->set('registration_email_refused_body', '<p>Désolés</p>', 'rich_text', 1);
+        $editableContentService->set('registration_email_accepted_body', '<p>Bienvenue {{ lien_suivi }}</p>', 'rich_text', 1);
+        $editableContentService->set('registration_email_refused_body', '<p>Désolés {{ lien_suivi }}</p>', 'rich_text', 1);
         $decisionService = RegistrationTestHelper::decisionService(
             $this->pdo,
             $encryption,
             $settingService,
-            $statusService,
-            $emailService
+            $statusService
         );
         $this->emailController = new RequestDecisionEmailController(
             $twig,

@@ -43,11 +43,11 @@ use Modules\Registration\Service\RequestEmailService;
  *   supersedes it in the same transaction as the status), and one whose
  *   claim races that change loses it.
  *
- * **A template that is not written is a failure, never a success**: the
+ * **A body that lost its tracking link is a failure, never a success**: the
  * attempt is recorded failed (`body_not_written`) and the family still
- * sees « en attente ». The tracking token rotates after a sent message
- * only (R6), and the unit is in copy as for a manual send (D9) — the same
- * path, RequestEmailService::deliverAttempt().
+ * sees « en attente ». The e-mail carries the request's own tracking link,
+ * read back and never renewed (issue #932), and the unit is in copy as for
+ * a manual send (D9) — the same path, RequestEmailService::deliverAttempt().
  *
  * **It runs whatever the switch says**: switching the automatic sending
  * off cancels nothing (D7), so e-mails planned before still leave at their

@@ -223,7 +223,6 @@ class RegistrationRequestControllerTest extends TestCase
             $encryption,
             $settingService,
             $statusService,
-            $emailService,
             $this->requestRepository
         );
         $this->controller = new RegistrationRequestController(
@@ -511,8 +510,7 @@ class RegistrationRequestControllerTest extends TestCase
             $this->pdo,
             $this->encryption,
             $this->settingService,
-            $this->statusService,
-            $this->emailService
+            $this->statusService
         );
 
         $decisions->decide(
@@ -663,8 +661,8 @@ class RegistrationRequestControllerTest extends TestCase
     private function writeBodies(): void
     {
         $content = $this->editableContentService;
-        $content->set('registration_email_accepted_body', '<p>Bienvenue {{prenom_enfant}} !</p>', 'rich_text', 1);
-        $content->set('registration_email_refused_body', '<p>Désolés.</p>', 'rich_text', 1);
+        $content->set('registration_email_accepted_body', '<p>Bienvenue {{prenom_enfant}} ! {{ lien_suivi }}</p>', 'rich_text', 1);
+        $content->set('registration_email_refused_body', '<p>Désolés. {{ lien_suivi }}</p>', 'rich_text', 1);
     }
 
     private function acceptedRequest(): int
@@ -713,24 +711,20 @@ class RegistrationRequestControllerTest extends TestCase
     }
 
     /**
-     * « Gabarit à rédiger »: nothing can leave, no button — the chief is
-     * sent to « Gabarits », where the e-mail is written, and nowhere else.
+     * Issue #932: no template is « à rédiger » any more, so an accepted
+     * request whose texts were never touched shows the ordinary « Non
+     * planifié » block with its button — the shipped text goes out.
      */
-    public function testAnUnwrittenTemplateShowsGabaritARedigerAndNoButton(): void
+    public function testAnUntouchedTemplateNeverShowsGabaritARedigerAndKeepsItsButton(): void
     {
         $id = $this->acceptedRequest();
 
         $block = $this->emailBlock($id);
 
         $this->assertStringContainsString('E-mail d&#039;acceptation', $block);
-        $this->assertStringContainsString('<span class="badge text-bg-danger">Gabarit à rédiger</span>', $block);
-        $this->assertStringContainsString(
-            "Le corps de l'e-mail n'a pas encore été rédigé : rien ne peut partir. Rédigez-le dans "
-                . '<a href="/config/inscriptions/gabarits">Gabarits</a>.',
-            $block
-        );
-        $this->assertStringNotContainsString('<form', $block);
-        $this->assertStringNotContainsString('href="/config/settings"', $this->show($id));
+        $this->assertStringNotContainsString('Gabarit à rédiger', $block);
+        $this->assertStringNotContainsString('rien ne peut partir', $block);
+        $this->assertStringContainsString('Envoyer maintenant', $block);
     }
 
     /**
@@ -1163,8 +1157,7 @@ class RegistrationRequestControllerTest extends TestCase
 
     /**
      * A decision taken on the fiche answers « un e-mail va-t-il partir ? »:
-     * no, send it from the block below — or no, its template is not
-     * written yet.
+     * no, send it from the block below, whatever the state of its template.
      */
     public function testADecisionOnTheFicheSaysWhetherAnEmailLeaves(): void
     {
@@ -1177,8 +1170,8 @@ class RegistrationRequestControllerTest extends TestCase
         $this->assertSame(
             [
                 'type' => 'success',
-                'message' => "Demande acceptée. Aucun e-mail n'est parti : le gabarit d'acceptation n'est pas encore "
-                    . "rédigé (voir Gabarits). La famille voit « en attente » jusqu'à son envoi.",
+                'message' => "Demande acceptée. Aucun e-mail n'est parti : envoyez-le avec « Envoyer maintenant », "
+                    . 'ci-dessous. La famille voit « en attente » jusque-là.',
             ],
             \Core\Http\FlashMessage::get()
         );

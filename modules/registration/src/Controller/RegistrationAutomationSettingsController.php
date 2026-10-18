@@ -26,8 +26,7 @@ use Twig\Environment;
  *
  * A controller of its own, like the copy box's: the sub-box is one
  * self-contained decision with its own « Enregistrer », and its rules —
- * no automatic sending while a decision template is « À rédiger », a delay
- * of whole hours (Service\AutomaticDecisionEmailService); no automatic
+ * a delay of whole hours (Service\AutomaticDecisionEmailService); no automatic
  * acceptance of the « Oui » requests without waitlists, the automatic
  * sending and a date of effect (IT-10, Service\AutomaticAcceptancePolicy,
  * which saves the four settings as one) — are the services'.
@@ -46,8 +45,7 @@ class RegistrationAutomationSettingsController extends AbstractController
     }
 
     /**
-     * The whole sub-box as one: an invalid delay, the sending switched on
-     * while a decision template is not written, the acceptance switched on
+     * The whole sub-box as one: an invalid delay, the acceptance switched on
      * without its prerequisites or its date, or an invalid date, saves
      * nothing. A delay or a date that was not submitted keeps the stored
      * one.

@@ -1049,6 +1049,8 @@ groupé — et le serveur refuse un refus sans motif valide.
 - **R6** : le jeton n'est enregistré qu'après l'acceptation du message par
   le transport ; un échec SMTP ou un gabarit absent laisse le lien
   précédent valable (tests dédiés). La réclamation ne touche pas au jeton.
+  *Remplacé par #932 (voir « Après le chantier » en fin de document) : le
+  jeton n'est plus jamais renouvelé à l'envoi.*
 - **R7** : la table suit la demande — `deleteById()`, par lequel passe la
   purge `purge_registration_requests`, supprime ses lignes dans la même
   transaction, et `ON DELETE CASCADE` couvre tout autre chemin (testé sur
@@ -2084,7 +2086,8 @@ acceptée automatiquement (test).
   suivi » fait perdre son lien à la famille : chaque e-mail de décision
   enregistre un nouveau jeton (`RequestEmailService::deliverAttempt()` →
   `storeTrackingTokenHash()`), que le corps le porte ou non. L'aide le dit
-  désormais ; le code ne l'empêche pas.
+  désormais ; le code ne l'empêche pas. **Traité par #932** (voir « Après
+  le chantier »).
 
 **Hors périmètre / suites.** Issues ouvertes pendant le chantier, aucune
 traitée ici : #890 (double comptage d'une demande acceptée non rattachée
@@ -2224,3 +2227,67 @@ prévient personne), #919 (acceptation manuelle simultanée et capacité).
   cette PR ne touchent ni `module.json` ni `schema.sql`) ; documentation
   relue ici ; sur cette PR : PHPStan sans erreur, PHPUnit 24 846 tests, 148 905 assertions, 4 sautés (les mêmes que sur `main` dans ce conteneur), sur MariaDB,
   Vitest 3 032 tests (159 fichiers, `npm run test:coverage`), typecheck sans nouvelle constatation.
+
+## Après le chantier — #932 : un lien de suivi stable, qui expire, et trois gabarits familiaux avec lien obligatoire
+
+Signalé pendant IT-11 (ci-dessus, « Reporté »), traité hors du chantier.
+Il remplace deux choses que le chantier avait posées : la rotation du jeton
+à chaque envoi (R6, IT-05) et les gabarits d'acceptation et de refus sans
+texte par défaut (D10, IT-07), donc l'état « À rédiger » et tout ce qui en
+dépendait.
+
+**Décisions** (arbitrées par le mainteneur dans le ticket) :
+
+- **Un seul lien par demande**, généré à la création de la demande et jamais
+  renouvelé : l'accusé de réception, l'acceptation, le refus, les renvois,
+  les réessais et les envois automatiques portent la même URL. Pas de
+  régénération, pas de révocation manuelle.
+- **Stockage** : le hachage (`tracking_token_hash`, vérification) reste, et
+  s'y ajoute le jeton chiffré (`tracking_token_encrypted`, relu par
+  `RegistrationRequestRepository::trackingLinkOf()` pour construire l'URL des
+  e-mails à la famille), écrits dans l'INSERT de la demande. Jamais en clair,
+  jamais journalisé, jamais dans l'alerte à l'unité.
+- **Validité** : 18 mois calendaires à compter du dépôt (`received_at`), figée
+  dans `tracking_expires_at` à la création ; réglage
+  `registration_tracking_link_validity_months` (1 à 120, 18 par défaut) sur la
+  page générique Réglages › Inscriptions, qui ne touche que les demandes
+  déposées ensuite ; fin de mois ramenée au dernier jour valide
+  (`Service\TrackingLinkValidity`), fuseau de l'application. Contrôlée à
+  chaque requête publique (`verifyTrackingToken()`, strictement avant
+  l'échéance), même 404 qu'un lien erroné, aucune exception (année scoute,
+  code en cours d'année, statut). Ni l'état, ni la conservation, ni l'accès
+  identifié n'en dépendent.
+- **Après l'échéance**, un e-mail de décision part quand même, sans nouveau
+  jeton ni prolongation, et le dit.
+- **Gabarits** : les trois e-mails à la famille ont un texte par défaut avec
+  `{{ lien_suivi }}` (acceptation et refus nouveaux) ; l'enregistrement d'un
+  texte sans le lien est refusé avec un message qui dit comment le remettre
+  (`RequestEmailTemplateService::hasTrackingLink()`, lu comme la
+  substitution : espaces, jeton encodé dans un lien, balises intercalées) ; un
+  corps stocké qui l'aurait perdu n'est jamais envoyé (échec consigné
+  `body_not_written` pour une décision, accusé non envoyé mais demande
+  enregistrée). L'alerte à l'unité garde `{{ lien_fiche }}` et ne reçoit
+  jamais le jeton.
+- **Supprimé** : l'état « À rédiger », `isToWrite()`,
+  `isAcceptedBodyReady()`/`isRefusedBodyReady()`/`isBodyReady()`, l'état
+  `template_missing` du bloc de décision, la condition « gabarits rédigés » de
+  l'envoi automatique et de l'acceptation automatique (et leur dépendance à
+  `RequestEmailService`), `storeTrackingTokenHash()`.
+- **Pas de reprise** des jetons historiques (l'environnement est encore en
+  test) : une ligne antérieure n'a ni jeton chiffré ni échéance, son lien
+  public est mort et un e-mail de décision pour elle échoue avec une phrase
+  qui le dit.
+
+**Tests** (modifiés, pas seulement ajoutés) :
+`RequestEmailServiceTest::testSuccessfulSendKeepsTheTrackingTokenTheReceiptCarried`
+(remplace `testSuccessfulSendRotatesTheTrackingToken`),
+`testEveryEmailOfARequestCarriesTheSameLink`,
+`testAnEmailSentAfterTheLinkExpiredStillLeavesAndSaysSo`,
+`testABodyWithoutTheTrackingLinkIsRecordedAsAFailedAttemptNeverASuccess`
+(remplace les tests du garde-fou « gabarit à rédiger »),
+`RequestEmailTemplateServiceTest`, `RegistrationRequestRepositoryTest`
+(frontière à l'instant exact d'expiration), `TrackingLinkValidityTest` (mois,
+fins de mois, années bissextiles, fuseau), `TrackingLinkValiditySettingTest`,
+`RegistrationServiceTest` (durée figée, accusé, alerte),
+`TrackingControllerTest` (même 404, accès identifié, suppression),
+`registration-templates.spec.js` et `registration-flow.spec.js`.

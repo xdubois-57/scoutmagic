@@ -79,19 +79,7 @@ class RequestDecisionControllerTest extends TestCase
             $this->pdo,
             $encryption,
             $settings,
-            new RequestStatusService($this->requests, $journal),
-            new RequestEmailService(
-                $this->requests,
-                $this->createStub(MailService::class),
-                $this->content,
-                $journal,
-                'https://example.com',
-                'Unité Test',
-                new \Modules\Registration\Service\DecisionEmailService(
-                    new \Modules\Registration\Repository\DecisionEmailRepository($this->pdo),
-                    $journal
-                )
-            )
+            new RequestStatusService($this->requests, $journal)
         );
         $this->controller = new RequestDecisionController(
             TestTwig::create(['registration']),
@@ -150,8 +138,8 @@ class RequestDecisionControllerTest extends TestCase
         $this->assertSame(
             [
                 'type' => 'success',
-                'message' => "Demande acceptée. Aucun e-mail n'est parti : le gabarit d'acceptation n'est pas encore "
-                    . "rédigé (voir Gabarits). La famille voit « en attente » jusqu'à son envoi.",
+                'message' => "Demande acceptée. Aucun e-mail n'est parti : envoyez-le depuis la fiche de la demande. "
+                    . 'La famille voit « en attente » jusque-là.',
             ],
             FlashMessage::get()
         );
@@ -160,7 +148,7 @@ class RequestDecisionControllerTest extends TestCase
     public function testRefusingWithItsReasonSaysNoEmailLeft(): void
     {
         $id = $this->file();
-        $this->content->set('registration_email_refused_body', '<p>Désolés</p>', 'rich_text', 1);
+        $this->content->set('registration_email_refused_body', '<p>Désolés {{ lien_suivi }}</p>', 'rich_text', 1);
 
         $this->post($id, ['decision' => 'refuse', 'refusal_reason' => 'no_room', 'internal_notes' => '']);
 
