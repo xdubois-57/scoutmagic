@@ -12261,6 +12261,14 @@ if ($isEnabled('rental')) {
         $encryptedFileStorageService
     );
 
+    // An asset whose landlord address is empty, an expired compliance
+    // entry: on the attention page, only while the module is on (#718 § C).
+    $attentionProviders[] = new \Modules\Rental\Service\RentalAttentionProvider(
+        $rentalAssetRepository,
+        new \Modules\Rental\Repository\RentalComplianceRepository($pdo),
+        $settingService
+    );
+
     // Its documents follow the same rule as a booking's: readable only by
     // somebody who may manage the asset (ARCHITECTURE.md §8.3).
     $fileOwnershipCheckers[] = new \Modules\Rental\File\RentalComplianceOwnershipChecker(

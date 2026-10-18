@@ -1,0 +1,46 @@
+---
+id: points-attention-liste
+title: Ce que signalent les points d'attention
+summary: Les points que le site et ses modules savent détecter, et ce qui les fait disparaître.
+category: Espace chefs d'U
+role_min: admin
+discovery: off
+question: Pourquoi le site dit-il qu'aucun import Desk n'est enregistré ?
+question: Pourquoi un point sur l'adresse du bailleur d'une location ?
+paths: /admin/points-attention
+related: points-attention, import-desk, annee-scoute
+---
+
+Chaque point de la page Points d'attention vient d'un contributeur : le
+site lui-même, ou un module activé. Voici ceux qui ne vont pas de soi.
+
+## Ce que le site signale de lui-même
+
+Trois points ne dépendent d'aucun module :
+
+- **L'année publique est terminée** et personne n'a basculé vers la
+  suivante. Le site continue à l'afficher ; le point mène à la page
+  Année scoute.
+- **Aucun import Desk n'est enregistré**, ce qui est le cas d'une
+  installation neuve : le site n'a encore ni membres, ni sections, ni
+  fonctions. Ou bien **le dernier import est trop ancien** : 60 jours par
+  défaut, un délai que le superadmin règle dans Configuration ›
+  Paramètres (« Délai avant de signaler un import Desk ancien »).
+- **L'adresse postale de l'unité est vide**. Les documents officiels,
+  comme le contrat et la facture d'une location, impriment « — » à sa
+  place.
+
+## Ce que signalent les modules
+
+Un module ne signale rien tant qu'il est désactivé : ses points
+apparaissent le jour où on l'active, et disparaissent si on le
+désactive.
+
+Le module Locations signale, pour chaque bien qui n'est pas archivé :
+
+- **l'adresse du bailleur vide** : le contrat et la facture de ce bien
+  imprimeraient « — » à sa place. Il suffit de renseigner le bailleur
+  du bien, celui du module, ou l'adresse postale de l'unité ;
+- **une conformité déjà expirée** dans le registre du bien, avec la date
+  d'expiration. Avant cette date, c'est le rappel du registre qui
+  prévient, pas cette page.
