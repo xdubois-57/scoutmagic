@@ -61,11 +61,28 @@ CREATE TABLE registration_requests (
     status ENUM('pending', 'accepted', 'refused', 'withdrawn', 'encoded') NOT NULL DEFAULT 'pending',
     received_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     -- Tracking-page token (see Service\TrackingService): 32 random bytes,
-    -- hashed at rest (password_hash, same technique as Core\Member\
-    -- MemberEmailService's confirmation tokens) and compared by
-    -- password_verify() against the value presented in the link — never
-    -- stored or compared in clear. Non-expiring while the request lives.
+    -- generated ONCE, when the request is created (issue #932), and never
+    -- renewed — the link of the receipt is the very link of the acceptance
+    -- and the refusal e-mails, resends and retries included. Stored twice,
+    -- for two different questions: hashed here (password_hash, same
+    -- technique as Core\Member\MemberEmailService's confirmation tokens),
+    -- compared by password_verify() against the value presented in the link
+    -- — "is this the token?"; and encrypted in tracking_token_encrypted
+    -- below — "what is this request's link?", which every e-mail to the
+    -- family has to answer. Never stored, logged or compared in clear.
     tracking_token_hash VARCHAR(255) NOT NULL,
+    tracking_token_encrypted BLOB NULL,
+    -- When the link stops working (issue #932): the moment the request was
+    -- filed (received_at) plus `registration_tracking_link_validity_months`
+    -- calendar months, computed once at creation by Service\
+    -- TrackingLinkValidity and frozen — changing the setting later only
+    -- affects the requests filed after it. Checked on every public request
+    -- by token (Repository\RegistrationRequestRepository::
+    -- verifyTrackingToken()), no task and no deletion involved; it changes
+    -- neither the request's state nor its retention, and the identified
+    -- access by e-mail address ignores it. NULL (a row from before this
+    -- column) reads as already expired.
+    tracking_expires_at DATETIME NULL,
     -- "Section prévue" (module spec, itération 5) — decided by staff,
     -- distinct from desired_section_id ("section souhaitée", the parent's
     -- own pick, read-only once submitted). Never communicated to parents,

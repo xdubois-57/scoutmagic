@@ -109,6 +109,103 @@ class TrackingControllerTest extends TestCase
         $this->assertSame(404, $response->getStatusCode());
     }
 
+    private function showByToken(int $id, string $token): \Core\Http\Response
+    {
+        return $this->controller->showByToken(
+            new Request('GET', '/inscriptions/suivi/' . $id . '/' . $token, [], [], [], []),
+            ['id' => (string) $id, 'token' => $token]
+        );
+    }
+
+    /**
+     * Issue #932: past its expiry the link answers exactly what a wrong
+     * token or an unknown request answers — the same 404, the same body —
+     * so nothing tells an expired link from one that never existed.
+     */
+    public function testAnExpiredLinkAnswersTheSame404AsAWrongTokenOrAnUnknownRequest(): void
+    {
+        $expired = $this->requestRepository->create(
+            $this->scoutYearIdOf($this->created['id']),
+            $this->fields('expire@example.com'),
+            null,
+            [],
+            18,
+            new \DateTimeImmutable('-19 months')
+        );
+
+        $answers = [
+            'expired' => $this->showByToken($expired['id'], $expired['tracking_token']),
+            'wrong token' => $this->showByToken($this->created['id'], 'wrong'),
+            'unknown request' => $this->showByToken(999999, $this->created['tracking_token']),
+        ];
+
+        foreach ($answers as $label => $response) {
+            $this->assertSame(404, $response->getStatusCode(), $label);
+            $this->assertSame($answers['wrong token']->getBody(), $response->getBody(), $label);
+            $this->assertStringNotContainsString('Léa', $response->getBody(), $label);
+        }
+    }
+
+    public function testTheLinkStillWorksJustBeforeItsExpiry(): void
+    {
+        $almost = $this->requestRepository->create(
+            $this->scoutYearIdOf($this->created['id']),
+            $this->fields('presque@example.com'),
+            null,
+            [],
+            18,
+            new \DateTimeImmutable('-18 months +1 hour')
+        );
+
+        $this->assertSame(200, $this->showByToken($almost['id'], $almost['tracking_token'])->getStatusCode());
+    }
+
+    /**
+     * The identified access by e-mail address is another door: an expired
+     * token link changes nothing about it (issue #932).
+     */
+    public function testTheIdentifiedAccessIgnoresTheLinkExpiry(): void
+    {
+        $this->pdo->exec('UPDATE registration_requests SET tracking_expires_at = \'2000-01-01 00:00:00\' WHERE id = '
+            . $this->created['id']);
+        AuthSession::login(1, 'marie@example.com', 'identified');
+
+        $this->assertSame(404, $this->showByToken($this->created['id'], $this->created['tracking_token'])->getStatusCode());
+
+        $response = $this->controller->showLinked(
+            new Request('GET', '/inscriptions/suivi/demande/' . $this->created['id'], [], [], [], []),
+            ['id' => (string) $this->created['id']]
+        );
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertStringContainsString('Léa', $response->getBody());
+    }
+
+    public function testADeletedRequestHasNoLinkLeft(): void
+    {
+        $this->pdo->exec('DELETE FROM registration_requests WHERE id = ' . $this->created['id']);
+
+        $this->assertSame(404, $this->showByToken($this->created['id'], $this->created['tracking_token'])->getStatusCode());
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function fields(string $email): array
+    {
+        return [
+            'parent_name' => 'Marie Dupont', 'child_last_name' => 'Dupont', 'child_first_name' => 'Léa',
+            'gender' => 'F', 'birth_date' => '2019-01-01', 'street' => 'S', 'number' => '1',
+            'postal_code' => '1000', 'city' => 'V', 'email' => $email,
+            'phone1' => '000', 'phone2' => null, 'remarks' => null,
+        ];
+    }
+
+    private function scoutYearIdOf(int $requestId): int
+    {
+        return (int) $this->pdo->query('SELECT scout_year_id FROM registration_requests WHERE id = ' . $requestId)
+            ->fetchColumn();
+    }
+
     /**
      * The module spec's own rule: a parent must not discover an acceptance
      * before the acceptance email has actually been sent (a chief deciding
@@ -349,19 +446,7 @@ class TrackingControllerTest extends TestCase
             $this->pdo,
             $this->encryption,
             $settings,
-            new RequestStatusService($this->requestRepository, $journal),
-            new \Modules\Registration\Service\RequestEmailService(
-                $this->requestRepository,
-                $this->createStub(MailService::class),
-                new \Core\View\EditableContentService(new \Core\View\EditableContentRepository($this->pdo)),
-                $journal,
-                'https://example.com',
-                'Unité Test',
-                new \Modules\Registration\Service\DecisionEmailService(
-                    new \Modules\Registration\Repository\DecisionEmailRepository($this->pdo),
-                    $journal
-                )
-            )
+            new RequestStatusService($this->requestRepository, $journal)
         );
 
         $decisions->decide(

@@ -8,18 +8,13 @@ use Core\Config\SettingRepository;
 use Core\Config\SettingService;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
-use Core\Mail\MailService;
 use Core\Security\EncryptionService;
-use Core\View\EditableContentRepository;
-use Core\View\EditableContentService;
 use Modules\Registration\Repository\DecisionEmailRepository;
-use Modules\Registration\Repository\RegistrationRequestRepository;
 use Modules\Registration\Service\AutomaticAcceptancePolicy;
 use Modules\Registration\Service\AutomaticDecisionEmailService;
 use Modules\Registration\Service\DecisionEmailService;
 use Modules\Registration\Service\Recommendation;
 use Modules\Registration\Service\RecommendationService;
-use Modules\Registration\Service\RequestEmailService;
 use Modules\Registration\Service\SlotMath;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
@@ -39,7 +34,6 @@ class AutomaticAcceptancePolicyTest extends TestCase
 
     private \PDO $pdo;
     private SettingService $settings;
-    private EditableContentService $content;
     private AutomaticAcceptancePolicy $policy;
 
     protected function setUp(): void
@@ -54,17 +48,7 @@ class AutomaticAcceptancePolicyTest extends TestCase
         $journal = new JournalService(new JournalRepository($this->pdo));
         $repository = new DecisionEmailRepository($this->pdo);
         $decisionEmails = new DecisionEmailService($repository, $journal);
-        $this->content = new EditableContentService(new EditableContentRepository($this->pdo));
-        $emailService = new RequestEmailService(
-            new RegistrationRequestRepository($this->pdo, $encryption, null, $repository),
-            $this->createStub(MailService::class),
-            $this->content,
-            $journal,
-            'https://example.com',
-            'Unité Test',
-            $decisionEmails
-        );
-        $automaticEmails = new AutomaticDecisionEmailService($this->settings, $emailService, $decisionEmails);
+        $automaticEmails = new AutomaticDecisionEmailService($this->settings, $decisionEmails);
         $this->policy = new AutomaticAcceptancePolicy(
             $this->settings,
             RegistrationTestHelper::slotService($this->pdo, $encryption, $this->settings),
@@ -84,7 +68,6 @@ class AutomaticAcceptancePolicyTest extends TestCase
                 'can_enable' => false,
                 'missing' => AutomaticAcceptancePolicy::MISSING_AUTO_SEND,
                 'waitlist_enabled' => true,
-                'template_ready' => false,
                 'active' => false,
             ],
             $this->policy->boxState(new \DateTimeImmutable('2026-10-12 09:30:00'))
@@ -108,11 +91,6 @@ class AutomaticAcceptancePolicyTest extends TestCase
         $this->assertTrue($this->policy->isActive());
         $this->assertNull($this->policy->missingPrerequisite());
         $this->assertSame('2026-10-15 00:00:00', $this->policy->effectiveFrom()?->format('Y-m-d H:i:s'));
-
-        $this->content->set('registration_email_accepted_body', '<p>&nbsp;</p>', 'rich_text', 1);
-        $this->assertSame(AutomaticAcceptancePolicy::MISSING_TEMPLATE, $this->policy->missingPrerequisite());
-        $this->assertFalse($this->policy->isActive());
-        $this->content->set('registration_email_accepted_body', '<p>Bienvenue</p>', 'rich_text', 1);
 
         RegistrationTestHelper::enableAutomaticDecisionEmails($this->settings, 24, false);
         $this->assertSame(AutomaticAcceptancePolicy::MISSING_AUTO_SEND, $this->policy->missingPrerequisite());
@@ -258,8 +236,6 @@ class AutomaticAcceptancePolicyTest extends TestCase
 
     private function enableEverything(): void
     {
-        $this->content->set('registration_email_accepted_body', '<p>Bienvenue</p>', 'rich_text', 1);
-        $this->content->set('registration_email_refused_body', '<p>Désolés</p>', 'rich_text', 1);
         RegistrationTestHelper::enableAutomaticDecisionEmails($this->settings, 24);
         RegistrationTestHelper::enableAutomaticAcceptance($this->settings, self::FROM);
     }

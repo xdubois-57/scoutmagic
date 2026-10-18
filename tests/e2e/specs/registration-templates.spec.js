@@ -8,17 +8,19 @@
 // chantier was for (issue #843, IT-11), and every step of it crosses a
 // boundary only a browser and a real mailbox can:
 //
-//   1. « Gabarits » (IT-07): the acceptance and the refusal are « À
-//      rédiger » on a fresh install, and writing one in the site's
-//      rich-text editor — a module script, under the real CSP — with its
-//      variables inserted from « Insérer un champ » turns its badge to
-//      « Personnalisé ». The chips are what makes the tracking link survive
-//      the editor: a typed `{{ lien_suivi }}` can be split across elements
-//      as it is edited, a chip cannot.
-//   2. « Réglages › Décisions automatiques » (IT-09/IT-10): with both
-//      templates written, « Envoyer automatiquement les e-mails de
-//      décision » can be ticked, and ticking it makes « Accepter
-//      automatiquement les demandes « Oui » » available on the spot — the
+//   1. « Gabarits » (IT-07, #932): the acceptance and the refusal ship with
+//      a text, so they read « Par défaut » on a fresh install; a text
+//      saved without the tracking link is refused with a message saying
+//      how to put it back, and writing one in the site's rich-text editor
+//      — a module script, under the real CSP — with its variables inserted
+//      from « Insérer un champ » turns its badge to « Personnalisé ». The
+//      chips are what makes the tracking link survive the editor: a typed
+//      `{{ lien_suivi }}` can be split across elements as it is edited, a
+//      chip cannot.
+//   2. « Réglages › Décisions automatiques » (IT-09/IT-10): « Envoyer
+//      automatiquement les e-mails de décision » can be ticked, and
+//      ticking it makes « Accepter automatiquement les demandes « Oui » »
+//      available on the spot — the
 //      page's script, which reads its prerequisites off the form. Nothing
 //      is saved: an automatic acceptance left on would accept requests of
 //      the specs that run after this one.
@@ -31,7 +33,8 @@
 //      family's own tracking link — and the unit in copy as
 //      registration-flow.spec.js saved it. The link it carries opens the
 //      family's page on « Acceptée »: the decision is visible exactly once
-//      its e-mail left (R3), through the new token the send stored (R6).
+//      its e-mail left (R3), through the very link the request was filed
+//      with — nothing is renewed by the send (#932).
 //
 // ORDERING
 // ----------------------------------------------------------------------------
@@ -40,9 +43,9 @@
 // grids left WITHDRAWN: it is put back « en attente », accepted from the
 // dialog, its e-mail sent, then withdrawn again — the final state that
 // keeps the scout-year transition unvetoed for the spec that runs it
-// later. The two templates stay written — a decision template has no
-// default to go back to, and an empty one is refused — and nothing after
-// this spec reads them. Like registration-grids.spec.js, it therefore runs
+// later. The two templates stay written — « Rétablir le texte par défaut »
+// would give the shipped text back — and nothing after this spec reads
+// them. Like registration-grids.spec.js, it therefore runs
 // once per instance, after its predecessors: scripts/e2e.sh provisions a
 // fresh one for every run.
 import { expect, test } from '@playwright/test';
@@ -107,35 +110,43 @@ test('a decision e-mail written in « Gabarits » is sent from the fiche and sho
     await answerCookieBanner(page);
 
     // ---------------------------------------------------------------
-    // « Gabarits »: both decisions to write, then written.
+    // « Gabarits »: both decisions ship with a text, then are written.
     // ---------------------------------------------------------------
     await page.goto('/config/inscriptions/gabarits', { waitUntil: 'domcontentloaded' });
     const rail = page.getByRole('navigation', { name: "Pages Formulaire d'inscription" });
     await expect(rail.getByRole('link', { name: 'Gabarits', exact: true })).toHaveAttribute('aria-current', 'page');
     const row = (name) => page.locator('.list-editor-item').filter({ hasText: name });
     await expect(row('Accusé de réception de la demande')).toContainText('Par défaut');
-    await expect(row('Acceptation de la demande')).toContainText('À rédiger');
-    await expect(row('Refus de la demande')).toContainText('À rédiger');
-    await expect(page.getByText("Les gabarits d'acceptation et de refus doivent être rédigés")).toBeVisible();
+    await expect(row('Acceptation de la demande')).toContainText('Par défaut');
+    await expect(row('Refus de la demande')).toContainText('Par défaut');
+    await expect(page.locator('.list-editor-item .badge', { hasText: 'À rédiger' })).toHaveCount(0);
+
+    // A family text saved without the tracking link is refused, with the way
+    // to put it back; nothing is stored.
+    await page.getByRole('link', { name: 'Modifier — Refus de la demande' }).click();
+    await page.getByRole('textbox', { name: "Texte de l'e-mail" }).fill('Sans le lien de suivi.');
+    await page.getByRole('button', { name: 'Enregistrer', exact: true }).click();
+    await expect(page.getByRole('alert').filter({ hasText: 'doit contenir le lien de suivi' })).toBeVisible();
+    await page.goto('/config/inscriptions/gabarits', { waitUntil: 'domcontentloaded' });
+    await expect(row('Refus de la demande')).toContainText('Par défaut');
 
     await writeTemplate(page, 'Acceptation de la demande', ACCEPTANCE_BODY, [
         "Prénom de l'enfant",
         'Lien de suivi de la demande',
     ]);
-    await writeTemplate(page, 'Refus de la demande', REFUSAL_TEXT, []);
+    await writeTemplate(page, 'Refus de la demande', REFUSAL_TEXT, ['Lien de suivi de la demande']);
     await expect(row('Acceptation de la demande')).toContainText('Personnalisé');
     await expect(row('Refus de la demande')).toContainText('Personnalisé');
-    await expect(page.getByText("Les gabarits d'acceptation et de refus doivent être rédigés")).toHaveCount(0);
 
     // ---------------------------------------------------------------
-    // « Décisions automatiques »: the sending can be ticked now, and the
+    // « Décisions automatiques »: the sending can be ticked, and the
     // acceptance follows it on the page — nothing saved.
     // ---------------------------------------------------------------
     await page.goto('/config/inscriptions/reglages', { waitUntil: 'domcontentloaded' });
     const automationBox = page.locator('form[action="/config/inscriptions/decisions-automatiques"]');
     const autoSend = automationBox.getByRole('checkbox', { name: 'Envoyer automatiquement les e-mails de décision' });
     const autoAccept = automationBox.getByRole('checkbox', { name: 'Accepter automatiquement les demandes « Oui »' });
-    await expect(autoSend, 'both templates written: the sending may be switched on').toBeEnabled();
+    await expect(autoSend, 'no template to write first: the sending may be switched on').toBeEnabled();
     await expect(autoSend).not.toBeChecked();
     await expect(autoAccept).toBeDisabled();
     await autoSend.check();

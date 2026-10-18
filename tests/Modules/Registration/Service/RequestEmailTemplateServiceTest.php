@@ -4,15 +4,9 @@ declare(strict_types=1);
 
 namespace Tests\Modules\Registration\Service;
 
-use Core\Journal\JournalRepository;
-use Core\Journal\JournalService;
-use Core\Mail\MailService;
-use Core\Security\EncryptionService;
 use Core\View\EditableContentRepository;
 use Core\View\EditableContentService;
-use Modules\Registration\Repository\RegistrationRequestRepository;
 use Modules\Registration\Service\RegistrationException;
-use Modules\Registration\Service\RequestEmailService;
 use Modules\Registration\Service\RequestEmailTemplateService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
@@ -20,10 +14,10 @@ use Tests\Modules\Registration\RegistrationTestHelper;
 
 /**
  * The four request e-mails of « Gabarits » (issue #843, D10): the
- * catalogue, the three states, saving and restoring a body, the
- * substitution every sender goes through — and the one property the page
- * exists to keep, that « À rédiger » on screen and the sender's guard are
- * the same judgement.
+ * catalogue, the two states, saving and restoring a body, the substitution
+ * every sender goes through — and, since issue #932, the rule that the three
+ * e-mails to a family carry `{{ lien_suivi }}` while the unit's alert never
+ * does.
  */
 #[\PHPUnit\Framework\Attributes\Group('database')]
 class RequestEmailTemplateServiceTest extends TestCase
@@ -66,8 +60,12 @@ class RequestEmailTemplateServiceTest extends TestCase
             ['accuse-de-reception', 'alerte-unite', 'acceptation', 'refus'],
             array_map(static fn($t) => $t->slug, $templates)
         );
-        // Only the two submission e-mails ship with a body.
-        $this->assertSame([true, true, false, false], array_map(static fn($t) => $t->hasDefault(), $templates));
+        // All four ship with a body (issue #932); the three that go to a
+        // family must carry the tracking link, the unit's alert must not.
+        $this->assertSame(
+            [true, false, true, true],
+            array_map(static fn($t) => $t->requiresTrackingLink(), $templates)
+        );
         $this->assertSame('refus', $this->service->findBySlug('refus')?->slug);
         $this->assertNull($this->service->findBySlug('inconnu'));
     }
@@ -87,33 +85,72 @@ class RequestEmailTemplateServiceTest extends TestCase
             $this->service->findByKey(self::ALERT)->variables->keywords()
         );
 
-        foreach ([self::RECEIPT, self::ALERT] as $key) {
+        foreach ([self::RECEIPT, self::ALERT, self::ACCEPTED, self::REFUSED] as $key) {
             $template = $this->service->findByKey($key);
-            $this->assertSame([], $this->service->unknownVariablesIn($template, (string) $template->defaultBody), $key);
+            $this->assertSame([], $this->service->unknownVariablesIn($template, $template->defaultBody), $key);
         }
+    }
+
+    /**
+     * Issue #932: the shipped text of each family e-mail carries the link,
+     * the unit's alert carries the staff fiche's link and never the
+     * family's secret.
+     */
+    public function testEveryFamilyDefaultCarriesTheTrackingLinkAndTheAlertDoesNot(): void
+    {
+        foreach ([self::RECEIPT, self::ACCEPTED, self::REFUSED] as $key) {
+            $default = $this->service->findByKey($key)->defaultBody;
+            $this->assertTrue(RequestEmailTemplateService::hasTrackingLink($default), $key);
+            $this->assertStringContainsString('href="{{ lien_suivi }}"', $default, $key);
+        }
+
+        $alert = $this->service->findByKey(self::ALERT)->defaultBody;
+        $this->assertStringNotContainsString('lien_suivi', $alert);
+        $this->assertStringContainsString('{{ lien_fiche }}', $alert);
+        $this->assertFalse(RequestEmailTemplateService::hasTrackingLink($alert));
+    }
+
+    public function testTheAcceptanceAndRefusalDefaultsSayWhatTheyAnnounce(): void
+    {
+        $accepted = RequestEmailTemplateService::substitute($this->service->bodyFor(self::ACCEPTED), [
+            'prenom_enfant' => 'Léa', 'annee_scoute' => '2026-2027', 'nom_unite' => 'Unité Test',
+            'lien_suivi' => 'https://exemple.be/inscriptions/suivi/4/abc',
+        ]);
+        $refused = RequestEmailTemplateService::substitute($this->service->bodyFor(self::REFUSED), [
+            'prenom_enfant' => 'Léa', 'annee_scoute' => '2026-2027', 'nom_unite' => 'Unité Test',
+            'lien_suivi' => 'https://exemple.be/inscriptions/suivi/4/abc',
+        ]);
+
+        $this->assertStringContainsString('Léa', $accepted);
+        $this->assertStringContainsString('a été acceptée', $accepted);
+        $this->assertStringContainsString('href="https://exemple.be/inscriptions/suivi/4/abc"', $accepted);
+        $this->assertStringContainsString("n'a pas été retenue", $refused);
+        $this->assertStringContainsString('href="https://exemple.be/inscriptions/suivi/4/abc"', $refused);
+        $this->assertStringNotContainsString('{{', $accepted . $refused);
+        // No refusal reason is invented.
+        $this->assertStringNotContainsString('place', $refused);
     }
 
     public function testFreshInstallStates(): void
     {
         $this->assertSame(RequestEmailTemplateService::STATE_DEFAULT, $this->service->stateOf(self::RECEIPT));
         $this->assertSame(RequestEmailTemplateService::STATE_DEFAULT, $this->service->stateOf(self::ALERT));
-        $this->assertSame(RequestEmailTemplateService::STATE_TO_WRITE, $this->service->stateOf(self::ACCEPTED));
-        $this->assertSame(RequestEmailTemplateService::STATE_TO_WRITE, $this->service->stateOf(self::REFUSED));
-        $this->assertTrue($this->service->isToWrite(self::ACCEPTED));
-        $this->assertFalse($this->service->isToWrite(self::RECEIPT));
-        $this->assertSame(
-            $this->service->findByKey(self::RECEIPT)->defaultBody,
-            $this->service->bodyFor(self::RECEIPT)
-        );
-        $this->assertNull($this->service->bodyFor(self::ACCEPTED));
+        $this->assertSame(RequestEmailTemplateService::STATE_DEFAULT, $this->service->stateOf(self::ACCEPTED));
+        $this->assertSame(RequestEmailTemplateService::STATE_DEFAULT, $this->service->stateOf(self::REFUSED));
+        foreach ([self::RECEIPT, self::ALERT, self::ACCEPTED, self::REFUSED] as $key) {
+            $this->assertSame($this->service->findByKey($key)->defaultBody, $this->service->bodyFor($key), $key);
+        }
     }
 
     public function testSavingABodyMakesItCustomAndStoresItSanitised(): void
     {
-        $this->service->save(self::ACCEPTED, '<p>Bienvenue {{ prenom_enfant }} !</p><script>alert(1)</script>', 7);
+        $this->service->save(
+            self::ACCEPTED,
+            '<p>Bienvenue {{ prenom_enfant }} ! {{ lien_suivi }}</p><script>alert(1)</script>',
+            7
+        );
 
         $this->assertSame(RequestEmailTemplateService::STATE_CUSTOM, $this->service->stateOf(self::ACCEPTED));
-        $this->assertFalse($this->service->isToWrite(self::ACCEPTED));
         $stored = (string) $this->content->get(self::ACCEPTED);
         $this->assertStringContainsString('Bienvenue {{ prenom_enfant }} !', $stored);
         $this->assertStringNotContainsString('script', $stored);
@@ -144,27 +181,99 @@ class RequestEmailTemplateServiceTest extends TestCase
         }
 
         $this->assertNull($this->content->get(self::REFUSED));
-        $this->assertTrue($this->service->isToWrite(self::REFUSED));
+        $this->assertSame($this->service->findByKey(self::REFUSED)->defaultBody, $this->service->bodyFor(self::REFUSED));
     }
 
-    public function testABlankStoredBodyIsStillToWriteOrDefault(): void
+    public function testABlankStoredBodyFallsBackToTheDefault(): void
     {
         // Written by another path (the generic editable-content endpoint):
-        // what renders as nothing is not a body.
+        // what renders as nothing is not a body, so the default goes out.
         $this->content->set(self::ACCEPTED, '<p>&nbsp;</p>', 'rich_text', 1);
         $this->content->set(self::RECEIPT, '<p>&nbsp;</p>', 'rich_text', 1);
 
-        $this->assertTrue($this->service->isToWrite(self::ACCEPTED));
-        $this->assertSame(RequestEmailTemplateService::STATE_DEFAULT, $this->service->stateOf(self::RECEIPT));
-        $this->assertSame(
-            $this->service->findByKey(self::RECEIPT)->defaultBody,
-            $this->service->bodyFor(self::RECEIPT)
-        );
+        foreach ([self::ACCEPTED, self::RECEIPT] as $key) {
+            $this->assertSame(RequestEmailTemplateService::STATE_DEFAULT, $this->service->stateOf($key), $key);
+            $this->assertSame($this->service->findByKey($key)->defaultBody, $this->service->bodyFor($key), $key);
+        }
+    }
+
+    /**
+     * @return array<string, array{string}>
+     */
+    public static function bodiesWithTheLink(): array
+    {
+        return [
+            'spaced' => ['<p>Suivez : {{ lien_suivi }}</p>'],
+            'unspaced, as typed by hand' => ['<p>Suivez : {{lien_suivi}}</p>'],
+            'in a link target' => ['<p><a href="{{ lien_suivi }}">suivre</a></p>'],
+            'in a link, percent-encoded by the sanitiser' => ['<p><a href="%7B%7B%20lien_suivi%20%7D%7D">suivre</a></p>'],
+            'split by markup the editor dropped inside it' => ['<p>Suivez : {{ lien<b>_</b>suivi }}</p>'],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('bodiesWithTheLink')]
+    public function testAFamilyBodyCarryingTheLinkInAnySpellingIsSaved(string $html): void
+    {
+        $this->assertTrue(RequestEmailTemplateService::hasTrackingLink($html));
+
+        $this->service->save(self::ACCEPTED, $html, 7);
+
+        $this->assertSame(RequestEmailTemplateService::STATE_CUSTOM, $this->service->stateOf(self::ACCEPTED));
+    }
+
+    /**
+     * @return array<string, array{string}>
+     */
+    public static function bodiesWithoutTheLink(): array
+    {
+        return [
+            'no variable at all' => ['<p>Bienvenue !</p>'],
+            'another variable' => ['<p>Bienvenue {{ prenom_enfant }}</p>'],
+            'a misspelt link variable' => ['<p>Suivez : {{ lien_de_suivi }}</p>'],
+            'the staff fiche link instead' => ['<p>{{ lien_fiche }}</p>'],
+            'the name without braces' => ['<p>Suivez : lien_suivi</p>'],
+            'the variable inside a script the sanitiser drops' => ['<p>Bienvenue</p><script>{{ lien_suivi }}</script>'],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('bodiesWithoutTheLink')]
+    public function testAFamilyBodyWithoutTheLinkIsRefusedWithAHelpfulMessageAndNothingIsStored(string $html): void
+    {
+        foreach ([self::RECEIPT, self::ACCEPTED, self::REFUSED] as $key) {
+            try {
+                $this->service->save($key, $html, 7);
+                $this->fail("a body without the link was accepted for {$key}");
+            } catch (RegistrationException $e) {
+                $this->assertSame(RequestEmailTemplateService::MISSING_LINK_MESSAGE, $e->getMessage());
+                $this->assertStringContainsString('{{ lien_suivi }}', $e->getMessage());
+                $this->assertStringContainsString('Rétablir le texte par défaut', $e->getMessage());
+            }
+
+            $this->assertNull($this->content->get($key), $key);
+        }
+    }
+
+    public function testTheUnitAlertNeedsNoTrackingLinkAndSavesWithout(): void
+    {
+        $this->service->save(self::ALERT, '<p>Nouvelle demande : {{ prenom_enfant }} {{ lien_fiche }}</p>', 7);
+
+        $this->assertSame(RequestEmailTemplateService::STATE_CUSTOM, $this->service->stateOf(self::ALERT));
+    }
+
+    /**
+     * The link is judged on what would be STORED: a body that arrived with
+     * the variable inside an element the sanitiser drops leaves without it.
+     */
+    public function testTheLinkIsJudgedAfterSanitisation(): void
+    {
+        $this->expectException(RegistrationException::class);
+
+        $this->service->save(self::REFUSED, '<p>Désolés</p><script>{{ lien_suivi }}</script>', 7);
     }
 
     public function testSavingTheDefaultAgainLeavesTheTemplateOnTheDefault(): void
     {
-        $this->service->save(self::RECEIPT, '<p>Mon texte {{ prenom_enfant }}</p>', 7);
+        $this->service->save(self::RECEIPT, '<p>Mon texte {{ prenom_enfant }} {{ lien_suivi }}</p>', 7);
         $this->assertSame(RequestEmailTemplateService::STATE_CUSTOM, $this->service->stateOf(self::RECEIPT));
 
         // What the editor posts back: the default, its placeholders spaced
@@ -188,15 +297,21 @@ class RequestEmailTemplateServiceTest extends TestCase
         $this->assertSame(RequestEmailTemplateService::STATE_DEFAULT, $this->service->stateOf(self::ALERT));
     }
 
-    public function testADecisionEmailHasNoDefaultToRestore(): void
+    /**
+     * Issue #932: « Rétablir le texte par défaut » gives a working link
+     * back, on the acceptance and the refusal as on the receipt.
+     */
+    public function testRestoringADecisionDefaultGivesTheLinkBack(): void
     {
-        $this->service->save(self::ACCEPTED, '<p>Bienvenue</p>', 7);
+        foreach ([self::RECEIPT, self::ACCEPTED, self::REFUSED] as $key) {
+            $this->service->save($key, '<p>Mon texte {{ lien_suivi }}</p>', 7);
+            $this->assertSame(RequestEmailTemplateService::STATE_CUSTOM, $this->service->stateOf($key), $key);
 
-        $this->expectException(RegistrationException::class);
-        try {
-            $this->service->restoreDefault(self::ACCEPTED);
-        } finally {
-            $this->assertSame('<p>Bienvenue</p>', $this->content->get(self::ACCEPTED), 'nothing was deleted');
+            $this->service->restoreDefault($key);
+
+            $this->assertNull($this->content->get($key), $key);
+            $this->assertSame(RequestEmailTemplateService::STATE_DEFAULT, $this->service->stateOf($key), $key);
+            $this->assertTrue(RequestEmailTemplateService::hasTrackingLink($this->service->bodyFor($key)), $key);
         }
     }
 
@@ -253,50 +368,16 @@ class RequestEmailTemplateServiceTest extends TestCase
     }
 
     /**
-     * The point of IT-07's « une seule définition » : whatever is stored,
-     * the page's « À rédiger » and the sender's refusal agree.
-     *
-     * @return array<string, array{string|null, bool}>
+     * A body stored by another path (the generic editable-content
+     * endpoint, an old fixture) can lack the link: the page can still read
+     * it, and the senders refuse it (RequestEmailServiceTest,
+     * RegistrationServiceTest) rather than send it silently.
      */
-    public static function storedBodies(): array
+    public function testAStoredBodyWithoutTheLinkIsReadAsItIsAndJudgedByHasTrackingLink(): void
     {
-        return [
-            'nothing stored' => [null, true],
-            'an emptied paragraph' => ['<p>&nbsp;</p>', true],
-            'only tags' => ['<p><br></p>', true],
-            'a real body' => ['<p>Bonjour {{ prenom_enfant }}</p>', false],
-        ];
-    }
+        $this->content->set(self::ACCEPTED, '<p>Bienvenue</p>', 'rich_text', 1);
 
-    #[\PHPUnit\Framework\Attributes\DataProvider('storedBodies')]
-    public function testThePageAndTheSendersGuardAreOneJudgement(?string $stored, bool $toWrite): void
-    {
-        if ($stored !== null) {
-            $this->content->set(self::ACCEPTED, $stored, 'rich_text', 1);
-            $this->content->set(self::REFUSED, $stored, 'rich_text', 1);
-        }
-        $sender = new RequestEmailService(
-            new RegistrationRequestRepository(
-                $this->pdo,
-                new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
-            ),
-            $this->createStub(MailService::class),
-            $this->content,
-            new JournalService(new JournalRepository($this->pdo)),
-            'https://exemple.be',
-            'Unité Test',
-            new \Modules\Registration\Service\DecisionEmailService(
-                new \Modules\Registration\Repository\DecisionEmailRepository($this->pdo),
-                new JournalService(new JournalRepository($this->pdo))
-            )
-        );
-
-        $this->assertSame($toWrite, $this->service->isToWrite(self::ACCEPTED));
-        $this->assertSame(
-            $toWrite,
-            $this->service->stateOf(self::ACCEPTED) === RequestEmailTemplateService::STATE_TO_WRITE
-        );
-        $this->assertSame(!$toWrite, $sender->isAcceptedBodyReady());
-        $this->assertSame(!$toWrite, $sender->isRefusedBodyReady());
+        $this->assertSame('<p>Bienvenue</p>', $this->service->bodyFor(self::ACCEPTED));
+        $this->assertFalse(RequestEmailTemplateService::hasTrackingLink($this->service->bodyFor(self::ACCEPTED)));
     }
 }

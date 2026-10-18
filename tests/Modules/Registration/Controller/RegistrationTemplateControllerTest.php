@@ -102,9 +102,9 @@ class RegistrationTemplateControllerTest extends TestCase
             'acceptation' => [
                 'Acceptation de la demande',
                 'Envoyé à la famille quand la demande est acceptée.',
-                'À rédiger',
+                'Par défaut',
             ],
-            'refus' => ['Refus de la demande', 'Envoyé à la famille quand la demande est refusée.', 'À rédiger'],
+            'refus' => ['Refus de la demande', 'Envoyé à la famille quand la demande est refusée.', 'Par défaut'],
         ];
         $this->assertSame(4, substr_count($body, 'class="list-editor-item '));
         foreach ($rows as $slug => [$name, $description, $state]) {
@@ -132,19 +132,22 @@ class RegistrationTemplateControllerTest extends TestCase
         );
     }
 
-    public function testTheWarningShowsWhileADecisionEmailIsToWrite(): void
+    /**
+     * Issue #932: no template is « à rédiger » any more, so the list shows
+     * no warning and no such state; it says the three family e-mails carry
+     * the tracking link.
+     */
+    public function testTheListNeverWarnsOfATemplateToWriteAndNamesTheLinkRule(): void
     {
-        $warning = "Les gabarits d'acceptation et de refus doivent être rédigés avant le premier envoi.";
-
-        $this->assertStringContainsString($warning, $this->renderList());
-
-        $this->content->set(RequestEmailTemplateService::KEY_ACCEPTED, '<p>Bienvenue</p>', 'rich_text', 1);
-        $this->assertStringContainsString($warning, $this->renderList(), 'the refusal is still to write');
-
-        $this->content->set(RequestEmailTemplateService::KEY_REFUSED, '<p>Désolé</p>', 'rich_text', 1);
         $body = $this->renderList();
-        $this->assertStringNotContainsString($warning, $body);
+
         $this->assertStringNotContainsString('À rédiger', $body);
+        $this->assertStringNotContainsString('doivent être rédigés', $body);
+        $this->assertStringContainsString('doivent contenir le lien de suivi', $body);
+
+        $this->content->set(RequestEmailTemplateService::KEY_ACCEPTED, '<p>Bienvenue {{ lien_suivi }}</p>', 'rich_text', 1);
+        $this->content->set(RequestEmailTemplateService::KEY_REFUSED, '<p>Désolé {{ lien_suivi }}</p>', 'rich_text', 1);
+        $body = $this->renderList();
         $this->assertStringContainsString('Personnalisé', $this->rowOf($body, 'acceptation'));
         $this->assertStringContainsString('Personnalisé', $this->rowOf($body, 'refus'));
     }
@@ -209,16 +212,24 @@ class RegistrationTemplateControllerTest extends TestCase
         );
     }
 
-    public function testTheEditPageOfADecisionEmailToWriteIsEmptyAndSaysWhy(): void
+    public function testTheEditPageOfADecisionEmailStartsFromItsDefaultWithTheLink(): void
     {
         $body = $this->renderEdit('acceptation');
 
-        $this->assertSame('', $this->hiddenBodyValue($body));
-        $this->assertStringContainsString(
-            'Ce gabarit est à rédiger : tant que son texte est vide, cet e-mail ne peut pas partir.',
-            $body
-        );
+        $this->assertStringContainsString('texte par défaut</strong>', $body);
+        $this->assertStringContainsString('a été acceptée', $this->hiddenBodyValue($body));
+        $this->assertStringContainsString('lien_suivi', $this->hiddenBodyValue($body));
+        $this->assertStringContainsString('doit contenir le lien de suivi', $body);
+        $this->assertStringNotContainsString('à rédiger', $body);
         $this->assertStringNotContainsString('Rétablir le texte par défaut', $body);
+    }
+
+    public function testTheUnitAlertEditPageDoesNotAskForTheTrackingLink(): void
+    {
+        $body = $this->renderEdit('alerte-unite');
+
+        $this->assertStringNotContainsString('doit contenir le lien de suivi', $body);
+        $this->assertStringNotContainsString('data-insert-keyword="lien_suivi"', $body);
     }
 
     public function testACustomisedSubmissionEmailOffersToRestoreTheDefaultAndAsksFirst(): void
@@ -240,14 +251,14 @@ class RegistrationTemplateControllerTest extends TestCase
         $this->assertStringContainsString('Demande : {{ prenom_enfant }}', $this->hiddenBodyValue($body));
     }
 
-    public function testACustomisedDecisionEmailHasNoDefaultToRestore(): void
+    public function testACustomisedDecisionEmailOffersToRestoreTheDefault(): void
     {
-        $this->content->set(RequestEmailTemplateService::KEY_REFUSED, '<p>Désolé</p>', 'rich_text', 1);
+        $this->content->set(RequestEmailTemplateService::KEY_REFUSED, '<p>Désolé {{ lien_suivi }}</p>', 'rich_text', 1);
 
         $body = $this->renderEdit('refus');
 
-        $this->assertStringNotContainsString('Rétablir le texte par défaut', $body);
-        $this->assertStringNotContainsString('/defaut', $body);
+        $this->assertStringContainsString('Rétablir le texte par défaut', $body);
+        $this->assertStringContainsString('/config/inscriptions/gabarits/refus/defaut', $body);
     }
 
     public function testTheEditPageNamesAnUnknownVariable(): void
@@ -276,7 +287,7 @@ class RegistrationTemplateControllerTest extends TestCase
     public function testSavingStoresTheSanitisedBodyJournalsAndGoesBackToTheList(): void
     {
         $response = $this->post('save', 'acceptation', [
-            'body' => '<p>Bienvenue {{ prenom_enfant }} !</p><script>alert(1)</script>',
+            'body' => '<p>Bienvenue {{ prenom_enfant }} ! {{ lien_suivi }}</p><script>alert(1)</script>',
         ]);
 
         $this->assertSame(302, $response->getStatusCode());
@@ -308,6 +319,42 @@ class RegistrationTemplateControllerTest extends TestCase
         $this->assertCount(0, $this->journalEntries('registration_email_template_saved'));
     }
 
+    /**
+     * Issue #932: a family template saved without `{{ lien_suivi }}` is
+     * refused with the way to put it back, nothing is stored or journaled,
+     * and the edit page reopens.
+     */
+    public function testAFamilyBodyWithoutTheTrackingLinkIsRefusedWithAHelpfulMessage(): void
+    {
+        foreach (['accuse-de-reception', 'acceptation', 'refus'] as $slug) {
+            $response = $this->post('save', $slug, ['body' => '<p>Merci, à bientôt.</p>']);
+
+            $this->assertSame(self::LIST . '/' . $slug, $response->getHeaders()['Location'] ?? null, $slug);
+            $flash = FlashMessage::get();
+            $this->assertSame('error', $flash['type'] ?? null, $slug);
+            $this->assertSame(RequestEmailTemplateService::MISSING_LINK_MESSAGE, $flash['message'] ?? null, $slug);
+        }
+        foreach ([
+            RequestEmailTemplateService::KEY_RECEIPT,
+            RequestEmailTemplateService::KEY_ACCEPTED,
+            RequestEmailTemplateService::KEY_REFUSED,
+        ] as $key) {
+            $this->assertNull($this->content->get($key), $key);
+        }
+        $this->assertCount(0, $this->journalEntries('registration_email_template_saved'));
+    }
+
+    public function testTheUnitAlertIsSavedWithoutTheTrackingLink(): void
+    {
+        $response = $this->post('save', 'alerte-unite', ['body' => '<p>Nouvelle demande {{ lien_fiche }}</p>']);
+
+        $this->assertSame(self::LIST, $response->getHeaders()['Location'] ?? null);
+        $this->assertStringContainsString(
+            '{{ lien_fiche }}',
+            (string) $this->content->get(RequestEmailTemplateService::KEY_UNIT_ALERT)
+        );
+    }
+
     public function testAnExpiredTokenSavesNothing(): void
     {
         CsrfGuard::generateToken();
@@ -316,7 +363,7 @@ class RegistrationTemplateControllerTest extends TestCase
                 'POST',
                 self::LIST . '/refus',
                 [],
-                ['_csrf_token' => 'nope', 'body' => '<p>Désolé</p>'],
+                ['_csrf_token' => 'nope', 'body' => '<p>Désolé {{ lien_suivi }}</p>'],
                 [],
                 []
             ),
@@ -339,14 +386,19 @@ class RegistrationTemplateControllerTest extends TestCase
         $this->assertCount(1, $this->journalEntries('registration_email_template_reset'));
     }
 
-    public function testADecisionEmailCannotBeRestoredToADefaultItDoesNotHave(): void
+    /**
+     * « Rétablir le texte par défaut » on a decision e-mail gives back a
+     * text with a working link (issue #932).
+     */
+    public function testRestoringADecisionEmailGivesBackTheDefaultWithTheLink(): void
     {
-        $this->content->set(RequestEmailTemplateService::KEY_ACCEPTED, '<p>Bienvenue</p>', 'rich_text', 1);
+        $this->content->set(RequestEmailTemplateService::KEY_ACCEPTED, '<p>Bienvenue {{ lien_suivi }}</p>', 'rich_text', 1);
 
         $response = $this->post('restoreDefault', 'acceptation', []);
 
-        $this->assertSame(404, $response->getStatusCode());
-        $this->assertSame('<p>Bienvenue</p>', $this->content->get(RequestEmailTemplateService::KEY_ACCEPTED));
+        $this->assertSame(self::LIST, $response->getHeaders()['Location'] ?? null);
+        $this->assertNull($this->content->get(RequestEmailTemplateService::KEY_ACCEPTED));
+        $this->assertStringContainsString('lien_suivi', $this->hiddenBodyValue($this->renderEdit('acceptation')));
     }
 
     // ------------------------------------------------------------------
@@ -516,7 +568,7 @@ class RegistrationTemplateControllerTest extends TestCase
         $request = $method === 'POST'
             ? new Request('POST', $path, [], [
                 '_csrf_token' => CsrfGuard::generateToken(),
-                'body' => '<p>Bonjour {{ prenom_enfant }}</p>',
+                'body' => '<p>Bonjour {{ prenom_enfant }} {{ lien_suivi }}</p>',
             ], [], [])
             : new Request('GET', $path, [], [], [], []);
         $resolved = $router->resolve($request);

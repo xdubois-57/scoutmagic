@@ -18,8 +18,6 @@ use Core\Scheduler\SchedulerService;
 use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
 use Core\ScoutYear\ScoutYearResolver;
-use Core\View\EditableContentRepository;
-use Core\View\EditableContentService;
 use Modules\Registration\Repository\AgeBracketRepository;
 use Modules\Registration\Repository\DecisionEmailRepository;
 use Modules\Registration\Repository\PassageRosterRepository;
@@ -31,13 +29,11 @@ use Modules\Registration\Service\AutomaticAcceptancePolicy;
 use Modules\Registration\Service\AutomaticAcceptanceService;
 use Modules\Registration\Service\AutomaticDecisionEmailService;
 use Modules\Registration\Service\DecisionEmailService;
-use Modules\Registration\Service\FamilyEmailCopyService;
 use Modules\Registration\Service\ForecastService;
 use Modules\Registration\Service\PassageService;
 use Modules\Registration\Service\PriorityOrderService;
 use Modules\Registration\Service\RecommendationService;
 use Modules\Registration\Service\RequestDecisionService;
-use Modules\Registration\Service\RequestEmailService;
 use Modules\Registration\Service\RequestStatusService;
 use Modules\Registration\Service\SlotService;
 
@@ -141,17 +137,7 @@ class AutoAcceptRequestsHandler implements TaskHandlerInterface
         );
 
         $decisionEmails = new DecisionEmailService($decisionEmailRepository, $journal);
-        $emailService = new RequestEmailService(
-            $requests,
-            $context->mailService,
-            new EditableContentService(new EditableContentRepository($pdo)),
-            $journal,
-            (string) ($settings->get('base_url') ?: ''),
-            (string) ($settings->get('site_name') ?: 'Unité scoute'),
-            $decisionEmails,
-            new FamilyEmailCopyService($settings, $journal)
-        );
-        $automaticEmails = new AutomaticDecisionEmailService($settings, $emailService, $decisionEmails);
+        $automaticEmails = new AutomaticDecisionEmailService($settings, $decisionEmails);
         $policy = new AutomaticAcceptancePolicy($settings, $slots, $automaticEmails);
         $recommendations = new RecommendationService(
             $requests,
@@ -165,7 +151,6 @@ class AutoAcceptRequestsHandler implements TaskHandlerInterface
             $requests,
             new RequestStatusService($requests, $journal),
             $recommendations,
-            $emailService,
             $scoutYears,
             $scoutYearResolver,
             $journal,

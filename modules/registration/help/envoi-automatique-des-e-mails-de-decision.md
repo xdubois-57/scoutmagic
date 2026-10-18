@@ -7,7 +7,6 @@ role_min: admin
 question: Comment envoyer automatiquement l'e-mail d'acceptation ou de refus ?
 question: Combien de temps après la décision la famille reçoit-elle l'e-mail ?
 question: Que deviennent les e-mails prévus si je désactive l'envoi automatique ?
-question: Pourquoi ne puis-je pas activer l'envoi automatique des e-mails de décision ?
 paths: /config/inscriptions/reglages
 related: envoyer-l-e-mail-de-decision, acceptation-automatique-des-demandes, decider-une-demande, rediger-les-e-mails-de-demande, capacites-et-listes-d-attente
 ---
@@ -24,16 +23,16 @@ automatiquement les e-mails de décision », choisissez le « Délai avant
 envoi » (en heures, 24 par défaut, de 1 à 720), puis « Enregistrer ». Le
 message qui s'affiche dit à partir de quand les e-mails partiront.
 
-**L'interrupteur reste grisé tant que les gabarits d'acceptation et de
-refus sont « À rédiger »** : un e-mail sans texte ne peut pas partir.
-Rédigez-les d'abord dans « Gabarits ».
+Rien n'est à rédiger d'abord : l'acceptation et le refus ont chacun un
+texte fourni par le site, que « Gabarits » permet de personnaliser. Ces
+textes contiennent toujours le lien de suivi de la famille, le même que
+celui de son accusé de réception.
 
 ## Ce qui se passe ensuite
 
 Une acceptation ou un refus pris après l'activation — depuis le dialogue
 de décision, la fiche ou « Tout refuser » —, sur une demande de l'année
-en cours ou de l'année visée et dont le gabarit est rédigé, planifie son
-e-mail pour l'heure de la décision plus le délai. Le dialogue et le
+en cours ou de l'année visée, planifie son e-mail pour l'heure de la décision plus le délai. Le dialogue et le
 message après la décision donnent la date ; la fiche montre « Prévu le »,
 suivi de cette date, et « Envoyer maintenant » le fait partir tout de
 suite.
@@ -51,7 +50,9 @@ Deux envois du même e-mail ne peuvent pas partir en même temps. Mais si
 un envoi a été interrompu après que le serveur d'envoi l'a accepté, la
 fiche dit « Envoi interrompu » et la famille l'a peut-être déjà reçu :
 vérifiez auprès d'elle avant de choisir « Réessayer ». Un échec reste
-visible dans l'« Historique » de la fiche.
+visible dans l'« Historique » de la fiche ; l'e-mail dont le texte aurait
+perdu son lien de suivi n'est jamais envoyé sans lui et y est noté
+« Échec ».
 
 ## Le désactiver
 

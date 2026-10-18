@@ -25,18 +25,23 @@
                 <h2 class="h5 mb-1">Modifier — {{ template.name }}</h2>
                 <p class="text-body-secondary small">{{ template.description }}</p>
 
-                {% if state == 'to_write' %}
-                    <div class="alert alert-warning" role="status">
-                        Ce gabarit est à rédiger : tant que son texte est vide, cet e-mail ne peut pas partir.
+                {% if template.requiresTrackingLink() %}
+                    <div class="alert alert-info" role="status">
+                        Cet e-mail part à la famille : son texte doit contenir le lien de suivi de la demande, la
+                        variable <code>{{ '{{ lien_suivi }}' }}</code>. C'est le même lien dans l'accusé de
+                        réception, l'acceptation et le refus, et il cesse de fonctionner à son échéance : un e-mail
+                        envoyé après cette date le signale à la famille.
                     </div>
-                {% elseif state == 'default' %}
+                {% endif %}
+
+                {% if state == 'default' %}
                     <div class="alert alert-light border">
                         <p class="mb-0 small">
                             Ce gabarit utilise le <strong>texte par défaut</strong>. Tant que vous ne le modifiez pas,
                             c'est ce texte qui part.
                         </p>
                     </div>
-                {% elseif template.hasDefault() %}
+                {% else %}
                     <div class="alert alert-light border">
                         <p class="mb-2 small">
                             Ce gabarit a été personnalisé. Vous pouvez rétablir le texte par défaut — le texte

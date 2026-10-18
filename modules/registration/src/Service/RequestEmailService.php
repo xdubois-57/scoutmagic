@@ -12,7 +12,6 @@ use Core\Exception\UserFacingMessage;
 use Core\Journal\JournalService;
 use Core\Mail\MailException;
 use Core\Mail\MailService;
-use Core\Security\CapabilityToken;
 use Core\View\EditableContentService;
 use Modules\Registration\Repository\DecisionEmail;
 use Modules\Registration\Repository\RegistrationRequest;
@@ -22,13 +21,19 @@ use Modules\Registration\Repository\RegistrationRequestRepository;
  * Acceptance/refusal emails — sent by hand from the fiche, or, when the
  * automatic sending is on, at the due date planned when the decision was
  * taken (issue #843, IT-09: sendScheduled(), called by Task\
- * SendDecisionEmailsHandler) — never before their body has actually
- * been written (isAcceptedBodyReady()/isRefusedBodyReady() are the guard;
- * the fiche's « E-mail de décision » block shows « Gabarit à rédiger » and
- * no button on it — unlike the itération 4 receipt/unit-alert emails,
- * these ship with NO default body: a chief must write one, or the request
- * stays visibly "en cours" to the parent forever, per Service\
- * RequestStatusService::visibleStatus()).
+ * SendDecisionEmailsHandler). Both ship with a default body (issue #932), so
+ * there is never a « Gabarit à rédiger » to wait on — but never without the
+ * family's tracking link either: a stored body that lacks `{{ lien_suivi }}`
+ * is a FAILED attempt (hasLink() is the guard), not an e-mail that leaves
+ * silently without the one way back to the request.
+ *
+ * **The tracking link is the request's own, read back and never renewed**
+ * (issue #932): the token was generated when the request was filed and is
+ * the very one the receipt carried, so a decision e-mail, a resend, a retry
+ * or an automatic send all carry the same URL — and none of them stores
+ * anything on the request. Sent after the link has expired, the e-mail
+ * still leaves, without extending anything, and says the public tracking is
+ * no longer accessible.
  *
  * The fiche's block is panel(), and its three buttons are
  * sendFromRequestPage() (issue #843, IT-08).
@@ -48,20 +53,18 @@ class RequestEmailService
     /**
      * What differs between the two e-mails.
      *
-     * @var array<string, array{key: string, subject: string, missing: string, event: string, journal: string}>
+     * @var array<string, array{key: string, subject: string, event: string, journal: string}>
      */
     private const EMAILS = [
         DecisionEmail::DECISION_ACCEPTED => [
             'key' => self::ACCEPTED_KEY,
             'subject' => "Votre demande d'inscription a été acceptée",
-            'missing' => "Le corps de l'email d'acceptation n'a pas encore été rédigé.",
             'event' => 'registration_accepted_email_sent',
             'journal' => "Email d'acceptation envoyé",
         ],
         DecisionEmail::DECISION_REFUSED => [
             'key' => self::REFUSED_KEY,
             'subject' => "Votre demande d'inscription a été refusée",
-            'missing' => "Le corps de l'email de refus n'a pas encore été rédigé.",
             'event' => 'registration_refused_email_sent',
             'journal' => 'Email de refus envoyé',
         ],
@@ -82,6 +85,18 @@ class RequestEmailService
     ];
 
     private const ACTION_REFUSED_UNKNOWN = "Action inconnue : rien n'a été envoyé.";
+
+    /** The sentence a chief reads when the stored body has lost its `{{ lien_suivi }}`. */
+    private const BODY_WITHOUT_LINK_MESSAGE = "Le texte de cet e-mail ne contient pas le lien de suivi : il n'a pas "
+        . "été envoyé. Ajoutez la variable {{ lien_suivi }} dans « Gabarits », ou rétablissez le texte par défaut.";
+
+    /** The request has no readable tracking link (a row from before the link was stored). */
+    private const NO_LINK_MESSAGE = "Le lien de suivi de cette demande n'est plus disponible : l'e-mail n'a pas été "
+        . "envoyé, car il ne pourrait pas le contenir.";
+
+    /** Appended to a decision e-mail sent once the family's link has expired (issue #932). */
+    private const EXPIRED_LINK_NOTICE = "<p><strong>Information :</strong> le suivi public de cette demande n'est "
+        . "plus accessible : le lien ci-dessus a expiré.</p>";
 
     private const AUTOMATIC_NOT_STARTED_MESSAGE = "L'envoi automatique de cet e-mail n'a pas pu être lancé : rien "
         . "n'est parti. « Réessayer » le relance.";
@@ -109,25 +124,6 @@ class RequestEmailService
     ) {
     }
 
-    public function isAcceptedBodyReady(): bool
-    {
-        return $this->hasContent(self::ACCEPTED_KEY);
-    }
-
-    public function isRefusedBodyReady(): bool
-    {
-        return $this->hasContent(self::REFUSED_KEY);
-    }
-
-    /**
-     * Whether the body of the $decision e-mail (DecisionEmail::DECISION_*)
-     * is written — false for an unknown decision.
-     */
-    public function isBodyReady(string $decision): bool
-    {
-        return isset(self::EMAILS[$decision]) && $this->hasContent(self::EMAILS[$decision]['key']);
-    }
-
     /**
      * The « E-mail de décision » block of $request's fiche (issue #843,
      * IT-08), or null when the request holds no decision.
@@ -142,7 +138,6 @@ class RequestEmailService
         return DecisionEmailPanel::build(
             $request,
             $this->decisionEmails->history($request->id),
-            $this->hasContent(self::EMAILS[$decision]['key']),
             new \DateTimeImmutable()
         );
     }
@@ -173,11 +168,6 @@ class RequestEmailService
                 "Cette demande n'a pas de décision : aucun e-mail de décision ne peut partir."
             );
         }
-        // Before the action check: a template emptied since the page was
-        // loaded is the reason, whatever the state (a sent e-mail included).
-        if (!$panel->templateReady) {
-            throw new RegistrationException(self::EMAILS[$panel->decision]['missing']);
-        }
         if (!$panel->allows($action)) {
             throw new RegistrationException(self::ACTION_REFUSED[$action] ?? self::ACTION_REFUSED_UNKNOWN);
         }
@@ -199,8 +189,8 @@ class RequestEmailService
      * encoded) request.
      *
      * @throws RegistrationException when the request is not accepted,
-     *         another send of it is in flight, the body hasn't been written
-     *         yet, or the transport failed — the last two recorded as a
+     *         another send of it is in flight, the body lacks the tracking
+     *         link, or the transport failed — the last two recorded as a
      *         failed attempt
      */
     public function sendAccepted(RegistrationRequest $request, string $targetYearLabel): void
@@ -236,10 +226,9 @@ class RequestEmailService
      *
      * The request is read AFTER the claim, so the decision it is checked
      * against is the one of that moment. Then the same path as a manual
-     * send: the template guard (a body not written is a FAILED attempt,
-     * never a success), the transport with the unit in copy (D9), the
-     * outcome recorded, the tracking token rotated after a success only
-     * (R6), journaled as automatic.
+     * send: the link guard (a body without the tracking link is a FAILED
+     * attempt, never a success), the transport with the unit in copy (D9), the
+     * outcome recorded, journaled as automatic.
      *
      * **One e-mail never stops the others**: anything that goes wrong is
      * recorded on that row and answered as FAILED, so the task moves on. A
@@ -342,8 +331,9 @@ class RequestEmailService
     /**
      * Sends the $attempt its caller has claimed, and records its outcome.
      *
-     * @throws RegistrationException when the body is not written or the
-     *         transport fails — both recorded as a failed attempt
+     * @throws RegistrationException when the body lacks the tracking link,
+     *         the request has none to give, or the transport fails — all
+     *         recorded as a failed attempt
      */
     private function deliverAttempt(
         RegistrationRequest $request,
@@ -354,17 +344,33 @@ class RequestEmailService
     ): void {
         $email = self::EMAILS[$decision];
 
-        // The guard D10 keeps: the template is checked on the claimed
-        // attempt, so a send that cannot happen leaves a failed attempt
-        // behind — the automatic sending included — and never a success.
-        if (!$this->hasContent($email['key'])) {
-            $this->decisionEmails->recordFailure($attempt, DecisionEmail::FAILURE_BODY_NOT_WRITTEN, $email['missing']);
+        // The guards are checked on the claimed attempt, so a send that
+        // cannot happen leaves a failed attempt behind — the automatic
+        // sending included — and never a success. `body_not_written` is the
+        // stored category for "this body cannot go out as it is".
+        $template = $this->templates()->bodyFor($email['key']);
+        if (!RequestEmailTemplateService::hasTrackingLink($template)) {
+            $this->decisionEmails->recordFailure(
+                $attempt,
+                DecisionEmail::FAILURE_BODY_NOT_WRITTEN,
+                self::BODY_WITHOUT_LINK_MESSAGE
+            );
 
-            throw new RegistrationException($email['missing']);
+            throw new RegistrationException(self::BODY_WITHOUT_LINK_MESSAGE);
+        }
+        $link = $this->repository->trackingLinkOf($request->id);
+        if ($link === null) {
+            $this->decisionEmails->recordFailure(
+                $attempt,
+                DecisionEmail::FAILURE_BODY_NOT_WRITTEN,
+                self::NO_LINK_MESSAGE
+            );
+
+            throw new RegistrationException(self::NO_LINK_MESSAGE);
         }
 
         try {
-            $trackingToken = $this->send($request, $email['key'], $email['subject'], $targetYearLabel);
+            $this->send($request, $template, $link, $email['key'], $email['subject'], $targetYearLabel);
         } catch (RegistrationException $e) {
             // Gated here, at the write: the row keeps a sentence a chief
             // may read, never the transport's own text (send() journals
@@ -378,19 +384,16 @@ class RequestEmailService
             throw $e;
         }
 
-        // The message is out: that is recorded first, so nothing after it
-        // can leave a delivered e-mail looking unsent. Only then does the
-        // link it carries replace the family's previous one (R6) — a
-        // failure there leaves the old link working, never a dead one.
+        // The message is out: that is recorded, so nothing after it can
+        // leave a delivered e-mail looking unsent. Nothing else is written
+        // on the request — the family's link is the one it already had.
         try {
             $recorded = $this->decisionEmails->recordSuccess($attempt);
         } catch (\Throwable) {
-            // A database error here must not cost the family its new link:
-            // the message is out, so the token it carries is stored all the
-            // same, and the lost record is journaled below.
+            // A database error here must not look like a failed send: the
+            // message is out, and the lost record is journaled below.
             $recorded = false;
         }
-        $this->repository->storeTrackingTokenHash($request->id, $trackingToken);
 
         $this->journalService->log(
             'registration',
@@ -415,23 +418,17 @@ class RequestEmailService
         }
     }
 
-    /**
-     * « À rédiger » has one definition, RequestEmailTemplateService::
-     * isToWrite() — the very one the « Gabarits » page shows (issue #843,
-     * D10). Built here from the content store this service already holds,
-     * so the guard and the page can never disagree.
-     */
-    private function hasContent(string $key): bool
-    {
-        return !$this->templates()->isToWrite($key);
-    }
-
     private function templates(): RequestEmailTemplateService
     {
         return new RequestEmailTemplateService($this->editableContentService);
     }
 
     /**
+     * @param array{token: string, expires_at: ?\DateTimeImmutable} $link the
+     *        request's own tracking link (RegistrationRequestRepository::
+     *        trackingLinkOf()) — read, never minted: the URL is the one the
+     *        receipt carried
+     *
      * @throws RegistrationException on a mail delivery failure — unlike
      *         the best-effort submission emails (itération 4), a staff-
      *         triggered send must surface its own failure so the button
@@ -439,31 +436,29 @@ class RequestEmailService
      *         RequestDecisionEmailController shows the error, deliver()
      *         records the attempt as failed, and retrying is always
      *         available).
-     *
-     * @return string the raw tracking token the e-mail carries, for
-     *         deliver() to persist once the send is recorded
      */
     private function send(
         RegistrationRequest $request,
+        string $template,
+        array $link,
         string $contentKey,
         string $subject,
         string $targetYearLabel
-    ): string
-    {
-        // The token is minted here but only PERSISTED once the mail is
-        // actually out (deliver()). Persisting first — what this method
-        // used to do — meant a delivery failure killed the link the family
-        // already had while never handing them the replacement.
-        $trackingToken = CapabilityToken::generate();
-        $trackingUrl = rtrim($this->baseUrl, '/') . "/inscriptions/suivi/{$request->id}/{$trackingToken}";
+    ): void {
+        $trackingUrl = rtrim($this->baseUrl, '/') . "/inscriptions/suivi/{$request->id}/{$link['token']}";
 
-        $template = (string) $this->templates()->bodyFor($contentKey);
         $body = RequestEmailTemplateService::substitute($template, [
             'prenom_enfant' => $request->childFirstName,
             'annee_scoute' => $targetYearLabel,
             'lien_suivi' => $trackingUrl,
             'nom_unite' => $this->siteName,
         ]);
+        // Sent after the link expired: the message still leaves, the link
+        // is not renewed and not extended, and the family is told so instead
+        // of being left to find a dead page.
+        if ($link['expires_at'] === null || new \DateTimeImmutable() >= $link['expires_at']) {
+            $body .= self::EXPIRED_LINK_NOTICE;
+        }
 
         try {
             $this->mailService->send(
@@ -474,7 +469,7 @@ class RequestEmailService
                 cc: $this->familyEmailCopy?->copyAddress()
             );
         } catch (MailException $e) {
-            // Nothing was written: the previous tracking link still works and
+            // Nothing was written: the tracking link is the same one, and
             // the attempt is recorded as failed, so retrying is free. Worth
             // a journal entry all the same — a flash message disappears with
             // the page, and a unit whose SMTP is broken has otherwise no
@@ -495,14 +490,11 @@ class RequestEmailService
             );
 
             throw new RegistrationException(
-                "L'email n'a pas pu être envoyé à la famille — le lien de suivi précédent reste valable, réessayez "
-                    . "dans quelques instants.",
+                "L'email n'a pas pu être envoyé à la famille — réessayez dans quelques instants.",
                 0,
                 $e
             );
         }
-
-        return $trackingToken;
     }
 
     /**
