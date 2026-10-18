@@ -156,9 +156,14 @@ la page Staffs.
 Terminée = la campagne de l'année cible **a démarré** (date d'ouverture passée
 ou ouverte à la main, `ReenrollmentCampaignService::hasStarted()`) **et n'est
 plus ouverte** (fermée par la date ou à la main). Programmée ou en cours →
-marquage refusé côté serveur avec le message « La campagne de réinscription
-{cible} est en cours (fermeture le {date}). L'étape pourra être marquée une fois
-la campagne terminée. » et le lien vers la campagne. Jamais déduit d'un
+marquage refusé côté serveur, avec le lien vers la campagne et un message
+propre à chaque cas :
+- programmée : « La campagne de réinscription {cible} n'a pas encore commencé
+  (ouverture le {date d'ouverture}). L'étape pourra être marquée une fois la
+  campagne terminée. »
+- en cours : « La campagne de réinscription {cible} est en cours (fermeture le
+  {date de fermeture}). L'étape pourra être marquée une fois la campagne
+  terminée. » Jamais déduit d'un
 compteur. Une étape déjà marquée n'est pas démarquée si quelqu'un rouvre la
 campagne ensuite (on ne réécrit pas une décision humaine) ; le point « campagne
 rouverte » s'affiche alors à vérifier. Sans module Inscriptions, les étapes 1 à

@@ -301,7 +301,7 @@ function steps(){
       :`<div class="small">Aucun import réussi pour 2027-2028.</div><div class="actions"><a href="#" class="btn primary">Aller à l'import Desk (2027-2028)</a></div>`},
    {phase:2,key:'fees',title:'Vérifier les cotisations de 2027-2028',kind:'manual',module:'Cotisations',
     checks: imp?['3 foyers à corriger','4 membres non vérifiables (sans adresse)']:[],
-    body: imp?`<div class="small">48 foyers contrôlés à partir de l'import du 18/07/2027 : 3 catégories à corriger, 2 foyers mis de côté, 4 membres sans adresse exploitable.</div>
+    body: imp?`<div class="small">48 foyers contrôlés à partir de l'import du 18/07/2027 : 3 foyers à corriger, 2 foyers mis de côté, 4 membres sans adresse exploitable.</div>
       <div class="note">Seulement les catégories de cotisation encodées dans Desk. Factures et paiements ne sont pas vérifiés ici.</div>
       <div class="actions"><a href="#" class="btn">Ouvrir Justesse des tarifs (2027-2028)</a></div>`
       :`<div class="alert info small">Le contrôle porte sur l'import de 2027-2028, pas encore fait.</div>`},
@@ -342,6 +342,7 @@ function steps(){
     body:`<div class="small">3 sections sur 5 ont une photo de groupe de 2027-2028. Manquantes : <b>Éclaireurs</b>, <b>Pionniers</b> (la photo de l'an dernier s'affiche encore, elle ne compte pas).</div>
       <div class="actions"><a href="#" class="btn">Ouvrir Staffs</a></div>`},
    {phase:3,key:'activate_public',title:'Activer 2027-2028 pour tout le monde',kind:'auto',autoDone:state.public,checks:[],
+    block: (!state.staff||!imp||state.openRequests) ? 'La bascule est refusée tant que '+[!state.staff?'2027-2028 n\'est pas activée pour les staffs':null,!imp?'aucun import réussi de 2027-2028 n\'existe':null,state.openRequests?'7 demandes d\'inscription restent ouvertes':null].filter(Boolean).join(', ')+'.' : null,
     body:`<div class="actions"><button class="btn primary" type="button" data-act="prebascule">Revoir avant la bascule…</button></div>
       <div class="note">La bascule reste manuelle, sans date programmée.</div>`}
   ];
@@ -386,7 +387,7 @@ function render(){
     html+='</ol></div>';
   });
   $('#phases').innerHTML=html;
-  $('#sumDone').textContent=`${done} étapes faites sur ${list.length}`;
+  $('#sumDone').textContent=`${done} étape${done>1?'s':''} ${done>1?'faites':'faite'} sur ${list.length}`;
   $('#sumBar').style.width=(done/list.length*100)+'%';
   $('#sumCheck').textContent=`${checks} points à vérifier`;
   $('#sumBlock').textContent=`${blocks} blocage${blocks>1?'s':''}`; $('#sumBlock').hidden=!blocks;
