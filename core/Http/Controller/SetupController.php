@@ -9,6 +9,8 @@ declare(strict_types=1);
 namespace Core\Http\Controller;
 
 use Core\Database\Connection;
+use Core\Database\IncompleteMigrationException;
+use Core\Database\MigrationResult;
 use Core\Database\MigrationRunner;
 use Core\Database\SchemaFiles;
 use Core\Database\SchemaComparator;
@@ -69,6 +71,26 @@ class SetupController extends AbstractController
      */
     private const PORTABLE_UPLOAD_MAX_BYTES = 2 * 1024 * 1024 * 1024;
 
+    /**
+     * How long the wizard waits for the schema to be whole (#909): thirty
+     * of MigrationRunner's twenty-second slices, and still an answer
+     * rather than a page that never loads.
+     */
+    private const MIGRATION_WAIT_SECONDS = 600;
+
+    /** One slice: MigrationRunner's own default, the budget #909 was found on. */
+    private const MIGRATION_SLICE_SECONDS = 20;
+
+    /**
+     * Slices in a row that change nothing before the wait is given up: a
+     * concurrent migration holding the lock answers that way at once, and
+     * so does one stuck on the same failing statements until the runner
+     * abandons it. Ten seconds of it, at the pause below.
+     */
+    private const STALLED_SLICES_ALLOWED = 50;
+
+    private const STALLED_SLICE_PAUSE_MICROSECONDS = 200_000;
+
     /** The restore mode's answer when the archive it was showing is gone (#719). */
     private const NO_DEPOSITED_ARCHIVE = 'Aucune sauvegarde déposée sur le serveur — envoyez-la à nouveau.';
 
@@ -77,7 +99,15 @@ class SetupController extends AbstractController
         private SecretManager $secretManager,
         private DkimManager $dkimManager,
         private string $schemaPath,
-        private string $publicDir = ''
+        private string $publicDir = '',
+        /**
+         * Builds the runner migrateToCompletion() drives. Null is the real
+         * one; a test passes a runner whose slices run out of time, to prove
+         * the wizard still waits for the whole schema (issue #909).
+         *
+         * @var (\Closure(Connection): MigrationRunner)|null
+         */
+        private ?\Closure $migrationRunnerFactory = null
     ) {
     }
 
@@ -302,13 +332,11 @@ class SetupController extends AbstractController
             ]);
         }
 
-        $runner = new MigrationRunner(
-            $connection,
-            new SchemaIntrospector($connection->getPdo()),
-            new SchemaComparator(),
-            new SqlParser()
-        );
-        $migrationResult = $runner->migrate($this->schemaFileSet());
+        try {
+            $migrationResult = $this->migrateToCompletion($connection);
+        } catch (IncompleteMigrationException $e) {
+            return $this->json(['success' => false, 'message' => $e->getMessage()]);
+        }
 
         $this->journalService?->log(
             'core',
@@ -701,12 +729,7 @@ class SetupController extends AbstractController
 
             // The dump is the ORIGIN's, so its schema may be older than this
             // code. Same job as after an update, same runner.
-            $migration = (new MigrationRunner(
-                $connection,
-                new SchemaIntrospector($connection->getPdo()),
-                new SchemaComparator(),
-                new SqlParser()
-            ))->migrate($this->schemaFileSet());
+            $migration = $this->migrateToCompletion($connection);
 
             // Declared before it is written: an origin on an older
             // ScoutMagic has no such row, and the identifier of the site
@@ -971,6 +994,64 @@ class SetupController extends AbstractController
     private function schemaFileSet(): array
     {
         return SchemaFiles::all(dirname(dirname($this->schemaPath)));
+    }
+
+    /**
+     * The whole declared schema, slice after slice, until it is done.
+     *
+     * MigrationRunner stops after its time budget and leaves the rest for
+     * the next call — right for a running site, whose boot sequence makes
+     * that next call, and wrong here: nothing resumes a wizard, and the
+     * step after it writes to the tables. Answering after the first slice
+     * is what let a slow host create the administrator account on a
+     * half-built schema (issue #909).
+     *
+     * Each slice resumes from the runner's own checkpoint, so the loop
+     * repeats no work. It ends early on a migration that makes no progress
+     * at all — another process holding the migration lock — and gives the
+     * request a fresh time limit before each slice, which is what keeps a
+     * host's max_execution_time from cutting the wait short.
+     *
+     * @throws IncompleteMigrationException when the schema is still not
+     *   whole after MIGRATION_WAIT_SECONDS, or after STALLED_SLICES_ALLOWED
+     *   slices in a row that changed nothing
+     */
+    private function migrateToCompletion(Connection $connection): MigrationResult
+    {
+        $runner = $this->migrationRunnerFactory !== null
+            ? ($this->migrationRunnerFactory)($connection)
+            : new MigrationRunner(
+                $connection,
+                new SchemaIntrospector($connection->getPdo()),
+                new SchemaComparator(),
+                new SqlParser(),
+                self::MIGRATION_SLICE_SECONDS
+            );
+        $schemaFiles = $this->schemaFileSet();
+        $deadline = microtime(true) + self::MIGRATION_WAIT_SECONDS;
+        $stalledSlices = 0;
+        $previousProgress = null;
+
+        while (true) {
+            @set_time_limit(self::MIGRATION_SLICE_SECONDS + 60);
+            $result = $runner->migrate($schemaFiles);
+            if ($result->complete) {
+                return $result;
+            }
+
+            // Progress, not the statements: those are one slice's own, and a
+            // slice that only diffed the schema executed none.
+            $advanced = $result->progressFraction !== $previousProgress;
+            $stalledSlices = $advanced ? 0 : $stalledSlices + 1;
+            $previousProgress = $result->progressFraction;
+
+            if ($stalledSlices >= self::STALLED_SLICES_ALLOWED || microtime(true) >= $deadline) {
+                throw new IncompleteMigrationException();
+            }
+            if (!$advanced) {
+                usleep(self::STALLED_SLICE_PAUSE_MICROSECONDS);
+            }
+        }
     }
 
     private function bundleBackupWithEncryptionKey(string $dumpPath, string $masterKeyPath, string $secretsPath): string
@@ -1547,15 +1628,9 @@ class SetupController extends AbstractController
                 $this->forgetDnsReading();
             }
 
-            // Run migration
-            $introspector = new SchemaIntrospector($connection->getPdo());
-            $runner = new MigrationRunner(
-                $connection,
-                $introspector,
-                new SchemaComparator(),
-                new SqlParser()
-            );
-            $runner->migrate($this->schemaFileSet());
+            // The administrator account is created on this schema a few
+            // lines down, so it must be whole, not one slice of it (#909).
+            $this->migrateToCompletion($connection);
 
             // Store admin email in secrets for auto-repair
             $adminEmail = strtolower(trim($data['admin_email']));
@@ -1723,6 +1798,9 @@ class SetupController extends AbstractController
                     new SchemaComparator(),
                     new SqlParser()
                 );
+                // One slice is enough on a site already running: a
+                // remainder is picked up by the boot sequence's
+                // migration-in-progress page (public/index.php).
                 $runner->migrate($this->schemaFileSet());
             }
 
