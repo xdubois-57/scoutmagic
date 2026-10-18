@@ -218,6 +218,21 @@ class ChecksTest extends TestCase
         $this->assertTrue($reading->underRearm);
     }
 
+    /**
+     * Issue #718 § C: shown as « label : value », the alert used to read
+     * « Mises à jour automatiques : activé » — good news, at first sight.
+     * The label names what is wrong instead, on the check and on the
+     * attention-points page alike.
+     */
+    public function testDevelopmentModeIsNamedForWhatIsWrong(): void
+    {
+        $check = new DevelopmentModeCheck($this->settings(['auto_update_enabled' => '1', 'auto_update_level' => 'dev']));
+
+        $this->assertSame('Mode développement', $check->label());
+        $this->assertSame('activé', $check->read()->value);
+        $this->assertSame('Mode développement', \Core\Alert\AlertSurfaces::labels()[DevelopmentModeCheck::KEY]);
+    }
+
     // ————— Cron silencieux —————
 
     /**

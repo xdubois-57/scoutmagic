@@ -47,7 +47,7 @@ final class DevelopmentModeCheck implements OperationalCheck
 
     public function label(): string
     {
-        return 'Mises à jour automatiques';
+        return 'Mode développement';
     }
 
     public function read(): AlertReading
