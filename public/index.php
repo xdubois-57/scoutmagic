@@ -3179,7 +3179,11 @@ $attentionProviders = [
     new \Core\Attention\SiteAttentionProvider($scoutYearResolver, $importJournalRepo, $settingService),
     // Backups and updates left switched off before anything has failed
     // (issue #718 § C points 11, 12 and 14).
-    new \Core\Maintenance\MaintenanceAttentionProvider($settingService, $remoteBackupDestination, dirname($storagePath)),
+    new \Core\Maintenance\MaintenanceAttentionProvider(
+        $settingService,
+        $remoteBackupDestination,
+        dirname($storagePath)
+    ),
     // Every operational alert currently triggered (Core\Alert, §8.99).
     // Reads rows, computes nothing: the same check that notified wrote
     // them, and the state machine is the only place a threshold is ever
