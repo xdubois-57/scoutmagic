@@ -42,8 +42,7 @@ tait ensuite. Il ne recommencera que si le problème a d'abord été
 réellement réglé : il faut repasser nettement sous le seuil, pas juste
 osciller autour. Redescendre à 84 % puis remonter à 86 % ne compte pas.
 
-Le retour à la normale n'est pas annoncé non plus : un site qui va de
-nouveau bien n'a pas besoin de vous le dire.
+Le retour à la normale n'est pas annoncé.
 
 ## Où voir ce qui ne va pas en ce moment
 
@@ -63,10 +62,11 @@ si vous avez manqué un message, ou si vous venez d'arriver dans l'unité.
 - **Tâche planifiée** — le moteur du site. Sans elle, plus rien ne part.
 - **Envoi d'e-mails** — quand les envois échouent à répétition.
 - **Voie d'authentification** — quand plus aucun fournisseur ne peut porter
-  un lien de connexion. C'est la plus grave : personne ne peut plus entrer
-  sur le site, vous compris.
+  un lien de connexion. La plus grave : plus personne n'entre, vous compris.
 - **Messages différés** — quand la file des messages mis de côté cesse de
   se vider. Leurs expéditeurs, eux, ont vu un envoi réussi.
+- **Enregistrements DNS de l'e-mail** — quand le SPF, le DKIM
+  ou le DMARC du domaine manque : le courrier finit plus souvent en indésirables.
 - **Mode développement** — s'il a été laissé activé, le site se réinstalle
   à chaque nouveau commit, ce qui n'est pas fait pour le site d'une unité.
 - **Connexion sécurisée** — si le site est servi en HTTP, sans chiffrement.
