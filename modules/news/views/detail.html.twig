@@ -82,11 +82,8 @@
                         Connectez-vous pour remplir ce formulaire.
                         <a href="/login" class="alert-link">Se connecter</a>
                     </div>
-                {% elseif not form_open %}
-                    <div class="alert alert-secondary">
-                        Ce formulaire est fermé et n'accepte plus de réponses.
-                        {% if form.closesAt %}Il a été fermé le {{ form.closesAt|french_date }}.{% endif %}
-                    </div>
+                {% elseif form_availability != 'open' %}
+                    {% include '@news/partials/_form_unavailable.html.twig' %}
                 {% elseif already_responded %}
                     <div class="alert alert-info">
                         Vous avez déjà répondu à ce formulaire.

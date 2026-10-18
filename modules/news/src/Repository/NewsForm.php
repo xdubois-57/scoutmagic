@@ -17,6 +17,12 @@ final class NewsForm
     public const RESPONSE_LIMIT_ONE_PER_ACCOUNT = 'one_per_account';
     public const RESPONSE_LIMIT_ONE_PER_MEMBER = 'one_per_member';
 
+    /** What {@see self::availability()} answers. */
+    public const AVAILABILITY_OPEN = 'open';
+    public const AVAILABILITY_FORCE_CLOSED = 'force_closed';
+    public const AVAILABILITY_NOT_YET_OPEN = 'not_yet_open';
+    public const AVAILABILITY_EXPIRED = 'expired';
+
     public function __construct(
         public readonly int $id,
         public readonly int $newsArticleId,
@@ -77,25 +83,46 @@ final class NewsForm
     }
 
     /**
-     * Effective open/closed state — always computed live, never stored
-     * (module spec: no scheduled task "closes" a form).
+     * Why a form takes, or does not take, an answer right now — always
+     * computed live from ONE reference date, never stored (module spec: no
+     * scheduled task "closes" a form).
+     *
+     * `isOpen()` used to be the only answer, and a view that wanted a
+     * reason had to guess it from the boolean: it read "not open" as "past
+     * its closing date" and announced a closing date still months away as
+     * having passed (issue #925). The order is the one `isOpen()` always
+     * had, so the booleans do not change: a manual closure wins over the
+     * dates, then a form not yet open, then one past its closing date. Both
+     * bounds are inclusive on their own day.
+     *
+     * @return self::AVAILABILITY_*
      */
-    public function isOpen(?\DateTimeImmutable $now = null): bool
+    public function availability(?\DateTimeImmutable $now = null): string
     {
         if ($this->isForceClosed) {
-            return false;
+            return self::AVAILABILITY_FORCE_CLOSED;
         }
 
         $now ??= new \DateTimeImmutable();
         $today = $now->format('Y-m-d');
 
         if ($this->opensAt !== null && $today < $this->opensAt) {
-            return false;
+            return self::AVAILABILITY_NOT_YET_OPEN;
         }
         if ($this->closesAt !== null && $today > $this->closesAt) {
-            return false;
+            return self::AVAILABILITY_EXPIRED;
         }
 
-        return true;
+        return self::AVAILABILITY_OPEN;
+    }
+
+    /**
+     * Effective open/closed state, for the callers that only need a yes or
+     * a no — the refusal of a submission among them. {@see self::availability()}
+     * says why.
+     */
+    public function isOpen(?\DateTimeImmutable $now = null): bool
+    {
+        return $this->availability($now) === self::AVAILABILITY_OPEN;
     }
 }

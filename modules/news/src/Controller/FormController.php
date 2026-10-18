@@ -960,7 +960,7 @@ class FormController extends AbstractController
             'form' => $form,
             'fields' => $this->fieldsForTemplate($fields, $memberOptions),
             'has_real_input' => (bool) array_filter($fields, fn(FormField $f) => !$f->isNonInput()),
-            'form_open' => $form->isOpen(),
+            'form_availability' => $form->availability(),
             'already_responded' => false,
             'requires_login' => false,
             'requires_member_selector' => $form->responseLimit === NewsForm::RESPONSE_LIMIT_ONE_PER_MEMBER,

@@ -680,7 +680,7 @@ class NewsController extends AbstractController
             'form' => $form,
             'fields' => $this->fieldsForTemplate($fields, $memberOptions),
             'has_real_input' => $hasRealInput,
-            'form_open' => $form?->isOpen() ?? false,
+            'form_availability' => $form?->availability() ?? NewsForm::AVAILABILITY_FORCE_CLOSED,
             'already_responded' => $alreadyResponded,
             'requires_login' => $form !== null && $form->access === NewsForm::ACCESS_IDENTIFIED && $accountId === null,
             'requires_member_selector' => $form !== null

@@ -1,0 +1,23 @@
+{#
+  Why a form takes no answer (issue #925). One sentence per reason, because
+  the single « fermé, il a été fermé le <date de fermeture> » it replaces
+  announced a closing date months ahead as already past when the form had
+  been closed by hand, and called a form not yet open closed.
+
+  Needs: form (NewsForm), form_availability (NewsForm::availability(), a
+  single reference date for the whole page). Renders nothing for an open form.
+#}
+{% if form_availability == 'force_closed' %}
+    <div class="alert alert-secondary">
+        Ce formulaire est fermé et n'accepte plus de réponses.
+    </div>
+{% elseif form_availability == 'not_yet_open' %}
+    <div class="alert alert-secondary">
+        Ce formulaire n'est pas encore ouvert.
+        {% if form.opensAt %}Il ouvrira le {{ form.opensAt|french_date }}.{% endif %}
+    </div>
+{% elseif form_availability == 'expired' %}
+    <div class="alert alert-secondary">
+        Ce formulaire est fermé{% if form.closesAt %} depuis le {{ form.closesAt|french_date }}{% endif %}.
+    </div>
+{% endif %}
