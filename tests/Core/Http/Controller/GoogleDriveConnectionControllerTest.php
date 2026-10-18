@@ -282,7 +282,7 @@ final class GoogleDriveConnectionControllerTest extends TestCase
         $response = $this->controller()->connect($this->getRequest(), ['id' => (string) $this->locationId]);
 
         $this->assertSame(302, $response->getStatusCode());
-        $this->assertSame('/config/stockage/emplacements', $response->getHeaders()['Location']);
+        $this->assertSame('/config/stockage/emplacements/' . $this->locationId . '/modification', $response->getHeaders()['Location']);
         $this->assertNull(SessionStore::get('storage_google_oauth_state'));
     }
 
@@ -332,6 +332,8 @@ final class GoogleDriveConnectionControllerTest extends TestCase
         $response = $this->controller()->callback($this->callbackRequest('forged', 'c'), []);
 
         $this->assertSame(302, $response->getStatusCode());
+        // An unverified return says nothing about which location it was for.
+        $this->assertSame('/config/stockage/emplacements', $response->getHeaders()['Location'] ?? '');
         $this->assertFalse($this->secret()->hasGrant());
     }
 
@@ -350,6 +352,20 @@ final class GoogleDriveConnectionControllerTest extends TestCase
         $this->controller($this->googleAnsweringHappily())->callback($this->callbackRequest('st4te', 'code-2'), []);
 
         $this->assertFalse($this->secret()->hasGrant(), 'a replayed state connected the site a second time');
+    }
+
+    /** Disconnecting is done from the location's page, and returns there. */
+    public function testDisconnectingReturnsToTheLocationsPage(): void
+    {
+        $this->saveCredentials();
+
+        $response = $this->controller()->disconnect($this->postRequest([]), ['id' => (string) $this->locationId]);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame(
+            '/config/stockage/emplacements/' . $this->locationId . '/modification',
+            $response->getHeaders()['Location'] ?? ''
+        );
     }
 
     /**
@@ -390,6 +406,11 @@ final class GoogleDriveConnectionControllerTest extends TestCase
             ->callback($this->callbackRequest('st4te', 'code-1'), []);
 
         $this->assertSame(302, $response->getStatusCode());
+        // Back to the location's own page, where the Google account is managed.
+        $this->assertSame(
+            '/config/stockage/emplacements/' . $this->locationId . '/modification',
+            $response->getHeaders()['Location'] ?? ''
+        );
         $this->assertSame('refresh-abc', $this->secret()->refreshToken);
         $this->assertSame('unite@example.org', $this->secret()->account);
         $this->assertSame('folder-1', $this->config()->folderId);
@@ -784,7 +805,7 @@ final class GoogleDriveConnectionControllerTest extends TestCase
 
         // Back to the page, not off to Google: nothing was started.
         $this->assertSame(302, $response->getStatusCode());
-        $this->assertSame('/config/stockage/emplacements', $response->getHeaders()['Location'] ?? '');
+        $this->assertSame('/config/stockage/emplacements/' . $this->locationId . '/modification', $response->getHeaders()['Location'] ?? '');
         $this->assertNull(
             SessionStore::get('storage_google_oauth_state'),
             'a connection was begun on an address a request header chose'

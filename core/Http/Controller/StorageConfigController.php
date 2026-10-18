@@ -79,10 +79,10 @@ class StorageConfigController extends AbstractController
 
     /**
      * Where a location is configured — and where the safety copy's forms
-     * send their reader back to, since that is where they live now
-     * (#718 § C point 10.7).
+     * and the Google account's actions send their reader back to, since
+     * that is where they live now (#718 § C point 10.7).
      */
-    private static function editUrl(int $id): string
+    public static function editUrl(int $id): string
     {
         return self::LOCATIONS_URL . '/' . $id . '/modification';
     }
