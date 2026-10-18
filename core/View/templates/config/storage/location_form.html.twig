@@ -381,6 +381,20 @@
 
         <button type="submit" class="btn btn-primary">Enregistrer</button>
     </form>
+
+    {% if location %}
+        {% include 'config/storage/_location_admin.html.twig' with {
+            location: location,
+            usages: usages,
+            protection: protection,
+            protection_offered: protection_offered,
+            destinations: destinations,
+            location_labels: location_labels,
+            restorable_horizon_days: restorable_horizon_days,
+            drive: drive_secret,
+            drive_redirect_uri: drive_redirect_uri,
+        } only %}
+    {% endif %}
 {% endblock %}
 
 {% block scripts %}

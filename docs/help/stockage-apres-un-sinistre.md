@@ -50,7 +50,8 @@ Dans Configuration › Stockage › Emplacements, retrouvez
 l'emplacement, « Modifier », et ne corrigez que ce qui a changé.
 Absente de la liste ? L'étape 2 n'a pas repris la base attendue.
 
-**4. Testez-le.** « Tester » écrit un fichier témoin et le relit. Tant
+**4. Testez-le.** « Tester », sur la même page, écrit un fichier
+témoin et le relit. Tant
 qu'il n'est pas au vert, inutile d'aller plus loin.
 
 **5. Attribuez-le à son usage.** Un emplacement déclaré ne sert encore

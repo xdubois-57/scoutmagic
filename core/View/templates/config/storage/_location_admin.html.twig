@@ -1,0 +1,302 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{#
+  Everything that CONFIGURES an existing location, on its edit page
+  (issue #718 § C point 10.7): the check, the default, the Google account,
+  the safety copy and the deletion. The list of locations only says how each
+  one is doing and what it can do; it kept growing controls until a card was
+  a page of its own, and the reader looking for « is this protected » had to
+  read past four forms to find out.
+
+  Rendered after the main <form>, never inside it — forms do not nest.
+
+  Expects: location, usages, protection, protection_offered, destinations,
+  location_labels, restorable_horizon_days, drive, drive_redirect_uri,
+  drive_expiry.
+#}
+<div class="card mb-4 mt-4">
+    <div class="card-body">
+        <h2 class="h6">Vérification</h2>
+        <div class="d-flex flex-wrap align-items-center gap-3 small">
+            <span class="storage-location-status" data-location-id="{{ location.id }}">
+                {% if location.lastCheckOk == true %}
+                    <span class="badge text-bg-success">Joignable</span>
+                {% elseif location.lastCheckOk == false %}
+                    <span class="badge text-bg-danger">En erreur</span>
+                {% else %}
+                    <span class="badge text-bg-secondary">Non testé</span>
+                {% endif %}
+            </span>
+            <span class="text-body-secondary">
+                {% if location.lastCheckedAt %}
+                    Vérifié {{ location.lastCheckedAt|relative_date }} par écriture d'un fichier témoin
+                {% else %}
+                    Jamais vérifié
+                {% endif %}
+            </span>
+            <button type="button" class="btn btn-link btn-sm p-0 storage-location-test"
+                    data-id="{{ location.id }}">Tester</button>
+            {% if not location.isDefault %}
+                <button type="button" class="btn btn-link btn-sm p-0 storage-location-set-default"
+                        data-id="{{ location.id }}">Définir par défaut</button>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+{% if location.type.value == 'google_drive' %}
+    <div class="card mb-4">
+        <div class="card-body">
+            <h2 class="h6">Compte Google</h2>
+            {% if drive and drive.hasGrant %}
+                <div class="small text-body-secondary">
+                    {{ drive.account }}
+                    {% if location.config.connectedAt %}
+                        — raccordé le {{ location.config.connectedAt|date_fr }}
+                    {% endif %}
+                </div>
+            {% else %}
+                <div class="small text-body-secondary">Aucun compte raccordé.</div>
+            {% endif %}
+            <div class="d-flex flex-wrap align-items-center gap-3 small mt-2">
+                {% if drive and drive.hasClientSecret and drive_redirect_uri %}
+                    <a class="btn btn-link btn-sm p-0"
+                       href="/config/stockage/emplacements/{{ location.id }}/google/raccordement">
+                        {{ drive.hasGrant ? 'Reconnecter le compte' : 'Raccorder un compte Google Drive' }}
+                    </a>
+                {% elseif not drive_redirect_uri %}
+                    <span class="text-body-secondary">
+                        Renseignez d'abord l'adresse du site dans
+                        <a href="/config/settings">Configuration &gt; Réglages</a>.
+                    </span>
+                {% else %}
+                    <span class="text-body-secondary">
+                        <a href="/config/stockage/emplacements/{{ location.id }}/modification">Enregistrez
+                        d'abord l'identifiant et le secret du client OAuth</a>.
+                    </span>
+                {% endif %}
+
+                {% if drive and drive.hasGrant %}
+                    {# The repair, as two acts said apart (#832):
+                       pointing at a folder that exists, or
+                       starting an empty one. Neither is ever done
+                       by a rename, a reconnection or a restore. #}
+                    <a class="btn btn-link btn-sm p-0"
+                       href="/config/stockage/emplacements/{{ location.id }}/google/dossier-existant">
+                        Rattacher un dossier existant
+                    </a>
+                    <form method="post"
+                          action="/config/stockage/emplacements/{{ location.id }}/google/nouveau-dossier"
+                          data-confirm="Créer un nouveau dossier vide pour cet emplacement ? Seulement si son dossier actuel n'existe plus : ce qu'il contenait ne serait plus lu par le site. Rien n'est supprimé chez Google.">
+                        {{ csrf_field()|raw }}
+                        <button type="submit" class="btn btn-link btn-sm p-0">Créer un nouveau dossier</button>
+                    </form>
+                {% endif %}
+
+                {% if drive and (drive.hasGrant or drive.hasClientSecret) %}
+                    {# Destructive, so a POST form with its CSRF token
+                       and the shared data-confirm attribute — never a
+                       button only a script can actuate. #}
+                    <form method="post"
+                          action="/config/stockage/emplacements/{{ location.id }}/google/deraccordement"
+                          data-confirm="Déraccorder le compte ? Ce site ne pourra plus écrire dans ce dossier, et les identifiants du client OAuth seront effacés. Rien n'est supprimé chez Google.">
+                        {{ csrf_field()|raw }}
+                        <button type="submit" class="btn btn-link btn-sm p-0 text-danger">Déraccorder</button>
+                    </form>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+{% endif %}
+
+{% if protection_offered %}
+    <div class="card mb-4">
+        <div class="card-body">
+            <h2 class="h6">Copie de secours</h2>
+            {# What no archive covers, said where it can be acted on: since
+               D10 a file archive contains `storage/` minus every declared
+               location, and what replaces it is this copy. #}
+            {% if protection is null %}
+                <p class="small text-warning-emphasis">
+                    <i class="bi bi-shield-exclamation" aria-hidden="true"></i>
+                    Le contenu de cet emplacement n'est repris dans aucune archive de sauvegarde, et il
+                    n'a pas de copie de secours.
+                </p>
+            {% elseif not protection.enabled %}
+                <p class="small text-warning-emphasis">
+                    <i class="bi bi-shield-exclamation" aria-hidden="true"></i>
+                    La copie de secours de cet emplacement est en pause : rien n'est copié.
+                </p>
+            {% else %}
+                <p class="small text-success-emphasis">
+                    <i class="bi bi-shield-check" aria-hidden="true"></i>
+                    Copié vers « {{ location_labels[protection.destinationLocationId] ?? 'un emplacement supprimé' }} »
+                    {% if protection.lastCompletedPassAt %}
+                        — dernière passe {{ protection.lastCompletedPassAt|relative_date }}.
+                    {% else %}
+                        — aucune passe n'est encore arrivée à son terme.
+                    {% endif %}
+                </p>
+            {% endif %}
+            {# ————— The safety copy (IT-04) —————
+
+               On the location's edit page since #718 § C point 10.7:
+               the list says whether a location is protected, this is
+               where the protection is configured.
+
+               The destination list holds every OTHER location, with no
+               filtering: which pairings are refused — a cycle, a
+               destination that publishes what the source does not — is
+               the service's to say in a sentence. A destination
+               missing from a picker because the screen guessed it was
+               invalid is a destination nobody can find out why they
+               cannot choose. #}
+            {% if protection_offered %}
+                    {# **Nothing to copy TO is a state, not a form.** On a
+                       site with a single location the list below is
+                       empty, and a required picker with no options plus
+                       an « Enregistrer » that cannot succeed is the worst
+                       of both: the administrator is told to choose and
+                       given nothing to choose from. #}
+                    {% if destinations is empty %}
+                        <p class="small text-body-secondary mt-2 mb-0">
+                            Une copie de secours s'écrit dans un autre emplacement, et celui-ci est
+                            le seul déclaré. Ajoutez-en un second — un disque, un NAS, un stockage
+                            objet — puis revenez le désigner ici.
+                        </p>
+                    {% else %}
+                    <form method="post"
+                          action="/config/stockage/emplacements/{{ location.id }}/protection"
+                          class="mt-2">
+                        {{ csrf_field()|raw }}
+                        <div class="row g-2 align-items-end">
+                            <div class="col-12 col-md-5">
+                                <label class="form-label small"
+                                       for="destination-{{ location.id }}">Destination</label>
+                                <select class="form-select form-select-sm" required
+                                        id="destination-{{ location.id }}" name="destination_location_id">
+                                    {# `|filter`, not the inline `for … if`, which Twig 3
+                                       removed. #}
+                                    {% for candidate in destinations %}
+                                        <option value="{{ candidate.id }}"
+                                            {{ protection and protection.destinationLocationId == candidate.id
+                                                ? 'selected' : '' }}>{{ candidate.label }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-6 col-md-3">
+                                <label class="form-label small" for="grace-{{ location.id }}">
+                                    Délai de grâce (jours)
+                                </label>
+                                <input class="form-control form-control-sm" type="number" min="1" required
+                                       id="grace-{{ location.id }}" name="grace_period_days"
+                                       value="{{ protection ? protection.gracePeriodDays : 30 }}">
+                            </div>
+                            <div class="col-6 col-md-2">
+                                <label class="form-label small" for="cadence-{{ location.id }}">
+                                    Cadence (heures)
+                                </label>
+                                <input class="form-control form-control-sm" type="number" min="1" required
+                                       id="cadence-{{ location.id }}" name="cadence_hours"
+                                       value="{{ protection ? protection.cadenceHours : 24 }}">
+                            </div>
+                            <div class="col-12 col-md-2">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox"
+                                           id="enabled-{{ location.id }}" name="enabled"
+                                           {{ protection is null or protection.enabled ? 'checked' : '' }}>
+                                    <label class="form-check-label small"
+                                           for="enabled-{{ location.id }}">Active</label>
+                                </div>
+                            </div>
+                        </div>
+
+                        {# **Arithmetic, not documentation.** Restoring a
+                           database older than the grace period brings
+                           back rows whose files the copy has already
+                           purged: the albums come back holed, for ever,
+                           and nothing anywhere says why. #}
+                        {% if restorable_horizon_days is not null %}
+                            <p class="form-text mb-2">
+                                Votre plus ancienne sauvegarde restaurable date de
+                                {{ restorable_horizon_days }} jours. Un délai de grâce plus court
+                                signifie qu'une restauration ferait réapparaître des albums dont les
+                                fichiers auraient déjà été effacés de la copie.
+                            </p>
+                        {% endif %}
+
+                        <button type="submit" class="btn btn-outline-primary btn-sm mt-2">
+                            Enregistrer la copie de secours
+                        </button>
+                    </form>
+                    {% endif %}
+
+                    {% if protection %}
+                        <div class="d-flex flex-wrap gap-3 small mt-2">
+                            <form method="post"
+                                  action="/config/stockage/emplacements/{{ location.id }}/protection/rapatriement"
+                                  data-confirm="Rapatrier depuis la copie les fichiers que « {{ location.label }} » n'a plus ? Rien n'est écrasé : seuls les fichiers absents sont remis en place."
+                                  data-confirm-label="Rapatrier"
+                                  class="d-inline">
+                                {{ csrf_field()|raw }}
+                                <button type="submit" class="btn btn-link btn-sm p-0">
+                                    Rapatrier depuis la copie
+                                </button>
+                            </form>
+                            <form method="post"
+                                  action="/config/stockage/emplacements/{{ location.id }}/protection/suppression"
+                                  data-confirm="Retirer la copie de secours de « {{ location.label }} » ? Les fichiers déjà copiés restent à la destination : c'est la relation qui s'arrête."
+                                  data-confirm-label="Retirer"
+                                  class="d-inline">
+                                {{ csrf_field()|raw }}
+                                <button type="submit" class="btn btn-link btn-sm p-0 text-danger">
+                                    Retirer la copie de secours
+                                </button>
+                            </form>
+                        </div>
+                    {% endif %}
+            {% endif %}
+        </div>
+    </div>
+{% endif %}
+
+<div class="card mb-4">
+    <div class="card-body">
+        <h2 class="h6">Suppression</h2>
+        {% if usages is not empty %}
+            <p class="small text-body-secondary mb-0">
+                Sert : {{ usages|join(', ') }} — suppression impossible tant qu'un usage en dépend.
+            </p>
+        {% else %}
+            <div class="small">
+            {# Destructive, so a POST form with its CSRF token and the
+               shared data-confirm attribute — the shape
+               config/maintenance/_macros.html.twig and
+               config/outbound_mail/providers.html.twig already use —
+               rather than a button only a script can actuate. This
+               action has no second door: on a page whose JavaScript
+               did not load, a script-only button leaves no way to
+               delete a location at all. #}
+            {% if usages is empty %}
+                <form method="post"
+                      action="/config/stockage/emplacements/{{ location.id }}/suppression"
+                      {# A Drive location's own folder follows it to the
+                         trash (#474); every other kind of folder was
+                         named by the administrator and stays. #}
+                      {% if location.type.value == 'google_drive' %}
+                      data-confirm="Supprimer l'emplacement « {{ location.label }} » ? Son dossier sur Google Drive sera placé dans la corbeille, avec tout ce qu'il contient : vous pourrez l'y récupérer pendant 30 jours, après quoi Google l'efface définitivement."
+                      {% else %}
+                      data-confirm="Supprimer l'emplacement « {{ location.label }} » ? Les fichiers déjà écrits à la destination ne sont pas effacés : le site cesse seulement de la connaître."
+                      {% endif %}
+                      data-confirm-label="Supprimer"
+                      class="d-inline">
+                    {{ csrf_field()|raw }}
+                    <button type="submit" class="btn btn-link btn-sm p-0 text-danger">Supprimer</button>
+                </form>
+            {% endif %}
+            </div>
+        {% endif %}
+    </div>
+</div>
