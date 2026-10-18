@@ -26,8 +26,15 @@ use Core\Exception\UserFacingException;
  */
 final class IncompleteMigrationException extends \RuntimeException implements UserFacingException
 {
+    /*
+     * No promise to resume where it stopped: a database already holding
+     * tables is refused by the wizard's emptiness check before any
+     * migration runs, so the operator is told the way the wizard itself
+     * offers — the button it shows for exactly that state.
+     */
     public const TIMED_OUT = 'La création des tables de la base de données n\'a pas pu être terminée à temps. '
-        . 'Relancez l\'installation : elle reprendra là où elle s\'est arrêtée.';
+        . 'Relancez l\'installation ; si l\'assistant signale des tables existantes, utilisez « Sauvegarder puis '
+        . 'vider la base » avant de réessayer.';
 
     public const ABANDONED = 'La création des tables de la base de données a échoué : certaines instructions '
         . 'sont refusées par le serveur à chaque essai. Vérifiez la version et les droits de l\'utilisateur '
