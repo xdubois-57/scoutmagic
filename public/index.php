@@ -10869,6 +10869,10 @@ if ($isEnabled('social')) {
     \Core\Debug\RequestTimeline::mark('module_social');
     $socialConnectionRepo = new \Modules\Social\Repository\ConnectionRepository($pdo, $encryptionService);
 
+    // A Facebook or Instagram connection that expired or was refused, on
+    // the attention page only while the module is on (#718 § C point 3).
+    $attentionProviders[] = new \Modules\Social\Service\SocialAttentionProvider($socialConnectionRepo);
+
     // The card the browser posts at « Publier » is kept as a plain
     // `files` row (issue #706, IT-02), and this is what keeps it out of
     // `/files/{id}`: it refuses every reader, because the only reader is
