@@ -14,7 +14,7 @@ namespace Core\Alert;
  * This exists because {@see OperationalAttentionProvider} reads *rows*,
  * not checks: it renders whatever the last pass left in
  * `operational_alerts`, and a row carries a key and a reading but no
- * words. Constructing all thirteen checks just to ask each one its label would
+ * words. Constructing all fourteen checks just to ask each one its label would
  * mean building a `DiskBudget` and a `CronHealth` on every render of a
  * page that only wants to print « Espace disque ».
  *
@@ -42,6 +42,7 @@ final class AlertSurfaces
             Check\RemoteQuotaCheck::KEY => 'Espace hors site',
             Check\AuthenticationLaneCheck::KEY => 'Voie d\'authentification',
             Check\DeferredMailBacklogCheck::KEY => 'Messages différés',
+            Check\MailDnsRecordsCheck::KEY => 'Enregistrements DNS de l\'e-mail',
         ];
     }
 
@@ -49,10 +50,10 @@ final class AlertSurfaces
      * The alerts whose attention point must NOT send the reader to the
      * maintenance page, and where it sends them instead.
      *
-     * **Only the exceptions are listed.** For eleven of the thirteen checks
+     * **Only the exceptions are listed.** For eleven of the fourteen checks
      * the maintenance page is the right destination — it is where the
      * backup age and the cron stamp live, so a reader arrives at the thing
-     * the alert is about. Two are not:
+     * the alert is about. Three are not:
      *
      * - « Connexion non sécurisée » (issues #352, #751): the maintenance
      *   page only restates the reading the reader has just read; the help
@@ -61,6 +62,9 @@ final class AlertSurfaces
      *   page for Configuration › Stockage, and this page kept sending the
      *   reader to where it used to be — « la page Maintenance en dit le
      *   détail », of a detail it no longer showed.
+     * - « Enregistrements DNS de l'e-mail » (issue #718 § C point 15): the
+     *   records to publish, and their exact values, are on Configuration ›
+     *   Courrier sortant › Authentification, and nowhere on maintenance.
      *
      * This map exists for the same reason {@see labels()} does, and it is
      * not a duplicate of what the check declares: the check's own
@@ -90,6 +94,11 @@ final class AlertSurfaces
                 'path' => Check\DiskUsageCheck::STORAGE_PATH,
                 'label' => Check\DiskUsageCheck::ACTION_LABEL,
                 'why' => Check\DiskUsageCheck::ATTENTION_WHY,
+            ],
+            Check\MailDnsRecordsCheck::KEY => [
+                'path' => Check\MailDnsRecordsCheck::AUTHENTICATION_PATH,
+                'label' => Check\MailDnsRecordsCheck::ACTION_LABEL,
+                'why' => Check\MailDnsRecordsCheck::ATTENTION_WHY,
             ],
         ];
     }

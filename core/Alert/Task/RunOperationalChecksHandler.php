@@ -14,6 +14,7 @@ use Core\Alert\Check\DevelopmentModeCheck;
 use Core\Alert\Check\DiskUsageCheck;
 use Core\Alert\Check\AuthenticationLaneCheck;
 use Core\Alert\Check\DeferredMailBacklogCheck;
+use Core\Alert\Check\MailDnsRecordsCheck;
 use Core\Alert\Check\MailDeliveryCheck;
 use Core\Alert\Check\PortableBackupLingerCheck;
 use Core\Alert\Check\RemoteBackupAgeCheck;
@@ -28,6 +29,8 @@ use Core\Alert\OperationalAlertRepository;
 use Core\Alert\OperationalAlertService;
 use Core\Journal\JournalRepository;
 use Core\Maintenance\BackupRepository;
+use Core\Mail\DkimManager;
+use Core\Mail\DnsVerifier;
 use Core\Mail\Transport\DeferredMailRepository;
 use Core\Mail\Transport\LaneChainRepository;
 use Core\Mail\Transport\MailProviderDirectory;
@@ -120,6 +123,20 @@ class RunOperationalChecksHandler implements TaskHandlerInterface
                 new SendCounterRepository($pdo)
             ),
             new DeferredMailBacklogCheck(new DeferredMailRepository($pdo, $context->encryption)),
+            // The DNS records outgoing mail depends on (#718 § C point 15):
+            // the second network read of this pass, and the reason the
+            // check probes the resolver before believing an empty answer.
+            new MailDnsRecordsCheck(
+                $context->settings,
+                new DnsVerifier(),
+                new DkimManager($context->storagePath . '/keys'),
+                new LaneChainRepository($pdo),
+                new MailProviderDirectory(
+                    new MailProviderRepository($pdo),
+                    new ProviderConnections($this->mailSecrets($context)),
+                    $context->settings
+                )
+            ),
             new DevelopmentModeCheck($context->settings),
         ]);
 
