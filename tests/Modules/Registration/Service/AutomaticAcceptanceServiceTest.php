@@ -395,6 +395,62 @@ class AutomaticAcceptanceServiceTest extends TestCase
     }
 
     /**
+     * The recommendation of one year cannot be computed: that year is
+     * skipped for the pass, journaled with its id and the error's class
+     * only, and the next year is still processed.
+     */
+    public function testAYearWhoseRecommendationFailsIsSkippedAndTheNextYearIsStillProcessed(): void
+    {
+        // Louveteaux 1re année of the current year, 2026-2027.
+        $current = $this->file('Sofia', 'Claes', '2018-05-04', '2026-10-08 10:00:00', yearId: $this->publicYearId);
+        $target = $this->file('Emma', 'Vidal', self::LOU1_BIRTH, '2026-10-08 10:00:00');
+        $this->afterRecommendation = function (int $call, int $scoutYearId): void {
+            if ($scoutYearId === $this->publicYearId) {
+                throw new \RuntimeException('recommendation unavailable');
+            }
+        };
+
+        $this->assertSame(['accepted' => 1, 'busy' => 0, 'more' => false], $this->service()->run());
+
+        $this->assertSame(RegistrationRequest::STATUS_PENDING, $this->statusOf($current));
+        $this->assertSame(RegistrationRequest::STATUS_ACCEPTED, $this->statusOf($target));
+        $this->assertSame(
+            [['scout_year_id' => $this->publicYearId, 'error' => \RuntimeException::class]],
+            $this->journalContexts('registration_auto_accept_recommendation_failed')
+        );
+    }
+
+    /**
+     * The recomputation under a slot's lock fails: the rest of that year is
+     * skipped for the pass — its other slot would only fail the same way —
+     * journaled once, the lock released, and the next year still processed.
+     */
+    public function testARecomputationThatFailsUnderTheLockSkipsTheRestOfThatYear(): void
+    {
+        // Louveteaux 1re and 2e année of the current year, 2026-2027.
+        $first = $this->file('Sofia', 'Claes', '2018-05-04', '2026-10-05 10:00:00', yearId: $this->publicYearId);
+        $second = $this->file('Hugo', 'Renard', '2017-03-02', '2026-10-06 10:00:00', yearId: $this->publicYearId);
+        $nextYear = $this->file('Emma', 'Vidal', self::LOU1_BIRTH, '2026-10-07 10:00:00');
+        // Call 2 is the recomputation under the lock of the year's first slot.
+        $this->afterRecommendation = function (int $call, int $scoutYearId): void {
+            if ($scoutYearId === $this->publicYearId && $call === 2) {
+                throw new \RuntimeException('recommendation unavailable');
+            }
+        };
+
+        $this->assertSame(['accepted' => 1, 'busy' => 0, 'more' => false], $this->service()->run());
+
+        $this->assertSame(RegistrationRequest::STATUS_PENDING, $this->statusOf($first));
+        $this->assertSame(RegistrationRequest::STATUS_PENDING, $this->statusOf($second));
+        $this->assertSame([$nextYear], $this->autoAcceptedIds());
+        $this->assertSame(
+            [['scout_year_id' => $this->publicYearId, 'error' => \RuntimeException::class]],
+            $this->journalContexts('registration_auto_accept_recommendation_failed')
+        );
+        $this->assertTrue($this->requests->acquireAutoAcceptLock($this->publicYearId, $this->louveteauxId, 1));
+    }
+
+    /**
      * Waitlists switched off where the box does not see it — Configuration
      * > Paramètres —: the next pass switches the automatic acceptance off,
      * so turning waitlists back on does not bring it back.

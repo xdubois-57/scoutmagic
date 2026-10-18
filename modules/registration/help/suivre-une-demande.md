@@ -14,7 +14,9 @@ related: inscrire-un-enfant, se-connecter
 Le lien reçu après l'envoi d'une demande ouvre sa page de suivi. Sans
 connexion, elle reste volontairement minimale : le prénom de l'enfant,
 la date de réception et le statut — rien de plus, pour que le lien ne
-révèle pas vos coordonnées s'il circule.
+révèle pas vos coordonnées s'il circule. L'e-mail qui annonce la
+décision apporte un nouveau lien : utilisez le plus récent, l'ancien ne
+fonctionne plus.
 
 Connectez-vous avec l'adresse utilisée lors de l'inscription pour voir
 la demande complète : la fiche apparaît alors aussi dans votre menu

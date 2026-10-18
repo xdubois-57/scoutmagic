@@ -57,7 +57,7 @@ Sans envoi automatique, aucun e-mail ne part tout seul. Le message
 affiché après la décision le rappelle : envoyez l'e-mail d'acceptation
 ou de refus depuis le bloc « E-mail de décision » de la fiche. Avec
 l'envoi automatique, le dialogue et ce message donnent la date à
-laquelle il partira, et le changer d'ici là n'envoie rien (voir
+laquelle il partira, et changer la décision d'ici là n'envoie rien (voir
 *Envoyer automatiquement les e-mails de décision*). Tant que son
 gabarit n'est pas rédigé, il ne peut pas partir, et la famille voit
 toujours « en attente ».

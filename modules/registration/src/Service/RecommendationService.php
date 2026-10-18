@@ -67,6 +67,9 @@ class RecommendationService
     public const EXPLANATION_OUT_OF_BRACKETS =
         "Pas de recommandation : l'année de naissance est hors des tranches d'âge de l'unité.";
 
+    /** « Créneau » of a request born outside every age bracket. */
+    public const OUTSIDE_BRACKETS_LABEL = "Hors des tranches d'âge";
+
     public function __construct(
         private RegistrationRequestRepository $requestRepository,
         private SlotService $slotService,
@@ -542,7 +545,41 @@ class RecommendationService
      */
     public static function slotLabel(AgeBracket $bracket, int $yearInBranch): string
     {
-        return $bracket->branchLabel . ' · ' . $yearInBranch . ($yearInBranch === 1 ? 're' : 'e') . ' année';
+        return self::yearOfJourneyLabel($bracket->branchLabel, $yearInBranch);
+    }
+
+    /**
+     * « {branch} · 1re année », « {branch} · 2e année »… — the one spelling
+     * of a year of the journey, for a branch named by a bracket or by a
+     * member's effective age.
+     */
+    public static function yearOfJourneyLabel(string $branchLabel, int $yearInBranch): string
+    {
+        return $branchLabel . ' · ' . $yearInBranch . ($yearInBranch === 1 ? 're' : 'e') . ' année';
+    }
+
+    /**
+     * The slot a request falls in, named as slotLabel() names it, or « Hors
+     * des tranches d'âge » — its « Créneau » wherever the module names it:
+     * the request list, its decision dialog, its export, the fiche, the
+     * Passage page and the unit alert (the mock-up's wording, chantier #843
+     * IT-11).
+     *
+     * @param array<AgeBracket> $brackets
+     * @param array{age_branch_id: int, year_in_branch: int}|null $slot
+     */
+    public static function requestSlotLabel(array $brackets, ?array $slot): string
+    {
+        if ($slot === null) {
+            return self::OUTSIDE_BRACKETS_LABEL;
+        }
+        foreach ($brackets as $bracket) {
+            if ($bracket->ageBranchId === $slot['age_branch_id']) {
+                return self::slotLabel($bracket, $slot['year_in_branch']);
+            }
+        }
+
+        return self::OUTSIDE_BRACKETS_LABEL;
     }
 
     /**

@@ -103,7 +103,7 @@ class RequestExportServiceTest extends TestCase
     {
         $rows = $this->sheetRows([[
             'request' => $this->request(['remarks' => 'Allergie aux arachides.']),
-            'slot_label' => 'Baladins — 1ᵉ année',
+            'slot_label' => 'Baladins · 1re année',
             'desired_section_label' => 'Baladins 1',
             'intended_section_label' => 'Baladins 2',
             'sibling_count' => 2,
@@ -116,7 +116,7 @@ class RequestExportServiceTest extends TestCase
         $this->assertContains('Dupont', $row);
         $this->assertContains('Noa', $row);
         $this->assertContains('01/06/2020', $row);
-        $this->assertContains('Baladins — 1ᵉ année', $row);
+        $this->assertContains('Baladins · 1re année', $row);
         $this->assertContains('Baladins 1', $row);
         $this->assertContains('Baladins 2', $row);
         $this->assertContains('2', $row);
