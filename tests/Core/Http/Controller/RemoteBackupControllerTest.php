@@ -149,6 +149,37 @@ final class RemoteBackupControllerTest extends TestCase
         $this->assertSame(0, $this->destination->locationId());
     }
 
+    /**
+     * The site's own server is never off-site, whatever its path, and
+     * although it can resume an upload (#718 § C point 11).
+     */
+    public function testALocationOnTheSitesServerIsRefused(): void
+    {
+        $id = $this->locations->create(StorageLocationType::Local, 'Disque monté', new LocalLocationConfig('/mnt/nas'), null);
+        FlashMessage::get();
+
+        $this->controller()->chooseDestination($this->postRequest(['location_id' => (string) $id]), []);
+
+        $this->assertSame(0, $this->destination->locationId());
+        $flash = FlashMessage::get();
+        $this->assertSame('error', $flash['type'] ?? null);
+        $this->assertStringContainsString('« Disque monté » est un dossier du serveur du site', $flash['message'] ?? '');
+    }
+
+    /** The rule the action applies is the one the list is filtered on. */
+    public function testOnlyAnExternalLocationThatResumesUploadsMayReceiveTheArchives(): void
+    {
+        $local = $this->locations->findById(
+            $this->locations->create(StorageLocationType::Local, 'Disque', new LocalLocationConfig('backups'), null)
+        );
+        $drive = $this->locations->findById($this->declareDrive());
+        $this->assertNotNull($local);
+        $this->assertNotNull($drive);
+
+        $this->assertFalse(RemoteBackupDestination::canReceive($local));
+        $this->assertTrue(RemoteBackupDestination::canReceive($drive));
+    }
+
     /** A location that has gone is a sentence, not a stack trace. */
     public function testChoosingALocationThatNoLongerExistsIsRefused(): void
     {

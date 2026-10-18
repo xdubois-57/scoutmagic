@@ -31,7 +31,6 @@ use Core\Maintenance\UpdateException;
 use Core\Maintenance\UpdateHistory;
 use Core\Maintenance\UpdateHistoryRepository;
 use Core\Maintenance\Task\SendRemoteBackupHandler;
-use Core\Storage\Location\StorageCapability;
 use Core\Storage\Location\StorageLocation;
 use Core\Storage\Location\StorageLocationService;
 use Core\Maintenance\UpdateTargetSelector;
@@ -169,16 +168,16 @@ class MaintenanceController extends AbstractController
     }
 
     /**
-     * The declared locations the off-site backup may be pointed at.
+     * The declared locations the off-site backup may be pointed at —
+     * {@see RemoteBackupDestination::canReceive()}, the same rule the action
+     * that records the choice applies.
      *
-     * **Filtered on the capability, never on the type.** « Can this
-     * destination resume an interrupted upload » is the question an
-     * archive of gibibytes actually asks, and the answer is declared by
-     * each backend: a kind of storage that gains the aptitude tomorrow
-     * appears in this list with nothing here changed, and one that never
-     * had it never appears at all. A list keyed on « is it Google Drive »
-     * would have been wrong the first time somebody pointed this at a
-     * WebDAV share.
+     * **Filtered on the capability**, because « can this destination resume
+     * an interrupted upload » is the question an archive of gibibytes
+     * actually asks, and each backend declares its answer: a kind of
+     * storage that gains the aptitude tomorrow appears here with nothing
+     * changed. **The one type rule** is the site's own server, which is
+     * never off-site whatever its path (#718 § C point 11).
      *
      * @return list<StorageLocation>
      */
@@ -190,7 +189,7 @@ class MaintenanceController extends AbstractController
 
         return array_values(array_filter(
             $this->storageLocations->all(),
-            static fn (StorageLocation $l): bool => $l->supports(StorageCapability::ResumableUpload)
+            static fn (StorageLocation $l): bool => RemoteBackupDestination::canReceive($l)
         ));
     }
 

@@ -13,6 +13,7 @@ use Core\Attention\AttentionPointProvider;
 use Core\Config\AppClock;
 use Core\Service\DateInput;
 use Core\Storage\Location\Config\GoogleDriveLocationConfig;
+use Core\Storage\Location\Protection\StorageProtectionRepository;
 
 /**
  * The storage locations, one by one (issue #718 § C point 10): a location
@@ -40,7 +41,9 @@ final class StorageAttentionProvider implements AttentionPointProvider
     public function __construct(
         private StorageLocationRepository $locations,
         /** Tests only: the moment to count days from. */
-        private ?\DateTimeImmutable $now = null
+        private ?\DateTimeImmutable $now = null,
+        /** Null where safety copies are not wired: no point about them. */
+        private ?StorageProtectionRepository $protections = null
     ) {
     }
 
@@ -54,7 +57,13 @@ final class StorageAttentionProvider implements AttentionPointProvider
         $now = $this->now ?? AppClock::now();
         $points = [];
 
-        foreach ($this->locations->findAll() as $location) {
+        $locations = $this->locations->findAll();
+        $byId = [];
+        foreach ($locations as $location) {
+            $byId[$location->id] = $location;
+        }
+
+        foreach ($locations as $location) {
             // Declared but never connected: a setup to finish, not a fault.
             // Its check fails by construction (« aucun compte raccordé »),
             // and an urgent « en erreur » would describe the setup rather
@@ -74,6 +83,43 @@ final class StorageAttentionProvider implements AttentionPointProvider
             if ($location->lastCheckOk === false && !$expiry->failedSince) {
                 $points[] = $this->failing($location);
             }
+        }
+
+        return array_merge($points, $this->copiesOnTheSameServer($byId));
+    }
+
+    /**
+     * A safety copy from the site's server to the site's server, declared
+     * before such a pair was refused (#718 § C point 11): it protects
+     * nothing against losing the server, and nothing else says so.
+     *
+     * @param array<int, StorageLocation> $byId
+     * @return list<AttentionPoint>
+     */
+    private function copiesOnTheSameServer(array $byId): array
+    {
+        if ($this->protections === null) {
+            return [];
+        }
+
+        $points = [];
+        foreach ($this->protections->findAll() as $protection) {
+            $source = $byId[$protection->sourceLocationId] ?? null;
+            $destination = $byId[$protection->destinationLocationId] ?? null;
+            if ($source === null || $destination === null || !$protection->enabled
+                || $source->type !== StorageLocationType::Local || $destination->type !== StorageLocationType::Local
+            ) {
+                continue;
+            }
+            $points[] = new AttentionPoint(
+                title: 'La copie de secours de « ' . $source->label . ' » reste sur le serveur du site',
+                why: 'Elle part vers « ' . $destination->label . ' », un autre dossier du même serveur : si le '
+                    . 'serveur est perdu, la copie est perdue avec ce qu\'elle protège. Choisissez une destination '
+                    . 'externe, comme Google Drive, un partage WebDAV ou un stockage S3.',
+                actionLabel: 'Changer de destination',
+                actionUrl: self::LOCATIONS_URL . '/' . $source->id . '/modification',
+                severity: AttentionPoint::SEVERITY_ATTENTION
+            );
         }
 
         return $points;

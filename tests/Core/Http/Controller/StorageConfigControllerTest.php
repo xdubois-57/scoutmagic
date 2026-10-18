@@ -1361,7 +1361,7 @@ class StorageConfigControllerTest extends TestCase
     public function testDeclaringASafetyCopyIsRecordedAndShownOnTheCard(): void
     {
         $source = $this->declareLocal('Galerie', 'gallery');
-        $destination = $this->declareLocal('NAS', 'nas');
+        $destination = $this->declareCopyDestination('NAS');
 
         $response = $this->controller->saveProtection(
             new Request('POST', '/x', [], [
@@ -1427,7 +1427,7 @@ class StorageConfigControllerTest extends TestCase
     public function testAWarnedPairingIsSavedAndTheWarningReachesTheAdministrator(): void
     {
         $source = $this->declareLocal('Galerie', 'gallery');
-        $destination = $this->declareLocal('NAS', 'nas');
+        $destination = $this->declareCopyDestination('NAS');
         $this->completeBackupAgedInDays(21);
 
         $response = $this->controller->saveProtection(
@@ -1460,7 +1460,7 @@ class StorageConfigControllerTest extends TestCase
     public function testAPairingWithNothingToWarnAboutIsConfirmedPlainly(): void
     {
         $source = $this->declareLocal('Galerie', 'gallery');
-        $destination = $this->declareLocal('NAS', 'nas');
+        $destination = $this->declareCopyDestination('NAS');
         $this->completeBackupAgedInDays(21);
 
         $this->controller->saveProtection(
@@ -2241,6 +2241,19 @@ class StorageConfigControllerTest extends TestCase
         return $decoded;
     }
 
+    /**
+     * An external location to copy to — a local one would be refused, the
+     * site's own server being no safety copy of itself (#718 § C point 11).
+     * Recorded as freshly checked, so no page reaches for the network.
+     */
+    private function declareCopyDestination(string $label): int
+    {
+        $id = $this->declareWebDav($label);
+        $this->repository->recordCheckResult($id, true, null);
+
+        return $id;
+    }
+
     private function declareLocal(string $label, string $path): int
     {
         return $this->repository->create(StorageLocationType::Local, $label, new LocalLocationConfig($path), null);
@@ -2342,7 +2355,7 @@ class StorageConfigControllerTest extends TestCase
     public function testAWorkingCopyShowsTheProtectedBadge(): void
     {
         $source = $this->declareLocal('Galerie', 'gallery');
-        $destination = $this->declareLocal('NAS', 'nas');
+        $destination = $this->declareCopyDestination('NAS');
         $this->controller->saveProtection(
             new Request('POST', '/x', [], [
                 'destination_location_id' => (string) $destination,

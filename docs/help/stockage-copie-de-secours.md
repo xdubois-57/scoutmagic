@@ -37,6 +37,12 @@ Un emplacement ne peut pas être sa propre copie, et une chaîne ne peut
 pas revenir sur elle-même : chaque passe recopierait la copie de
 l'autre, indéfiniment.
 
+Deux emplacements « Disque du serveur » ne peuvent pas se protéger l'un
+l'autre : ils sont sur le même serveur, et la copie partirait avec
+l'original. Copier un Google Drive ou un stockage S3 sur le serveur
+reste possible, et protège de la perte du compte distant. Une copie de
+ce type déclarée avant cette règle apparaît dans les points d'attention.
+
 Une destination qui distribue des adresses publiques et permanentes ne
 peut pas protéger une source qui n'en distribue pas. La copie
 deviendrait lisible par quiconque en a l'adresse, alors que l'original

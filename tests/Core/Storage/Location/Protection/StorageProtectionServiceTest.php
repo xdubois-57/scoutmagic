@@ -73,8 +73,8 @@ final class StorageProtectionServiceTest extends TestCase
     public function testSavingTheSameSourceTwiceCorrectsTheRelationRatherThanAddingASecond(): void
     {
         $source = $this->local('Galerie');
-        $first = $this->local('NAS');
-        $second = $this->local('Second disque', 'autre');
+        $first = $this->object('NAS', 'nas');
+        $second = $this->object('Second bucket', 'autre');
 
         $this->service->save($source, $first, 30, 24, true);
         $this->service->save($source, $second, 30, 24, true);
@@ -90,7 +90,7 @@ final class StorageProtectionServiceTest extends TestCase
      */
     public function testOneDestinationMayProtectSeveralSources(): void
     {
-        $destination = $this->local('NAS');
+        $destination = $this->object('NAS', 'nas');
         $this->service->save($this->local('Galerie'), $destination, 30, 24, true);
         $this->service->save($this->local('Documents', 'documents'), $destination, 30, 24, true);
 
@@ -107,10 +107,10 @@ final class StorageProtectionServiceTest extends TestCase
     public function testChangingTheDestinationDiscardsAPassInProgress(): void
     {
         $source = $this->local('Galerie');
-        $id = $this->service->save($source, $this->local('NAS'), 30, 24, true);
+        $id = $this->service->save($source, $this->object('NAS', 'nas'), 30, 24, true);
         $this->protections->recordPassProgress($id, 'inventory', 'page-7', '12/z.jpg', 4200, '2026-09-01 02:00:00');
 
-        $this->service->save($source, $this->local('Second disque', 'autre'), 30, 24, true);
+        $this->service->save($source, $this->object('Second bucket', 'autre'), 30, 24, true);
 
         $protection = $this->protections->findBySourceId($source);
         $this->assertNotNull($protection);
@@ -140,7 +140,7 @@ final class StorageProtectionServiceTest extends TestCase
     public function testAChainThatComesBackOnItselfIsRefused(): void
     {
         $a = $this->local('A');
-        $b = $this->local('B', 'b');
+        $b = $this->object('B', 'b');
         $this->service->save($b, $a, 30, 24, true);
 
         $this->expectException(StorageLocationException::class);
@@ -152,8 +152,8 @@ final class StorageProtectionServiceTest extends TestCase
     public function testAThreeStepChainThatComesBackOnItselfIsRefused(): void
     {
         $a = $this->local('A');
-        $b = $this->local('B', 'b');
-        $c = $this->local('C', 'c');
+        $b = $this->object('B', 'b');
+        $c = $this->object('C', 'c');
         $this->service->save($b, $c, 30, 24, true);
         $this->service->save($c, $a, 30, 24, true);
 
@@ -165,8 +165,8 @@ final class StorageProtectionServiceTest extends TestCase
     public function testAChainThatDoesNotCloseIsAccepted(): void
     {
         $a = $this->local('A');
-        $b = $this->local('B', 'b');
-        $c = $this->local('C', 'c');
+        $b = $this->object('B', 'b');
+        $c = $this->object('C', 'c');
         $this->service->save($b, $c, 30, 24, true);
 
         $this->service->save($a, $b, 30, 24, true);
@@ -228,11 +228,30 @@ final class StorageProtectionServiceTest extends TestCase
         $this->assertGreaterThan(0, $id);
     }
 
+    /**
+     * Two « Disque du serveur » locations are the same server: a copy
+     * between them dies with what it protects (#718 § C point 11).
+     */
+    public function testACopyFromTheServerToTheServerIsRefused(): void
+    {
+        $this->expectException(StorageLocationException::class);
+        $this->expectExceptionMessageMatches('/tous deux sur le serveur du site/');
+        $this->service->save($this->local('Galerie'), $this->local('NAS', '/mnt/nas'), 30, 24, true);
+    }
+
+    /** A remote location copied onto the server survives losing the remote account. */
+    public function testARemoteLocationMayBeCopiedOntoTheServer(): void
+    {
+        $id = $this->service->save($this->object('Bucket', 'bucket'), $this->local('Copie locale'), 30, 24, true);
+
+        $this->assertGreaterThan(0, $id);
+    }
+
     public function testAGracePeriodOfZeroIsRefused(): void
     {
         $this->expectException(StorageLocationException::class);
         $this->expectExceptionMessageMatches('/au moins un jour/');
-        $this->service->save($this->local('Galerie'), $this->local('NAS'), 0, 24, true);
+        $this->service->save($this->local('Galerie'), $this->object('NAS', 'nas'), 0, 24, true);
     }
 
     // ————— The warnings —————
@@ -321,7 +340,7 @@ final class StorageProtectionServiceTest extends TestCase
      */
     public function testProtectingTheOffSiteDestinationIsWarnedAboutRatherThanRefused(): void
     {
-        $source = $this->local('Dossier hors site', 'hors-site');
+        $source = $this->object('Bucket hors site', 'hors-site');
         $destination = $this->local('NAS', 'nas');
         $this->remoteBackup->choose($source);
 
@@ -444,11 +463,11 @@ final class StorageProtectionServiceTest extends TestCase
     public function testCorrectingTheDestinationMakesTheRelationDueAtOnce(): void
     {
         $source = $this->local('Galerie');
-        $id = $this->service->save($source, $this->local('NAS', 'nas'), 30, 24, true);
+        $id = $this->service->save($source, $this->object('NAS', 'nas'), 30, 24, true);
         $this->protections->recordPassCompleted($id);
         $this->assertNotNull($this->protections->findById($id)?->lastCompletedPassAt);
 
-        $this->service->save($source, $this->local('Second NAS', 'nas2'), 30, 24, true);
+        $this->service->save($source, $this->object('Second NAS', 'nas2'), 30, 24, true);
 
         $corrected = $this->protections->findById($id);
         $this->assertNotNull($corrected);
@@ -464,7 +483,7 @@ final class StorageProtectionServiceTest extends TestCase
     public function testChangingOnlyTheGracePeriodLeavesTheCadenceAlone(): void
     {
         $source = $this->local('Galerie');
-        $destination = $this->local('NAS', 'nas');
+        $destination = $this->object('NAS', 'nas');
         $id = $this->service->save($source, $destination, 30, 24, true);
         $this->protections->recordPassCompleted($id);
 
