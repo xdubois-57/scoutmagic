@@ -3,6 +3,7 @@
   "name": "Statistiques",
   "description": "Nombre d'animés par branche et par année.",
   "version": "1.0.5",
+  "enabled_by_default": true,
   "routes": [
     {
       "path": "/chiefs/stats",

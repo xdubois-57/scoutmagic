@@ -26,7 +26,7 @@ class ModuleManifestTest extends TestCase
     {
         $this->assertSame('fees', $this->manifest->id);
         $this->assertSame('Cotisations', $this->manifest->name);
-        $this->assertFalse($this->manifest->enabledByDefault);
+        $this->assertTrue($this->manifest->enabledByDefault);
     }
 
     /**
