@@ -61,12 +61,13 @@ déposé deviendrait téléchargeable par n'importe qui, sans contrôle.
 
 ## Tester un emplacement
 
-Tester écrit réellement un fichier témoin, le relit et le supprime.
+« Tester », sur la page « Modifier », écrit un fichier témoin, le relit
+et le supprime.
 C'est la seule manière de distinguer un dossier présent d'un dossier
 utilisable : un montage peut avoir disparu, être passé en lecture seule,
 ou être devenu très lent.
 
-Le test s'arrête de lui-même au bout de quelques secondes plutôt que
+Le test s'arrête au bout de quelques secondes plutôt que
 d'attendre indéfiniment — une page de configuration figée est
 précisément la page dont vous auriez besoin pour réparer le montage.
 

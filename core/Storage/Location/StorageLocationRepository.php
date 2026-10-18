@@ -239,6 +239,40 @@ class StorageLocationRepository
     }
 
     /**
+     * The configuration alone — no label, no secret, and the restore's
+     * note left where it is: for what the site itself learns about a
+     * location, never for an administrator's save.
+     */
+    /**
+     * Replaces the config of $id with $new only if the stored config still
+     * reads as $seen — so a write built from a snapshot taken before a slow
+     * network call never undoes a reconnection, a new folder or new
+     * credentials saved meanwhile. The UPDATE matches the stored text
+     * itself, which closes the window between the read and the write.
+     * Returns whether the row was replaced.
+     */
+    public function replaceConfigIfUnchanged(int $id, LocationConfig $seen, LocationConfig $new): bool
+    {
+        $stmt = $this->pdo->prepare('SELECT type, config FROM storage_locations WHERE id = ?');
+        $stmt->execute([$id]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+        if ($row === false) {
+            return false;
+        }
+        $type = StorageLocationType::tryFrom((string) $row['type']);
+        $stored = (string) ($row['config'] ?? '{}');
+        $raw = json_decode($stored, true);
+        if ($type === null || $type->configFromArray(is_array($raw) ? $raw : [])->toArray() !== $seen->toArray()) {
+            return false;
+        }
+
+        $update = $this->pdo->prepare('UPDATE storage_locations SET config = ? WHERE id = ? AND config = ?');
+        $update->execute([self::encodeConfig($new), $id, $stored]);
+
+        return $update->rowCount() > 0;
+    }
+
+    /**
      * Promotes $id to the sole default, demoting whichever held it before
      * — in a transaction, so a read in between never observes zero or two.
      */

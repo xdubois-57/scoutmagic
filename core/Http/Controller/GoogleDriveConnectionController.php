@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Core\Http\Controller;
 
+use Core\Config\AppClock;
 use Core\Config\SettingService;
 use Core\Http\FlashMessage;
 use Core\Http\Request;
@@ -120,14 +121,20 @@ final class GoogleDriveConnectionController extends AbstractController
         if ($clientId === '' || $clientSecret === '') {
             FlashMessage::set('error', 'Renseignez l\'identifiant et le secret du client OAuth.');
 
-            return $this->redirect(self::LOCATIONS_URL);
+            return $this->redirect(StorageConfigController::editUrl($location->id));
         }
 
         $config = $this->configOf($location);
         $this->locations->update(
             $location->id,
             $location->label,
-            new GoogleDriveLocationConfig($clientId, $config->folderId, $config->connectedAt),
+            new GoogleDriveLocationConfig(
+                $clientId,
+                $config->folderId,
+                $config->connectedAt,
+                $config->grantObserved,
+                $config->grantExpiresAt
+            ),
             $this->secretOf($location)->withClientSecret($clientSecret)->toStorage()
         );
 
@@ -141,7 +148,7 @@ final class GoogleDriveConnectionController extends AbstractController
         );
         FlashMessage::set('success', 'Identifiants enregistrés. Vous pouvez maintenant raccorder le compte.');
 
-        return $this->redirect(self::LOCATIONS_URL);
+        return $this->redirect(StorageConfigController::editUrl($location->id));
     }
 
     /**
@@ -161,7 +168,7 @@ final class GoogleDriveConnectionController extends AbstractController
         if ($config->clientId === '' || !$secret->hasClientSecret()) {
             FlashMessage::set('error', 'Enregistrez d\'abord l\'identifiant et le secret du client OAuth.');
 
-            return $this->redirect(self::LOCATIONS_URL);
+            return $this->redirect(StorageConfigController::editUrl($location->id));
         }
 
         // Before Google is involved at all: the redirect URI is composed
@@ -175,7 +182,7 @@ final class GoogleDriveConnectionController extends AbstractController
                 . 'elle qui compose l\'adresse de redirection à déclarer chez Google.'
             );
 
-            return $this->redirect(self::LOCATIONS_URL);
+            return $this->redirect(StorageConfigController::editUrl($location->id));
         }
 
         // Random, single-use, and held in the session: this is what makes
@@ -228,14 +235,14 @@ final class GoogleDriveConnectionController extends AbstractController
         if ((string) $request->getQuery('error', '') !== '') {
             FlashMessage::set('error', 'Le raccordement a été annulé : Google n\'a pas accordé l\'autorisation.');
 
-            return $this->redirect(self::LOCATIONS_URL);
+            return $this->redirect(StorageConfigController::editUrl($location->id));
         }
 
         $code = (string) $request->getQuery('code', '');
         if ($code === '') {
             FlashMessage::set('error', 'Google n\'a renvoyé aucun code d\'autorisation.');
 
-            return $this->redirect(self::LOCATIONS_URL);
+            return $this->redirect(StorageConfigController::editUrl($location->id));
         }
 
         $config = $this->configOf($location);
@@ -257,7 +264,15 @@ final class GoogleDriveConnectionController extends AbstractController
             $this->locations->update(
                 $location->id,
                 $location->label,
-                new GoogleDriveLocationConfig($config->clientId, $folderId ?? $config->folderId, date('c')),
+                new GoogleDriveLocationConfig(
+                    $config->clientId,
+                    $folderId ?? $config->folderId,
+                    date('c'),
+                    // A reconnection replaces the old grant's lifetime with
+                    // the new one's (#718 § C point 10.2).
+                    grantObserved: true,
+                    grantExpiresAt: self::grantExpiry($tokens['refresh_token_expires_in'])
+                ),
                 $secret->withGrant($tokens['refresh_token'], $about['account'])->toStorage()
             );
         } catch (DriveAccessException $e) {
@@ -279,7 +294,7 @@ final class GoogleDriveConnectionController extends AbstractController
             );
             FlashMessage::set('error', $e->getMessage());
 
-            return $this->redirect(self::LOCATIONS_URL);
+            return $this->redirect(StorageConfigController::editUrl($location->id));
         }
 
         // **Without the address.** It is the e-mail of a real person, and
@@ -325,12 +340,12 @@ final class GoogleDriveConnectionController extends AbstractController
                     . 'l\'emplacement.'
             );
 
-            return $this->redirect(self::LOCATIONS_URL);
+            return $this->redirect(StorageConfigController::editUrl($location->id));
         }
 
         FlashMessage::set('success', 'Compte Google Drive raccordé.');
 
-        return $this->redirect(self::LOCATIONS_URL);
+        return $this->redirect(StorageConfigController::editUrl($location->id));
     }
 
     /**
@@ -412,7 +427,7 @@ final class GoogleDriveConnectionController extends AbstractController
         }
         FlashMessage::set('success', "Emplacement rattaché au dossier « {$name} ». Rien n'y a été modifié.");
 
-        return $this->redirect(self::LOCATIONS_URL);
+        return $this->redirect(StorageConfigController::editUrl($location->id));
     }
 
     /**
@@ -446,7 +461,7 @@ final class GoogleDriveConnectionController extends AbstractController
             }
             FlashMessage::set('error', $e->getMessage());
 
-            return $this->redirect(self::LOCATIONS_URL);
+            return $this->redirect(StorageConfigController::editUrl($location->id));
         }
 
         $this->journalService->log(
@@ -467,7 +482,7 @@ final class GoogleDriveConnectionController extends AbstractController
                 . GoogleDriveLocationConfig::PARENT_FOLDER_NAME . ' ». L\'ancien n\'a pas été touché.'
         );
 
-        return $this->redirect(self::LOCATIONS_URL);
+        return $this->redirect(StorageConfigController::editUrl($location->id));
     }
 
     /**
@@ -522,6 +537,8 @@ final class GoogleDriveConnectionController extends AbstractController
         $this->locations->update(
             $location->id,
             $location->label,
+            // The grant's lifetime goes with the grant: a disconnected
+            // location has no expiry to warn about.
             new GoogleDriveLocationConfig('', $this->configOf($location)->folderId, ''),
             (string) json_encode(['client_secret' => '', 'refresh_token' => '', 'account' => ''])
         );
@@ -536,7 +553,7 @@ final class GoogleDriveConnectionController extends AbstractController
         );
         FlashMessage::set('success', 'Compte Google déraccordé. Ce site ne peut plus écrire dans ce dossier.');
 
-        return $this->redirect(self::LOCATIONS_URL);
+        return $this->redirect(StorageConfigController::editUrl($location->id));
     }
 
     /**
@@ -602,5 +619,17 @@ final class GoogleDriveConnectionController extends AbstractController
     private function secretOf(StorageLocation $location): GoogleDriveSecret
     {
         return GoogleDriveSecret::fromStorage($this->locations->getSecretForDisplay($location->id));
+    }
+
+    /**
+     * When the refresh token stops working, by the application clock — or
+     * '' when Google announced no end, which is recorded as such and never
+     * read as « permanent » (#718 § C point 10.2).
+     */
+    private static function grantExpiry(?int $seconds): string
+    {
+        return $seconds !== null && $seconds > 0
+            ? AppClock::now()->modify('+' . $seconds . ' seconds')->format('c')
+            : '';
     }
 }

@@ -282,7 +282,7 @@ final class GoogleDriveConnectionControllerTest extends TestCase
         $response = $this->controller()->connect($this->getRequest(), ['id' => (string) $this->locationId]);
 
         $this->assertSame(302, $response->getStatusCode());
-        $this->assertSame('/config/stockage/emplacements', $response->getHeaders()['Location']);
+        $this->assertSame('/config/stockage/emplacements/' . $this->locationId . '/modification', $response->getHeaders()['Location']);
         $this->assertNull(SessionStore::get('storage_google_oauth_state'));
     }
 
@@ -332,6 +332,8 @@ final class GoogleDriveConnectionControllerTest extends TestCase
         $response = $this->controller()->callback($this->callbackRequest('forged', 'c'), []);
 
         $this->assertSame(302, $response->getStatusCode());
+        // An unverified return says nothing about which location it was for.
+        $this->assertSame('/config/stockage/emplacements', $response->getHeaders()['Location'] ?? '');
         $this->assertFalse($this->secret()->hasGrant());
     }
 
@@ -350,6 +352,20 @@ final class GoogleDriveConnectionControllerTest extends TestCase
         $this->controller($this->googleAnsweringHappily())->callback($this->callbackRequest('st4te', 'code-2'), []);
 
         $this->assertFalse($this->secret()->hasGrant(), 'a replayed state connected the site a second time');
+    }
+
+    /** Disconnecting is done from the location's page, and returns there. */
+    public function testDisconnectingReturnsToTheLocationsPage(): void
+    {
+        $this->saveCredentials();
+
+        $response = $this->controller()->disconnect($this->postRequest([]), ['id' => (string) $this->locationId]);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame(
+            '/config/stockage/emplacements/' . $this->locationId . '/modification',
+            $response->getHeaders()['Location'] ?? ''
+        );
     }
 
     /**
@@ -390,6 +406,11 @@ final class GoogleDriveConnectionControllerTest extends TestCase
             ->callback($this->callbackRequest('st4te', 'code-1'), []);
 
         $this->assertSame(302, $response->getStatusCode());
+        // Back to the location's own page, where the Google account is managed.
+        $this->assertSame(
+            '/config/stockage/emplacements/' . $this->locationId . '/modification',
+            $response->getHeaders()['Location'] ?? ''
+        );
         $this->assertSame('refresh-abc', $this->secret()->refreshToken);
         $this->assertSame('unite@example.org', $this->secret()->account);
         $this->assertSame('folder-1', $this->config()->folderId);
@@ -410,6 +431,49 @@ final class GoogleDriveConnectionControllerTest extends TestCase
             'unite@example.org',
             $this->journal->textOf('storage_location_connected')
         );
+    }
+
+    // ————— The grant's lifetime (#718 § C point 10.2) —————
+
+    /** An announced lifetime becomes an absolute end, on the application clock. */
+    public function testTheCallbackKeepsTheEndGoogleAnnounced(): void
+    {
+        $this->saveCredentials();
+        $this->armState();
+
+        $this->controller($this->googleAnsweringHappily(',"refresh_token_expires_in":604800'))
+            ->callback($this->callbackRequest('st4te', 'code-1'), []);
+
+        $this->assertTrue($this->config()->grantObserved);
+        $end = new \DateTimeImmutable($this->config()->grantExpiresAt);
+        $expected = \Core\Config\AppClock::now()->modify('+604800 seconds');
+        $this->assertLessThan(60, abs($end->getTimestamp() - $expected->getTimestamp()));
+    }
+
+    /** No lifetime announced is recorded as observed, with no end — never as « permanent ». */
+    public function testACallbackWithNoAnnouncedLifetimeIsObservedWithoutAnEnd(): void
+    {
+        $this->saveCredentials();
+        $this->armState();
+
+        $this->controller($this->googleAnsweringHappily())->callback($this->callbackRequest('st4te', 'code-1'), []);
+
+        $this->assertTrue($this->config()->grantObserved);
+        $this->assertSame('', $this->config()->grantExpiresAt);
+    }
+
+    /** Disconnecting drops the grant's lifetime along with the grant. */
+    public function testDisconnectingForgetsTheGrantsLifetime(): void
+    {
+        $this->saveCredentials();
+        $this->armState();
+        $this->controller($this->googleAnsweringHappily(',"refresh_token_expires_in":604800'))
+            ->callback($this->callbackRequest('st4te', 'code-1'), []);
+
+        $this->controller($this->googleAnsweringHappily())->disconnect($this->postRequest([]), ['id' => (string) $this->locationId]);
+
+        $this->assertFalse($this->config()->grantObserved);
+        $this->assertSame('', $this->config()->grantExpiresAt);
     }
 
     // ————— The location's folder (#474) —————
@@ -741,7 +805,7 @@ final class GoogleDriveConnectionControllerTest extends TestCase
 
         // Back to the page, not off to Google: nothing was started.
         $this->assertSame(302, $response->getStatusCode());
-        $this->assertSame('/config/stockage/emplacements', $response->getHeaders()['Location'] ?? '');
+        $this->assertSame('/config/stockage/emplacements/' . $this->locationId . '/modification', $response->getHeaders()['Location'] ?? '');
         $this->assertNull(
             SessionStore::get('storage_google_oauth_state'),
             'a connection was begun on an address a request header chose'
@@ -832,11 +896,14 @@ final class GoogleDriveConnectionControllerTest extends TestCase
     }
 
     /** Google saying yes to everything: token, account, folder, witness. */
-    private function googleAnsweringHappily(): GoogleDriveClient
+    private function googleAnsweringHappily(string $tokenExtra = ''): GoogleDriveClient
     {
-        return new GoogleDriveClient(function (string $method, string $url): array {
+        return new GoogleDriveClient(function (string $method, string $url) use ($tokenExtra): array {
             if (str_contains($url, '/token')) {
-                return ['status' => 200, 'body' => '{"refresh_token":"refresh-abc","access_token":"ya29.ok","expires_in":3599}'];
+                return [
+                    'status' => 200,
+                    'body' => '{"refresh_token":"refresh-abc","access_token":"ya29.ok","expires_in":3599' . $tokenExtra . '}',
+                ];
             }
             if (str_contains($url, '/about')) {
                 return ['status' => 200, 'body' => '{"user":{"emailAddress":"unite@example.org"},"storageQuota":{"usage":"1","limit":"9"}}'];

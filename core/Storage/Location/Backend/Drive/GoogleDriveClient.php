@@ -190,7 +190,12 @@ final class GoogleDriveClient
      * Trades the one-shot code the browser came back with for a refresh
      * token.
      *
-     * @return array{refresh_token: string, access_token: string, expires_in: int}
+     * `refresh_token_expires_in` is Google's own statement of how long the
+     * refresh token lives, present only when it will end (a project whose
+     * publishing status is « Test », for one). Null when absent — which is
+     * « nothing announced », not « permanent » (issue #718 § C point 10.2).
+     *
+     * @return array{refresh_token: string, access_token: string, expires_in: int, refresh_token_expires_in: ?int}
      * @throws DriveAccessException
      */
     public function exchangeCode(string $clientId, string $clientSecret, string $redirectUri, string $code): array
@@ -219,6 +224,10 @@ final class GoogleDriveClient
             'refresh_token' => $refreshToken,
             'access_token' => (string) ($decoded['access_token'] ?? ''),
             'expires_in' => (int) ($decoded['expires_in'] ?? 0),
+            'refresh_token_expires_in' => isset($decoded['refresh_token_expires_in'])
+                && is_numeric($decoded['refresh_token_expires_in'])
+                ? (int) $decoded['refresh_token_expires_in']
+                : null,
         ];
     }
 

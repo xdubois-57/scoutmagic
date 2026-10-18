@@ -69,7 +69,23 @@ final class GoogleDriveLocationConfig implements LocationConfig
          * received nothing yet, and the day it was connected is the only
          * honest one (`Core\Alert\Check\RemoteBackupAgeCheck`).
          */
-        public readonly string $connectedAt = ''
+        public readonly string $connectedAt = '',
+        /**
+         * Whether the grant's lifetime was looked at when it was obtained
+         * (issue #718 § C point 10.2): true for a connection made since the
+         * callback reads `refresh_token_expires_in`, false for an older one
+         * — whose lifetime nobody knows, and which must not be mistaken for
+         * a grant that announced none.
+         */
+        public readonly bool $grantObserved = false,
+        /**
+         * When Google said the refresh token stops working, ISO-8601 by the
+         * application clock, or '' when it announced no end. Only ever
+         * meaningful with {@see $grantObserved}: '' on an unobserved grant
+         * is « unknown », never « permanent » — and nothing here infers the
+         * Google project's « Test » or « En production » status from it.
+         */
+        public readonly string $grantExpiresAt = ''
     ) {
     }
 
@@ -81,7 +97,9 @@ final class GoogleDriveLocationConfig implements LocationConfig
         return new self(
             clientId: self::text($raw, 'client_id'),
             folderId: self::text($raw, 'folder_id'),
-            connectedAt: self::text($raw, 'connected_at')
+            connectedAt: self::text($raw, 'connected_at'),
+            grantObserved: ($raw['grant_observed'] ?? false) === true,
+            grantExpiresAt: self::text($raw, 'grant_expires_at')
         );
     }
 
@@ -91,6 +109,8 @@ final class GoogleDriveLocationConfig implements LocationConfig
             'client_id' => $this->clientId,
             'folder_id' => $this->folderId,
             'connected_at' => $this->connectedAt,
+            'grant_observed' => $this->grantObserved,
+            'grant_expires_at' => $this->grantExpiresAt,
         ];
     }
 
@@ -147,6 +167,28 @@ final class GoogleDriveLocationConfig implements LocationConfig
     public function isConnected(): bool
     {
         return $this->connectedAt !== '';
+    }
+
+    /**
+     * The same location with its folder changed, the grant left as it is —
+     * for the flows that attach or create a folder without going back
+     * through Google's consent screen.
+     */
+    public function withFolder(string $folderId): self
+    {
+        return new self($this->clientId, $folderId, $this->connectedAt, $this->grantObserved, $this->grantExpiresAt);
+    }
+
+    /**
+     * The same grant, its announced end dropped: a check succeeded after
+     * it, which proves it no longer applies (#718 § C point 10.4). Kept as
+     * « observed, nothing to count down », so a later failure for some
+     * other reason is reported as that failure — never as the end coming
+     * back.
+     */
+    public function withGrantEndDisproved(): self
+    {
+        return new self($this->clientId, $this->folderId, $this->connectedAt, true, '');
     }
 
     /**

@@ -40,8 +40,8 @@ Revenez sur l'écran de consentement et **publiez l'application**.
 
 Tant qu'elle reste en statut **Test**, Google fait expirer l'autorisation
 au bout de **sept jours**, sans rien dire — et vous le découvririez le
-jour où vous en auriez besoin. C'est la première cause de panne
-silencieuse de ce genre de raccordement.
+jour où vous en auriez besoin. La fiche de l'emplacement affiche
+l'échéance que Google annonce au raccordement.
 
 Publier ne déclenche **aucun examen de sécurité** tant que l'application
 se limite aux fichiers qu'elle a créés, ce que fait ce site. Reste la
