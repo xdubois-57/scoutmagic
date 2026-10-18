@@ -15,6 +15,7 @@ use Core\Member\NameDobKey;
 use Core\Security\CapabilityToken;
 use Core\Security\EncryptionService;
 use Core\Service\DateInput;
+use Modules\Registration\Service\TrackingLinkValidity;
 
 /**
  * All identity data is encrypted at rest (SECURITY.md §5) — this is the
@@ -28,6 +29,16 @@ use Core\Service\DateInput;
  */
 class RegistrationRequestRepository
 {
+    private const CTX_TRACKING_TOKEN = 'registration_requests.tracking_token';
+
+    /**
+     * A `password_hash()` of a random value no request holds, made once per
+     * process on first use rather than written in the code: a hash literal
+     * is a credential-shaped string for every scanner, and this one would
+     * guard nothing. See dummyTrackingHash().
+     */
+    private static ?string $dummyTrackingHash = null;
+
     private HouseholdRepository $households;
 
     private DecisionEmailRepository $decisionEmails;
@@ -69,18 +80,30 @@ class RegistrationRequestRepository
      *   previous_unit_answer?: ?string, previous_unit_name?: ?string
      * } $fields
      * @param array<int> $siblingMemberIds
-     * @return array{id: int, tracking_token: string} the raw tracking token, never
-     *         stored or logged anywhere else — the caller must hand it to the
-     *         parent (tracking link) and then discard it.
+     * @param int $trackingValidityMonths how long the tracking link works,
+     *        from $receivedAt (Service\TrackingLinkValidity); frozen on the
+     *        row, so a later change of the setting never reaches it
+     * @param \DateTimeImmutable|null $receivedAt the moment of filing, now
+     *        when null — written explicitly rather than left to the column
+     *        default, so the expiry and `received_at` share one instant
+     * @return array{id: int, tracking_token: string} the raw tracking token,
+     *         generated here and only here (issue #932): it is stored hashed
+     *         and encrypted, and every later e-mail reads it back through
+     *         trackingTokenOf() rather than minting another.
      */
     public function create(
         int $scoutYearId,
         array $fields,
         ?int $desiredSectionId,
-        array $siblingMemberIds
+        array $siblingMemberIds,
+        int $trackingValidityMonths = TrackingLinkValidity::DEFAULT_MONTHS,
+        ?\DateTimeImmutable $receivedAt = null
     ): array {
+        $receivedAt ??= new \DateTimeImmutable();
         $trackingToken = CapabilityToken::generate();
         $trackingTokenHash = password_hash($trackingToken, PASSWORD_DEFAULT);
+        $trackingTokenEncrypted = $this->encryption->encrypt($trackingToken, self::CTX_TRACKING_TOKEN);
+        $trackingExpiresAt = TrackingLinkValidity::expiresAt($receivedAt, $trackingValidityMonths);
 
         $nameDobBlind = $this->encryption->blindIndex(
             self::normalizeForNameDobBlindIndex(
@@ -136,6 +159,9 @@ class RegistrationRequestRepository
                 $desiredSectionId,
                 RegistrationRequest::STATUS_PENDING,
                 $trackingTokenHash,
+                $trackingTokenEncrypted,
+                $receivedAt->format('Y-m-d H:i:s'),
+                $trackingExpiresAt->format('Y-m-d H:i:s'),
                 $addressBlind,
                 self::normalizePreviousUnitAnswer($fields['previous_unit_answer'] ?? null),
                 // Only ever stored with a « oui »: a name left over from a
@@ -172,9 +198,10 @@ class RegistrationRequestRepository
                 gender_encrypted, birth_date_encrypted, street_encrypted, number_encrypted,
                 postal_code_encrypted, city_encrypted, email_encrypted, email_blind_index,
                 phone1_encrypted, phone2_encrypted, remarks_encrypted, name_dob_blind_index,
-                desired_section_id, status, tracking_token_hash, address_normalized_blind_index,
+                desired_section_id, status, tracking_token_hash, tracking_token_encrypted, received_at,
+                tracking_expires_at, address_normalized_blind_index,
                 previous_unit_answer, previous_unit_name_encrypted
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute($requestParams);
 
@@ -203,16 +230,87 @@ class RegistrationRequestRepository
     /**
      * Verifies a presented tracking token against request $id's stored
      * hash — password_verify(), same technique as Core\Member\
-     * MemberEmailService's confirmation tokens (SECURITY.md §5). Never
-     * expires while the request exists, per the module spec.
+     * MemberEmailService's confirmation tokens (SECURITY.md §5) — and that
+     * the link has not expired (issue #932): valid if and only if the
+     * request exists, the token is the right one and $now is strictly
+     * before `tracking_expires_at`. A row with no expiry (from before the
+     * column) is expired.
+     *
+     * The hash is checked first and in every case, so an expired link, a
+     * wrong token and an unknown request cost the caller the same, and
+     * answer the same: false.
      */
-    public function verifyTrackingToken(int $id, string $token): bool
+    public function verifyTrackingToken(int $id, string $token, ?\DateTimeImmutable $now = null): bool
     {
-        $stmt = $this->pdo->prepare('SELECT tracking_token_hash FROM registration_requests WHERE id = ?');
+        $stmt = $this->pdo->prepare(
+            'SELECT tracking_token_hash, tracking_expires_at FROM registration_requests WHERE id = ?'
+        );
         $stmt->execute([$id]);
-        $hash = $stmt->fetchColumn();
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
 
-        return $hash !== false && password_verify($token, (string) $hash);
+        $matches = password_verify(
+            $token,
+            $row === false ? self::dummyTrackingHash() : (string) $row['tracking_token_hash']
+        );
+        if ($row === false) {
+            return false;
+        }
+        $expiresAt = DateInput::fromStorage(
+            $row['tracking_expires_at'] !== null ? (string) $row['tracking_expires_at'] : null
+        );
+
+        return $matches && $expiresAt !== null && ($now ?? new \DateTimeImmutable()) < $expiresAt;
+    }
+
+    /**
+     * What verifyTrackingToken() checks a presented token against when the
+     * request does not exist, at the cost PASSWORD_DEFAULT hashes at: an
+     * unknown id then pays the same bcrypt cost as a known one, and the
+     * endpoint's latency does not tell which ids exist. (The very first
+     * unknown id of a process also pays for making it.)
+     */
+    private static function dummyTrackingHash(): string
+    {
+        return self::$dummyTrackingHash ??= password_hash(bin2hex(random_bytes(16)), PASSWORD_DEFAULT);
+    }
+
+    /**
+     * The request's tracking link as the e-mails to its family need it: the
+     * token in the clear, and when the link expires — or null when the
+     * request is gone, predates the stored token, or the token cannot be
+     * read back (a key rotated without re-encrypting).
+     *
+     * The one call that hands the credential back out. Callers put it into
+     * the URL of a message addressed to the family and nowhere else: never a
+     * journal entry, a flash message, a template variable staff can see, or
+     * a log (SECURITY.md).
+     *
+     * @return array{token: string, expires_at: ?\DateTimeImmutable}|null
+     */
+    public function trackingLinkOf(int $id): ?array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT tracking_token_encrypted, tracking_expires_at FROM registration_requests WHERE id = ?'
+        );
+        $stmt->execute([$id]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+        if ($row === false || $row['tracking_token_encrypted'] === null || $row['tracking_token_encrypted'] === '') {
+            return null;
+        }
+
+        try {
+            $token = $this->encryption->decrypt((string) $row['tracking_token_encrypted'], self::CTX_TRACKING_TOKEN);
+        } catch (\Throwable) {
+            return null;
+        }
+
+        return [
+            'token' => $token,
+            'expires_at' => DateInput::fromStorage(
+                $row['tracking_expires_at'] !== null ? (string) $row['tracking_expires_at'] : null
+            ),
+        ];
     }
 
     /**
@@ -352,7 +450,7 @@ class RegistrationRequestRepository
     }
 
     /**
-     * @param array<int, int> $params
+     * @param array<int, int|string> $params
      */
     private function countRows(string $sql, array $params): int
     {
@@ -394,6 +492,21 @@ class RegistrationRequestRepository
         $stmt = $this->pdo->query("SELECT COUNT(*) FROM registration_requests WHERE status IN ('pending', 'accepted')");
 
         return $stmt !== false ? (int) $stmt->fetchColumn() : 0;
+    }
+
+    /**
+     * Requests still 'pending', every year, received before $cutoff
+     * (`Y-m-d H:i:s`, the application clock) — the attention page's count
+     * (Service\RegistrationAttentionProvider, issue #718 § C point 5). Every
+     * year for the reason countNonFinalAllYears() gives: a backlog does not
+     * stop waiting because the year it targeted has passed.
+     */
+    public function countPendingReceivedBefore(string $cutoff): int
+    {
+        return $this->countRows(
+            "SELECT COUNT(*) FROM registration_requests WHERE status = 'pending' AND received_at < ?",
+            [$cutoff]
+        );
     }
 
     /**
@@ -906,27 +1019,6 @@ class RegistrationRequestRepository
             'registration_requests.internal_notes'
         ) : null,
             $id]);
-    }
-
-    /**
-     * Stores the hash of a freshly minted tracking token, replacing the
-     * previous one — same "previous value stops matching immediately"
-     * precedent as RegistrationYearCodeRepository::regenerate(). Used
-     * whenever a later email (acceptance/refusal) embeds a tracking link
-     * again.
-     *
-     * The caller generates the raw token and calls this only ONCE THE EMAIL
-     * HAS ACTUALLY BEEN SENT (Service\RequestEmailService::send()). This
-     * used to be a single rotateTrackingToken() that minted and persisted in
-     * one go, before the send: a delivery failure then left the family's
-     * existing link dead while the replacement had never reached them —
-     * which is precisely the retry the service's own docblock promises is
-     * always safe.
-     */
-    public function storeTrackingTokenHash(int $id, string $rawToken): void
-    {
-        $stmt = $this->pdo->prepare('UPDATE registration_requests SET tracking_token_hash = ? WHERE id = ?');
-        $stmt->execute([password_hash($rawToken, PASSWORD_DEFAULT), $id]);
     }
 
     /**

@@ -146,6 +146,48 @@ class RequestEmailServiceTest extends TestCase
     }
 
     /**
+     * Like createRequest(), keeping the raw token the repository handed
+     * out — the one the family's receipt carried.
+     *
+     * @param \DateTimeImmutable|null $receivedAt when the request was filed (now when null)
+     * @return array{id: int, tracking_token: string}
+     */
+    private function createRequestWithToken(
+        string $status = 'pending',
+        ?\DateTimeImmutable $receivedAt = null,
+        string $email = 'p@example.com'
+    ): array {
+        $created = $this->requestRepository->create($this->scoutYearId, [
+            'parent_name' => 'P', 'child_last_name' => 'D', 'child_first_name' => 'Léa',
+            'gender' => 'F', 'birth_date' => '2019-01-01', 'street' => 'S', 'number' => '1',
+            'postal_code' => '1000', 'city' => 'V', 'email' => $email,
+            'phone1' => '000', 'phone2' => null, 'remarks' => null,
+        ], null, [], 18, $receivedAt);
+        if ($status !== 'pending') {
+            $this->requestRepository->updateStatus(
+                $created['id'],
+                $status,
+                $status === 'accepted' ? null : new \DateTimeImmutable()
+            );
+        }
+
+        return $created;
+    }
+
+    private function trackingHash(int $requestId): string
+    {
+        return (string) $this->pdo->query('SELECT tracking_token_hash FROM registration_requests WHERE id = ' . $requestId)
+            ->fetchColumn();
+    }
+
+    private function trackingEncrypted(int $requestId): string
+    {
+        return (string) $this->pdo
+            ->query('SELECT tracking_token_encrypted FROM registration_requests WHERE id = ' . $requestId)
+            ->fetchColumn();
+    }
+
+    /**
      * @return array<int, DecisionEmail>
      */
     private function history(int $requestId): array
@@ -155,26 +197,49 @@ class RequestEmailServiceTest extends TestCase
 
     private function writeBodies(): void
     {
-        $this->editableContentService->set('registration_email_accepted_body', '<p>Bienvenue !</p>', 'rich_text', 1);
-        $this->editableContentService->set('registration_email_refused_body', '<p>Désolé.</p>', 'rich_text', 1);
-    }
-
-    public function testBodiesAreNotReadyByDefault(): void
-    {
-        $service = $this->buildService($this->createStub(MailService::class));
-
-        $this->assertFalse($service->isAcceptedBodyReady());
-        $this->assertFalse($service->isRefusedBodyReady());
+        $this->editableContentService->set('registration_email_accepted_body', '<p>Bienvenue ! {{ lien_suivi }}</p>', 'rich_text', 1);
+        $this->editableContentService->set('registration_email_refused_body', '<p>Désolé. {{ lien_suivi }}</p>', 'rich_text', 1);
     }
 
     /**
-     * The guard D10 keeps, on a request that does hold the decision: no
-     * body, no e-mail — and the attempt is recorded as FAILED, never as a
-     * success, with a sentence a chief may read. The transport is never
-     * reached.
+     * Issue #932: the acceptance and the refusal ship with a text, so a
+     * fresh install sends them — with the family's link, and nothing
+     * written first.
      */
-    public function testAMissingBodyIsRecordedAsAFailedAttemptNeverASuccess(): void
+    public function testAFreshInstallSendsTheShippedTextWithTheFamilysLink(): void
     {
+        $mailService = $this->createMock(MailService::class);
+        $bodies = [];
+        $this->recordBodies($mailService, $this->exactly(2), $bodies);
+        $service = $this->buildService($mailService);
+        $accepted = $this->createRequest('accepted');
+        $refused = $this->createRequest('refused', 'autre@example.com');
+
+        $service->sendAccepted($this->requestRepository->findById($accepted), '2026-2027');
+        $service->sendRefused($this->requestRepository->findById($refused), '2026-2027');
+
+        $this->assertSame(['marie@example.com', 'autre@example.com'], array_column($bodies, 'to'));
+        $this->assertStringContainsString('a été acceptée', $bodies[0]['html']);
+        $this->assertStringContainsString("n'a pas été retenue", $bodies[1]['html']);
+        $this->assertStringContainsString('https://example.com/inscriptions/suivi/' . $accepted . '/', $bodies[0]['html']);
+        $this->assertStringContainsString('https://example.com/inscriptions/suivi/' . $refused . '/', $bodies[1]['html']);
+        $this->assertStringNotContainsString('{{', $bodies[0]['html'] . $bodies[1]['html']);
+        $this->assertSame(
+            [DecisionEmail::STATE_SENT],
+            array_map(static fn(DecisionEmail $e) => $e->state, $this->history($accepted))
+        );
+    }
+
+    /**
+     * The send guard (issue #932): a stored body that lost its
+     * `{{ lien_suivi }}` — written by another path, an old fixture — never
+     * leaves silently without the one way back to the request. The attempt
+     * is recorded as FAILED, never as a success, with a sentence a chief
+     * may read, and the transport is never reached.
+     */
+    public function testABodyWithoutTheTrackingLinkIsRecordedAsAFailedAttemptNeverASuccess(): void
+    {
+        $this->editableContentService->set('registration_email_accepted_body', '<p>Bienvenue !</p>', 'rich_text', 1);
         $mailService = $this->createMock(MailService::class);
         $mailService->expects($this->never())->method('send');
         $service = $this->buildService($mailService);
@@ -182,37 +247,31 @@ class RequestEmailServiceTest extends TestCase
 
         try {
             $service->sendAccepted($this->requestRepository->findById($requestId), '2026-2027');
-            $this->fail('Expected a RegistrationException for an unwritten body.');
+            $this->fail('Expected a RegistrationException for a body without the link.');
         } catch (RegistrationException $e) {
-            $this->assertSame("Le corps de l'email d'acceptation n'a pas encore été rédigé.", $e->getMessage());
+            $this->assertStringContainsString('ne contient pas le lien de suivi', $e->getMessage());
+            $this->assertStringContainsString('{{ lien_suivi }}', $e->getMessage());
         }
 
         [$attempt] = $this->history($requestId);
         $this->assertSame(DecisionEmail::STATE_FAILED, $attempt->state);
         $this->assertSame(DecisionEmail::FAILURE_BODY_NOT_WRITTEN, $attempt->failureCode);
-        $this->assertSame("Le corps de l'email d'acceptation n'a pas encore été rédigé.", $attempt->failureMessage);
+        $this->assertStringContainsString('ne contient pas le lien de suivi', (string) $attempt->failureMessage);
         $this->assertNull($attempt->sentAt);
         $this->assertNull($this->requestRepository->findById($requestId)->decisionEmailSentAt);
     }
 
-    /**
-     * « À rédiger » has one definition (RequestEmailTemplateService::
-     * isToWrite(), IT-07): a body the editor emptied to `<p>&nbsp;</p>`
-     * is no body. The guard refuses it, records the failed attempt, and
-     * the transport is never reached.
-     */
-    public function testABodyEmptiedByTheEditorCountsAsNotWritten(): void
+    public function testARefusalBodyWithoutTheTrackingLinkIsRecordedAsAFailedAttemptToo(): void
     {
-        $this->editableContentService->set('registration_email_accepted_body', '<p>&nbsp;</p>', 'rich_text', 1);
+        $this->editableContentService->set('registration_email_refused_body', '<p>Désolé.</p>', 'rich_text', 1);
         $mailService = $this->createMock(MailService::class);
         $mailService->expects($this->never())->method('send');
         $service = $this->buildService($mailService);
-        $requestId = $this->createRequest('accepted');
-        $this->assertFalse($service->isAcceptedBodyReady());
+        $requestId = $this->createRequest('refused');
 
         try {
-            $service->sendAccepted($this->requestRepository->findById($requestId), '2026-2027');
-            $this->fail('Expected a RegistrationException for a body that renders as nothing.');
+            $service->sendRefused($this->requestRepository->findById($requestId), '2026-2027');
+            $this->fail('Expected a RegistrationException.');
         } catch (RegistrationException) {
             // expected
         }
@@ -223,22 +282,24 @@ class RequestEmailServiceTest extends TestCase
         );
     }
 
-    public function testAMissingRefusalBodyIsRecordedAsAFailedAttemptToo(): void
+    /**
+     * A body the editor emptied to `<p>&nbsp;</p>` is no body: the shipped
+     * text goes out in its place (issue #932), link included.
+     */
+    public function testABodyEmptiedByTheEditorFallsBackToTheShippedText(): void
     {
-        $service = $this->buildService($this->createStub(MailService::class));
-        $requestId = $this->createRequest('refused');
+        $this->editableContentService->set('registration_email_accepted_body', '<p>&nbsp;</p>', 'rich_text', 1);
+        $mailService = $this->createMock(MailService::class);
+        $bodies = [];
+        $this->recordBodies($mailService, $this->once(), $bodies);
+        $service = $this->buildService($mailService);
+        $requestId = $this->createRequest('accepted');
 
-        try {
-            $service->sendRefused($this->requestRepository->findById($requestId), '2026-2027');
-            $this->fail('Expected a RegistrationException for an unwritten body.');
-        } catch (RegistrationException) {
-            // expected
-        }
+        $service->sendAccepted($this->requestRepository->findById($requestId), '2026-2027');
 
-        $this->assertSame(
-            [DecisionEmail::FAILURE_BODY_NOT_WRITTEN],
-            array_map(static fn(DecisionEmail $email) => $email->failureCode, $this->history($requestId))
-        );
+        $this->assertSame(['marie@example.com'], array_column($bodies, 'to'));
+        $this->assertStringContainsString('a été acceptée', $bodies[0]['html']);
+        $this->assertStringContainsString('/inscriptions/suivi/' . $requestId . '/', $bodies[0]['html']);
     }
 
     /**
@@ -271,6 +332,34 @@ class RequestEmailServiceTest extends TestCase
     }
 
     /**
+     * Record the HTML and plain-text body of every doubled `MailService::
+     * send()`, read by the parameter's NAME so a reordering of the signature
+     * cannot make this read another argument.
+     *
+     * @param list<array{to: string, html: string, text: string}> $bodies written to by the double
+     */
+    private function recordBodies(
+        MailService&\PHPUnit\Framework\MockObject\MockObject $mailService,
+        InvocationOrder $times,
+        array &$bodies
+    ): void {
+        $positions = [];
+        foreach ((new \ReflectionMethod(MailService::class, 'send'))->getParameters() as $parameter) {
+            $positions[$parameter->getName()] = $parameter->getPosition();
+        }
+
+        $mailService->expects($times)
+            ->method('send')
+            ->willReturnCallback(function (...$arguments) use (&$bodies, $positions): void {
+                $bodies[] = [
+                    'to' => (string) $arguments[0],
+                    'html' => (string) $arguments[$positions['bodyHtml']],
+                    'text' => (string) $arguments[$positions['bodyText']],
+                ];
+            });
+    }
+
+    /**
      * Record every address the doubled `MailService::send()` is handed.
      *
      * Counting sends says a message left and says nothing about where it
@@ -297,7 +386,7 @@ class RequestEmailServiceTest extends TestCase
 
     public function testSendAcceptedSucceedsAndRecordsTheSentAttemptOnceBodyIsWritten(): void
     {
-        $this->editableContentService->set('registration_email_accepted_body', '<p>Bienvenue {{prenom_enfant}} !</p>', 'rich_text', 1);
+        $this->editableContentService->set('registration_email_accepted_body', '<p>Bienvenue {{prenom_enfant}} ! {{ lien_suivi }}</p>', 'rich_text', 1);
         $mailService = $this->createMock(MailService::class);
         $recipients = [];
         $this->recordRecipients($mailService, $this->once(), $recipients);
@@ -384,7 +473,7 @@ class RequestEmailServiceTest extends TestCase
         $this->assertSame(DecisionEmail::STATE_FAILED, $failed->state);
         $this->assertSame(DecisionEmail::FAILURE_MAIL_TRANSPORT, $failed->failureCode);
         $this->assertNotNull($failed->failedAt);
-        $this->assertStringContainsString('lien de suivi', (string) $failed->failureMessage);
+        $this->assertStringContainsString('réessayez', (string) $failed->failureMessage);
         $this->assertStringNotContainsString('marie@example.com', (string) $failed->failureMessage);
         $this->assertStringNotContainsString('550', (string) $failed->failureMessage);
         $this->assertNull($this->requestRepository->findById($requestId)->refusedEmailSentAt());
@@ -491,7 +580,7 @@ class RequestEmailServiceTest extends TestCase
      */
     public function testTheSmtpErrorNeverReachesTheRegistrationExceptionsOwnMessage(): void
     {
-        $this->editableContentService->set('registration_email_refused_body', '<p>Désolé.</p>', 'rich_text', 1);
+        $this->editableContentService->set('registration_email_refused_body', '<p>Désolé. {{ lien_suivi }}</p>', 'rich_text', 1);
         $mailService = $this->createStub(MailService::class);
         $mailService->method('send')->willThrowException(
             new MailException('SMTP connect() failed. https://github.com/PHPMailer/PHPMailer/wiki/Troubleshooting')
@@ -505,7 +594,7 @@ class RequestEmailServiceTest extends TestCase
         } catch (RegistrationException $e) {
             $this->assertStringNotContainsString('SMTP', $e->getMessage());
             $this->assertStringNotContainsString('PHPMailer', $e->getMessage());
-            $this->assertStringContainsString('lien de suivi', $e->getMessage());
+            $this->assertStringContainsString('réessayez', $e->getMessage());
             // The detail is not lost — it is on the cause, and in the
             // journal entry written just above the throw.
             $this->assertInstanceOf(MailException::class, $e->getPrevious());
@@ -514,25 +603,16 @@ class RequestEmailServiceTest extends TestCase
     }
 
     /**
-     * A failed send must leave the family's EXISTING tracking link alive:
-     * the token used to be rotated and persisted before the send, so an SMTP
-     * outage killed the link the parent already had while the replacement
-     * never reached them (R6).
+     * Issue #932: the link is the request's own, generated once at filing.
+     * A failed send changes nothing about it — same token, same expiry.
      */
-    public function testFailedSendLeavesThePreviousTrackingLinkUsable(): void
+    public function testFailedSendLeavesTheTrackingLinkUntouched(): void
     {
-        $this->editableContentService->set('registration_email_refused_body', '<p>Désolé.</p>', 'rich_text', 1);
         $mailService = $this->createStub(MailService::class);
         $mailService->method('send')->willThrowException(new MailException('SMTP down'));
         $service = $this->buildService($mailService);
-
-        $created = $this->requestRepository->create($this->scoutYearId, [
-            'parent_name' => 'P', 'child_last_name' => 'D', 'child_first_name' => 'Léa',
-            'gender' => 'F', 'birth_date' => '2019-01-01', 'street' => 'S', 'number' => '1',
-            'postal_code' => '1000', 'city' => 'V', 'email' => 'p@example.com',
-            'phone1' => '000', 'phone2' => null, 'remarks' => null,
-        ], null, []);
-        $this->requestRepository->updateStatus($created['id'], 'refused', new \DateTimeImmutable());
+        $created = $this->createRequestWithToken('refused');
+        $before = $this->requestRepository->trackingLinkOf($created['id']);
 
         try {
             $service->sendRefused($this->requestRepository->findById($created['id']), '2026-2027');
@@ -542,21 +622,18 @@ class RequestEmailServiceTest extends TestCase
         }
 
         $this->assertTrue($this->requestRepository->verifyTrackingToken($created['id'], $created['tracking_token']));
+        $this->assertEquals($before, $this->requestRepository->trackingLinkOf($created['id']));
     }
 
     /**
-     * The same holds when the body guard refuses: no e-mail, no new link.
+     * The same holds when the link guard refuses: no e-mail, no change.
      */
-    public function testAMissingBodyLeavesThePreviousTrackingLinkUsable(): void
+    public function testAGuardedSendLeavesTheTrackingLinkUntouched(): void
     {
+        $this->editableContentService->set('registration_email_accepted_body', '<p>Bienvenue</p>', 'rich_text', 1);
         $service = $this->buildService($this->createStub(MailService::class));
-        $created = $this->requestRepository->create($this->scoutYearId, [
-            'parent_name' => 'P', 'child_last_name' => 'D', 'child_first_name' => 'Léa',
-            'gender' => 'F', 'birth_date' => '2019-01-01', 'street' => 'S', 'number' => '1',
-            'postal_code' => '1000', 'city' => 'V', 'email' => 'p@example.com',
-            'phone1' => '000', 'phone2' => null, 'remarks' => null,
-        ], null, []);
-        $this->requestRepository->updateStatus($created['id'], 'accepted', null);
+        $created = $this->createRequestWithToken('accepted');
+        $before = $this->requestRepository->trackingLinkOf($created['id']);
 
         try {
             $service->sendAccepted($this->requestRepository->findById($created['id']), '2026-2027');
@@ -566,23 +643,25 @@ class RequestEmailServiceTest extends TestCase
         }
 
         $this->assertTrue($this->requestRepository->verifyTrackingToken($created['id'], $created['tracking_token']));
+        $this->assertEquals($before, $this->requestRepository->trackingLinkOf($created['id']));
     }
 
-    public function testSuccessfulSendRotatesTheTrackingToken(): void
+    /**
+     * Replaces `testSuccessfulSendRotatesTheTrackingToken()`, which asserted
+     * the behaviour issue #932 removes: a successful send used to replace
+     * the family's token, killing the link its receipt carried. It now
+     * writes nothing on the request — the link the receipt carried is the
+     * link of the decision e-mail, and still works afterwards.
+     */
+    public function testSuccessfulSendKeepsTheTrackingTokenTheReceiptCarried(): void
     {
-        $this->editableContentService->set('registration_email_accepted_body', '<p>Bienvenue !</p>', 'rich_text', 1);
         $mailService = $this->createMock(MailService::class);
         $recipients = [];
         $this->recordRecipients($mailService, $this->once(), $recipients);
         $service = $this->buildService($mailService);
-
-        $created = $this->requestRepository->create($this->scoutYearId, [
-            'parent_name' => 'P', 'child_last_name' => 'D', 'child_first_name' => 'Léa',
-            'gender' => 'F', 'birth_date' => '2019-01-01', 'street' => 'S', 'number' => '1',
-            'postal_code' => '1000', 'city' => 'V', 'email' => 'p@example.com',
-            'phone1' => '000', 'phone2' => null, 'remarks' => null,
-        ], null, []);
-        $this->requestRepository->updateStatus($created['id'], 'accepted', null);
+        $created = $this->createRequestWithToken('accepted');
+        $hashBefore = $this->trackingHash($created['id']);
+        $encryptedBefore = $this->trackingEncrypted($created['id']);
 
         $service->sendAccepted($this->requestRepository->findById($created['id']), '2026-2027');
 
@@ -590,16 +669,66 @@ class RequestEmailServiceTest extends TestCase
         // the assertion tells the two apart rather than matching whatever
         // the service last sent to.
         $this->assertSame(['p@example.com'], $recipients);
-        $this->assertFalse($this->requestRepository->verifyTrackingToken($created['id'], $created['tracking_token']));
+        $this->assertTrue($this->requestRepository->verifyTrackingToken($created['id'], $created['tracking_token']));
+        $this->assertSame($hashBefore, $this->trackingHash($created['id']), 'no new hash was written');
+        $this->assertSame($encryptedBefore, $this->trackingEncrypted($created['id']), 'no new ciphertext was written');
     }
 
     /**
-     * The message left, then recording it failed (a database error). The
-     * family must still get a working link — the one the e-mail carries —
-     * and the lost record is journaled; the chief is not told the send
-     * failed, because it did not.
+     * The acceptance criterion that names the whole feature: the link of
+     * the receipt, of the acceptance, of its manual resend, of a retry after
+     * a failure and of the refusal of the same request are ONE url.
      */
-    public function testARecordingFailureAfterTheSendStillStoresTheNewLink(): void
+    public function testEveryEmailOfARequestCarriesTheSameLink(): void
+    {
+        $mailService = $this->createStub(MailService::class);
+        $bodies = [];
+        $failuresLeft = 1;
+        $positions = [];
+        foreach ((new \ReflectionMethod(MailService::class, 'send'))->getParameters() as $parameter) {
+            $positions[$parameter->getName()] = $parameter->getPosition();
+        }
+        $mailService->method('send')->willReturnCallback(
+            function (...$arguments) use (&$bodies, &$failuresLeft, $positions): void {
+                if ($failuresLeft > 0) {
+                    $failuresLeft--;
+                    throw new MailException('SMTP down');
+                }
+                $bodies[] = (string) $arguments[$positions['bodyHtml']];
+            }
+        );
+        $service = $this->buildService($mailService);
+        $created = $this->createRequestWithToken('accepted');
+        $expected = 'https://example.com/inscriptions/suivi/' . $created['id'] . '/' . $created['tracking_token'];
+
+        try {
+            $service->sendAccepted($this->requestRepository->findById($created['id']), '2026-2027');
+            $this->fail('The first attempt was meant to fail.');
+        } catch (RegistrationException) {
+            // expected: the transport refused
+        }
+        $service->sendAccepted($this->requestRepository->findById($created['id']), '2026-2027'); // the retry
+        $service->sendAccepted($this->requestRepository->findById($created['id']), '2026-2027'); // a resend
+        $this->requestRepository->updateStatus($created['id'], 'refused', new \DateTimeImmutable());
+        $service->sendRefused($this->requestRepository->findById($created['id']), '2026-2027');
+
+        $this->assertCount(3, $bodies);
+        foreach ($bodies as $body) {
+            $this->assertStringContainsString('href="' . $expected . '"', $body);
+            // The href and the visible text: two spellings of the one url.
+            $this->assertSame(2, preg_match_all('#https://[^"<\s]*/inscriptions/suivi/\d+/[^"<\s]+#', $body, $found));
+            $this->assertSame([$expected], array_values(array_unique($found[0])));
+        }
+        $this->assertTrue($this->requestRepository->verifyTrackingToken($created['id'], $created['tracking_token']));
+    }
+
+    /**
+     * The message is out, then recording it failed (a database error). The
+     * chief is not told the send failed, because it did not; the lost
+     * record is journaled. The family's link is, as ever, the one the
+     * e-mail carries.
+     */
+    public function testARecordingFailureAfterTheSendStillLeavesTheLinkWorking(): void
     {
         $this->writeBodies();
         $mailService = $this->createMock(MailService::class);
@@ -620,23 +749,108 @@ class RequestEmailServiceTest extends TestCase
             'Unité Test',
             new DecisionEmailService($failingRecords, $journal)
         );
-        $created = $this->requestRepository->create($this->scoutYearId, [
-            'parent_name' => 'P', 'child_last_name' => 'D', 'child_first_name' => 'Léa',
-            'gender' => 'F', 'birth_date' => '2019-01-01', 'street' => 'S', 'number' => '1',
-            'postal_code' => '1000', 'city' => 'V', 'email' => 'p@example.com',
-            'phone1' => '000', 'phone2' => null, 'remarks' => null,
-        ], null, []);
-        $this->requestRepository->updateStatus($created['id'], 'accepted', null);
+        $created = $this->createRequestWithToken('accepted');
 
         $service->sendAccepted($this->requestRepository->findById($created['id']), '2026-2027');
 
-        $this->assertFalse(
-            $this->requestRepository->verifyTrackingToken($created['id'], $created['tracking_token']),
-            'the link the e-mail carries replaced the old one'
-        );
+        $this->assertTrue($this->requestRepository->verifyTrackingToken($created['id'], $created['tracking_token']));
         $this->assertSame(1, (int) $this->pdo->query(
             "SELECT COUNT(*) FROM event_log WHERE event_type = 'registration_decision_email_outcome_lost'"
         )->fetchColumn());
+    }
+
+    /**
+     * Sent after the link expired (issue #932): the e-mail still leaves,
+     * without a new token and without extending the validity, and it says
+     * the public tracking is no longer accessible instead of letting the
+     * family think the link works.
+     */
+    public function testAnEmailSentAfterTheLinkExpiredStillLeavesAndSaysSo(): void
+    {
+        $mailService = $this->createMock(MailService::class);
+        $bodies = [];
+        $this->recordBodies($mailService, $this->once(), $bodies);
+        $service = $this->buildService($mailService);
+        $created = $this->createRequestWithToken('accepted', new \DateTimeImmutable('-2 years'));
+        $expiresBefore = $this->requestRepository->trackingLinkOf($created['id'])['expires_at'];
+        $this->assertFalse($this->requestRepository->verifyTrackingToken($created['id'], $created['tracking_token']));
+
+        $service->sendAccepted($this->requestRepository->findById($created['id']), '2026-2027');
+
+        $this->assertSame(['p@example.com'], array_column($bodies, 'to'));
+        $this->assertStringContainsString('le suivi public de cette demande n', $bodies[0]['html']);
+        $this->assertStringContainsString('plus accessible', $bodies[0]['text']);
+        $this->assertSame(
+            [DecisionEmail::STATE_SENT],
+            array_map(static fn(DecisionEmail $e) => $e->state, $this->history($created['id']))
+        );
+        $this->assertEquals($expiresBefore, $this->requestRepository->trackingLinkOf($created['id'])['expires_at']);
+        $this->assertFalse($this->requestRepository->verifyTrackingToken($created['id'], $created['tracking_token']));
+    }
+
+    public function testAnEmailSentWhileTheLinkIsValidDoesNotMentionAnExpiry(): void
+    {
+        $mailService = $this->createMock(MailService::class);
+        $bodies = [];
+        $this->recordBodies($mailService, $this->once(), $bodies);
+        $service = $this->buildService($mailService);
+        $requestId = $this->createRequest('accepted');
+
+        $service->sendAccepted($this->requestRepository->findById($requestId), '2026-2027');
+
+        $this->assertSame(['marie@example.com'], array_column($bodies, 'to'));
+        $this->assertStringNotContainsString('plus accessible', $bodies[0]['text']);
+    }
+
+    /**
+     * A request with no readable link (a row from before the token was
+     * stored) cannot be written to: nothing leaves, the attempt is failed
+     * and says why — never a mail without its link.
+     */
+    public function testARequestWithoutAReadableLinkSendsNothingAndSaysWhy(): void
+    {
+        $mailService = $this->createMock(MailService::class);
+        $mailService->expects($this->never())->method('send');
+        $service = $this->buildService($mailService);
+        $requestId = $this->createRequest('accepted');
+        $this->pdo->exec('UPDATE registration_requests SET tracking_token_encrypted = NULL WHERE id = ' . $requestId);
+
+        try {
+            $service->sendAccepted($this->requestRepository->findById($requestId), '2026-2027');
+            $this->fail('Expected a RegistrationException.');
+        } catch (RegistrationException $e) {
+            $this->assertStringContainsString('lien de suivi', $e->getMessage());
+        }
+
+        [$attempt] = $this->history($requestId);
+        $this->assertSame(DecisionEmail::STATE_FAILED, $attempt->state);
+    }
+
+    /**
+     * Never the token or the url in the journal: the sent entry names the
+     * attempt, and the failure entry names the request.
+     */
+    public function testNeitherTheTokenNorTheUrlReachesTheJournal(): void
+    {
+        $mailService = $this->createStub(MailService::class);
+        $service = $this->buildService($mailService);
+        $ok = $this->createRequestWithToken('accepted');
+        $service->sendAccepted($this->requestRepository->findById($ok['id']), '2026-2027');
+
+        $failing = $this->createStub(MailService::class);
+        $failing->method('send')->willThrowException(new MailException('SMTP down'));
+        $failService = $this->buildService($failing);
+        $bad = $this->createRequestWithToken('refused', null, 'z@example.com');
+        try {
+            $failService->sendRefused($this->requestRepository->findById($bad['id']), '2026-2027');
+        } catch (RegistrationException) {
+            // expected
+        }
+
+        $journal = (string) json_encode($this->pdo->query('SELECT * FROM event_log')->fetchAll(\PDO::FETCH_ASSOC));
+        $this->assertStringNotContainsString($ok['tracking_token'], $journal);
+        $this->assertStringNotContainsString($bad['tracking_token'], $journal);
+        $this->assertStringNotContainsString('/inscriptions/suivi/', $journal);
     }
 
     /**
@@ -789,18 +1003,16 @@ class RequestEmailServiceTest extends TestCase
     }
 
     /**
-     * The fiche's block (IT-08): none for a request without a decision,
-     * and the decision's own template decides whether it is « Gabarit à
-     * rédiger ».
+     * The fiche's block (IT-08): none for a request without a decision, and
+     * one for each decision — no template is ever « à rédiger » (issue #932).
      */
-    public function testThePanelFollowsTheDecisionAndItsOwnTemplate(): void
+    public function testThePanelFollowsTheDecision(): void
     {
         $service = $this->buildService($this->createStub(MailService::class));
-        $this->editableContentService->set('registration_email_refused_body', '<p>Désolé.</p>', 'rich_text', 1);
 
         $this->assertNull($service->panel($this->requestRepository->findById($this->createRequest())));
         $this->assertSame(
-            DecisionEmailPanel::STATE_TEMPLATE_MISSING,
+            DecisionEmailPanel::STATE_NONE,
             $service->panel($this->requestRepository->findById($this->createRequest('accepted')))?->state
         );
         $this->assertSame(
@@ -811,28 +1023,15 @@ class RequestEmailServiceTest extends TestCase
 
     /**
      * A fiche button the block does not offer sends nothing and records
-     * nothing — an unwritten template included: the button is not on the
-     * page, so nothing claims to have tried.
+     * nothing: the button is not on the page, so nothing claims to have
+     * tried.
      */
     public function testAFicheActionTheBlockDoesNotOfferSendsAndRecordsNothing(): void
     {
         $mailService = $this->createMock(MailService::class);
         $mailService->expects($this->never())->method('send');
         $service = $this->buildService($mailService);
-        $unwritten = $this->createRequest('accepted');
 
-        try {
-            $service->sendFromRequestPage(
-                $this->requestRepository->findById($unwritten),
-                DecisionEmailPanel::ACTION_SEND_NOW,
-                ''
-            );
-            $this->fail('An unwritten template sends nothing.');
-        } catch (RegistrationException $e) {
-            $this->assertSame("Le corps de l'email d'acceptation n'a pas encore été rédigé.", $e->getMessage());
-        }
-
-        $this->writeBodies();
         $pending = $this->createRequest();
         $accepted = $this->createRequest('accepted');
         $refusals = [
@@ -850,31 +1049,33 @@ class RequestEmailServiceTest extends TestCase
             }
         }
 
-        foreach ([$unwritten, $pending, $accepted] as $id) {
+        foreach ([$pending, $accepted] as $id) {
             $this->assertSame([], $this->history($id));
         }
     }
 
     /**
-     * A template emptied after the e-mail went out: « Renvoyer l'e-mail »,
-     * posted from a page loaded before, is refused for that reason — not
-     * with « pas encore parti », which would be false.
+     * « Renvoyer l'e-mail » on a body that lost its link since the e-mail
+     * went out: the resend is a failed attempt like any other, the first
+     * send stays in the history as sent.
      */
-    public function testAResendWithoutATemplateAnyMoreSaysTheTemplateIsMissing(): void
+    public function testAResendOfABodyThatLostItsLinkIsAFailedAttempt(): void
     {
         $service = $this->buildService($this->createStub(MailService::class));
         $this->writeBodies();
         $id = $this->createRequest('accepted');
         $request = $this->requestRepository->findById($id);
         $service->sendFromRequestPage($request, DecisionEmailPanel::ACTION_SEND_NOW, '');
-        $this->editableContentService->set('registration_email_accepted_body', '<p>&nbsp;</p>', 'rich_text', 1);
+        $this->editableContentService->set('registration_email_accepted_body', '<p>Sans lien</p>', 'rich_text', 1);
 
         try {
             $service->sendFromRequestPage($request, DecisionEmailPanel::ACTION_RESEND, '');
-            $this->fail('A resend without a template sends nothing.');
+            $this->fail('A resend without the link sends nothing.');
         } catch (RegistrationException $e) {
-            $this->assertSame("Le corps de l'email d'acceptation n'a pas encore été rédigé.", $e->getMessage());
+            $this->assertStringContainsString('ne contient pas le lien de suivi', $e->getMessage());
         }
-        $this->assertCount(1, $this->history($id));
+        $states = array_map(static fn(DecisionEmail $e) => $e->state, $this->history($id));
+        sort($states);
+        $this->assertSame([DecisionEmail::STATE_FAILED, DecisionEmail::STATE_SENT], $states);
     }
 }

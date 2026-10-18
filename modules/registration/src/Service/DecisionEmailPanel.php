@@ -18,8 +18,7 @@ use Modules\Registration\Repository\RegistrationRequest;
  * it allows, and the history of every attempt — read from
  * `registration_decision_emails`, never rewritten.
  *
- * Built by build() from the request, its rows and whether the decision's
- * template is written; the wording lives in views/_decision_email.html.twig.
+ * Built by build() from the request and its rows; the wording lives in views/_decision_email.html.twig.
  * Service\RequestEmailService::sendFromRequestPage() reads the same `actions`
  * before sending, so a button the page does not show cannot be posted
  * into an e-mail either — a second « Envoyer maintenant » after a success
@@ -28,9 +27,7 @@ use Modules\Registration\Repository\RegistrationRequest;
  * The states, in the order they win:
  *
  * - `sent` — an e-mail of this decision went out, whatever came after;
- *   « Renvoyer l'e-mail » unless another send is in play or the template
- *   is no longer written;
- * - `template_missing` — « Gabarit à rédiger »: nothing can leave, no action;
+ *   « Renvoyer l'e-mail » unless another send is in play;
  * - `scheduled` — « Prévu le … », « Envoyer maintenant »;
  * - `sending` — a send claimed moments ago, no action until it reports;
  * - `failed` — « Échec le … », « Réessayer »; a send claimed longer ago
@@ -51,7 +48,6 @@ final class DecisionEmailPanel
     public const STATE_SENT = 'sent';
     public const STATE_FAILED = 'failed';
     public const STATE_CANCELLED = 'cancelled';
-    public const STATE_TEMPLATE_MISSING = 'template_missing';
 
     public const ACTION_SEND_NOW = 'send_now';
     public const ACTION_RETRY = 'retry';
@@ -67,7 +63,6 @@ final class DecisionEmailPanel
         public readonly ?\DateTimeImmutable $at,
         public readonly array $actions,
         public readonly array $history,
-        public readonly bool $templateReady,
         public readonly ?DecisionEmail $lastFailedResend,
         public readonly bool $interrupted = false
     ) {
@@ -83,7 +78,6 @@ final class DecisionEmailPanel
     public static function build(
         RegistrationRequest $request,
         array $emails,
-        bool $templateReady,
         \DateTimeImmutable $now
     ): ?self {
         $decision = DecisionEmail::decisionForStatus($request->status);
@@ -114,15 +108,10 @@ final class DecisionEmailPanel
                 $decision,
                 self::STATE_SENT,
                 $sent[count($sent) - 1]->sentAt,
-                $templateReady && !$inPlay ? [self::ACTION_RESEND] : [],
+                !$inPlay ? [self::ACTION_RESEND] : [],
                 $history,
-                $templateReady,
                 $latest !== null && $latest->state === DecisionEmail::STATE_FAILED ? $latest : null
             );
-        }
-
-        if (!$templateReady) {
-            return new self($decision, self::STATE_TEMPLATE_MISSING, null, [], $history, false, null);
         }
 
         $interrupted = $latest !== null && self::isStale($latest, $staleBefore);
@@ -141,7 +130,7 @@ final class DecisionEmailPanel
             default => [self::STATE_CANCELLED, $latest->cancelledAt, [self::ACTION_SEND_NOW]],
         };
 
-        return new self($decision, $state, $at, $actions, $history, true, null, $interrupted);
+        return new self($decision, $state, $at, $actions, $history, null, $interrupted);
     }
 
     /**

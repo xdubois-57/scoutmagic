@@ -9650,6 +9650,11 @@ if ($isEnabled('gallery')) {
 $groupsPublisherForOthers = null;
 if ($isEnabled('groups')) {
     \Core\Debug\RequestTimeline::mark('module_groups');
+    // Reported messages no moderator has answered, on the attention page
+    // only while the module is on (#718 § C point 6).
+    $attentionProviders[] = new \Modules\Groups\Service\GroupsAttentionProvider(
+        new \Modules\Groups\Repository\UnsettledReportRepository($pdo)
+    );
     $groupsGroupRepo = new \Modules\Groups\Repository\GroupRepository($pdo);
     $groupsSectionRepo = new \Modules\Groups\Repository\GroupSectionRepository($pdo);
     $groupsMemberRepo = new \Modules\Groups\Repository\GroupMemberRepository($pdo);
@@ -11217,6 +11222,12 @@ if ($isEnabled('registration')) {
         $householdRepository,
         $registrationDecisionEmailRepo
     );
+    // Requests left pending too long, on the attention page only while the
+    // module is on (#718 § C point 5).
+    $attentionProviders[] = new \Modules\Registration\Service\RegistrationAttentionProvider(
+        $registrationRequestRepo,
+        $settingService
+    );
     $registrationYearCodeRepo = new \Modules\Registration\Repository\RegistrationYearCodeRepository($pdo);
     $registrationAgeBracketRepo = new \Modules\Registration\Repository\AgeBracketRepository($pdo);
     $registrationSlotCapacityRepo = new \Modules\Registration\Repository\SlotCapacityRepository($pdo);
@@ -11356,7 +11367,6 @@ if ($isEnabled('registration')) {
     // SendDecisionEmailsHandler (seeded in public/scheduler-bootstrap.php).
     $registrationAutomaticEmails = new \Modules\Registration\Service\AutomaticDecisionEmailService(
         $settingService,
-        $registrationEmailService,
         $registrationDecisionEmailService
     );
     // Issue #843 (IT-10): the automatic acceptance of the « Oui » requests —
@@ -11381,7 +11391,6 @@ if ($isEnabled('registration')) {
             $scoutYearResolver,
             new \Modules\Registration\Service\PriorityOrderService($settingService)
         ),
-        $registrationEmailService,
         $scoutYearService,
         $scoutYearResolver,
         $journalService,

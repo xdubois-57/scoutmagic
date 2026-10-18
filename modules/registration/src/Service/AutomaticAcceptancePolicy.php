@@ -23,11 +23,11 @@ use Core\View\DateFilterExtension;
  *
  * **It runs only when everything it depends on runs**: the switch is on,
  * a date of effect is set, waitlists are managed (no recommendation
- * otherwise), the automatic sending of the decision e-mails is on and the
- * acceptance template is written — without the last two, an accepted
- * family would be left without an answer. isActive() checks all of it at
- * each pass, not only when the box is saved: waitlists can be switched off
- * elsewhere (Configuration > Paramètres), and a template emptied since.
+ * otherwise) and the automatic sending of the decision e-mails is on —
+ * without the last, an accepted family would be left without an answer.
+ * isActive() checks all of it at each pass, not only when the box is
+ * saved: waitlists can be switched off elsewhere (Configuration >
+ * Paramètres).
  *
  * **Which requests it takes, slot by slot** (nextAcceptable()): the queue
  * of Service\RecommendationService, in its order, and
@@ -55,16 +55,12 @@ class AutomaticAcceptancePolicy
     /** What isActive() lacks, in the order the sub-box asks for it. */
     public const MISSING_WAITLIST = 'waitlist';
     public const MISSING_AUTO_SEND = 'auto_send';
-    public const MISSING_TEMPLATE = 'template';
 
     public const MESSAGE_WAITLIST_REQUIRED = "L'acceptation automatique ne peut pas être activée : activez d'abord "
         . "la gestion des listes d'attente, la recommandation en dépend. Rien n'a été enregistré.";
 
     public const MESSAGE_AUTO_SEND_REQUIRED = "L'acceptation automatique ne peut pas être activée sans l'envoi "
         . "automatique des e-mails de décision, sans quoi la famille resterait sans réponse. Rien n'a été enregistré.";
-
-    public const MESSAGE_TEMPLATE_REQUIRED = "L'acceptation automatique ne peut pas être activée tant que le gabarit "
-        . "d'acceptation n'est pas rédigé (voir Gabarits). Rien n'a été enregistré.";
 
     public const MESSAGE_DATE_REQUIRED = "Choisissez la date « À partir du » de l'acceptation automatique. "
         . "Rien n'a été enregistré.";
@@ -102,8 +98,7 @@ class AutomaticAcceptancePolicy
     {
         return self::missing(
             $this->slotService->waitlistEnabled(),
-            $this->automaticEmails->isEnabled(),
-            $this->automaticEmails->acceptanceTemplateReady()
+            $this->automaticEmails->isEnabled()
         );
     }
 
@@ -138,16 +133,16 @@ class AutomaticAcceptancePolicy
      * What the sub-box shows.
      *
      * `can_enable`: the switch may be turned on — waitlists and the
-     * automatic sending are on and the acceptance template is written; it
+     * automatic sending are on; it
      * is disabled otherwise, and `missing` says why. `effective_from` is the
      * stored date, or today's when none is (Y-m-d, for the native picker).
      * `active`: what the pass will do.
      *
-     * `waitlist_enabled` and `template_ready` are what the page's script
-     * needs to keep the switch in step without a reload.
+     * `waitlist_enabled` is what the page's script needs to keep the switch
+     * in step without a reload.
      *
      * @return array{enabled: bool, effective_from: string, can_enable: bool, missing: ?string,
-     *               waitlist_enabled: bool, template_ready: bool, active: bool}
+     *               waitlist_enabled: bool, active: bool}
      */
     public function boxState(\DateTimeImmutable $today = new \DateTimeImmutable()): array
     {
@@ -161,7 +156,6 @@ class AutomaticAcceptancePolicy
             'can_enable' => $missing === null,
             'missing' => $missing,
             'waitlist_enabled' => $this->slotService->waitlistEnabled(),
-            'template_ready' => $this->automaticEmails->acceptanceTemplateReady(),
             'active' => $enabled && $from !== null && $missing === null,
         ];
     }
@@ -174,8 +168,7 @@ class AutomaticAcceptancePolicy
      *
      * The automatic acceptance is refused on — switched on, or kept on —
      * while waitlists are not managed, while the automatic sending is not
-     * on in this very save, or while the acceptance template is not
-     * written; and without a date. A date that was not submitted ($from
+     * on in this very save; and without a date. A date that was not submitted ($from
      * null or empty) keeps the stored one; one that is not a date is
      * refused, switch on or off — a value nobody sees act is not stored
      * wrong.
@@ -184,7 +177,7 @@ class AutomaticAcceptancePolicy
      */
     public function save(bool $autoSend, ?string $delay, bool $enabled, ?string $from): string
     {
-        $hours = $this->automaticEmails->validatedDelay($autoSend, $delay);
+        $hours = $this->automaticEmails->validatedDelay($delay);
 
         $submittedDate = null;
         if ($from !== null && trim($from) !== '') {
@@ -198,13 +191,11 @@ class AutomaticAcceptancePolicy
         if ($enabled) {
             $missing = self::missing(
                 $this->slotService->waitlistEnabled(),
-                $autoSend,
-                $this->automaticEmails->acceptanceTemplateReady()
+                $autoSend
             );
             $refusal = match ($missing) {
                 self::MISSING_WAITLIST => self::MESSAGE_WAITLIST_REQUIRED,
                 self::MISSING_AUTO_SEND => self::MESSAGE_AUTO_SEND_REQUIRED,
-                self::MISSING_TEMPLATE => self::MESSAGE_TEMPLATE_REQUIRED,
                 default => null,
             };
             if ($refusal !== null) {
@@ -325,12 +316,11 @@ class AutomaticAcceptancePolicy
     /**
      * MISSING_* for the first prerequisite that is false, or null.
      */
-    private static function missing(bool $waitlist, bool $autoSend, bool $template): ?string
+    private static function missing(bool $waitlist, bool $autoSend): ?string
     {
         return match (false) {
             $waitlist => self::MISSING_WAITLIST,
             $autoSend => self::MISSING_AUTO_SEND,
-            $template => self::MISSING_TEMPLATE,
             default => null,
         };
     }

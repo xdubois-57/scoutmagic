@@ -57,7 +57,7 @@ class SendDecisionEmailsHandlerTest extends TestCase
     private TaskContext $context;
     private int $yearId;
 
-    /** @var list<array{to: string, cc: mixed, subject: string}> */
+    /** @var list<array{to: string, cc: mixed, subject: string, html: string}> */
     private array $sent = [];
 
     /** How many of the next sends the transport refuses. */
@@ -89,21 +89,12 @@ class SendDecisionEmailsHandlerTest extends TestCase
         $this->requests = new RegistrationRequestRepository($this->pdo, $encryption, null, $this->emails);
         $this->statusService = new RequestStatusService($this->requests, $journal);
         $this->content = new EditableContentService(new EditableContentRepository($this->pdo));
-        $this->content->set('registration_email_accepted_body', '<p>Bienvenue {{ prenom_enfant }}</p>', 'rich_text', 1);
-        $this->content->set('registration_email_refused_body', '<p>Désolés.</p>', 'rich_text', 1);
+        $this->content->set('registration_email_accepted_body', '<p>Bienvenue {{ prenom_enfant }} {{ lien_suivi }}</p>', 'rich_text', 1);
+        $this->content->set('registration_email_refused_body', '<p>Désolés. {{ lien_suivi }}</p>', 'rich_text', 1);
 
         $mailService = $this->recordingMailService();
         $this->automation = new AutomaticDecisionEmailService(
             $this->settings,
-            new RequestEmailService(
-                $this->requests,
-                $mailService,
-                $this->content,
-                $journal,
-                'https://exemple.be',
-                'Unité test',
-                new DecisionEmailService($this->emails, $journal)
-            ),
             new DecisionEmailService($this->emails, $journal)
         );
         RegistrationTestHelper::enableAutomaticDecisionEmails($this->settings, 24);
@@ -152,18 +143,21 @@ class SendDecisionEmailsHandlerTest extends TestCase
     }
 
     /**
-     * The new tracking link the e-mail carries replaces the family's old
-     * one after the send, never before; the journal says the send was
-     * automatic, and counts without naming anybody.
+     * The link the e-mail carries is the one the request was filed with
+     * (issue #932): nothing is renewed by the send. The journal says the
+     * send was automatic, and counts without naming anybody.
      */
-    public function testASentEmailRotatesTheTokenAndIsJournaledAsAutomatic(): void
+    public function testASentEmailKeepsTheFamilysLinkAndIsJournaledAsAutomatic(): void
     {
         $request = $this->decide('accepted');
         $tokenBefore = $this->tokenHash($request->id);
+        $token = $this->requests->trackingLinkOf($request->id)['token'] ?? '';
+        $this->assertNotSame('', $token);
 
         $this->runAt('2027-01-11 09:00:00');
 
-        $this->assertNotSame($tokenBefore, $this->tokenHash($request->id));
+        $this->assertSame($tokenBefore, $this->tokenHash($request->id));
+        $this->assertStringContainsString("/inscriptions/suivi/{$request->id}/{$token}", $this->sent[0]['html']);
         $this->assertSame(
             ['request_id' => $request->id, 'attempt' => 1, 'resend' => false, 'automatic' => true],
             $this->journalContext('registration_accepted_email_sent')
@@ -223,15 +217,15 @@ class SendDecisionEmailsHandlerTest extends TestCase
     // ── What never passes for a success ────────────────────────────────
 
     /**
-     * A template emptied after the e-mail was planned: nothing leaves, the
-     * attempt is recorded failed with its reason, the family's link is
-     * untouched and it still sees « en attente ».
+     * A template that lost its `{{ lien_suivi }}` after the e-mail was
+     * planned: nothing leaves, the attempt is recorded failed with its
+     * reason, the family's link is untouched and it still sees « en attente ».
      */
-    public function testAMissingTemplateIsRecordedAsAFailureAndNeverPassesForASuccess(): void
+    public function testABodyWithoutTheLinkIsRecordedAsAFailureAndNeverPassesForASuccess(): void
     {
         $request = $this->decide('accepted');
         $tokenBefore = $this->tokenHash($request->id);
-        $this->content->set('registration_email_accepted_body', '<p>&nbsp;</p>', 'rich_text', 1);
+        $this->content->set('registration_email_accepted_body', '<p>Bienvenue</p>', 'rich_text', 1);
 
         $this->runAt('2027-01-11 08:00:00');
 
@@ -615,6 +609,7 @@ class SendDecisionEmailsHandlerTest extends TestCase
                 'to' => (string) $arguments[0],
                 'cc' => $arguments[$ccIndex] ?? null,
                 'subject' => (string) $arguments[1],
+                'html' => (string) $arguments[2],
             ];
 
             return true;

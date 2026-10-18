@@ -8,11 +8,8 @@ use Core\Config\ScoutYearService;
 use Core\Config\SettingRepository;
 use Core\Config\SettingService;
 use Core\Import\MemberYearRepository;
-use Core\Mail\MailService;
 use Core\ScoutYear\ScoutYearResolver;
 use Core\Security\EncryptionService;
-use Core\View\EditableContentRepository;
-use Core\View\EditableContentService;
 use Modules\Registration\Repository\AgeBracketRepository;
 use Modules\Registration\Repository\DecisionEmail;
 use Modules\Registration\Repository\RegistrationRequest;
@@ -51,7 +48,6 @@ class AutomaticAcceptanceServiceTest extends TestCase
     private \PDO $pdo;
     private EncryptionService $encryption;
     private SettingService $settings;
-    private EditableContentService $content;
     private RegistrationRequestRepository $requests;
     private SlotCapacityRepository $capacities;
     private ScoutYearService $scoutYears;
@@ -91,9 +87,6 @@ class AutomaticAcceptanceServiceTest extends TestCase
         $this->capacities->upsert($this->louveteauxId, 2, 15);
 
         $this->requests = new RegistrationRequestRepository($this->pdo, $this->encryption);
-        $this->content = new EditableContentService(new EditableContentRepository($this->pdo));
-        $this->content->set('registration_email_accepted_body', '<p>Bienvenue</p>', 'rich_text', 1);
-        $this->content->set('registration_email_refused_body', '<p>Désolés</p>', 'rich_text', 1);
         RegistrationTestHelper::enableAutomaticDecisionEmails($this->settings, 24);
         RegistrationTestHelper::enableAutomaticAcceptance($this->settings, '2026-09-01');
     }
@@ -117,7 +110,6 @@ class AutomaticAcceptanceServiceTest extends TestCase
         match ($missing) {
             'waitlist' => $this->settings->set('registration_waitlist_enabled', '0', 'registration'),
             'auto_send' => RegistrationTestHelper::enableAutomaticDecisionEmails($this->settings, 24, false),
-            'template' => $this->content->set('registration_email_accepted_body', '<p>&nbsp;</p>', 'rich_text', 1),
             default => RegistrationTestHelper::enableAutomaticAcceptance($this->settings, ''),
         };
         $id = $this->file('Emma', 'Vidal', self::LOU1_BIRTH, '2026-10-08 10:00:00');
@@ -134,7 +126,6 @@ class AutomaticAcceptanceServiceTest extends TestCase
         return [
             'waitlists not managed' => ['waitlist'],
             'automatic sending off' => ['auto_send'],
-            'acceptance template emptied' => ['template'],
             'no date of effect' => ['date'],
         ];
     }
@@ -342,7 +333,7 @@ class AutomaticAcceptanceServiceTest extends TestCase
     }
 
     /**
-     * The acceptance template is emptied while the pass runs — after it
+     * The automatic sending is switched off while the pass runs — after it
      * checked its prerequisites, before the first acceptance — so that
      * acceptance's e-mail cannot be planned: it is rolled back (status and
      * journal), journaled as a warning, and the pass ends, the request of
@@ -354,7 +345,7 @@ class AutomaticAcceptanceServiceTest extends TestCase
         $other = $this->file('Hugo', 'Renard', self::LOU2_BIRTH, '2026-10-06 10:00:00');
         $this->afterRecommendation = function (int $call, int $scoutYearId): void {
             if ($scoutYearId === $this->targetYearId && $call === 2) {
-                $this->content->set('registration_email_accepted_body', '<p>&nbsp;</p>', 'rich_text', 1);
+                RegistrationTestHelper::enableAutomaticDecisionEmails($this->settings, 24, false);
             }
         };
 
@@ -481,9 +472,7 @@ class AutomaticAcceptanceServiceTest extends TestCase
             $this->pdo,
             $this->encryption,
             $this->settings,
-            $this->createStub(MailService::class),
-            $hook,
-            $this->content
+            $hook
         );
     }
 
