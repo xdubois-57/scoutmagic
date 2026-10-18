@@ -1513,6 +1513,10 @@ $settingService->register(
     261
 );
 
+// After how long without a Desk import the attention-points page says so
+// (Core\Attention\SiteAttentionProvider, issue #718 § C point 4).
+\Core\Attention\SiteAttentionProvider::register($settingService);
+
 // Offline content caching (Lot 3) — how old a cached copy of a
 // whitelisted page (Core\Offline\OfflineWhitelist) may be before the
 // service worker refuses to serve it and falls back to the offline page
@@ -3167,6 +3171,9 @@ $fileOwnershipCheckers = [$sectionDocumentOwnershipChecker, new \Core\Import\Des
 // that is wrong about the unit must never break a page.
 $attentionProviders = [
     new \Core\Attention\CoreAttentionProvider(new \Core\Attention\CoreAttentionRepository($pdo)),
+    // What the site itself is missing — public year, Desk import, postal
+    // address (issue #718 § C): no module needed for any of them.
+    new \Core\Attention\SiteAttentionProvider($scoutYearResolver, $importJournalRepo, $settingService),
     // Every operational alert currently triggered (Core\Alert, §8.99).
     // Reads rows, computes nothing: the same check that notified wrote
     // them, and the state machine is the only place a threshold is ever

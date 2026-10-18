@@ -36,11 +36,28 @@ faire, et — quand il y en a une — pour quand. Les points avec une échéance
 remontent en haut de la liste.
 
 Le libellé au-dessus de chaque point indique d'où vient l'information :
-« Cœur » pour le site lui-même, « Cotisations », « Encadrement »,
+« Cœur » pour les membres et leurs fonctions, « Site » pour la
+configuration du site, « Cotisations », « Encadrement »,
 « Courrier entrant », « Locations », « Camps » ou « Finances » pour les
 modules qui contribuent. Le courrier y compte ce qui attend une décision
 humaine : les messages que personne n'a rattachés, les propositions que
 personne n'a tranchées, les séjours « à confirmer ».
+
+## Ce que le site signale de lui-même
+
+Trois points ne dépendent d'aucun module :
+
+- **L'année publique est terminée** et personne n'a basculé vers la
+  suivante. Le site continue à l'afficher ; le point mène à la page
+  Année scoute.
+- **Aucun import Desk n'est enregistré**, ce qui est le cas d'une
+  installation neuve : le site n'a encore ni membres, ni sections, ni
+  fonctions. Ou bien **le dernier import est trop ancien** : 60 jours par
+  défaut, un délai que le superadmin règle dans Configuration ›
+  Paramètres (« Délai avant de signaler un import Desk ancien »).
+- **L'adresse postale de l'unité est vide**. Les documents officiels,
+  comme le contrat et la facture d'une location, impriment « — » à sa
+  place.
 
 ## Ce qu'elle n'est pas
 

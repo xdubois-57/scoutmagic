@@ -32,7 +32,7 @@ final class AlertSurfaces
             Check\DiskUsageCheck::KEY => 'Espace disque',
             Check\BackupAgeCheck::KEY => 'Sauvegardes',
             Check\MailDeliveryCheck::KEY => 'Envoi d\'e-mails',
-            Check\DevelopmentModeCheck::KEY => 'Mises à jour automatiques',
+            Check\DevelopmentModeCheck::KEY => 'Mode développement',
             Check\CronSilenceCheck::KEY => 'Tâche planifiée',
             Check\HttpsCheck::KEY => 'Connexion sécurisée',
             Check\BackupIntegrityCheck::KEY => 'Intégrité des sauvegardes',

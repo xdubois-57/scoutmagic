@@ -8,6 +8,9 @@ declare(strict_types=1);
 
 namespace Core\Import;
 
+use Core\Config\AppClock;
+use Core\Service\DateInput;
+
 /**
  * `import_journal` — the parent row of a Desk import.
  *
@@ -150,6 +153,21 @@ class ImportJournalRepository
         $stmt->execute([$scoutYearId]);
 
         return (int) $stmt->fetchColumn();
+    }
+
+    /**
+     * When the most recent import still on record was taken, across every
+     * scout year — null when none is. "On record" matters: the retention
+     * purge removes whole seasons beyond its window (ImportRetentionService),
+     * so a site that stopped importing years ago reads as one with none.
+     */
+    public function findLatestImportedAt(): ?\DateTimeImmutable
+    {
+        $stmt = $this->pdo->query('SELECT MAX(imported_at) FROM import_journal');
+        $latest = $stmt === false ? null : $stmt->fetchColumn();
+
+        // Written by create() with date(), in the application's timezone.
+        return DateInput::fromStorage(is_string($latest) ? $latest : null, AppClock::zone());
     }
 
     /**
