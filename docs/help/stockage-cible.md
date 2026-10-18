@@ -37,12 +37,17 @@ fiche de l'emplacement.
   navigateur. Le site le désigne par cette adresse, jamais par son
   nom. Il vérifie que c'est bien un dossier, hors de la corbeille, qu'il
   peut voir et qu'aucun autre emplacement n'utilise, ni directement ni
-  en le contenant. Le dossier commun **ScoutMagic** lui-même est refusé. S'il contient déjà
-  des fichiers, il vous demande de confirmer. Rien n'y est copié,
-  déplacé ni renommé.
+  en le contenant. Le dossier commun **ScoutMagic** lui-même est refusé.
+  Sont refusés aussi, avec la raison, un dossier rangé directement
+  dans « Mon Drive » et un dossier dont le site ne voit pas où il est
+  rangé : dans les deux cas, déplacez-le dans **ScoutMagic** depuis
+  Google Drive, puis recommencez. S'il contient déjà des fichiers, il
+  vous demande de confirmer. Rien n'y est copié, déplacé ni renommé.
 - **Créer un nouveau dossier** : un dossier vide au nom de
   l'emplacement, sous **ScoutMagic**. C'est refusé tant que l'ancien
   dossier existe encore : ce qu'il contient ne serait plus lu par le
+  site. Et même quand c'est possible, ce n'est pas une reprise : les
+  anciens fichiers restent où ils sont, simplement hors de la vue du
   site.
 
 Le site ne voit que les dossiers qu'il a lui-même créés : un dossier

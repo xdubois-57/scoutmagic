@@ -378,21 +378,9 @@ class StorageLocationService
             $usable = $folder !== null && $folder['folder'] && !$folder['trashed'];
             $holdsFiles = $usable && $backend->list('', null, 1)->objects !== [];
             $overlap = $usable ? $this->overlappingLocation($backend, $folderId, $folder, $othersByFolder) : null;
-            // The shared folder is the only one this site creates at the
-            // top of « Mon Drive »; a location's own is always inside it.
-            // So a folder with nothing above it but the drive itself is
-            // refused whatever its name — and so is the folder known to
-            // hold this location's own. (One holding another location's is
-            // refused as overlapping it, below, with a sharper reason.)
-            // Its name is kept as a second test below: a shared folder
-            // moved deeper in the drive would escape the first, and
-            // attaching to it puts every location's files in reach of one
-            // deletion — refusing a location's own folder that happens to
-            // bear that name costs a rename at most.
-            $sharedParent = $usable && (
-                count(self::ancestorsOf($backend, $folder['parents'])) < 2
-                || in_array($folderId, self::sharedParentsOf($backend, [$config->folderId]), true)
-            );
+            $sharedRefusal = $usable
+                ? self::sharedFolderRefusal($backend, $folderId, $folder, $config->folderId)
+                : null;
         } catch (StorageLocationException $e) {
             throw $e;
         } catch (\Throwable $e) {
@@ -419,12 +407,8 @@ class StorageLocationService
                 "Le dossier « {$folder['name']} » est dans la corbeille de Google Drive : restaurez-le d'abord."
             );
         }
-        if ($sharedParent || $folder['name'] === Config\GoogleDriveLocationConfig::PARENT_FOLDER_NAME) {
-            throw new StorageLocationException(
-                'C\'est le dossier commun « ' . Config\GoogleDriveLocationConfig::PARENT_FOLDER_NAME . ' », qui '
-                    . 'range les dossiers de tous les emplacements : choisissez celui de cet emplacement, à '
-                    . 'l\'intérieur.'
-            );
+        if ($sharedRefusal !== null) {
+            throw new StorageLocationException($sharedRefusal);
         }
         if ($overlap !== null) {
             throw new StorageLocationException($overlap);
@@ -441,6 +425,94 @@ class StorageLocationService
         unset($this->locationsById[$id]);
 
         return $folder['name'];
+    }
+
+    /**
+     * Why $folderId must not be attached because it may be the shared
+     * `ScoutMagic` folder, or null when nothing points that way (#924).
+     *
+     * The shared folder is the only one this site creates at the top of
+     * « Mon Drive »; a location's own is always inside it. Attaching a
+     * location to it would put every location's files in reach of one
+     * deletion, so a folder with little above it is refused. But refusing
+     * is not the same as saying what it is: the refusal used to call every
+     * such folder « le dossier commun », including an ordinary one in « Mon
+     * Drive » or one whose parent the site cannot see. Three findings,
+     * each worded for what was established and no more:
+     *
+     * - the folder holds THIS location's own folder: it is the shared one,
+     *   by id, so a rename or a move changes nothing;
+     * - it bears the shared folder's name: refused as a precaution (a
+     *   shared folder moved deeper would escape the next test), and said
+     *   to rest on the name;
+     * - fewer than two folders above it: either it sits directly in « Mon
+     *   Drive » (seen) or the site cannot tell where it sits (unknown).
+     *   Neither proves it is the shared folder, and neither is allowed.
+     *
+     * Every refusal ends on what the administrator can do, and that a new
+     * folder is not a recovery of the old files.
+     *
+     * @param array{name: string, parents: list<string>} $folder
+     */
+    private static function sharedFolderRefusal(
+        Backend\GoogleDriveBackend $backend,
+        string $folderId,
+        array $folder,
+        string $ownFolderId
+    ): ?string {
+        $shared = Config\GoogleDriveLocationConfig::PARENT_FOLDER_NAME;
+
+        if (in_array($folderId, self::sharedParentsOf($backend, [$ownFolderId]), true)) {
+            return 'C\'est le dossier commun « ' . $shared . ' » : il range le dossier de cet emplacement, comme '
+                . 'celui de tous les emplacements. Choisissez celui de cet emplacement, à l\'intérieur.';
+        }
+
+        if ($folder['name'] === $shared) {
+            return 'Ce dossier s\'appelle « ' . $shared . ' », comme le dossier commun qui range les dossiers de '
+                . 'tous les emplacements. Il est refusé par prudence : le rattacher mettrait les fichiers de tous '
+                . 'les emplacements à portée d\'une seule suppression. Si ce n\'est pas lui, renommez-le dans '
+                . 'Google Drive puis recommencez ; sinon, choisissez le dossier de cet emplacement, à l\'intérieur.';
+        }
+
+        $ancestors = self::ancestorsOf($backend, $folder['parents']);
+        if (count($ancestors) >= 2) {
+            return null;
+        }
+
+        $notRecovery = 'Créer un nouveau dossier ne reprendrait pas ses fichiers.';
+        if (self::reachesTopOfDrive($backend, $ancestors)) {
+            return 'Le dossier « ' . $folder['name'] . ' » est rangé directement dans « Mon Drive », pas dans le '
+                . 'dossier commun « ' . $shared . ' » où ce site range les dossiers de ses emplacements : il n\'a '
+                . 'donc pas été rattaché. Si c\'est bien le dossier à reprendre, déplacez-le dans « ' . $shared
+                . ' » depuis Google Drive, puis recommencez. ' . $notRecovery;
+        }
+
+        return 'Ce site ne voit pas dans quel dossier est rangé « ' . $folder['name'] . ' » : il ne peut pas '
+            . 'vérifier qu\'il se trouve dans le dossier commun « ' . $shared . ' », et rien n\'a été changé. Il '
+            . 'ne voit que les dossiers qu\'il a créés lui-même. Si c\'est bien le dossier à reprendre, rangez-le '
+            . 'dans « ' . $shared . ' » depuis Google Drive, puis recommencez. ' . $notRecovery;
+    }
+
+    /**
+     * Whether the last folder of a walk upwards is the top of « Mon Drive »
+     * itself, as opposed to a folder the site was not allowed to look at.
+     * The top has no parent, and is told apart from an invisible folder by
+     * that, which is the difference between « seen » and « unknown ».
+     *
+     * @param list<string> $ancestors nearest first
+     */
+    private static function reachesTopOfDrive(Backend\GoogleDriveBackend $backend, array $ancestors): bool
+    {
+        if ($ancestors === []) {
+            return false;
+        }
+        $last = $ancestors[count($ancestors) - 1];
+        if ($last === 'root') {
+            return true;
+        }
+        $described = $backend->describeFolder($last);
+
+        return $described !== null && $described['parents'] === [];
     }
 
     /**

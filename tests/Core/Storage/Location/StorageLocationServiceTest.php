@@ -846,6 +846,127 @@ class StorageLocationServiceTest extends TestCase
         $this->assertSame('folder-1-courant-01', $this->driveFolderOf($id));
     }
 
+    /**
+     * A Drive location on a fresh fake drive, whose own folder is gone — the
+     * state a restore leaves behind — and the message of the refusal when it
+     * is asked to attach $reference. The location stays where it was.
+     *
+     * @param callable(FakeDrive, StorageLocationService, int): void $arrange
+     */
+    private function refusalOf(string $reference, callable $arrange): string
+    {
+        $drive = new FakeDrive('folder-1-courant-01');
+        $service = $this->serviceOn($drive);
+        $id = $service->create(
+            StorageLocationType::GoogleDrive,
+            'Photos des galeries',
+            $this->driveConfig($drive),
+            (string) (new GoogleDriveSecret('secret-1', 'refresh-1', 'unite@example.org'))->toStorage()
+        );
+        unset($drive->files['folder-1-courant-01']);
+        $arrange($drive, $service, $id);
+
+        try {
+            $service->attachDriveFolder($id, $reference, true);
+        } catch (StorageLocationException $e) {
+            $this->assertSame('folder-1-courant-01', $this->driveFolderOf($id), 'a refusal changes nothing');
+
+            return $e->getMessage();
+        }
+
+        $this->fail('This folder must not be attached.');
+    }
+
+    /**
+     * Issue #924. An ordinary folder directly in « Mon Drive » has one
+     * ancestor, and the refusal used to call that « le dossier commun » —
+     * a claim about identity the check never established. The refusal
+     * stays (the site only attaches what sits in its shared folder), but it
+     * says what was seen.
+     */
+    public function testAnOrdinaryFolderAtTheTopOfTheDriveIsNotCalledTheSharedFolder(): void
+    {
+        $message = $this->refusalOf('anciennes-photos-01', static function (FakeDrive $drive): void {
+            $drive->addFolder('Anciennes photos', 'root', 'anciennes-photos-01');
+            $drive->addFolder('Album 2019', 'anciennes-photos-01', 'album-2019-0000001');
+            $drive->put('photo.jpg', 'octets', 'image/jpeg', 'album-2019-0000001');
+        });
+
+        $this->assertStringNotContainsString('C\'est le dossier commun', $message);
+        $this->assertStringContainsString('« Anciennes photos » est rangé directement dans « Mon Drive »', $message);
+        $this->assertStringContainsString('dossier commun « ScoutMagic »', $message);
+    }
+
+    /** What the administrator can do, and that a new folder is not a recovery. */
+    public function testTheRefusalForAFolderAtTheTopSaysWhatToDoAndWhatCreatingAFolderDoesNot(): void
+    {
+        $message = $this->refusalOf('anciennes-photos-01', static function (FakeDrive $drive): void {
+            $drive->addFolder('Anciennes photos', 'root', 'anciennes-photos-01');
+        });
+
+        $this->assertStringContainsString('déplacez-le dans « ScoutMagic » depuis Google Drive', $message);
+        $this->assertStringContainsString('Créer un nouveau dossier ne reprendrait pas ses fichiers', $message);
+    }
+
+    /**
+     * Where a folder is kept cannot be established when the folder above it
+     * is invisible to the site: that is unknown, not « the shared folder ».
+     */
+    public function testAFolderWhoseParentCannotBeSeenIsReportedAsUnverifiable(): void
+    {
+        $message = $this->refusalOf('dossier-orphelin-001', static function (FakeDrive $drive): void {
+            $drive->addFolder('Photos de camp', 'parent-invisible-0001', 'dossier-orphelin-001');
+        });
+
+        $this->assertStringNotContainsString('C\'est le dossier commun', $message);
+        $this->assertStringContainsString('ne voit pas dans quel dossier est rangé « Photos de camp »', $message);
+        $this->assertStringContainsString('ne peut pas vérifier', $message);
+        $this->assertStringContainsString('rien n\'a été changé', $message);
+        $this->assertStringContainsString('Créer un nouveau dossier ne reprendrait pas ses fichiers', $message);
+    }
+
+    /**
+     * The name alone is a second, weaker test: the refusal stays, but it
+     * says it rests on the name and how to get past it if the folder is
+     * only called that.
+     */
+    public function testAFolderRefusedOnlyForItsNameSaysSo(): void
+    {
+        $message = $this->refusalOf('copie-scoutmagic-001', static function (FakeDrive $drive): void {
+            $archives = $drive->addFolder('Archives', 'root', 'archives-0000000001');
+            $drive->addFolder('ScoutMagic', $archives, 'copie-scoutmagic-001');
+        });
+
+        $this->assertStringNotContainsString('C\'est le dossier commun', $message);
+        $this->assertStringContainsString('s\'appelle « ScoutMagic », comme le dossier commun', $message);
+        $this->assertStringContainsString('renommez-le dans Google Drive', $message);
+    }
+
+    /**
+     * Not widened by this fix: a folder holding ANOTHER location's folder is
+     * refused for exactly that reason — which is true whether it is the
+     * renamed shared folder or an ordinary container, and says nothing
+     * about its identity. Attaching it would put that location in the trash
+     * with it.
+     */
+    public function testAFolderHoldingAnotherLocationsFolderIsRefusedForThatReason(): void
+    {
+        $message = $this->refusalOf('scoutmagic-1', static function (FakeDrive $drive, StorageLocationService $service): void {
+            $drive->addFolder('Sauvegardes', 'scoutmagic-1', 'dossier-sauvegardes-01');
+            $service->create(
+                StorageLocationType::GoogleDrive,
+                'Sauvegardes',
+                new GoogleDriveLocationConfig('client-1', 'dossier-sauvegardes-01', '2026-09-01T00:00:00+00:00'),
+                null
+            );
+            $drive->files['scoutmagic-1']['name'] = 'Ancien ScoutMagic';
+            $drive->files['scoutmagic-1']['parent'] = $drive->addFolder('Archives', 'root', 'archives-0000000001');
+        });
+
+        $this->assertStringContainsString('contient celui de l\'emplacement « Sauvegardes »', $message);
+        $this->assertStringNotContainsString('C\'est le dossier commun', $message);
+    }
+
     /** Without an account, the folder cannot be looked at: nothing is attached. */
     public function testADisconnectedDriveLocationCannotBeAttachedToAFolder(): void
     {
