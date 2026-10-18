@@ -115,6 +115,18 @@ final class StorageAttentionProviderTest extends TestCase
         $this->assertStringContainsString('est en erreur', $points[1]->title);
     }
 
+    /** Earlier the same day: the end has passed, for the point as for the card. */
+    public function testAnEndEarlierTodayHasPassed(): void
+    {
+        $now = new \DateTimeImmutable('2026-10-18 15:00:00', AppClock::zone());
+        $this->drive('Photos Drive', true, '2026-10-18T03:00:00+02:00');
+
+        $points = $this->points($now);
+
+        $this->assertStringContainsString('a pris fin', $points[0]->title);
+        $this->assertSame(AttentionPoint::SEVERITY_URGENT, $points[0]->severity);
+    }
+
     /** A check that succeeded after the end proves it no longer applies. */
     public function testASuccessfulCheckAfterTheEndClearsThePoint(): void
     {

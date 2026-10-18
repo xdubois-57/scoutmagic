@@ -73,7 +73,17 @@ final class DriveGrantExpiry
         return new self(self::KNOWN, $expiresAt, $checkedSince && $location->lastCheckOk === false);
     }
 
-    /** Whole days from $now to the end, negative once it has passed. */
+    /**
+     * Whether the announced end is behind $now — to the instant, for every
+     * reader: the card and the attention point must never disagree on
+     * « prend fin » against « a pris fin » on the day itself.
+     */
+    public function hasPassed(\DateTimeImmutable $now): bool
+    {
+        return $this->expiresAt !== null && $this->expiresAt <= $now;
+    }
+
+    /** Whole calendar days from $now to the end, for « dans N jours ». */
     public function daysLeft(\DateTimeImmutable $now): ?int
     {
         if ($this->expiresAt === null) {
