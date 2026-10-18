@@ -55,3 +55,13 @@ reste du compte.
 Il sait dire la place qui reste, et il sait reprendre un envoi
 interrompu — ce qui en fait une bonne destination de **sauvegarde hors
 site**, là où un S3 ou un WebDAV sont refusés pour cet usage.
+
+## Quand l'autorisation prend fin
+
+Au raccordement, Google dit parfois combien de temps l'autorisation
+vivra. Le site note cette date : la fiche de l'emplacement l'affiche
+avec les jours restants, et la page **Points d'attention** le rappelle.
+Une vérification réussie après cette date prouve que l'autorisation
+tient toujours, et l'avertissement disparaît. Un compte raccordé avant
+que le site ne note cette date affiche « Expiration inconnue » :
+reconnectez-le pour la connaître.

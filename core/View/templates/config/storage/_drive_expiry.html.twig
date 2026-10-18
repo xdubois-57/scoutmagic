@@ -1,0 +1,36 @@
+{#
+  When this Google Drive location's authorisation ends (issue #718 § C point
+  10.3), from Core\Storage\Location\DriveGrantExpiry — the same reading the
+  attention page uses. Only what the site knows: the end Google announced when
+  the grant was obtained, counted on the application clock, until a check
+  succeeds after it. Nothing is guessed about the Google project's status, and
+  a disconnected location or a grant with no announced end says nothing at all.
+
+  Expects `expiry`: null, or {state, days, date, failed, error}.
+#}
+{% if expiry and expiry.state == 'known' %}
+    {% if expiry.days >= 0 %}
+        <div class="alert alert-warning small mt-2 mb-0" role="alert">
+            <strong>Cette autorisation prend fin le {{ expiry.date }}{% if expiry.days == 0 %}, aujourd'hui{% elseif expiry.days == 1 %}, demain{% else %}, dans {{ expiry.days }} jours{% endif %}.</strong>
+            Google l'a annoncé au raccordement. Passé cette date, tout ce qui écrit ici s'arrête tant que le
+            compte n'est pas reconnecté. Si le projet Google a changé de statut entre-temps, une vérification
+            réussie après cette date le confirmera et cet avertissement disparaîtra.
+        </div>
+    {% else %}
+        <div class="alert alert-danger small mt-2 mb-0" role="alert">
+            <strong>Cette autorisation a pris fin le {{ expiry.date }}, selon ce que Google avait annoncé.</strong>
+            {% if expiry.failed and expiry.error %}
+                Dernière vérification : {{ expiry.error }}
+            {% else %}
+                Aucune vérification réussie depuis ne montre qu'elle tient toujours.
+            {% endif %}
+            Reconnectez le compte pour que l'emplacement fonctionne de nouveau.
+        </div>
+    {% endif %}
+{% elseif expiry and expiry.state == 'unknown' %}
+    <div class="alert alert-secondary small mt-2 mb-0" role="alert">
+        <strong>Expiration inconnue.</strong>
+        Ce compte a été raccordé avant que le site ne note la durée d'autorisation annoncée par Google.
+        Reconnectez-le si vous voulez que le site sache si, et quand, elle prend fin.
+    </div>
+{% endif %}

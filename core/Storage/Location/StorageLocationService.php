@@ -355,7 +355,7 @@ class StorageLocationService
             );
         }
 
-        $attached = new Config\GoogleDriveLocationConfig($config->clientId, $folderId, $config->connectedAt);
+        $attached = $config->withFolder($folderId);
         $proposed = new StorageLocation(
             $location->id,
             $location->type,
@@ -605,7 +605,7 @@ class StorageLocationService
         $this->repository->update(
             $id,
             $location->label,
-            new Config\GoogleDriveLocationConfig($config->clientId, $folderId, $config->connectedAt),
+            $config->withFolder($folderId),
             null
         );
         unset($this->locationsById[$id]);

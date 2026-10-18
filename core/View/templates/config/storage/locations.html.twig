@@ -113,11 +113,9 @@
 
                    IT-05: a Drive folder is a storage location, so the account,
                    the consent screen and the warning about it belong here and
-                   not under « Sauvegarde hors site ». The seven-day expiry of a
-                   project left in « Test » status is the first cause of silent
-                   death of this integration, so it is repeated on the card of
-                   a location that has no grant yet — the moment an operator is
-                   about to create one. #}
+                   not under « Sauvegarde hors site ». When the grant ends is
+                   said from what Google announced (_drive_expiry.html.twig),
+                   never guessed from the project's status. #}
                 {% if location.type.value == 'google_drive' %}
                     {% set drive = drive_secrets[location.id] %}
                     <div class="border rounded p-3 mt-3">
@@ -139,19 +137,9 @@
                             </div>
                         {% endif %}
 
-                        {#
-                          Shown in BOTH states, and the connected one is the
-                          state it matters in: an authorisation issued by a
-                          project still in « Test » dies seven days after it
-                          was granted, so the card that reads « Raccordé » is
-                          exactly the card whose reader has a week to act.
-                        #}
-                        <div class="alert alert-warning small mt-2 mb-0" role="alert">
-                            <strong>Publiez l'écran de consentement de votre projet Google.</strong>
-                            Tant qu'il reste en statut « Test », Google fait expirer l'autorisation au bout de
-                            {{ drive_testing_token_days }} jours : tout ce qui écrit ici s'arrêterait sans
-                            prévenir, et vous ne le découvririez que le jour où vous en auriez besoin.
-                        </div>
+                        {% include 'config/storage/_drive_expiry.html.twig' with {
+                            expiry: drive_expiries[location.id] ?? null,
+                        } only %}
 
                         <div class="d-flex flex-wrap align-items-center gap-3 small mt-2">
                             {% if drive and drive.hasClientSecret and drive_redirect_uri %}

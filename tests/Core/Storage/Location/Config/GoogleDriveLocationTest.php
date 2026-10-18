@@ -37,6 +37,30 @@ final class GoogleDriveLocationTest extends TestCase
         $this->assertTrue($back->isConnected());
     }
 
+    /** The grant's lifetime survives too (#718 § C point 10.2), and a folder change keeps it. */
+    public function testTheGrantsLifetimeSurvivesARoundTripAndAFolderChange(): void
+    {
+        $config = new GoogleDriveLocationConfig('client-1', 'dossier-1', '2026-09-01T00:00:00+00:00', true, '2026-09-08T00:00:00+02:00');
+
+        $back = GoogleDriveLocationConfig::fromArray($config->toArray())->withFolder('dossier-2');
+
+        $this->assertTrue($back->grantObserved);
+        $this->assertSame('2026-09-08T00:00:00+02:00', $back->grantExpiresAt);
+        $this->assertSame('dossier-2', $back->folderId);
+    }
+
+    /** A record written before the lifetime was looked at reads as « not observed », not as « no end ». */
+    public function testARecordFromBeforeTheLifetimeWasKeptReadsAsUnobserved(): void
+    {
+        $config = GoogleDriveLocationConfig::fromArray([
+            'client_id' => 'client-1', 'folder_id' => 'dossier-1', 'connected_at' => '2026-03-01T00:00:00+00:00',
+        ]);
+
+        $this->assertTrue($config->isConnected());
+        $this->assertFalse($config->grantObserved);
+        $this->assertSame('', $config->grantExpiresAt);
+    }
+
     /**
      * A row written by a newer version, or half-written by a flow that
      * failed, reads as « not connected » rather than as a fatal on the

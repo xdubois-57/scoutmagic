@@ -412,6 +412,49 @@ final class GoogleDriveConnectionControllerTest extends TestCase
         );
     }
 
+    // ————— The grant's lifetime (#718 § C point 10.2) —————
+
+    /** An announced lifetime becomes an absolute end, on the application clock. */
+    public function testTheCallbackKeepsTheEndGoogleAnnounced(): void
+    {
+        $this->saveCredentials();
+        $this->armState();
+
+        $this->controller($this->googleAnsweringHappily(',"refresh_token_expires_in":604800'))
+            ->callback($this->callbackRequest('st4te', 'code-1'), []);
+
+        $this->assertTrue($this->config()->grantObserved);
+        $end = new \DateTimeImmutable($this->config()->grantExpiresAt);
+        $expected = \Core\Config\AppClock::now()->modify('+604800 seconds');
+        $this->assertLessThan(60, abs($end->getTimestamp() - $expected->getTimestamp()));
+    }
+
+    /** No lifetime announced is recorded as observed, with no end — never as « permanent ». */
+    public function testACallbackWithNoAnnouncedLifetimeIsObservedWithoutAnEnd(): void
+    {
+        $this->saveCredentials();
+        $this->armState();
+
+        $this->controller($this->googleAnsweringHappily())->callback($this->callbackRequest('st4te', 'code-1'), []);
+
+        $this->assertTrue($this->config()->grantObserved);
+        $this->assertSame('', $this->config()->grantExpiresAt);
+    }
+
+    /** Disconnecting drops the grant's lifetime along with the grant. */
+    public function testDisconnectingForgetsTheGrantsLifetime(): void
+    {
+        $this->saveCredentials();
+        $this->armState();
+        $this->controller($this->googleAnsweringHappily(',"refresh_token_expires_in":604800'))
+            ->callback($this->callbackRequest('st4te', 'code-1'), []);
+
+        $this->controller($this->googleAnsweringHappily())->disconnect($this->postRequest([]), ['id' => (string) $this->locationId]);
+
+        $this->assertFalse($this->config()->grantObserved);
+        $this->assertSame('', $this->config()->grantExpiresAt);
+    }
+
     // ————— The location's folder (#474) —————
 
     /**
@@ -832,11 +875,14 @@ final class GoogleDriveConnectionControllerTest extends TestCase
     }
 
     /** Google saying yes to everything: token, account, folder, witness. */
-    private function googleAnsweringHappily(): GoogleDriveClient
+    private function googleAnsweringHappily(string $tokenExtra = ''): GoogleDriveClient
     {
-        return new GoogleDriveClient(function (string $method, string $url): array {
+        return new GoogleDriveClient(function (string $method, string $url) use ($tokenExtra): array {
             if (str_contains($url, '/token')) {
-                return ['status' => 200, 'body' => '{"refresh_token":"refresh-abc","access_token":"ya29.ok","expires_in":3599}'];
+                return [
+                    'status' => 200,
+                    'body' => '{"refresh_token":"refresh-abc","access_token":"ya29.ok","expires_in":3599' . $tokenExtra . '}',
+                ];
             }
             if (str_contains($url, '/about')) {
                 return ['status' => 200, 'body' => '{"user":{"emailAddress":"unite@example.org"},"storageQuota":{"usage":"1","limit":"9"}}'];

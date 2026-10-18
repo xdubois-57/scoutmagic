@@ -19,7 +19,6 @@ use Core\Security\AuthSession;
 use Core\Security\EncryptionService;
 use Core\Storage\Location\Backend\StorageBackendFactory;
 use Core\Http\Controller\GoogleDriveConnectionController;
-use Core\Storage\Location\Backend\Drive\GoogleDriveClient;
 use Core\Storage\Location\Config\GoogleDriveGrantSummary;
 use Core\Storage\Location\Config\GoogleDriveLocationConfig;
 use Core\Storage\Location\Config\GoogleDriveSecret;
@@ -1162,15 +1161,11 @@ class StorageConfigControllerTest extends TestCase
     }
 
     /**
-     * **The Google card lives on the location, and carries the warning
-     * that decides whether this integration survives a week** (IT-05).
-     *
-     * A project left in « Test » status hands out refresh tokens Google
-     * withdraws after seven days, silently. The warning followed the
-     * backend here from Configuration > Maintenance, and a card that lost
-     * it on the way would look perfectly finished.
+     * **The Google card lives on the location** (IT-05), and says what the
+     * site knows about when its grant ends — for a location connected
+     * before that was recorded, that nobody knows (#718 § C point 10.3).
      */
-    public function testTheGoogleDriveCardCarriesTheConsentScreenWarningAndTheAddressToRegister(): void
+    public function testTheGoogleDriveCardSaysItsExpiryIsUnknownAndCarriesTheAddressToRegister(): void
     {
         $this->declareDrive();
 
@@ -1180,7 +1175,8 @@ class StorageConfigControllerTest extends TestCase
         )->getBody();
 
         $this->assertStringContainsString('Google Drive', $body);
-        $this->assertStringContainsString((string) GoogleDriveClient::TESTING_TOKEN_LIFETIME_DAYS . ' jours', $body);
+        $this->assertStringContainsString('Expiration inconnue', $body);
+        $this->assertStringNotContainsString('7 jours', $body, 'no lifetime is guessed any more');
         $this->assertStringContainsString('/google/raccordement', $body);
         // A card that already holds a grant offers to replace it, and says
         // so — « Raccorder » would read as « rien n'est branché ».
@@ -1188,9 +1184,8 @@ class StorageConfigControllerTest extends TestCase
     }
 
     /**
-     * A location nobody has connected yet offers the first connection,
-     * and carries the same warning — which is where an operator meets it
-     * before creating the grant that would die in a week.
+     * A location nobody has connected yet offers the first connection, and
+     * says nothing about an expiry: there is no grant to expire.
      */
     public function testAnUnconnectedGoogleDriveCardOffersTheFirstConnection(): void
     {
@@ -1208,7 +1203,8 @@ class StorageConfigControllerTest extends TestCase
 
         $this->assertStringContainsString('Raccorder un compte Google Drive', $body);
         $this->assertStringContainsString('Non raccordé', $body);
-        $this->assertStringContainsString((string) GoogleDriveClient::TESTING_TOKEN_LIFETIME_DAYS . ' jours', $body);
+        $this->assertStringNotContainsString('Expiration inconnue', $body);
+        $this->assertStringNotContainsString('prend fin', $body);
     }
 
     /** And the form prints the address Google's console has to be given. */
@@ -2268,6 +2264,72 @@ class StorageConfigControllerTest extends TestCase
     private function declareLocal(string $label, string $path): int
     {
         return $this->repository->create(StorageLocationType::Local, $label, new LocalLocationConfig($path), null);
+    }
+
+    /**
+     * A grant whose end Google announced shows the real date and the days
+     * left (#718 § C point 10.3) — counted on the application clock.
+     */
+    public function testAnAnnouncedEndShowsTheRealDateAndTheDaysLeft(): void
+    {
+        $end = \Core\Config\AppClock::now()->modify('+5 days');
+        $this->declareObservedDrive($end->format('c'));
+
+        $body = $this->locationsPage();
+
+        $this->assertStringContainsString('Cette autorisation prend fin le ' . $end->format('d/m/Y') . ', dans 5 jours', $body);
+        $this->assertStringNotContainsString('Expiration inconnue', $body);
+    }
+
+    /** Observed with no end announced: no countdown, and no claim about the project. */
+    public function testAGrantWithNoAnnouncedEndSaysNothingAboutAnExpiry(): void
+    {
+        $this->declareObservedDrive('');
+
+        $body = $this->locationsPage();
+
+        $this->assertStringNotContainsString('prend fin', $body);
+        $this->assertStringNotContainsString('Expiration inconnue', $body);
+        $this->assertStringNotContainsString('production', $body);
+    }
+
+    /** Past the end with no successful check since, the card says it ended. */
+    public function testAPassedEndWithoutASuccessfulCheckSinceSaysItEnded(): void
+    {
+        $this->declareObservedDrive(\Core\Config\AppClock::now()->modify('-2 days')->format('c'));
+
+        $this->assertStringContainsString('Cette autorisation a pris fin le', $this->locationsPage());
+    }
+
+    /** A check that succeeded after the end is the proof it no longer applies. */
+    public function testASuccessfulCheckAfterTheEndClearsTheWarning(): void
+    {
+        $id = $this->declareObservedDrive(\Core\Config\AppClock::now()->modify('-2 days')->format('c'));
+        $this->repository->recordCheckResult($id, true, null);
+
+        $this->assertStringNotContainsString('a pris fin', $this->locationsPage());
+    }
+
+    private function locationsPage(): string
+    {
+        return $this->controller->locations(
+            new Request('GET', '/config/stockage/emplacements', [], [], [], []),
+            []
+        )->getBody();
+    }
+
+    private function declareObservedDrive(string $expiresAt): int
+    {
+        return $this->repository->create(
+            StorageLocationType::GoogleDrive,
+            'Drive observé',
+            new GoogleDriveLocationConfig('client-1', 'dossier-1', '2026-03-01T00:00:00+00:00', true, $expiresAt),
+            (string) json_encode([
+                'client_secret' => 'le-secret-du-client',
+                'refresh_token' => 'le-jeton-de-rafraichissement',
+                'account' => 'unite@example.org',
+            ])
+        );
     }
 
     private function declareDrive(string $label = 'Google Drive'): int

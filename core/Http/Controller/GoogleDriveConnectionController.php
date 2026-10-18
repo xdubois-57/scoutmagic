@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Core\Http\Controller;
 
+use Core\Config\AppClock;
 use Core\Config\SettingService;
 use Core\Http\FlashMessage;
 use Core\Http\Request;
@@ -127,7 +128,13 @@ final class GoogleDriveConnectionController extends AbstractController
         $this->locations->update(
             $location->id,
             $location->label,
-            new GoogleDriveLocationConfig($clientId, $config->folderId, $config->connectedAt),
+            new GoogleDriveLocationConfig(
+                $clientId,
+                $config->folderId,
+                $config->connectedAt,
+                $config->grantObserved,
+                $config->grantExpiresAt
+            ),
             $this->secretOf($location)->withClientSecret($clientSecret)->toStorage()
         );
 
@@ -257,7 +264,15 @@ final class GoogleDriveConnectionController extends AbstractController
             $this->locations->update(
                 $location->id,
                 $location->label,
-                new GoogleDriveLocationConfig($config->clientId, $folderId ?? $config->folderId, date('c')),
+                new GoogleDriveLocationConfig(
+                    $config->clientId,
+                    $folderId ?? $config->folderId,
+                    date('c'),
+                    // A reconnection replaces the old grant's lifetime with
+                    // the new one's (#718 § C point 10.2).
+                    grantObserved: true,
+                    grantExpiresAt: self::grantExpiry($tokens['refresh_token_expires_in'])
+                ),
                 $secret->withGrant($tokens['refresh_token'], $about['account'])->toStorage()
             );
         } catch (DriveAccessException $e) {
@@ -522,6 +537,8 @@ final class GoogleDriveConnectionController extends AbstractController
         $this->locations->update(
             $location->id,
             $location->label,
+            // The grant's lifetime goes with the grant: a disconnected
+            // location has no expiry to warn about.
             new GoogleDriveLocationConfig('', $this->configOf($location)->folderId, ''),
             (string) json_encode(['client_secret' => '', 'refresh_token' => '', 'account' => ''])
         );
@@ -602,5 +619,17 @@ final class GoogleDriveConnectionController extends AbstractController
     private function secretOf(StorageLocation $location): GoogleDriveSecret
     {
         return GoogleDriveSecret::fromStorage($this->locations->getSecretForDisplay($location->id));
+    }
+
+    /**
+     * When the refresh token stops working, by the application clock — or
+     * '' when Google announced no end, which is recorded as such and never
+     * read as « permanent » (#718 § C point 10.2).
+     */
+    private static function grantExpiry(?int $seconds): string
+    {
+        return $seconds !== null && $seconds > 0
+            ? AppClock::now()->modify('+' . $seconds . ' seconds')->format('c')
+            : '';
     }
 }

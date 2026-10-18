@@ -481,6 +481,26 @@ final class GoogleDriveClientTest extends TestCase
     }
 
     /**
+     * Google's own word on how long the refresh token lives is handed
+     * back (#718 § C point 10.2) — and its absence stays an absence, never
+     * a zero a caller could read as « already expired » or « permanent ».
+     */
+    public function testTheExchangeHandsBackTheRefreshTokensAnnouncedLifetime(): void
+    {
+        $with = $this->clientAnswering(fn (): array => [
+            'status' => 200,
+            'body' => '{"refresh_token":"r","access_token":"a","expires_in":3599,"refresh_token_expires_in":604799}',
+        ])->exchangeCode('c', 's', 'https://u.example/cb', 'code-1');
+        $without = $this->clientAnswering(fn (): array => [
+            'status' => 200,
+            'body' => '{"refresh_token":"r","access_token":"a","expires_in":3599}',
+        ])->exchangeCode('c', 's', 'https://u.example/cb', 'code-1');
+
+        $this->assertSame(604799, $with['refresh_token_expires_in']);
+        $this->assertNull($without['refresh_token_expires_in']);
+    }
+
+    /**
      * The listing is what the retention decides from, so every field it
      * decides on is read: the key it deletes by, the size it budgets
      * with, and the remote clock's own timestamp — never re-parsed into

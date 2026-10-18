@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Core\Http\Controller;
 
+use Core\Storage\Location\DriveGrantExpiry;
+use Core\Config\AppClock;
 use Core\Http\FlashMessage;
 use Core\Http\Request;
 use Core\Http\Response;
@@ -18,7 +20,6 @@ use Core\Security\CsrfGuard;
 use Core\Security\DecryptionException;
 use Core\Security\SsrfUrlValidator;
 use Core\Storage\Location\Backend\ObjectStorageBackend;
-use Core\Storage\Location\Backend\Drive\GoogleDriveClient;
 use Core\Storage\Location\Config\GoogleDriveGrantSummary;
 use Core\Storage\Location\Config\GoogleDriveLocationConfig;
 use Core\Storage\Location\Config\GoogleDriveSecret;
@@ -387,7 +388,7 @@ class StorageConfigController extends AbstractController
             'drive_redirect_uri' => GoogleDriveConnectionController::redirectUriFor(
                 (string) ($this->settings?->get('base_url') ?: '')
             ),
-            'drive_testing_token_days' => GoogleDriveClient::TESTING_TOKEN_LIFETIME_DAYS,
+            'drive_expiries' => $this->driveExpiriesFor($locations),
             'csrf_token' => CsrfGuard::generateToken(),
         ]);
     }
@@ -1154,9 +1155,7 @@ class StorageConfigController extends AbstractController
                 (string) ($this->settings?->get('base_url') ?: '')
             ),
             'drive_secret' => $this->driveGrantOf($location),
-            // The number the warning quotes comes from the client that
-            // suffers it, so the screen and the code cannot drift.
-            'drive_testing_token_days' => GoogleDriveClient::TESTING_TOKEN_LIFETIME_DAYS,
+            'drive_expiry' => $location !== null ? self::driveExpiryView($location) : null,
             // One spelling of « the default folder », shared with
             // StorageLocationService::ensureDefaultExists() and with
             // normalizeLocalPath()'s blank-submit fallback.
@@ -1379,7 +1378,9 @@ class StorageConfigController extends AbstractController
             return new GoogleDriveLocationConfig(
                 clientId: trim((string) $request->getBody('drive_client_id', '')),
                 folderId: $existing->folderId,
-                connectedAt: $existing->connectedAt
+                connectedAt: $existing->connectedAt,
+                grantObserved: $existing->grantObserved,
+                grantExpiresAt: $existing->grantExpiresAt
             );
         }
 
@@ -1520,5 +1521,46 @@ class StorageConfigController extends AbstractController
         $value = (string) ($value ?? '');
 
         return trim($value) === '' ? null : $value;
+    }
+
+    /**
+     * @param StorageLocation[] $locations
+     * @return array<int, array{state: string, days: ?int, date: string, failed: bool, error: ?string}>
+     */
+    private function driveExpiriesFor(array $locations): array
+    {
+        $views = [];
+        foreach ($locations as $location) {
+            $view = self::driveExpiryView($location);
+            if ($view !== null) {
+                $views[$location->id] = $view;
+            }
+        }
+
+        return $views;
+    }
+
+    /**
+     * What `_drive_expiry.html.twig` says about one location — null when it
+     * says nothing (#718 § C point 10.3). Read through DriveGrantExpiry, the
+     * same reading StorageAttentionProvider makes, and counted on the
+     * application clock.
+     *
+     * @return array{state: string, days: ?int, date: string, failed: bool, error: ?string}|null
+     */
+    private static function driveExpiryView(StorageLocation $location): ?array
+    {
+        $expiry = DriveGrantExpiry::of($location);
+        if ($expiry->state === DriveGrantExpiry::NONE) {
+            return null;
+        }
+
+        return [
+            'state' => $expiry->state,
+            'days' => $expiry->daysLeft(AppClock::now()),
+            'date' => $expiry->expiresAt?->setTimezone(AppClock::zone())->format('d/m/Y') ?? '',
+            'failed' => $expiry->failedSince,
+            'error' => $location->lastCheckError,
+        ];
     }
 }
