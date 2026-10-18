@@ -1326,7 +1326,7 @@ class SetupControllerTest extends TestCase
      * @group database
      */
     #[\PHPUnit\Framework\Attributes\Group('database')]
-    public function testFirstTimeSetupRecordsTheInstallationDateAndTheStatisticsChoice(): void
+    public function testFirstTimeSetupRecordsTheInstallationDateTheStatisticsChoiceAndTheFirstSteps(): void
     {
         foreach ([['1', '1'], ['', '0']] as [$submitted, $expected]) {
             [$pdo, $params] = $this->connectToTestDatabase();
@@ -1364,6 +1364,10 @@ class SetupControllerTest extends TestCase
             $installedAt = (string) $settings->get('installed_at');
             $this->assertNotSame('', $installedAt);
             $this->assertStringEndsWith('+00:00', $installedAt);
+
+            // Issue #718 § A: the site just created owes its first
+            // superadmin the « Premiers pas » band.
+            $this->assertSame('1', $settings->get(\Core\Config\FirstStepsService::SETTING_KEY));
 
             $this->dropAllTables($pdo);
         }
