@@ -135,7 +135,12 @@ class RunOperationalChecksHandler implements TaskHandlerInterface
                     new MailProviderRepository($pdo),
                     new ProviderConnections($this->mailSecrets($context)),
                     $context->settings
-                )
+                ),
+                // Unlike the lane check, an unreadable secrets file must not
+                // read as « no relay »: SPF would then have nothing to look
+                // for, and the reading would re-arm the alert and overwrite
+                // the stored one with a verdict nobody took.
+                relayHostsReadable: $this->secretsAreReadable($context)
             ),
             new DevelopmentModeCheck($context->settings),
         ]);
@@ -216,6 +221,17 @@ class RunOperationalChecksHandler implements TaskHandlerInterface
             return $this->secrets($context)->readSecrets();
         } catch (\Throwable) {
             return [];
+        }
+    }
+
+    private function secretsAreReadable(TaskContext $context): bool
+    {
+        try {
+            $this->secrets($context)->readSecrets();
+
+            return true;
+        } catch (\Throwable) {
+            return false;
         }
     }
 

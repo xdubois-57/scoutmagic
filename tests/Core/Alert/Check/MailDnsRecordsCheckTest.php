@@ -210,6 +210,31 @@ class MailDnsRecordsCheckTest extends TestCase
         $this->assertSame([1], array_values(array_unique($dns->asked)), 'each host asked exactly once');
     }
 
+    /**
+     * Secrets that could not be read list every relay with an empty host,
+     * which looks like « no relay »: the reading is inconclusive, and the
+     * stored one stays as it was.
+     */
+    public function testUnreadableRelayHostsAreInconclusiveAndKeepTheStoredReading(): void
+    {
+        $this->check($this->completeZone())->read();
+        $before = $this->settings->values[DnsCheckMemory::SETTING_KEY] ?? null;
+
+        $check = new MailDnsRecordsCheck(
+            $this->settings,
+            new FakeZone([]),
+            $this->dkim,
+            $this->chains,
+            new MailProviderDirectory($this->providers, new ProviderConnections([]), $this->settings),
+            relayHostsReadable: false
+        );
+        $reading = $check->read();
+
+        $this->assertFalse($reading->overTrigger);
+        $this->assertFalse($reading->underRearm);
+        $this->assertSame($before, $this->settings->values[DnsCheckMemory::SETTING_KEY] ?? null);
+    }
+
     /** A record the site has nothing to publish for is not missing. */
     public function testNoDmarcReportAskedForNeedsNoDmarcRecord(): void
     {
@@ -247,5 +272,19 @@ class MailDnsRecordsCheckTest extends TestCase
             MailDnsRecordsCheck::AUTHENTICATION_PATH,
             AlertSurfaces::destinations()[MailDnsRecordsCheck::KEY]['path']
         );
+    }
+}
+
+/** A zone answering from a fixed table, `[]` for any host it does not know. */
+final class FakeZone extends DnsVerifier
+{
+    /** @param array<string, list<string>> $zone */
+    public function __construct(private array $zone)
+    {
+    }
+
+    protected function readTxtRecords(string $host): ?array
+    {
+        return $this->zone[$host] ?? [];
     }
 }

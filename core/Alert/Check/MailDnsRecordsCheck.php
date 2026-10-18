@@ -67,7 +67,15 @@ final class MailDnsRecordsCheck implements OperationalCheck
         private readonly DnsVerifier $dns,
         private readonly DkimManager $dkim,
         private readonly LaneChainRepository $chains,
-        private readonly MailProviderDirectory $directory
+        private readonly MailProviderDirectory $directory,
+        /**
+         * Whether the relays' hosts could be read at all. They live in the
+         * encrypted secrets, and a directory built from secrets that could
+         * not be read lists every relay with an empty host — which reads
+         * exactly like « no relay », and would let an SPF alert re-arm on a
+         * reading that never looked for anything.
+         */
+        private readonly bool $relayHostsReadable = true
     ) {
     }
 
@@ -87,6 +95,10 @@ final class MailDnsRecordsCheck implements OperationalCheck
         $selector = (string) ($this->settings->get('dkim_selector') ?? '');
         if ($identity->spfDomain() === '' || $selector === '') {
             return new AlertReading(false, true, 'non vérifiés', '', '');
+        }
+
+        if (!$this->relayHostsReadable) {
+            return AlertReading::inconclusive();
         }
 
         try {
