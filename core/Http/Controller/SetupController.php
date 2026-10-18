@@ -1014,7 +1014,8 @@ class SetupController extends AbstractController
      *
      * @throws IncompleteMigrationException when the schema is still not
      *   whole after MIGRATION_WAIT_SECONDS, or after STALLED_SLICES_ALLOWED
-     *   slices in a row that changed nothing
+     *   slices in a row that changed nothing, or when the runner abandoned
+     *   statements that failed on every pass
      */
     private function migrateToCompletion(Connection $connection): MigrationResult
     {
@@ -1069,6 +1070,12 @@ class SetupController extends AbstractController
             }
             $result = $runner->migrate($schemaFiles);
             if ($result->complete) {
+                // Complete but not converged is the runner giving up: done
+                // asking, and still not the schema the files declare.
+                if (!$result->converged) {
+                    throw IncompleteMigrationException::abandoned();
+                }
+
                 return $result;
             }
 
@@ -1079,7 +1086,7 @@ class SetupController extends AbstractController
             $previousProgress = $result->progressFraction;
 
             if ($stalledSlices >= self::STALLED_SLICES_ALLOWED || microtime(true) >= $deadline) {
-                throw new IncompleteMigrationException();
+                throw IncompleteMigrationException::timedOut();
             }
             if (!$advanced) {
                 usleep(self::STALLED_SLICE_PAUSE_MICROSECONDS);

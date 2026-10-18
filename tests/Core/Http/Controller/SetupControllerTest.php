@@ -1024,6 +1024,60 @@ class SetupControllerTest extends TestCase
     }
 
     /**
+     * A runner that gave up answers `complete` but not `converged`: done
+     * asking, and still not the declared schema. The wizard must refuse it
+     * as it refuses a timeout, never create the administrator on it (#909
+     * review).
+     *
+     * @group database
+     */
+    #[\PHPUnit\Framework\Attributes\Group('database')]
+    public function testInstallDatabaseRefusesAMigrationTheRunnerAbandoned(): void
+    {
+        [$pdo, $params] = $this->connectToTestDatabase();
+
+        $controller = new SetupController(
+            $this->twig,
+            $this->secretManager,
+            $this->dkimManager,
+            $this->schemaPath,
+            migrationRunnerFactory: static fn (\Core\Database\Connection $connection): \Core\Database\MigrationRunner
+                => new class ($connection) extends \Core\Database\MigrationRunner {
+                    public function __construct(\Core\Database\Connection $connection)
+                    {
+                        parent::__construct(
+                            $connection,
+                            new \Core\Database\SchemaIntrospector($connection->getPdo()),
+                            new \Core\Database\SchemaComparator(),
+                            new \Core\Database\SqlParser()
+                        );
+                    }
+
+                    public function migrate(array $schemaFiles): \Core\Database\MigrationResult
+                    {
+                        return new \Core\Database\MigrationResult(
+                            executedStatements: [],
+                            warnings: ['Failed to execute: CREATE TABLE …'],
+                            complete: true,
+                            converged: false
+                        );
+                    }
+                }
+        );
+        $token = \Core\Security\CsrfGuard::generateToken();
+        $_POST['_csrf_token'] = $token;
+        $request = new Request('POST', '/setup/install-database', [], array_merge($params, ['_csrf_token' => $token]), [], []);
+
+        $json = json_decode($controller->installDatabase($request, [])->getBody(), true);
+
+        $this->assertFalse($json['success']);
+        $this->assertArrayNotHasKey('migrated', $json);
+        $this->assertSame(\Core\Database\IncompleteMigrationException::ABANDONED, $json['message']);
+
+        $this->dropAllTables($pdo);
+    }
+
+    /**
      * Issue #909, the other half: when the schema cannot be finished — here
      * another process holds the migration lock for the whole wait — the
      * answer is an explicit refusal, never `migrated: true`.
@@ -1049,7 +1103,7 @@ class SetupControllerTest extends TestCase
 
         $this->assertFalse($json['success']);
         $this->assertArrayNotHasKey('migrated', $json);
-        $this->assertSame(\Core\Database\IncompleteMigrationException::MESSAGE, $json['message']);
+        $this->assertSame(\Core\Database\IncompleteMigrationException::TIMED_OUT, $json['message']);
 
         $this->dropAllTables($pdo);
     }
