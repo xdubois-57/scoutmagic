@@ -303,16 +303,18 @@ test.describe('Rentals — running an asset', () => {
         // ── And the unit answers it ─────────────────────────────────────
         await loginAsAdmin(page);
         await page.goto(`/mes-locations/${ASSET_SLUG}/reservations`);
+        // The scan's intermittent failure on the discs below (issue #912)
+        // was sampled with the banner still up — `fixed-bottom`, in front of
+        // the foot of a long page. Answered here, as a visitor would, and
+        // HERE rather than on the reservation page: goto() has waited for
+        // `load`, so cookie-consent.js — a deferred script — has wired the
+        // buttons. Clicked on a page still loading, « Tout refuser » did
+        // nothing and the banner stayed. The choice is a cookie, so it holds
+        // for the reservation page too.
+        await answerCookieBanner(page);
 
         await page.getByRole('link', { name: new RegExp(reference) }).first().click();
         await expect(page.getByText('Pierre Lambert').first()).toBeVisible();
-
-        // The scan's intermittent failure on the first disc below (issue
-        // #912) was sampled with the banner still up — `fixed-bottom`, in
-        // front of the foot of a long page. Answered here, as a visitor
-        // would, so that nothing stands over the discs while they are
-        // clicked.
-        await answerCookieBanner(page);
 
         // confirm.js must have installed its submit listener before this
         // click: without it the form submits natively and unasked, the
