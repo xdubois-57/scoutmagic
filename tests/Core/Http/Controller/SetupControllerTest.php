@@ -964,6 +964,11 @@ class SetupControllerTest extends TestCase
 
         $this->assertTrue($json['success'], $json['message'] ?? '');
         $this->assertTrue($json['migrated']);
+        $this->assertSame(
+            '0',
+            ini_get('max_execution_time'),
+            'the slices may extend a limited request, never put a limit on an unlimited process'
+        );
         $runner = new \Core\Database\MigrationRunner(
             self::productionEngineConnection(),
             new \Core\Database\SchemaIntrospector($pdo),

@@ -1028,12 +1028,35 @@ class SetupController extends AbstractController
                 self::MIGRATION_SLICE_SECONDS
             );
         $schemaFiles = $this->schemaFileSet();
+        // Zero is "no limit" (the CLI, the test suite): left alone. Anything
+        // else is put back afterwards, so the rest of the request keeps the
+        // limit the host chose rather than the last slice's.
+        $previousLimit = (int) ini_get('max_execution_time');
+
+        try {
+            return $this->runSlicesUntilComplete($runner, $schemaFiles, $previousLimit !== 0);
+        } finally {
+            if ($previousLimit !== 0) {
+                @set_time_limit($previousLimit);
+            }
+        }
+    }
+
+    /**
+     * @param array<string> $schemaFiles
+     *
+     * @throws IncompleteMigrationException
+     */
+    private function runSlicesUntilComplete(MigrationRunner $runner, array $schemaFiles, bool $extendTimeLimit): MigrationResult
+    {
         $deadline = microtime(true) + self::MIGRATION_WAIT_SECONDS;
         $stalledSlices = 0;
         $previousProgress = null;
 
         while (true) {
-            @set_time_limit(self::MIGRATION_SLICE_SECONDS + 60);
+            if ($extendTimeLimit) {
+                @set_time_limit(self::MIGRATION_SLICE_SECONDS + 60);
+            }
             $result = $runner->migrate($schemaFiles);
             if ($result->complete) {
                 return $result;
