@@ -103,6 +103,43 @@ class ShellExecutorTest extends TestCase
         $this->assertSame(ShellExecutor::TIMED_OUT_RETURN_CODE, $result['returnCode']);
     }
 
+    /**
+     * A command that ignores the polite stop is killed once the grace period
+     * is over, and `timeout -k` then answers 137. That is still "it reached
+     * its limit", and is reported as such.
+     */
+    public function testACommandThatIgnoresTheStopIsKilledAndReportedAsInterrupted(): void
+    {
+        if (!self::hostHasTimeoutUtility()) {
+            $this->markTestSkipped('This host has no timeout utility, which is the case the bound cannot cover.');
+        }
+
+        $result = ['returnCode' => 0, 'output' => ''];
+        $seconds = self::secondsTaken(function () use (&$result): void {
+            $result = ShellExecutor::run('trap "" TERM; sleep 30', 1);
+        });
+
+        $this->assertGreaterThanOrEqual(1.0, $seconds, 'It was given its second before anything was done to it.');
+        $this->assertLessThan(8.0, $seconds, 'The kill grace is two seconds, not the thirty the command asked for.');
+        $this->assertSame(ShellExecutor::TIMED_OUT_RETURN_CODE, $result['returnCode']);
+    }
+
+    /**
+     * 137 alone proves nothing: anything may kill the command. Well inside
+     * its limit it keeps its own code, so a crash is not read as a timeout.
+     */
+    public function testACommandKilledEarlyKeepsItsOwnCodeRatherThanLookingLikeATimeout(): void
+    {
+        if (!self::hostHasTimeoutUtility()) {
+            $this->markTestSkipped('This host has no timeout utility, which is the case the bound cannot cover.');
+        }
+
+        $result = ShellExecutor::run('kill -9 $$', 30);
+
+        $this->assertSame(137, $result['returnCode']);
+        $this->assertNotSame(ShellExecutor::TIMED_OUT_RETURN_CODE, $result['returnCode']);
+    }
+
     public function testAFastCommandKeepsItsOutputAndItsCodeUnderATimeout(): void
     {
         $result = ShellExecutor::run("echo 'two words' 2>&1; (exit 3)", 5);
