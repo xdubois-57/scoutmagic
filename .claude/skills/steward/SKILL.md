@@ -528,22 +528,26 @@ GitHub MCP server's `enable_pr_auto_merge` with `mergeMethod: SQUASH`. If
 your build of that server has neither, say so — **never** substitute
 `merge_pull_request`, which merges on the spot instead of arming.
 
-Confirm first what you would confirm before merging by hand, because arming
-it *is* merging: **every check green on the current head**, no open thread,
-the checklist honestly filled, nothing of your own left unfiled. Then GitHub
-lands it the moment the ruleset is satisfied, whether or not you are still
-here. If everything is already green the same command merges immediately.
+**Arm it as soon as the pull request is open**, in the same turn — the
+maintainer's decision of 2026-10-18, so that a pull request that only needs
+the button never waits on them (AGENTS.md § Merging a pull request). Arming
+it *is* merging, so what must be true at the merge still must:
+**every check green on the current head**, no open thread, the checklist honestly filled,
+nothing of your own left unfiled. The ruleset holds the first two —
+`Claude review` and `All checks` are required contexts and conversation
+resolution is required (`docs/quality-pipeline.md` § Branch ruleset on
+`main`) — so an armed pull request waits for them; the checklist is yours
+alone, and true before you open the pull request.
 
-The CI confirmation is not a formality, though since 2026-09-06 the ruleset
-catches most of it: `Claude review` and `All checks` are both required
-contexts (`docs/quality-pipeline.md` § Branch ruleset on `main`), and `All
-checks` needs every `Checks / …` job and goes red when any of them fails or
-is cancelled. So a red `database-mariadb`, `Authorization matrix` or
-`Dynamic scan (passive)` does block the merge now, where before it blocked
-nothing and arming on one merged it (issue #170). Read `All checks` as the quickest way to confirm the
-whole set. What it cannot tell you is that the pipeline has *finished*: it
-reports only once every job it needs has, so arming before that is arming on
-a verdict nobody has reached.
+`All checks` needs every `Checks / …` job and goes red when any of them
+fails or is cancelled, so a red `database-mariadb`, `Authorization matrix`
+or `Dynamic scan (passive)` blocks the merge (issue #170), and a pipeline
+still running holds an armed pull request until it reports.
+
+Arming early is never walking away: stay with the pull request until it
+merges. If you learn it must not land as it stands, **disarm it first** —
+`gh pr merge <number> --disable-auto`, or the MCP server's
+`disable_pr_auto_merge` — then say why.
 
 Do not poll the PR instead. That is what cost #152 four CI cycles and three
 interruptions on 2026-09-05, and it is why auto-merge is enabled at all

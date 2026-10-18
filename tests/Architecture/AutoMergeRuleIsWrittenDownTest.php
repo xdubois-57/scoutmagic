@@ -203,6 +203,63 @@ final class AutoMergeRuleIsWrittenDownTest extends TestCase
     }
 
     /**
+     * WHEN to arm: as soon as the pull request is open (the maintainer's
+     * decision of 2026-10-18). Waiting for green asked the MCP tool at the
+     * one moment it refuses — a pull request already mergeable — and sent
+     * the last click back to the maintainer, which is the interruption
+     * auto-merge exists to remove.
+     *
+     * Three things are pinned with it, because arming early is only safe
+     * while all three are written down: the ruleset holds the checks and
+     * the threads (so the reason it is safe must stay next to the rule),
+     * the checklist is the agent's alone and settled before opening, and a
+     * pull request that must not land is disarmed — by name, so the next
+     * agent is not left closing a pull request to stop a merge.
+     */
+    public function testAutoMergeIsArmedAsSoonAsThePullRequestIsOpen(): void
+    {
+        $rules = self::agentRules();
+
+        $this->assertStringContainsString(
+            '**Arm it as soon as the pull request is open**',
+            $rules,
+            'AGENTS.md no longer says to arm auto-merge when the pull request opens, so the next agent '
+            . 'waits for green, the tool refuses a mergeable pull request, and the maintainer merges by hand'
+        );
+        $this->assertStringContainsString(
+            '6. **Arm auto-merge as soon as the pull request is open.**',
+            $rules,
+            'the backlog procedure no longer arms auto-merge when the pull request opens'
+        );
+        $this->assertStringContainsString(
+            'The ruleset requires conversation resolution',
+            $rules,
+            'AGENTS.md no longer says what holds an early-armed pull request back from merging over an '
+            . 'open review thread'
+        );
+        $this->assertStringContainsString(
+            'Nothing but you holds this one',
+            $rules,
+            'AGENTS.md no longer says that the checklist — the one thing no ruleset holds — is settled '
+            . 'before the pull request is opened'
+        );
+
+        foreach (['AGENTS.md', '.claude/skills/steward/SKILL.md'] as $file) {
+            $contents = self::read($file);
+            $this->assertStringContainsString(
+                'gh pr merge <number> --disable-auto',
+                $contents,
+                $file . ' no longer names how to disarm a pull request that must not land'
+            );
+            $this->assertStringContainsString(
+                'Arming early is never walking away',
+                $contents,
+                $file . ' no longer says that an armed pull request is still the agent\'s until it merges'
+            );
+        }
+    }
+
+    /**
      * The setting lives in the repository's settings, where no diff shows
      * it — the category docs/quality-pipeline.md exists to carry.
      */
