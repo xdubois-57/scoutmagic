@@ -8,7 +8,7 @@ discovery: 1
 question: Qu'est-ce qui ne va pas dans l'unité en ce moment ?
 question: Comment faire disparaître un point d'attention ?
 paths: /admin/points-attention
-related: import-desk, import-historique, staffs
+related: points-attention-liste, import-desk, import-historique, staffs
 ---
 
 Cette page dit ce qui ne va pas dans l'unité **maintenant** : un badge
@@ -43,21 +43,8 @@ modules qui contribuent. Le courrier y compte ce qui attend une décision
 humaine : les messages que personne n'a rattachés, les propositions que
 personne n'a tranchées, les séjours « à confirmer ».
 
-## Ce que le site signale de lui-même
-
-Trois points ne dépendent d'aucun module :
-
-- **L'année publique est terminée** et personne n'a basculé vers la
-  suivante. Le site continue à l'afficher ; le point mène à la page
-  Année scoute.
-- **Aucun import Desk n'est enregistré**, ce qui est le cas d'une
-  installation neuve : le site n'a encore ni membres, ni sections, ni
-  fonctions. Ou bien **le dernier import est trop ancien** : 60 jours par
-  défaut, un délai que le superadmin règle dans Configuration ›
-  Paramètres (« Délai avant de signaler un import Desk ancien »).
-- **L'adresse postale de l'unité est vide**. Les documents officiels,
-  comme le contrat et la facture d'une location, impriment « — » à sa
-  place.
+Ce que la page sait détecter, point par point, est décrit dans
+« Ce que signalent les points d'attention ».
 
 ## Ce qu'elle n'est pas
 
