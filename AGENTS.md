@@ -600,21 +600,23 @@ wake-up, and do not confuse it with the release gates, which stay separate.
    **Do not "fix" a body by putting a closing keyword back** — that is the
    bug, not the convention.
 
-6. **Bring `main` in if it moved into your files, then arm auto-merge.** If
-   `main` has moved into files your branch touches, merge `main` in, re-run
-   the checks locally — `vendor/bin/phpstan analyse` above all, which catches
-   a semantic conflict that compiles on each side and not together — push,
-   and wait for green. Where the files are disjoint, nothing is needed.
+6. **Arm auto-merge as soon as the pull request is open.** **Read the
+   issue's Project status first** (`backlog-project.yml`, action `status`):
+   if the maintainer has moved it to **Canceled** since you started, do not
+   open it and do not arm — see § Cancellation below.
 
-   **Read the issue's Project status first** (`backlog-project.yml`, action
-   `status`): if the maintainer has moved it to **Canceled** since you
-   started, do not arm — see § Cancellation below.
+   Then **arm auto-merge**, in the same turn that opens the pull request:
+   § Merging a pull request has the command, the reason, why arming before
+   the pipeline has finished is safe, and why `merge_pull_request` is not a
+   fallback there. The instruction to fix the backlog IS the authorization
+   that section requires, for every ticket in the set and not for the first
+   one, and everything it requires still holds without exception.
 
-   Then **arm auto-merge**: § Merging a pull request has the command and the
-   reason, and says why `merge_pull_request` is not a fallback there. The
-   instruction to fix the backlog IS the authorization that section requires,
-   for every ticket in the set and not for the first one, and everything it
-   requires *before* arming still holds without exception.
+   If `main` moves into files your branch touches before the merge, merge
+   `main` in, re-run the checks locally — `vendor/bin/phpstan analyse` above
+   all, which catches a semantic conflict that compiles on each side and not
+   together — and push. Your own push keeps auto-merge armed. Where the files
+   are disjoint, nothing is needed.
 
    **There is no merge lock, and « fusionne les PR une par une » cannot be
    obeyed as worded.** The maintainer asked for it twice — « Travaille en
@@ -639,9 +641,9 @@ wake-up, and do not confuse it with the release gates, which stay separate.
    answering the red-`main` notification and the fix going forward rather
    than by revert. The window is accepted, owned, and small by construction.
 
-   Your share of it is the first paragraph, and it is the half a branch can
-   actually see: never arm against a `main` that has moved into **your**
-   files.
+   Your share of it is the paragraph on `main` moving into your files, and
+   it is the half a branch can actually see: never arm against a `main` that has moved into **your**
+   files, and never leave a pull request armed against one.
 
 7. **Verify the comment and the closure, then record it: Project `Done`
    and `Agent` cleared (action `done` of `backlog-project.yml`, which
@@ -790,7 +792,7 @@ When the maintainer moves an issue to **Canceled** on Project #1, the
 `Canceled sync` workflow closes it as `not_planned` within the hour. It is
 not Done, and it is not eligible any more. An agent that was working on it
 **must notice before it continues or arms an auto-merge** (action `status`),
-and then: stop; close its own pull request with a comment saying the ticket
+and then: stop; disarm its own pull request if it is armed, and close it with a comment saying the ticket
 was canceled (never merge it); delete **its own** `claude/issue-<n>` branch
 and only that one, and only if this session created it; release its `Agent`
 (action `release` leaves a Canceled issue Canceled, and never turns a Todo into Ready); and say all of it in the
@@ -942,29 +944,44 @@ a pull request for an hour is not diligence — on 2026-09-05 that cost four
 CI cycles and three interruptions on #152, and auto-merge is the answer
 this repository chose (`docs/quality-pipeline.md` § Auto-merge).
 
-Arming it is *merging*, so everything that must be true before a merge must
-be true before you arm it:
+**Arm it as soon as the pull request is open** — in the same turn that
+opens it, not once the pipeline has finished. The maintainer decided so on
+2026-10-18 (« Pourquoi est ce que tu ne mets pas l'auto merge plus tôt pour
+t'assurer que je ne doive pas intervenir? »): waiting for green before
+arming meant the MCP tool, which refuses to arm a pull request that is
+already mergeable, was asked at the one moment it says no, and the
+maintainer had to merge by hand a pull request that only needed the button.
+
+Arming early changes *when* you arm, never what must be true when GitHub
+merges. Arming it is *merging*, so each of these must hold at the merge, and
+the first two are held by the ruleset on `main` itself
+(`docs/quality-pipeline.md` § Branch ruleset on `main`), which is what makes
+arming before they hold safe:
 
 - **Every check green on the current head.** Not "the required one" —
   every one. The ruleset requires `Claude review` and `All checks`, the
   `ci.yml` job that needs every `Checks / …` job and goes red when any of
   them fails or is cancelled. So since 2026-09-06 GitHub no longer lands a
   pull request whose `database-mariadb`, `Authorization matrix` or
-  `Dynamic scan (passive)` is red — that hole was issue #170, and
-  `docs/quality-pipeline.md` § Branch ruleset on `main` records the
-  required list. Reading `All checks` is therefore the fastest way to
-  confirm the whole set, but not a substitute for confirming it: it
-  reports only once every job it needs has finished, and a pipeline still
-  running has reached no verdict. Arming on one is arming on nothing.
+  `Dynamic scan (passive)` is red — that hole was issue #170. An armed pull
+  request whose pipeline is still running waits for `All checks` to report;
+  it does not merge on a verdict nobody has reached.
 - **Every review thread replied to and resolved on purpose**, rather than
-  resolved to clear the way.
+  resolved to clear the way. The ruleset requires conversation resolution,
+  so an open thread holds the merge — and resolving one silently is handing
+  yourself the merge.
 - **The PR template's checklist honestly filled**, and no finding of your
-  own left unfiled.
+  own left unfiled. Nothing but you holds this one, so it is true **before
+  you open the pull request**: the local checks of CONTRIBUTING.md run and
+  passed, and every line ticked is a line you checked.
 
-What you must never do is arm it and walk away from a pull request you have
-not finished — auto-merge does not wait for you to come back. If a check is
-still running, either wait for it or say you are arming on an incomplete
-pipeline and why.
+Arming early is never walking away. Auto-merge does not wait for you to come
+back, so you stay with the pull request until it merges — a red job, a
+review thread, `main` moving into your files are yours as they arrive. The
+moment you learn it must not land as it stands (a blocking finding you
+cannot fix on this branch, a ticket moved to Canceled, a checklist line that
+turned false), **disarm it first** — `gh pr merge <number> --disable-auto`,
+or the MCP server's `disable_pr_auto_merge` — and then say why.
 
 Two things it does not do, and both have bitten this project. It does
 **not** update a branch that has fallen behind `main` — the ruleset does not

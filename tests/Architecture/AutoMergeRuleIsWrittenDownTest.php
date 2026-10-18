@@ -170,19 +170,19 @@ final class AutoMergeRuleIsWrittenDownTest extends TestCase
     }
 
     /**
-     * The step that stops auto-merge from landing a red pull request.
+     * The condition that stops auto-merge from landing a red pull request.
      *
      * `All checks` became a required context on 2026-09-06, so the ruleset
      * does now refuse a pull request whose `database-mariadb`,
      * `Authorization matrix` or `Dynamic scan (passive)` is red — that was
-     * issue #170. It still does not refuse one whose pipeline has not
-     * finished: a required check that has not reported is displayed like
-     * one that is merely waiting. A first draft of this rule listed the
-     * thread and checklist items and left CI out, which would have let an
-     * agent arm on a half-run pipeline and walk away, and that is the part
-     * only the instruction catches.
+     * issue #170. Since 2026-10-18 an agent arms as soon as the pull request
+     * is open, so this is no longer a step before arming but the condition
+     * the merge waits for — and the reason arming early is safe. A first
+     * draft of the original rule left CI out of the list altogether; the
+     * condition has to stay written down in both files, or the next reader
+     * of "arm at once" has nothing telling them what still holds the merge.
      */
-    public function testTheRuleRequiresGreenChecksBeforeArming(): void
+    public function testTheRuleRequiresGreenChecksAtTheMerge(): void
     {
         foreach (['AGENTS.md', '.claude/skills/steward/SKILL.md'] as $file) {
             $contents = self::read($file);
@@ -190,14 +190,71 @@ final class AutoMergeRuleIsWrittenDownTest extends TestCase
             $this->assertStringContainsString(
                 'every check green on the current head',
                 strtolower($contents),
-                $file . ' no longer tells an agent to confirm CI before arming auto-merge'
+                $file . ' no longer says that every check must be green on the current head when auto-merge lands it'
             );
-            // The reason, without which the step reads as belt-and-braces
+            // The reason, without which the condition reads as belt-and-braces
             // and gets dropped by the next person tightening the prose.
             $this->assertStringContainsString(
                 'database-mariadb',
                 $contents,
-                $file . ' no longer names the checks this step exists to have read'
+                $file . ' no longer names the checks this condition exists to have read'
+            );
+        }
+    }
+
+    /**
+     * WHEN to arm: as soon as the pull request is open (the maintainer's
+     * decision of 2026-10-18). Waiting for green asked the MCP tool at the
+     * one moment it refuses — a pull request already mergeable — and sent
+     * the last click back to the maintainer, which is the interruption
+     * auto-merge exists to remove.
+     *
+     * Three things are pinned with it, because arming early is only safe
+     * while all three are written down: the ruleset holds the checks and
+     * the threads (so the reason it is safe must stay next to the rule),
+     * the checklist is the agent's alone and settled before opening, and a
+     * pull request that must not land is disarmed — by name, so the next
+     * agent is not left closing a pull request to stop a merge.
+     */
+    public function testAutoMergeIsArmedAsSoonAsThePullRequestIsOpen(): void
+    {
+        $rules = self::agentRules();
+
+        $this->assertStringContainsString(
+            '**Arm it as soon as the pull request is open**',
+            $rules,
+            'AGENTS.md no longer says to arm auto-merge when the pull request opens, so the next agent '
+            . 'waits for green, the tool refuses a mergeable pull request, and the maintainer merges by hand'
+        );
+        $this->assertStringContainsString(
+            '6. **Arm auto-merge as soon as the pull request is open.**',
+            $rules,
+            'the backlog procedure no longer arms auto-merge when the pull request opens'
+        );
+        $this->assertStringContainsString(
+            'The ruleset requires conversation resolution',
+            $rules,
+            'AGENTS.md no longer says what holds an early-armed pull request back from merging over an '
+            . 'open review thread'
+        );
+        $this->assertStringContainsString(
+            'Nothing but you holds this one',
+            $rules,
+            'AGENTS.md no longer says that the checklist — the one thing no ruleset holds — is settled '
+            . 'before the pull request is opened'
+        );
+
+        foreach (['AGENTS.md', '.claude/skills/steward/SKILL.md'] as $file) {
+            $contents = self::read($file);
+            $this->assertStringContainsString(
+                'gh pr merge <number> --disable-auto',
+                $contents,
+                $file . ' no longer names how to disarm a pull request that must not land'
+            );
+            $this->assertStringContainsString(
+                'Arming early is never walking away',
+                $contents,
+                $file . ' no longer says that an armed pull request is still the agent\'s until it merges'
             );
         }
     }

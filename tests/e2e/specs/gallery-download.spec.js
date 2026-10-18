@@ -46,6 +46,7 @@ import fs from 'node:fs/promises';
 import { loginAsAdmin, loginAsMember } from '../support/admin-login.js';
 import { answerCookieBanner } from '../support/cookie-banner.js';
 import { runScheduler } from '../support/scheduler.js';
+import { scaled } from '../support/timeouts.js';
 
 // A real 1×1 PNG rather than random bytes: Core\File\UploadHandler sniffs
 // the type from the content, so anything else is refused before it can
@@ -70,6 +71,15 @@ test.describe.configure({ mode: 'serial' });
 
 test.describe('Galerie', () => {
     test('a chief fills an album, and each photo saves under a name of its own', async ({ page }) => {
+        // One scheduler pass below, and a pass is not a few seconds: it
+        // migrates the whole declared schema, then drains every task the
+        // earlier scenarios left overdue. It took 53 s of this test's 60 s
+        // default on CI (PR #941, MySQL 8), and the downloads after it ran
+        // out of time. Every other spec that turns the scheduler raises
+        // its budget for the same reason —
+        // tests/Core/System/E2eSchedulerBudgetTest holds that.
+        test.setTimeout(scaled(180_000));
+
         /** @type {string[]} */
         const serverErrors = [];
         page.on('response', (response) => {

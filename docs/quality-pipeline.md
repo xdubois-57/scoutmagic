@@ -1499,13 +1499,16 @@ scan (passive)` is red no longer merges: `All checks` is red with it. Until
 2026-09-06 those three gated nothing at all and an armed pull request
 merged over them, which is what issue #170 was about.
 
-What no ruleset can tell you is that a pipeline has *finished*. `All checks`
-reports only once every job it needs has, so arming before that is arming
-on a verdict nobody has reached yet — and a required check that has not
-reported looks, in GitHub's own display, like one that is merely waiting.
-That is why AGENTS.md § Merging a pull request still puts "every check green
-on the current head" first among the things to confirm, and why arming and
-walking away from an unfinished pull request is the one thing it forbids.
+What no ruleset can tell you is that a pipeline has *finished* — and an
+armed pull request does not need to be told: it waits for `All checks` to
+report, and for every review thread to be resolved. That is why, since
+2026-10-18, AGENTS.md § Merging a pull request has an agent arm auto-merge
+**as soon as the pull request is open**, rather than once every check is
+green on the current head: the MCP tool refuses to arm a pull request that
+is already mergeable, so waiting for green sent the last click back to the
+maintainer. What the ruleset cannot hold — the PR checklist being true — is
+settled before the pull request is opened, and an agent that learns a pull
+request must not land disarms it first.
 
 ### Private vulnerability reporting
 
