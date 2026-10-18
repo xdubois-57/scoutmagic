@@ -170,19 +170,19 @@ final class AutoMergeRuleIsWrittenDownTest extends TestCase
     }
 
     /**
-     * The step that stops auto-merge from landing a red pull request.
+     * The condition that stops auto-merge from landing a red pull request.
      *
      * `All checks` became a required context on 2026-09-06, so the ruleset
      * does now refuse a pull request whose `database-mariadb`,
      * `Authorization matrix` or `Dynamic scan (passive)` is red — that was
-     * issue #170. It still does not refuse one whose pipeline has not
-     * finished: a required check that has not reported is displayed like
-     * one that is merely waiting. A first draft of this rule listed the
-     * thread and checklist items and left CI out, which would have let an
-     * agent arm on a half-run pipeline and walk away, and that is the part
-     * only the instruction catches.
+     * issue #170. Since 2026-10-18 an agent arms as soon as the pull request
+     * is open, so this is no longer a step before arming but the condition
+     * the merge waits for — and the reason arming early is safe. A first
+     * draft of the original rule left CI out of the list altogether; the
+     * condition has to stay written down in both files, or the next reader
+     * of "arm at once" has nothing telling them what still holds the merge.
      */
-    public function testTheRuleRequiresGreenChecksBeforeArming(): void
+    public function testTheRuleRequiresGreenChecksAtTheMerge(): void
     {
         foreach (['AGENTS.md', '.claude/skills/steward/SKILL.md'] as $file) {
             $contents = self::read($file);
@@ -190,14 +190,14 @@ final class AutoMergeRuleIsWrittenDownTest extends TestCase
             $this->assertStringContainsString(
                 'every check green on the current head',
                 strtolower($contents),
-                $file . ' no longer tells an agent to confirm CI before arming auto-merge'
+                $file . ' no longer says that every check must be green on the current head when auto-merge lands it'
             );
-            // The reason, without which the step reads as belt-and-braces
+            // The reason, without which the condition reads as belt-and-braces
             // and gets dropped by the next person tightening the prose.
             $this->assertStringContainsString(
                 'database-mariadb',
                 $contents,
-                $file . ' no longer names the checks this step exists to have read'
+                $file . ' no longer names the checks this condition exists to have read'
             );
         }
     }
