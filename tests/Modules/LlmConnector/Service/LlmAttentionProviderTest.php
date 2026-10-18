@@ -132,6 +132,22 @@ class LlmAttentionProviderTest extends TestCase
         $this->assertNull($this->store->lastFailure());
     }
 
+    /** A prompt that could not be encoded never reached the provider: no failure recorded. */
+    public function testARequestThatCouldNotBeBuiltIsNotAProviderFailure(): void
+    {
+        $this->configuredProvider([self::answer()]);
+
+        try {
+            $this->connector->complete(new LlmRequest(LlmTier::CHEAP, "Caf\xE9 du coin"));
+            $this->fail('an unencodable prompt must throw');
+        } catch (LlmException $e) {
+            $this->assertSame(LlmException::INVALID_REQUEST, $e->getCode());
+        }
+
+        $this->assertNull($this->store->lastFailure());
+        $this->assertSame([], $this->points());
+    }
+
     public function testTheCauseIsNamed(): void
     {
         $this->configuredProvider([self::answer()]);

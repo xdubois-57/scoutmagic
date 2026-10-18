@@ -62,17 +62,77 @@ class MailboxSyncAttentionTest extends TestCase
 
     public function testABoxFailingForAnHourIsUrgent(): void
     {
-        $this->mailboxes->recordSuccess($this->boxId, new \DateTimeImmutable('2026-10-18 09:00:00'));
+        $this->mailboxes->recordSuccess($this->boxId, new \DateTimeImmutable('2026-10-18 08:30:00'));
+        $this->mailboxes->recordFailure($this->boxId, 'Mot de passe refusé.', new \DateTimeImmutable('2026-10-18 09:00:00'));
         $this->mailboxes->recordFailure($this->boxId, 'Mot de passe refusé.', new \DateTimeImmutable('2026-10-18 09:45:00'));
 
-        $this->assertSame([], $this->pointsAt('2026-10-18 09:50:00'), 'fifty minutes since the last success');
+        $this->assertSame([], $this->pointsAt('2026-10-18 09:50:00'), 'fifty minutes since the first failure');
 
         $points = $this->pointsAt('2026-10-18 10:00:00');
         $this->assertCount(1, $points);
         $this->assertSame('La boîte « Unité » ne se synchronise plus', $points[0]->title);
         $this->assertSame(AttentionPoint::SEVERITY_URGENT, $points[0]->severity);
         $this->assertSame('/config/courrier-entrant', $points[0]->actionUrl);
-        $this->assertStringContainsString('18/10/2026 à 09:00', $points[0]->why);
+        $this->assertStringContainsString('18/10/2026 à 08:30', $points[0]->why, 'the last success is what the reader needs');
+    }
+
+    /**
+     * The grace counts from the first failure, not from the last success:
+     * a box idle for hours whose first poll fails is one failed pass.
+     */
+    public function testAFirstFailureLongAfterTheLastSuccessRaisesNothing(): void
+    {
+        $this->mailboxes->recordSuccess($this->boxId, new \DateTimeImmutable('2026-10-18 06:00:00'));
+        $this->mailboxes->recordFailure($this->boxId, 'Délai dépassé.', new \DateTimeImmutable('2026-10-18 13:31:00'));
+
+        $this->assertSame([], $this->pointsAt('2026-10-18 13:32:00'));
+        $this->assertCount(1, $this->pointsAt('2026-10-18 14:31:00'), 'an hour of failures is reported');
+    }
+
+    /** Switching a box back on starts its failures over. */
+    public function testSwitchingABoxBackOnForgetsTheFailuresBeforeThePause(): void
+    {
+        $this->mailboxes->recordSuccess($this->boxId, new \DateTimeImmutable('2026-10-18 06:00:00'));
+        $this->mailboxes->recordFailure($this->boxId, 'Délai dépassé.', new \DateTimeImmutable('2026-10-18 06:15:00'));
+        $this->mailboxes->setEnabled($this->boxId, false);
+        $this->mailboxes->setEnabled($this->boxId, true);
+
+        $this->assertSame([], $this->pointsAt('2026-10-18 13:30:00'), 'no failure since it came back');
+
+        $this->mailboxes->recordFailure($this->boxId, 'Délai dépassé.', new \DateTimeImmutable('2026-10-18 13:31:00'));
+        $this->assertSame([], $this->pointsAt('2026-10-18 13:32:00'), 'one failed pass after the pause');
+    }
+
+    /** A success ends the run: the next failure starts a new one. */
+    public function testASuccessEndsTheRunOfFailures(): void
+    {
+        $this->mailboxes->recordSuccess($this->boxId, new \DateTimeImmutable('2026-10-18 06:00:00'));
+        $this->mailboxes->recordFailure($this->boxId, 'Délai dépassé.', new \DateTimeImmutable('2026-10-18 06:15:00'));
+        $this->mailboxes->recordSuccess($this->boxId, new \DateTimeImmutable('2026-10-18 06:30:00'));
+        $this->mailboxes->recordFailure($this->boxId, 'Délai dépassé.', new \DateTimeImmutable('2026-10-18 09:00:00'));
+
+        $this->assertSame([], $this->pointsAt('2026-10-18 09:05:00'));
+    }
+
+    /** Saving the box's form with « active » ticked is switching it on too. */
+    public function testReEnablingThroughTheFormForgetsThePastFailures(): void
+    {
+        $this->mailboxes->recordSuccess($this->boxId, new \DateTimeImmutable('2026-10-18 06:00:00'));
+        $this->mailboxes->recordFailure($this->boxId, 'Délai dépassé.', new \DateTimeImmutable('2026-10-18 06:15:00'));
+        $this->mailboxes->setEnabled($this->boxId, false);
+        $this->mailboxes->update($this->boxId, 'Unité', 'imap.example.be', 993, 'ssl', 'unite@example.be', [], true);
+
+        $this->assertSame([], $this->pointsAt('2026-10-18 13:30:00'));
+    }
+
+    /** Saving an enabled box's form does not reset a run that is still going. */
+    public function testSavingAnEnabledBoxKeepsItsRunOfFailures(): void
+    {
+        $this->mailboxes->recordSuccess($this->boxId, new \DateTimeImmutable('2026-10-18 06:00:00'));
+        $this->mailboxes->recordFailure($this->boxId, 'Délai dépassé.', new \DateTimeImmutable('2026-10-18 09:00:00'));
+        $this->mailboxes->update($this->boxId, 'Unité', 'imap.example.be', 993, 'ssl', 'unite@example.be', [], true);
+
+        $this->assertCount(1, $this->pointsAt('2026-10-18 10:30:00'));
     }
 
     /** One failed pass is a mail host restarting, not a broken box. */

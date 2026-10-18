@@ -151,6 +151,7 @@ class HttpTransportTest extends TestCase
         $this->server = StubHttpServer::start([['status' => 200, 'body' => '{}']]);
 
         $this->expectException(LlmException::class);
+        $this->expectExceptionCode(LlmException::INVALID_REQUEST);
         $this->expectExceptionMessageMatches('/caractères illisibles/');
 
         (new HttpTransport())->postJson(

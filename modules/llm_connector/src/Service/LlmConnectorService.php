@@ -128,7 +128,12 @@ class LlmConnectorService implements LlmConnectorInterface
                 ],
                 null
             );
-            $this->lastFailure?->recordFailure($e->getCode(), AppClock::now());
+            // A request that could not even be built never reached the
+            // provider: recording it would raise « le dernier appel a
+            // échoué » against a provider that answered nothing.
+            if ($e->getCode() !== LlmException::INVALID_REQUEST) {
+                $this->lastFailure?->recordFailure($e->getCode(), AppClock::now());
+            }
             throw $e;
         }
 

@@ -42,8 +42,10 @@ de l'année scoute. Le jour, le mois et la durée se règlent dans
 Configuration › Paramètres, section Inscriptions.
 
 Le module Courrier entrant signale **une boîte qui ne se synchronise
-plus** depuis plus d'une heure et deux relèves, ou qui n'a jamais été
-relevée avec succès, et **l'absence de toute boîte active**. La page de
+plus** depuis plus d'une heure et deux relèves, comptées depuis le
+premier échec, ou qui n'a jamais été relevée avec succès, et **l'absence
+de toute boîte active**. Une boîte désactivée puis réactivée repart de
+zéro. La page de
 configuration du module donne l'erreur.
 
 Le module Intelligence artificielle signale **un fournisseur absent** et

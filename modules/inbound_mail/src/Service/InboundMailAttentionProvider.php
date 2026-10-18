@@ -139,7 +139,7 @@ class InboundMailAttentionProvider implements AttentionPointProvider
         $now = $this->now ?? AppClock::now();
         $points = [];
         foreach ($enabled as $box) {
-            if (!$this->hasStoppedSynchronising($box['state'], $box['lastSyncedAt'], $now)) {
+            if (!$this->hasStoppedSynchronising($box['state'], $box['lastSyncedAt'], $box['failingSince'], $now)) {
                 continue;
             }
             $points[] = new AttentionPoint(
@@ -159,17 +159,24 @@ class InboundMailAttentionProvider implements AttentionPointProvider
     }
 
     /**
-     * In error, and for longer than a passing failure: the last success
-     * lies further back than both thresholds.
+     * In error, and for longer than a passing failure: the current run of
+     * failures began an hour ago at least, and two passes in a row have
+     * failed.
      *
-     * A box in error that never once succeeded is reported at once. Its
-     * `last_error_at` cannot date the trouble — every failed pass rewrites
-     * it — and a box that has never worked is a configuration to fix, not
-     * an outage to wait out.
+     * Measured from `failing_since`, when the run began, never from the
+     * last success: a box switched off for a day, or polled late by a
+     * stalled scheduler, would otherwise turn red on its first failure
+     * (#718 § C point 8). A box in error with no start recorded — a row
+     * from before the column, or one just switched back on — waits for its
+     * next failed pass to date the run.
+     *
+     * A box in error that never once succeeded is reported at once: it is
+     * a configuration to fix, not an outage to wait out.
      */
     private function hasStoppedSynchronising(
         SyncState $state,
         ?\DateTimeImmutable $lastSyncedAt,
+        ?\DateTimeImmutable $failingSince,
         \DateTimeImmutable $now
     ): bool {
         if ($state !== SyncState::ERROR) {
@@ -178,13 +185,17 @@ class InboundMailAttentionProvider implements AttentionPointProvider
         if ($lastSyncedAt === null) {
             return true;
         }
+        if ($failingSince === null) {
+            return false;
+        }
 
         $interval = $this->settings !== null
             ? SyncMailboxesHandler::intervalSeconds($this->settings)
             : SyncMailboxesHandler::DEFAULT_INTERVAL_MINUTES * 60;
-        $grace = max(self::MIN_FAILING_SECONDS, self::MIN_FAILED_PASSES * $interval);
+        // The second failed pass comes one interval after the first.
+        $grace = max(self::MIN_FAILING_SECONDS, (self::MIN_FAILED_PASSES - 1) * $interval);
 
-        return $now->getTimestamp() - $lastSyncedAt->getTimestamp() >= $grace;
+        return $now->getTimestamp() - $failingSince->getTimestamp() >= $grace;
     }
 
     private function retentionDays(): int

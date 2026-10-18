@@ -36,6 +36,15 @@ use Modules\InboundMail\Mailbox\SyncState;
  */
 class InboundMailboxRepository
 {
+    /**
+     * Switching a box back on starts its failures over: the time it spent
+     * switched off is a pause, not an outage (#718 § C point 8). Leads the
+     * SET list on purpose — MySQL evaluates assignments left to right, so
+     * `is_enabled` must still be the old value when this reads it.
+     */
+    private const FAILING_SINCE_ON_ENABLE =
+        'failing_since = CASE WHEN is_enabled = 0 THEN NULL ELSE failing_since END, ';
+
     public function __construct(
         private \PDO $pdo,
         private EncryptionService $encryption
@@ -89,12 +98,13 @@ class InboundMailboxRepository
      * decrypt credentials it has no use for nor fail because one of them
      * cannot be read.
      *
-     * @return list<array{name: string, state: SyncState, lastSyncedAt: ?\DateTimeImmutable}>
+     * @return list<array{name: string, state: SyncState, lastSyncedAt: ?\DateTimeImmutable, failingSince: ?\DateTimeImmutable}>
      */
     public function enabledSyncStates(): array
     {
         $stmt = $this->pdo->query(
-            'SELECT name, sync_state, last_synced_at FROM inbound_mailboxes WHERE is_enabled = 1 ORDER BY id ASC'
+            'SELECT name, sync_state, last_synced_at, failing_since FROM inbound_mailboxes
+              WHERE is_enabled = 1 ORDER BY id ASC'
         );
 
         return array_map(
@@ -103,6 +113,9 @@ class InboundMailboxRepository
                 'state' => SyncState::from((string) $row['sync_state']),
                 'lastSyncedAt' => DateInput::fromStorage(
                     $row['last_synced_at'] === null ? null : (string) $row['last_synced_at']
+                ),
+                'failingSince' => DateInput::fromStorage(
+                    $row['failing_since'] === null ? null : (string) $row['failing_since']
                 ),
             ],
             $stmt === false ? [] : $stmt->fetchAll(\PDO::FETCH_ASSOC)
@@ -197,8 +210,8 @@ class InboundMailboxRepository
     ): void {
         $stmt = $this->pdo->prepare(
             'UPDATE inbound_mailboxes
-                SET name = ?, host = ?, port = ?, encryption = ?, username_encrypted = ?,
-                    folders = ?, is_enabled = ?, updated_at = ?
+                SET ' . ($isEnabled ? self::FAILING_SINCE_ON_ENABLE : '') . 'name = ?, host = ?, port = ?, encryption = ?,
+                    username_encrypted = ?, folders = ?, is_enabled = ?, updated_at = ?
               WHERE id = ?'
         );
         $stmt->execute([
@@ -233,7 +246,10 @@ class InboundMailboxRepository
 
     public function setEnabled(int $id, bool $isEnabled): void
     {
-        $stmt = $this->pdo->prepare('UPDATE inbound_mailboxes SET is_enabled = ?, updated_at = ? WHERE id = ?');
+        $stmt = $this->pdo->prepare(
+            'UPDATE inbound_mailboxes SET ' . ($isEnabled ? self::FAILING_SINCE_ON_ENABLE : '')
+                . 'is_enabled = ?, updated_at = ? WHERE id = ?'
+        );
         $stmt->execute([$isEnabled ? 1 : 0, self::now(), $id]);
     }
 
@@ -241,7 +257,8 @@ class InboundMailboxRepository
     {
         $stmt = $this->pdo->prepare(
             'UPDATE inbound_mailboxes
-                SET sync_state = ?, last_synced_at = ?, last_error = NULL, last_error_at = NULL, updated_at = ?
+                SET sync_state = ?, last_synced_at = ?, last_error = NULL, last_error_at = NULL,
+                    failing_since = NULL, updated_at = ?
               WHERE id = ?'
         );
         $stmt->execute([SyncState::OK->value, $at->format('Y-m-d H:i:s'), self::now(), $id]);
@@ -256,12 +273,15 @@ class InboundMailboxRepository
     {
         $stmt = $this->pdo->prepare(
             'UPDATE inbound_mailboxes
-                SET sync_state = ?, last_error = ?, last_error_at = ?, updated_at = ?
+                SET sync_state = ?, last_error = ?, last_error_at = ?,
+                    failing_since = COALESCE(failing_since, ?), updated_at = ?
               WHERE id = ?'
         );
         $stmt->execute([
             SyncState::ERROR->value,
             mb_substr($reason, 0, 500),
+            $at->format('Y-m-d H:i:s'),
+            // The first failure of a run dates it; the next ones keep it.
             $at->format('Y-m-d H:i:s'),
             self::now(),
             $id,
