@@ -2302,7 +2302,7 @@ class StorageConfigControllerTest extends TestCase
         $this->assertStringNotContainsString('a pris fin', $this->locationsPage());
     }
 
-    // ————— Cartes compactes, configuration sur la fiche (#718 § C points 10.6 et 10.7) —————
+    // ————— Compact cards, configuration on the edit page (#718 § C points 10.6 and 10.7) —————
 
     /**
      * The card is a summary to read: state, capabilities, useful errors
