@@ -79,7 +79,9 @@ class SocialAttentionProvider implements AttentionPointProvider
         return new AttentionPoint(
             title: $title,
             why: $why,
-            actionLabel: $platform === SocialPlatform::Facebook ? 'Reconnecter la Page Facebook' : 'Reconnecter Instagram',
+            actionLabel: $platform === SocialPlatform::Facebook
+                ? 'Reconnecter la Page Facebook'
+                : 'Reconnecter Instagram',
             actionUrl: '/config/reseaux-sociaux',
             severity: AttentionPoint::SEVERITY_ATTENTION
         );
