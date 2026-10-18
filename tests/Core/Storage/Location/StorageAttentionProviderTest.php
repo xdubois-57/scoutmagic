@@ -155,11 +155,21 @@ final class StorageAttentionProviderTest extends TestCase
         $this->assertNull($points[0]->dueDate);
     }
 
-    public function testADisconnectedDriveHasNoExpiryPoint(): void
+    /**
+     * Declared, never connected: a setup to finish. Its check fails by
+     * construction, and that is not an urgent « en erreur » — it is one
+     * attention point asking for the connection, with no expiry either.
+     */
+    public function testADriveNotYetConnectedAsksForTheConnectionNotAnError(): void
     {
-        $this->drive('Drive débranché', false, '', false);
+        $id = $this->drive('Drive débranché', false, '', false);
+        $this->locations->recordCheckResult($id, false, "Aucun compte Google Drive n'est raccordé à cet emplacement.");
 
-        $this->assertSame([], $this->points());
+        $points = $this->points();
+
+        $this->assertCount(1, $points);
+        $this->assertStringContainsString("n'est raccordé à aucun compte Google", $points[0]->title);
+        $this->assertSame(AttentionPoint::SEVERITY_ATTENTION, $points[0]->severity);
     }
 
     /** The state is carried per location, and the label read from the current row. */

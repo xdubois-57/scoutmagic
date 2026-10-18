@@ -12,6 +12,7 @@ use Core\Attention\AttentionPoint;
 use Core\Attention\AttentionPointProvider;
 use Core\Config\AppClock;
 use Core\Service\DateInput;
+use Core\Storage\Location\Config\GoogleDriveLocationConfig;
 
 /**
  * The storage locations, one by one (issue #718 § C point 10): a location
@@ -54,6 +55,14 @@ final class StorageAttentionProvider implements AttentionPointProvider
         $points = [];
 
         foreach ($this->locations->findAll() as $location) {
+            // Declared but never connected: a setup to finish, not a fault.
+            // Its check fails by construction (« aucun compte raccordé »),
+            // and an urgent « en erreur » would describe the setup rather
+            // than anything broken.
+            if ($location->config instanceof GoogleDriveLocationConfig && !$location->config->isConnected()) {
+                $points[] = $this->notConnected($location);
+                continue;
+            }
             $expiry = DriveGrantExpiry::of($location);
             if ($expiry->state === DriveGrantExpiry::KNOWN) {
                 $points[] = $this->grantEnds($location, $expiry, $now);
@@ -102,6 +111,18 @@ final class StorageAttentionProvider implements AttentionPointProvider
             actionUrl: self::LOCATIONS_URL,
             dueDate: $expiry->expiresAt,
             severity: $passed ? AttentionPoint::SEVERITY_URGENT : AttentionPoint::SEVERITY_ATTENTION
+        );
+    }
+
+    private function notConnected(StorageLocation $location): AttentionPoint
+    {
+        return new AttentionPoint(
+            title: "L'emplacement « " . $location->label . " » n'est raccordé à aucun compte Google",
+            why: "Il est déclaré, mais aucun compte Google Drive n'a encore donné son accord : rien ne peut y être "
+                . 'rangé tant que le raccordement n\'est pas fait.',
+            actionLabel: 'Raccorder le compte',
+            actionUrl: self::LOCATIONS_URL,
+            severity: AttentionPoint::SEVERITY_ATTENTION
         );
     }
 
