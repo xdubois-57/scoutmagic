@@ -197,12 +197,17 @@ class DecisionEmailRepositoryTest extends TestCase
     {
         $id = (int) $this->insert($this->request('refused'), 'refused', 'sending');
 
-        $this->assertTrue($this->repository->markFailed($id, 'body_not_written', 'Gabarit à rédiger.', $this->now));
+        $this->assertTrue($this->repository->markFailed(
+            $id,
+            'body_not_written',
+            'Le texte de l\'e-mail ne contient pas le lien de suivi.',
+            $this->now
+        ));
 
         $failed = $this->email($id);
         $this->assertSame('failed', $failed->state);
         $this->assertSame('body_not_written', $failed->failureCode);
-        $this->assertSame('Gabarit à rédiger.', $failed->failureMessage);
+        $this->assertSame('Le texte de l\'e-mail ne contient pas le lien de suivi.', $failed->failureMessage);
         $this->assertSame('2026-10-12 10:00:00', $failed->failedAt?->format('Y-m-d H:i:s'));
         $this->assertNull($failed->sentAt);
         $this->assertNull($this->repository->findActiveForRequest($failed->requestId));

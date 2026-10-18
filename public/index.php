@@ -9666,6 +9666,11 @@ if ($isEnabled('gallery')) {
 $groupsPublisherForOthers = null;
 if ($isEnabled('groups')) {
     \Core\Debug\RequestTimeline::mark('module_groups');
+    // Reported messages no moderator has answered, on the attention page
+    // only while the module is on (#718 § C point 6).
+    $attentionProviders[] = new \Modules\Groups\Service\GroupsAttentionProvider(
+        new \Modules\Groups\Repository\UnsettledReportRepository($pdo)
+    );
     $groupsGroupRepo = new \Modules\Groups\Repository\GroupRepository($pdo);
     $groupsSectionRepo = new \Modules\Groups\Repository\GroupSectionRepository($pdo);
     $groupsMemberRepo = new \Modules\Groups\Repository\GroupMemberRepository($pdo);
@@ -10892,6 +10897,10 @@ if ($isEnabled('social')) {
     \Core\Debug\RequestTimeline::mark('module_social');
     $socialConnectionRepo = new \Modules\Social\Repository\ConnectionRepository($pdo, $encryptionService);
 
+    // A Facebook or Instagram connection that expired or was refused, on
+    // the attention page only while the module is on (#718 § C point 3).
+    $attentionProviders[] = new \Modules\Social\Service\SocialAttentionProvider($socialConnectionRepo);
+
     // The card the browser posts at « Publier » is kept as a plain
     // `files` row (issue #706, IT-02), and this is what keeps it out of
     // `/files/{id}`: it refuses every reader, because the only reader is
@@ -11233,6 +11242,12 @@ if ($isEnabled('registration')) {
         $householdRepository,
         $registrationDecisionEmailRepo
     );
+    // Requests left pending too long, on the attention page only while the
+    // module is on (#718 § C point 5).
+    $attentionProviders[] = new \Modules\Registration\Service\RegistrationAttentionProvider(
+        $registrationRequestRepo,
+        $settingService
+    );
     $registrationYearCodeRepo = new \Modules\Registration\Repository\RegistrationYearCodeRepository($pdo);
     $registrationAgeBracketRepo = new \Modules\Registration\Repository\AgeBracketRepository($pdo);
     $registrationSlotCapacityRepo = new \Modules\Registration\Repository\SlotCapacityRepository($pdo);
@@ -11372,7 +11387,6 @@ if ($isEnabled('registration')) {
     // SendDecisionEmailsHandler (seeded in public/scheduler-bootstrap.php).
     $registrationAutomaticEmails = new \Modules\Registration\Service\AutomaticDecisionEmailService(
         $settingService,
-        $registrationEmailService,
         $registrationDecisionEmailService
     );
     // Issue #843 (IT-10): the automatic acceptance of the « Oui » requests —
@@ -11397,7 +11411,6 @@ if ($isEnabled('registration')) {
             $scoutYearResolver,
             new \Modules\Registration\Service\PriorityOrderService($settingService)
         ),
-        $registrationEmailService,
         $scoutYearService,
         $scoutYearResolver,
         $journalService,

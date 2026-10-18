@@ -134,19 +134,7 @@ class RegistrationConfigControllerTest extends TestCase
             $this->pdo,
             $encryption,
             $settingService,
-            $statusService,
-            new RequestEmailService(
-                $this->requestRepository,
-                $this->createStub(MailService::class),
-                $editableContentService,
-                $journalService,
-                'https://example.com',
-                'Unité Test',
-                new \Modules\Registration\Service\DecisionEmailService(
-                    new \Modules\Registration\Repository\DecisionEmailRepository($this->pdo),
-                    $journalService
-                )
-            )
+            $statusService
         );
 
         $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
@@ -722,8 +710,8 @@ class RegistrationConfigControllerTest extends TestCase
 
     /**
      * The note shows as stored, ready to be completed; and the e-mail
-     * sentences say that nothing leaves on its own — or that nothing can
-     * leave while the templates are not written.
+     * sentences say that nothing leaves on its own, whatever the state of the
+     * templates (issue #932: none is ever « à rédiger »).
      */
     public function testTheDialogCarriesTheNoteAndSaysWhetherAnEmailCanLeave(): void
     {
@@ -741,31 +729,16 @@ class RegistrationConfigControllerTest extends TestCase
             '<input type="hidden" name="internal_notes_shown" value="Appeler les parents avant d&#039;accepter.">',
             $none
         );
-        $this->assertStringContainsString(
-            "Aucun e-mail de décision ne peut partir tant que les gabarits d'acceptation et de refus ne sont "
-                . 'pas rédigés',
-            $none
-        );
-        $this->assertStringNotContainsString('ne part tout seul', $none);
-
-        $this->editableContentService->set('registration_email_accepted_body', '<p>Bienvenue</p>', 'rich_text', 1);
-        $half = $this->dialogOf($this->renderPage('requests'), $id);
+        $this->assertStringNotContainsString('ne peut partir', $none);
+        $this->assertStringNotContainsString('rédigé', $none);
         $this->assertStringContainsString(
             "Si vous acceptez : aucun e-mail ne part tout seul, vous l'envoyez depuis la fiche.",
-            $half
+            $none
         );
-        $this->assertStringContainsString(
-            "Si vous refusez : aucun e-mail ne peut partir tant que le gabarit de refus n'est pas rédigé",
-            $half
-        );
-
-        $this->editableContentService->set('registration_email_refused_body', '<p>Désolés</p>', 'rich_text', 1);
-        $both = $this->dialogOf($this->renderPage('requests'), $id);
         $this->assertStringContainsString(
             "Si vous refusez : aucun e-mail ne part tout seul, vous l'envoyez depuis la fiche.",
-            $both
+            $none
         );
-        $this->assertStringNotContainsString('ne peut partir', $both);
     }
 
     /**
@@ -1802,14 +1775,13 @@ class RegistrationConfigControllerTest extends TestCase
             json_decode($context, true)
         );
         // Like every decision (issue #843, IT-08), the bulk refusal answers
-        // « un e-mail va-t-il partir ? » — here: none, its template is
-        // not written yet.
+        // « un e-mail va-t-il partir ? » — here: none, each is sent from
+        // its fiche.
         $this->assertSame(
             [
                 'type' => 'success',
-                'message' => "2 demandes refusées (Pas de place). Aucun e-mail n'est parti : le gabarit de refus "
-                    . "n'est pas encore rédigé (voir Gabarits). Les familles voient « en attente » jusqu'à l'envoi "
-                    . 'de leur e-mail.',
+                'message' => "2 demandes refusées (Pas de place). Aucun e-mail n'est parti : envoyez chacun depuis "
+                    . 'la fiche de sa demande. Les familles voient « en attente » jusque-là.',
             ],
             FlashMessage::get()
         );
@@ -2179,10 +2151,10 @@ class RegistrationConfigControllerTest extends TestCase
     /**
      * The first bordered sub-box of « Capacités par branche », right under
      * the waitlist switch and above the thresholds: off by default, a
-     * delay of 24 hours, and the switch locked — with the mock-up's reason
-     * — while a decision template is « À rédiger ».
+     * delay of 24 hours, and the switch free from the start — the decision
+     * templates ship with a text (issue #932).
      */
-    public function testTheAutomationSubBoxShowsItsDefaultsAndIsLockedWhileATemplateIsToWrite(): void
+    public function testTheAutomationSubBoxShowsItsDefaultsAndTheSwitchIsFree(): void
     {
         $body = $this->renderPage('settings');
         $box = $this->formHtml($body, '/config/inscriptions/decisions-automatiques');
@@ -2198,29 +2170,20 @@ class RegistrationConfigControllerTest extends TestCase
         $this->assertStringContainsString('>Envoyer automatiquement les e-mails de décision</label>', $box);
         $this->assertMatchesRegularExpression('/<input[^>]+name="auto_send"[^>]*>/', $box);
         $this->assertDoesNotMatchRegularExpression('/<input[^>]+name="auto_send"[^>]*\bchecked\b/', $box);
-        $this->assertMatchesRegularExpression('/<input[^>]+name="auto_send"[^>]*\bdisabled\b/', $box);
-        $this->assertStringContainsString(
-            "Indisponible : les gabarits d'acceptation et de refus ne sont pas encore rédigés",
-            $box
-        );
+        $this->assertDoesNotMatchRegularExpression('/<input[^>]+name="auto_send"[^>]*\bdisabled\b/', $box);
+        $this->assertStringNotContainsString('Indisponible', $this->autoSendHelp($box));
+        $this->assertStringContainsString("L'e-mail d'acceptation ou de refus part après le délai ci-dessous", $box);
         $this->assertMatchesRegularExpression(
             '/<input[^>]+name="delay_hours"[^>]*value="24"[^>]*min="1"[^>]*max="720"/s',
             $box
         );
         $this->assertStringContainsString('Délai avant envoi', $box);
         $this->assertStringContainsString('name="_csrf_token"', $box);
-
-        $this->writeDecisionTemplates();
-        $ready = $this->formHtml($this->renderPage('settings'), '/config/inscriptions/decisions-automatiques');
-        $this->assertDoesNotMatchRegularExpression('/<input[^>]+name="auto_send"[^>]*\bdisabled\b/', $ready);
-        $this->assertStringNotContainsString('Indisponible', $this->autoSendHelp($ready));
-        $this->assertStringContainsString("L'e-mail d'acceptation ou de refus part après le délai ci-dessous", $ready);
     }
 
     /**
-     * Switched on, the switch shows checked with the stored delay — and
-     * stays usable even if a template went missing since, because
-     * switching off is always allowed.
+     * Switched on, the switch shows checked with the stored delay and stays
+     * usable, because switching off is always allowed.
      */
     public function testAnActiveSwitchShowsCheckedAndStaysUsableToSwitchOff(): void
     {
@@ -2231,7 +2194,6 @@ class RegistrationConfigControllerTest extends TestCase
         $this->assertMatchesRegularExpression('/<input[^>]+name="auto_send"[^>]*\bchecked\b/', $box);
         $this->assertDoesNotMatchRegularExpression('/<input[^>]+name="auto_send"[^>]*\bdisabled\b/', $box);
         $this->assertMatchesRegularExpression('/<input[^>]+name="delay_hours"[^>]*value="48"/', $box);
-        $this->assertStringContainsString("Les gabarits d'acceptation et de refus ne sont plus tous rédigés", $box);
         $this->assertStringNotContainsString('Indisponible', $this->autoSendHelp($box));
     }
 
@@ -2243,7 +2205,6 @@ class RegistrationConfigControllerTest extends TestCase
     public function testTheDialogSaysWhenTheEmailWouldLeaveWhileTheAutomaticSendingIsOn(): void
     {
         $id = $this->createRequest($this->targetYearId, 'Noa');
-        $this->writeDecisionTemplates();
         RegistrationTestHelper::enableAutomaticDecisionEmails($this->settingService, 24);
 
         $before = new \DateTimeImmutable('+24 hours');
@@ -2272,7 +2233,6 @@ class RegistrationConfigControllerTest extends TestCase
     {
         $first = $this->createRequest($this->targetYearId, 'A');
         $second = $this->createRequest($this->targetYearId, 'B');
-        $this->writeDecisionTemplates();
         RegistrationTestHelper::enableAutomaticDecisionEmails($this->settingService, 24);
 
         $this->controller->bulkRefuse(new Request('POST', '/config/inscriptions/bulk/refuse', [], [
@@ -2330,13 +2290,11 @@ class RegistrationConfigControllerTest extends TestCase
 
     /**
      * Each prerequisite, in the server's order, locks the switch with its
-     * own reason — waitlists before the sending, the sending before the
-     * template — and with all of them the switch is free, checked when on,
-     * its stored date shown.
+     * own reason — waitlists before the sending — and with both of them the
+     * switch is free, checked when on, its stored date shown.
      */
     public function testTheAutomaticAcceptanceSwitchFollowsItsPrerequisites(): void
     {
-        $this->writeDecisionTemplates();
         RegistrationTestHelper::enableAutomaticDecisionEmails($this->settingService, 24);
 
         $ready = $this->formHtml($this->renderPage('settings'), '/config/inscriptions/decisions-automatiques');
@@ -2348,20 +2306,13 @@ class RegistrationConfigControllerTest extends TestCase
         $this->assertMatchesRegularExpression('/<input[^>]+name="auto_accept"[^>]*\bchecked\b/', $on);
         $this->assertMatchesRegularExpression('/<input[^>]+name="auto_accept_from"[^>]+value="2026-10-15"/', $on);
 
-        $this->editableContentService->set('registration_email_accepted_body', '<p>&nbsp;</p>', 'rich_text', 1);
-        $noTemplate = $this->formHtml($this->renderPage('settings'), '/config/inscriptions/decisions-automatiques');
-        $this->assertSame(['template'], $this->shownAcceptanceHelp($noTemplate));
-        // Locked, it is not shown on: saving would switch it off.
-        $this->assertDoesNotMatchRegularExpression('/<input[^>]+name="auto_accept"[^>]*\bchecked\b/', $noTemplate);
-
         $this->settingService->set('registration_waitlist_enabled', '0', 'registration');
         $noWaitlist = $this->formHtml($this->renderPage('settings'), '/config/inscriptions/decisions-automatiques');
         $this->assertSame(['waitlist'], $this->shownAcceptanceHelp($noWaitlist));
         $this->assertMatchesRegularExpression('/<input[^>]+name="auto_accept"[^>]*\bdisabled\b/', $noWaitlist);
         $this->assertStringContainsString('data-waitlist-enabled="0"', $noWaitlist);
-        // The template is still missing behind the waitlists: the script
-        // must not free the switch once waitlists are back on.
-        $this->assertStringContainsString('data-acceptance-template-ready="0"', $noWaitlist);
+        // Locked, it is not shown on: saving would switch it off.
+        $this->assertDoesNotMatchRegularExpression('/<input[^>]+name="auto_accept"[^>]*\bchecked\b/', $noWaitlist);
     }
 
     /**
@@ -2406,7 +2357,6 @@ class RegistrationConfigControllerTest extends TestCase
         $this->assertStringNotContainsString('data-decide-auto-accept', $off);
         $this->assertStringNotContainsString('Le traitement automatique', $off);
 
-        $this->writeDecisionTemplates();
         RegistrationTestHelper::enableAutomaticDecisionEmails($this->settingService, 24);
         RegistrationTestHelper::enableAutomaticAcceptance($this->settingService, '2026-01-01');
         $body = $this->renderPage('requests');
@@ -2436,17 +2386,11 @@ class RegistrationConfigControllerTest extends TestCase
     private function shownAcceptanceHelp(string $box): array
     {
         preg_match_all('/<span data-auto-accept-help="(\w+)"\s*(hidden)?\s*>/', $box, $matches, PREG_SET_ORDER);
-        $this->assertCount(4, $matches, 'four help texts, one per state');
+        $this->assertCount(3, $matches, 'three help texts, one per state');
 
         return array_values(array_map(
             static fn(array $match): string => $match[1],
             array_filter($matches, static fn(array $match): bool => ($match[2] ?? '') === '')
         ));
-    }
-
-    private function writeDecisionTemplates(): void
-    {
-        $this->editableContentService->set('registration_email_accepted_body', '<p>Bienvenue</p>', 'rich_text', 1);
-        $this->editableContentService->set('registration_email_refused_body', '<p>Désolés</p>', 'rich_text', 1);
     }
 }

@@ -80,8 +80,8 @@ class SendDecisionEmailsHandlerOnMysqlTest extends TestCase
         $content = $this->pdo->prepare(
             "INSERT INTO editable_contents (content_key, content_type, content_value) VALUES (?, 'rich_text', ?)"
         );
-        $content->execute(['registration_email_accepted_body', '<p>Bienvenue {{ prenom_enfant }}</p>']);
-        $content->execute(['registration_email_refused_body', '<p>Désolés.</p>']);
+        $content->execute(['registration_email_accepted_body', '<p>Bienvenue {{ prenom_enfant }} {{ lien_suivi }}</p>']);
+        $content->execute(['registration_email_refused_body', '<p>Désolés. {{ lien_suivi }}</p>']);
     }
 
     /**
@@ -207,15 +207,6 @@ class SendDecisionEmailsHandlerOnMysqlTest extends TestCase
         $decisionEmails = new DecisionEmailService($this->emails, $journal);
         $automation = new AutomaticDecisionEmailService(
             $this->settings($this->pdo),
-            new RequestEmailService(
-                $this->requests,
-                $this->createStub(MailService::class),
-                new EditableContentService(new EditableContentRepository($this->pdo)),
-                $journal,
-                'https://exemple.be',
-                'Unité test',
-                $decisionEmails
-            ),
             $decisionEmails
         );
         $planned = $automation->plan(

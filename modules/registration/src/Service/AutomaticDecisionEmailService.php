@@ -20,8 +20,7 @@ use Modules\Registration\Repository\RegistrationRequest;
  * **Planning happens when a decision is taken, and only then.** plan() is
  * called by Service\RequestDecisionService::apply() — the one door every
  * decision goes through — right after the status changed, in the same
- * transaction: with the switch on and the decision's template written, the
- * e-mail is planned for now + the delay. A decision taken while the switch
+ * transaction: with the switch on, the e-mail is planned for now + the delay. A decision taken while the switch
  * was off is never planned afterwards, switching it on included (D7: « Les
  * décisions prises avant l'activation ne sont pas planifiées ») — nothing
  * scans the existing decisions. A change of decision cancels the planned
@@ -33,15 +32,16 @@ use Modules\Registration\Repository\RegistrationRequest;
  * whatever the switch says — and the fiche says so, with « Envoyer
  * maintenant ».
  *
- * **It cannot be switched on while the acceptance or the refusal template
- * is « À rédiger »** — the one definition of IT-07
- * (RequestEmailTemplateService::isToWrite(), read here through
- * RequestEmailService::isAcceptedBodyReady() / isRefusedBodyReady(),
- * which are its negation). Switching off is always allowed.
+ * **Both decision templates ship with a text** (issue #932), so nothing
+ * waits on a chief to write one: the switch can always be turned on, and a
+ * decision is always planned. A stored body that lost its tracking link
+ * cannot leave — the attempt is recorded as failed
+ * (RequestEmailService::deliverAttempt()), never sent without it.
  *
- * Both settings are `editable: false`: the rule above concerns the pair
- * and the templates, which a list of independent fields cannot check, so
- * this box is the only place they are written.
+ * Both settings are `editable: false`: the pair is saved together with the
+ * automatic acceptance (AutomaticAcceptancePolicy::save()), which a list of
+ * independent fields cannot do, so this box is the only place they are
+ * written.
  */
 class AutomaticDecisionEmailService
 {
@@ -53,9 +53,6 @@ class AutomaticDecisionEmailService
     /** Thirty days: beyond that, a decision would wait longer than a family waits for an answer. */
     public const MAX_DELAY_HOURS = 720;
 
-    public const MESSAGE_TEMPLATES_MISSING = "L'envoi automatique ne peut pas être activé : les gabarits "
-        . "d'acceptation et de refus doivent d'abord être rédigés (voir Gabarits). Rien n'a été enregistré.";
-
     public const MESSAGE_SAVE_FAILED = "Les réglages n'ont pas pu être enregistrés — rechargez la page et réessayez.";
 
     public const MESSAGE_DELAY_INVALID = 'Le délai avant envoi doit être un nombre entier d\'heures, de '
@@ -63,7 +60,6 @@ class AutomaticDecisionEmailService
 
     public function __construct(
         private SettingService $settingService,
-        private RequestEmailService $emailService,
         private DecisionEmailService $decisionEmails
     ) {
     }
@@ -86,15 +82,6 @@ class AutomaticDecisionEmailService
     }
 
     /**
-     * Whether both decision templates are written — the condition to
-     * switch the automatic sending on.
-     */
-    public function templatesReady(): bool
-    {
-        return $this->emailService->isAcceptedBodyReady() && $this->emailService->isRefusedBodyReady();
-    }
-
-    /**
      * When the e-mail of a decision taken at $decidedAt would leave.
      */
     public function dueAt(\DateTimeImmutable $decidedAt): \DateTimeImmutable
@@ -104,13 +91,12 @@ class AutomaticDecisionEmailService
 
     /**
      * When the e-mail of a decision taken right now would leave, or null
-     * when it would not leave on its own — the switch is off, or the
-     * template of $decision (DecisionEmail::DECISION_*) is not written.
-     * What the decision dialog announces before anything is decided.
+     * when it would not leave on its own — the switch is off. What the
+     * decision dialog announces before anything is decided.
      */
-    public function plannedDueAtIfDecidedNow(string $decision, ?\DateTimeImmutable $now = null): ?\DateTimeImmutable
+    public function plannedDueAtIfDecidedNow(?\DateTimeImmutable $now = null): ?\DateTimeImmutable
     {
-        if (!$this->isEnabled() || !$this->emailService->isBodyReady($decision)) {
+        if (!$this->isEnabled()) {
             return null;
         }
 
@@ -121,10 +107,8 @@ class AutomaticDecisionEmailService
      * Plans the e-mail of the decision just taken on $request — $decision
      * is the DecisionEmail::DECISION_* the request now holds ($request
      * itself may be the object read before the transition). Null, and
-     * nothing planned, when the automatic sending is off, when that
-     * decision's template is not written (an e-mail that can only fail is
-     * not planned; the confirmation says the template is missing), or when
-     * the request does not hold that decision or already has an e-mail in
+     * nothing planned, when the automatic sending is off, or when the
+     * request does not hold that decision or already has an e-mail in
      * play (DecisionEmailService::scheduleDecision()).
      */
     public function plan(
@@ -132,7 +116,7 @@ class AutomaticDecisionEmailService
         string $decision,
         ?\DateTimeImmutable $decidedAt = null
     ): ?DecisionEmail {
-        if (!$this->isEnabled() || !$this->emailService->isBodyReady($decision)) {
+        if (!$this->isEnabled()) {
             return null;
         }
 
@@ -146,23 +130,13 @@ class AutomaticDecisionEmailService
     /**
      * What the « Décisions automatiques » sub-box shows.
      *
-     * `can_enable` is false while a decision template is « À rédiger » —
-     * the switch is then disabled, unless it is already on (switching off
-     * is always allowed).
-     *
-     * @return array{enabled: bool, delay_hours: int, templates_ready: bool, can_enable: bool,
-     *               min_delay: int, max_delay: int}
+     * @return array{enabled: bool, delay_hours: int, min_delay: int, max_delay: int}
      */
     public function boxState(): array
     {
-        $enabled = $this->isEnabled();
-        $templatesReady = $this->templatesReady();
-
         return [
-            'enabled' => $enabled,
+            'enabled' => $this->isEnabled(),
             'delay_hours' => $this->delayHours(),
-            'templates_ready' => $templatesReady,
-            'can_enable' => $enabled || $templatesReady,
             'min_delay' => self::MIN_DELAY_HOURS,
             'max_delay' => self::MAX_DELAY_HOURS,
         ];
@@ -178,18 +152,11 @@ class AutomaticDecisionEmailService
      *
      * @throws RegistrationException with a French sentence
      */
-    public function validatedDelay(bool $enabled, ?string $delay): int
+    public function validatedDelay(?string $delay): int
     {
         $hours = $delay === null ? $this->delayHours() : self::parseDelay($delay);
         if ($hours === null) {
             throw new RegistrationException(self::MESSAGE_DELAY_INVALID);
-        }
-        // Switching ON is what the templates condition; keeping an active
-        // switch on — to change the delay — is not refused even if a
-        // template went missing since (each decision is then simply not
-        // planned, plan()).
-        if ($enabled && !$this->isEnabled() && !$this->templatesReady()) {
-            throw new RegistrationException(self::MESSAGE_TEMPLATES_MISSING);
         }
 
         return $hours;
@@ -206,15 +173,6 @@ class AutomaticDecisionEmailService
             self::SETTING_ENABLED => $enabled ? '1' : '0',
             self::SETTING_DELAY_HOURS => (string) $hours,
         ];
-    }
-
-    /**
-     * Whether the acceptance template is written — what an automatic
-     * acceptance needs for its e-mail to be planned (IT-10).
-     */
-    public function acceptanceTemplateReady(): bool
-    {
-        return $this->emailService->isAcceptedBodyReady();
     }
 
     /**
@@ -249,12 +207,6 @@ class AutomaticDecisionEmailService
             : "Aucun e-mail ne partira tout seul : chaque envoi se fait depuis la fiche de la demande.";
         if ($planned > 0) {
             $lines[] = match (true) {
-                !$this->templatesReady() => 'Attention : '
-                    . ($many
-                        ? "les {$planned} e-mails déjà planifiés restent prévus"
-                        : "l'e-mail déjà planifié reste prévu")
-                    . ', mais ' . ($many ? 'leur' : 'son') . " envoi échouera tant que les gabarits d'acceptation "
-                    . 'et de refus ne sont pas rédigés (voir Gabarits).',
                 $many => "Attention : les {$planned} e-mails déjà planifiés partiront quand même à leur échéance ; "
                     . '« Envoyer maintenant », sur leur fiche, les fait partir tout de suite.',
                 default => "Attention : l'e-mail déjà planifié partira quand même à son échéance ; « Envoyer "

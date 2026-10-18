@@ -88,19 +88,7 @@ class RequestDecisionServiceTest extends TestCase
             $this->pdo,
             $encryption,
             $this->settings,
-            new RequestStatusService($this->requests, $journal),
-            new RequestEmailService(
-                $this->requests,
-                $this->createStub(MailService::class),
-                $this->content,
-                $journal,
-                'https://example.com',
-                'Unité Test',
-                new \Modules\Registration\Service\DecisionEmailService(
-                    new \Modules\Registration\Repository\DecisionEmailRepository($this->pdo),
-                    $journal
-                )
-            )
+            new RequestStatusService($this->requests, $journal)
         );
     }
 
@@ -153,8 +141,8 @@ class RequestDecisionServiceTest extends TestCase
         $this->assertSame([$pending->id], array_keys($context['recommendations']));
         $this->assertInstanceOf(Recommendation::class, $context['recommendations'][$pending->id]);
         $this->assertSame('yes', $context['recommendations'][$pending->id]->level);
-        $this->assertFalse($context['accepted_email_ready']);
-        $this->assertFalse($context['refused_email_ready']);
+        $this->assertNull($context['accepted_auto_send_at'], 'the automatic sending is off');
+        $this->assertNull($context['refused_auto_send_at']);
     }
 
     public function testNoRecommendationWhileWaitlistsAreNotManagedButTheYearStaysDecidable(): void
@@ -180,16 +168,19 @@ class RequestDecisionServiceTest extends TestCase
         $this->assertSame([], $context['recommendations']);
     }
 
-    public function testTheEmailFlagsFollowTheTemplates(): void
+    /**
+     * The dialog announces the automatic sending of BOTH decisions as soon
+     * as it is on — their templates ship with a text (issue #932), so
+     * neither waits on a chief to write one.
+     */
+    public function testTheDialogAnnouncesTheAutomaticSendingOfBothDecisionsOnceItIsOn(): void
     {
-        $this->content->set('registration_email_refused_body', '<p>Désolés</p>', 'rich_text', 1);
+        RegistrationTestHelper::enableAutomaticDecisionEmails($this->settings, 24);
 
         $context = $this->service->dialogContext($this->targetYearId);
 
-        $this->assertFalse($context['accepted_email_ready']);
-        $this->assertTrue($context['refused_email_ready']);
-        $this->assertFalse($this->service->isEmailReady(RequestDecisionService::DECISION_ACCEPT));
-        $this->assertTrue($this->service->isEmailReady(RequestDecisionService::DECISION_REFUSE));
+        $this->assertNotNull($context['accepted_auto_send_at']);
+        $this->assertNotNull($context['refused_auto_send_at']);
     }
 
     public function testAcceptingStoresTheNoteAndJournalsWithoutPersonalData(): void
@@ -374,18 +365,6 @@ class RequestDecisionServiceTest extends TestCase
             $encryption,
             $this->settings,
             new RequestStatusService($failing, $journal),
-            new RequestEmailService(
-                $failing,
-                $this->createStub(MailService::class),
-                $this->content,
-                $journal,
-                'https://example.com',
-                'Unité Test',
-                new \Modules\Registration\Service\DecisionEmailService(
-                    new \Modules\Registration\Repository\DecisionEmailRepository($this->pdo),
-                    $journal
-                )
-            ),
             $failing
         );
 
@@ -472,9 +451,10 @@ class RequestDecisionServiceTest extends TestCase
     /**
      * The confirmation answers « un e-mail va-t-il partir ? »: no, and from
      * where to send it — the fiche's block when read on the fiche, each
-     * request's fiche after a bulk refusal — or why it cannot leave.
+     * request's fiche after a bulk refusal. No template is ever « à
+     * rédiger » (issue #932), so there is no third answer.
      *
-     * @return array<string, array{string, ?string, int, string, bool, string}>
+     * @return array<string, array{string, ?string, int, string, string}>
      */
     public static function confirmationProvider(): array
     {
@@ -482,30 +462,20 @@ class RequestDecisionServiceTest extends TestCase
             . 'La famille voit « en attente » jusque-là.';
 
         return [
-            'accepted from the list' => ['accept', null, 1, 'list', true, 'Demande acceptée. ' . $byHand],
-            'refused from the list' => ['refuse', 'other', 1, 'list', true, 'Demande refusée (Autre). ' . $byHand],
+            'accepted from the list' => ['accept', null, 1, 'list', 'Demande acceptée. ' . $byHand],
+            'refused from the list' => ['refuse', 'other', 1, 'list', 'Demande refusée (Autre). ' . $byHand],
             'accepted on the fiche' => [
-                'accept', null, 1, 'request_page', true,
+                'accept', null, 1, 'request_page',
                 "Demande acceptée. Aucun e-mail n'est parti : envoyez-le avec « Envoyer maintenant », ci-dessous. "
                     . 'La famille voit « en attente » jusque-là.',
             ],
-            'template not written' => [
-                'refuse', 'no_room', 1, 'request_page', false,
-                "Demande refusée (Pas de place). Aucun e-mail n'est parti : le gabarit de refus n'est pas encore "
-                    . "rédigé (voir Gabarits). La famille voit « en attente » jusqu'à son envoi.",
-            ],
             'bulk refusal' => [
-                'refuse', 'no_room', 3, 'bulk', true,
+                'refuse', 'no_room', 3, 'bulk',
                 "3 demandes refusées (Pas de place). Aucun e-mail n'est parti : envoyez chacun depuis la fiche de "
                     . 'sa demande. Les familles voient « en attente » jusque-là.',
             ],
-            'bulk refusal, template not written' => [
-                'refuse', 'other', 2, 'bulk', false,
-                "2 demandes refusées (Autre). Aucun e-mail n'est parti : le gabarit de refus n'est pas encore "
-                    . "rédigé (voir Gabarits). Les familles voient « en attente » jusqu'à l'envoi de leur e-mail.",
-            ],
-            'bulk refusal of one' => ['refuse', 'other', 1, 'bulk', true, 'Demande refusée (Autre). ' . $byHand],
-            'nothing to refuse' => ['refuse', 'other', 0, 'bulk', true, 'Aucune demande à refuser.'],
+            'bulk refusal of one' => ['refuse', 'other', 1, 'bulk', 'Demande refusée (Autre). ' . $byHand],
+            'nothing to refuse' => ['refuse', 'other', 0, 'bulk', 'Aucune demande à refuser.'],
         ];
     }
 
@@ -515,30 +485,9 @@ class RequestDecisionServiceTest extends TestCase
         ?string $reason,
         int $count,
         string $from,
-        bool $templateWritten,
         string $expected
     ): void {
-        if ($templateWritten) {
-            $this->content->set('registration_email_accepted_body', '<p>Bienvenue</p>', 'rich_text', 1);
-            $this->content->set('registration_email_refused_body', '<p>Désolés</p>', 'rich_text', 1);
-        }
-
         $this->assertSame($expected, $this->service->confirmation($decision, $reason, $count, $from));
-    }
-
-    /**
-     * Each decision's own template decides: the refusal written and the
-     * acceptance not, an acceptance cannot leave and a refusal can.
-     */
-    public function testTheConfirmationReadsTheTemplateOfItsOwnDecision(): void
-    {
-        $this->content->set('registration_email_refused_body', '<p>Désolés</p>', 'rich_text', 1);
-
-        $this->assertStringContainsString("le gabarit d'acceptation", $this->service->confirmation('accept'));
-        $this->assertStringContainsString(
-            'envoyez-le depuis la fiche',
-            $this->service->confirmation('refuse', 'other')
-        );
     }
 
     /**
@@ -633,24 +582,22 @@ class RequestDecisionServiceTest extends TestCase
     }
 
     /**
-     * A template still « À rédiger » is not planned — an e-mail that could
-     * only fail — and the confirmation says the template is missing.
+     * Issue #932: a decision is planned whatever the state of its template —
+     * the shipped text is a text — so the refusal is planned although
+     * nobody ever wrote one.
      */
-    public function testADecisionWhoseTemplateIsNotWrittenIsNotPlanned(): void
+    public function testADecisionWhoseTemplateWasNeverWrittenIsPlannedAllTheSame(): void
     {
-        $this->content->set('registration_email_accepted_body', '<p>Bienvenue</p>', 'rich_text', 1);
         RegistrationTestHelper::enableAutomaticDecisionEmails($this->settings, 24);
 
         $planned = $this->service->apply($this->file($this->targetYearId), 'refuse', 'other');
 
-        $this->assertNull($planned);
-        $this->assertSame([], $this->emailRows());
+        $this->assertNotNull($planned);
+        $this->assertCount(1, $this->emailRows());
         $this->assertStringContainsString(
-            "le gabarit de refus n'est pas encore rédigé",
+            "L'e-mail de refus partira le",
             $this->service->confirmation('refuse', 'other', 1, 'list', $planned)
         );
-        $this->assertNull($this->service->dialogContext($this->targetYearId)['refused_auto_send_at']);
-        $this->assertNotNull($this->service->dialogContext($this->targetYearId)['accepted_auto_send_at']);
     }
 
     /**
@@ -808,8 +755,8 @@ class RequestDecisionServiceTest extends TestCase
 
     private function writeDecisionTemplates(): void
     {
-        $this->content->set('registration_email_accepted_body', '<p>Bienvenue</p>', 'rich_text', 1);
-        $this->content->set('registration_email_refused_body', '<p>Désolés</p>', 'rich_text', 1);
+        $this->content->set('registration_email_accepted_body', '<p>Bienvenue {{ lien_suivi }}</p>', 'rich_text', 1);
+        $this->content->set('registration_email_refused_body', '<p>Désolés {{ lien_suivi }}</p>', 'rich_text', 1);
     }
 
     /**

@@ -50,6 +50,11 @@ Un module ne signale rien tant qu'il est désactivé : ses points
 apparaissent le jour où on l'active, et disparaissent si on le
 désactive.
 
+Le module Réseaux sociaux signale **une connexion Facebook ou Instagram
+qui ne marche plus** : l'autorisation a expiré, ou Meta a refusé la
+dernière vérification. Meta ne renouvelle pas une autorisation expirée :
+il faut refaire la connexion dans Configuration › Réseaux sociaux.
+
 Le module Locations signale, pour chaque bien qui n'est pas archivé :
 
 - **l'adresse du bailleur vide** : le contrat et la facture de ce bien
@@ -60,3 +65,12 @@ Le module Locations signale, pour chaque bien qui n'est pas archivé :
 - **une conformité déjà expirée** dans le registre du bien, avec la date
   d'expiration. Avant cette date, c'est le rappel du registre qui
   prévient, pas cette page.
+
+Le module Discussions signale, groupe par groupe, **les contenus signalés
+qui attendent encore une décision** : tant qu'un modérateur ne les a ni
+rétablis ni supprimés, ils restent comptés, même déjà masqués.
+
+Le module Inscriptions signale, en une seule ligne, **les demandes en
+attente depuis plus de 15 jours**, à partir du 1er juin et jusqu'à la fin
+de l'année scoute. Le jour, le mois et la durée se règlent dans
+Configuration › Paramètres, section Inscriptions.

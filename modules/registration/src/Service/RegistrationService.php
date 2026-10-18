@@ -119,7 +119,21 @@ class RegistrationService
     ): int {
         $this->assertPreviousUnitIsNamedWhenClaimed($fields);
 
-        $created = $this->requestRepository->create($targetScoutYearId, $fields, $desiredSectionId, $siblingMemberIds);
+        // The link's lifetime is read once, here, and frozen on the row by
+        // the repository: a later change of the setting never reaches a
+        // request already filed (issue #932). Ordinary and in-year
+        // submissions alike — nothing here looks at which one this is.
+        $created = $this->requestRepository->create(
+            $targetScoutYearId,
+            $fields,
+            $desiredSectionId,
+            $siblingMemberIds,
+            TrackingLinkValidity::monthsFrom($this->settingService->get(
+                TrackingLinkValidity::SETTING,
+                'registration',
+                (string) TrackingLinkValidity::DEFAULT_MONTHS
+            ))
+        );
         $requestId = $created['id'];
         $trackingToken = $created['tracking_token'];
 
@@ -131,6 +145,10 @@ class RegistrationService
             ['request_id' => $requestId]
         );
 
+        // The tracking url is the family's ONE link (issue #932): the token
+        // was generated with the request and is read back, never renewed, by
+        // every later e-mail (Service\RequestEmailService).
+        //
         // Two DIFFERENT urls on purpose. The tracking url carries the raw
         // token that grants unauthenticated access to the request's own
         // follow-up page (Service\TrackingService::findByToken()) — it
@@ -195,6 +213,21 @@ class RegistrationService
         // The body, its default and its variables are the « Gabarits »
         // catalogue's (issue #843, D10).
         $template = $this->requestEmailBody(RequestEmailTemplateService::KEY_RECEIPT);
+        // Never an acknowledgement without the family's link (issue #932).
+        // The request is already recorded, so this is a journal entry and a
+        // staff-visible trace, not a failure of the submission: the family
+        // has filed, whatever the unit's e-mail configuration says.
+        if (!RequestEmailTemplateService::hasTrackingLink($template)) {
+            $this->journalService->log(
+                'registration',
+                'registration_receipt_email_blocked',
+                'warning',
+                "Accusé de réception non envoyé : le gabarit ne contient pas le lien de suivi",
+                []
+            );
+
+            return;
+        }
         $body = RequestEmailTemplateService::substitute($template, [
             'prenom_enfant' => $childFirstName,
             'annee_scoute' => $targetYearLabel,
@@ -272,11 +305,11 @@ class RegistrationService
 
     /**
      * The body a submission e-mail goes out with: the unit's own, or the
-     * default it ships with — both of these have one, so this is never
+     * default it ships with — every template has one, so this is never
      * empty.
      */
     private function requestEmailBody(string $key): string
     {
-        return (string) (new RequestEmailTemplateService($this->editableContentService))->bodyFor($key);
+        return (new RequestEmailTemplateService($this->editableContentService))->bodyFor($key);
     }
 }
