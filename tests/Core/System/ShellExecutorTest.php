@@ -9,6 +9,27 @@ use PHPUnit\Framework\TestCase;
 
 class ShellExecutorTest extends TestCase
 {
+    protected function tearDown(): void
+    {
+        ShellExecutor::forceTimeoutUtility(null);
+    }
+
+    private static function hostHasTimeoutUtility(): bool
+    {
+        exec('command -v timeout 2>/dev/null', $unused, $code);
+
+        return $code === 0;
+    }
+
+    /** Seconds the callable took, measured on a monotonic clock. */
+    private static function secondsTaken(callable $work): float
+    {
+        $started = hrtime(true);
+        $work();
+
+        return (hrtime(true) - $started) / 1e9;
+    }
+
     public function testIsAvailableReturnsTrueWhenAShellFunctionIsUsable(): void
     {
         $this->assertTrue(ShellExecutor::isAvailable());
@@ -65,5 +86,161 @@ class ShellExecutorTest extends TestCase
         $this->assertSame('', $leaked);
         $this->assertSame(0, $result['returnCode']);
         $this->assertSame('hello', trim($result['output']));
+    }
+
+    public function testACommandThatOutlastsItsTimeoutIsInterrupted(): void
+    {
+        if (!self::hostHasTimeoutUtility()) {
+            $this->markTestSkipped('This host has no timeout utility, which is the case the bound cannot cover.');
+        }
+
+        $result = ['returnCode' => 0, 'output' => ''];
+        $seconds = self::secondsTaken(function () use (&$result): void {
+            $result = ShellExecutor::run('sleep 5', 1);
+        });
+
+        $this->assertLessThan(3.0, $seconds, 'A command given one second must not run for five.');
+        $this->assertSame(ShellExecutor::TIMED_OUT_RETURN_CODE, $result['returnCode']);
+    }
+
+    public function testAFastCommandKeepsItsOutputAndItsCodeUnderATimeout(): void
+    {
+        $result = ShellExecutor::run("echo 'two words' 2>&1; (exit 3)", 5);
+
+        $this->assertSame(3, $result['returnCode']);
+        $this->assertSame('two words', trim($result['output']));
+    }
+
+    public function testTheDefaultTimeoutLeavesAnOrdinaryCommandAlone(): void
+    {
+        $result = ShellExecutor::run('echo hello');
+
+        $this->assertSame(0, $result['returnCode']);
+        $this->assertSame('hello', trim($result['output']));
+    }
+
+    public function testEveryExecutionFunctionIsBoundedNotJustTheFirstChoice(): void
+    {
+        if (!self::hostHasTimeoutUtility()) {
+            $this->markTestSkipped('This host has no timeout utility, which is the case the bound cannot cover.');
+        }
+
+        $reflection = new \ReflectionClass(ShellExecutor::class);
+        $bounded = $reflection->getMethod('bounded');
+        $command = $bounded->invoke(null, 'sleep 5', 1);
+
+        foreach (['runViaExec', 'runViaShellExec', 'runViaSystem', 'runViaPassthru'] as $backend) {
+            $method = $reflection->getMethod($backend);
+            $result = ['returnCode' => 0, 'output' => ''];
+            $seconds = self::secondsTaken(function () use ($method, $command, &$result): void {
+                $result = $method->invoke(null, $command);
+            });
+
+            $this->assertLessThan(3.0, $seconds, $backend . ' was not bounded.');
+            $this->assertSame(ShellExecutor::TIMED_OUT_RETURN_CODE, $result['returnCode'], $backend);
+        }
+    }
+
+    public function testAHostWithoutTheTimeoutUtilityKeepsTheUnboundedBehaviour(): void
+    {
+        ShellExecutor::forceTimeoutUtility(false);
+
+        $result = ['returnCode' => -1, 'output' => ''];
+        $seconds = self::secondsTaken(function () use (&$result): void {
+            $result = ShellExecutor::run('sleep 2', 1);
+        });
+
+        $this->assertSame(0, $result['returnCode'], 'Without the utility the command runs to its end, as before.');
+        $this->assertGreaterThanOrEqual(2.0, $seconds);
+    }
+
+    public function testAHostWithoutTheTimeoutUtilityStillReturnsOutputAndCode(): void
+    {
+        ShellExecutor::forceTimeoutUtility(false);
+
+        $result = ShellExecutor::run('echo plain; (exit 4)', 5);
+
+        $this->assertSame(4, $result['returnCode']);
+        $this->assertSame('plain', trim($result['output']));
+    }
+
+    /**
+     * A broken $PATH is the case ExecutableLocator's fallback exists for.
+     * Neither `timeout` nor `sh` may then be looked up by name, or every
+     * command would come back "not found" instead of running.
+     */
+    public function testACommandStillRunsWhenPathIsBrokenAfterTheBoundWasMeasured(): void
+    {
+        ShellExecutor::run('echo warm-up');
+        $originalPath = getenv('PATH');
+        putenv('PATH=/nonexistent-path-for-test');
+
+        try {
+            $result = ShellExecutor::run('echo still-runs');
+        } finally {
+            putenv('PATH=' . $originalPath);
+        }
+
+        $this->assertSame(0, $result['returnCode']);
+        $this->assertSame('still-runs', trim($result['output']));
+    }
+
+    public function testTheBoundIsFoundEvenWhenPathIsBrokenFromTheStart(): void
+    {
+        if (!self::hostHasTimeoutUtility()) {
+            $this->markTestSkipped('This host has no timeout utility, which is the case the bound cannot cover.');
+        }
+
+        exec('command -v sleep', $sleepLines);
+        $sleep = $sleepLines[0] ?? '';
+        $this->assertNotSame('', $sleep);
+
+        ShellExecutor::forceTimeoutUtility(null);
+        $originalPath = getenv('PATH');
+        putenv('PATH=/nonexistent-path-for-test');
+
+        try {
+            $result = ['returnCode' => 0, 'output' => ''];
+            $seconds = self::secondsTaken(function () use (&$result, $sleep): void {
+                $result = ShellExecutor::run(escapeshellarg($sleep) . ' 5', 1);
+            });
+        } finally {
+            putenv('PATH=' . $originalPath);
+        }
+
+        $this->assertLessThan(3.0, $seconds, 'The bound was not applied without a usable $PATH.');
+        $this->assertSame(ShellExecutor::TIMED_OUT_RETURN_CODE, $result['returnCode']);
+    }
+
+    public function testATimeoutBelowOneSecondIsRefused(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+
+        ShellExecutor::run('echo never', 0);
+    }
+
+    public function testAProbeSaysItWasInterruptedRatherThanReportingNoOutput(): void
+    {
+        $verdict = new \ReflectionMethod(ShellExecutor::class, 'probeVerdict');
+
+        $probe = $verdict->invoke(
+            null,
+            'exec',
+            ['returnCode' => ShellExecutor::TIMED_OUT_RETURN_CODE, 'output' => ''],
+            10
+        );
+
+        $this->assertFalse($probe['works']);
+        $this->assertTrue($probe['declared']);
+        $this->assertSame('exec', $probe['function']);
+        $this->assertSame('commande interrompue après 10 s sans réponse', $probe['detail']);
+    }
+
+    public function testAProbeThatAnswersStillWorks(): void
+    {
+        $probe = ShellExecutor::probe();
+
+        $this->assertTrue($probe['works']);
+        $this->assertSame('code 0', $probe['detail']);
     }
 }
