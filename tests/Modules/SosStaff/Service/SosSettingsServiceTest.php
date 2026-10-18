@@ -366,4 +366,27 @@ class SosSettingsServiceTest extends TestCase
 
         $this->assertFalse($this->service->isEmailNotificationsEnabled());
     }
+
+    /** #718 § C point 9: a failed redirect is kept until one succeeds. */
+    public function testTheLastRedirectFailureIsKeptUntilASuccess(): void
+    {
+        $this->settingService->register(
+            'redirect_last_failure_at', '', 'text', 'Échec', 'desc', 'sos_staff', null, null, false
+        );
+        $this->assertNull($this->service->lastRedirectFailureAt());
+
+        $this->service->recordRedirectOutcome(true, new \DateTimeImmutable('2026-10-18 10:00:00'));
+        $this->assertSame('2026-10-18 10:00', $this->service->lastRedirectFailureAt()?->format('Y-m-d H:i'));
+
+        $this->service->recordRedirectOutcome(false, new \DateTimeImmutable('2026-10-18 11:00:00'));
+        $this->assertNull($this->service->lastRedirectFailureAt());
+    }
+
+    /** The bookkeeping never masks the failure it records. */
+    public function testAMissingSettingRowDoesNotThrow(): void
+    {
+        $this->service->recordRedirectOutcome(true, new \DateTimeImmutable('2026-10-18 10:00:00'));
+
+        $this->assertNull($this->service->lastRedirectFailureAt());
+    }
 }

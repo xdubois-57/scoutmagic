@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\LlmConnector\Service;
 
+use Core\Config\AppClock;
 use Core\Journal\JournalService;
 use Modules\LlmConnector\Api\LlmConnectorInterface;
 use Modules\LlmConnector\Api\LlmException;
@@ -38,7 +39,15 @@ class LlmConnectorService implements LlmConnectorInterface
     public function __construct(
         private ProviderRepository $providerRepo,
         private ProviderModelRepository $modelRepo,
-        private JournalService $journalService
+        private JournalService $journalService,
+        /**
+         * Where the last call's outcome is kept (#718 § C point 9). Null
+         * records nothing — a caller that only renders a page, or a narrow
+         * test. Only a call that reached a driver counts: the two refusals
+         * before it are a configuration gap, which LlmAttentionProvider
+         * reads from isAvailable() instead.
+         */
+        private ?LastFailureStore $lastFailure = null
     ) {
     }
 
@@ -119,8 +128,11 @@ class LlmConnectorService implements LlmConnectorInterface
                 ],
                 null
             );
+            $this->lastFailure?->recordFailure($e->getCode(), AppClock::now());
             throw $e;
         }
+
+        $this->lastFailure?->clear();
 
         // `truncated` and `content_length` are here because "completed"
         // alone is a lie by omission on a reasoning model: it spends the

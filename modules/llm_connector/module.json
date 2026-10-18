@@ -2,7 +2,7 @@
   "id": "llm_connector",
   "name": "Intelligence artificielle",
   "description": "Fournisseur d'IA utilisé par d'autres modules.",
-  "version": "1.3.4",
+  "version": "1.4.0",
   "routes": [
     {
       "path": "/config/llm",
@@ -41,7 +41,24 @@
       "label": ""
     }
   ],
-  "settings": [],
+  "settings": [
+    {
+      "key": "llm_last_failure_at",
+      "default_value": "",
+      "type": "text",
+      "label": "Dernier appel en échec",
+      "description": "Horodatage interne : le dernier appel au fournisseur d'intelligence artificielle a échoué à ce moment, et aucun n'a réussi depuis. Vide après un appel réussi. Non modifiable.",
+      "editable": false
+    },
+    {
+      "key": "llm_last_failure_code",
+      "default_value": "",
+      "type": "text",
+      "label": "Nature du dernier échec",
+      "description": "Marqueur interne : le type d'erreur du dernier appel en échec (délai dépassé, quota, erreur du fournisseur). Non modifiable.",
+      "editable": false
+    }
+  ],
   "cookies": [],
   "scheduled_tasks": [
     {

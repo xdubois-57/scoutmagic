@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\SosStaff\Service;
 
+use Core\Config\AppClock;
 use Core\Journal\JournalService;
 use Core\Mail\MailService;
 use Core\Mail\Template\EmailTemplateRenderer;
@@ -243,8 +244,13 @@ class RedirectService
         }
     }
 
+    /**
+     * Journals the outcome, and keeps whether it failed for the attention
+     * page (#718 § C point 9) — the one place every outcome passes through.
+     */
     private function logOutcome(string $outcome, string $description, ?int $memberId): void
     {
+        $this->settingsService->recordRedirectOutcome($outcome === 'failure', AppClock::now());
         $this->journalService->log(
             'sos_staff',
             "redirect_{$outcome}",

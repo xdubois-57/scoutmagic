@@ -468,4 +468,39 @@ class RedirectServiceTest extends TestCase
 
         $this->service()->apply(null, 1, 100);
     }
+
+    /**
+     * Every outcome is kept for the attention page (#718 § C point 9): a
+     * failure, so the page can say the SOS number is stuck…
+     */
+    public function testAFailureIsKeptForTheAttentionPage(): void
+    {
+        $this->providerConfigService->method('getActiveProvider')->willReturn(null);
+        $this->userAccountRepository->method('findFirstSuperAdmin')->willReturn(null);
+        $settings = $this->createMock(SosSettingsService::class);
+        $settings->expects($this->once())->method('recordRedirectOutcome')->with(true, $this->anything());
+        $this->settingsService = $settings;
+
+        $this->expectException(SosException::class);
+        $this->service()->apply(1, null, 100);
+    }
+
+    /** …and a success, so the next redirect that works clears it. */
+    public function testASuccessClearsTheKeptFailure(): void
+    {
+        $provider = $this->createStub(PhoneProviderInterface::class);
+        $provider->method('readForwardingState')->willReturnOnConsecutiveCalls(
+            new ForwardingState(true, '+32470000000'),
+            new ForwardingState(true, '+32470000001')
+        );
+        $this->providerConfigService->method('getActiveProvider')->willReturn($provider);
+        $this->memberService->method('findProfileByMemberAndYear')
+            ->willReturn($this->profile(1, 'Akela', '+32470000001', 'akela@test.be'));
+        $settings = $this->createMock(SosSettingsService::class);
+        $settings->method('isEmailNotificationsEnabled')->willReturn(false);
+        $settings->expects($this->once())->method('recordRedirectOutcome')->with(false, $this->anything());
+        $this->settingsService = $settings;
+
+        $this->service()->apply(1, null, 100);
+    }
 }
