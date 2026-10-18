@@ -41,6 +41,7 @@ final class UserFacingExceptionInventoryTest extends TestCase
         \Core\Badge\BadgeException::class,
         \Core\Config\SettingException::class,
         \Core\Contact\ContactCardException::class,
+        \Core\Database\IncompleteMigrationException::class,
         \Core\Exception\UserFacingException::class,
         \Core\File\UploadException::class,
         \Core\Image\ImageDimensionException::class,

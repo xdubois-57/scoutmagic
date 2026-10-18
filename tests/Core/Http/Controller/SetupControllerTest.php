@@ -937,6 +937,178 @@ class SetupControllerTest extends TestCase
     }
 
     /**
+     * Issue #909: a slice that runs out of time is not an installed
+     * database. The runner below gives up on its first three slices, as a
+     * slow host does with the real twenty seconds — and the wizard must
+     * still answer only once the whole schema is there.
+     *
+     * @group database
+     */
+    #[\PHPUnit\Framework\Attributes\Group('database')]
+    public function testInstallDatabaseWaitsForTheWholeSchemaWhenASliceRunsOutOfTime(): void
+    {
+        [$pdo, $params] = $this->connectToTestDatabase();
+
+        $controller = new SetupController(
+            $this->twig,
+            $this->secretManager,
+            $this->dkimManager,
+            $this->schemaPath,
+            migrationRunnerFactory: $this->runnerOutOfTimeForItsFirstSlices(3)
+        );
+        $token = \Core\Security\CsrfGuard::generateToken();
+        $_POST['_csrf_token'] = $token;
+        $request = new Request('POST', '/setup/install-database', [], array_merge($params, ['_csrf_token' => $token]), [], []);
+
+        $json = json_decode($controller->installDatabase($request, [])->getBody(), true);
+
+        $this->assertTrue($json['success'], $json['message'] ?? '');
+        $this->assertTrue($json['migrated']);
+        $this->assertSame(
+            '0',
+            ini_get('max_execution_time'),
+            'the slices may extend a limited request, never put a limit on an unlimited process'
+        );
+        $runner = new \Core\Database\MigrationRunner(
+            self::productionEngineConnection(),
+            new \Core\Database\SchemaIntrospector($pdo),
+            new \Core\Database\SchemaComparator(),
+            new \Core\Database\SqlParser()
+        );
+        $this->assertFalse(
+            $runner->isPending(\Core\Database\SchemaFiles::all(dirname($this->schemaPath, 2))),
+            'the schema is whole, not one slice of it'
+        );
+        $this->assertContains('user_accounts', $pdo->query('SHOW TABLES')->fetchAll(\PDO::FETCH_COLUMN));
+
+        $this->dropAllTables($pdo);
+    }
+
+    /**
+     * set_time_limit() sets the time left rather than adding to it, so the
+     * slices must never hand a generous host less than it already gives:
+     * a long ALTER TABLE is stopped by that limit alone (#909 review).
+     *
+     * @group database
+     */
+    #[\PHPUnit\Framework\Attributes\Group('database')]
+    public function testInstallDatabaseNeverShortensAHostTimeLimitLongerThanASlice(): void
+    {
+        [$pdo, $params] = $this->connectToTestDatabase();
+        $limitsSeen = new \ArrayObject();
+        set_time_limit(300);
+
+        try {
+            $controller = new SetupController(
+                $this->twig,
+                $this->secretManager,
+                $this->dkimManager,
+                $this->schemaPath,
+                migrationRunnerFactory: $this->runnerOutOfTimeForItsFirstSlices(2, $limitsSeen)
+            );
+            $token = \Core\Security\CsrfGuard::generateToken();
+            $_POST['_csrf_token'] = $token;
+            $request = new Request('POST', '/setup/install-database', [], array_merge($params, ['_csrf_token' => $token]), [], []);
+
+            $json = json_decode($controller->installDatabase($request, [])->getBody(), true);
+            $limitAfter = ini_get('max_execution_time');
+        } finally {
+            set_time_limit(0);
+        }
+
+        $this->assertTrue($json['success'], $json['message'] ?? '');
+        $this->assertSame(['300', '300', '300'], $limitsSeen->getArrayCopy());
+        $this->assertSame('300', $limitAfter, 'the host limit is put back once the schema is whole');
+
+        $this->dropAllTables($pdo);
+    }
+
+    /**
+     * A runner that gave up answers `complete` but not `converged`: done
+     * asking, and still not the declared schema. The wizard must refuse it
+     * as it refuses a timeout, never create the administrator on it (#909
+     * review).
+     *
+     * @group database
+     */
+    #[\PHPUnit\Framework\Attributes\Group('database')]
+    public function testInstallDatabaseRefusesAMigrationTheRunnerAbandoned(): void
+    {
+        [$pdo, $params] = $this->connectToTestDatabase();
+
+        $controller = new SetupController(
+            $this->twig,
+            $this->secretManager,
+            $this->dkimManager,
+            $this->schemaPath,
+            migrationRunnerFactory: static fn (\Core\Database\Connection $connection): \Core\Database\MigrationRunner
+                => new class ($connection) extends \Core\Database\MigrationRunner {
+                    public function __construct(\Core\Database\Connection $connection)
+                    {
+                        parent::__construct(
+                            $connection,
+                            new \Core\Database\SchemaIntrospector($connection->getPdo()),
+                            new \Core\Database\SchemaComparator(),
+                            new \Core\Database\SqlParser()
+                        );
+                    }
+
+                    public function migrate(array $schemaFiles): \Core\Database\MigrationResult
+                    {
+                        return new \Core\Database\MigrationResult(
+                            executedStatements: [],
+                            warnings: ['Failed to execute: CREATE TABLE …'],
+                            complete: true,
+                            converged: false
+                        );
+                    }
+                }
+        );
+        $token = \Core\Security\CsrfGuard::generateToken();
+        $_POST['_csrf_token'] = $token;
+        $request = new Request('POST', '/setup/install-database', [], array_merge($params, ['_csrf_token' => $token]), [], []);
+
+        $json = json_decode($controller->installDatabase($request, [])->getBody(), true);
+
+        $this->assertFalse($json['success']);
+        $this->assertArrayNotHasKey('migrated', $json);
+        $this->assertSame(\Core\Database\IncompleteMigrationException::ABANDONED, $json['message']);
+
+        $this->dropAllTables($pdo);
+    }
+
+    /**
+     * Issue #909, the other half: when the schema cannot be finished — here
+     * another process holds the migration lock for the whole wait — the
+     * answer is an explicit refusal, never `migrated: true`.
+     *
+     * @group database
+     */
+    #[\PHPUnit\Framework\Attributes\Group('database')]
+    public function testInstallDatabaseRefusesInsteadOfReportingAPartialSchemaAsMigrated(): void
+    {
+        [$pdo, $params] = $this->connectToTestDatabase();
+        $this->assertTrue(\Core\Database\AdvisoryLock::acquire($pdo, 'scoutmagic_schema_migration'));
+
+        try {
+            $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath);
+            $token = \Core\Security\CsrfGuard::generateToken();
+            $_POST['_csrf_token'] = $token;
+            $request = new Request('POST', '/setup/install-database', [], array_merge($params, ['_csrf_token' => $token]), [], []);
+
+            $json = json_decode($controller->installDatabase($request, [])->getBody(), true);
+        } finally {
+            \Core\Database\AdvisoryLock::release($pdo, 'scoutmagic_schema_migration');
+        }
+
+        $this->assertFalse($json['success']);
+        $this->assertArrayNotHasKey('migrated', $json);
+        $this->assertSame(\Core\Database\IncompleteMigrationException::TIMED_OUT, $json['message']);
+
+        $this->dropAllTables($pdo);
+    }
+
+    /**
      * The whole point of checking emptiness first: installing straight
      * over a database with leftover data from a previous install would
      * generate a fresh encryption key against old encrypted rows.
@@ -1448,6 +1620,60 @@ class SetupControllerTest extends TestCase
     }
 
     /**
+     * Issue #909 as it was reported: the first migration stopped on its time
+     * budget and createAdminAccount() then met `Table … user_accounts
+     * doesn't exist`. A runner whose first slices run out of time
+     * reproduces that on any machine.
+     *
+     * @group database
+     */
+    #[\PHPUnit\Framework\Attributes\Group('database')]
+    public function testSaveCreatesTheAdministratorEvenWhenTheFirstMigrationSlicesRunOutOfTime(): void
+    {
+        [$pdo, $databaseFields] = $this->connectToTestDatabase();
+
+        $token = \Core\Security\CsrfGuard::generateToken();
+        $controller = new SetupController(
+            $this->twig,
+            $this->secretManager,
+            $this->dkimManager,
+            $this->schemaPath,
+            $this->publicDir(),
+            $this->runnerOutOfTimeForItsFirstSlices(3)
+        );
+        $this->writeCronHeartbeat();
+        $request = new Request('POST', '/setup/save', [], [
+            '_csrf_token' => $token,
+            ...$databaseFields,
+            'site_name' => 'Test Unité',
+            'short_name' => '25SV',
+            'base_url' => 'https://test.example.com',
+            'mail_mode' => 'local',
+            'smtp_host' => '',
+            'smtp_port' => '587',
+            'smtp_user' => '',
+            'smtp_password' => '',
+            'mail_from_address' => 'unit@example.com',
+            'mail_from_name' => 'Test Unité',
+            'dkim_selector' => 'mail',
+            'dmarc_report_email' => 'dmarc@example.com',
+            'admin_email' => 'admin@example.com',
+            'admin_password' => 'Motdepasse-2027!',
+        ], [], []);
+
+        $response = $controller->save($request, []);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('/', $response->getHeaders()['Location'] ?? null, json_encode(\Core\Http\FlashMessage::get()) ?: '');
+        $this->assertSame(
+            1,
+            (int) $pdo->query('SELECT COUNT(*) FROM user_accounts WHERE is_super_admin = 1')->fetchColumn()
+        );
+
+        $this->dropAllTables($pdo);
+    }
+
+    /**
      * @group database
      */
     #[\PHPUnit\Framework\Attributes\Group('database')]
@@ -1575,6 +1801,58 @@ class SetupControllerTest extends TestCase
      * FK-checks-off approach as Tests\Core\Database\MigrationRunnerTest and
      * Core\Maintenance\Task\FullResetHandler::truncateAllTables().
      */
+    /**
+     * A runner whose first $slices migrate() calls stop before doing any
+     * work, each reporting a little more progress, as one does on a host
+     * too slow to finish within its time budget (#909). The call after
+     * that runs the real migration. Each call records the
+     * max_execution_time it ran under in $limitsSeen.
+     *
+     * @param \ArrayObject<int, string>|null $limitsSeen
+     * @return \Closure(\Core\Database\Connection): \Core\Database\MigrationRunner
+     */
+    private function runnerOutOfTimeForItsFirstSlices(int $slices, ?\ArrayObject $limitsSeen = null): \Closure
+    {
+        $limitsSeen ??= new \ArrayObject();
+
+        return static fn (\Core\Database\Connection $connection): \Core\Database\MigrationRunner => new class (
+            $connection,
+            $slices,
+            $limitsSeen
+        ) extends \Core\Database\MigrationRunner {
+            /**
+             * @param \ArrayObject<int, string> $limitsSeen max_execution_time as each slice found it
+             */
+            public function __construct(
+                \Core\Database\Connection $connection,
+                private int $slicesLeft,
+                private \ArrayObject $limitsSeen
+            ) {
+                parent::__construct(
+                    $connection,
+                    new \Core\Database\SchemaIntrospector($connection->getPdo()),
+                    new \Core\Database\SchemaComparator(),
+                    new \Core\Database\SqlParser()
+                );
+            }
+
+            public function migrate(array $schemaFiles): \Core\Database\MigrationResult
+            {
+                $this->limitsSeen[] = (string) ini_get('max_execution_time');
+                if ($this->slicesLeft-- > 0) {
+                    return new \Core\Database\MigrationResult(
+                        executedStatements: [],
+                        warnings: [],
+                        complete: false,
+                        progressFraction: 1 / ($this->slicesLeft + 2)
+                    );
+                }
+
+                return parent::migrate($schemaFiles);
+            }
+        };
+    }
+
     private function dropAllTables(\PDO $pdo): void
     {
         $pdo->exec('SET FOREIGN_KEY_CHECKS = 0');
