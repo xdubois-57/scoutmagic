@@ -67,7 +67,6 @@ class RegistrationChefsRbacTest extends TestCase
         $currentYearId = RegistrationTestHelper::insertScoutYear($this->pdo, '2026-2027', '2026-09-01', '2027-08-31');
 
         $settingService = new SettingService(new SettingRepository($this->pdo));
-        $settingService->register('registration_reference_date', '12-31', 'text', 'Réf', 'desc', 'registration');
         $settingService->register('registration_threshold_yes_percent', '70', 'number', 'Oui', 'd', 'registration');
         $settingService->register(
             'registration_threshold_maybe_percent',
@@ -121,7 +120,7 @@ class RegistrationChefsRbacTest extends TestCase
         $forecastService = new ForecastService(new \Modules\Registration\Repository\PassageRosterRepository($this->pdo, $encryption), $encryption, $sectionService, $passageService);
         $this->passageController = new PassageController(
             $twig, $passageService, $requestRepository, $transferRepository, $sectionService,
-            $ageBracketRepository, $slotService, $scoutYearResolver, $scoutYearService,
+            $ageBracketRepository, $scoutYearResolver, $scoutYearService,
             // This test is about the RBAC floor, not about the numbers —
             // but the box is part of the page it renders, so the real
             // projection is wired rather than a stub that could quietly
@@ -130,7 +129,6 @@ class RegistrationChefsRbacTest extends TestCase
                 $sectionService,
                 new \Modules\Registration\Service\ProjectedPopulationService(
                     $forecastService,
-                    $slotService,
                     $scoutYearService,
                     $sectionService,
                     $requestRepository,

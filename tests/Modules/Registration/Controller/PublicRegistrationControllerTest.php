@@ -79,7 +79,6 @@ class PublicRegistrationControllerTest extends TestCase
         $this->settingService = new SettingService(new SettingRepository($this->pdo));
         $this->settingService->register('registration_form_open', '0', 'boolean', 'Ouvert', 'desc', 'registration');
         $this->settingService->register('registration_waitlist_enabled', '0', 'boolean', 'Places', 'desc', 'registration');
-        $this->settingService->register('registration_reference_date', '12-31', 'text', 'Réf', 'desc', 'registration');
         $this->settingService->register('registration_unit_alert_email', '', 'text', 'Alerte', 'desc', 'registration');
         $this->settingService->register(
             'registration_threshold_yes_percent',
@@ -583,10 +582,9 @@ class PublicRegistrationControllerTest extends TestCase
         $hcFields = $this->humanCheckFields();
         sleep(2);
 
-        // Target year is next year (2027-2028), reference date 12-31 =>
-        // reference calendar year 2027 (Service\SlotMath::
-        // referenceCalendarYear() keeps the scout year's start year for a
-        // September-or-later reference month). birth_date 2021-06-01 =>
+        // Target year is next year (2027-2028) => reference year 2027, its
+        // start year (Core\Member\MemberYearService::
+        // referenceYearFromScoutYearLabel()). birth_date 2021-06-01 =>
         // age 6 => Baladins (entry age 6). Submitting Louveteaux's section
         // for a Baladins-age child must be silently dropped to "no
         // preference" rather than trusted.

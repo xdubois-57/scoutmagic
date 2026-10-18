@@ -63,15 +63,11 @@ class PassageService
     public function getNewRegistrations(
         int $targetYearId,
         string $targetYearLabel,
-        string $referenceMonthDay,
         int $currentPublicYearId
     ): array
     {
         $brackets = $this->ageBracketRepository->findAllOrdered();
-        $referenceYear = SlotMath::referenceCalendarYear(
-            MemberYearService::referenceYearFromScoutYearLabel($targetYearLabel),
-            $referenceMonthDay
-        );
+        $referenceYear = MemberYearService::referenceYearFromScoutYearLabel($targetYearLabel);
 
         $sections = $this->sectionService->getAllWithBranches(true);
         $sectionLabels = [];

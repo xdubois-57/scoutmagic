@@ -118,7 +118,6 @@ class RegistrationRequestControllerTest extends TestCase
 
         $settingService = new SettingService(new SettingRepository($this->pdo));
         $this->settingService = $settingService;
-        $settingService->register('registration_reference_date', '12-31', 'text', 'Réf', 'desc', 'registration');
         $settingService->register('registration_threshold_yes_percent', '70', 'number', 'Oui', 'desc', 'registration');
         $settingService->register(
             'registration_threshold_maybe_percent',
@@ -230,7 +229,7 @@ class RegistrationRequestControllerTest extends TestCase
         $this->controller = new RegistrationRequestController(
             $twig, $this->requestRepository, $ageBracketRepository, $sectionService, $feeCategoryRepository,
             $feeEstimationService, $statusService, $emailService, $migrationService, $memberRepository,
-            $memberYearRepository, $scoutYearResolver, $scoutYearService, $slotService, $memberService,
+            $memberYearRepository, $scoutYearResolver, $scoutYearService, $memberService,
             $decisionService
         );
         $this->emailController = new RequestDecisionEmailController(

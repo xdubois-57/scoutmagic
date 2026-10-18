@@ -126,15 +126,13 @@ class ForecastService
         int $currentYearId,
         string $currentYearLabel,
         int $targetYearId,
-        string $targetYearLabel,
-        string $referenceMonthDay
+        string $targetYearLabel
     ): array {
         $collected = $this->collectProjectedRows(
             $currentYearId,
             $currentYearLabel,
             $targetYearId,
-            $targetYearLabel,
-            $referenceMonthDay
+            $targetYearLabel
         );
 
         return $this->buildViewModel(
@@ -178,15 +176,13 @@ class ForecastService
         int $currentYearId,
         string $currentYearLabel,
         int $targetYearId,
-        string $targetYearLabel,
-        string $referenceMonthDay
+        string $targetYearLabel
     ): array {
         return $this->collectProjectedRows(
             $currentYearId,
             $currentYearLabel,
             $targetYearId,
-            $targetYearLabel,
-            $referenceMonthDay
+            $targetYearLabel
         )['rows'];
     }
 
@@ -202,8 +198,7 @@ class ForecastService
         int $currentYearId,
         string $currentYearLabel,
         int $targetYearId,
-        string $targetYearLabel,
-        string $referenceMonthDay
+        string $targetYearLabel
     ): array {
         // includeHidden: TRUE deliberately, and it must stay that way. The
         // Passage page offers destinations (and the fiche offers a "section
@@ -381,7 +376,6 @@ class ForecastService
         $newRegistrations = $this->passageService->getNewRegistrations(
             $targetYearId,
             $targetYearLabel,
-            $referenceMonthDay,
             $currentYearId
         );
         foreach ($newRegistrations as $row) {

@@ -11457,7 +11457,6 @@ if ($isEnabled('registration')) {
             $memberYearRepo,
             $scoutYearResolver,
             $scoutYearService,
-            $registrationSlotService,
             $memberService,
             $registrationDecisionService
         )
@@ -11534,7 +11533,6 @@ if ($isEnabled('registration')) {
     // outside it receives null and must go on working.
     $registrationProjectedPopulation = new \Modules\Registration\Service\ProjectedPopulationService(
         $registrationForecastService,
-        $registrationSlotService,
         $scoutYearService,
         $sectionService,
         $registrationRequestRepo,
@@ -11695,7 +11693,6 @@ if ($isEnabled('registration')) {
             $registrationSectionTransferRepo,
             $sectionService,
             $registrationAgeBracketRepo,
-            $registrationSlotService,
             $scoutYearResolver,
             $scoutYearService,
             new \Modules\Registration\Service\PassageStatisticsService(

@@ -182,7 +182,7 @@ class ForecastServiceTest extends TestCase
         // (d) New registration — accepted, section prévue chosen.
         $this->createRequest('Emile', '2019-06-01', $this->louveteauxSectionId);
 
-        $forecast = $this->service->getForecast($this->currentYearId, '2026-2027', $this->targetYearId, '2027-2028', '12-31');
+        $forecast = $this->service->getForecast($this->currentYearId, '2026-2027', $this->targetYearId, '2027-2028');
 
         $this->assertSame(4, $forecast['summary']['projected_total']);
         $this->assertSame(0, $forecast['unassigned']['total']);
@@ -213,7 +213,7 @@ class ForecastServiceTest extends TestCase
         // section, same person.
         $this->createMember($this->targetYearId, 'Encode', '2019-06-01', $this->louveteauxSectionId, memberId: $memberId);
 
-        $forecast = $this->service->getForecast($this->currentYearId, '2026-2027', $this->targetYearId, '2027-2028', '12-31');
+        $forecast = $this->service->getForecast($this->currentYearId, '2026-2027', $this->targetYearId, '2027-2028');
 
         $this->assertSame(1, $forecast['summary']['projected_total']);
         $bySectionId = [];
@@ -229,7 +229,7 @@ class ForecastServiceTest extends TestCase
     {
         $this->createMember($this->currentYearId, 'Partant', '2017-06-01', $this->louveteauxSectionId, leaving: true);
 
-        $forecast = $this->service->getForecast($this->currentYearId, '2026-2027', $this->targetYearId, '2027-2028', '12-31');
+        $forecast = $this->service->getForecast($this->currentYearId, '2026-2027', $this->targetYearId, '2027-2028');
 
         $this->assertSame(0, $forecast['summary']['projected_total']);
     }
@@ -241,7 +241,7 @@ class ForecastServiceTest extends TestCase
         // Accepted registration, no section prévue chosen.
         $this->createRequest('SansSection', '2019-06-01', null);
 
-        $forecast = $this->service->getForecast($this->currentYearId, '2026-2027', $this->targetYearId, '2027-2028', '12-31');
+        $forecast = $this->service->getForecast($this->currentYearId, '2026-2027', $this->targetYearId, '2027-2028');
 
         $this->assertSame(2, $forecast['unassigned']['total']);
         $this->assertSame(1, $forecast['unassigned']['from_passage']);
@@ -266,7 +266,7 @@ class ForecastServiceTest extends TestCase
         $this->createMember($this->currentYearId, 'SansDestination', '2015-06-01', $this->louveteauxSectionId);
         $this->createRequest('SansSection', '2019-06-01', null);
 
-        $forecast = $this->service->getForecast($this->currentYearId, '2026-2027', $this->targetYearId, '2027-2028', '12-31');
+        $forecast = $this->service->getForecast($this->currentYearId, '2026-2027', $this->targetYearId, '2027-2028');
 
         $sectionsSum = array_sum(array_column($forecast['sections'], 'total'));
         $this->assertSame($forecast['summary']['projected_total'], $sectionsSum + $forecast['unassigned']['total']);
@@ -278,7 +278,7 @@ class ForecastServiceTest extends TestCase
         $this->createMember($this->currentYearId, 'Partant2', '2017-06-01', $this->louveteauxSectionId, leaving: true);
         $this->createMember($this->currentYearId, 'Reste', '2017-06-01', $this->louveteauxSectionId);
 
-        $forecast = $this->service->getForecast($this->currentYearId, '2026-2027', $this->targetYearId, '2027-2028', '12-31');
+        $forecast = $this->service->getForecast($this->currentYearId, '2026-2027', $this->targetYearId, '2027-2028');
 
         $this->assertSame(2, $forecast['summary']['departures_count']);
     }
@@ -321,7 +321,7 @@ class ForecastServiceTest extends TestCase
         $this->createRequest('Placee', '2019-06-01', $this->louveteauxSectionId);
         $this->createRequest('NonPlacee', '2019-06-01', null);
 
-        $forecast = $this->service->getForecast($this->currentYearId, '2026-2027', $this->targetYearId, '2027-2028', '12-31');
+        $forecast = $this->service->getForecast($this->currentYearId, '2026-2027', $this->targetYearId, '2027-2028');
 
         $this->assertSame(2, $forecast['summary']['new_registrations_count']);
     }
@@ -429,7 +429,7 @@ class ForecastServiceTest extends TestCase
      */
     private function forecast(): array
     {
-        return $this->service->getForecast($this->currentYearId, '2026-2027', $this->targetYearId, '2027-2028', '12-31');
+        return $this->service->getForecast($this->currentYearId, '2026-2027', $this->targetYearId, '2027-2028');
     }
 
     /**

@@ -17,25 +17,18 @@ use Modules\Registration\Repository\AgeBracket;
  * testable — Service\SlotService is the DB-touching orchestration layer
  * that feeds this class real data.
  *
- * The whole point of a *day-and-month* reference date (not just a
- * reference year) is that it decides WHICH of the two calendar years a
- * scout year spans (September of year Y through August of year Y+1)
- * should be used to compute age: a reference date in September–December
- * falls in year Y itself; a reference date in January–August falls in
- * year Y+1 (the scout year hasn't finished yet, but time has moved into
- * its second calendar year). The default (12-31) intentionally lands on
- * the *first* year — the same simplification Core\Member\
- * MemberYearService::referenceYearFromScoutYearLabel() already makes for
- * existing members (a scout year's reference year is always its start
- * year) — so a unit that never touches this setting gets numbers
- * consistent with how the rest of the site already treats ages.
+ * A slot is reached by the birth year alone, counted from the target
+ * scout year's START year — the same rule Core\Member\MemberYearService::
+ * getEffectiveAge() applies to existing members, through
+ * referenceYearFromScoutYearLabel(). A child's exact birth date, or their
+ * age on any given day, plays no part (issue #891): a request and a
+ * member born the same year always land in the same slot, otherwise the
+ * capacity check would weigh one cohort's requests against another's
+ * occupancy. A request has no scout-year offset — that is a chief's
+ * correction to a member's course, applied once they are one.
  *
- * Given a reference month-day fixes exactly one age per birth year (this
- * deliberately never splits a birth year into two ages by exact birth day
- * — nothing about a not-yet-registered child's exact birth day is known
- * ahead of the parent filling in the form, and the module spec asks for a
- * birth-YEAR list, not day-level precision), each (branch, year-in-branch)
- * slot maps to exactly one birth year.
+ * So each (branch, year-in-branch) slot maps to exactly one birth year,
+ * and the public page lists birth years, never ages.
  */
 final class SlotMath
 {
@@ -52,24 +45,14 @@ final class SlotMath
     public const THRESHOLD_MIN_PERCENT = 1;
     public const THRESHOLD_MAX_PERCENT = 120;
 
-    /**
-     * @param string $referenceMonthDay "MM-DD", e.g. "12-31"
-     */
-    public static function referenceCalendarYear(int $targetScoutYearStartYear, string $referenceMonthDay): int
-    {
-        $month = (int) substr($referenceMonthDay, 0, 2);
-
-        return $month >= 9 ? $targetScoutYearStartYear : $targetScoutYearStartYear + 1;
-    }
-
     public static function ageForSlot(AgeBracket $bracket, int $yearInBranch): int
     {
         return $bracket->ageForYearInBranch($yearInBranch);
     }
 
-    public static function birthYearForSlot(AgeBracket $bracket, int $yearInBranch, int $referenceCalendarYear): int
+    public static function birthYearForSlot(AgeBracket $bracket, int $yearInBranch, int $referenceYear): int
     {
-        return $referenceCalendarYear - self::ageForSlot($bracket, $yearInBranch);
+        return $referenceYear - self::ageForSlot($bracket, $yearInBranch);
     }
 
     /**
@@ -81,13 +64,13 @@ final class SlotMath
      * @param array<AgeBracket> $brackets
      * @return array{age_branch_id: int, year_in_branch: int}|null
      */
-    public static function slotForBirthDate(array $brackets, string $birthDate, int $referenceCalendarYear): ?array
+    public static function slotForBirthDate(array $brackets, string $birthDate, int $referenceYear): ?array
     {
         $birthYear = self::extractYear($birthDate);
         if ($birthYear === null) {
             return null;
         }
-        $age = $referenceCalendarYear - $birthYear;
+        $age = $referenceYear - $birthYear;
 
         foreach ($brackets as $bracket) {
             $lastAge = $bracket->entryAge + $bracket->durationYears - 1;

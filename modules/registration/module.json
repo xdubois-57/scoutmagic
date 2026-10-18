@@ -2,7 +2,7 @@
   "id": "registration",
   "name": "Inscriptions",
   "description": "Inscriptions, réinscriptions, passages de branche et départs.",
-  "version": "6.21.0",
+  "version": "6.22.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -878,13 +878,6 @@
       "type": "boolean",
       "label": "Gérer les listes d'attente",
       "description": "Quand actif, la page publique annonce à côté de chaque année de naissance si les places sont « Disponible », « Limitée » ou « Complet », la page Formulaire d'inscription de l'Espace chefs d'U affiche le restant et le niveau vu par le public, et chaque demande en attente reçoit une recommandation Oui / Peut-être / Non. Quand inactif, rien de tout cela n'apparaît nulle part, aucune recommandation n'est calculée, et les deux seuils « Oui jusqu'à … % » et « Peut-être jusqu'à … % » ainsi que les priorités sont sans effet, leurs valeurs étant conservées. Se règle aussi depuis l'encart « Capacités par branche » du Formulaire d'inscription."
-    },
-    {
-      "key": "registration_reference_date",
-      "default_value": "12-31",
-      "type": "text",
-      "label": "Date de référence pour le calcul de l'âge",
-      "description": "Jour et mois (MM-JJ) utilisés pour déterminer l'âge d'un enfant au sein de l'année scoute ciblée, et donc son créneau (branche × rang). Par défaut le 31 décembre (12-31)."
     },
     {
       "key": "registration_threshold_yes_percent",

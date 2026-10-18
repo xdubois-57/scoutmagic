@@ -277,7 +277,7 @@ class PassageServiceTest extends TestCase
 
         $this->requestRepository->updateIntendedSection($created['id'], $this->louveteauxSectionId);
 
-        $rows = $this->service->getNewRegistrations($this->targetYearId, '2027-2028', '12-31', $this->currentYearId);
+        $rows = $this->service->getNewRegistrations($this->targetYearId, '2027-2028', $this->currentYearId);
 
         $this->assertSame($this->louveteauxSectionId, $rows[0]['request']->intendedSectionId);
     }
@@ -294,7 +294,7 @@ class PassageServiceTest extends TestCase
         ], null, [$sacha['member_id']]);
         $this->requestRepository->updateStatus($created['id'], 'accepted', null);
 
-        $rows = $this->service->getNewRegistrations($this->targetYearId, '2027-2028', '12-31', $this->currentYearId);
+        $rows = $this->service->getNewRegistrations($this->targetYearId, '2027-2028', $this->currentYearId);
 
         $this->assertCount(1, $rows);
         $this->assertCount(1, $rows[0]['siblings']);
@@ -323,7 +323,7 @@ class PassageServiceTest extends TestCase
         ], null, [$sacha['member_id'], $left['member_id']]);
         $this->requestRepository->updateStatus($created['id'], 'accepted', null);
 
-        $rows = $this->service->getNewRegistrations($this->targetYearId, '2027-2028', '12-31', $this->currentYearId);
+        $rows = $this->service->getNewRegistrations($this->targetYearId, '2027-2028', $this->currentYearId);
 
         $this->assertCount(1, $rows);
         $this->assertCount(2, $rows[0]['siblings']);
@@ -358,7 +358,7 @@ class PassageServiceTest extends TestCase
         $this->requestRepository->updateStatus($encoded['id'], 'accepted', null);
         $this->requestRepository->linkToMemberAndEncode($encoded['id'], $memberId, new \DateTimeImmutable());
 
-        $rows = $this->service->getNewRegistrations($this->targetYearId, '2027-2028', '12-31', $this->currentYearId);
+        $rows = $this->service->getNewRegistrations($this->targetYearId, '2027-2028', $this->currentYearId);
 
         $names = array_map(fn($row) => $row['request']->childFirstName, $rows);
         $this->assertSame(['Accepted'], $names);

@@ -44,7 +44,6 @@ class ForecastControllerTest extends TestCase
         $currentYearId = RegistrationTestHelper::insertScoutYear($this->pdo, '2026-2027', '2026-09-01', '2027-08-31');
 
         $settingService = new SettingService(new SettingRepository($this->pdo));
-        $settingService->register('registration_reference_date', '12-31', 'text', 'Réf', 'desc', 'registration');
         $settingService->register(ScoutYearResolver::SETTING_PUBLIC_YEAR, '0', 'number', 'Public', 'desc', null, '^[0-9]+$', null, false);
         $settingService->register(ScoutYearResolver::SETTING_STAFF_YEAR, '0', 'number', 'Staff', 'desc', null, '^[0-9]+$', null, false);
         $settingService->setInternal(ScoutYearResolver::SETTING_PUBLIC_YEAR, (string) $currentYearId);

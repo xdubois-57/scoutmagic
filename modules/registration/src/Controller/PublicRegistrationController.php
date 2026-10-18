@@ -169,10 +169,7 @@ class PublicRegistrationController extends AbstractController
         }
 
         $target = $availability['target'];
-        $referenceYear = SlotMath::referenceCalendarYear(
-            MemberYearService::referenceYearFromScoutYearLabel((string) $target['label']),
-            $this->slotService->referenceMonthDay()
-        );
+        $referenceYear = MemberYearService::referenceYearFromScoutYearLabel((string) $target['label']);
         $brackets = $this->ageBracketRepository->findAllOrdered();
         $slot = SlotMath::slotForBirthDate($brackets, $fields['birth_date'], $referenceYear);
 

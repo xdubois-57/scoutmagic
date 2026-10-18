@@ -109,10 +109,7 @@ class RecommendationService
         $keptByChild = self::keptRequestByChild($candidates);
 
         $brackets = $this->ageBracketRepository->findAllOrdered();
-        $referenceYear = SlotMath::referenceCalendarYear(
-            MemberYearService::referenceYearFromScoutYearLabel((string) $year['label']),
-            $this->slotService->referenceMonthDay()
-        );
+        $referenceYear = MemberYearService::referenceYearFromScoutYearLabel((string) $year['label']);
 
         /** @var array<int, Recommendation> $leftOut */
         $leftOut = [];

@@ -135,10 +135,7 @@ final class RegistrationSeeder
 
         $targetYearId = $this->scoutYearService->ensureYear(RegistrationBlueprint::TARGET_YEAR);
         $brackets = $this->bracketRepository->findAllOrdered();
-        $referenceYear = SlotMath::referenceCalendarYear(
-            UnitBlueprint::referenceYear(RegistrationBlueprint::TARGET_YEAR),
-            $this->slotService->referenceMonthDay(),
-        );
+        $referenceYear = UnitBlueprint::referenceYear(RegistrationBlueprint::TARGET_YEAR);
 
         $requests = 0;
         $accepted = 0;

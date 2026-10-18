@@ -1027,10 +1027,7 @@ class RegistrationConfigController extends AbstractController
         ?string $search
     ): array
     {
-        $referenceYear = SlotMath::referenceCalendarYear(
-            MemberYearService::referenceYearFromScoutYearLabel((string) $selectedYear['label']),
-            $this->slotService->referenceMonthDay()
-        );
+        $referenceYear = MemberYearService::referenceYearFromScoutYearLabel((string) $selectedYear['label']);
 
         $rows = $this->buildRequestRows(
             $this->requestRepository->findAllForYear($selectedYearId),

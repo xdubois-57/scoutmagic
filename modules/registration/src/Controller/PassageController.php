@@ -26,7 +26,6 @@ use Modules\Registration\Service\PassageOptimizationService;
 use Modules\Registration\Service\PassagePlanningService;
 use Modules\Registration\Service\PassageStatisticsService;
 use Modules\Registration\Service\SlotMath;
-use Modules\Registration\Service\SlotService;
 use Twig\Environment;
 
 /**
@@ -54,7 +53,6 @@ class PassageController extends AbstractController
         private SectionTransferRepository $transferRepository,
         private SectionService $sectionService,
         private AgeBracketRepository $ageBracketRepository,
-        private SlotService $slotService,
         private ScoutYearResolver $scoutYearResolver,
         private ScoutYearService $scoutYearService,
         private PassageStatisticsService $statisticsService,
@@ -75,12 +73,9 @@ class PassageController extends AbstractController
     {
         [$publicYear, $targetYear] = $this->resolveYears();
 
-        $referenceMonthDay = $this->slotService->referenceMonthDay();
-
         $newRegistrations = $this->passageService->getNewRegistrations(
             (int) $targetYear['id'],
             (string) $targetYear['label'],
-            $referenceMonthDay,
             (int) $publicYear['id']
         );
         // Read-only: assigning the obvious single-option destinations is
@@ -531,13 +526,10 @@ class PassageController extends AbstractController
      */
     private function passagePopulation(array $publicYear, array $targetYear): array
     {
-        $referenceMonthDay = $this->slotService->referenceMonthDay();
-
         return [
             $this->passageService->getNewRegistrations(
                 (int) $targetYear['id'],
                 (string) $targetYear['label'],
-                $referenceMonthDay,
                 (int) $publicYear['id']
             ),
             $this->passageService->getBranchChanges(
@@ -698,10 +690,7 @@ class PassageController extends AbstractController
     ): bool
     {
         $brackets = $this->ageBracketRepository->findAllOrdered();
-        $referenceYear = SlotMath::referenceCalendarYear(
-            MemberYearService::referenceYearFromScoutYearLabel($this->targetYearLabelFor($registrationRequest)),
-            $this->slotService->referenceMonthDay()
-        );
+        $referenceYear = MemberYearService::referenceYearFromScoutYearLabel($this->targetYearLabelFor($registrationRequest));
         $slot = SlotMath::slotForBirthDate($brackets, $registrationRequest->birthDate, $referenceYear);
         if ($slot === null) {
             return false;

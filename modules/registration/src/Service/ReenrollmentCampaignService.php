@@ -19,9 +19,8 @@ use Modules\Registration\Repository\ReenrollmentRepository;
  * and how far along it is.
  *
  * **The window is a recurring MM-DD pair, never a date with a year** —
- * the same convention as `registration_scheduled_open_at` and
- * `SlotService::referenceMonthDay()`, so one configuration fires every
- * scout year without a chief re-entering it. A campaign is identified by
+ * the same convention as `registration_scheduled_open_at`, so one
+ * configuration fires every scout year without a chief re-entering it. A campaign is identified by
  * its own CLOSE date (`Y-m-d`): that is what the applied-on markers store,
  * and what makes "at most once per campaign, per e-mail" exact.
  *

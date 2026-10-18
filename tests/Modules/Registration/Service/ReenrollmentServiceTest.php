@@ -91,7 +91,7 @@ class ReenrollmentServiceTest extends TestCase
             $this->settingService,
             $memberService,
             RegistrationTestHelper::departureLink($this->pdo, $this->encryption, $this->settingService),
-            RegistrationTestHelper::projectedPopulation($this->pdo, $this->encryption, $this->settingService),
+            RegistrationTestHelper::projectedPopulation($this->pdo, $this->encryption),
             new \Core\Member\SectionService(
     new \Core\Member\Repository\SectionRepository(Connection::withPdo($this->pdo)),
     new \Core\Member\Repository\MemberProfileRepository(Connection::withPdo($this->pdo), $this->encryption, new \Core\Badge\MemberBadgeRepository($this->pdo))

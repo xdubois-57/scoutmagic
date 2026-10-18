@@ -57,8 +57,7 @@ class ForecastController extends AbstractController
             (int) $publicYear['id'],
             (string) $publicYear['label'],
             (int) $targetYear['id'],
-            (string) $targetYear['label'],
-            $this->slotService->referenceMonthDay()
+            (string) $targetYear['label']
         );
 
         $capacityBreakdown = $this->slotService->capacityBreakdownForYear(

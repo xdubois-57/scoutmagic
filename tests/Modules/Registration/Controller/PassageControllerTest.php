@@ -78,7 +78,6 @@ class PassageControllerTest extends TestCase
         $this->pionniersSectionId = $this->createSection('PION1', $pionniersBranchId, 'Pionniers A');
 
         $settingService = new SettingService(new SettingRepository($this->pdo));
-        $settingService->register('registration_reference_date', '12-31', 'text', 'Réf', 'desc', 'registration');
         $settingService->register('registration_threshold_yes_percent', '70', 'number', 'Oui', 'd', 'registration');
         $settingService->register(
             'registration_threshold_maybe_percent',
@@ -133,7 +132,6 @@ class PassageControllerTest extends TestCase
         );
         $this->projection = new \Modules\Registration\Service\ProjectedPopulationService(
             $this->forecastService,
-            $slotService,
             $scoutYearService,
             $sectionService,
             $this->requestRepository,
@@ -153,7 +151,7 @@ class PassageControllerTest extends TestCase
         $this->reenrollmentService = $reenrollmentService;
         $this->controllerArgs = [
             $twig, $passageService, $this->requestRepository, $this->transferRepository, $sectionService,
-            $ageBracketRepository, $slotService, $scoutYearResolver, $scoutYearService,
+            $ageBracketRepository, $scoutYearResolver, $scoutYearService,
             new \Modules\Registration\Service\PassageStatisticsService($sectionService, $this->projection),
             \Tests\Modules\Registration\RegistrationTestHelper::passagePlanning(
                 $this->pdo,
@@ -197,7 +195,7 @@ class PassageControllerTest extends TestCase
     private function controllerWithReview(\Modules\LlmConnector\Api\LlmConnectorInterface $connector): PassageController
     {
         $args = $this->controllerArgs;
-        $args[13] = new \Modules\Registration\Service\PassageCommentReviewService(
+        $args[12] = new \Modules\Registration\Service\PassageCommentReviewService(
             $this->reenrollmentRepository,
             $this->passageNoteRepository,
             $this->reenrollmentService,
