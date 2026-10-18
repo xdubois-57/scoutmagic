@@ -197,13 +197,30 @@ export async function collectToasts(page) {
  * @param {import('@playwright/test').Page} page
  */
 export async function waitForConfirmReady(page) {
+    readyChecked.add(page);
     await page.waitForFunction(
         () => (/** @type {any} */ (document)).scoutMagicConfirmDelegated === true
     );
+    // Left on this document for answerConfirmation()'s diagnostic: still
+    // there means the page the click was aimed at is the one being read.
+    await page.evaluate(() => {
+        (/** @type {any} */ (document)).e2eConfirmReadyChecked = true;
+    });
 }
+
+/**
+ * Pages on which waitForConfirmReady() ran since their last answered
+ * dialog — what answerConfirmation()'s diagnostic needs to know before
+ * its document mark means anything (see there).
+ *
+ * @type {WeakSet<import('@playwright/test').Page>}
+ */
+const readyChecked = new WeakSet();
 
 export async function answerConfirmation(page, options = {}) {
     const dialog = page.locator('#sm-confirm-modal');
+    const checkedBeforeClick = readyChecked.has(page);
+    readyChecked.delete(page);
     // TEMPORARY INSTRUMENTATION — remove once the dialog that never
     // appears is understood. Under the security scan this wait times out
     // roughly once in twenty runs, and the message it gives ("locator to
@@ -214,10 +231,23 @@ export async function answerConfirmation(page, options = {}) {
     // it (no form[data-confirm] around the submitter). This tells them
     // apart, and it lives in the shared helper rather than in one spec
     // because four specs reach this same line.
+    //
+    // checkedDocument settles the question the first samples could not
+    // (issue #912): roots:0 with focus on <body> is what BOTH a click that
+    // did nothing and a native submit leave behind, since the submit
+    // redirects back to the very same URL. waitForConfirmReady(), called
+    // before the click, marks the document it checked: the mark still
+    // there means the same document — the click never reached a control;
+    // the mark gone means a new one replaced it — a native submit. That
+    // reading holds only when readyChecked is true: a caller that never
+    // ran waitForConfirmReady() before its click leaves no mark either, and
+    // its sample says nothing about which case it was.
+    // bannerShown says whether the cookie banner was still in front.
     try {
         await dialog.waitFor({ state: 'visible', timeout: 15_000 });
     } catch (failure) {
-        const state = await page.evaluate(() => ({
+        const state = await page.evaluate((readyCheckedBeforeClick) => ({
+            readyChecked: readyCheckedBeforeClick,
             roots: document.querySelectorAll('#sm-confirm-modal').length,
             anyConfirmMarkup: document.querySelectorAll('[id^="sm-confirm-modal"]').length,
             delegated: Boolean(/** @type {any} */ (document).scoutMagicConfirmDelegated),
@@ -226,7 +256,9 @@ export async function answerConfirmation(page, options = {}) {
             backdrops: document.querySelectorAll('.modal-backdrop').length,
             activeElement: document.activeElement ? document.activeElement.outerHTML.slice(0, 160) : '(none)',
             url: location.pathname + location.search,
-        }));
+            checkedDocument: Boolean(/** @type {any} */ (document).e2eConfirmReadyChecked),
+            bannerShown: document.getElementById('cookie-banner') !== null,
+        }), checkedBeforeClick);
         // eslint-disable-next-line no-console
         console.log('[CONFIRM-MISSING] ' + JSON.stringify(state));
         throw failure;

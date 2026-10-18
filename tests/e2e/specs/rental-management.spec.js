@@ -41,6 +41,7 @@ import { test, expect } from '@playwright/test';
 import { loginAsAdmin } from '../support/admin-login.js';
 import { expectRendersAsACalendar } from '../support/calendar.js';
 import { answerConfirmation, waitForConfirmReady } from '../support/confirm-dialog.js';
+import { answerCookieBanner } from '../support/cookie-banner.js';
 import { openSectionEditor } from '../support/section-editor.js';
 import { waitOutHumanCheckDelay } from '../support/human-check.js';
 import { closeModal, openModal } from '../support/modal.js';
@@ -302,6 +303,15 @@ test.describe('Rentals — running an asset', () => {
         // ── And the unit answers it ─────────────────────────────────────
         await loginAsAdmin(page);
         await page.goto(`/mes-locations/${ASSET_SLUG}/reservations`);
+        // The scan's intermittent failure on the discs below (issue #912)
+        // was sampled with the banner still up — `fixed-bottom`, in front of
+        // the foot of a long page. Answered here, as a visitor would, and
+        // HERE rather than on the reservation page: goto() has waited for
+        // `load`, so cookie-consent.js — a deferred script — has wired the
+        // buttons. Clicked on a page still loading, « Tout refuser » did
+        // nothing and the banner stayed. The choice is a cookie, so it holds
+        // for the reservation page too.
+        await answerCookieBanner(page);
 
         await page.getByRole('link', { name: new RegExp(reference) }).first().click();
         await expect(page.getByText('Pierre Lambert').first()).toBeVisible();
@@ -317,13 +327,23 @@ test.describe('Rentals — running an asset', () => {
         // sent outside the site and signed on paper by both parties, so its
         // four steps (IT-16) are ticked by hand from their disc (IT-14) —
         // each asks first, saying it is not the practice the site prefers.
+        //
+        // Every answer reloads the page, so confirm.js is waited for again
+        // before each click, not just once above (issue #912): « Rouvrir »
+        // is drawn by the server long before the script at the foot of the
+        // page has armed the next disc, and toBeVisible() on it says
+        // nothing about that.
         for (const step of ['Contrat généré', 'Contrat envoyé', 'Contrat signé reçu', 'Contrat contresigné']) {
-            await page.getByRole('button', { name: `Marquer « ${step} » comme fait` }).click();
+            const disc = page.getByRole('button', { name: `Marquer « ${step} » comme fait` });
+            await expect(disc).toBeVisible();
+            await waitForConfirmReady(page);
+            await disc.click();
             const warning = await answerConfirmation(page);
             expect(warning).toContain('sans que le site ait pu le vérifier');
             await expect(page.getByRole('button', { name: `Rouvrir « ${step} »` })).toBeVisible();
         }
 
+        await waitForConfirmReady(page);
         await page.getByRole('button', { name: 'Confirmer la réservation' }).first().click();
 
         // Confirming now asks first, and the dialog is where the manager

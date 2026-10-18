@@ -30,6 +30,14 @@ export async function answerCookieBanner(page, options = {}) {
     }
 
     await expect(banner).toBeVisible();
+    // The buttons are wired by cookie-consent.js, a DEFERRED script: on a
+    // page still loading they are visible and clickable and do nothing — no
+    // request leaves, and the wait below then blames the server for a
+    // choice that was never sent. A CI trace caught exactly that, with the
+    // click 100 ms after the page was requested (issue #912). `load` comes
+    // after every deferred script has run; on a page already loaded this
+    // returns at once.
+    await page.waitForLoadState('load');
     await page.getByRole('button', { name: options.accept ? 'Tout accepter' : 'Tout refuser' }).click();
 
     // cookie-consent.js removes the banner only once its POST has come
