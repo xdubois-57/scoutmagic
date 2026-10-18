@@ -121,7 +121,7 @@ final class GoogleDriveConnectionController extends AbstractController
         if ($clientId === '' || $clientSecret === '') {
             FlashMessage::set('error', 'Renseignez l\'identifiant et le secret du client OAuth.');
 
-            return $this->redirect(self::LOCATIONS_URL);
+            return $this->redirect(StorageConfigController::editUrl($location->id));
         }
 
         $config = $this->configOf($location);
@@ -148,7 +148,7 @@ final class GoogleDriveConnectionController extends AbstractController
         );
         FlashMessage::set('success', 'Identifiants enregistrés. Vous pouvez maintenant raccorder le compte.');
 
-        return $this->redirect(self::LOCATIONS_URL);
+        return $this->redirect(StorageConfigController::editUrl($location->id));
     }
 
     /**
@@ -168,7 +168,7 @@ final class GoogleDriveConnectionController extends AbstractController
         if ($config->clientId === '' || !$secret->hasClientSecret()) {
             FlashMessage::set('error', 'Enregistrez d\'abord l\'identifiant et le secret du client OAuth.');
 
-            return $this->redirect(self::LOCATIONS_URL);
+            return $this->redirect(StorageConfigController::editUrl($location->id));
         }
 
         // Before Google is involved at all: the redirect URI is composed
@@ -182,7 +182,7 @@ final class GoogleDriveConnectionController extends AbstractController
                 . 'elle qui compose l\'adresse de redirection à déclarer chez Google.'
             );
 
-            return $this->redirect(self::LOCATIONS_URL);
+            return $this->redirect(StorageConfigController::editUrl($location->id));
         }
 
         // Random, single-use, and held in the session: this is what makes
@@ -235,14 +235,14 @@ final class GoogleDriveConnectionController extends AbstractController
         if ((string) $request->getQuery('error', '') !== '') {
             FlashMessage::set('error', 'Le raccordement a été annulé : Google n\'a pas accordé l\'autorisation.');
 
-            return $this->redirect(self::LOCATIONS_URL);
+            return $this->redirect(StorageConfigController::editUrl($location->id));
         }
 
         $code = (string) $request->getQuery('code', '');
         if ($code === '') {
             FlashMessage::set('error', 'Google n\'a renvoyé aucun code d\'autorisation.');
 
-            return $this->redirect(self::LOCATIONS_URL);
+            return $this->redirect(StorageConfigController::editUrl($location->id));
         }
 
         $config = $this->configOf($location);
@@ -294,7 +294,7 @@ final class GoogleDriveConnectionController extends AbstractController
             );
             FlashMessage::set('error', $e->getMessage());
 
-            return $this->redirect(self::LOCATIONS_URL);
+            return $this->redirect(StorageConfigController::editUrl($location->id));
         }
 
         // **Without the address.** It is the e-mail of a real person, and
@@ -340,12 +340,12 @@ final class GoogleDriveConnectionController extends AbstractController
                     . 'l\'emplacement.'
             );
 
-            return $this->redirect(self::LOCATIONS_URL);
+            return $this->redirect(StorageConfigController::editUrl($location->id));
         }
 
         FlashMessage::set('success', 'Compte Google Drive raccordé.');
 
-        return $this->redirect(self::LOCATIONS_URL);
+        return $this->redirect(StorageConfigController::editUrl($location->id));
     }
 
     /**
@@ -427,7 +427,7 @@ final class GoogleDriveConnectionController extends AbstractController
         }
         FlashMessage::set('success', "Emplacement rattaché au dossier « {$name} ». Rien n'y a été modifié.");
 
-        return $this->redirect(self::LOCATIONS_URL);
+        return $this->redirect(StorageConfigController::editUrl($location->id));
     }
 
     /**
@@ -461,7 +461,7 @@ final class GoogleDriveConnectionController extends AbstractController
             }
             FlashMessage::set('error', $e->getMessage());
 
-            return $this->redirect(self::LOCATIONS_URL);
+            return $this->redirect(StorageConfigController::editUrl($location->id));
         }
 
         $this->journalService->log(
@@ -482,7 +482,7 @@ final class GoogleDriveConnectionController extends AbstractController
                 . GoogleDriveLocationConfig::PARENT_FOLDER_NAME . ' ». L\'ancien n\'a pas été touché.'
         );
 
-        return $this->redirect(self::LOCATIONS_URL);
+        return $this->redirect(StorageConfigController::editUrl($location->id));
     }
 
     /**
@@ -553,7 +553,7 @@ final class GoogleDriveConnectionController extends AbstractController
         );
         FlashMessage::set('success', 'Compte Google déraccordé. Ce site ne peut plus écrire dans ce dossier.');
 
-        return $this->redirect(self::LOCATIONS_URL);
+        return $this->redirect(StorageConfigController::editUrl($location->id));
     }
 
     /**

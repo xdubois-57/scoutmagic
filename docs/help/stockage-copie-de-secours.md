@@ -16,8 +16,9 @@ de stockage. Ce qui protège un emplacement, c'est **un autre
 emplacement** : vous en désignez un, et le site y recopie chaque nuit ce
 qui manque.
 
-Cela se déclare sur la fiche de l'emplacement à protéger, dans
-Configuration › Stockage › Emplacements, sous « Copie de secours ».
+Cela se déclare sur la page de l'emplacement à protéger : dans
+Configuration › Stockage › Emplacements, « Modifier », puis « Copie de
+secours ». La liste des emplacements dit seulement si chacun est protégé.
 
 ## Les trois réglages
 

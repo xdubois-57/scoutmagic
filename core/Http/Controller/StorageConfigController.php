@@ -77,6 +77,16 @@ class StorageConfigController extends AbstractController
     /** Where every form on this controller comes back to. */
     private const LOCATIONS_URL = '/config/stockage/emplacements';
 
+    /**
+     * Where a location is configured — and where the safety copy's forms
+     * and the Google account's actions send their reader back to, since
+     * that is where they live now (#718 § C point 10.7).
+     */
+    public static function editUrl(int $id): string
+    {
+        return self::LOCATIONS_URL . '/' . $id . '/modification';
+    }
+
     public function __construct(
         protected Environment $twig,
         private StorageLocationRepository $storageLocationRepository,
@@ -195,7 +205,7 @@ class StorageConfigController extends AbstractController
         } catch (StorageLocationException $e) {
             FlashMessage::set('error', $e->getMessage());
 
-            return $this->redirect(self::LOCATIONS_URL);
+            return $this->redirect(self::editUrl($location->id));
         }
 
         $this->journalService->log(
@@ -229,12 +239,12 @@ class StorageConfigController extends AbstractController
             // an administrator unsure whether anything was saved.
             FlashMessage::set('warning', $confirmation . ' ' . implode(' ', $warnings));
 
-            return $this->redirect(self::LOCATIONS_URL);
+            return $this->redirect(self::editUrl($location->id));
         }
 
         FlashMessage::set('success', $confirmation);
 
-        return $this->redirect(self::LOCATIONS_URL);
+        return $this->redirect(self::editUrl($location->id));
     }
 
     /**
@@ -275,7 +285,7 @@ class StorageConfigController extends AbstractController
 
         FlashMessage::set('success', "Copie de secours retirée pour « {$location->label} ».");
 
-        return $this->redirect(self::LOCATIONS_URL);
+        return $this->redirect(self::editUrl($location->id));
     }
 
     /**
@@ -307,7 +317,7 @@ class StorageConfigController extends AbstractController
         if ($protection === null) {
             FlashMessage::set('error', "« {$location->label} » n'a pas de copie de secours à rapatrier.");
 
-            return $this->redirect(self::LOCATIONS_URL);
+            return $this->redirect(self::editUrl($location->id));
         }
 
         $this->scheduler->scheduleAfter(
@@ -334,7 +344,7 @@ class StorageConfigController extends AbstractController
                 . 'le journal dira combien ont été remis en place.'
         );
 
-        return $this->redirect(self::LOCATIONS_URL);
+        return $this->redirect(self::editUrl($location->id));
     }
 
     /**
@@ -349,45 +359,25 @@ class StorageConfigController extends AbstractController
 
         return $this->render('config/storage/locations.html.twig', [
             'locations' => $locations,
-            'location_usages' => $this->usagesByLocationId($locations),
             // The choosing aid: the same four readings the cards print,
             // laid across every type rather than down one location. Built
             // from the backends' own declarations, so it cannot disagree
             // with the card above it (D3, and IT-01's `capabilities()`).
             'comparison' => StorageConsequence::comparison(),
             'comparison_types' => StorageLocationType::cases(),
-            // Keyed by SOURCE, which is the card the block is rendered on.
+            // Keyed by SOURCE: the card shows the last pass's error.
             'protections' => $this->protectionsBySourceId(),
-            // Every location may be somebody's destination, itself
-            // included — the refusals are the service's to state, in
-            // words, rather than a picker's to hide. A destination missing
-            // from the list because the screen guessed it was invalid is a
-            // destination nobody can find out why they cannot choose.
-            'protection_offered' => $this->protections !== null,
-            // A destination's label, by id — so a card can name where its
-            // copy goes without the template walking the list itself.
-            // A relation whose destination is gone renders « un
-            // emplacement supprimé » rather than a blank, because a blank
-            // reads as « nowhere » and this one means « somewhere that no
-            // longer exists », which is a different thing to do about.
-            'location_labels' => array_reduce(
-                $locations,
-                static function (array $carry, StorageLocation $location): array {
-                    $carry[$location->id] = $location->label;
-
-                    return $carry;
-                },
-                []
+            // The red « Non protégé » badge (#718 § C point 10.6), by the
+            // one rule the dashboard's list already uses — never a second.
+            'unprotected_ids' => array_map(
+                static fn (StorageLocation $location): int => $location->id,
+                $this->locationsWithoutAWorkingCopy($locations)
             ),
-            'restorable_horizon_days' => $this->protections?->restorableHorizonInDays(),
             // ——— Google Drive (IT-05) ———
             // Read once per Drive location rather than once per render of
             // the card: decrypting a secret is cheap, doing it inside a
             // Twig loop is how it stops being.
             'drive_secrets' => $this->driveSecretsFor($locations),
-            'drive_redirect_uri' => GoogleDriveConnectionController::redirectUriFor(
-                (string) ($this->settings?->get('base_url') ?: '')
-            ),
             'drive_expiries' => $this->driveExpiriesFor($locations),
             'csrf_token' => CsrfGuard::generateToken(),
         ]);
@@ -563,6 +553,9 @@ class StorageConfigController extends AbstractController
         if ($location === null) {
             return new Response('Not Found', 404);
         }
+        // The page shows « Joignable » / « En erreur »: refreshed when stale,
+        // as the list does, so a result older than the TTL is not passed off as current.
+        $location = $this->storageLocationService->checkFresh($location);
 
         return $this->render('config/storage/location_form.html.twig', $this->formContext($location));
     }
@@ -1048,23 +1041,6 @@ class StorageConfigController extends AbstractController
     }
 
     /**
-     * What still stands on each location, by name — the « Sert : … » line,
-     * and the reason a deletion button is or is not offered.
-     *
-     * @param list<StorageLocation> $locations
-     * @return array<int, list<string>>
-     */
-    private function usagesByLocationId(array $locations): array
-    {
-        $usages = [];
-        foreach ($locations as $location) {
-            $usages[$location->id] = $this->storageLocationService->usagesOf($location->id);
-        }
-
-        return $usages;
-    }
-
-    /**
      * Asks every consumer whether it could live with this configuration,
      * and turns the first objection into the refusal.
      *
@@ -1156,6 +1132,16 @@ class StorageConfigController extends AbstractController
             ),
             'drive_secret' => $this->driveGrantOf($location),
             'drive_expiry' => $location !== null ? self::driveExpiryView($location) : null,
+            // ——— The safety copy, configured here since #718 § C point 10.7 ———
+            'protection' => $location !== null ? ($this->protectionsBySourceId()[$location->id] ?? null) : null,
+            'protection_offered' => $this->protections !== null,
+            // Every OTHER location, unfiltered: which pairings are refused
+            // — a cycle, a destination that publishes what the source does
+            // not — is the service's to say in a sentence, not a picker's
+            // to hide.
+            'destinations' => $location !== null ? $this->otherLocations($location) : [],
+            'location_labels' => $location !== null ? $this->labelsById() : [],
+            'restorable_horizon_days' => $this->protections?->restorableHorizonInDays(),
             // One spelling of « the default folder », shared with
             // StorageLocationService::ensureDefaultExists() and with
             // normalizeLocalPath()'s blank-submit fallback.
@@ -1565,5 +1551,31 @@ class StorageConfigController extends AbstractController
             'failed' => $expiry->failedSince,
             'error' => $location->lastCheckError,
         ];
+    }
+
+    /** @return list<StorageLocation> */
+    private function otherLocations(StorageLocation $location): array
+    {
+        return array_values(array_filter(
+            $this->storageLocationRepository->findAll(),
+            static fn (StorageLocation $other): bool => $other->id !== $location->id
+        ));
+    }
+
+    /**
+     * A destination's label, by id — so the safety copy can name where it
+     * goes. A relation whose destination is gone renders « un emplacement
+     * supprimé » rather than a blank, which would read as « nowhere ».
+     *
+     * @return array<int, string>
+     */
+    private function labelsById(): array
+    {
+        $labels = [];
+        foreach ($this->storageLocationRepository->findAll() as $location) {
+            $labels[$location->id] = $location->label;
+        }
+
+        return $labels;
     }
 }

@@ -612,6 +612,15 @@ class StatisticsPayloadBuilderTest extends TestCase
         $second = $builder->build();
 
         unset($first['generated_at'], $second['generated_at']);
+        // The free disk space is a live reading of the host, not a fact of
+        // the installation: anything else writing to the same disk between
+        // the two builds — another test run, a log — moves it. It is checked
+        // for its presence, and left out of the comparison.
+        foreach ([&$first, &$second] as &$payload) {
+            $this->assertArrayHasKey('free_disk_bytes', $payload['storage']);
+            unset($payload['storage']['free_disk_bytes']);
+        }
+        unset($payload);
         $this->assertSame($first, $second);
     }
 

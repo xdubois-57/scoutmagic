@@ -876,14 +876,12 @@ class StorageConfigControllerTest extends TestCase
     /** The confirmation before deleting a Drive location announces the trash. */
     public function testTheDriveDeleteConfirmationAnnouncesTheTrash(): void
     {
-        $this->declareDrive();
-        $this->declareLocal('Disque', 'gallery');
+        $drive = $this->declareDrive();
+        $local = $this->declareLocal('Disque', 'gallery');
 
-        $html = (string) $this->controller->locations(new Request('GET', '/config/stockage/emplacements', [], [], [], []), [])
-            ->getBody();
-
-        $this->assertStringContainsString('sera placé dans la corbeille', $html);
-        $this->assertStringContainsString('le site cesse seulement de la connaître', $html);
+        // On the edit page, where the deletion lives (#718 § C point 10.7).
+        $this->assertStringContainsString('sera placé dans la corbeille', $this->editPage($drive));
+        $this->assertStringContainsString('le site cesse seulement de la connaître', $this->editPage($local));
     }
 
     private function driveController(FakeDrive $drive): StorageConfigController
@@ -1167,15 +1165,14 @@ class StorageConfigControllerTest extends TestCase
      */
     public function testTheGoogleDriveCardSaysItsExpiryIsUnknownAndCarriesTheAddressToRegister(): void
     {
-        $this->declareDrive();
+        $id = $this->declareDrive();
 
-        $body = $this->controller->locations(
-            new Request('GET', '/config/stockage/emplacements', [], [], [], []),
-            []
-        )->getBody();
+        $body = $this->locationsPage();
 
         $this->assertStringContainsString('Google Drive', $body);
         $this->assertStringContainsString('Expiration inconnue', $body);
+        // The connection itself is administered on the edit page (#718 § C point 10.7).
+        $body = $this->editPage($id);
         $this->assertStringNotContainsString('7 jours', $body, 'no lifetime is guessed any more');
         $this->assertStringContainsString('/google/raccordement', $body);
         // A card that already holds a grant offers to replace it, and says
@@ -1189,20 +1186,16 @@ class StorageConfigControllerTest extends TestCase
      */
     public function testAnUnconnectedGoogleDriveCardOffersTheFirstConnection(): void
     {
-        $this->repository->create(
+        $id = $this->repository->create(
             StorageLocationType::GoogleDrive,
             'Drive vierge',
             new GoogleDriveLocationConfig('client-1'),
             (string) json_encode(['client_secret' => 'le-secret-du-client', 'refresh_token' => '', 'account' => ''])
         );
 
-        $body = $this->controller->locations(
-            new Request('GET', '/config/stockage/emplacements', [], [], [], []),
-            []
-        )->getBody();
-
-        $this->assertStringContainsString('Raccorder un compte Google Drive', $body);
+        $body = $this->locationsPage();
         $this->assertStringContainsString('Non raccordé', $body);
+        $this->assertStringContainsString('Raccorder un compte Google Drive', $this->editPage($id));
         $this->assertStringNotContainsString('Expiration inconnue', $body);
         $this->assertStringNotContainsString('prend fin', $body);
     }
@@ -1386,11 +1379,11 @@ class StorageConfigControllerTest extends TestCase
         $this->assertNotNull($protection);
         $this->assertSame($destination, $protection->destinationLocationId);
 
-        $body = $this->controller->locations(
-            new Request('GET', '/config/stockage/emplacements', [], [], [], []),
-            []
-        )->getBody();
-        $this->assertStringContainsString('Copié vers « NAS »', $body);
+        // Configured and described on the source's edit page; the list
+        // only says whether it protects anything yet — and a copy that has
+        // never completed a pass does not (#718 § C point 10.6).
+        $this->assertStringContainsString('Copié vers « NAS »', $this->editPage($source));
+        $this->assertStringContainsString('Non protégé par une sauvegarde', $this->locationsPage());
     }
 
     /**
@@ -1496,12 +1489,7 @@ class StorageConfigControllerTest extends TestCase
      */
     public function testASiteWithOneLocationIsToldWhyItCannotDeclareACopy(): void
     {
-        $this->declareLocal('Galerie', 'gallery');
-
-        $body = $this->controller->locations(
-            new Request('GET', '/config/stockage/emplacements', [], [], [], []),
-            []
-        )->getBody();
+        $body = $this->editPage($this->declareLocal('Galerie', 'gallery'));
 
         $this->assertStringContainsString('celui-ci est', $body);
         $this->assertStringContainsString('le seul déclaré', $body);
@@ -1510,13 +1498,10 @@ class StorageConfigControllerTest extends TestCase
 
     public function testTheDestinationPickerAppearsAsSoonAsThereIsSomewhereToCopyTo(): void
     {
-        $this->declareLocal('Galerie', 'gallery');
+        $source = $this->declareLocal('Galerie', 'gallery');
         $this->declareLocal('NAS', 'nas');
 
-        $body = $this->controller->locations(
-            new Request('GET', '/config/stockage/emplacements', [], [], [], []),
-            []
-        )->getBody();
+        $body = $this->editPage($source);
 
         $this->assertStringContainsString('Enregistrer la copie de secours', $body);
         $this->assertStringNotContainsString('le seul déclaré', $body);
@@ -1604,17 +1589,12 @@ class StorageConfigControllerTest extends TestCase
      */
     public function testEachLocationCardSaysItsContentIsInNoArchive(): void
     {
-        $this->declareLocal('Disque du serveur', 'gallery');
+        $id = $this->declareLocal('Disque du serveur', 'gallery');
 
-        $body = $this->controller->locations(
-            new Request('GET', '/config/stockage/emplacements', [], [], [], []),
-            []
-        )->getBody();
-
-        $this->assertStringContainsString(
-            "n'est repris dans aucune archive de sauvegarde",
-            $body
-        );
+        // The card carries the red badge (#718 § C point 10.6); the edit
+        // page says what it means.
+        $this->assertStringContainsString('Non protégé par une sauvegarde', $this->locationsPage());
+        $this->assertStringContainsString("n'est repris dans aucune archive de sauvegarde", $this->editPage($id));
     }
 
     /**
@@ -2320,6 +2300,161 @@ class StorageConfigControllerTest extends TestCase
         $this->repository->recordCheckResult($id, true, null);
 
         $this->assertStringNotContainsString('a pris fin', $this->locationsPage());
+    }
+
+    // ————— Compact cards, configuration on the edit page (#718 § C points 10.6 and 10.7) —————
+
+    /**
+     * The card is a summary to read: state, capabilities, useful errors
+     * and one « Modifier ». The controls that configure a location — the
+     * check, the deletion, the safety copy — live on its edit page.
+     */
+    public function testTheListCardIsASummaryWithASingleModifyButton(): void
+    {
+        $this->declareLocal('Galerie', 'gallery');
+        $this->declareLocal('NAS', 'nas');
+
+        $body = $this->locationsPage();
+
+        $this->assertStringContainsString('Fonctionnalités du volume :', $body);
+        $this->assertStringContainsString('/modification', $body);
+        $this->assertStringNotContainsString('storage-location-test', $body, 'no « Tester » on the card');
+        $this->assertStringNotContainsString("par écriture d'un fichier témoin", $body);
+        $this->assertStringNotContainsString('Sert :', $body);
+        $this->assertStringNotContainsString('<details', $body, 'nothing folded away either');
+        $this->assertStringNotContainsString('Enregistrer la copie de secours', $body);
+    }
+
+    /** And the edit page carries what the card no longer does. */
+    public function testTheEditPageCarriesTheCheckTheCopyAndTheDeletion(): void
+    {
+        $source = $this->declareLocal('Galerie', 'gallery');
+        $this->declareLocal('NAS', 'nas');
+
+        $body = $this->editPage($source);
+
+        $this->assertStringContainsString('storage-location-test', $body);
+        $this->assertStringContainsString('Enregistrer la copie de secours', $body);
+        $this->assertStringContainsString('/suppression', $body);
+    }
+
+    /** A copy that completed its pass, with no failure since, protects: the badge is green. */
+    public function testAWorkingCopyShowsTheProtectedBadge(): void
+    {
+        $source = $this->declareLocal('Galerie', 'gallery');
+        $destination = $this->declareLocal('NAS', 'nas');
+        $this->controller->saveProtection(
+            new Request('POST', '/x', [], [
+                'destination_location_id' => (string) $destination,
+                'grace_period_days' => '30',
+                'cadence_hours' => '24',
+                'enabled' => '1',
+                '_csrf_token' => $this->csrfToken(),
+            ], [], []),
+            ['id' => (string) $source]
+        );
+        $protections = new StorageProtectionRepository($this->pdo);
+        $protection = $protections->findBySourceId($source);
+        $this->assertNotNull($protection);
+        $protections->recordPassCompleted($protection->id);
+
+        $card = $this->cardOf($this->locationsPage(), $source);
+
+        $this->assertStringContainsString('Protégé par une sauvegarde', $card);
+        $this->assertStringNotContainsString('Non protégé', $card);
+    }
+
+    /** The safety copy's forms live on the edit page, so they send their reader back there. */
+    public function testSavingTheSafetyCopyReturnsToTheEditPage(): void
+    {
+        $source = $this->declareLocal('Galerie', 'gallery');
+        $destination = $this->declareLocal('NAS', 'nas');
+
+        $response = $this->controller->saveProtection(
+            new Request('POST', '/x', [], [
+                'destination_location_id' => (string) $destination,
+                'grace_period_days' => '30',
+                'cadence_hours' => '24',
+                'enabled' => '1',
+                '_csrf_token' => $this->csrfToken(),
+            ], [], []),
+            ['id' => (string) $source]
+        );
+
+        $this->assertSame(
+            '/config/stockage/emplacements/' . $source . '/modification',
+            $response->getHeaders()['Location'] ?? null
+        );
+    }
+
+    private function cardOf(string $body, int $id): string
+    {
+        $start = strpos($body, 'data-location-card="' . $id . '"');
+        $this->assertNotFalse($start);
+        $next = strpos($body, 'data-location-card="', $start + 1);
+
+        return substr($body, $start, $next === false ? null : $next - $start);
+    }
+
+    private function editPage(int $id): string
+    {
+        return (string) $this->controller->edit(
+            new Request('GET', '/config/stockage/emplacements/' . $id . '/modification', [], [], [], []),
+            ['id' => (string) $id]
+        )->getBody();
+    }
+
+    /** A copy whose last pass failed says so on the edit page, as the list's badge does. */
+    public function testTheEditPageShowsAFailingCopyAsFailing(): void
+    {
+        $source = $this->declareLocal('Galerie', 'gallery');
+        $destination = $this->declareLocal('NAS', 'nas');
+        $protections = new StorageProtectionRepository($this->pdo);
+        $id = $protections->save($source, $destination, 30, 24, true);
+        $protections->recordPassCompleted($id);
+        $protections->recordPassFailed($id, 'Le NAS ne répond plus.');
+
+        $body = $this->editPage($source);
+
+        $this->assertStringContainsString('Le NAS ne répond plus.', $body);
+        $this->assertStringNotContainsString('bi-shield-check', $body);
+    }
+
+    /** A copy that works stays green. */
+    public function testTheEditPageShowsAWorkingCopyAsWorking(): void
+    {
+        $source = $this->declareLocal('Galerie', 'gallery');
+        $destination = $this->declareLocal('NAS', 'nas');
+        $protections = new StorageProtectionRepository($this->pdo);
+        $protections->recordPassCompleted($protections->save($source, $destination, 30, 24, true));
+
+        $this->assertStringContainsString('bi-shield-check', $this->editPage($source));
+    }
+
+    /** Without OAuth credentials, the edit page points at its own fields, not at itself. */
+    public function testADriveWithoutCredentialsLeadsToTheOAuthFields(): void
+    {
+        $id = $this->repository->create(StorageLocationType::GoogleDrive, 'Drive à configurer', new GoogleDriveLocationConfig(), null);
+
+        $body = $this->editPage($id);
+
+        $this->assertStringContainsString('id="drive-client-id"', $body);
+        $this->assertStringContainsString('href="#drive-client-id"', $body);
+        $this->assertStringNotContainsString('href="/config/stockage/emplacements/' . $id . '/modification"', $body);
+    }
+
+    /** A stale « En erreur » is checked again before the edit page shows it. */
+    public function testTheEditPageRefreshesAStaleCheck(): void
+    {
+        $id = $this->repository->create(StorageLocationType::Local, 'Disque du serveur', new LocalLocationConfig('gallery'), null);
+        $this->repository->recordCheckResult($id, false, 'Dossier introuvable.');
+        $this->pdo->prepare('UPDATE storage_locations SET last_checked_at = ? WHERE id = ?')
+            ->execute(['2020-01-01 00:00:00', $id]);
+
+        $body = $this->editPage($id);
+
+        $this->assertStringContainsString('Joignable', $body);
+        $this->assertStringNotContainsString('En erreur', $body);
     }
 
     /** The edit page of a Drive location shows the same expiry the card does. */
