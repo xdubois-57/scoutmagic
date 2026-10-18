@@ -106,9 +106,12 @@ class RentalAttentionProvider implements AttentionPointProvider
             $expired = $item->expiresOn !== null ? DateInput::iso($item->expiresOn) : null;
             $points[] = new AttentionPoint(
                 title: '« ' . $item->label . ' » de « ' . $asset->name . ' » a expiré',
-                why: 'Le registre de conformité de ce bien la donnait valable jusqu\'au '
+                // Worded around « cette entrée » rather than a pronoun: the
+                // label is free text, masculine as often as feminine
+                // (« Label Atouts Camps », « Numéro d'enregistrement »).
+                why: 'Selon le registre de conformité de ce bien, cette entrée était valable jusqu\'au '
                     . ($expired !== null ? $expired->format('d/m/Y') : (string) $item->expiresOn)
-                    . '. Renouvelez-la et joignez le nouveau document, ou corrigez la date si elle est fausse.',
+                    . '. Renouvelez le document et joignez le nouveau, ou corrigez la date si elle est fausse.',
                 actionLabel: 'Voir la conformité',
                 actionUrl: '/mes-locations/' . rawurlencode($asset->slug) . '/conformite',
                 dueDate: $expired,
