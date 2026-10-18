@@ -10,9 +10,14 @@ namespace Modules\InboundMail\Service;
 
 use Core\Attention\AttentionPoint;
 use Core\Attention\AttentionPointProvider;
+use Core\Config\AppClock;
 use Core\Config\SettingService;
+use Modules\InboundMail\Mailbox\Mailbox;
+use Modules\InboundMail\Mailbox\SyncState;
+use Modules\InboundMail\Repository\InboundMailboxRepository;
 use Modules\InboundMail\Repository\InboundMessageRepository;
 use Modules\InboundMail\Task\PurgeUnlinkedMessagesHandler;
+use Modules\InboundMail\Task\SyncMailboxesHandler;
 
 /**
  * « Du courrier attend d'être orienté ».
@@ -31,6 +36,14 @@ use Modules\InboundMail\Task\PurgeUnlinkedMessagesHandler;
  *
  * Bounded, as the interface requires: two aggregate counts, no decryption,
  * no listing.
+ *
+ * **And the boxes themselves** (issue #718 § C points 8 and 9): one that
+ * no longer synchronises, and a module switched on with no box to read.
+ * Both come from what the polling task stored on each row — `sync_state`,
+ * `last_synced_at` — never from connecting: the page must stay cheap, and
+ * must not fail because a mail host does. Until now a broken box said so
+ * only on the superadmin's configuration page, which nobody opens while
+ * mail seems to be arriving.
  */
 class InboundMailAttentionProvider implements AttentionPointProvider
 {
@@ -41,9 +54,24 @@ class InboundMailAttentionProvider implements AttentionPointProvider
      */
     public const THRESHOLD = 1;
 
+    /**
+     * A box is reported once it has failed for this long at least. One
+     * failed pass is a mail host restarting, or a timeout; telling the
+     * unit about it in red would be telling it about something already
+     * over by the time anybody reads the page.
+     */
+    private const MIN_FAILING_SECONDS = 3600;
+
+    /** Nor before two passes in a row have failed, however long apart. */
+    private const MIN_FAILED_PASSES = 2;
+
     public function __construct(
         private InboundMessageRepository $messages,
-        private ?SettingService $settings = null
+        private ?SettingService $settings = null,
+        /** Null leaves the boxes out — the message count stands alone. */
+        private ?InboundMailboxRepository $mailboxes = null,
+        /** Tests only: the moment to read a failure's age against. */
+        private ?\DateTimeImmutable $now = null
     ) {
     }
 
@@ -56,6 +84,14 @@ class InboundMailAttentionProvider implements AttentionPointProvider
      * @return AttentionPoint[]
      */
     public function collect(int $scoutYearId): array
+    {
+        return array_merge($this->boxes(), $this->unattributedMail());
+    }
+
+    /**
+     * @return AttentionPoint[]
+     */
+    private function unattributedMail(): array
     {
         // Automatic mail is excluded, exactly as it is on the screen this
         // links to: a newsletter nobody attributed is not somebody waiting
@@ -78,6 +114,75 @@ class InboundMailAttentionProvider implements AttentionPointProvider
             actionUrl: '/courrier',
             severity: AttentionPoint::SEVERITY_ATTENTION
         )];
+    }
+
+    /**
+     * @return AttentionPoint[]
+     */
+    private function boxes(): array
+    {
+        if ($this->mailboxes === null) {
+            return [];
+        }
+
+        $enabled = $this->mailboxes->findEnabled();
+        if ($enabled === []) {
+            return [new AttentionPoint(
+                title: "Aucune boîte de courrier entrant n'est relevée",
+                why: "Le module Courrier entrant est activé, mais aucune boîte active n'y est configurée : le "
+                    . "site ne reçoit aucun message, et les modules qui classent le courrier n'ont rien à lire.",
+                actionLabel: 'Configurer une boîte',
+                actionUrl: '/config/courrier-entrant',
+                severity: AttentionPoint::SEVERITY_ATTENTION
+            )];
+        }
+
+        $now = $this->now ?? AppClock::now();
+        $points = [];
+        foreach ($enabled as $mailbox) {
+            if (!$this->hasStoppedSynchronising($mailbox, $now)) {
+                continue;
+            }
+            $points[] = new AttentionPoint(
+                title: 'La boîte « ' . $mailbox->name . ' » ne se synchronise plus',
+                why: ($mailbox->lastSyncedAt !== null
+                        ? 'Sa dernière relève réussie date du ' . $mailbox->lastSyncedAt->format('d/m/Y à H:i') . '. '
+                        : "Elle n'a encore jamais été relevée avec succès. ")
+                    . "Le courrier qui y arrive n'atteint plus le site : ni la page Courrier ni les modules "
+                    . "qui le classent ne le voient. La page de configuration donne l'erreur.",
+                actionLabel: 'Vérifier la boîte',
+                actionUrl: '/config/courrier-entrant',
+                severity: AttentionPoint::SEVERITY_URGENT
+            );
+        }
+
+        return $points;
+    }
+
+    /**
+     * In error, and for longer than a passing failure: the last success
+     * lies further back than both thresholds.
+     *
+     * A box in error that never once succeeded is reported at once. Its
+     * `last_error_at` cannot date the trouble — every failed pass rewrites
+     * it — and a box that has never worked is a configuration to fix, not
+     * an outage to wait out.
+     */
+    private function hasStoppedSynchronising(Mailbox $mailbox, \DateTimeImmutable $now): bool
+    {
+        if ($mailbox->syncState !== SyncState::ERROR) {
+            return false;
+        }
+        if ($mailbox->lastSyncedAt === null) {
+            return true;
+        }
+
+        $interval = $this->settings !== null
+            ? SyncMailboxesHandler::intervalSeconds($this->settings)
+            : SyncMailboxesHandler::DEFAULT_INTERVAL_MINUTES * 60;
+        $grace = max(self::MIN_FAILING_SECONDS, self::MIN_FAILED_PASSES * $interval);
+
+        return $now->getTimestamp() - $mailbox->lastSyncedAt->getTimestamp() >= $grace;
     }
 
     private function retentionDays(): int

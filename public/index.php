@@ -8180,7 +8180,8 @@ if ($isEnabled('inbound_mail')) {
     // with a slower clock. Two aggregate counts, no decryption.
     $attentionProviders[] = new \Modules\InboundMail\Service\InboundMailAttentionProvider(
         $inboundMessageRepository,
-        $settingService
+        $settingService,
+        $inboundMailboxRepository
     );
 
     // `/courrier` is deliberately NOT declared in the module's `offline`
