@@ -54,7 +54,7 @@ Dispatch it (GitHub MCP `actions_run_trigger`, or `gh workflow run backlog-proje
 | `status`  | `issue`        | Prints the Project's view of one issue — how an agent sees a Canceled before arming an auto-merge. |
 | `claim`   | `issue`, `agent` | Ready → In Progress and `Agent`, **only if** the branch `claude/issue-<n>` exists and nobody else is recorded. |
 | `done`    | `issue`, `agent` | → Done, `Agent` cleared, **only if** the issue closed as completed.            |
-| `release` | `issue`, `agent` | → Ready (a Canceled issue stays Canceled), `Agent` cleared, only for the holder. |
+| `release` | `issue`, `agent` | An `In Progress` issue goes back to Ready; any other status (Todo, Canceled…) is left as it is — Ready is never written on the maintainer's behalf. `Agent` cleared, only for the holder. |
 
 None of these is the lock. The lock is the branch `claude/issue-<n>`, created
 atomically through the API; the Project only reports it, and the scripts refuse

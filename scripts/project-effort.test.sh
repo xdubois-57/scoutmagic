@@ -70,13 +70,13 @@ run_writer "$(snapshot yes no yes)" > "$tmp/out"
 grep -q 'Set Effort=M' "$tmp/out"
 [ "$(wc -l < "$tmp/calls")" -eq 3 ]
 grep -q 'updateProjectV2ItemFieldValue' "$tmp/calls"
-! grep -q 'addProjectV2ItemById' "$tmp/calls"
+if grep -q 'addProjectV2ItemById' "$tmp/calls"; then echo "An existing item was added again." >&2; exit 1; fi
 # Priority belongs to the maintainer alone (issue #923): the only field this
 # writer ever addresses is the Effort one it resolved by name, and no call
 # so much as mentions Priority.
 grep 'updateProjectV2ItemFieldValue' "$tmp/calls" | grep -q 'field=FIELD'
-! grep -qi 'priority' "$tmp/calls"
-! grep -qi 'priority' "$root/scripts/project-effort.sh"
+if grep -qi 'priority' "$tmp/calls"; then echo "A call mentions Priority." >&2; exit 1; fi
+if grep -qi 'priority' "$root/scripts/project-effort.sh"; then echo "The writer mentions Priority." >&2; exit 1; fi
 
 # A missing item is added to the intended project before writing Effort.
 run_writer "$(snapshot no no yes)" > "$tmp/out"
@@ -88,7 +88,7 @@ grep -q 'updateProjectV2ItemFieldValue' "$tmp/calls"
 run_writer "$(snapshot no no yes)" "$(item_state yes)" > "$tmp/out"
 grep -q 'has acquired an Effort value' "$tmp/out"
 [ "$(wc -l < "$tmp/calls")" -eq 3 ]
-! grep -q 'updateProjectV2ItemFieldValue' "$tmp/calls"
+if grep -q 'updateProjectV2ItemFieldValue' "$tmp/calls"; then echo "An acquired Effort was overwritten." >&2; exit 1; fi
 # Missing project configuration fails clearly without any mutation.
 if run_writer "$(snapshot yes no no)" > "$tmp/out" 2>&1; then
   echo "Missing Effort field was silently accepted." >&2

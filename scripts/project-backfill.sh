@@ -35,7 +35,14 @@ failed=0
 done_count=0
 skipped=0
 
+# The data is read BEFORE any loop starts: a file that cannot be read or parsed
+# must fail the run, not look like a backfill with nothing to do (a failing
+# process substitution feeds a loop no lines and nobody notices).
 if [ "${mode}" = 'effort' ]; then
+  entries="$(jq -r '.efforts | to_entries[] | [.key, .value] | @tsv' "${data}")" || {
+    echo "::error title=Backfill data unreadable::${data} could not be read as JSON."
+    exit 1
+  }
   while IFS=$'\t' read -r issue effort; do
     [ -n "${issue}" ] || continue
     if [ "${effort}" = 'unknown' ]; then
@@ -49,8 +56,12 @@ if [ "${mode}" = 'effort' ]; then
       echo "::error title=Effort not synchronised::#${issue} could not be synchronised."
       failed=$((failed + 1))
     fi
-  done < <(jq -r '.efforts | to_entries[] | [.key, .value] | @tsv' "${data}")
+  done <<<"${entries}"
 else
+  entries="$(jq -c '.dependencies[]' "${data}")" || {
+    echo "::error title=Backfill data unreadable::${data} could not be read as JSON."
+    exit 1
+  }
   while IFS= read -r entry; do
     [ -n "${entry}" ] || continue
     issue="$(jq -r '.issue' <<<"${entry}")"
@@ -61,7 +72,7 @@ else
       echo "::error title=Dependency not synchronised::#${issue} could not be synchronised."
       failed=$((failed + 1))
     fi
-  done < <(jq -c '.dependencies[]' "${data}")
+  done <<<"${entries}"
 fi
 
 echo "Backfill (${mode}): ${done_count} processed, ${skipped} left empty on purpose, ${failed} failed."

@@ -35,6 +35,7 @@ cat >"${tmp}/gh" <<'MOCK'
 set -euo pipefail
 dir="$(dirname "$0")"
 echo "$*" >>"${dir}/calls.log"
+if [ -f "${dir}/fail-read-$(sed -nE 's#.*issues/([0-9]+)/dependencies.*#\1#p' <<<"$*")" ]; then echo 'HTTP 502' >&2; exit 1; fi
 if [[ "$*" == *'-X DELETE'* ]]; then echo 'DELETE must never be called' >&2; exit 9; fi
 if [[ "$*" == *'-X POST'* ]]; then
   n="$(sed -E 's#.*issues/([0-9]+)/dependencies.*#\1#' <<<"$*")"
@@ -105,6 +106,15 @@ if run 741 '[{"issue":724,"evidence":"x"},{"issue":760,"evidence":"y"}]'; then f
 [ "$(posts)" = 2 ] || fail 'a failed write stopped the remaining candidates'
 grep -q 'Dependency not recorded' "${tmp}/out" || fail 'the failure is not reported'
 rm -f "${tmp}/forbid-post"
+
+# A read that fails DURING the cycle walk is not "no blockers": nothing is
+# recorded and the step fails. 760 is a clean candidate; its own links cannot be read.
+issue 761 open
+touch "${tmp}/fail-read-761"
+if run 741 '[{"issue":761,"evidence":"x"}]'; then fail 'a failed read during the cycle walk passed as success'; fi
+[ "$(posts)" = 0 ] || fail 'a link was recorded although the cycle check could not read the graph'
+grep -q 'Could not read the links' "${tmp}/out" || fail 'the failed read is not reported'
+rm -f "${tmp}/fail-read-761"
 
 # Malformed input never reaches gh.
 : >"${tmp}/calls.log"

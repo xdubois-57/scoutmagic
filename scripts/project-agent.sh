@@ -7,8 +7,9 @@ set -euo pipefail
 #
 #   claim   <issue> <agent>   Ready → In Progress, Agent = <agent>
 #   done    <issue> <agent>   after the issue CLOSED as completed → Done, Agent cleared
-#   release <issue> <agent>   giving up → back to Ready (a Canceled issue stays
-#                             Canceled), Agent cleared
+#   release <issue> <agent>   giving up → an In Progress issue goes back to
+#                             Ready; any other status (Todo, Canceled…) is
+#                             left alone; Agent cleared
 #   status  <issue>           read-only: prints the Project's view of the issue
 #
 # NONE OF THIS IS A LOCK. The lock is the branch `claude/issue-<n>`, created
@@ -22,7 +23,8 @@ set -euo pipefail
 #     an issue that is not theirs;
 #   - nothing here assigns the issue to a GitHub user — an assignee would start
 #     a native agent session, and Assignees keeps its ordinary meaning;
-#   - a Canceled issue is never moved out of Canceled;
+#   - `release` only turns In Progress back into Ready: a Todo issue is never
+#     promoted, and a Canceled one is never moved out of Canceled;
 #   - `Done` is written only for an issue GitHub shows closed as `completed`.
 # Every write is idempotent, addresses the one issue it was given, and is read
 # back; a write that does not show up on the read is a failure.
@@ -154,10 +156,14 @@ case "${action}" in
     if [ -n "${agent_now}" ] && [ "${agent_now}" != "${agent}" ]; then
       refuse "#${issue} is held by '${agent_now}', not '${agent}'; only the holder releases."
     fi
+    # Only undo OUR claim. Todo, Ready, Canceled, or anything else the
+    # maintainer set stays exactly as it is: Ready is their decision and is
+    # never written on their behalf (a Todo issue released by an agent must
+    # not become eligible for every other agent).
     target="${status_now}"
-    if [ "${status_now}" != 'Canceled' ]; then
+    if [ "${status_now}" = 'In Progress' ]; then
       target='Ready'
-      [ "${status_now}" = 'Ready' ] || set_status 'Ready'
+      set_status 'Ready'
     fi
     [ -z "${agent_now}" ] || clear_agent
     verify "${target}" ''

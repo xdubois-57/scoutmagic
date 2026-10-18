@@ -23,7 +23,7 @@ jq -e '.dependencies | all(.[]; (.evidence | length) > 0 and .issue != .blocked_
 # --- the script, with stub helpers -------------------------------------------
 cat >"${tmp}/data.json" <<'JSON'
 {"efforts": {"101": "M", "102": "unknown", "103": "L", "104": "S"},
- "dependencies": [{"issue": 740, "blocked_by": 724, "evidence": "Dépend de #724"}, {"issue": 9, "blocked_by": 8, "evidence": "x"}]}
+ "dependencies": [{"issue": 740, "blocked_by": 724, "evidence": "Dépend de #724"}, {"issue": 9, "blocked_by": 8, "evidence": "x"}, {"issue": 11, "blocked_by": 10, "evidence": "y"}]}
 JSON
 cat >"${tmp}/effort.sh" <<'STUB'
 #!/usr/bin/env bash
@@ -55,8 +55,19 @@ grep -q '#102: no defensible estimate' "${tmp}/out" || fail 'unknown is not repo
 run dependencies
 [ "${rc}" -eq 1 ] || fail 'a failed dependency must fail the run'
 grep -q 'deps 740 \[{"issue":724' "${tmp}/log" || fail '#740 -> #724 was not submitted'
-grep -q 'deps 9 ' "${tmp}/log" || fail 'a failure stopped the remaining dependencies'
+grep -q 'deps 9 ' "${tmp}/log" || fail 'the failing dependency was never attempted'
+grep -q 'deps 11 ' "${tmp}/log" || fail 'a failure on #9 stopped the dependencies after it'
 grep -q 'effort' "${tmp}/log" && fail 'the dependencies mode touched Effort'
+
+# Unreadable data fails the run: it must not look like a backfill with nothing to do.
+printf 'not json' >"${tmp}/broken.json"
+for mode in effort dependencies; do
+  set +e
+  BACKFILL_DATA="${tmp}/broken.json" BACKFILL_EFFORT_SCRIPT="${tmp}/effort.sh" BACKFILL_DEPENDENCIES_SCRIPT="${tmp}/deps.sh" \
+    bash "${root}/scripts/project-backfill.sh" "${mode}" >"${tmp}/out" 2>&1
+  rc=$?; set -e
+  [ "${rc}" -eq 1 ] || fail "unreadable data passed as a successful ${mode} backfill"
+done
 
 set +e; bash "${root}/scripts/project-backfill.sh" bogus >/dev/null 2>&1; rc=$?; set -e
 [ "${rc}" -eq 2 ] || fail 'an unknown mode was accepted'

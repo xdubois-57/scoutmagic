@@ -735,8 +735,9 @@ settled when the instruction was given.
 
 **A ticket you take and then abandon is not silently dropped**: say on that
 issue what stopped you, take `status:in-progress` off, release your claim on
-the Project (action `release`: back to Ready, `Agent` cleared — a Canceled
-issue stays Canceled), delete **your own** claim branch and only that one,
+the Project (action `release`: an In Progress issue goes back to Ready and
+`Agent` is cleared; any other status the maintainer set, Todo or Canceled
+included, stays as it is), delete **your own** claim branch and only that one,
 and go to the next one. Scaling the work down is the maintainer's call and
 they can only make it if they know.
 
@@ -792,7 +793,7 @@ not Done, and it is not eligible any more. An agent that was working on it
 and then: stop; close its own pull request with a comment saying the ticket
 was canceled (never merge it); delete **its own** `claude/issue-<n>` branch
 and only that one, and only if this session created it; release its `Agent`
-(action `release` leaves a Canceled issue Canceled); and say all of it in the
+(action `release` leaves a Canceled issue Canceled, and never turns a Todo into Ready); and say all of it in the
 report. Never delete the branch of another agent, however stale it looks.
 
 ## Leaving the release gates green

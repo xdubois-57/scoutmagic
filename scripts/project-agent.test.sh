@@ -25,6 +25,9 @@ seed 15 'In Progress' 'Claude A1' CLOSED NOT_PLANNED yes
 seed 16 Todo ''            OPEN   ''        yes
 seed 17 'In Progress' 'Claude A1' OPEN '' yes
 seed 18 Canceled 'Claude A1' OPEN '' yes
+seed 19 Todo ''            OPEN   ''        yes
+seed 20 Todo 'Claude A1'   OPEN   ''        yes
+seed 21 Ready ''           OPEN   ''        yes
 
 cat >"${tmp}/gh" <<'MOCK'
 #!/usr/bin/env bash
@@ -108,6 +111,15 @@ expect_rc "$(agent_run release 17 'Claude A1')" 0 'release'
 [ "$(st 17)" = Ready ] && [ -z "$(ag 17)" ] || fail 'release did not return the issue to Ready'
 expect_rc "$(agent_run release 18 'Claude A1')" 0 'release of a canceled issue'
 [ "$(st 18)" = Canceled ] && [ -z "$(ag 18)" ] || fail 'release moved a canceled issue'
+
+# release only undoes a claim: it never promotes Todo to Ready, whether or not
+# an agent is recorded, and leaves a Ready issue as it is.
+expect_rc "$(agent_run release 19 'Claude A1')" 0 'release of an unclaimed Todo issue'
+[ "$(st 19)" = Todo ] || fail 'release promoted a Todo issue to Ready'
+expect_rc "$(agent_run release 20 'Claude A1')" 0 'release of a Todo issue the agent held'
+[ "$(st 20)" = Todo ] && [ -z "$(ag 20)" ] || fail 'release promoted a Todo issue, or kept its agent'
+expect_rc "$(agent_run release 21 'Claude A1')" 0 'release of a Ready issue'
+[ "$(st 21)" = Ready ] || fail 'release changed a Ready issue'
 
 # status is read-only.
 : >"${tmp}/calls.log"

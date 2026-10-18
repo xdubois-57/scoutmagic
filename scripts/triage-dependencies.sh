@@ -77,7 +77,7 @@ existing="$(blockers_of "${issue}")" || { echo "::error title=Dependencies not s
 # "issue blocked by candidate" is a cycle exactly when the candidate can
 # already reach the issue.
 reaches() {
-  local from="$1" goal="$2" cur next count=0
+  local from="$1" goal="$2" cur next deps count=0
   local -a pending=("${from}")
   local -A visited=()
   visited["${from}"]=1
@@ -89,13 +89,18 @@ reaches() {
     if [ "${count}" -gt "${max_walk}" ]; then
       return 2   # too large to prove safe: treated as unsafe by the caller
     fi
+    # Read into a variable first: inside `done < <(…)` a failing read is
+    # invisible, the loop gets no lines, and a rate limit or a 5xx would be
+    # taken for "no blockers" — the walk would call a cycle safe and the link
+    # would be recorded. 3 = could not read, and the caller fails the step.
+    deps="$(blockers_of "${cur}")" || return 3
     while IFS= read -r next; do
       [ -n "${next}" ] || continue
       if [ -z "${visited[${next}]:-}" ]; then
         visited["${next}"]=1
         pending+=("${next}")
       fi
-    done < <(blockers_of "${cur}")
+    done <<<"${deps}"
   done
   return 1
 }
@@ -137,10 +142,13 @@ while IFS= read -r entry; do
     echo "#${issue} is already blocked by #${number}; left as it is."; skipped=$((skipped + 1)); continue
   fi
 
-  # `reaches` exits 0 (cycle), 1 (safe), 2 (could not prove).
+  # `reaches` exits 0 (cycle), 1 (safe), 2 (too long to prove), 3 (a read failed).
   set +e; reaches "${number}" "${issue}"; walk=$?; set -e
   if [ "${walk}" -eq 0 ]; then
     echo "Skipped #${number}: #${number} already waits on #${issue}, so this link would be a cycle."; skipped=$((skipped + 1)); continue
+  elif [ "${walk}" -eq 3 ]; then
+    echo "::error title=Dependency not recorded::Could not read the links needed to prove #${number} free of a cycle with #${issue}; nothing was recorded."
+    failed=$((failed + 1)); continue
   elif [ "${walk}" -ne 1 ]; then
     echo "Skipped #${number}: its chain is too long to prove free of a cycle."; skipped=$((skipped + 1)); continue
   fi
