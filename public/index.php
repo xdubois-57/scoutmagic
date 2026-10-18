@@ -73,6 +73,7 @@ use Core\Http\Controller\RgpdConfigController;
 use Core\Http\Controller\FunctionsController;
 use Core\Http\Controller\CookieController;
 use Core\Http\Controller\ConfigModeController;
+use Core\Http\Controller\FirstStepsController;
 use Core\Http\Controller\EditableContentController;
 use Core\Http\Controller\FileController;
 use Core\Http\Controller\ImportController;
@@ -1972,6 +1973,8 @@ $settingService->register(
 // ever writes while the value is still empty.
 \Core\Statistics\InstallationDateService::register($settingService);
 (new \Core\Statistics\InstallationDateService($settingService, $pdo))->ensureRecorded();
+// Same reason as `installed_at` just above: SetupController writes it.
+\Core\Config\FirstStepsService::register($settingService);
 
 // Migrate non-secret settings from secrets.enc to settings table (one-time)
 if ($settingService->get('settings_migrated') !== '1') {
@@ -3249,6 +3252,10 @@ $twig->addGlobal(
 $twig->addGlobal('current_user_role_label', $roleLabelMap[$currentRole] ?? 'Public');
 $twig->addGlobal('current_path', $request->getPath());
 $twig->addGlobal('config_mode', ConfigurationMode::isActive());
+// The « Premiers pas » band of a new installation (issue #718 § A), for
+// superadmins until one of them hides it — Core\Config\FirstStepsService.
+$firstStepsService = new \Core\Config\FirstStepsService($settingService);
+$twig->addGlobal('first_steps', $firstStepsService->shouldShowTo($currentRole));
 // Drives the "vous agissez au nom de" banner in base.html.twig. Null
 // whenever no temporary member is active, or when one is set but does not
 // resolve against the year currently in effect (ARCHITECTURE.md §8.42).
@@ -4878,6 +4885,7 @@ $router->addRoute(
 // door before that.
 $router->addRoute('POST', '/config-mode/activate', ConfigModeController::class, 'activate', 'admin');
 $router->addRoute('POST', '/config-mode/deactivate', ConfigModeController::class, 'deactivate', 'admin');
+$router->addRoute('POST', '/config/premiers-pas/masquer', FirstStepsController::class, 'dismiss', 'superadmin');
 
 // Editable content API — both routes are role_min: admin, deliberately
 // less strict than the Configuration menu. Neither is authorized by being
@@ -6937,6 +6945,10 @@ $frontController->registerController(
     )
 );
 $frontController->registerController(ConfigModeController::class, new ConfigModeController($twig));
+$frontController->registerController(
+    FirstStepsController::class,
+    new FirstStepsController($twig, $firstStepsService)
+);
 $editableContentController = new EditableContentController($twig, $editableContentService);
 $editableContentController->setJournalService($journalService);
 $frontController->registerController(EditableContentController::class, $editableContentController);

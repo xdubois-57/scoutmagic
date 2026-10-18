@@ -16,6 +16,7 @@ use Core\Database\SchemaFiles;
 use Core\Database\SchemaComparator;
 use Core\Database\SchemaIntrospector;
 use Core\Database\SqlParser;
+use Core\Config\FirstStepsService;
 use Core\Config\SettingRepository;
 use Core\Config\SettingService;
 use Core\Exception\UserFacingException;
@@ -1720,6 +1721,12 @@ class SetupController extends AbstractController
                 280
             );
             $setupSettingService->setInternal('statistics_enabled', $data['statistics_enabled']);
+
+            // The three pages to visit next (issue #718 § A): shown to the
+            // first superadmin who signs in, since this request ends logged
+            // out — see Core\Config\FirstStepsService.
+            FirstStepsService::register($setupSettingService);
+            (new FirstStepsService($setupSettingService))->markPending();
 
             $tokenDeleted = $this->deleteTokenFileWithWarning();
             // A site configured from scratch abandoned any archive waiting

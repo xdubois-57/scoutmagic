@@ -119,6 +119,30 @@
     </div>
     {% endif %}
 
+    {# « Premiers pas » (issue #718 § A): the three pages a new installation
+       needs next, in order. Shown to superadmins until one of them hides it
+       — Core\Config\FirstStepsService decides, this only renders. #}
+    {% if first_steps is defined and first_steps %}
+    <div class="alert alert-info rounded-0 mb-0 border-start-0 border-end-0" role="region" aria-label="Premiers pas" id="first-steps-band">
+        <div class="container d-flex flex-column flex-md-row align-items-md-center gap-2">
+            <div>
+                <strong><i class="bi bi-signpost-split" aria-hidden="true"></i> Premiers pas.</strong>
+                Pour que le site fonctionne, trois étapes, dans cet ordre :
+                <ol class="mb-0 ps-3">
+                    <li><a href="/config/modules">activer les modules</a> que l'unité veut&nbsp;;</li>
+                    <li><a href="/config/maintenance">vérifier la santé de l'hébergement</a> et corriger ce qu'elle signale&nbsp;;</li>
+                    <li><a href="/admin/points-attention">consulter les points d'attention</a> pour savoir ce qu'il reste à faire.</li>
+                </ol>
+                <a href="/aide/premiers-pas" class="small">En savoir plus</a>
+            </div>
+            <form method="post" action="/config/premiers-pas/masquer" class="ms-md-auto">
+                {{ csrf_field()|raw }}
+                <button type="submit" class="btn btn-sm btn-outline-secondary">Masquer</button>
+            </form>
+        </div>
+    </div>
+    {% endif %}
+
     {% if temporary_member_name is defined and temporary_member_name %}
     <div class="alert alert-danger d-flex align-items-center gap-2 rounded-0 mb-0 border-start-0 border-end-0" role="alert">
         <i class="bi bi-person-badge" aria-hidden="true"></i>
