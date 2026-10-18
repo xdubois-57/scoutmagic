@@ -41,8 +41,12 @@ class LastFailureStore
     public function recordFailure(int $code, \DateTimeImmutable $at): void
     {
         try {
-            $this->settingService->setInternal(self::SETTING_AT, $at->format('Y-m-d H:i:s'), self::MODULE);
-            $this->settingService->setInternal(self::SETTING_CODE, (string) $code, self::MODULE);
+            // Together or not at all: a date with a stale code would name
+            // the wrong cause.
+            $this->settingService->setManyInternal([
+                self::SETTING_AT => $at->format('Y-m-d H:i:s'),
+                self::SETTING_CODE => (string) $code,
+            ], self::MODULE);
         } catch (\Throwable) {
             // See the class comment.
         }
@@ -55,8 +59,7 @@ class LastFailureStore
             if ((string) $this->settingService->get(self::SETTING_AT, self::MODULE, '') === '') {
                 return;
             }
-            $this->settingService->setInternal(self::SETTING_AT, '', self::MODULE);
-            $this->settingService->setInternal(self::SETTING_CODE, '', self::MODULE);
+            $this->settingService->setManyInternal([self::SETTING_AT => '', self::SETTING_CODE => ''], self::MODULE);
         } catch (\Throwable) {
             // See the class comment.
         }

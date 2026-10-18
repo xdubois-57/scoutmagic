@@ -46,7 +46,7 @@ Quatre réglages laissés de côté, avant que quoi que ce soit n'échoue :
 
 ## Ce que signalent les modules
 
-Les points des modules — locations, discussions, inscriptions, courrier
-entrant, intelligence artificielle, téléphone d'urgence, réseaux sociaux
-— sont détaillés dans
-[Ce que signalent les modules](points-attention-modules).
+Chaque module activé ajoute ses propres points. Ceux qui ne vont pas de
+soi — locations, discussions, inscriptions, courrier entrant,
+intelligence artificielle, téléphone d'urgence, réseaux sociaux — sont
+détaillés dans [Ce que signalent les modules](points-attention-modules).

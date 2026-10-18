@@ -356,7 +356,10 @@ function scoutmagicBootstrapScheduler(
                                 ? new \Modules\LlmConnector\Service\LlmConnectorService(
                                     $providerRepository,
                                     $modelRepository,
-                                    $journalService
+                                    $journalService,
+                                    // Minutes-long calls: their outcome
+                                    // reaches the attention page too.
+                                    new \Modules\LlmConnector\Service\LastFailureStore($settingService)
                                 )
                                 : null
                         );

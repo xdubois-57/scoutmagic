@@ -154,11 +154,38 @@ class LlmAttentionProviderTest extends TestCase
                 $this->writes++;
                 parent::setInternal($key, $value, $moduleId);
             }
+
+            /** @param array<string, string> $values */
+            public function setManyInternal(array $values, ?string $moduleId = null): void
+            {
+                $this->writes++;
+                parent::setManyInternal($values, $moduleId);
+            }
         };
 
         (new LastFailureStore($settings))->clear();
 
         $this->assertSame(0, $settings->writes);
+    }
+
+    /** A failure is kept as one write, so the date never travels with a stale cause. */
+    public function testAFailureWritesItsDateAndItsCauseTogether(): void
+    {
+        $settings = new class ([LastFailureStore::SETTING_AT => '', LastFailureStore::SETTING_CODE => '']) extends InMemorySettingService {
+            /** @var list<list<string>> */
+            public array $batches = [];
+
+            /** @param array<string, string> $values */
+            public function setManyInternal(array $values, ?string $moduleId = null): void
+            {
+                $this->batches[] = array_keys($values);
+                parent::setManyInternal($values, $moduleId);
+            }
+        };
+
+        (new LastFailureStore($settings))->recordFailure(LlmException::TIMEOUT, new \DateTimeImmutable('2026-10-18 09:30:00'));
+
+        $this->assertSame([[LastFailureStore::SETTING_AT, LastFailureStore::SETTING_CODE]], $settings->batches);
     }
 
     /** Bookkeeping never turns a provider's failure into a database one. */

@@ -48,7 +48,7 @@ configuration du module donne l'erreur.
 
 Le module Intelligence artificielle signale **un fournisseur absent** et
 **un dernier appel en échec** : le point disparaît au prochain appel
-réussi, ou après un test de connexion réussi.
+réussi, ou après un test de connexion réussi du fournisseur actif.
 
 Le module Téléphone d'urgence signale **un opérateur non configuré** et
 **un dernier changement de redirection en échec** : les appels arrivent
