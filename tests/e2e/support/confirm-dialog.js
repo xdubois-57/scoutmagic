@@ -200,6 +200,11 @@ export async function waitForConfirmReady(page) {
     await page.waitForFunction(
         () => (/** @type {any} */ (document)).scoutMagicConfirmDelegated === true
     );
+    // Left on this document for answerConfirmation()'s diagnostic: still
+    // there means the page the click was aimed at is the one being read.
+    await page.evaluate(() => {
+        (/** @type {any} */ (document)).e2eConfirmReadyChecked = true;
+    });
 }
 
 export async function answerConfirmation(page, options = {}) {
@@ -215,13 +220,14 @@ export async function answerConfirmation(page, options = {}) {
     // apart, and it lives in the shared helper rather than in one spec
     // because four specs reach this same line.
     //
-    // pageAgeMs settles the question the first samples could not (issue
-    // #912): roots:0 with focus on <body> is what BOTH a click that did
-    // nothing and a native submit leave behind, since the submit redirects
-    // back to the very same URL. A page younger than this wait was loaded
-    // after the click — a native submit; one older than it was there all
-    // along — the click never reached a control. bannerShown says whether
-    // the cookie banner was still in front of the page.
+    // checkedDocument settles the question the first samples could not
+    // (issue #912): roots:0 with focus on <body> is what BOTH a click that
+    // did nothing and a native submit leave behind, since the submit
+    // redirects back to the very same URL. waitForConfirmReady(), called
+    // before the click, marks the document it checked: the mark still
+    // there means the same document — the click never reached a control;
+    // the mark gone means a new one replaced it — a native submit.
+    // bannerShown says whether the cookie banner was still in front.
     try {
         await dialog.waitFor({ state: 'visible', timeout: 15_000 });
     } catch (failure) {
@@ -234,7 +240,7 @@ export async function answerConfirmation(page, options = {}) {
             backdrops: document.querySelectorAll('.modal-backdrop').length,
             activeElement: document.activeElement ? document.activeElement.outerHTML.slice(0, 160) : '(none)',
             url: location.pathname + location.search,
-            pageAgeMs: Math.round(performance.now()),
+            checkedDocument: Boolean(/** @type {any} */ (document).e2eConfirmReadyChecked),
             bannerShown: document.getElementById('cookie-banner') !== null,
         }));
         // eslint-disable-next-line no-console

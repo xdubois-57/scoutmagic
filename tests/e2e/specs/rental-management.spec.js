@@ -325,15 +325,23 @@ test.describe('Rentals — running an asset', () => {
         // sent outside the site and signed on paper by both parties, so its
         // four steps (IT-16) are ticked by hand from their disc (IT-14) —
         // each asks first, saying it is not the practice the site prefers.
+        //
+        // Every answer reloads the page, so confirm.js is waited for again
+        // before each click, not just once above (issue #912): « Rouvrir »
+        // is drawn by the server long before the script at the foot of the
+        // page has armed the next disc, and toBeVisible() on it says
+        // nothing about that.
         for (const step of ['Contrat généré', 'Contrat envoyé', 'Contrat signé reçu', 'Contrat contresigné']) {
             const disc = page.getByRole('button', { name: `Marquer « ${step} » comme fait` });
             await expect(disc).toBeVisible();
+            await waitForConfirmReady(page);
             await disc.click();
             const warning = await answerConfirmation(page);
             expect(warning).toContain('sans que le site ait pu le vérifier');
             await expect(page.getByRole('button', { name: `Rouvrir « ${step} »` })).toBeVisible();
         }
 
+        await waitForConfirmReady(page);
         await page.getByRole('button', { name: 'Confirmer la réservation' }).first().click();
 
         // Confirming now asks first, and the dialog is where the manager
