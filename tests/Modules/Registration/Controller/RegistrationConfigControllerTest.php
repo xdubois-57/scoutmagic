@@ -577,10 +577,14 @@ class RegistrationConfigControllerTest extends TestCase
             'action="/config/inscriptions/demandes/' . $pendingId . '/decision"',
             $dialog
         );
+        // The slot as the mock-up names it (IT-11), the list's « Créneau »
+        // cell with it.
         $this->assertMatchesRegularExpression(
-            '/Baladins — \dᵉ année · section prévue non définie · reçue le \d/u',
+            '/>\s*Baladins · \d(re|e) année · section prévue non définie · reçue le \d/u',
             $dialog
         );
+        $this->assertMatchesRegularExpression('#<td>Baladins · \d(re|e) année</td>#u', $body);
+        $this->assertStringNotContainsString('ᵉ année', $body);
         foreach (['Note interne', 'Motif du refus', 'Pas de place', 'Autre'] as $label) {
             $this->assertStringContainsString($label, $dialog);
         }
@@ -597,6 +601,25 @@ class RegistrationConfigControllerTest extends TestCase
         );
         // The reason is hidden until « Refuser » is pressed.
         $this->assertStringContainsString('<div hidden data-decide-reason>', $dialog);
+    }
+
+    /**
+     * A child born outside every age bracket: the list's « Créneau » and
+     * the dialog's header say « Hors des tranches d'âge », the mock-up's
+     * wording (IT-11), never a placeholder.
+     */
+    public function testARequestOutsideTheBracketsIsNamedAsTheMockUpNamesIt(): void
+    {
+        $outsideId = $this->createRequest($this->targetYearId, 'Ana', '1990-01-01');
+
+        $body = $this->renderPage('requests');
+
+        $this->assertStringContainsString('<td>Hors des tranches d&#039;âge</td>', $body);
+        $this->assertMatchesRegularExpression(
+            '/>\s*Hors des tranches d&#039;âge · section prévue non définie · reçue le \d/u',
+            $this->dialogOf($body, $outsideId)
+        );
+        $this->assertStringNotContainsString('Non déterminé', $body);
     }
 
     /**

@@ -105,7 +105,7 @@ class PassageService
                 'request' => $request,
                 'slot' => $slot,
                 'branch_sort_order' => $this->branchSortOrderOf($brackets, $slot),
-                'slot_label' => $this->slotLabel($brackets, $slot),
+                'slot_label' => RecommendationService::requestSlotLabel($brackets, $slot),
                 'desired_section_label' => $request->desiredSectionId !== null
                     ? ($sectionLabels[$request->desiredSectionId] ?? '—')
                     : null,
@@ -623,24 +623,6 @@ class PassageService
             : '';
 
         return trim($first . ' ' . $last);
-    }
-
-    /**
-     * @param array<\Modules\Registration\Repository\AgeBracket> $brackets
-     * @param array{age_branch_id: int, year_in_branch: int}|null $slot
-     */
-    private function slotLabel(array $brackets, ?array $slot): string
-    {
-        if ($slot === null) {
-            return 'Non déterminé';
-        }
-        foreach ($brackets as $bracket) {
-            if ($bracket->ageBranchId === $slot['age_branch_id']) {
-                return $bracket->branchLabel . ' — ' . $slot['year_in_branch'] . 'ᵉ année';
-            }
-        }
-
-        return 'Non déterminé';
     }
 
     /**

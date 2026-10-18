@@ -1127,7 +1127,7 @@ class RegistrationConfigController extends AbstractController
 
             $rows[] = [
                 'request' => $registrationRequest,
-                'slot_label' => $this->slotLabel($brackets, $slot),
+                'slot_label' => RecommendationService::requestSlotLabel($brackets, $slot),
                 'intended_section_label' => $registrationRequest->intendedSectionId !== null
                     ? ($sectionLabels[$registrationRequest->intendedSectionId] ?? '—')
                     : null,
@@ -1172,23 +1172,5 @@ class RegistrationConfigController extends AbstractController
         }
 
         return $rows;
-    }
-
-    /**
-     * @param array<\Modules\Registration\Repository\AgeBracket> $brackets
-     * @param array{age_branch_id: int, year_in_branch: int}|null $slot
-     */
-    private function slotLabel(array $brackets, ?array $slot): string
-    {
-        if ($slot === null) {
-            return 'Non déterminé';
-        }
-        foreach ($brackets as $bracket) {
-            if ($bracket->ageBranchId === $slot['age_branch_id']) {
-                return $bracket->branchLabel . ' — ' . $slot['year_in_branch'] . 'ᵉ année';
-            }
-        }
-
-        return 'Non déterminé';
     }
 }

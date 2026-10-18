@@ -687,6 +687,30 @@ class RecommendationServiceTest extends TestCase
     }
 
     /**
+     * A request's « Créneau » (IT-11): the slot as an explanation names it,
+     * or « Hors des tranches d'âge » — outside every bracket, or in a
+     * branch the brackets no longer carry.
+     */
+    public function testARequestsSlotIsNamedAsTheMockUpNamesIt(): void
+    {
+        $brackets = [new \Modules\Registration\Repository\AgeBracket(7, 'Louveteaux', 20, 8, 4)];
+
+        $this->assertSame(
+            'Louveteaux · 1re année',
+            RecommendationService::requestSlotLabel($brackets, ['age_branch_id' => 7, 'year_in_branch' => 1])
+        );
+        $this->assertSame(
+            'Louveteaux · 3e année',
+            RecommendationService::requestSlotLabel($brackets, ['age_branch_id' => 7, 'year_in_branch' => 3])
+        );
+        $this->assertSame("Hors des tranches d'âge", RecommendationService::requestSlotLabel($brackets, null));
+        $this->assertSame(
+            "Hors des tranches d'âge",
+            RecommendationService::requestSlotLabel($brackets, ['age_branch_id' => 99, 'year_in_branch' => 1])
+        );
+    }
+
+    /**
      * Only a pending request has a recommendation.
      */
     public function testOnlyAPendingRequestHasARecommendation(): void

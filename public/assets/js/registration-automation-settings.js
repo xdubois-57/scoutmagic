@@ -72,7 +72,7 @@
         }
         document.addEventListener('registration:waitlist-changed', function (event) {
             var detail = /** @type {CustomEvent<{enabled: boolean}>} */ (event).detail;
-            form.dataset.waitlistEnabled = detail && detail.enabled ? '1' : '0';
+            form.dataset.waitlistEnabled = detail?.enabled ? '1' : '0';
             sync(form);
         });
         sync(form);
