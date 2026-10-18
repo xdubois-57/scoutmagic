@@ -2404,6 +2404,33 @@ class StorageConfigControllerTest extends TestCase
         )->getBody();
     }
 
+    /** A copy whose last pass failed says so on the edit page, as the list's badge does. */
+    public function testTheEditPageShowsAFailingCopyAsFailing(): void
+    {
+        $source = $this->declareLocal('Galerie', 'gallery');
+        $destination = $this->declareLocal('NAS', 'nas');
+        $protections = new StorageProtectionRepository($this->pdo);
+        $id = $protections->save($source, $destination, 30, 24, true);
+        $protections->recordPassCompleted($id);
+        $protections->recordPassFailed($id, 'Le NAS ne répond plus.');
+
+        $body = $this->editPage($source);
+
+        $this->assertStringContainsString('Le NAS ne répond plus.', $body);
+        $this->assertStringNotContainsString('bi-shield-check', $body);
+    }
+
+    /** A copy that works stays green. */
+    public function testTheEditPageShowsAWorkingCopyAsWorking(): void
+    {
+        $source = $this->declareLocal('Galerie', 'gallery');
+        $destination = $this->declareLocal('NAS', 'nas');
+        $protections = new StorageProtectionRepository($this->pdo);
+        $protections->recordPassCompleted($protections->save($source, $destination, 30, 24, true));
+
+        $this->assertStringContainsString('bi-shield-check', $this->editPage($source));
+    }
+
     /** Without OAuth credentials, the edit page points at its own fields, not at itself. */
     public function testADriveWithoutCredentialsLeadsToTheOAuthFields(): void
     {

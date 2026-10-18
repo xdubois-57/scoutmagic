@@ -132,8 +132,12 @@
                     La copie de secours de cet emplacement est en pause : rien n'est copié.
                 </p>
             {% else %}
-                <p class="small text-success-emphasis">
-                    <i class="bi bi-shield-check" aria-hidden="true"></i>
+                {# The same verdict as the list's badge: a copy that failed
+                   its last pass, or never completed one, protects nothing
+                   yet — never green here while red there. #}
+                {% set copy_works = protection.lastCompletedPassAt and not protection.lastError %}
+                <p class="small {{ copy_works ? 'text-success-emphasis' : 'text-warning-emphasis' }}">
+                    <i class="bi {{ copy_works ? 'bi-shield-check' : 'bi-shield-exclamation' }}" aria-hidden="true"></i>
                     Copié vers « {{ location_labels[protection.destinationLocationId] ?? 'un emplacement supprimé' }} »
                     {% if protection.lastCompletedPassAt %}
                         — dernière passe {{ protection.lastCompletedPassAt|relative_date }}.
@@ -141,6 +145,9 @@
                         — aucune passe n'est encore arrivée à son terme.
                     {% endif %}
                 </p>
+                {% if protection.lastError %}
+                    <div class="alert alert-warning small mb-3">{{ protection.lastError }}</div>
+                {% endif %}
             {% endif %}
             {# ————— The safety copy (IT-04) —————
 
