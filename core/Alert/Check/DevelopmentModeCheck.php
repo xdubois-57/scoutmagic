@@ -63,7 +63,7 @@ final class DevelopmentModeCheck implements OperationalCheck
             title: 'Le site est en mode développement.',
             why: 'Chaque nouveau commit s\'installe immédiatement, sans attendre une version publiée ni le '
                 . 'créneau hebdomadaire. C\'est fait pour une installation de test, pas pour le site d\'une '
-                . 'unité. Repassez sur « Corrections » ou « Nouveautés » dans les mises à jour automatiques.',
+                . 'unité. Repassez sur « Patch uniquement » ou « Patch + Mineur » dans les mises à jour automatiques.',
             actionUrl: '/config/maintenance/mise-a-jour',
             actionLabel: 'Voir les mises à jour'
         );

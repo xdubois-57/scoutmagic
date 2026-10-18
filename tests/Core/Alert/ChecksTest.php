@@ -231,6 +231,10 @@ class ChecksTest extends TestCase
         $this->assertSame('Mode développement', $check->label());
         $this->assertSame('activé', $check->read()->value);
         $this->assertSame('Mode développement', \Core\Alert\AlertSurfaces::labels()[DevelopmentModeCheck::KEY]);
+        // The levels it tells the operator to go back to are the radio
+        // buttons' own labels (mise_a_jour.html.twig), not names that
+        // exist nowhere on the screen (#718 § C, PR #950).
+        $this->assertStringContainsString('« Patch uniquement » ou « Patch + Mineur »', $check->read()->why);
     }
 
     // ————— Cron silencieux —————
