@@ -553,6 +553,9 @@ class StorageConfigController extends AbstractController
         if ($location === null) {
             return new Response('Not Found', 404);
         }
+        // The page shows « Joignable » / « En erreur »: refreshed when stale,
+        // as the list does, so a result older than the TTL is not passed off as current.
+        $location = $this->storageLocationService->checkFresh($location);
 
         return $this->render('config/storage/location_form.html.twig', $this->formContext($location));
     }

@@ -2404,6 +2404,20 @@ class StorageConfigControllerTest extends TestCase
         )->getBody();
     }
 
+    /** A stale « En erreur » is checked again before the edit page shows it. */
+    public function testTheEditPageRefreshesAStaleCheck(): void
+    {
+        $id = $this->repository->create(StorageLocationType::Local, 'Disque du serveur', new LocalLocationConfig('gallery'), null);
+        $this->repository->recordCheckResult($id, false, 'Dossier introuvable.');
+        $this->pdo->prepare('UPDATE storage_locations SET last_checked_at = ? WHERE id = ?')
+            ->execute(['2020-01-01 00:00:00', $id]);
+
+        $body = $this->editPage($id);
+
+        $this->assertStringContainsString('Joignable', $body);
+        $this->assertStringNotContainsString('En erreur', $body);
+    }
+
     /** The edit page of a Drive location shows the same expiry the card does. */
     public function testTheDriveEditPageShowsTheAnnouncedEnd(): void
     {
