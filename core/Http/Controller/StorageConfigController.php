@@ -1508,7 +1508,7 @@ class StorageConfigController extends AbstractController
 
     /**
      * @param StorageLocation[] $locations
-     * @return array<int, array{state: string, days: ?int, date: string, failed: bool, error: ?string}>
+     * @return array<int, array{state: string, passed: bool, days: ?int, date: string, failed: bool, error: ?string}>
      */
     private function driveExpiriesFor(array $locations): array
     {
@@ -1529,7 +1529,7 @@ class StorageConfigController extends AbstractController
      * same reading StorageAttentionProvider makes, and counted on the
      * application clock.
      *
-     * @return array{state: string, days: ?int, date: string, failed: bool, error: ?string}|null
+     * @return array{state: string, passed: bool, days: ?int, date: string, failed: bool, error: ?string}|null
      */
     private static function driveExpiryView(StorageLocation $location): ?array
     {
@@ -1538,9 +1538,12 @@ class StorageConfigController extends AbstractController
             return null;
         }
 
+        $now = AppClock::now();
+
         return [
             'state' => $expiry->state,
-            'days' => $expiry->daysLeft(AppClock::now()),
+            'passed' => $expiry->hasPassed($now),
+            'days' => $expiry->daysLeft($now),
             'date' => $expiry->expiresAt?->setTimezone(AppClock::zone())->format('d/m/Y') ?? '',
             'failed' => $expiry->failedSince,
             'error' => $location->lastCheckError,

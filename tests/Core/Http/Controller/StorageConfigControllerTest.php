@@ -2281,6 +2281,17 @@ class StorageConfigControllerTest extends TestCase
         $this->assertStringContainsString('Cette autorisation a pris fin le', $this->locationsPage());
     }
 
+    /** An end passed earlier today reads « a pris fin » on the card, as on the attention page. */
+    public function testAnEndPassedEarlierTodayAlreadyReadsAsEnded(): void
+    {
+        $this->declareObservedDrive(\Core\Config\AppClock::now()->modify('-1 minute')->format('c'));
+
+        $body = $this->locationsPage();
+
+        $this->assertStringContainsString('Cette autorisation a pris fin le', $body);
+        $this->assertStringNotContainsString("aujourd'hui", $body);
+    }
+
     /** A check that succeeded after the end is the proof it no longer applies. */
     public function testASuccessfulCheckAfterTheEndClearsTheWarning(): void
     {

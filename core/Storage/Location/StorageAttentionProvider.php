@@ -76,7 +76,7 @@ final class StorageAttentionProvider implements AttentionPointProvider
         \DateTimeImmutable $now
     ): AttentionPoint {
         $date = $expiry->expiresAt?->setTimezone(AppClock::zone())->format('d/m/Y') ?? '';
-        $passed = $expiry->expiresAt !== null && $expiry->expiresAt <= $now;
+        $passed = $expiry->hasPassed($now);
 
         $why = $passed
             ? "Google avait annoncé cette fin au raccordement. Depuis, aucune vérification réussie n'a montré que "

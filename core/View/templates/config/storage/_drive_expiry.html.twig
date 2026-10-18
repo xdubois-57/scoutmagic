@@ -6,10 +6,11 @@
   succeeds after it. Nothing is guessed about the Google project's status, and
   a disconnected location or a grant with no announced end says nothing at all.
 
-  Expects `expiry`: null, or {state, days, date, failed, error}.
+  Expects `expiry`: null, or {state, passed, days, date, failed, error}.
+  `passed` is DriveGrantExpiry::hasPassed(), the attention point's own test.
 #}
 {% if expiry and expiry.state == 'known' %}
-    {% if expiry.days >= 0 %}
+    {% if not expiry.passed %}
         <div class="alert alert-warning small mt-2 mb-0" role="alert">
             <strong>Cette autorisation prend fin le {{ expiry.date }}{% if expiry.days == 0 %}, aujourd'hui{% elseif expiry.days == 1 %}, demain{% else %}, dans {{ expiry.days }} jours{% endif %}.</strong>
             Google l'a annoncé au raccordement. Passé cette date, tout ce qui écrit ici s'arrête tant que le
