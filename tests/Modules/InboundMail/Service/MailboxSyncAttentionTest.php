@@ -27,11 +27,13 @@ class MailboxSyncAttentionTest extends TestCase
     private InboundMessageRepository $messages;
     private InboundMailboxRepository $mailboxes;
     private InMemorySettingService $settings;
+    private \PDO $pdo;
     private int $boxId;
 
     protected function setUp(): void
     {
         $pdo = DatabaseTestHelper::createTestDatabase();
+        $this->pdo = $pdo;
         InboundMailTestHelper::createTables($pdo);
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $this->messages = new InboundMessageRepository($pdo, $encryption);
@@ -142,6 +144,23 @@ class MailboxSyncAttentionTest extends TestCase
 
         $this->assertStringNotContainsString('example.be', $text);
         $this->assertStringNotContainsString('Mot de passe', $text);
+    }
+
+    /**
+     * The page reads the sync state without decrypting anything: a box
+     * whose stored account cannot be decrypted (a rotated key, a damaged
+     * row) still says it is failing, and takes no other point down with it.
+     */
+    public function testAnUndecryptableAccountStillReportsTheBox(): void
+    {
+        $this->mailboxes->recordFailure($this->boxId, 'Mot de passe refusé.', new \DateTimeImmutable('2026-10-18 10:00:00'));
+        $this->pdo->prepare('UPDATE inbound_mailboxes SET username_encrypted = ? WHERE id = ?')
+            ->execute(['illisible', $this->boxId]);
+
+        $points = $this->pointsAt('2026-10-18 12:00:00');
+
+        $this->assertCount(1, $points);
+        $this->assertSame('La boîte « Unité » ne se synchronise plus', $points[0]->title);
     }
 
     /** Without the box repository the provider is what it was: messages only. */

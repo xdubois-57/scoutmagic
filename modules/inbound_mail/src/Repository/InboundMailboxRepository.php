@@ -82,6 +82,33 @@ class InboundMailboxRepository
         return is_array($row) ? $this->hydrate($row) : null;
     }
 
+    /**
+     * The sync state of every enabled box, and nothing that needs the key:
+     * no account name, no password, no host (#718 § C point 8). For the
+     * attention page, which renders on demand for an admin and must neither
+     * decrypt credentials it has no use for nor fail because one of them
+     * cannot be read.
+     *
+     * @return list<array{name: string, state: SyncState, lastSyncedAt: ?\DateTimeImmutable}>
+     */
+    public function enabledSyncStates(): array
+    {
+        $stmt = $this->pdo->query(
+            'SELECT name, sync_state, last_synced_at FROM inbound_mailboxes WHERE is_enabled = 1 ORDER BY id ASC'
+        );
+
+        return array_map(
+            static fn(array $row): array => [
+                'name' => (string) $row['name'],
+                'state' => SyncState::from((string) $row['sync_state']),
+                'lastSyncedAt' => DateInput::fromStorage(
+                    $row['last_synced_at'] === null ? null : (string) $row['last_synced_at']
+                ),
+            ],
+            $stmt === false ? [] : $stmt->fetchAll(\PDO::FETCH_ASSOC)
+        );
+    }
+
     public function countEnabled(): int
     {
         $stmt = $this->pdo->query('SELECT COUNT(*) FROM inbound_mailboxes WHERE is_enabled = 1');

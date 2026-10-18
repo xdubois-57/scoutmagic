@@ -12,7 +12,6 @@ use Core\Attention\AttentionPoint;
 use Core\Attention\AttentionPointProvider;
 use Core\Config\AppClock;
 use Core\Config\SettingService;
-use Modules\InboundMail\Mailbox\Mailbox;
 use Modules\InboundMail\Mailbox\SyncState;
 use Modules\InboundMail\Repository\InboundMailboxRepository;
 use Modules\InboundMail\Repository\InboundMessageRepository;
@@ -40,7 +39,7 @@ use Modules\InboundMail\Task\SyncMailboxesHandler;
  * **And the boxes themselves** (issue #718 § C points 8 and 9): one that
  * no longer synchronises, and a module switched on with no box to read.
  * Both come from what the polling task stored on each row — `sync_state`,
- * `last_synced_at` — never from connecting: the page must stay cheap, and
+ * `last_synced_at`, read without decrypting anything — never from connecting: the page must stay cheap, and
  * must not fail because a mail host does. Until now a broken box said so
  * only on the superadmin's configuration page, which nobody opens while
  * mail seems to be arriving.
@@ -125,7 +124,7 @@ class InboundMailAttentionProvider implements AttentionPointProvider
             return [];
         }
 
-        $enabled = $this->mailboxes->findEnabled();
+        $enabled = $this->mailboxes->enabledSyncStates();
         if ($enabled === []) {
             return [new AttentionPoint(
                 title: "Aucune boîte de courrier entrant n'est relevée",
@@ -139,14 +138,14 @@ class InboundMailAttentionProvider implements AttentionPointProvider
 
         $now = $this->now ?? AppClock::now();
         $points = [];
-        foreach ($enabled as $mailbox) {
-            if (!$this->hasStoppedSynchronising($mailbox, $now)) {
+        foreach ($enabled as $box) {
+            if (!$this->hasStoppedSynchronising($box['state'], $box['lastSyncedAt'], $now)) {
                 continue;
             }
             $points[] = new AttentionPoint(
-                title: 'La boîte « ' . $mailbox->name . ' » ne se synchronise plus',
-                why: ($mailbox->lastSyncedAt !== null
-                        ? 'Sa dernière relève réussie date du ' . $mailbox->lastSyncedAt->format('d/m/Y à H:i') . '. '
+                title: 'La boîte « ' . $box['name'] . ' » ne se synchronise plus',
+                why: ($box['lastSyncedAt'] !== null
+                        ? 'Sa dernière relève réussie date du ' . $box['lastSyncedAt']->format('d/m/Y à H:i') . '. '
                         : "Elle n'a encore jamais été relevée avec succès. ")
                     . "Le courrier qui y arrive n'atteint plus le site : ni la page Courrier ni les modules "
                     . "qui le classent ne le voient. La page de configuration donne l'erreur.",
@@ -168,12 +167,15 @@ class InboundMailAttentionProvider implements AttentionPointProvider
      * it — and a box that has never worked is a configuration to fix, not
      * an outage to wait out.
      */
-    private function hasStoppedSynchronising(Mailbox $mailbox, \DateTimeImmutable $now): bool
-    {
-        if ($mailbox->syncState !== SyncState::ERROR) {
+    private function hasStoppedSynchronising(
+        SyncState $state,
+        ?\DateTimeImmutable $lastSyncedAt,
+        \DateTimeImmutable $now
+    ): bool {
+        if ($state !== SyncState::ERROR) {
             return false;
         }
-        if ($mailbox->lastSyncedAt === null) {
+        if ($lastSyncedAt === null) {
             return true;
         }
 
@@ -182,7 +184,7 @@ class InboundMailAttentionProvider implements AttentionPointProvider
             : SyncMailboxesHandler::DEFAULT_INTERVAL_MINUTES * 60;
         $grace = max(self::MIN_FAILING_SECONDS, self::MIN_FAILED_PASSES * $interval);
 
-        return $now->getTimestamp() - $mailbox->lastSyncedAt->getTimestamp() >= $grace;
+        return $now->getTimestamp() - $lastSyncedAt->getTimestamp() >= $grace;
     }
 
     private function retentionDays(): int

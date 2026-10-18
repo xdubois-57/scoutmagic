@@ -49,4 +49,4 @@ Quatre réglages laissés de côté, avant que quoi que ce soit n'échoue :
 Chaque module activé ajoute ses propres points. Ceux qui ne vont pas de
 soi — locations, discussions, inscriptions, courrier entrant,
 intelligence artificielle, téléphone d'urgence, réseaux sociaux — sont
-détaillés dans [Ce que signalent les modules](points-attention-modules).
+détaillés dans le sujet « Ce que signalent les modules ».
