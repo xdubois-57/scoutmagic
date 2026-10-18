@@ -144,6 +144,41 @@ class MailDnsRecordsCheckTest extends TestCase
         $this->assertTrue($this->check($zone)->read()->overTrigger);
     }
 
+    /**
+     * A relay authorised through `include:` — Microsoft 365, a mailing
+     * provider — is an ordinary zone the reading cannot evaluate: no alert.
+     */
+    public function testAnSpfRecordDelegatingThroughIncludeIsNotAnAlert(): void
+    {
+        $zone = $this->completeZone();
+        $zone['unite.be'] = ['v=spf1 include:spf.protection.outlook.com -all'];
+
+        $reading = $this->check($zone)->read();
+
+        $this->assertFalse($reading->overTrigger);
+    }
+
+    /** A DMARC record sending its reports to a third party still protects the domain. */
+    public function testADmarcRecordReportingElsewhereIsNotAnAlert(): void
+    {
+        $zone = $this->completeZone();
+        $zone['_dmarc.unite.be'] = ['v=DMARC1; p=quarantine; rua=mailto:rapports@moniteur.example'];
+
+        $this->assertFalse($this->check($zone)->read()->overTrigger);
+    }
+
+    /** A DKIM record that does not carry the site's key fails every signature. */
+    public function testADkimRecordWithAnotherKeyTriggers(): void
+    {
+        $zone = $this->completeZone();
+        $zone['scoutmagic._domainkey.unite.be'] = ['v=DKIM1; k=rsa; p=AUTRECLE'];
+
+        $reading = $this->check($zone)->read();
+
+        $this->assertTrue($reading->overTrigger);
+        $this->assertSame('DKIM absent', $reading->value);
+    }
+
     public function testSeveralMissingRecordsAreNamedTogether(): void
     {
         $zone = $this->completeZone();

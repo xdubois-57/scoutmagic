@@ -138,7 +138,7 @@ final class MailDnsRecordsCheck implements OperationalCheck
 
         $missing = [];
         foreach (self::NAMES as $key => $name) {
-            if (self::isMissing($records[$key] ?? [])) {
+            if (self::isMissing($key, $records[$key] ?? [])) {
                 $missing[] = $name;
             }
         }
@@ -169,19 +169,60 @@ final class MailDnsRecordsCheck implements OperationalCheck
     }
 
     /**
-     * A definite « absent » — the same reading as DnsCheckMemory::state():
-     * a record the site cannot judge (no key yet, no report asked for, no
-     * relay to look for) is not missing.
+     * A definite « absent » — never a record the reading cannot judge.
+     *
+     * Stricter than the screen's « absent » on purpose: the screen sits next
+     * to a person who can read the record, while this alert is urgent and
+     * e-mailed, and must not fire on a zone that is in fact fine.
+     *
+     * - Nothing to publish (no DKIM key, no DMARC report asked for, no relay
+     *   to look for): not missing, as DnsCheckMemory::state() reads it.
+     * - SPF: missing when no record is published, or when the record names
+     *   none of the mechanisms that can authorise a relay indirectly. An
+     *   `include:`, `redirect=`, a bare `mx` or `a`, or `ip4:`/`ip6:` may cover
+     *   the relay, and DnsVerifier does not evaluate them — so that record
+     *   cannot be falsified here, and it is not an alert.
+     * - DMARC: missing only when no record is published. A record sending
+     *   its reports elsewhere — a third-party monitor — protects the domain
+     *   just the same; the address is the Authentification page's business.
+     * - DKIM: a record that does not carry the site's key fails every
+     *   signature, so « not matching » is missing.
      *
      * @param array<string, mixed> $record
      */
-    private static function isMissing(array $record): bool
+    private static function isMissing(string $key, array $record): bool
     {
         if (!empty($record['key_missing']) || !empty($record['not_requested']) || !empty($record['unverifiable'])) {
             return false;
         }
+        if (!empty($record['exists'])) {
+            return false;
+        }
 
-        return empty($record['exists']);
+        $actual = isset($record['actual']) && is_string($record['actual']) ? $record['actual'] : null;
+
+        return match ($key) {
+            DnsCheckMemory::SPF => $actual === null || !self::mayAuthoriseIndirectly($actual),
+            DnsCheckMemory::DMARC => $actual === null,
+            default => true,
+        };
+    }
+
+    /** Whether an SPF record holds a mechanism that can cover a relay without naming it. */
+    private static function mayAuthoriseIndirectly(string $spf): bool
+    {
+        foreach (preg_split('/\s+/', strtolower(trim($spf))) ?: [] as $token) {
+            $token = ltrim($token, '+');
+            if (preg_match('/^(include:|redirect=|ip4:|ip6:|exists:)/', $token) === 1
+                // The domain's own `a` or `mx`, never `a:other-host`: a
+                // mechanism naming some other host is a relay left out.
+                || preg_match('/^(a|mx)(\/\d+)?$/', $token) === 1
+            ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /** @param list<string> $names « SPF », « SPF et DKIM », « SPF, DKIM et DMARC » */
