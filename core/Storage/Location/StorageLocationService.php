@@ -445,9 +445,12 @@ class StorageLocationService
      * - it bears the shared folder's name: refused as a precaution (a
      *   shared folder moved deeper would escape the next test), and said
      *   to rest on the name;
-     * - fewer than two folders above it: either it sits directly in « Mon
-     *   Drive » (seen) or the site cannot tell where it sits (unknown).
-     *   Neither proves it is the shared folder, and neither is allowed.
+     * - fewer than two folders above it: what holds it is « Mon Drive »
+     *   itself or a folder the site cannot see, and the two cannot be told
+     *   apart — the real top of the drive is an opaque id that is not the
+     *   literal `root`, and under `drive.file` the site is not allowed to
+     *   describe it. Neither proves it is the shared folder, and neither is
+     *   allowed; the message says exactly that much.
      *
      * Every refusal ends on what the administrator can do, and that a new
      * folder is not a recovery of the old files.
@@ -479,40 +482,12 @@ class StorageLocationService
             return null;
         }
 
-        $notRecovery = 'Créer un nouveau dossier ne reprendrait pas ses fichiers.';
-        if (self::reachesTopOfDrive($backend, $ancestors)) {
-            return 'Le dossier « ' . $folder['name'] . ' » est rangé directement dans « Mon Drive », pas dans le '
-                . 'dossier commun « ' . $shared . ' » où ce site range les dossiers de ses emplacements : il n\'a '
-                . 'donc pas été rattaché. Si c\'est bien le dossier à reprendre, déplacez-le dans « ' . $shared
-                . ' » depuis Google Drive, puis recommencez. ' . $notRecovery;
-        }
-
-        return 'Ce site ne voit pas dans quel dossier est rangé « ' . $folder['name'] . ' » : il ne peut pas '
-            . 'vérifier qu\'il se trouve dans le dossier commun « ' . $shared . ' », et rien n\'a été changé. Il '
-            . 'ne voit que les dossiers qu\'il a créés lui-même. Si c\'est bien le dossier à reprendre, rangez-le '
-            . 'dans « ' . $shared . ' » depuis Google Drive, puis recommencez. ' . $notRecovery;
-    }
-
-    /**
-     * Whether the last folder of a walk upwards is the top of « Mon Drive »
-     * itself, as opposed to a folder the site was not allowed to look at.
-     * The top has no parent, and is told apart from an invisible folder by
-     * that, which is the difference between « seen » and « unknown ».
-     *
-     * @param list<string> $ancestors nearest first
-     */
-    private static function reachesTopOfDrive(Backend\GoogleDriveBackend $backend, array $ancestors): bool
-    {
-        if ($ancestors === []) {
-            return false;
-        }
-        $last = $ancestors[count($ancestors) - 1];
-        if ($last === 'root') {
-            return true;
-        }
-        $described = $backend->describeFolder($last);
-
-        return $described !== null && $described['parents'] === [];
+        return 'Ce site ne voit pas où est rangé « ' . $folder['name'] . ' » : le dossier qui le contient est '
+            . '« Mon Drive » lui-même, ou un dossier que le site ne peut pas voir (il ne voit que ceux qu\'il a '
+            . 'créés). Il ne peut donc pas vérifier que « ' . $folder['name'] . ' » se trouve dans le dossier '
+            . 'commun « ' . $shared . ' », et rien n\'a été changé. Si c\'est bien le dossier à reprendre, '
+            . 'déplacez-le dans « ' . $shared . ' » depuis Google Drive, puis recommencez. Créer un nouveau '
+            . 'dossier ne reprendrait pas ses fichiers.';
     }
 
     /**

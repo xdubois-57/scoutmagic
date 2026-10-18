@@ -878,50 +878,60 @@ class StorageLocationServiceTest extends TestCase
     }
 
     /**
-     * Issue #924. An ordinary folder directly in « Mon Drive » has one
-     * ancestor, and the refusal used to call that « le dossier commun » —
-     * a claim about identity the check never established. The refusal
-     * stays (the site only attaches what sits in its shared folder), but it
-     * says what was seen.
+     * What both of the next cases share: the site cannot say where the
+     * folder sits, and says so — never that it is the shared folder.
+     *
+     * @return array<string, array{string, callable(FakeDrive): void}>
      */
-    public function testAnOrdinaryFolderAtTheTopOfTheDriveIsNotCalledTheSharedFolder(): void
+    public static function foldersWhoseLocationCannotBeEstablished(): array
     {
-        $message = $this->refusalOf('anciennes-photos-01', static function (FakeDrive $drive): void {
-            $drive->addFolder('Anciennes photos', 'root', 'anciennes-photos-01');
-            $drive->addFolder('Album 2019', 'anciennes-photos-01', 'album-2019-0000001');
-            $drive->put('photo.jpg', 'octets', 'image/jpeg', 'album-2019-0000001');
-        });
+        return [
+            // The ticket's case: an ordinary folder at the top of « Mon
+            // Drive », with albums and files in it.
+            'an ordinary folder at the top of the drive' => ['anciennes-photos-01', static function (FakeDrive $drive): void {
+                $drive->addFolder('Anciennes photos', 'root', 'anciennes-photos-01');
+                $drive->addFolder('Album 2019', 'anciennes-photos-01', 'album-2019-0000001');
+                $drive->put('photo.jpg', 'octets', 'image/jpeg', 'album-2019-0000001');
+            }],
+            // The folder above it is not one the site can see.
+            'a folder whose parent cannot be seen' => ['anciennes-photos-01', static function (FakeDrive $drive): void {
+                $drive->addFolder('Anciennes photos', 'parent-invisible-0001', 'anciennes-photos-01');
+            }],
+        ];
+    }
+
+    /**
+     * Issue #924. Such a folder has fewer than two folders above it, and the
+     * refusal used to call that « le dossier commun » — a claim about
+     * identity the check never established. The refusal stays (the site only
+     * attaches what sits in its shared folder), but it says what is known:
+     * the folder that holds this one is « Mon Drive » itself or a folder
+     * the site cannot see, and which of the two cannot be told — the real
+     * top of the drive is an opaque id, not the `root` of the fake, and the
+     * site may not describe it.
+     *
+     * @param callable(FakeDrive): void $arrange
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('foldersWhoseLocationCannotBeEstablished')]
+    public function testAFolderWhoseLocationCannotBeEstablishedIsNotCalledTheSharedFolder(string $reference, callable $arrange): void
+    {
+        $message = $this->refusalOf($reference, static fn (FakeDrive $drive) => $arrange($drive));
 
         $this->assertStringNotContainsString('C\'est le dossier commun', $message);
-        $this->assertStringContainsString('« Anciennes photos » est rangé directement dans « Mon Drive »', $message);
-        $this->assertStringContainsString('dossier commun « ScoutMagic »', $message);
+        $this->assertStringContainsString('ne voit pas où est rangé « Anciennes photos »', $message);
+        $this->assertStringContainsString('« Mon Drive » lui-même, ou un dossier que le site ne peut pas voir', $message);
+        $this->assertStringContainsString('ne peut donc pas vérifier', $message);
+        $this->assertStringContainsString('rien n\'a été changé', $message);
     }
 
     /** What the administrator can do, and that a new folder is not a recovery. */
-    public function testTheRefusalForAFolderAtTheTopSaysWhatToDoAndWhatCreatingAFolderDoesNot(): void
+    public function testTheRefusalSaysWhatToDoAndWhatCreatingAFolderDoesNot(): void
     {
         $message = $this->refusalOf('anciennes-photos-01', static function (FakeDrive $drive): void {
             $drive->addFolder('Anciennes photos', 'root', 'anciennes-photos-01');
         });
 
         $this->assertStringContainsString('déplacez-le dans « ScoutMagic » depuis Google Drive', $message);
-        $this->assertStringContainsString('Créer un nouveau dossier ne reprendrait pas ses fichiers', $message);
-    }
-
-    /**
-     * Where a folder is kept cannot be established when the folder above it
-     * is invisible to the site: that is unknown, not « the shared folder ».
-     */
-    public function testAFolderWhoseParentCannotBeSeenIsReportedAsUnverifiable(): void
-    {
-        $message = $this->refusalOf('dossier-orphelin-001', static function (FakeDrive $drive): void {
-            $drive->addFolder('Photos de camp', 'parent-invisible-0001', 'dossier-orphelin-001');
-        });
-
-        $this->assertStringNotContainsString('C\'est le dossier commun', $message);
-        $this->assertStringContainsString('ne voit pas dans quel dossier est rangé « Photos de camp »', $message);
-        $this->assertStringContainsString('ne peut pas vérifier', $message);
-        $this->assertStringContainsString('rien n\'a été changé', $message);
         $this->assertStringContainsString('Créer un nouveau dossier ne reprendrait pas ses fichiers', $message);
     }
 
