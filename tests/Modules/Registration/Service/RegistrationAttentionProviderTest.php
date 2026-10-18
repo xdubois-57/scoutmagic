@@ -124,7 +124,9 @@ class RegistrationAttentionProviderTest extends TestCase
     public function testTheSettingsRefuseMalformedValues(): void
     {
         foreach ([[RegistrationAttentionProvider::SETTING_FROM, '1/6'], [RegistrationAttentionProvider::SETTING_FROM, '32/01'],
-            [RegistrationAttentionProvider::SETTING_FROM, '01/13'], [RegistrationAttentionProvider::SETTING_AGE_DAYS, '0'],
+            [RegistrationAttentionProvider::SETTING_FROM, '01/13'], [RegistrationAttentionProvider::SETTING_FROM, '31/04'],
+            [RegistrationAttentionProvider::SETTING_FROM, '30/02'], [RegistrationAttentionProvider::SETTING_FROM, '31/11'],
+            [RegistrationAttentionProvider::SETTING_AGE_DAYS, '0'],
             [RegistrationAttentionProvider::SETTING_AGE_DAYS, 'abc']] as [$key, $value]) {
             try {
                 $this->settings->set($key, $value, 'registration');
@@ -132,6 +134,15 @@ class RegistrationAttentionProviderTest extends TestCase
             } catch (SettingException) {
                 $this->addToAssertionCount(1);
             }
+        }
+    }
+
+    /** Every date a calendar has is accepted, the 29th of February included. */
+    public function testTheSettingAcceptsEveryRealDayAndMonth(): void
+    {
+        foreach (['01/01', '29/02', '30/04', '31/05', '31/12', '30/11'] as $value) {
+            $this->settings->set(RegistrationAttentionProvider::SETTING_FROM, $value, 'registration');
+            $this->assertSame($value, $this->settings->get(RegistrationAttentionProvider::SETTING_FROM, 'registration'));
         }
     }
 
