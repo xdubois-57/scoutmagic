@@ -16,6 +16,7 @@ use Core\Journal\JournalService;
 use Core\Http\Response;
 use Core\Mail\DkimManager;
 use Core\Mail\DnsCheckMemory;
+use Core\Mail\DnsRecordsReading;
 use Core\Mail\Feedback\ReturnPathVerifier;
 use Core\Mail\Feedback\ReturnState;
 use Core\Mail\DnsVerifier;
@@ -2075,26 +2076,17 @@ class OutboundMailController extends AbstractController
             $dkimDomain,
             $selector,
             $identity->configuredDmarcReportAddress(),
-            [
-                // `?? []` deliberately: a relay list that could not be
-                // read and a site with no relay reach the same verdict,
-                // « je ne peux pas répondre ». Which of the two it was is
-                // a live reading, said on the screen, not a stale one
-                // frozen into the stored record.
-                DnsCheckMemory::SPF => $this->dns->checkSpfForHosts($spfDomain, $this->sendingHosts() ?? []),
-                // Nothing can be proposed before a key pair exists: there
-                // is no value to publish, not even a placeholder.
-                DnsCheckMemory::DKIM => $hasKey
-                    ? $this->dns->checkDkim($dkimDomain, $selector, $this->dkim->getPublicKey())
-                    : ['key_missing' => true],
-                // Only when an address was actually asked for: a site that
-                // wants no reports needs no record, and proposing one
-                // would be pushing an edit nobody asked for (D12 — `rua`
-                // only, never `ruf`).
-                DnsCheckMemory::DMARC => $identity->configuredDmarcReportAddress() === ''
-                    ? ['not_requested' => true]
-                    : $this->dns->checkDmarc($dkimDomain, $identity->dmarcReportAddress()),
-            ]
+            // `?? []` deliberately: a relay list that could not be read and
+            // a site with no relay reach the same verdict, « je ne peux pas
+            // répondre ». Which of the two it was is a live reading, said
+            // on the screen, not a stale one frozen into the stored record.
+            DnsRecordsReading::take(
+                $this->dns,
+                $identity,
+                $selector,
+                $hasKey ? $this->dkim->getPublicKey() : null,
+                $this->sendingHosts() ?? []
+            )
         );
 
         // **The relays are resolved here and nowhere else** (roadmap
@@ -2869,20 +2861,7 @@ class OutboundMailController extends AbstractController
             return null;
         }
 
-        $hosts = [];
-        foreach ($providers as $provider) {
-            if ($provider->isLocal() || $provider->host === '') {
-                continue;
-            }
-            if ($this->enabledLaneLabels($chains, $provider->id) === []) {
-                continue;
-            }
-            if (!in_array($provider->host, $hosts, true)) {
-                $hosts[] = $provider->host;
-            }
-        }
-
-        return $hosts;
+        return DnsRecordsReading::sendingHosts($chains, $providers);
     }
 
     /**

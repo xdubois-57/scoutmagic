@@ -4443,6 +4443,22 @@ the reason above — the chain tries the last entry anyway, so an open
 circuit is not a missing provider, and counting it as one would raise the
 alarm during exactly the outage the breaker is riding out.
 
+**A third watches the DNS records, and it does travel by e-mail**
+(`Core\Alert\Check\MailDnsRecordsCheck`, #718 § C point 15). The reading
+already existed — `DnsCheckMemory`, written by « Vérifier le DNS » on the
+Authentification sub-page — but only a superadmin pressing the button
+ever took it, so a record deleted at the registrar stayed « publié » for as
+long as nobody looked. The daily pass now takes the same reading
+(`Core\Mail\DnsRecordsReading`, shared with the button so the two cannot
+drift), keeps it where the page reads it, and triggers on a definite
+« absent » only. `DnsVerifier` reads a resolver that could not be asked as
+an empty answer, which is right with somebody watching and wrong at four
+in the morning, so the check probes every host first and one failed lookup
+makes the whole reading inconclusive, leaving the stored one alone. A
+record the site has nothing to publish for (no DKIM key, no DMARC report
+asked for) is not missing. Mail still leaves while a record is absent,
+which is why this one is not in `MAIL_KEYS`.
+
 **A lane running out is journaled as `security` on the authentication
 lane and `info` on the other two** (`mail_lane_exhausted`). The gap
 between those two words is the gap between an inconvenience and an
