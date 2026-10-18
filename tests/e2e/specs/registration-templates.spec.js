@@ -119,7 +119,7 @@ test('a decision e-mail written in « Gabarits » is sent from the fiche and sho
     await expect(row('Accusé de réception de la demande')).toContainText('Par défaut');
     await expect(row('Acceptation de la demande')).toContainText('Par défaut');
     await expect(row('Refus de la demande')).toContainText('Par défaut');
-    await expect(page.getByText('À rédiger')).toHaveCount(0);
+    await expect(page.locator('.list-editor-item .badge', { hasText: 'À rédiger' })).toHaveCount(0);
 
     // A family text saved without the tracking link is refused, with the way
     // to put it back; nothing is stored.

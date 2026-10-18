@@ -355,7 +355,11 @@ test('a family registers a child, follows the mailed tracking link, and the admi
         let dialog = await openModal(page, dialogId, () => decide.click());
         await expect(dialog.getByRole('heading', { name: `Décider — ${CHILD_FIRST_NAME} ${CHILD_LAST_NAME}` }))
             .toBeVisible();
-        await expect(dialog.getByText('Aucun e-mail de décision ne peut partir', { exact: false })).toBeVisible();
+        // No template is ever « à rédiger » (#932): nothing leaves on its own
+        // while the automatic sending is off, and the fiche sends it by hand.
+        await expect(dialog.getByText("Si vous acceptez : aucun e-mail ne part tout seul", { exact: false }))
+            .toBeVisible();
+        await expect(dialog.getByText('ne peut partir', { exact: false })).toHaveCount(0);
 
         await dialog.getByRole('button', { name: 'Refuser', exact: true }).click();
         const confirmRefusal = dialog.getByRole('button', { name: 'Confirmer le refus' });
