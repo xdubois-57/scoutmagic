@@ -194,13 +194,6 @@ export async function collectToasts(page) {
  * support/section-editor.js): a rendered page is not yet a page that
  * reacts, and toBeVisible() on its content does not say otherwise.
  *
- * It answers for whatever document is current WHEN IT RUNS. After a click
- * that navigates, wait for the new URL first (expect(page).toHaveURL()):
- * the page being left is armed too, and text it also shows — a list
- * naming the very row being opened — is visible before the navigation has
- * happened. That is how the scan's last instance of the failure above
- * came about (issue #912), with this call in place.
- *
  * @param {import('@playwright/test').Page} page
  */
 export async function waitForConfirmReady(page) {
@@ -211,7 +204,43 @@ export async function waitForConfirmReady(page) {
 
 export async function answerConfirmation(page, options = {}) {
     const dialog = page.locator('#sm-confirm-modal');
-    await dialog.waitFor({ state: 'visible', timeout: 15_000 });
+    // TEMPORARY INSTRUMENTATION — remove once the dialog that never
+    // appears is understood. Under the security scan this wait times out
+    // roughly once in twenty runs, and the message it gives ("locator to
+    // be visible") names the dialog rather than whatever failed to ask for
+    // it. Two candidate causes are indistinguishable from that alone: the
+    // submit never happened (the click landed on a control the page had
+    // just re-rendered), or it happened and confirm.js did not intercept
+    // it (no form[data-confirm] around the submitter). This tells them
+    // apart, and it lives in the shared helper rather than in one spec
+    // because four specs reach this same line.
+    //
+    // pageAgeMs settles the question the first samples could not (issue
+    // #912): roots:0 with focus on <body> is what BOTH a click that did
+    // nothing and a native submit leave behind, since the submit redirects
+    // back to the very same URL. A page younger than this wait was loaded
+    // after the click — a native submit; one older than it was there all
+    // along — the click never reached a control. bannerShown says whether
+    // the cookie banner was still in front of the page.
+    try {
+        await dialog.waitFor({ state: 'visible', timeout: 15_000 });
+    } catch (failure) {
+        const state = await page.evaluate(() => ({
+            roots: document.querySelectorAll('#sm-confirm-modal').length,
+            anyConfirmMarkup: document.querySelectorAll('[id^="sm-confirm-modal"]').length,
+            delegated: Boolean(/** @type {any} */ (document).scoutMagicConfirmDelegated),
+            confirmForms: document.querySelectorAll('form[data-confirm]').length,
+            openModals: document.querySelectorAll('.modal.show').length,
+            backdrops: document.querySelectorAll('.modal-backdrop').length,
+            activeElement: document.activeElement ? document.activeElement.outerHTML.slice(0, 160) : '(none)',
+            url: location.pathname + location.search,
+            pageAgeMs: Math.round(performance.now()),
+            bannerShown: document.getElementById('cookie-banner') !== null,
+        }));
+        // eslint-disable-next-line no-console
+        console.log('[CONFIRM-MISSING] ' + JSON.stringify(state));
+        throw failure;
+    }
 
     const message = (await dialog.locator('#sm-confirm-modal-body').innerText()).trim();
 

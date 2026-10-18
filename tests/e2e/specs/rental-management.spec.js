@@ -41,6 +41,7 @@ import { test, expect } from '@playwright/test';
 import { loginAsAdmin } from '../support/admin-login.js';
 import { expectRendersAsACalendar } from '../support/calendar.js';
 import { answerConfirmation, waitForConfirmReady } from '../support/confirm-dialog.js';
+import { answerCookieBanner } from '../support/cookie-banner.js';
 import { openSectionEditor } from '../support/section-editor.js';
 import { waitOutHumanCheckDelay } from '../support/human-check.js';
 import { closeModal, openModal } from '../support/modal.js';
@@ -304,18 +305,14 @@ test.describe('Rentals — running an asset', () => {
         await page.goto(`/mes-locations/${ASSET_SLUG}/reservations`);
 
         await page.getByRole('link', { name: new RegExp(reference) }).first().click();
-        // The URL first, and only then anything on the page (issue #912).
-        // The list being left shows the renter's name too, so « Pierre
-        // Lambert » alone is visible before the click has navigated — and
-        // waitForConfirmReady() below, run against that list, finds
-        // confirm.js armed THERE. The step disc was then clicked on a
-        // reservation page still being parsed, before its own confirm.js
-        // had run: a native submit, a redirect back to the same URL, and no
-        // dialog — the sample the issue quotes, no dialog markup on an
-        // unchanged URL, delegated:true read afterwards on the page that
-        // redirect drew.
-        await expect(page).toHaveURL(new RegExp(`/mes-locations/${ASSET_SLUG}/reservations/\\d+$`));
         await expect(page.getByText('Pierre Lambert').first()).toBeVisible();
+
+        // The scan's intermittent failure on the first disc below (issue
+        // #912) was sampled with the banner still up — `fixed-bottom`, in
+        // front of the foot of a long page. Answered here, as a visitor
+        // would, so that nothing stands over the discs while they are
+        // clicked.
+        await answerCookieBanner(page);
 
         // confirm.js must have installed its submit listener before this
         // click: without it the form submits natively and unasked, the
@@ -329,7 +326,9 @@ test.describe('Rentals — running an asset', () => {
         // four steps (IT-16) are ticked by hand from their disc (IT-14) —
         // each asks first, saying it is not the practice the site prefers.
         for (const step of ['Contrat généré', 'Contrat envoyé', 'Contrat signé reçu', 'Contrat contresigné']) {
-            await page.getByRole('button', { name: `Marquer « ${step} » comme fait` }).click();
+            const disc = page.getByRole('button', { name: `Marquer « ${step} » comme fait` });
+            await expect(disc).toBeVisible();
+            await disc.click();
             const warning = await answerConfirmation(page);
             expect(warning).toContain('sans que le site ait pu le vérifier');
             await expect(page.getByRole('button', { name: `Rouvrir « ${step} »` })).toBeVisible();
