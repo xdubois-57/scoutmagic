@@ -1,0 +1,524 @@
+<title>Année scoute #930</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* Layout: ScoutMagic's Bootstrap 5 look, hand-rolled (no CDN CSS allowed); a mockup-only control bar on top, then the site page at desktop or phone width. */
+:root{
+  --bg:#f3f4f7; --surface:#ffffff; --surface-2:#f8f9fb; --fg:#1f2430; --muted:#5f6675; --line:#dfe2e8;
+  --primary:#2f5bd3; --primary-fg:#ffffff; --ok:#1e7a46; --ok-bg:#e3f4ea; --warn:#8a5a00; --warn-bg:#fff3d6;
+  --danger:#b4232c; --danger-bg:#fde7e8; --info-bg:#e8eefc; --new:#7a2fd3; --mod:#c46200; --same:#7b8190;
+  --font:"Source Sans 3","Segoe UI",system-ui,sans-serif; --mono:"JetBrains Mono",ui-monospace,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#14161b; --surface:#1d2027; --surface-2:#23262e; --fg:#e7e9ee; --muted:#a2a8b5; --line:#343844;
+  --primary:#6f93f2; --primary-fg:#0e1220; --ok:#6fd39b; --ok-bg:#183326; --warn:#f2c35e; --warn-bg:#3a2f12;
+  --danger:#ff8a90; --danger-bg:#3d1c20; --info-bg:#1f2a45; --new:#b892f5; --mod:#f2a25e; --same:#8b91a0; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#14161b; --surface:#1d2027; --surface-2:#23262e; --fg:#e7e9ee; --muted:#a2a8b5; --line:#343844;
+  --primary:#6f93f2; --primary-fg:#0e1220; --ok:#6fd39b; --ok-bg:#183326; --warn:#f2c35e; --warn-bg:#3a2f12;
+  --danger:#ff8a90; --danger-bg:#3d1c20; --info-bg:#1f2a45; --new:#b892f5; --mod:#f2a25e; --same:#8b91a0; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--font);font-size:15px;line-height:1.45;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:16px}
+h1,h2,h3{text-wrap:balance;margin:0}
+button{font:inherit;cursor:pointer}
+button:focus-visible,select:focus-visible,a:focus-visible{outline:3px solid var(--primary);outline-offset:2px}
+a{color:var(--primary)}
+.mock-bar{max-width:1100px;margin:0 auto 14px;background:var(--surface-2);border:1px dashed var(--line);border-radius:8px;padding:10px 12px;display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;font-size:13px}
+.mock-bar b{font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-size:11px}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.seg button{border:0;background:var(--surface);color:var(--fg);padding:5px 10px;font-size:13px}
+.seg button[aria-pressed="true"]{background:var(--primary);color:var(--primary-fg)}
+.mock-bar label{display:inline-flex;gap:6px;align-items:center}
+.legend{display:flex;gap:10px;flex-wrap:wrap}
+.tag{display:inline-block;font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;padding:1px 6px;border-radius:4px;border:1px solid currentColor;vertical-align:middle}
+.tag.new{color:var(--new)}.tag.mod{color:var(--mod)}.tag.same{color:var(--same)}
+.frame{max-width:1100px;margin:0 auto;transition:max-width .2s}
+.frame.phone{max-width:400px}
+.site{background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.crumbs{font-size:13px;color:var(--muted);padding:10px 18px;border-bottom:1px solid var(--line);background:var(--surface-2)}
+.page{padding:18px}
+.ph{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:6px}
+.ph h1{font-size:26px;font-weight:700}
+.badge{display:inline-block;font-size:12px;font-weight:600;padding:2px 8px;border-radius:999px;background:var(--info-bg);color:var(--fg)}
+.muted{color:var(--muted)} .small{font-size:13px}
+.zone{position:relative;border:1px dashed transparent;border-radius:8px;margin-top:14px}
+.zone>.tag{position:absolute;top:-9px;right:10px;background:var(--surface)}
+.zone.new{border-color:color-mix(in srgb,var(--new) 45%,transparent)}
+.zone.mod{border-color:color-mix(in srgb,var(--mod) 45%,transparent)}
+.zone.same{border-color:color-mix(in srgb,var(--same) 35%,transparent)}
+.inner{padding:12px}
+.years{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}
+.ycard{border:1px solid var(--line);border-radius:8px;padding:10px 12px;background:var(--surface)}
+.ycard .k{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+.ycard .v{font-size:19px;font-weight:700;font-variant-numeric:tabular-nums}
+.ycard.target{border-color:var(--primary)}
+.summary{display:flex;flex-wrap:wrap;gap:8px 18px;align-items:center}
+.progress{flex:1 1 220px;height:8px;background:var(--surface-2);border:1px solid var(--line);border-radius:999px;overflow:hidden;min-width:0}
+.progress>i{display:block;height:100%;background:var(--ok);transition:width .3s}
+.pill{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600;padding:2px 9px;border-radius:999px;white-space:nowrap}
+.pill.todo{background:var(--surface-2);color:var(--muted);border:1px solid var(--line)}
+.pill.done{background:var(--ok-bg);color:var(--ok)}
+.pill.check{background:var(--warn-bg);color:var(--warn)}
+.pill.block{background:var(--danger-bg);color:var(--danger)}
+.phase{margin-top:18px}
+.phase h2{font-size:18px;display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
+.phase h2 small{font-size:13px;font-weight:400;color:var(--muted)}
+.steps{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column}
+.step{display:grid;grid-template-columns:40px 1fr;gap:10px;padding:10px 0;border-top:1px solid var(--line)}
+.step:first-child{border-top:0}
+.dot{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;font-weight:700;font-variant-numeric:tabular-nums;border:2px solid var(--line);background:var(--surface);color:var(--muted)}
+button.dot{padding:0}
+button.dot:hover{border-color:var(--primary)}
+.dot.done{background:var(--ok);border-color:var(--ok);color:var(--surface)}
+.dot.auto{border-style:dotted}
+.dot.busy{animation:pulse .7s infinite alternate}
+@keyframes pulse{to{opacity:.35}}
+@media (prefers-reduced-motion:reduce){.dot.busy{animation:none;opacity:.5}}
+.step.current .dot:not(.done){border-color:var(--primary);color:var(--primary)}
+.shead{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;min-width:0}
+.shead .t{font-weight:600;min-width:0}
+.lbl{font-size:11.5px;font-weight:600;padding:1px 7px;border-radius:4px;background:var(--surface-2);border:1px solid var(--line);color:var(--muted)}
+.sbody{margin-top:6px;display:flex;flex-direction:column;gap:8px;min-width:0}
+.actions{display:flex;flex-wrap:wrap;gap:8px}
+.btn{border:1px solid var(--line);background:var(--surface);color:var(--fg);padding:6px 12px;border-radius:6px;font-size:14px}
+.btn.primary{background:var(--primary);color:var(--primary-fg);border-color:var(--primary)}
+.btn.outline{border-color:var(--muted)}
+.btn.danger{background:var(--danger);border-color:var(--danger);color:var(--surface)}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn.link{border:0;background:none;color:var(--primary);padding:6px 4px;text-decoration:underline}
+details.det summary{cursor:pointer;color:var(--primary);font-size:14px}
+.alert{border-radius:7px;padding:8px 11px;font-size:14px}
+.alert.warn{background:var(--warn-bg);color:var(--fg);border-left:4px solid var(--warn)}
+.alert.danger{background:var(--danger-bg);color:var(--fg);border-left:4px solid var(--danger)}
+.alert.info{background:var(--info-bg);color:var(--fg);border-left:4px solid var(--primary)}
+.alert.ok{background:var(--ok-bg);color:var(--fg);border-left:4px solid var(--ok)}
+.tw{overflow-x:auto;border:1px solid var(--line);border-radius:7px}
+table{border-collapse:collapse;width:100%;font-size:13.5px;font-variant-numeric:tabular-nums}
+th,td{text-align:left;padding:6px 9px;border-top:1px solid var(--line);white-space:nowrap}
+thead th{border-top:0;background:var(--surface-2);font-weight:600}
+td.w{color:var(--warn);font-weight:600} td.d{color:var(--danger);font-weight:600} td.g{color:var(--ok)}
+.note{font-size:12.5px;color:var(--muted);border-left:3px solid var(--line);padding-left:8px}
+.mark-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px;font-size:13px;color:var(--muted)}
+.overlay{position:fixed;inset:0;background:color-mix(in srgb,#000 45%,transparent);display:grid;place-items:center;padding:16px;z-index:20}
+.modal{background:var(--surface);color:var(--fg);border-radius:10px;max-width:620px;width:100%;max-height:88vh;overflow:auto;border:1px solid var(--line)}
+.modal header,.modal footer{padding:12px 16px;border-bottom:1px solid var(--line)}
+.modal footer{border-bottom:0;border-top:1px solid var(--line);display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap}
+.modal .mb{padding:14px 16px;display:flex;flex-direction:column;gap:12px}
+.switchline{display:flex;align-items:center;gap:10px;justify-content:center;font-size:22px;font-weight:700;padding:12px;border:2px solid var(--primary);border-radius:8px;font-variant-numeric:tabular-nums;flex-wrap:wrap}
+.switchline span.arrow{color:var(--primary)}
+ul.plain{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:3px}
+.toasts{position:fixed;right:max(16px,env(safe-area-inset-right,0px));bottom:calc(16px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;gap:8px;z-index:30}
+.toast{background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--ok);border-radius:7px;padding:9px 12px;box-shadow:0 4px 14px rgba(0,0,0,.15);max-width:320px;font-size:14px}
+.toast.error{border-left-color:var(--danger)}
+.form{display:flex;flex-direction:column;gap:12px;max-width:560px}
+.field label{display:block;font-weight:600;margin-bottom:4px}
+.field select,.field input{width:100%;padding:7px 9px;border:1px solid var(--line);border-radius:6px;background:var(--surface);color:var(--fg);font:inherit}
+.help{font-size:12.5px;color:var(--muted);margin-top:3px}
+.rule{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}
+.rule div{border:1px solid var(--line);border-radius:7px;padding:8px 10px;font-size:13px}
+.rule div.on{border-color:var(--primary);background:var(--info-bg)}
+.screen[hidden]{display:none}
+.phone .years{grid-template-columns:1fr 1fr}
+.phone .ph h1{font-size:22px}
+code{font-family:var(--mono);font-size:12.5px}
+</style>
+
+<div class="mock-bar" role="region" aria-label="Commandes de la maquette">
+  <b>Maquette #930</b>
+  <div class="seg" id="screenSeg">
+    <button type="button" data-screen="year" aria-pressed="true">Année scoute</button>
+    <button type="button" data-screen="import" aria-pressed="false">Import Desk</button>
+    <button type="button" data-screen="settings" aria-pressed="false">Réglages</button>
+  </div>
+  <div class="seg" id="widthSeg">
+    <button type="button" data-w="desk" aria-pressed="true">Ordinateur</button>
+    <button type="button" data-w="phone" aria-pressed="false">Téléphone</button>
+  </div>
+  <span id="yearSim" style="display:contents">
+    <label><input type="checkbox" id="simImport" checked> Import 2027-2028 réussi</label>
+    <label><input type="checkbox" id="simCampaign"> Campagne de réinscription ouverte</label>
+    <label><input type="checkbox" id="simStaff"> Année staff activée</label>
+    <label><input type="checkbox" id="simErr"> Prochain clic : erreur serveur</label>
+  </span>
+  <span id="importSim" style="display:none">
+    <span class="seg" id="periodSeg">
+      <button type="button" data-p="before" aria-pressed="false">Avant 01/07</button>
+      <button type="button" data-p="between" aria-pressed="true">01/07 – 14/08</button>
+      <button type="button" data-p="after" aria-pressed="false">Dès 15/08</button>
+    </span>
+    <label><input type="checkbox" id="simConfig"> Mode configuration</label>
+  </span>
+  <div class="legend"><span class="tag new">nouveau</span><span class="tag mod">modifié</span><span class="tag same">inchangé</span></div>
+</div>
+
+<div class="frame" id="frame">
+  <!-- ===================== ANNÉE SCOUTE ===================== -->
+  <section class="site screen" id="screen-year" aria-label="Page Année scoute">
+    <div class="crumbs">Espace chefs d'U › <b>Année scoute</b></div>
+    <div class="page">
+      <div class="ph"><h1>Année scoute</h1><span class="badge">Cible : 2027-2028</span></div>
+      <p class="muted small" style="margin:0">Unité 25 SV · données d'exemple au 20/07/2027. Non dessiné et inchangé : en-tête du site, bannière de prévisualisation, menus.</p>
+
+      <div class="zone mod"><span class="tag mod">modifié</span><div class="inner">
+        <div class="years">
+          <div class="ycard"><div class="k">Année publique</div><div class="v">2026-2027</div><div class="small muted">Visible par tous</div></div>
+          <div class="ycard" id="ycStaff"></div>
+          <div class="ycard target"><div class="k">Année cible</div><div class="v">2027-2028</div><div class="small muted">Celle que vous préparez</div></div>
+          <div class="ycard"><div class="k">Prévisualisation</div><div class="v" id="ycPrev">—</div><div class="small muted">Votre session seulement</div></div>
+        </div>
+        <p class="small muted" style="margin:8px 0 0">Dernière bascule : 2025-2026 → 2026-2027, le 23/08/2026 par Xavier Dubois. <span class="tag new">nouveau</span></p>
+      </div></div>
+
+      <div class="zone new"><span class="tag new">nouveau</span><div class="inner">
+        <div class="summary" aria-live="polite">
+          <strong id="sumDone"></strong>
+          <div class="progress" aria-hidden="true"><i id="sumBar"></i></div>
+          <span class="pill check" id="sumCheck"></span>
+          <span class="pill block" id="sumBlock"></span>
+        </div>
+        <p class="small muted" style="margin:6px 0 0">Chaque étape montre une seule action, la plus utile ; « Détails » les montre toutes. Les ronds des étapes humaines se cliquent : un clic marque l'étape faite, un clic sur le rond vert la remet à faire. L'ordre est un conseil. Seuls trois points bloquent réellement, et le serveur les vérifie : le marquage de l'étape 1 tant que la campagne n'est pas terminée, l'activation pour les staffs sans import réussi, et la bascule publique.</p>
+      </div></div>
+
+      <div class="zone mod"><span class="tag mod">modifié — ordre, contrôles, rafraîchissement sans rechargement</span><div class="inner" id="phases"></div></div>
+    </div>
+  </section>
+
+  <!-- ===================== IMPORT DESK ===================== -->
+  <section class="site screen" id="screen-import" hidden aria-label="Page Import Desk">
+    <div class="crumbs">Espace chefs d'U › <b>Import Desk</b></div>
+    <div class="page">
+      <div class="ph"><h1>Import Desk</h1></div>
+      <div class="zone same"><span class="tag same">inchangé</span><div class="inner small muted">Texte d'introduction, lien « Historique complet », aide.</div></div>
+
+      <div class="zone new"><span class="tag new">nouveau</span><div class="inner">
+        <div id="ruleBox"></div>
+      </div></div>
+
+      <div class="zone mod"><span class="tag mod">modifié — années proposées et présélection</span><div class="inner">
+        <form class="form" id="importForm" novalidate>
+          <div class="field">
+            <label for="impYear">Année scoute cible</label>
+            <select id="impYear"></select>
+            <div class="help" id="impYearHelp"></div>
+          </div>
+          <div class="field">
+            <label for="impFile">Fichier CSV exporté de Desk</label>
+            <input id="impFile" type="file" accept=".csv">
+            <div class="help">Le fichier reste sélectionné si vous annulez la confirmation.</div>
+          </div>
+          <div><button class="btn primary" type="submit">Importer</button></div>
+          <div id="impResult" aria-live="polite"></div>
+        </form>
+      </div></div>
+
+      <div class="zone mod"><span class="tag mod">modifié — suit l'année choisie</span><div class="inner" id="lastImport"></div></div>
+      <div class="zone same"><span class="tag same">inchangé</span><div class="inner small muted">Barrière anti-export filtré (page « Forcer l'import », mot REMPLACER) : intacte et indépendante de la confirmation d'année.</div></div>
+    </div>
+  </section>
+
+  <!-- ===================== RÉGLAGES ===================== -->
+  <section class="site screen" id="screen-settings" hidden aria-label="Réglages">
+    <div class="crumbs">Configuration › <b>Réglages</b></div>
+    <div class="page">
+      <div class="ph"><h1>Réglages</h1></div>
+      <div class="zone same"><span class="tag same">inchangé</span><div class="inner small muted">Autres réglages de la page (superadmin), enregistrement au changement.</div></div>
+      <div class="zone new"><span class="tag new">nouveau</span><div class="inner form">
+        <div class="field"><label for="setNext">Ouverture de l'import pour l'année suivante</label>
+          <input id="setNext" value="07-01"><div class="help">Jour et mois (MM-JJ). À partir de cette date, l'année suivante peut être importée, et devient l'année proposée.</div></div>
+      </div></div>
+      <div class="zone mod"><span class="tag mod">modifié — description</span><div class="inner form">
+        <div class="field"><label for="setEnc">Date d'encodage Desk</label>
+          <input id="setEnc" value="08-15"><div class="help">Jour et mois (MM-JJ). Sépare les phases de la page Année scoute et, à partir de cette date, ferme l'import dans l'année publique : seule l'année suivante reste importable.</div></div>
+        <div id="setErr" aria-live="polite"></div>
+        <div><button class="btn primary" type="button" id="setSave">Enregistrer</button></div>
+      </div></div>
+    </div>
+  </section>
+</div>
+
+<div class="toasts" id="toasts" aria-live="polite"></div>
+<div id="modalHost"></div>
+
+<script>
+(function(){
+const $=s=>document.querySelector(s);
+const state={import:true,campaignOpen:false,staff:false,err:false,preview:false,public:false,
+  marks:{departures:true,passage:false,registrations:false,desk_staff:true,desk_members:false,fees:false,preview:false,ephemerides:false,badges:false,trombinoscope:false,staff_photos:false},
+  busy:null};
+const SECTIONS=['Baladins','Louveteaux','Éclaireurs','Pionniers'];
+
+function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+function toast(msg,err){const t=document.createElement('div');t.className='toast'+(err?' error':'');t.textContent=msg;$('#toasts').appendChild(t);setTimeout(()=>t.remove(),3200)}
+
+/* ---- step catalogue: kind = manual | auto ; checks = anomalies to verify (array of strings) ---- */
+function steps(){
+  const imp=state.import;
+  return [
+   {phase:1,key:'departures',title:'Départs de l\'unité',kind:'manual',
+    checks:[],
+    blockMark: state.campaignOpen ? 'La campagne de réinscription 2027-2028 est en cours (fermeture le 15/05). L\'étape pourra être marquée une fois la campagne terminée.' : null,
+    body:`<div class="small">${state.campaignOpen?'<span class="pill block">Campagne en cours</span> ouverte le 01/03/2027, fermeture prévue le 15/05/2027.':'<span class="pill done">Campagne terminée</span> fermée le 15/05/2027 · 61 familles sur 68 ont répondu.'}</div>
+      <div class="small">6 animés annoncés partants. La fin de la campagne ne vaut pas revue : confirmez que les départs ont été relus avec les staffs, même s'il n'y en a aucun.</div>
+      <div class="actions">${state.campaignOpen?'<a href="#" class="btn">Gérer la campagne</a><a href="#" class="btn">Voir les départs</a>':'<a href="#" class="btn">Voir les départs</a><a href="#" class="btn">Gérer la campagne</a>'}</div>`},
+   {phase:1,key:'passage',title:'Passages de branche',kind:'manual',
+    checks:['1 animé sans section d\'arrivée'],
+    body:`<div class="small">9 passages attendus · 8 avec une section d'arrivée.</div>
+      <div class="tw"><table><thead><tr><th>Animé</th><th>Quitte</th><th>Arrive</th></tr></thead><tbody>
+      <tr><td>Léa Martin</td><td>Louveteaux</td><td class="w">Non choisie</td></tr></tbody></table></div>
+      <div class="note">Sans aucun passage attendu, l'étape affiche « Aucun passage à effectuer » et se marque comme faite de la même façon.</div>
+      <div class="actions"><a href="#" class="btn">Ouvrir Passage</a></div>`},
+   {phase:1,key:'registrations',title:'Nouvelles inscriptions',kind:'manual',
+    checks:['3 demandes en attente','2 demandes acceptées sans section prévue'],
+    body:`<div class="small">3 en attente · 4 acceptées (dont 2 sans section prévue) · 11 encodées.</div>
+      <div class="alert warn small">Indépendamment de cette étape, la bascule publique reste refusée tant que 7 demandes ne sont pas clôturées.</div>
+      <div class="actions"><a href="#" class="btn">Gérer les inscriptions</a></div>`},
+   {phase:2,key:'desk_staff',title:'Encoder les nouveaux staffs dans Desk',kind:'manual',
+    checks: imp?['Pionniers : aucun responsable']:[],
+    body: imp?`<div class="tw"><table><thead><tr><th>Section</th><th>Animateurs</th><th>Responsable</th></tr></thead><tbody>
+      <tr><td>Baladins</td><td>6</td><td class="g">Camille Leroy</td></tr><tr><td>Louveteaux</td><td>7</td><td class="g">Hugo Petit</td></tr>
+      <tr><td>Éclaireurs</td><td>8</td><td class="g">Nora Lambert</td></tr><tr><td>Pionniers</td><td>4</td><td class="w">Aucun</td></tr></tbody></table></div>
+      <div class="note">Données de l'import 2027-2028 du 18/07/2027. Le Staff d'U n'a pas de responsable à désigner. Sans module Trombinoscope : seul « au moins un animateur » est vérifié, avec la mention « responsable non vérifiable ».</div>`
+      :`<div class="alert info small">Le contrôle des responsables sera disponible après un import réussi de 2027-2028.</div>`},
+   {phase:2,key:'desk_members',title:'Encoder les animés dans Desk',kind:'manual',
+    checks: imp?['2 partants présents dans l\'import','1 passage dans une autre section','1 inscription acceptée non retrouvée']:[],
+    body: imp?`<div class="tw"><table><thead><tr><th>Écart avec ce qui a été préparé</th><th>Personne</th></tr></thead><tbody>
+      <tr><td>Annoncé partant, présent en 2027-2028</td><td>Tom Renard</td></tr><tr><td>Annoncé partant, présent en 2027-2028</td><td>Inès Dupont</td></tr>
+      <tr><td>Passage vers Éclaireurs, importé en Pionniers</td><td>Max Collin</td></tr><tr><td>Inscription acceptée, absente de l'import</td><td>Zoé Henry</td></tr></tbody></table></div>
+      <div class="note">Une aide, pas une preuve : corriger dans Desk puis réimporter.</div>`
+      :`<div class="alert info small">Les écarts apparaîtront après un import réussi de 2027-2028.</div>`},
+   {phase:2,key:'import',title:'Importer les données Desk pour 2027-2028',kind:'auto',
+    autoDone:imp, checks:[],
+    body: imp?`<div class="small">Dernier import réussi : <b>18/07/2027 à 21:14</b> par Xavier Dubois · 142 membres.</div>
+      <div class="actions"><a href="#" class="btn">Voir le rapport</a><a href="#" class="btn">Importer à nouveau</a></div>
+      <div class="note">Le site ne voit pas les changements faits dans Desk depuis cet export : après une correction, refaites un export et un import.</div>`
+      :`<div class="small">Aucun import réussi pour 2027-2028.</div><div class="actions"><a href="#" class="btn primary">Aller à l'import Desk (2027-2028)</a></div>`},
+   {phase:2,key:'fees',title:'Vérifier les cotisations de 2027-2028',kind:'manual',module:'Cotisations',
+    checks: imp?['3 foyers à corriger','4 membres non vérifiables (sans adresse)']:[],
+    body: imp?`<div class="small">48 foyers contrôlés à partir de l'import du 18/07/2027 : 3 catégories à corriger, 2 foyers mis de côté, 4 membres sans adresse exploitable.</div>
+      <div class="note">Seulement les catégories de cotisation encodées dans Desk. Factures et paiements ne sont pas vérifiés ici.</div>
+      <div class="actions"><a href="#" class="btn">Ouvrir Justesse des tarifs (2027-2028)</a></div>`
+      :`<div class="alert info small">Le contrôle porte sur l'import de 2027-2028, pas encore fait.</div>`},
+   {phase:2,key:'preview',title:'Prévisualiser le site de 2027-2028',kind:'manual',checks:[],
+    body:`<div class="small">${state.preview?'<span class="pill done">Prévisualisation active dans votre session</span>':'Prévisualisation inactive dans votre session.'} Elle ne vaut pas vérification : marquez l'étape quand vous avez relu.</div>
+      <div class="actions">${state.preview?'<button class="btn" type="button" data-act="unpreview">Quitter la prévisualisation</button>':'<button class="btn" type="button" data-act="preview">Prévisualiser 2027-2028</button>'}</div>`},
+   {phase:3,key:'activate_staff',title:'Activer 2027-2028 pour les staffs',kind:'auto',autoDone:state.staff,checks:[],
+    block: !imp ? 'Aucun import Desk réussi pour 2027-2028. L\'activation est refusée tant que l\'import n\'a pas eu lieu.' : null,
+    body: state.staff?`<div class="small">Les staffs de 2027-2028 voient l'année préparée.</div><div class="actions"><button class="btn" type="button" data-act="unstaff">Désactiver pour les staffs</button></div>`
+      : (!imp?`<div class="actions"><a href="#" class="btn primary">Importer 2027-2028</a><button class="btn" type="button" disabled>Activer pour les staffs</button></div>`
+      :`<div class="alert warn small">7 demandes d'inscription non clôturées (n'empêche pas cette étape).</div><div class="actions"><button class="btn primary" type="button" data-act="staff">Activer pour les staffs</button></div>`)},
+   {phase:3,key:'ephemerides',title:'Éphémérides de l\'année',kind:'manual',module:'Calendrier',
+    checks:['Pionniers : aucun événement'],
+    body:`<div class="tw"><table><thead><tr><th>Section</th><th>Événements en 2027-2028</th></tr></thead><tbody>
+      <tr><td>Baladins</td><td>14</td></tr><tr><td>Louveteaux</td><td>11</td></tr><tr><td>Éclaireurs</td><td>3</td></tr><tr><td>Pionniers</td><td class="w">0</td></tr></tbody></table></div>
+      <div class="note">Seule une section sans aucun événement est signalée. Le nombre ne dit pas si l'année est complète : à vous de juger.</div>
+      <div class="actions"><a href="#" class="btn">Ouvrir le calendrier</a></div>`},
+   {phase:3,key:'badges',title:'Attribuer les badges',kind:'manual',
+    checks:['Référent·e Pionniers attribué nulle part','Infirmier·e absent dans 2 sections'],
+    body:`<div class="tw"><table><thead><tr><th>Section</th><th>Badges attribués</th></tr></thead><tbody>
+      <tr><td>Baladins</td><td>Infirmier·e (Camille Leroy) · Trésorier·e (Paul Roy)</td></tr>
+      <tr><td>Louveteaux</td><td>Infirmier·e (Lina Morel) · Trésorier·e (Hugo Petit)</td></tr>
+      <tr><td>Éclaireurs</td><td>Trésorier·e (Sam Gilles)</td></tr><tr><td>Pionniers</td><td>Trésorier·e (Eva Jacob)</td></tr>
+      <tr><td>Staff d'U</td><td>Référent·e Baladins, Louveteaux, Éclaireurs</td></tr></tbody></table></div>
+      <div class="small"><b>Badges par défaut attribués nulle part :</b> Référent·e Pionniers.<br><b>Transversaux présents dans certaines sections seulement :</b> Infirmier·e (absent en Éclaireurs, Pionniers).</div>
+      <div class="note">Aucun badge n'est obligatoire. Les référents s'attribuent au Staff d'U, jamais comptés comme un manque d'une section.</div>
+      <div class="actions"><a href="#" class="btn">Ouvrir Staffs</a><a href="#" class="btn">Porteurs des badges</a></div>`},
+   {phase:3,key:'trombinoscope',title:'Photos individuelles des animateurs',kind:'manual',module:'Trombinoscope',
+    checks:['2 animateurs sans photo','5 photos héritées à vérifier'],
+    body:`<div class="tw"><table><thead><tr><th>Section</th><th>Animateurs</th><th>Photo 2027-2028</th><th>Héritée</th><th>Aucune</th></tr></thead><tbody>
+      <tr><td>Baladins</td><td>6</td><td class="g">6</td><td>0</td><td>0</td></tr><tr><td>Louveteaux</td><td>7</td><td>4</td><td class="w">3</td><td>0</td></tr>
+      <tr><td>Éclaireurs</td><td>8</td><td>6</td><td class="w">1</td><td class="d">1</td></tr><tr><td>Pionniers</td><td>4</td><td>2</td><td class="w">1</td><td class="d">1</td></tr>
+      <tr><td>Staff d'U</td><td>3</td><td class="g">3</td><td>0</td><td>0</td></tr></tbody></table></div>
+      <div><b>Personnes à corriger</b><ul class="plain small"><li><a href="#">Max Collin</a> (Éclaireurs) — aucune photo</li><li><a href="#">Eva Jacob</a> (Pionniers) — aucune photo</li><li><a href="#">Hugo Petit</a> (Louveteaux) — photo de 2025-2026</li></ul></div>
+      <div class="note">Sans photo = à vérifier ; photo héritée = à vérifier. Rien n'empêche de marquer l'étape.</div>`},
+   {phase:3,key:'staff_photos',title:'Photos de groupe des staffs',kind:'manual',
+    checks:['Éclaireurs, Pionniers : pas de photo 2027-2028'],
+    body:`<div class="small">3 sections sur 5 ont une photo de groupe de 2027-2028. Manquantes : <b>Éclaireurs</b>, <b>Pionniers</b> (la photo de l'an dernier s'affiche encore, elle ne compte pas).</div>
+      <div class="actions"><a href="#" class="btn">Ouvrir Staffs</a></div>`},
+   {phase:3,key:'activate_public',title:'Activer 2027-2028 pour tout le monde',kind:'auto',autoDone:state.public,checks:[],
+    body:`<div class="actions"><button class="btn primary" type="button" data-act="prebascule">Revoir avant la bascule…</button></div>
+      <div class="note">La bascule reste manuelle, sans date programmée.</div>`}
+  ];
+}
+const DETAILS={};
+const PHASES={1:['Préparation','Idéalement avant le 15/08'],2:['Encodage et contrôles Desk','Plutôt à partir du 15/08'],3:['Mise à jour du site et publication','']};
+
+function status(s){
+  if(s.kind==='auto'){ if(s.autoDone) return 'done'; if(s.block) return 'block'; return 'todo'; }
+  if(state.marks[s.key]) return 'done';
+  return 'todo';
+}
+function pill(s,st){
+  const n=s.checks.length;
+  if(st==='done') return `<span class="pill done">Étape faite</span>`+(n?` <span class="pill check">${n} à vérifier</span>`:'');
+  if(st==='block') return `<span class="pill block">Bloquée</span>`;
+  return `<span class="pill todo">À faire</span>`+(n?` <span class="pill check">${n} à vérifier</span>`:'');
+}
+function render(){
+  const list=steps();
+  let html='', done=0, checks=0, blocks=0, current=null;
+  list.forEach((s,i)=>{s.n=i+1; s.st=status(s); if(s.st==='done')done++; if(s.st!=='done'&&current===null)current=s.n; checks+=s.checks.length; if(s.st==='block'||s.blockMark)blocks++;});
+  [1,2,3].forEach(p=>{
+    const ps=list.filter(s=>s.phase===p);
+    html+=`<div class="phase" data-phase="${p}"><h2>${PHASES[p][0]} <small>${PHASES[p][1]}</small></h2><ol class="steps">`;
+    ps.forEach(s=>{
+      const manual=s.kind==='manual'; const isDone=s.st==='done'; const busy=state.busy===s.key;
+      const dotCls='dot'+(isDone?' done':'')+(manual?'':' auto')+(busy?' busy':'');
+      const label=isDone?'Étape faite — cliquer pour la remettre à faire':'Cliquer pour marquer comme faite';
+      const dot= manual
+        ? `<button type="button" class="${dotCls}" data-toggle="${s.key}" aria-pressed="${isDone}" title="${label}" aria-label="Étape ${s.n} : ${label}" ${busy?'disabled':''}>${isDone?'✓':s.n}</button>`
+        : `<span class="${dotCls}" title="Constaté par le site" aria-hidden="true">${isDone?'✓':s.n}</span>`;
+      const tpl=document.createElement('template'); tpl.innerHTML=s.body;
+      const actEls=[...tpl.content.querySelectorAll('.actions')].flatMap(x=>{x.remove();return [...x.children]});
+      const allActs=actEls.map(x=>x.outerHTML).join(''); const acts=actEls.length?actEls[0].outerHTML:'';
+      DETAILS[s.key]={title:`${s.n}. ${s.title}`,html:tpl.innerHTML,acts:allActs,checks:s.checks,who:manual&&isDone?'Marquée comme faite le 19/07/2027 par Xavier Dubois.':''};
+      const blockMsg=(s.block?`<div class="alert danger small">${esc(s.block)}</div>`:'')+(s.blockMark&&!isDone?`<div class="alert danger small">${esc(s.blockMark)}</div>`:'');
+      html+=`<li class="step${s.n===current?' current':''}" data-step="${s.key}">${dot}<div style="min-width:0">
+        <div class="shead"><span class="t">${s.n}. ${esc(s.title)}</span>${pill(s,s.st)}<span class="lbl">${manual?'Décision humaine':'Constaté par le site'}</span></div>
+        <div class="sbody">${blockMsg}<div class="actions">${acts}<button type="button" class="btn link" data-details="${s.key}">Détails</button></div></div></div></li>`;
+    });
+    html+='</ol></div>';
+  });
+  $('#phases').innerHTML=html;
+  $('#sumDone').textContent=`${done} étapes faites sur ${list.length}`;
+  $('#sumBar').style.width=(done/list.length*100)+'%';
+  $('#sumCheck').textContent=`${checks} points à vérifier`;
+  $('#sumBlock').textContent=`${blocks} blocage${blocks>1?'s':''}`; $('#sumBlock').hidden=!blocks;
+  $('#ycStaff').innerHTML=`<div class="k">Année du staff</div><div class="v">${state.staff?'2027-2028':'—'}</div><div class="small muted">${state.staff?'Activée pour les staffs':'Pas encore activée'}</div>`;
+  $('#ycPrev').textContent=state.preview?'2027-2028':'—';
+}
+
+/* simulated server round-trip: one JSON call, then the whole workflow block is redrawn */
+function server(fn,okMsg){
+  return new Promise(res=>setTimeout(()=>{
+    if(state.err){state.err=false;$('#simErr').checked=false;toast('L\'enregistrement a échoué. Rien n\'a changé ; réessayez.',true);res(false);return;}
+    fn(); toast(okMsg); res(true);
+  },550));
+}
+document.addEventListener('click',async e=>{
+  const t=e.target.closest('[data-toggle]');
+  if(t){
+    const key=t.dataset.toggle; if(state.busy) return;
+    const s=steps().find(x=>x.key===key);
+    const will=!state.marks[key];
+    if(will&&s.blockMark){toast('Refusé : '+s.blockMark,true);return;}
+    state.busy=key; render();
+    await server(()=>{state.marks[key]=will}, will?'Étape marquée comme faite.':'Étape remise à faire.');
+    state.busy=null; render(); return;
+  }
+  const a=e.target.closest('[data-act]'); if(!a) return;
+  const act=a.dataset.act; if(a.closest('.modal')&&act!=='prebascule2') closeModal();
+  const ASK={preview:['Prévisualiser 2027-2028 ?','Le site vous montrera 2027-2028, à vous seul et pour cette session. Personne d\'autre n\'est concerné.','Prévisualiser'],
+    unpreview:['Quitter la prévisualisation ?','Le site vous montrera de nouveau l\'année qui vous revient.','Quitter'],
+    staff:['Activer 2027-2028 pour les staffs ?','Les animateurs et intendants de 2027-2028 verront l\'année préparée. Les familles restent sur 2026-2027. Aucun e-mail n\'est envoyé.','Activer pour les staffs'],
+    unstaff:['Désactiver 2027-2028 pour les staffs ?','Les staffs reviennent sur 2026-2027. Aucun e-mail n\'est envoyé.','Désactiver']};
+  if(ASK[act]&&!a.dataset.confirmed){const q=ASK[act];
+    modal(`<div class="modal"><header><h3>${esc(q[0])}</h3></header><div class="mb"><p style="margin:0">${esc(q[1])}</p></div><footer><button class="btn outline" type="button" data-cancel>Annuler</button><button class="btn primary" type="button" id="cfmAct">${esc(q[2])}</button></footer></div>`);
+    $('#cfmAct').addEventListener('click',async()=>{closeModal(); await runAct(act);}); return;}
+  await runAct(act);
+});
+async function runAct(act){
+  if(act==='preview'){await server(()=>{state.preview=true},'Prévisualisation de 2027-2028 activée pour votre session.');render();}
+  if(act==='unpreview'){await server(()=>{state.preview=false},'Prévisualisation terminée.');render();}
+  if(act==='staff'){await server(()=>{state.staff=true;$('#simStaff').checked=true},'2027-2028 est activée pour les staffs.');render();}
+  if(act==='unstaff'){await server(()=>{state.staff=false;$('#simStaff').checked=false},'Année du staff désactivée.');render();}
+  if(act==='prebascule'){openPreSwitch();}
+  if(act==='prebascule2'){closeModal();openPreSwitch();}
+}
+
+/* ---- pre-switch review ---- */
+function closeModal(){ $('#modalHost').innerHTML=''; }
+function modal(html){ $('#modalHost').innerHTML=`<div class="overlay" role="dialog" aria-modal="true">${html}</div>`; const c=$('#modalHost [data-cancel]'); if(c) c.focus(); }
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal()});
+document.addEventListener('click',e=>{const d=e.target.closest('[data-details]'); if(!d) return; const x=DETAILS[d.dataset.details];
+  modal(`<div class="modal"><header><h3>${esc(x.title)}</h3></header><div class="mb">${x.checks.length?`<div><b>À vérifier</b><ul class="plain small">${x.checks.map(c=>`<li>${esc(c)}</li>`).join('')}</ul></div>`:''}${x.html}${x.who?`<div class="small muted">${x.who}</div>`:''}${x.acts?`<div class="actions">${x.acts}</div>`:''}</div><footer><button class="btn outline" type="button" data-cancel>Fermer</button></footer></div>`);});
+document.addEventListener('click',e=>{if(e.target.closest('[data-cancel]'))closeModal()});
+function openPreSwitch(){
+  const list=steps(); list.forEach((s,i)=>{s.n=i+1;s.st=status(s)});
+  const blockers=[];
+  if(!state.staff) blockers.push('2027-2028 n\'est pas activée pour les staffs (étape 9).');
+  if(!state.import) blockers.push('Aucun import Desk réussi pour 2027-2028. <a href="#">Importer</a>');
+  blockers.push('7 demandes d\'inscription ne sont pas clôturées. <a href="#">Les traiter</a>');
+  const done=list.filter(s=>s.st==='done'&&s.key!=='activate_public');
+  const todo=list.filter(s=>s.st!=='done'&&s.key!=='activate_public');
+  const checks=list.flatMap(s=>s.checks.map(c=>`${s.n}. ${c}`));
+  const blocked=blockers.length>0;
+  modal(`<div class="modal"><header><h3>Activer 2027-2028 pour tout le monde ?</h3></header><div class="mb">
+    <div class="switchline"><span>2026-2027</span><span class="arrow" aria-hidden="true">→</span><span>2027-2028</span></div>
+    <div class="small muted" style="text-align:center">Année publique actuelle → année cible. Toutes les familles verront 2027-2028 dès la confirmation.</div>
+    ${blocked?`<div class="alert danger"><b>Bascule impossible pour l'instant</b><ul class="plain">${blockers.map(b=>`<li>${b}</li>`).join('')}</ul></div>`:''}
+    <div><b>À vérifier (${checks.length})</b> <span class="small muted">— n'empêche pas la bascule</span><ul class="plain small">${checks.map(c=>`<li>${esc(c)}</li>`).join('')||'<li>Rien</li>'}</ul></div>
+    <div><b>Étapes non faites (${todo.length})</b><ul class="plain small">${todo.map(s=>`<li>${s.n}. ${esc(s.title)}</li>`).join('')||'<li>Aucune</li>'}</ul></div>
+    <details class="det"><summary>Étapes faites (${done.length})</summary><ul class="plain small">${done.map(s=>`<li>${s.n}. ${esc(s.title)}</li>`).join('')}</ul></details>
+  </div><footer><button class="btn outline" type="button" data-cancel>Annuler</button><button class="btn primary" type="button" id="doSwitch" ${blocked?'disabled':''}>Basculer sur 2027-2028</button></footer></div>`);
+  const b=$('#doSwitch'); if(b) b.addEventListener('click',()=>{closeModal();toast('Refusé par le serveur dans cette maquette : la démonstration s\'arrête avant la bascule.',true)});
+}
+
+/* ---- sim toggles ---- */
+$('#simImport').addEventListener('change',e=>{state.import=e.target.checked; if(!state.import){state.staff=false;$('#simStaff').checked=false} render()});
+$('#simCampaign').addEventListener('change',e=>{state.campaignOpen=e.target.checked; if(state.campaignOpen) state.marks.departures=false; render()});
+$('#simStaff').addEventListener('change',e=>{ if(e.target.checked&&!state.import){e.target.checked=false;toast('Refusé : aucun import réussi pour 2027-2028.',true);return;} state.staff=e.target.checked; render()});
+$('#simErr').addEventListener('change',e=>{state.err=e.target.checked});
+
+function seg(id,attr,cb){ document.querySelectorAll(`#${id} button`).forEach(b=>b.addEventListener('click',()=>{document.querySelectorAll(`#${id} button`).forEach(x=>x.setAttribute('aria-pressed',x===b));cb(b.dataset[attr])}))}
+seg('screenSeg','screen',v=>{['year','import','settings'].forEach(k=>$('#screen-'+k).hidden=k!==v); $('#yearSim').style.display=v==='year'?'contents':'none'; $('#importSim').style.display=v==='import'?'contents':'none'; if(v==='import')renderImport();});
+seg('widthSeg','w',v=>$('#frame').classList.toggle('phone',v==='phone'));
+
+/* ---- import policy ---- */
+let period='between';
+const YEARS=['2023-2024','2024-2025','2025-2026','2026-2027','2027-2028'];
+const PUB='2026-2027', NEXT='2027-2028';
+const LAST={'2026-2027':'12/06/2027 à 19:02 · 151 membres','2027-2028':'18/07/2027 à 21:14 · 142 membres','2025-2026':'30/05/2026 à 20:40 · 147 membres'};
+function allowed(){
+  const cfg=$('#simConfig').checked;
+  const normal = period==='before'?[PUB]: period==='between'?[PUB,NEXT]:[NEXT];
+  const pre = period==='before'?PUB:NEXT;
+  return {cfg, normal, list: cfg?YEARS:normal, pre};
+}
+function renderImport(){
+  const a=allowed();
+  const cells=[['before','Avant le 01/07','2026-2027 seulement'],['between','Du 01/07 au 14/08','2026-2027 et 2027-2028 (proposée)'],['after','À partir du 15/08','2027-2028 seulement']];
+  $('#ruleBox').innerHTML=`<div class="small" style="margin-bottom:6px"><b>Années importables aujourd'hui</b> (année publique 2026-2027) :</div>
+    <div class="rule">${cells.map(c=>`<div class="${c[0]===period&&!a.cfg?'on':''}"><b>${c[1]}</b><br>${c[2]}</div>`).join('')}</div>
+    ${a.cfg?'<div class="alert info small" style="margin-top:8px">Mode configuration actif : toutes les années existantes sont importables. Une année hors de la règle habituelle demande une confirmation.</div>':''}
+    <div class="note" style="margin-top:8px">Après la bascule publique, la règle repart de la nouvelle année publique.</div>`;
+  const sel=$('#impYear'); const prev=sel.value;
+  sel.innerHTML=a.list.slice().reverse().map(y=>`<option value="${y}" ${y===a.pre?'selected':''}>${y}${y===PUB?' — année publique':''}${y===NEXT?' — année suivante':''}</option>`).join('');
+  if(a.list.includes(prev)&&prev) sel.value=prev;
+  $('#impYearHelp').textContent=a.list.length===1?'Une seule année est importable aujourd\'hui.':'';
+  $('#impResult').innerHTML=''; renderLast();
+}
+function renderLast(){
+  const y=$('#impYear').value;
+  $('#lastImport').innerHTML= LAST[y]?`<b>Dernier import de ${y}</b><div class="small">${LAST[y]} · <a href="#">Voir son rapport</a> · <a href="#">Historique de ${y}</a></div>`
+    :`<b>Dernier import de ${y}</b><div class="small muted">Aucun import pour ${y}.</div>`;
+}
+$('#impYear').addEventListener('change',renderLast);
+seg('periodSeg','p',v=>{period=v;renderImport()});
+$('#simConfig').addEventListener('change',renderImport);
+$('#importForm').addEventListener('submit',e=>{
+  e.preventDefault(); const y=$('#impYear').value; const a=allowed();
+  const ok=()=>{$('#impResult').innerHTML=`<div class="alert ok small">Import réussi dans ${y}. <a href="#">Voir le rapport</a></div>`};
+  if(!a.normal.includes(y)){ // config mode, year outside the usual rule
+    confirmImport(`Importer dans ${y} ?`,`${y} n'est importable qu'en mode configuration. Le fichier remplacera les membres de ${y}.`,'Importer dans '+y,ok); return; }
+  if(period==='between'&&y===PUB){
+    confirmImport(`Importer dans l'année publique ${PUB} ?`,`L'année suivante ${NEXT} est déjà importable. Ce fichier modifiera les données de ${PUB}, l'année que voient les familles aujourd'hui.`,'Importer dans '+PUB,ok); return; }
+  ok();
+});
+function confirmImport(title,msg,label,ok){
+  modal(`<div class="modal"><header><h3>${esc(title)}</h3></header><div class="mb"><p style="margin:0">${esc(msg)}</p></div>
+    <footer><button class="btn outline" type="button" data-cancel>Annuler</button><button class="btn primary" type="button" id="cfmImp">${esc(label)}</button></footer></div>`);
+  $('#cfmImp').addEventListener('click',()=>{closeModal();ok()});
+}
+
+/* ---- settings coherence ---- */
+$('#setSave').addEventListener('click',()=>{
+  const re=/^(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$/; const n=$('#setNext').value.trim(), d=$('#setEnc').value.trim();
+  let err=null;
+  if(!re.test(n)||!re.test(d)) err='Indiquez chaque date au format MM-JJ, par exemple 07-01.';
+  else if(n>='09-01'||d>='09-01') err='Les deux dates doivent tomber avant le 1er septembre, dans l\'année scoute qui se termine.';
+  else if(n>=d) err=`L'ouverture de l'import pour l'année suivante (${n}) doit précéder la date d'encodage Desk (${d}).`;
+  $('#setErr').innerHTML=err?`<div class="alert danger small">${esc(err)}</div>`:'<div class="alert ok small">Réglages enregistrés.</div>';
+});
+
+render();
+})();
+</script>
