@@ -782,6 +782,39 @@ class NewsIntegrationTest extends TestCase
         $this->assertSame(403, $response->getStatusCode());
     }
 
+    /**
+     * Issue #925, through the real route: a form closed by hand whose
+     * closing date is still ahead must not announce that date as past, and
+     * must not offer the form.
+     */
+    public function testAManuallyClosedFormDoesNotAnnounceItsFutureClosingDateAsPast(): void
+    {
+        $articleId = NewsTestHelper::publish($this->pdo, $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId));
+        $closesAt = (new \DateTimeImmutable('+6 months'))->format('Y-m-d');
+        $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, $closesAt, true, 'chief', null, null);
+        $this->fieldRepository->create($formId, 0, FormField::TYPE_SHORT_TEXT, 'Nom', true, null, null, null, null, null);
+
+        $body = $this->newsController->show(new Request('GET', '/news/' . $articleId, [], [], [], []), ['id' => (string) $articleId])->getBody();
+
+        $this->assertStringContainsString('Ce formulaire est fermé et n\'accepte plus de réponses.', $body);
+        $this->assertStringNotContainsString('a été fermé', $body);
+        $this->assertStringNotContainsString('id="news-form"', $body, 'a closed form is not offered');
+    }
+
+    public function testAFormNotYetOpenAnnouncesItsOpeningOnTheArticlePage(): void
+    {
+        $articleId = NewsTestHelper::publish($this->pdo, $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId));
+        $opensAt = new \DateTimeImmutable('+10 days');
+        $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, $opensAt->format('Y-m-d'), null, false, 'chief', null, null);
+        $this->fieldRepository->create($formId, 0, FormField::TYPE_SHORT_TEXT, 'Nom', true, null, null, null, null, null);
+
+        $body = $this->newsController->show(new Request('GET', '/news/' . $articleId, [], [], [], []), ['id' => (string) $articleId])->getBody();
+
+        $this->assertStringContainsString('Ce formulaire n\'est pas encore ouvert.', $body);
+        $this->assertStringNotContainsString('n\'accepte plus de réponses', $body);
+        $this->assertStringNotContainsString('id="news-form"', $body);
+    }
+
     public function testShowRendersOpenFormAndAcceptsASubmission(): void
     {
         $articleId = NewsTestHelper::publish($this->pdo, $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId));
