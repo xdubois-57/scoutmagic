@@ -352,7 +352,7 @@ class RegistrationRequestRepository
     }
 
     /**
-     * @param array<int, int> $params
+     * @param array<int, int|string> $params
      */
     private function countRows(string $sql, array $params): int
     {
@@ -394,6 +394,21 @@ class RegistrationRequestRepository
         $stmt = $this->pdo->query("SELECT COUNT(*) FROM registration_requests WHERE status IN ('pending', 'accepted')");
 
         return $stmt !== false ? (int) $stmt->fetchColumn() : 0;
+    }
+
+    /**
+     * Requests still 'pending', every year, received before $cutoff
+     * (`Y-m-d H:i:s`, the application clock) — the attention page's count
+     * (Service\RegistrationAttentionProvider, issue #718 § C point 5). Every
+     * year for the reason countNonFinalAllYears() gives: a backlog does not
+     * stop waiting because the year it targeted has passed.
+     */
+    public function countPendingReceivedBefore(string $cutoff): int
+    {
+        return $this->countRows(
+            "SELECT COUNT(*) FROM registration_requests WHERE status = 'pending' AND received_at < ?",
+            [$cutoff]
+        );
     }
 
     /**
