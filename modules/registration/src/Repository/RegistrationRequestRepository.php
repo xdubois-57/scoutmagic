@@ -31,6 +31,15 @@ class RegistrationRequestRepository
 {
     private const CTX_TRACKING_TOKEN = 'registration_requests.tracking_token';
 
+    /**
+     * A `password_hash()` of a value no request holds, at the cost
+     * PASSWORD_DEFAULT hashes at: verifyTrackingToken() checks a presented
+     * token against it when the request does not exist, so an unknown id
+     * pays the same bcrypt cost as a known one and the endpoint's latency
+     * does not tell which ids exist.
+     */
+    private const DUMMY_TRACKING_HASH = '$2y$12$SISHNIutj2H4ftLn1E57vO2EpE9V00VWRHrlvXIQXcJIlqVsVMccW';
+
     private HouseholdRepository $households;
 
     private DecisionEmailRepository $decisionEmails;
@@ -240,12 +249,16 @@ class RegistrationRequestRepository
         $stmt->execute([$id]);
         $row = $stmt->fetch(\PDO::FETCH_ASSOC);
 
+        $matches = password_verify(
+            $token,
+            $row === false ? self::DUMMY_TRACKING_HASH : (string) $row['tracking_token_hash']
+        );
         if ($row === false) {
             return false;
         }
-
-        $matches = password_verify($token, (string) $row['tracking_token_hash']);
-        $expiresAt = DateInput::fromStorage($row['tracking_expires_at'] !== null ? (string) $row['tracking_expires_at'] : null);
+        $expiresAt = DateInput::fromStorage(
+            $row['tracking_expires_at'] !== null ? (string) $row['tracking_expires_at'] : null
+        );
 
         return $matches && $expiresAt !== null && ($now ?? new \DateTimeImmutable()) < $expiresAt;
     }

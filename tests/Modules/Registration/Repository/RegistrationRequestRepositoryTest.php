@@ -398,6 +398,26 @@ class RegistrationRequestRepositoryTest extends TestCase
         $this->assertFalse($this->repository->verifyTrackingToken($created['id'], $created['tracking_token']));
     }
 
+    /**
+     * An unknown request id is checked against a dummy hash of the same
+     * cost as a real one, so its latency does not tell which ids exist: the
+     * constant must stay a valid hash at the cost PASSWORD_DEFAULT uses, and
+     * must never match a presented token.
+     */
+    public function testAnUnknownRequestPaysTheSameHashCostAsAKnownOne(): void
+    {
+        $dummy = (new \ReflectionClassConstant(RegistrationRequestRepository::class, 'DUMMY_TRACKING_HASH'))->getValue();
+
+        $info = password_get_info($dummy);
+        $this->assertSame('bcrypt', $info['algoName']);
+        $this->assertSame(
+            password_get_info(password_hash('x', PASSWORD_DEFAULT))['options']['cost'],
+            $info['options']['cost']
+        );
+        $this->assertFalse($this->repository->verifyTrackingToken(999999, 'dummy-token-never-issued'));
+        $this->assertFalse(password_needs_rehash($dummy, PASSWORD_DEFAULT));
+    }
+
     /** A removed request leaves nothing to follow — before its expiry too. */
     public function testADeletedRequestNoLongerHasALink(): void
     {
