@@ -363,7 +363,7 @@ function pill(s,st){
 function render(){
   const list=steps();
   let html='', done=0, checks=0, blocks=0, current=null;
-  list.forEach((s,i)=>{s.n=i+1; s.st=status(s); if(s.st==='done')done++; if(s.st!=='done'&&current===null)current=s.n; checks+=s.checks.length; if(s.st==='block'||s.blockMark)blocks++;});
+  list.forEach((s,i)=>{s.n=i+1; s.st=status(s); if(s.st==='done')done++; if(s.st!=='done'&&current===null)current=s.n; checks+=s.checks.length; if(s.st==='block'||(s.blockMark&&s.st!=='done'))blocks++;});
   [1,2,3].forEach(p=>{
     const ps=list.filter(s=>s.phase===p);
     html+=`<div class="phase" data-phase="${p}"><h2>${PHASES[p][0]} <small>${PHASES[p][1]}</small></h2><ol class="steps">`;
@@ -489,9 +489,8 @@ function renderImport(){
     <div class="rule">${cells.map(c=>`<div class="${c[0]===period&&!a.cfg?'on':''}"><b>${c[1]}</b><br>${c[2]}</div>`).join('')}</div>
     ${a.cfg?'<div class="alert info small" style="margin-top:8px">Mode configuration actif : toutes les années existantes sont importables. Une année hors de la règle habituelle demande une confirmation.</div>':''}
     <div class="note" style="margin-top:8px">Après la bascule publique, la règle repart de la nouvelle année publique.</div>`;
-  const sel=$('#impYear'); const prev=sel.value;
+  const sel=$('#impYear');
   sel.innerHTML=a.list.slice().reverse().map(y=>`<option value="${y}" ${y===a.pre?'selected':''}>${y}${y===PUB?' — année publique':''}${y===NEXT?' — année suivante':''}</option>`).join('');
-  if(a.list.includes(prev)&&prev) sel.value=prev;
   $('#impYearHelp').textContent=a.list.length===1?'Une seule année est importable aujourd\'hui.':'';
   $('#impResult').innerHTML=''; renderLast();
 }
