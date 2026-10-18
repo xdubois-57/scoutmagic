@@ -64,8 +64,12 @@ final class RemoteBackupSecrecyTest extends TestCase
         // `fromArray()` ignores keys it does not know, so nothing needs a
         // new name to be readable — which is what makes the exhaustive
         // form affordable here.
+        // The two grant fields (#718 § C point 10.2) are a date and a
+        // flag: when Google said the refresh token ends, and whether that
+        // was looked at. Neither lets anyone reach the account; the token
+        // itself stays on the encrypted side.
         $this->assertSame(
-            ['client_id', 'folder_id', 'connected_at'],
+            ['client_id', 'folder_id', 'connected_at', 'grant_observed', 'grant_expires_at'],
             array_keys($config->toArray()),
             'the clear configuration record gained or lost a field'
         );
@@ -255,26 +259,19 @@ final class RemoteBackupSecrecyTest extends TestCase
     }
 
     /**
-     * The seven days the screen warns about come from the code, so the
-     * two cannot drift into disagreeing about the number an operator
-     * plans around.
-     *
-     * **The warning moved with the backend in IT-05** — it is on the
-     * location's own card now, not on Configuration > Maintenance — and
-     * this is what would have caught a move that dropped it.
+     * **The screens no longer guess a lifetime** (#718 § C point 10.2): what
+     * they say about a Google grant's end comes from what Google announced
+     * when it was obtained, through one partial — never from a number
+     * assumed about a project left in « Test ».
      */
-    public function testTheScreenAndTheCodeQuoteTheSameSevenDays(): void
+    public function testTheScreensReadTheAnnouncedExpiryRatherThanGuessingOne(): void
     {
-        $this->assertSame(7, GoogleDriveClient::TESTING_TOKEN_LIFETIME_DAYS);
-
         foreach (['location_form', 'locations'] as $template) {
-            $this->assertStringContainsString(
-                'drive_testing_token_days',
-                (string) file_get_contents(
-                    dirname(__DIR__, 2) . '/core/View/templates/config/storage/' . $template . '.html.twig'
-                ),
-                "the {$template} screen hardcodes a number instead of reading the constant"
+            $source = (string) file_get_contents(
+                dirname(__DIR__, 2) . '/core/View/templates/config/storage/' . $template . '.html.twig'
             );
+            $this->assertStringContainsString('_drive_expiry.html.twig', $source, "the {$template} screen lost the expiry");
+            $this->assertStringNotContainsString('drive_testing_token_days', $source, "the {$template} screen guesses again");
         }
     }
 

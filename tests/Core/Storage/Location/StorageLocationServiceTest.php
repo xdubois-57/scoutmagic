@@ -1353,6 +1353,94 @@ class StorageLocationServiceTest extends TestCase
         $this->assertFalse($this->repository->findById($id)?->lastCheckOk);
     }
 
+    /**
+     * A check that succeeds after a Drive grant's announced end proves the
+     * end no longer applies, and the proof is kept (#718 § C point 10.4): a
+     * failure weeks later for another reason is that failure, not the end
+     * coming back as « l'autorisation a pris fin ».
+     */
+    public function testASuccessfulCheckAfterTheGrantsEndKeepsTheProof(): void
+    {
+        $drive = new \Tests\Core\Storage\Location\Backend\Drive\FakeDrive();
+        $service = new StorageLocationService(
+            $this->repository,
+            new StorageBackendFactory($this->repository, $this->storagePath, $drive->client()),
+            $this->consumers
+        );
+        $end = \Core\Config\AppClock::now()->modify('-2 days')->format('c');
+        $id = $this->repository->create(
+            StorageLocationType::GoogleDrive,
+            'Photos Drive',
+            new \Core\Storage\Location\Config\GoogleDriveLocationConfig('client-1', 'folder-1', '2026-09-01T00:00:00+00:00', true, $end),
+            (string) json_encode(['client_secret' => 's', 'refresh_token' => 'r', 'account' => 'a@example.org'])
+        );
+
+        $service->checkNow($this->repository->findById($id));
+
+        $location = $this->repository->findById($id);
+        $this->assertTrue($location?->lastCheckOk, 'the fake Drive must answer the check');
+        $config = $location->config;
+        $this->assertInstanceOf(\Core\Storage\Location\Config\GoogleDriveLocationConfig::class, $config);
+        $this->assertTrue($config->grantObserved);
+        $this->assertSame('', $config->grantExpiresAt, 'the disproved end is dropped');
+
+        $this->repository->recordCheckResult($id, false, 'Le dossier a été supprimé du Drive.');
+        $after = $this->repository->findById($id);
+        $this->assertNotNull($after);
+        $this->assertSame(\Core\Storage\Location\DriveGrantExpiry::NONE, \Core\Storage\Location\DriveGrantExpiry::of($after)->state);
+    }
+
+    /**
+     * The disproof is built from the config the check read. A reconnection
+     * saved while the check ran — new folder, new grant — must survive it.
+     */
+    public function testAReconnectionDuringTheCheckIsNotOverwritten(): void
+    {
+        $end = \Core\Config\AppClock::now()->modify('-2 days')->format('c');
+        $id = $this->repository->create(
+            StorageLocationType::GoogleDrive,
+            'Photos Drive',
+            new \Core\Storage\Location\Config\GoogleDriveLocationConfig('client-1', 'folder-1', '2026-09-01T00:00:00+00:00', true, $end),
+            (string) json_encode(['client_secret' => 's', 'refresh_token' => 'r', 'account' => 'a@example.org'])
+        );
+        $seen = $this->repository->findById($id)?->config;
+        $this->assertInstanceOf(\Core\Storage\Location\Config\GoogleDriveLocationConfig::class, $seen);
+        $newEnd = \Core\Config\AppClock::now()->modify('+7 days')->format('c');
+        $reconnected = new \Core\Storage\Location\Config\GoogleDriveLocationConfig('client-1', 'folder-2', '2026-10-18T10:00:00+00:00', true, $newEnd);
+        $this->repository->replaceConfigIfUnchanged($id, $seen, $reconnected);
+
+        $this->assertFalse($this->repository->replaceConfigIfUnchanged($id, $seen, $seen->withGrantEndDisproved()));
+
+        $config = $this->repository->findById($id)?->config;
+        $this->assertInstanceOf(\Core\Storage\Location\Config\GoogleDriveLocationConfig::class, $config);
+        $this->assertSame('folder-2', $config->folderId);
+        $this->assertSame($newEnd, $config->grantExpiresAt);
+    }
+
+    /** Before its end, a successful check proves nothing yet and the end stays. */
+    public function testASuccessfulCheckBeforeTheGrantsEndKeepsTheEnd(): void
+    {
+        $drive = new \Tests\Core\Storage\Location\Backend\Drive\FakeDrive();
+        $service = new StorageLocationService(
+            $this->repository,
+            new StorageBackendFactory($this->repository, $this->storagePath, $drive->client()),
+            $this->consumers
+        );
+        $end = \Core\Config\AppClock::now()->modify('+5 days')->format('c');
+        $id = $this->repository->create(
+            StorageLocationType::GoogleDrive,
+            'Photos Drive',
+            new \Core\Storage\Location\Config\GoogleDriveLocationConfig('client-1', 'folder-1', '2026-09-01T00:00:00+00:00', true, $end),
+            (string) json_encode(['client_secret' => 's', 'refresh_token' => 'r', 'account' => 'a@example.org'])
+        );
+
+        $service->checkNow($this->repository->findById($id));
+
+        $config = $this->repository->findById($id)?->config;
+        $this->assertInstanceOf(\Core\Storage\Location\Config\GoogleDriveLocationConfig::class, $config);
+        $this->assertSame($end, $config->grantExpiresAt);
+    }
+
     private function serviceProbing(ProbeRecorder $probes): StorageLocationService
     {
         $factory = new class ($this->repository, $this->storagePath, $probes) extends StorageBackendFactory {
