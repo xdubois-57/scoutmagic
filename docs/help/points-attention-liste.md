@@ -65,3 +65,12 @@ Le module Locations signale, pour chaque bien qui n'est pas archivé :
 - **une conformité déjà expirée** dans le registre du bien, avec la date
   d'expiration. Avant cette date, c'est le rappel du registre qui
   prévient, pas cette page.
+
+Le module Discussions signale, groupe par groupe, **les contenus signalés
+qui attendent encore une décision** : tant qu'un modérateur ne les a ni
+rétablis ni supprimés, ils restent comptés, même déjà masqués.
+
+Le module Inscriptions signale, en une seule ligne, **les demandes en
+attente depuis plus de 15 jours**, à partir du 1er juin et jusqu'à la fin
+de l'année scoute. Le jour, le mois et la durée se règlent dans
+Configuration › Paramètres, section Inscriptions.
