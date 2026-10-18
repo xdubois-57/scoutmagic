@@ -26,7 +26,7 @@ set -euo pipefail
 # Usage: GH_TOKEN=… GITHUB_REPOSITORY=xdubois-57/scoutmagic \
 #          bash scripts/triage-dependencies.sh <issue> '<[{"issue":724,"evidence":"…"}]>'
 
-if [ "$#" -ne 2 ]; then
+if [[ "$#" -ne 2 ]]; then
   echo 'Usage: triage-dependencies.sh <issue number> <candidates JSON>' >&2
   exit 2
 fi
@@ -36,8 +36,8 @@ repo="${GITHUB_REPOSITORY:-}"
 max_candidates=10
 max_walk=200
 
-case "${issue}" in ''|*[!0-9]*|0) echo 'Invalid issue number.' >&2; exit 2 ;; esac
-if [ "${repo}" != 'xdubois-57/scoutmagic' ]; then
+case "${issue}" in ''|*[!0-9]*|0) echo 'Invalid issue number.' >&2; exit 2 ;; *) ;; esac
+if [[ "${repo}" != 'xdubois-57/scoutmagic' ]]; then
   echo 'Refusing to write to a different repository.' >&2
   exit 2
 fi
@@ -45,33 +45,37 @@ if ! jq -e 'type == "array"' <<<"${candidates}" >/dev/null 2>&1; then
   echo 'The candidates must be a JSON array.' >&2
   exit 2
 fi
-if [ "$(jq 'length' <<<"${candidates}")" -eq 0 ]; then
+if [[ "$(jq 'length' <<<"${candidates}")" -eq 0 ]]; then
   echo "No prerequisite proposed for #${issue}."
   exit 0
 fi
-if [ "$(jq 'length' <<<"${candidates}")" -gt "${max_candidates}" ]; then
+if [[ "$(jq 'length' <<<"${candidates}")" -gt "${max_candidates}" ]]; then
   echo "More than ${max_candidates} candidates for #${issue}; that is a guess, not a finding. Nothing linked." >&2
   exit 1
 fi
 
-log_evidence() { printf '    evidence: %s\n' "$(printf '%s' "$1" | tr '\r\n' '  ' | cut -c1-200)"; }
+log_evidence() {
+  local evidence_text="$1"
+  printf '    evidence: %s\n' "$(printf '%s' "${evidence_text}" | tr '\r\n' '  ' | cut -c1-200)"
+}
 
 # Numbers of the issues `$1` is currently blocked by (open or not).
 blockers_of() {
-  gh api --paginate --slurp "repos/${repo}/issues/${1}/dependencies/blocked_by?per_page=100" \
+  local issue_number="$1"
+  gh api --paginate --slurp "repos/${repo}/issues/${issue_number}/dependencies/blocked_by?per_page=100" \
     | jq -r '.[][] | .number'
 }
 
 target="$(gh api "repos/${repo}/issues/${issue}")" || {
-  echo "::error title=Dependencies not synced::Cannot read issue #${issue}."
+  echo "::error title=Dependencies not synced::Cannot read issue #${issue}." >&2
   exit 1
 }
-if [ "$(jq -r 'has("pull_request")' <<<"${target}")" = 'true' ]; then
+if [[ "$(jq -r 'has("pull_request")' <<<"${target}")" = 'true' ]]; then
   echo "Refusing to add dependencies to #${issue}: it is a pull request." >&2
   exit 1
 fi
 
-existing="$(blockers_of "${issue}")" || { echo "::error title=Dependencies not synced::Cannot read the links of #${issue}."; exit 1; }
+existing="$(blockers_of "${issue}")" || { echo "::error title=Dependencies not synced::Cannot read the links of #${issue}." >&2; exit 1; }
 
 # Is `$2` reachable from `$1` by following `blocked by`? Adding
 # "issue blocked by candidate" is a cycle exactly when the candidate can
@@ -81,12 +85,12 @@ reaches() {
   local -a pending=("${from}")
   local -A visited=()
   visited["${from}"]=1
-  while [ "${#pending[@]}" -gt 0 ]; do
+  while [[ "${#pending[@]}" -gt 0 ]]; do
     cur="${pending[0]}"
     pending=("${pending[@]:1}")
-    [ "${cur}" = "${goal}" ] && return 0
+    [[ "${cur}" = "${goal}" ]] && return 0
     count=$((count + 1))
-    if [ "${count}" -gt "${max_walk}" ]; then
+    if [[ "${count}" -gt "${max_walk}" ]]; then
       return 2   # too large to prove safe: treated as unsafe by the caller
     fi
     # Read into a variable first: inside `done < <(…)` a failing read is
@@ -95,8 +99,8 @@ reaches() {
     # would be recorded. 3 = could not read, and the caller fails the step.
     deps="$(blockers_of "${cur}")" || return 3
     while IFS= read -r next; do
-      [ -n "${next}" ] || continue
-      if [ -z "${visited[${next}]:-}" ]; then
+      [[ -n "${next}" ]] || continue
+      if [[ -z "${visited[${next}]:-}" ]]; then
         visited["${next}"]=1
         pending+=("${next}")
       fi
@@ -117,7 +121,7 @@ while IFS= read -r entry; do
   if ! [[ "${number}" =~ ^[1-9][0-9]*$ ]]; then
     echo "Skipped a candidate without a valid issue number."; skipped=$((skipped + 1)); continue
   fi
-  if [ -z "${evidence//[[:space:]]/}" ]; then
+  if [[ -z "${evidence//[[:space:]]/}" ]]; then
     echo "Skipped #${number}: no passage justifies it."; skipped=$((skipped + 1)); continue
   fi
   if [[ "${seen}" == *" ${number} "* ]]; then
@@ -125,17 +129,17 @@ while IFS= read -r entry; do
   fi
   seen="${seen}${number} "
 
-  if [ "${number}" = "${issue}" ]; then
+  if [[ "${number}" = "${issue}" ]]; then
     echo "Skipped #${number}: an issue cannot block itself."; skipped=$((skipped + 1)); continue
   fi
 
   if ! blocker="$(gh api "repos/${repo}/issues/${number}" 2>/dev/null)"; then
     echo "Skipped #${number}: it does not exist in ${repo}."; skipped=$((skipped + 1)); continue
   fi
-  if [ "$(jq -r 'has("pull_request")' <<<"${blocker}")" = 'true' ]; then
+  if [[ "$(jq -r 'has("pull_request")' <<<"${blocker}")" = 'true' ]]; then
     echo "Skipped #${number}: it is a pull request, not an issue."; skipped=$((skipped + 1)); continue
   fi
-  if [ "$(jq -r '.state' <<<"${blocker}")" != 'open' ]; then
+  if [[ "$(jq -r '.state' <<<"${blocker}")" != 'open' ]]; then
     echo "Skipped #${number}: already closed, it blocks nothing."; skipped=$((skipped + 1)); continue
   fi
   if grep -qx "${number}" <<<"${existing}"; then
@@ -144,12 +148,12 @@ while IFS= read -r entry; do
 
   # `reaches` exits 0 (cycle), 1 (safe), 2 (too long to prove), 3 (a read failed).
   set +e; reaches "${number}" "${issue}"; walk=$?; set -e
-  if [ "${walk}" -eq 0 ]; then
+  if [[ "${walk}" -eq 0 ]]; then
     echo "Skipped #${number}: #${number} already waits on #${issue}, so this link would be a cycle."; skipped=$((skipped + 1)); continue
-  elif [ "${walk}" -eq 3 ]; then
-    echo "::error title=Dependency not recorded::Could not read the links needed to prove #${number} free of a cycle with #${issue}; nothing was recorded."
+  elif [[ "${walk}" -eq 3 ]]; then
+    echo "::error title=Dependency not recorded::Could not read the links needed to prove #${number} free of a cycle with #${issue}; nothing was recorded." >&2
     failed=$((failed + 1)); continue
-  elif [ "${walk}" -ne 1 ]; then
+  elif [[ "${walk}" -ne 1 ]]; then
     echo "Skipped #${number}: its chain is too long to prove free of a cycle."; skipped=$((skipped + 1)); continue
   fi
 
@@ -161,10 +165,10 @@ while IFS= read -r entry; do
     existing="${existing}"$'\n'"${number}"
     linked=$((linked + 1))
   else
-    echo "::error title=Dependency not recorded::GitHub refused to record #${number} as a prerequisite of #${issue}."
+    echo "::error title=Dependency not recorded::GitHub refused to record #${number} as a prerequisite of #${issue}." >&2
     failed=$((failed + 1))
   fi
 done < <(jq -c '.[]' <<<"${candidates}")
 
 echo "Dependencies of #${issue}: ${linked} linked, ${skipped} skipped, ${failed} failed."
-[ "${failed}" -eq 0 ]
+[[ "${failed}" -eq 0 ]]

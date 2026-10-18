@@ -57,12 +57,12 @@ trap 'rm -f "${edges_file}"' EXIT
 declare -A seen=()
 queue=()
 while IFS= read -r number; do
-  [ -n "${number}" ] || continue
+  [[ -n "${number}" ]] || continue
   seen["${number}"]=1
   queue+=("${number}")
 done < <(jq -r '.[]' <<<"${ready_numbers}")
 
-while [ "${#queue[@]}" -gt 0 ]; do
+while [[ "${#queue[@]}" -gt 0 ]]; do
   current="${queue[0]}"
   queue=("${queue[@]:1}")
 
@@ -83,10 +83,10 @@ while [ "${#queue[@]}" -gt 0 ]; do
   jq -c '.[]' <<<"${blockers}" >>"${edges_file}"
 
   while IFS= read -r target; do
-    [ -n "${target}" ] && [ "${target}" != 'null' ] || continue
-    if [ -z "${seen[${target}]:-}" ]; then
+    [[ -n "${target}" ]] && [[ "${target}" != 'null' ]] || continue
+    if [[ -z "${seen[${target}]:-}" ]]; then
       seen["${target}"]=1
-      if [ "${#seen[@]}" -gt "${MAX_GRAPH_NODES}" ]; then
+      if [[ "${#seen[@]}" -gt "${MAX_GRAPH_NODES}" ]]; then
         echo "ERROR: The dependency graph is larger than ${MAX_GRAPH_NODES} issues; refusing to rank a partial view." >&2
         exit 1
       fi
@@ -153,7 +153,7 @@ ranked="$(jq -nc --arg repo "${PROJECT_REPO}" --argjson items "${items}" --argjs
 ready_out='[]'
 reserved_out='[]'
 while IFS= read -r entry; do
-  [ -n "${entry}" ] || continue
+  [[ -n "${entry}" ]] || continue
   number="$(jq -r '.number' <<<"${entry}")"
   if err="$(gh api "repos/${PROJECT_REPO}/git/ref/heads/claude/issue-${number}" --silent 2>&1)"; then
     reserved_out="$(jq -c --argjson e "${entry}" '. + [$e]' <<<"${reserved_out}")"

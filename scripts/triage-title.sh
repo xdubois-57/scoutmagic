@@ -22,7 +22,7 @@ set -euo pipefail
 # Usage: GH_TOKEN=… GITHUB_REPOSITORY=xdubois-57/scoutmagic \
 #          bash scripts/triage-title.sh <issue> <verdict> <test|idea|confirmed_bug>
 
-if [ "$#" -ne 3 ]; then
+if [[ "$#" -ne 3 ]]; then
   echo 'Usage: triage-title.sh <issue number> <verdict> <test|idea|confirmed_bug>' >&2
   exit 2
 fi
@@ -30,20 +30,20 @@ issue="$1"
 verdict="$2"
 category="$3"
 
-case "${issue}" in ''|*[!0-9]*|0) echo 'Invalid issue number.' >&2; exit 2 ;; esac
+case "${issue}" in ''|*[!0-9]*|0) echo 'Invalid issue number.' >&2; exit 2 ;; *) ;; esac
 case "${verdict}" in
   bug:confirmed|bug:not-a-bug|bug:needs-info|feature-request) ;;
   *) echo 'Invalid verdict.' >&2; exit 2 ;;
 esac
 case "${category}" in test|idea|confirmed_bug) ;; *) echo 'Invalid category.' >&2; exit 2 ;; esac
-if [ "${GITHUB_REPOSITORY:-}" != 'xdubois-57/scoutmagic' ]; then
+if [[ "${GITHUB_REPOSITORY:-}" != 'xdubois-57/scoutmagic' ]]; then
   echo 'Refusing to write to a different repository.' >&2
   exit 2
 fi
 
-if [ "${verdict}" = 'bug:confirmed' ]; then
+if [[ "${verdict}" = 'bug:confirmed' ]]; then
   prefix='[Bug]'
-elif [ "${category}" = 'test' ]; then
+elif [[ "${category}" = 'test' ]]; then
   prefix='[Test]'
 else
   prefix='[Idée]'
@@ -52,10 +52,10 @@ fi
 # The title is read NOW, not taken from the event payload: it may have been
 # edited since, and the comparison below decides whether to write at all.
 current="$(gh api "repos/${GITHUB_REPOSITORY}/issues/${issue}")" || {
-  echo "::error title=Title not normalised::Cannot read issue #${issue}."
+  echo "::error title=Title not normalised::Cannot read issue #${issue}." >&2
   exit 1
 }
-if [ "$(jq -r 'has("pull_request")' <<<"${current}")" = 'true' ]; then
+if [[ "$(jq -r 'has("pull_request")' <<<"${current}")" = 'true' ]]; then
   echo "Refusing to rename #${issue}: it is a pull request." >&2
   exit 1
 fi
@@ -67,16 +67,16 @@ wanted="$(jq -r --arg prefix "${prefix}" '
   (.title | strip) as $rest
   | if ($rest | length) == 0 then empty else $prefix + " " + $rest end' <<<"${current}")"
 
-if [ -z "${wanted}" ]; then
+if [[ -z "${wanted}" ]]; then
   echo "Issue #${issue} has no title beyond its prefixes; leaving it alone." >&2
   exit 1
 fi
-if [ "${wanted}" = "$(jq -r '.title' <<<"${current}")" ]; then
+if [[ "${wanted}" = "$(jq -r '.title' <<<"${current}")" ]]; then
   echo "Issue #${issue} already carries ${prefix}; title unchanged."
   exit 0
 fi
-if [ "$(printf '%s' "${wanted}" | jq -Rrs 'length')" -gt 256 ]; then
-  echo "::error title=Title not normalised::Issue #${issue} would exceed GitHub's 256-character title limit with ${prefix}."
+if [[ "$(printf '%s' "${wanted}" | jq -Rrs 'length')" -gt 256 ]]; then
+  echo "::error title=Title not normalised::Issue #${issue} would exceed GitHub's 256-character title limit with ${prefix}." >&2
   exit 1
 fi
 

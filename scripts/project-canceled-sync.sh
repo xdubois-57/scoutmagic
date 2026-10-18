@@ -43,10 +43,10 @@ set -euo pipefail
 
 mode="${1:-all}"
 case "${mode}" in
-  list|all) [ "$#" -le 1 ] || { echo "Usage: project-canceled-sync.sh ${mode}" >&2; exit 2; } ;;
+  list|all) [[ "$#" -le 1 ]] || { echo "Usage: project-canceled-sync.sh ${mode}" >&2; exit 2; } ;;
   close)
-    [ "$#" -eq 2 ] || { echo 'Usage: project-canceled-sync.sh close <issue>' >&2; exit 2; }
-    case "$2" in ''|*[!0-9]*|0) echo 'Invalid issue number.' >&2; exit 2 ;; esac ;;
+    [[ "$#" -eq 2 ]] || { echo 'Usage: project-canceled-sync.sh close <issue>' >&2; exit 2; }
+    case "$2" in ''|*[!0-9]*|0) echo 'Invalid issue number.' >&2; exit 2 ;; *) ;; esac ;;
   *) echo 'Usage: project-canceled-sync.sh [list|close <issue>|all]' >&2; exit 2 ;;
 esac
 
@@ -70,10 +70,10 @@ canceled_issues() {
 close_issue() {
   local number="$1" current body
   current="$(gh api "repos/${PROJECT_REPO}/issues/${number}")" || {
-    echo "::error title=Cancel not applied::Cannot read issue #${number}."
+    echo "::error title=Cancel not applied::Cannot read issue #${number}." >&2
     return 1
   }
-  if [ "$(jq -r 'has("pull_request")' <<<"${current}")" = 'true' ] || [ "$(jq -r '.state' <<<"${current}")" != 'open' ]; then
+  if [[ "$(jq -r 'has("pull_request")' <<<"${current}")" = 'true' ]] || [[ "$(jq -r '.state' <<<"${current}")" != 'open' ]]; then
     echo "Issue #${number} is not an open issue any more; left alone."
     return 0
   fi
@@ -83,14 +83,14 @@ close_issue() {
   body='Ticket annulé : le mainteneur l’a passé en « Canceled » dans le projet ScoutMagic. Il est fermé comme « non planifié » (Not planned) : aucun travail n’a été livré. Pour le reprendre, rouvrez-le et changez son statut dans le projet.'
   if ! jq -nc --arg body "${body}" '{body: $body}' \
       | gh api "repos/${PROJECT_REPO}/issues/${number}/comments" --input - --silent; then
-    echo "::error title=Cancel not applied::Could not explain the cancellation on #${number}; it stays open."
+    echo "::error title=Cancel not applied::Could not explain the cancellation on #${number}; it stays open." >&2
     return 1
   fi
   if gh api "repos/${PROJECT_REPO}/issues/${number}" -X PATCH -f state=closed -f state_reason=not_planned --silent; then
     echo "Issue #${number} closed as not planned (Status = Canceled)."
     return 0
   fi
-  echo "::error title=Cancel not applied::Could not close #${number}."
+  echo "::error title=Cancel not applied::Could not close #${number}." >&2
   return 1
 }
 
@@ -106,10 +106,11 @@ case "${mode}" in
     closed=0
     failed=0
     while IFS= read -r number; do
-      [ -n "${number}" ] || continue
+      [[ -n "${number}" ]] || continue
       if close_issue "${number}"; then closed=$((closed + 1)); else failed=$((failed + 1)); fi
     done <<<"${listing}"
     echo "Canceled sync: ${closed} handled, ${failed} failed."
-    [ "${failed}" -eq 0 ]
+    [[ "${failed}" -eq 0 ]]
     ;;
+  *) ;;
 esac

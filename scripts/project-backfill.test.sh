@@ -28,32 +28,33 @@ JSON
 cat >"${tmp}/effort.sh" <<'STUB'
 #!/usr/bin/env bash
 echo "effort $1 $2" >>"$(dirname "$0")/log"
-[ "$1" = 103 ] && exit 1
+[[ "$1" = 103 ]] && exit 1
 exit 0
 STUB
 cat >"${tmp}/deps.sh" <<'STUB'
 #!/usr/bin/env bash
 echo "deps $1 $2" >>"$(dirname "$0")/log"
-[ "$1" = 9 ] && exit 1
+[[ "$1" = 9 ]] && exit 1
 exit 0
 STUB
 run() {
+  local mode="$1"
   : >"${tmp}/log"
   set +e
   BACKFILL_DATA="${tmp}/data.json" BACKFILL_EFFORT_SCRIPT="${tmp}/effort.sh" BACKFILL_DEPENDENCIES_SCRIPT="${tmp}/deps.sh" \
-    bash "${root}/scripts/project-backfill.sh" "$1" >"${tmp}/out" 2>&1
+    bash "${root}/scripts/project-backfill.sh" "${mode}" >"${tmp}/out" 2>&1
   rc=$?; set -e
 }
 
 run effort
-[ "${rc}" -eq 1 ] || fail 'a failed issue must fail the run'
+[[ "${rc}" -eq 1 ]] || fail 'a failed issue must fail the run'
 grep -q 'effort 101 M' "${tmp}/log" && grep -q 'effort 104 S' "${tmp}/log" || fail 'a failure on #103 stopped the others'
 grep -q 'effort 102' "${tmp}/log" && fail 'unknown was written'
 grep -q 'deps' "${tmp}/log" && fail 'the effort mode touched dependencies'
 grep -q '#102: no defensible estimate' "${tmp}/out" || fail 'unknown is not reported'
 
 run dependencies
-[ "${rc}" -eq 1 ] || fail 'a failed dependency must fail the run'
+[[ "${rc}" -eq 1 ]] || fail 'a failed dependency must fail the run'
 grep -q 'deps 740 \[{"issue":724' "${tmp}/log" || fail '#740 -> #724 was not submitted'
 grep -q 'deps 9 ' "${tmp}/log" || fail 'the failing dependency was never attempted'
 grep -q 'deps 11 ' "${tmp}/log" || fail 'a failure on #9 stopped the dependencies after it'
@@ -66,10 +67,10 @@ for mode in effort dependencies; do
   BACKFILL_DATA="${tmp}/broken.json" BACKFILL_EFFORT_SCRIPT="${tmp}/effort.sh" BACKFILL_DEPENDENCIES_SCRIPT="${tmp}/deps.sh" \
     bash "${root}/scripts/project-backfill.sh" "${mode}" >"${tmp}/out" 2>&1
   rc=$?; set -e
-  [ "${rc}" -eq 1 ] || fail "unreadable data passed as a successful ${mode} backfill"
+  [[ "${rc}" -eq 1 ]] || fail "unreadable data passed as a successful ${mode} backfill"
 done
 
 set +e; bash "${root}/scripts/project-backfill.sh" bogus >/dev/null 2>&1; rc=$?; set -e
-[ "${rc}" -eq 2 ] || fail 'an unknown mode was accepted'
+[[ "${rc}" -eq 2 ]] || fail 'an unknown mode was accepted'
 
 echo 'Project backfill tests passed.'

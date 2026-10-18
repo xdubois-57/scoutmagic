@@ -11,7 +11,8 @@ trap 'rm -rf "${tmp}"' EXIT
 REPO='xdubois-57/scoutmagic'
 
 node() { # node <number> <repo> <state> <status> [agent]
-  jq -nc --argjson n "$1" --arg repo "$2" --arg state "$3" --arg status "$4" --arg agent "${5:-}" '
+  local number="$1" repo="$2" state="$3" status="$4" agent="${5:-}"
+  jq -nc --argjson n "${number}" --arg repo "${repo}" --arg state "${state}" --arg status "${status}" --arg agent "${agent}" '
     { id: "ITEM\($n)",
       content: {__typename: "Issue", number: $n, title: "Issue \($n)", url: "u", state: $state, stateReason: null, repository: {nameWithOwner: $repo}},
       fieldValues: {pageInfo: {hasNextPage: false}, nodes:
@@ -40,16 +41,16 @@ dir="$(dirname "$0")"
 echo "$*" >>"${dir}/calls.log"
 case "$*" in
   *graphql*)
-    [ -f "${dir}/fail-read" ] && { echo 'HTTP 401' >&2; exit 1; }
+    [[ -f "${dir}/fail-read" ]] && { echo 'HTTP 401' >&2; exit 1; }
     cat "${dir}/page.json" ;;
   *comments*)
     n="$(sed -E 's#.*issues/([0-9]+)/comments.*#\1#' <<<"$*")"
     cat >"${dir}/comment-${n}.json"
-    [ "${n}" = "1" ] && [ -f "${dir}/fail-comment-1" ] && exit 1
+    [[ "${n}" = "1" ]] && [[ -f "${dir}/fail-comment-1" ]] && exit 1
     exit 0 ;;
   *PATCH*)
     n="$(sed -E 's#.*issues/([0-9]+) .*#\1#' <<<"$*")"
-    [ -f "${dir}/fail-close-${n}" ] && exit 1
+    [[ -f "${dir}/fail-close-${n}" ]] && exit 1
     echo "$*" >"${dir}/patch-${n}.txt"; echo closed >"${dir}/state/${n}"; exit 0 ;;
   *issues/*)
     n="$(sed -E 's#.*issues/([0-9]+).*#\1#' <<<"$*")"
@@ -70,7 +71,7 @@ for n in 1 2 7; do
 done
 # Ready → Canceled and In Progress → Canceled alike; everything else is untouched.
 for n in 3 4 5 6 8; do
-  [ ! -f "${tmp}/patch-${n}.txt" ] || fail "#${n} must not be closed"
+  [[ ! -f "${tmp}/patch-${n}.txt" ]] || fail "#${n} must not be closed"
 done
 grep -q 'Priority\|labels' "${tmp}/calls.log" && fail 'the sync touched priorities or labels'
 
@@ -78,7 +79,7 @@ grep -q 'Priority\|labels' "${tmp}/calls.log" && fail 'the sync touched prioriti
 before="$(wc -l <"${tmp}/calls.log")"
 rm -f "${tmp}"/patch-*.txt
 sync
-[ ! -f "${tmp}/patch-1.txt" ] || fail 'a second run closed again'
+[[ ! -f "${tmp}/patch-1.txt" ]] || fail 'a second run closed again'
 grep -q 'comments' <(tail -n +"$((before + 1))" "${tmp}/calls.log") && fail 'a second run commented again'
 
 # One failure is reported and does not stop the rest.
@@ -86,7 +87,7 @@ for n in 1 2 7; do echo open >"${tmp}/state/${n}"; done
 touch "${tmp}/fail-close-2"
 rm -f "${tmp}"/patch-*.txt
 if sync; then fail 'a failed closure passed as success'; fi
-[ -f "${tmp}/patch-1.txt" ] && [ -f "${tmp}/patch-7.txt" ] || fail 'a failure on #2 stopped the others'
+[[ -f "${tmp}/patch-1.txt" ]] && [[ -f "${tmp}/patch-7.txt" ]] || fail 'a failure on #2 stopped the others'
 grep -q 'Could not close #2' "${tmp}/out" || fail 'the failure is not reported'
 rm -f "${tmp}/fail-close-2"
 
@@ -95,7 +96,7 @@ for n in 1 2 7; do echo open >"${tmp}/state/${n}"; done
 touch "${tmp}/fail-comment-1"
 rm -f "${tmp}"/patch-*.txt
 if sync; then fail 'a failed comment passed as success'; fi
-[ ! -f "${tmp}/patch-1.txt" ] || fail '#1 was closed without an explanation'
+[[ ! -f "${tmp}/patch-1.txt" ]] || fail '#1 was closed without an explanation'
 rm -f "${tmp}/fail-comment-1"
 
 # A Project that cannot be read closes NOTHING and says so.
@@ -113,12 +114,12 @@ rm -f "${tmp}/fail-read"
 for n in 1 2 7; do echo open >"${tmp}/state/${n}"; done
 : >"${tmp}/calls.log"; rm -f "${tmp}"/patch-*.txt
 sync list || fail 'list failed'
-[ "$(tr '\n' ' ' <"${tmp}/out")" = '1 2 7 ' ] || { cat "${tmp}/out"; fail 'list must print exactly the open Canceled issues'; }
+[[ "$(tr '\n' ' ' <"${tmp}/out")" = '1 2 7 ' ]] || { cat "${tmp}/out"; fail 'list must print exactly the open Canceled issues'; }
 grep -q 'PATCH\|comments' "${tmp}/calls.log" && fail 'list wrote'
 : >"${tmp}/calls.log"
 sync close 2 || fail 'close failed'
 grep -q 'graphql' "${tmp}/calls.log" && fail 'close read the Project'
-[ -f "${tmp}/patch-2.txt" ] && [ ! -f "${tmp}/patch-1.txt" ] || fail 'close touched an issue other than the one named'
+[[ -f "${tmp}/patch-2.txt" ]] && [[ ! -f "${tmp}/patch-1.txt" ]] || fail 'close touched an issue other than the one named'
 if sync close 'x1'; then fail 'a bad issue number was accepted'; fi
 if sync frob; then fail 'an unknown mode was accepted'; fi
 

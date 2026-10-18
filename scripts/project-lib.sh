@@ -66,7 +66,7 @@ query($owner: String!, $number: Int!, $after: String) {
 GRAPHQL
 
   while :; do
-    if [ -n "${cursor}" ]; then
+    if [[ -n "${cursor}" ]]; then
       page="$(gh api graphql -f query="${query}" -f owner="${PROJECT_OWNER}" \
         -F number="${PROJECT_NUMBER}" -f after="${cursor}")" || return 1
     else
@@ -100,11 +100,11 @@ GRAPHQL
             effort: field("Effort") } ]' <<<"${page}")"
 
     has_next="$(printf '%s' "${page}" | jq -r '.data.user.projectV2.items.pageInfo.hasNextPage')"
-    if [ "${has_next}" != 'true' ]; then
+    if [[ "${has_next}" != 'true' ]]; then
       break
     fi
     cursor="$(printf '%s' "${page}" | jq -r '.data.user.projectV2.items.pageInfo.endCursor')"
-    [ -n "${cursor}" ] && [ "${cursor}" != 'null' ] || { echo 'ERROR: Project pagination returned no cursor.' >&2; return 1; }
+    [[ -n "${cursor}" ]] && [[ "${cursor}" != 'null' ]] || { echo 'ERROR: Project pagination returned no cursor.' >&2; return 1; }
   done
 
   printf '%s\n' "${items}"
@@ -144,37 +144,40 @@ GRAPHQL
 
 # project_set_option <project_id> <item_id> <field_id> <option_id>
 project_set_option() {
+  local project_id="$1" item_id="$2" field_id="$3" option_id="$4" out
   local out
   out="$(gh api graphql -f query='
 mutation($project: ID!, $item: ID!, $field: ID!, $option: String!) {
   updateProjectV2ItemFieldValue(input: {projectId: $project, itemId: $item, fieldId: $field,
     value: {singleSelectOptionId: $option}}) { projectV2Item { id } }
-}' -f project="$1" -f item="$2" -f field="$3" -f option="$4" \
+}' -f project="${project_id}" -f item="${item_id}" -f field="${field_id}" -f option="${option_id}" \
     --jq '.data.updateProjectV2ItemFieldValue.projectV2Item.id // empty')" || return 1
-  [ "${out}" = "$2" ]
+  [[ "${out}" = "${item_id}" ]]
 }
 
 # project_set_text <project_id> <item_id> <field_id> <text>
 project_set_text() {
+  local project_id="$1" item_id="$2" field_id="$3" text_value="$4" out
   local out
   out="$(gh api graphql -f query='
 mutation($project: ID!, $item: ID!, $field: ID!, $text: String!) {
   updateProjectV2ItemFieldValue(input: {projectId: $project, itemId: $item, fieldId: $field,
     value: {text: $text}}) { projectV2Item { id } }
-}' -f project="$1" -f item="$2" -f field="$3" -f text="$4" \
+}' -f project="${project_id}" -f item="${item_id}" -f field="${field_id}" -f text="${text_value}" \
     --jq '.data.updateProjectV2ItemFieldValue.projectV2Item.id // empty')" || return 1
-  [ "${out}" = "$2" ]
+  [[ "${out}" = "${item_id}" ]]
 }
 
 # project_clear_field <project_id> <item_id> <field_id>
 project_clear_field() {
+  local project_id="$1" item_id="$2" field_id="$3" out
   local out
   out="$(gh api graphql -f query='
 mutation($project: ID!, $item: ID!, $field: ID!) {
   clearProjectV2ItemFieldValue(input: {projectId: $project, itemId: $item, fieldId: $field}) {
     projectV2Item { id }
   }
-}' -f project="$1" -f item="$2" -f field="$3" \
+}' -f project="${project_id}" -f item="${item_id}" -f field="${field_id}" \
     --jq '.data.clearProjectV2ItemFieldValue.projectV2Item.id // empty')" || return 1
-  [ "${out}" = "$2" ]
+  [[ "${out}" = "${item_id}" ]]
 }

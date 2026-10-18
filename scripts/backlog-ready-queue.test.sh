@@ -16,7 +16,8 @@ REPO='xdubois-57/scoutmagic'
 
 # node <number> <repo> <state> <status> <priority> [agent]
 node() {
-  jq -nc --argjson n "$1" --arg repo "$2" --arg state "$3" --arg status "$4" --arg prio "$5" --arg agent "${6:-}" '
+  local number="$1" repo="$2" state="$3" status="$4" prio="$5" agent="${6:-}"
+  jq -nc --argjson n "${number}" --arg repo "${repo}" --arg state "${state}" --arg status "${status}" --arg prio "${prio}" --arg agent "${agent}" '
     { id: "ITEM\($n)",
       content: {__typename: "Issue", number: $n, title: "Issue \($n)", url: "https://github.com/\($repo)/issues/\($n)",
                 state: $state, stateReason: null, repository: {nameWithOwner: $repo}},
@@ -60,10 +61,14 @@ page() { # page <has_next> <cursor> <nodes...>
 
 # blocked_by responses, one array per page as `gh --paginate --slurp` prints them.
 dep() { # dep <number> <state> [repository_url]
-  jq -nc --argjson n "$1" --arg s "$2" --arg r "${3:-https://api.github.com/repos/${REPO}}" \
+  local number="$1" state="$2" repo_url="${3:-https://api.github.com/repos/${REPO}}"
+  jq -nc --argjson n "${number}" --arg s "${state}" --arg r "${repo_url}" \
     '{number: $n, state: $s, html_url: "https://github.com/x/y/issues/\($n)", repository_url: $r}'
 }
-write_deps() { jq -sc '[.]' >"${mock}/deps-$1.json"; }
+write_deps() {
+  local number="$1"
+  jq -sc '[.]' >"${mock}/deps-${number}.json"
+}
 dep 2 open | write_deps 5
 dep 4 open | write_deps 2
 dep 21 open | write_deps 20
@@ -77,11 +82,11 @@ cat >"${mock}/gh" <<'MOCK'
 set -euo pipefail
 dir="$(dirname "$0")"
 echo "$*" >>"${dir}/calls.log"
-if [ -f "${dir}/fail-graphql" ] && [[ "$*" == *graphql* ]]; then
+if [[ -f "${dir}/fail-graphql" ]] && [[ "$*" == *graphql* ]]; then
   echo 'HTTP 403: Resource not accessible by personal access token' >&2
   exit 1
 fi
-if [ -f "${dir}/fail-deps" ] && [[ "$*" == *blocked_by* ]]; then
+if [[ -f "${dir}/fail-deps" ]] && [[ "$*" == *blocked_by* ]]; then
   echo 'boom' >&2
   exit 1
 fi
@@ -90,7 +95,7 @@ case "$*" in
   *graphql*)        cat "${dir}/page1.json" ;;
   *--slurp*issues/*/dependencies/blocked_by*)
     n="$(sed -E 's#.*issues/([0-9]+)/dependencies.*#\1#' <<<"$*")"
-    if [ -f "${dir}/deps-${n}.json" ]; then cat "${dir}/deps-${n}.json"; else echo '[[]]'; fi ;;
+    if [[ -f "${dir}/deps-${n}.json" ]]; then cat "${dir}/deps-${n}.json"; else echo '[[]]'; fi ;;
   *git/ref/heads/claude/issue-40*) exit 0 ;;
   *git/ref/heads/claude/issue-*)   echo 'gh: Not Found (HTTP 404)' >&2; exit 1 ;;
   *) echo "Unexpected gh call: $*" >&2; exit 2 ;;
@@ -103,7 +108,8 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 out="$(PATH="${mock}:${PATH}" bash "${root}/scripts/backlog-ready-queue.sh")"
 
 check() { # check <description> <jq expression>
-  printf '%s' "${out}" | jq -e "$2" >/dev/null || { printf '%s\n' "${out}" | jq . >&2; fail "$1"; }
+  local description="$1" expression="$2"
+  printf '%s' "${out}" | jq -e "${expression}" >/dev/null || { printf '%s\n' "${out}" | jq . >&2; fail "${description}"; }
 }
 
 # 4 and 32 inherit P0 (4 through two Ready links, 32 through a link that is

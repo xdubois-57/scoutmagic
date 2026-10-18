@@ -21,16 +21,18 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 
 # run <title> <verdict> <category> → prints the new title, or "UNCHANGED"
 run() {
-  jq -nc --arg t "$1" '{number: 909, title: $t}' >"${tmp}/issue.json"
+  local title="$1" verdict="$2" category="$3"
+  jq -nc --arg t "${title}" '{number: 909, title: $t}' >"${tmp}/issue.json"
   : >"${tmp}/calls"; rm -f "${tmp}/patch.json"
   PATH="${tmp}:${PATH}" GH_TOKEN=x GITHUB_REPOSITORY=xdubois-57/scoutmagic \
     GH_TEST_CALLS="${tmp}/calls" GH_TEST_ISSUE="${tmp}/issue.json" GH_TEST_PATCH="${tmp}/patch.json" \
-    bash "${root}/scripts/triage-title.sh" 909 "$2" "$3" >/dev/null
-  if [ -f "${tmp}/patch.json" ]; then jq -r '.title' "${tmp}/patch.json"; else echo UNCHANGED; fi
+    bash "${root}/scripts/triage-title.sh" 909 "${verdict}" "${category}" >/dev/null
+  if [[ -f "${tmp}/patch.json" ]]; then jq -r '.title' "${tmp}/patch.json"; else echo UNCHANGED; fi
 }
 expect() { # expect <wanted> <title> <verdict> <category>
-  local got; got="$(run "$2" "$3" "$4")"
-  [ "${got}" = "$1" ] || fail "'$2' ($3/$4): expected '$1', got '${got}'"
+  local wanted="$1" title="$2" verdict="$3" category="$4"
+  local got; got="$(run "${title}" "${verdict}" "${category}")"
+  [[ "${got}" = "${wanted}" ]] || fail "'${title}' (${verdict}/${category}): expected '${wanted}', got '${got}'"
 }
 
 expect '[Bug] Le bouton ne répond pas'   'Le bouton ne répond pas'      bug:confirmed    confirmed_bug
@@ -76,6 +78,6 @@ for bad in "909x feature-request idea" "0 feature-request idea" "909 nope idea" 
 done
 if PATH="${tmp}:${PATH}" GH_TOKEN=x GITHUB_REPOSITORY=other/repo GH_TEST_CALLS="${tmp}/calls" \
    bash "${root}/scripts/triage-title.sh" 909 feature-request idea >/dev/null 2>&1; then fail 'another repository accepted'; fi
-[ ! -s "${tmp}/calls" ] || fail 'invalid input reached gh'
+[[ ! -s "${tmp}/calls" ]] || fail 'invalid input reached gh'
 
 echo 'Triage title tests passed.'
