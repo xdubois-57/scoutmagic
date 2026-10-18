@@ -106,7 +106,8 @@ class ForecastServiceTest extends TestCase
         ?int $memberId = null,
         ?string $street = null,
         ?string $postalCode = null,
-        int $scoutYearOffset = 0
+        int $scoutYearOffset = 0,
+        string $lastName = 'Dupont'
     ): array {
         if ($memberId === null) {
             $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('DESK_" . uniqid() . "')");
@@ -119,7 +120,7 @@ class ForecastServiceTest extends TestCase
         );
         $stmt->execute([
             $memberId, $scoutYearId,
-            $this->encryption->encrypt($firstName, 'member_years.first_name'), $this->encryption->encrypt('Dupont', 'member_years.last_name'),
+            $this->encryption->encrypt($firstName, 'member_years.first_name'), $this->encryption->encrypt($lastName, 'member_years.last_name'),
             $this->encryption->encrypt($birthDate, 'member_years.birth_date'), $this->encryption->encrypt($gender, 'member_years.gender'), $leaving ? 1 : 0,
             $scoutYearOffset,
         ]);
@@ -148,10 +149,15 @@ class ForecastServiceTest extends TestCase
     /**
      * @return array{id: int}
      */
-    private function createRequest(string $firstName, string $birthDate, ?int $intendedSectionId, string $gender = 'H'): int
-    {
+    private function createRequest(
+        string $firstName,
+        string $birthDate,
+        ?int $intendedSectionId,
+        string $gender = 'H',
+        string $lastName = 'Nouveau'
+    ): int {
         $created = $this->requestRepository->create($this->targetYearId, [
-            'parent_name' => 'Parent', 'child_last_name' => 'Nouveau', 'child_first_name' => $firstName,
+            'parent_name' => 'Parent', 'child_last_name' => $lastName, 'child_first_name' => $firstName,
             'gender' => $gender, 'birth_date' => $birthDate, 'street' => 'Avenue', 'number' => '1',
             'postal_code' => '1000', 'city' => 'Bruxelles', 'email' => strtolower($firstName) . uniqid() . '@example.com',
             'phone1' => '0470000000', 'phone2' => null, 'remarks' => null,
@@ -223,6 +229,88 @@ class ForecastServiceTest extends TestCase
         $this->assertSame(1, $bySectionId[$this->louveteauxSectionId]['total']);
         $this->assertSame(1, $bySectionId[$this->louveteauxSectionId]['certain_total']);
         $this->assertSame(0, $bySectionId[$this->louveteauxSectionId]['hypothesis_total']);
+    }
+
+    /**
+     * Issue #890. An accepted request whose child (same name and birth
+     * date) is ALREADY in the projection — re-imported for the target year,
+     * or a current animé carried forward, or changing branch — is that
+     * child's place, not a second one. The request is `accepted` and not
+     * linked, so nothing else reconciles the two rows: counted twice, the
+     * unit total, the section and the capacity check all read one too many.
+     */
+    public function testAnAcceptedRequestForAChildAlreadyImportedForTheTargetYearCountsOnce(): void
+    {
+        $this->createMember($this->targetYearId, 'Alice', '2016-06-01', $this->louveteauxSectionId, lastName: 'Martin');
+        $this->createRequest('Alice', '2016-06-01', $this->louveteauxSectionId, lastName: 'Martin');
+
+        $forecast = $this->forecast();
+
+        $this->assertSame(1, $forecast['summary']['projected_total'], 'One child, one place.');
+        $this->assertSame(1, $this->sectionTotal($forecast, $this->louveteauxSectionId));
+        $this->assertSame(0, $forecast['summary']['new_registrations_count'], 'The request is the member, not an extra registration.');
+        $this->assertReconciles($forecast);
+    }
+
+    public function testAnAcceptedRequestForAContinuingAnimeCountsOnce(): void
+    {
+        $this->createMember($this->currentYearId, 'Basile', '2017-06-01', $this->louveteauxSectionId, lastName: 'Lambert');
+        $this->createRequest('Basile', '2017-06-01', $this->louveteauxSectionId, lastName: 'Lambert');
+
+        $forecast = $this->forecast();
+
+        $this->assertSame(1, $forecast['summary']['projected_total']);
+        $this->assertSame(1, $this->sectionTotal($forecast, $this->louveteauxSectionId));
+        $this->assertSame(0, $forecast['summary']['new_registrations_count']);
+        $this->assertReconciles($forecast);
+    }
+
+    public function testAnAcceptedRequestForAnAnimeChangingBranchCountsOnce(): void
+    {
+        $sacha = $this->createMember($this->currentYearId, 'Sacha', '2015-06-01', $this->louveteauxSectionId, lastName: 'Renard');
+        $this->transferRepository->setDestination($sacha['member_id'], $this->targetYearId, $this->eclaireursSectionId);
+        $this->createRequest('Sacha', '2015-06-01', null, lastName: 'Renard');
+
+        $forecast = $this->forecast();
+
+        $this->assertSame(1, $forecast['summary']['projected_total']);
+        $this->assertSame(1, $this->sectionTotal($forecast, $this->eclaireursSectionId));
+        $this->assertSame(0, $forecast['unassigned']['total'], 'The request did not add an unassigned child.');
+        $this->assertReconciles($forecast);
+    }
+
+    /**
+     * Same NAME AND BIRTH DATE is the identity, as everywhere else in this
+     * module (R4's duplicate signal, the reconciliation): `Core\Member\
+     * NameDobKey`. Twins share the birth date and not the first name — two
+     * children, two places. Case does not split one child in two.
+     *
+     * A different SPELLING does (an accent dropped, a typo): the shared key
+     * folds case, spacing and particles and nothing more, and the ticket
+     * says in as many words that matching spellings is out of its scope.
+     * Pinned below so that the day the key learns accents, this changes on
+     * purpose — together with the indexes already stored on requests.
+     */
+    public function testTwinsAreTwoChildrenButACaseDifferenceIsOne(): void
+    {
+        $this->createMember($this->currentYearId, 'Élodie', '2017-06-01', $this->louveteauxSectionId, lastName: 'Fontaine');
+
+        $this->createRequest('Élodie', '2017-06-01', $this->louveteauxSectionId, lastName: 'FONTAINE'); // the same child
+        $this->createRequest('Eloïse', '2017-06-01', $this->louveteauxSectionId, lastName: 'Fontaine'); // her twin
+
+        $forecast = $this->forecast();
+
+        $this->assertSame(2, $forecast['summary']['projected_total'], 'Élodie once (member), Eloïse once (request).');
+        $this->assertSame(1, $forecast['summary']['new_registrations_count']);
+        $this->assertReconciles($forecast);
+    }
+
+    public function testADifferentSpellingIsNotMatchedAndStaysTheKnownLimit(): void
+    {
+        $this->createMember($this->currentYearId, 'Élodie', '2017-06-01', $this->louveteauxSectionId, lastName: 'Fontaine');
+        $this->createRequest('Elodie', '2017-06-01', $this->louveteauxSectionId, lastName: 'Fontaine');
+
+        $this->assertSame(2, $this->forecast()['summary']['projected_total']);
     }
 
     public function testLeavingMemberDoesNotAppearInProjection(): void
