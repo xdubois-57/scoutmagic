@@ -30,6 +30,19 @@ Trois points ne dépendent d'aucun module :
   comme le contrat et la facture d'une location, impriment « — » à sa
   place.
 
+## Ce que signale la maintenance
+
+Quatre réglages laissés de côté, avant que quoi que ce soit n'échoue :
+
+- **la sauvegarde automatique désactivée** ;
+- **aucune sauvegarde hors site** : les sauvegardes restent sur le
+  serveur, et partiraient avec lui. Ce point s'affiche dès l'installation ;
+- **les mises à jour automatiques désactivées**, avec la version
+  disponible quand le site en connaît une ;
+- **une version qui ne s'installera pas d'elle-même**, parce qu'elle
+  change plus que le niveau choisi n'accepte (une version majeure sous
+  le niveau « Patch + Mineur », par exemple).
+
 ## Ce que signalent les modules
 
 Un module ne signale rien tant qu'il est désactivé : ses points
