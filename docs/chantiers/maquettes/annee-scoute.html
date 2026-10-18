@@ -237,7 +237,6 @@ code{font-family:var(--mono);font-size:12.5px}
         <div class="field"><label for="setEnc">Date d'encodage Desk</label>
           <input id="setEnc" value="08-15"><div class="help">Jour et mois (MM-JJ). Sépare les phases de la page Année scoute et, à partir de cette date, ferme l'import dans l'année publique : seule l'année suivante reste importable.</div></div>
         <div id="setErr" aria-live="polite"></div>
-        <div><button class="btn primary" type="button" id="setSave">Enregistrer</button></div>
       </div></div>
     </div>
   </section>
@@ -500,7 +499,7 @@ function renderLast(){
   $('#lastImport').innerHTML= LAST[y]?`<b>Dernier import de ${y}</b><div class="small">${LAST[y]} · <a href="#">Voir son rapport</a> · <a href="#">Historique de ${y}</a></div>`
     :`<b>Dernier import de ${y}</b><div class="small muted">Aucun import pour ${y}.</div>`;
 }
-$('#impYear').addEventListener('change',renderLast);
+$('#impYear').addEventListener('change',()=>{$('#impResult').innerHTML='';renderLast()});
 seg('periodSeg','p',v=>{period=v;renderImport()});
 $('#simConfig').addEventListener('change',renderImport);
 $('#importForm').addEventListener('submit',e=>{
@@ -519,14 +518,15 @@ function confirmImport(title,msg,label,ok){
 }
 
 /* ---- settings coherence ---- */
-$('#setSave').addEventListener('click',()=>{
+function saveDates(){
   const re=/^(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$/; const n=$('#setNext').value.trim(), d=$('#setEnc').value.trim();
   let err=null;
   if(!re.test(n)||!re.test(d)) err='Indiquez chaque date au format MM-JJ, par exemple 07-01.';
   else if(n>='09-01'||d>='09-01') err='Les deux dates doivent tomber avant le 1er septembre, dans l\'année scoute qui se termine.';
   else if(n>=d) err=`L'ouverture de l'import pour l'année suivante (${n}) doit précéder la date d'encodage Desk (${d}).`;
-  $('#setErr').innerHTML=err?`<div class="alert danger small">${esc(err)}</div>`:'<div class="alert ok small">Réglages enregistrés.</div>';
-});
+  $('#setErr').innerHTML=err?`<div class="alert danger small">${esc(err)}</div>`:'<div class="alert ok small">Enregistré.</div>';
+}
+['#setNext','#setEnc'].forEach(id=>$(id).addEventListener('change',saveDates));
 
 render();
 })();
