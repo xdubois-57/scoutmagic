@@ -3532,6 +3532,8 @@ The unit's **current state**, recalculated at every consultation, on a permanent
 
 **`groups` and `registration` contribute too** (#718 § C points 6 and 5). `GroupsAttentionProvider` (« Discussions ») counts, per group, the reported items no moderator has answered — `UnsettledReportRepository` reads "answered" the way `ReportService` does: restored (`moderation_cleared`) or deleted (the reports cascade away); hidden by the threshold is not an answer. `RegistrationAttentionProvider` (« Inscriptions ») gives one point for every request `pending` longer than `registration_attention_age_days` (15), shown from `registration_attention_from` (« 01/06 », a day and a month placed in the current scout year) until the scout year ends.
 
+**`social` contributes too** (#718 § C point 3): `SocialAttentionProvider` (« Réseaux sociaux ») raises one point per connected platform whose token has expired (`SocialConnection::isExpired()`) or whose last check was refused (`check_ok = 0`) — what `ConnectionService::check()` used to say in one journal line only. It reads what that check stored and never calls Meta; an unreachable Meta records nothing, so an outage raises no point.
+
 ### 8.80 Members split in two, and merging them back (`Core\Member\Duplicate`)
 
 Somebody leaves, comes back a year later, and is created as a **new person** in Desk instead of having their old record reopened. New `desk_id`, new `members` row — and photos, badges, private documents, section periods, totem and every file scoped by `files.owner_member_id` stay attached to the abandoned identity. The returning member's page is empty and nothing explains why. It is not supposed to happen; it is an ordinary human error, and the damage is silent and delayed.
