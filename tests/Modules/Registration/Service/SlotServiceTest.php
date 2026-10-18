@@ -340,6 +340,54 @@ class SlotServiceTest extends TestCase
     }
 
     /**
+     * Issue #890, the ticket's own « terminé quand »: an accepted request
+     * and the same child (same name and birth date) already in the
+     * projection give `occupied = 1` for their year in the branch — never 2.
+     * The request is accepted and not linked, so nothing reconciles the two
+     * rows but the comparison itself; counted twice, the public level
+     * (Disponible / Limitée / Complet) turns too early, and so do the
+     * recommendation and the automatic acceptance that read the same count.
+     */
+    public function testAnAcceptedRequestForAChildAlreadyInTheProjectionOccupiesExactlyOnePlace(): void
+    {
+        $currentYearId = RegistrationTestHelper::insertScoutYear($this->pdo, '2026-2027', '2026-09-01', '2027-08-31');
+        $targetYearId = RegistrationTestHelper::insertScoutYear($this->pdo, '2027-2028', '2027-09-01', '2028-08-31');
+        $sectionId = $this->createSection('BALA1', $this->baladinsId);
+
+        // Way 1: already in Desk for the target year (born 2021: 1st year).
+        $this->createMemberYear($targetYearId, '2021-03-01', $sectionId, firstName: 'Alice', lastName: 'Martin');
+        $this->acceptRequest($targetYearId, '2021-03-01', 'Alice', 'Martin');
+
+        // Way 2: a current animé projected forward (born 2020: 2nd year next year).
+        $this->createMemberYear($currentYearId, '2020-03-01', $sectionId, firstName: 'Basile', lastName: 'Lambert');
+        $this->acceptRequest($targetYearId, '2020-03-01', 'Basile', 'Lambert');
+
+        $first = $this->breakdownRow($targetYearId, $currentYearId, $this->baladinsId, 1);
+        $second = $this->breakdownRow($targetYearId, $currentYearId, $this->baladinsId, 2);
+
+        $this->assertSame(1, $first['occupied'], 'A child imported for the target year occupies one place.');
+        $this->assertSame(1, $second['occupied'], 'A continuing animé who files a request occupies one place.');
+    }
+
+    /**
+     * The identity is name AND birth date: twins are two children, so a
+     * request for one while the other is in the projection is a second place.
+     */
+    public function testAnAcceptedRequestForATwinOfAProjectedChildOccupiesItsOwnPlace(): void
+    {
+        $currentYearId = RegistrationTestHelper::insertScoutYear($this->pdo, '2026-2027', '2026-09-01', '2027-08-31');
+        $targetYearId = RegistrationTestHelper::insertScoutYear($this->pdo, '2027-2028', '2027-09-01', '2028-08-31');
+        $sectionId = $this->createSection('BALA1', $this->baladinsId);
+
+        $this->createMemberYear($targetYearId, '2021-03-01', $sectionId, firstName: 'Alice', lastName: 'Martin');
+        $this->acceptRequest($targetYearId, '2021-03-01', 'Alix', 'Martin');
+
+        $first = $this->breakdownRow($targetYearId, $currentYearId, $this->baladinsId, 1);
+
+        $this->assertSame(2, $first['occupied']);
+    }
+
+    /**
      * Desk has the final word once it has a target-year row: an encoded
      * child whose row says they are leaving occupies no place, and the
      * request is not brought back in through its birth date.
@@ -576,10 +624,14 @@ class SlotServiceTest extends TestCase
         $this->assertContains($birthYear1, $levels[SlotMath::LEVEL_NO]);
     }
 
-    private function acceptRequest(int $targetYearId, string $birthDate): int
-    {
+    private function acceptRequest(
+        int $targetYearId,
+        string $birthDate,
+        ?string $firstName = null,
+        string $lastName = 'L'
+    ): int {
         $created = $this->requestRepository->create($targetYearId, [
-            'parent_name' => 'P', 'child_last_name' => 'L', 'child_first_name' => 'F' . uniqid(),
+            'parent_name' => 'P', 'child_last_name' => $lastName, 'child_first_name' => $firstName ?? 'F' . uniqid(),
             'gender' => 'F', 'birth_date' => $birthDate, 'street' => 'S', 'number' => '1',
             'postal_code' => '1000', 'city' => 'V', 'email' => uniqid() . '@example.com',
             'phone1' => '000', 'phone2' => null, 'remarks' => null,
@@ -609,7 +661,9 @@ class SlotServiceTest extends TestCase
         ?int $sectionId,
         ?int $memberId = null,
         bool $leaving = false,
-        int $scoutYearOffset = 0
+        int $scoutYearOffset = 0,
+        string $firstName = 'Prénom',
+        string $lastName = 'Nom'
     ): int {
         if ($memberId === null) {
             $memberId = RegistrationTestHelper::insertMember($this->pdo, 'DESK_' . uniqid());
@@ -621,8 +675,8 @@ class SlotServiceTest extends TestCase
         );
         $stmt->execute([
             $memberId, $scoutYearId,
-            $this->encryption->encrypt('Prénom', 'member_years.first_name'),
-            $this->encryption->encrypt('Nom', 'member_years.last_name'),
+            $this->encryption->encrypt($firstName, 'member_years.first_name'),
+            $this->encryption->encrypt($lastName, 'member_years.last_name'),
             $this->encryption->encrypt($birthDate, 'member_years.birth_date'),
             $this->encryption->encrypt('F', 'member_years.gender'),
             $leaving ? 1 : 0,
