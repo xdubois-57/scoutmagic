@@ -39,8 +39,10 @@ désactive.
 Le module Locations signale, pour chaque bien qui n'est pas archivé :
 
 - **l'adresse du bailleur vide** : le contrat et la facture de ce bien
-  imprimeraient « — » à sa place. Il suffit de renseigner le bailleur
-  du bien, celui du module, ou l'adresse postale de l'unité ;
+  imprimeraient « — » à sa place. Si ce bien a son propre bailleur,
+  c'est son adresse à lui qu'il faut renseigner ; sinon, celle du
+  bailleur commun du module, ou à défaut l'adresse postale de l'unité.
+  Le point dit lequel des trois manque ;
 - **une conformité déjà expirée** dans le registre du bien, avec la date
   d'expiration. Avant cette date, c'est le rappel du registre qui
   prévient, pas cette page.

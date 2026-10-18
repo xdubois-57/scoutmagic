@@ -98,6 +98,43 @@ class RentalAttentionProviderTest extends TestCase
         $this->assertSame([], $this->pointsTitled('bailleur'));
     }
 
+    /**
+     * `Landlord` takes a level whole once its name is written, so the unit's
+     * address never completes an asset landlord that has a name and no
+     * address: the point says to fill THAT address, not the unit's.
+     */
+    public function testANamedAssetLandlordWithoutAddressAsksForItsAddressNotTheUnits(): void
+    {
+        $id = $this->asset('Prairie', 'prairie');
+        $this->assets->saveLandlord($id, 'ASBL Les Amis', null, null);
+        $this->settings->set(UnitAddresses::POSTAL_ADDRESS, 'Rue du Camp 1');
+
+        $points = $this->pointsTitled('bailleur');
+
+        $this->assertCount(1, $points, 'the unit address does not fill an asset landlord that has a name');
+        $this->assertStringContainsString('propre bailleur, sans adresse', $points[0]->why);
+        $this->assertStringNotContainsString("l'adresse postale de l'unité", $points[0]->why);
+    }
+
+    public function testANamedModuleLandlordWithoutAddressAsksForTheModulesAddress(): void
+    {
+        $this->asset('Local', 'local');
+        $this->settings->set('landlord_name', 'ASBL Les Amis', 'rental');
+        $this->settings->set(UnitAddresses::POSTAL_ADDRESS, 'Rue du Camp 1');
+
+        $points = $this->pointsTitled('bailleur');
+
+        $this->assertCount(1, $points);
+        $this->assertStringContainsString('commun à toutes les locations', $points[0]->why);
+    }
+
+    public function testWithNoLandlordAnywhereThePointNamesTheUnitAddress(): void
+    {
+        $this->asset('Local', 'local');
+
+        $this->assertStringContainsString("l'adresse postale de l'unité", $this->pointsTitled('bailleur')[0]->why);
+    }
+
     public function testOnePointPerAssetConcerned(): void
     {
         $this->asset('Local', 'local');

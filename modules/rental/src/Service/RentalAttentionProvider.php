@@ -72,14 +72,14 @@ class RentalAttentionProvider implements AttentionPointProvider
     {
         $points = [];
         foreach ($assets as $asset) {
-            if (Landlord::forAsset($this->settingService, $asset)->address !== null) {
+            $landlord = Landlord::forAsset($this->settingService, $asset);
+            if ($landlord->address !== null) {
                 continue;
             }
             $points[] = new AttentionPoint(
                 title: "L'adresse du bailleur de « " . $asset->name . ' » est vide',
-                why: 'Le contrat et la facture de ce bien imprimeront « — » à sa place. Renseignez le bailleur '
-                    . "de ce bien, ou demandez à un administrateur de renseigner l'adresse postale de l'unité "
-                    . 'dans les paramètres du site.',
+                why: 'Le contrat et la facture de ce bien imprimeront « — » à sa place. '
+                    . self::landlordRemedy($landlord->source),
                 actionLabel: 'Renseigner le bailleur',
                 actionUrl: '/mes-locations/' . rawurlencode($asset->slug) . '/reglages',
                 severity: AttentionPoint::SEVERITY_URGENT
@@ -87,6 +87,27 @@ class RentalAttentionProvider implements AttentionPointProvider
         }
 
         return $points;
+    }
+
+    /**
+     * What will actually fill the address, which depends on the level the
+     * landlord was resolved at: `Landlord` takes a level whole as soon as
+     * its name OR its address is written, so a level holding a name and no
+     * address is never completed by the level below it. Telling the
+     * manager of an asset whose own landlord is named to fill the unit's
+     * address would leave this point standing with no reason given.
+     */
+    private static function landlordRemedy(string $source): string
+    {
+        return match ($source) {
+            Landlord::SOURCE_ASSET => 'Ce bien a son propre bailleur, sans adresse : renseignez-la dans les '
+                . 'réglages du bien.',
+            Landlord::SOURCE_MODULE => 'Le bailleur commun à toutes les locations a un nom mais pas '
+                . "d'adresse : demandez à un administrateur de la renseigner dans Configuration › Paramètres, "
+                . 'section Locations, ou donnez à ce bien un bailleur propre.',
+            default => 'Renseignez le bailleur de ce bien, ou demandez à un administrateur de renseigner '
+                . "l'adresse postale de l'unité dans les paramètres du site.",
+        };
     }
 
     /**
