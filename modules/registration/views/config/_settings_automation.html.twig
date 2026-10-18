@@ -5,13 +5,10 @@
 {# « Décisions automatiques » (issue #843, D7/D11): the first bordered
    sub-box of « Capacités par branche », with its own « Enregistrer »
    (Controller\RegistrationAutomationSettingsController, rules in
-   Service\AutomaticDecisionEmailService). The switch cannot be turned on
-   while the acceptance or the refusal template is « À rédiger » — it is
-   then disabled, unless it is already on, since switching off is always
-   allowed. Then « Accepter automatiquement les demandes « Oui » » and its
-   date of effect (IT-10, rules in Service\AutomaticAcceptancePolicy),
-   saved by the same button: it can be on only with waitlists managed, the
-   automatic sending on and the acceptance template written — disabled
+   Service\AutomaticDecisionEmailService). Then « Accepter automatiquement
+   les demandes « Oui » » and its date of effect (IT-10, rules in
+   Service\AutomaticAcceptancePolicy), saved by the same button: it can be
+   on only with waitlists managed and the automatic sending on — disabled
    otherwise, with the reason; public/assets/js/
    registration-automation-settings.js keeps it in step with the two
    switches without a reload. Requires `automation`
@@ -20,8 +17,7 @@
 <form method="post" action="/config/inscriptions/decisions-automatiques"
       class="border rounded-3 p-3 mb-3 bg-body-tertiary" id="registration-decision-automation"
       data-decision-automation
-      data-waitlist-enabled="{{ acceptance.waitlist_enabled ? '1' : '0' }}"
-      data-acceptance-template-ready="{{ acceptance.template_ready ? '1' : '0' }}">
+      data-waitlist-enabled="{{ acceptance.waitlist_enabled ? '1' : '0' }}">
     {{ csrf_field()|raw }}
     <h3 class="h6 mb-2">Décisions automatiques</h3>
 
@@ -31,22 +27,12 @@
                id="registration-auto-send" name="auto_send" value="1"
                data-auto-send-switch
                aria-describedby="registration-auto-send-help"
-               {{ automation.enabled ? 'checked' : '' }}
-               {{ automation.can_enable ? '' : 'disabled' }}>
+               {{ automation.enabled ? 'checked' : '' }}>
         <label class="form-check-label" for="registration-auto-send">Envoyer automatiquement les e-mails de décision</label>
         <span class="form-text d-block" id="registration-auto-send-help">
-            {% if automation.templates_ready %}
-                L'e-mail d'acceptation ou de refus part après le délai ci-dessous, ce qui laisse le temps de corriger
-                une erreur. Seules les décisions prises après l'activation sont concernées ; la désactiver n'annule
-                pas les e-mails déjà planifiés.
-            {% elseif automation.enabled %}
-                Les gabarits d'acceptation et de refus ne sont plus tous rédigés : tant qu'il en manque un, les
-                décisions de ce type ne sont pas planifiées et leurs e-mails déjà prévus échoueront (voir
-                <a href="/config/inscriptions/gabarits">Gabarits</a>).
-            {% else %}
-                Indisponible : les gabarits d'acceptation et de refus ne sont pas encore rédigés (voir
-                <a href="/config/inscriptions/gabarits">Gabarits</a>).
-            {% endif %}
+            L'e-mail d'acceptation ou de refus part après le délai ci-dessous, ce qui laisse le temps de corriger
+            une erreur. Seules les décisions prises après l'activation sont concernées ; la désactiver n'annule
+            pas les e-mails déjà planifiés.
         </span>
     </div>
 
@@ -83,10 +69,6 @@
             <span data-auto-accept-help="auto_send" {{ acceptance.missing == 'auto_send' ? '' : 'hidden' }}>
                 Indisponible : activez d'abord l'envoi automatique des e-mails de décision, sans quoi la famille
                 resterait sans réponse.
-            </span>
-            <span data-auto-accept-help="template" {{ acceptance.missing == 'template' ? '' : 'hidden' }}>
-                Indisponible : le gabarit d'acceptation n'est pas rédigé (voir
-                <a href="/config/inscriptions/gabarits">Gabarits</a>).
             </span>
             <span data-auto-accept-help="ready" {{ acceptance.missing is null ? '' : 'hidden' }}>
                 Le site accepte lui-même, chaque heure, les demandes recommandées « Oui », dans l'ordre de priorité,

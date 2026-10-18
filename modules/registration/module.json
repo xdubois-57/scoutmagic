@@ -982,6 +982,14 @@
       "description": "Nombre d'années après le passage d'une demande dans son état final (encodée dans Desk, refusée ou retirée) avant sa suppression définitive et irréversible. Une demande non finalisée n'est jamais supprimée."
     },
     {
+      "key": "registration_tracking_link_validity_months",
+      "default_value": "18",
+      "type": "number",
+      "label": "Durée de validité du lien de suivi (mois)",
+      "description": "Durée calculée depuis le dépôt de chaque demande ; ne modifie pas les demandes déjà déposées. Nombre entier de mois, de 1 à 120 (18 par défaut) : passé ce délai, le lien de suivi envoyé à la famille ne donne plus accès à la page publique de la demande.",
+      "validation_regex": "^([1-9]|[1-9][0-9]|1[01][0-9]|120)$"
+    },
+    {
       "key": "registration_reenrollment_open_at",
       "default_value": "03-01",
       "type": "text",

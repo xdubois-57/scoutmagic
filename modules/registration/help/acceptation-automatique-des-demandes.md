@@ -23,10 +23,10 @@ les demandes « Oui » » et la date « À partir du ». Cochez-le, choisissez
 la date, puis « Enregistrer ».
 
 **Il reste grisé tant qu'il lui manque quelque chose** : la case « Gérer
-les listes d'attente » (sans elle, aucune recommandation), l'envoi
+les listes d'attente » (sans elle, aucune recommandation) et l'envoi
 automatique des e-mails de décision (sans lui, la famille acceptée
-resterait sans réponse) et un gabarit d'acceptation rédigé. La phrase
-sous l'interrupteur dit ce qui manque. Décocher « Gérer les listes
+resterait sans réponse). La phrase sous l'interrupteur dit ce qui
+manque. Décocher « Gérer les listes
 d'attente » désactive aussi l'acceptation automatique ; il faut la
 réactiver ensuite.
 

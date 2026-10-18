@@ -79,13 +79,6 @@ class AutomaticAcceptanceServiceOnMysqlTest extends TestCase
         $capacities->upsert($this->louveteauxId, 1, 15);
         $capacities->upsert($this->louveteauxId, 2, 15);
 
-        // Written straight into the table: on this schema `modified_by`
-        // references a real account, which nothing here needs.
-        $content = $this->pdo->prepare(
-            "INSERT INTO editable_contents (content_key, content_type, content_value) VALUES (?, 'rich_text', ?)"
-        );
-        $content->execute(['registration_email_accepted_body', '<p>Bienvenue</p>']);
-        $content->execute(['registration_email_refused_body', '<p>Désolés.</p>']);
         RegistrationTestHelper::enableAutomaticDecisionEmails($settings, 24);
         RegistrationTestHelper::enableAutomaticAcceptance($settings, '2026-09-01');
     }
@@ -271,7 +264,6 @@ class AutomaticAcceptanceServiceOnMysqlTest extends TestCase
             $session,
             $this->encryption,
             $this->settings($session),
-            $this->createStub(MailService::class),
             $hook
         );
     }

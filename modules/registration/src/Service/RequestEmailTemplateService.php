@@ -16,16 +16,19 @@ use Core\View\EditableContentService;
 
 /**
  * The four e-mails of the request flow and their bodies (issue #843, D10):
- * the acknowledgement of receipt and the alert to the unit, which ship with
- * a default body, and the acceptance and the refusal, which do not.
+ * the acknowledgement of receipt, the acceptance and the refusal, which go
+ * to the family, and the alert to the unit. All four ship with a default
+ * body, so none is ever « à rédiger » and no automation waits on a text
+ * nobody wrote (issue #932).
  *
- * **The one definition of « À rédiger ».** {@see isToWrite()} is what the
- * « Gabarits » page shows as a template's state AND what
- * {@see RequestEmailService} refuses to send without — the guard that
- * makes an automation unable to claim it sent a decision it could not
- * write. Two readings of "is this body written?" would let the page say
- * « Personnalisé » over a body the sender still considers empty, or the
- * reverse; there is one, here.
+ * **The three family templates must carry `{{ lien_suivi }}`** (issue
+ * #932): the family's one tracking link is the only way back to its request,
+ * and an e-mail without it leaves the family with nothing. {@see save()}
+ * refuses a body that lacks it, and {@see hasTrackingLink()} is the same test
+ * {@see RequestEmailService} and {@see RegistrationService} make again
+ * before sending, for a body stored by other means. The unit alert is the
+ * exception that confirms the rule: it carries `{{ lien_fiche }}` and must
+ * never receive the family's secret.
  *
  * Bodies live in `editable_contents` under their historical keys, written
  * through {@see EditableContentService}, which sanitises every value before
@@ -46,15 +49,20 @@ final class RequestEmailTemplateService
     public const KEY_ACCEPTED = 'registration_email_accepted_body';
     public const KEY_REFUSED = 'registration_email_refused_body';
 
+    /** The family's tracking link, required in the three templates that go to a family. */
+    public const TRACKING_LINK_VARIABLE = 'lien_suivi';
+
+    public const MISSING_LINK_MESSAGE = "Ce texte doit contenir le lien de suivi : sans lui, la famille n'a aucun "
+        . "moyen de retrouver sa demande. Ajoutez la variable {{ lien_suivi }} (« Insérer un champ », ou tapez-la "
+        . "telle quelle) à l'endroit voulu, ou utilisez « Rétablir le texte par défaut ». Rien n'a été enregistré.";
+
     public const STATE_DEFAULT = 'default';
     public const STATE_CUSTOM = 'custom';
-    public const STATE_TO_WRITE = 'to_write';
 
     /** The French label of each state, as the page and its badge print it. */
     public const STATE_LABELS = [
         self::STATE_DEFAULT => 'Par défaut',
         self::STATE_CUSTOM => 'Personnalisé',
-        self::STATE_TO_WRITE => 'À rédiger',
     ];
 
     /** @var list<RequestEmailTemplate>|null */
@@ -102,33 +110,18 @@ final class RequestEmailTemplateService
 
     /**
      * The body this e-mail goes out with: the unit's own when it wrote
-     * one, the shipped default otherwise — or null when there is neither,
-     * which is exactly « À rédiger ».
+     * one, the shipped default otherwise — every template has one.
      */
-    public function bodyFor(string $key): ?string
+    public function bodyFor(string $key): string
     {
         return $this->customBody($key) ?? $this->findByKey($key)->defaultBody;
     }
 
-    /**
-     * **The single definition of « À rédiger »**: nothing would go out.
-     * See the class docblock.
-     */
-    public function isToWrite(string $key): bool
-    {
-        return $this->bodyFor($key) === null;
-    }
-
     public function stateOf(string $key): string
     {
-        if ($this->isToWrite($key)) {
-            return self::STATE_TO_WRITE;
-        }
-
         $template = $this->findByKey($key);
         $custom = $this->customBody($key);
-        $isDefaultAgain = $template->defaultBody !== null && $custom !== null
-            && self::isSameText($custom, $template->defaultBody);
+        $isDefaultAgain = $custom !== null && self::isSameText($custom, $template->defaultBody);
         if ($custom === null || $isDefaultAgain) {
             return self::STATE_DEFAULT;
         }
@@ -147,7 +140,8 @@ final class RequestEmailTemplateService
      * stored either: the row is removed, and the template follows the
      * default from then on.
      *
-     * @throws RegistrationException for a body with no text in it
+     * @throws RegistrationException for a body with no text in it, or — on
+     *         a family template — without a `{{ lien_suivi }}`
      */
     public function save(string $key, string $html, int $modifiedBy): void
     {
@@ -157,13 +151,15 @@ final class RequestEmailTemplateService
         if (self::isBlank($body)) {
             throw new RegistrationException(
                 'Le texte de l\'e-mail ne peut pas être vide.'
-                . ($template->hasDefault()
-                    ? ' Pour revenir au texte par défaut, utilisez « Rétablir le texte par défaut ».'
-                    : '')
+                . ' Pour revenir au texte par défaut, utilisez « Rétablir le texte par défaut ».'
             );
         }
 
-        if ($template->defaultBody !== null && self::isSameText($body, $template->defaultBody)) {
+        if ($template->requiresTrackingLink() && !self::hasTrackingLink($body)) {
+            throw new RegistrationException(self::MISSING_LINK_MESSAGE);
+        }
+
+        if (self::isSameText($body, $template->defaultBody)) {
             $this->editableContentService->delete($key);
 
             return;
@@ -174,18 +170,34 @@ final class RequestEmailTemplateService
 
     /**
      * Gives a template its shipped default back, by forgetting the unit's
-     * own body.
-     *
-     * @throws RegistrationException for a template that has no default —
-     *         the acceptance and the refusal must be written
+     * own body. Every default of a family template carries the tracking
+     * link, so this always leaves a working one.
      */
     public function restoreDefault(string $key): void
     {
-        if (!$this->findByKey($key)->hasDefault()) {
-            throw new RegistrationException('Cet e-mail n\'a pas de texte par défaut : il doit être rédigé.');
+        $this->findByKey($key);
+        $this->editableContentService->delete($key);
+    }
+
+    /**
+     * Whether $html uses `{{ lien_suivi }}` the way substitution reads it:
+     * any spacing, percent-encoded when it sits in a link (the sanitiser
+     * encodes URL attributes), or split by inline markup the editor dropped
+     * inside it. Exactly the repairs substitute() makes, so a body that
+     * passes here is a body whose link is replaced on the way out.
+     */
+    public static function hasTrackingLink(string $html): bool
+    {
+        $engine = self::engine();
+        $html = $engine->repairTokensSplitByMarkup($engine->decodeEncodedTokens($html));
+
+        foreach ($engine->rawTokenNames($html) as $name) {
+            if (trim($name) === self::TRACKING_LINK_VARIABLE) {
+                return true;
+            }
         }
 
-        $this->editableContentService->delete($key);
+        return false;
     }
 
     /**
@@ -336,7 +348,12 @@ final class RequestEmailTemplateService
                 slug: 'acceptation',
                 name: 'Acceptation de la demande',
                 description: 'Envoyé à la famille quand la demande est acceptée.',
-                defaultBody: null,
+                defaultBody: '<p>Bonjour,</p>'
+                    . '<p>Votre demande d\'inscription pour {{ prenom_enfant }}, pour l\'année scoute '
+                    . '{{ annee_scoute }}, a été acceptée.</p>'
+                    . '<p>Vous pouvez consulter le suivi de cette demande à l\'aide de ce lien, tant qu\'il est '
+                    . 'valide : <a href="{{ lien_suivi }}">{{ lien_suivi }}</a>.</p>'
+                    . '<p>Bien cordialement,<br>{{ nom_unite }}</p>',
                 variables: $familyVariables
             ),
             new RequestEmailTemplate(
@@ -344,7 +361,12 @@ final class RequestEmailTemplateService
                 slug: 'refus',
                 name: 'Refus de la demande',
                 description: 'Envoyé à la famille quand la demande est refusée.',
-                defaultBody: null,
+                defaultBody: '<p>Bonjour,</p>'
+                    . '<p>Nous sommes au regret de vous informer que votre demande d\'inscription pour '
+                    . '{{ prenom_enfant }}, pour l\'année scoute {{ annee_scoute }}, n\'a pas été retenue.</p>'
+                    . '<p>Vous pouvez consulter le suivi de cette demande à l\'aide de ce lien, tant qu\'il est '
+                    . 'valide : <a href="{{ lien_suivi }}">{{ lien_suivi }}</a>.</p>'
+                    . '<p>Bien cordialement,<br>{{ nom_unite }}</p>',
                 variables: $familyVariables
             ),
         ];

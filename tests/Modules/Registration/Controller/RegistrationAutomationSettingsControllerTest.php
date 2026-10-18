@@ -13,20 +13,15 @@ use Core\Http\Response;
 use Core\Http\Router;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
-use Core\Mail\MailService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Security\EncryptionService;
-use Core\View\EditableContentRepository;
-use Core\View\EditableContentService;
 use Core\View\TwigFactory;
 use Modules\Registration\Controller\RegistrationAutomationSettingsController;
 use Modules\Registration\Repository\DecisionEmailRepository;
-use Modules\Registration\Repository\RegistrationRequestRepository;
 use Modules\Registration\Service\AutomaticAcceptancePolicy;
 use Modules\Registration\Service\AutomaticDecisionEmailService;
 use Modules\Registration\Service\DecisionEmailService;
-use Modules\Registration\Service\RequestEmailService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Registration\RegistrationTestHelper;
@@ -38,8 +33,8 @@ use Twig\Environment;
  * automatiques » sub-box of « Capacités par branche » (chantier #843, D7 /
  * IT-09), through the module manifest's own router and the real front
  * controller: the role boundary as declared (admin allowed, chief
- * refused), the CSRF guard, and every refusal of the save — the switch on
- * while a decision template is « À rédiger », an invalid delay — saving
+ * refused), the CSRF guard, and every refusal of the save — an invalid
+ * delay, an automatic acceptance without its prerequisites — saving
  * nothing.
  */
 #[\PHPUnit\Framework\Attributes\Group('database')]
@@ -49,7 +44,6 @@ class RegistrationAutomationSettingsControllerTest extends TestCase
 
     private \PDO $pdo;
     private SettingService $settingService;
-    private EditableContentService $content;
     private Environment $twig;
     private RegistrationAutomationSettingsController $controller;
 
@@ -65,19 +59,9 @@ class RegistrationAutomationSettingsControllerTest extends TestCase
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $emails = new DecisionEmailRepository($this->pdo);
         $decisionEmails = new DecisionEmailService($emails, $journal);
-        $this->content = new EditableContentService(new EditableContentRepository($this->pdo));
         $this->twig = TwigFactory::create(dirname(__DIR__, 4) . '/core/View/templates', false);
         $automaticEmails = new AutomaticDecisionEmailService(
             $this->settingService,
-            new RequestEmailService(
-                new RegistrationRequestRepository($this->pdo, $encryption, null, $emails),
-                $this->createStub(MailService::class),
-                $this->content,
-                $journal,
-                'https://example.com',
-                'Unité Test',
-                $decisionEmails
-            ),
             $decisionEmails
         );
         $slotService = RegistrationTestHelper::slotService($this->pdo, $encryption, $this->settingService);
@@ -102,7 +86,6 @@ class RegistrationAutomationSettingsControllerTest extends TestCase
     public function testAdminSwitchesItOnWithADelayOnceBothTemplatesAreWritten(): void
     {
         AuthSession::login(1, 'admin@test.be', 'admin');
-        $this->writeTemplates();
 
         $response = $this->post(['auto_send' => '1', 'delay_hours' => '48']);
 
@@ -128,7 +111,6 @@ class RegistrationAutomationSettingsControllerTest extends TestCase
     public function testOneRoleBelowIsRefused(): void
     {
         AuthSession::login(1, 'chief@test.be', 'chief');
-        $this->writeTemplates();
 
         $response = $this->post(['auto_send' => '1', 'delay_hours' => '12']);
 
@@ -137,27 +119,25 @@ class RegistrationAutomationSettingsControllerTest extends TestCase
         $this->assertSame('24', $this->stored(AutomaticDecisionEmailService::SETTING_DELAY_HOURS));
     }
 
-    /** D7: impossible to switch on while a decision template is « À rédiger ». */
-    public function testSwitchingOnWithoutTheTemplatesIsRefusedAndSavesNothing(): void
+    /**
+     * Issue #932: the decision templates ship with a text, so the sending
+     * switches on on a fresh install — nothing written beforehand.
+     */
+    public function testSwitchingOnNeedsNoTemplateToHaveBeenWritten(): void
     {
         AuthSession::login(1, 'admin@test.be', 'admin');
-        $this->content->set('registration_email_accepted_body', '<p>Bienvenue</p>', 'rich_text', 1);
 
         $response = $this->post(['auto_send' => '1', 'delay_hours' => '12']);
 
         $this->assertRedirectsToSettings($response);
-        $this->assertSame(
-            ['type' => 'error', 'message' => AutomaticDecisionEmailService::MESSAGE_TEMPLATES_MISSING],
-            FlashMessage::get()
-        );
-        $this->assertSame('0', $this->stored(AutomaticDecisionEmailService::SETTING_ENABLED));
-        $this->assertSame('24', $this->stored(AutomaticDecisionEmailService::SETTING_DELAY_HOURS));
+        $this->assertSame('success', FlashMessage::get()['type'] ?? null);
+        $this->assertSame('1', $this->stored(AutomaticDecisionEmailService::SETTING_ENABLED));
+        $this->assertSame('12', $this->stored(AutomaticDecisionEmailService::SETTING_DELAY_HOURS));
     }
 
     public function testAnInvalidDelayIsRefusedAndSavesNothing(): void
     {
         AuthSession::login(1, 'admin@test.be', 'admin');
-        $this->writeTemplates();
 
         $response = $this->post(['auto_send' => '1', 'delay_hours' => '0']);
 
@@ -185,7 +165,6 @@ class RegistrationAutomationSettingsControllerTest extends TestCase
     public function testAMissingTokenSavesNothing(): void
     {
         AuthSession::login(1, 'admin@test.be', 'admin');
-        $this->writeTemplates();
 
         $response = $this->post(['auto_send' => '1', 'delay_hours' => '12'], withToken: false);
 
@@ -202,7 +181,6 @@ class RegistrationAutomationSettingsControllerTest extends TestCase
     public function testAdminSwitchesTheAutomaticAcceptanceOnWithTheSendingAndADate(): void
     {
         AuthSession::login(1, 'admin@test.be', 'admin');
-        $this->writeTemplates();
 
         $response = $this->post([
             'auto_send' => '1', 'delay_hours' => '24', 'auto_accept' => '1', 'auto_accept_from' => '2026-10-15',
@@ -236,7 +214,6 @@ class RegistrationAutomationSettingsControllerTest extends TestCase
     public function testOneRoleBelowCannotSwitchTheAutomaticAcceptanceOn(): void
     {
         AuthSession::login(1, 'chief@test.be', 'chief');
-        $this->writeTemplates();
         RegistrationTestHelper::enableAutomaticDecisionEmails($this->settingService, 24);
 
         $response = $this->post([
@@ -258,19 +235,10 @@ class RegistrationAutomationSettingsControllerTest extends TestCase
     public function testTheAutomaticAcceptanceIsRefusedWithoutItsPrerequisites(
         array $body,
         bool $waitlist,
-        bool $acceptanceTemplate,
         string $message
     ): void {
         AuthSession::login(1, 'admin@test.be', 'admin');
         $this->settingService->set('registration_waitlist_enabled', $waitlist ? '1' : '0', 'registration');
-        if ($acceptanceTemplate) {
-            $this->writeTemplates();
-        } else {
-            // The sending already on, kept on, while the acceptance
-            // template has been emptied since.
-            $this->content->set('registration_email_refused_body', '<p>Désolés</p>', 'rich_text', 1);
-            RegistrationTestHelper::enableAutomaticDecisionEmails($this->settingService, 24);
-        }
 
         $response = $this->post($body + ['delay_hours' => '36']);
 
@@ -282,30 +250,26 @@ class RegistrationAutomationSettingsControllerTest extends TestCase
     }
 
     /**
-     * @return array<string, array{0: array<string, string>, 1: bool, 2: bool, 3: string}>
+     * @return array<string, array{0: array<string, string>, 1: bool, 2: string}>
      */
     public static function refusedAcceptances(): array
     {
         $on = ['auto_send' => '1', 'auto_accept' => '1', 'auto_accept_from' => '2026-10-15'];
 
         return [
-            'waitlists not managed' => [$on, false, true, AutomaticAcceptancePolicy::MESSAGE_WAITLIST_REQUIRED],
+            'waitlists not managed' => [$on, false, AutomaticAcceptancePolicy::MESSAGE_WAITLIST_REQUIRED],
             'sending not on' => [
                 ['auto_accept' => '1', 'auto_accept_from' => '2026-10-15'],
                 true,
-                true,
                 AutomaticAcceptancePolicy::MESSAGE_AUTO_SEND_REQUIRED,
             ],
-            'acceptance template emptied' => [$on, true, false, AutomaticAcceptancePolicy::MESSAGE_TEMPLATE_REQUIRED],
             'no date' => [
                 ['auto_send' => '1', 'auto_accept' => '1', 'auto_accept_from' => ''],
-                true,
                 true,
                 AutomaticAcceptancePolicy::MESSAGE_DATE_REQUIRED,
             ],
             'not a date, even switched off' => [
                 ['auto_send' => '1', 'auto_accept_from' => '2026-02-30'],
-                true,
                 true,
                 AutomaticAcceptancePolicy::MESSAGE_DATE_INVALID,
             ],
@@ -316,7 +280,6 @@ class RegistrationAutomationSettingsControllerTest extends TestCase
     public function testAnUncheckedAcceptanceSwitchSwitchesItOff(): void
     {
         AuthSession::login(1, 'admin@test.be', 'admin');
-        $this->writeTemplates();
         RegistrationTestHelper::enableAutomaticDecisionEmails($this->settingService, 24);
         RegistrationTestHelper::enableAutomaticAcceptance($this->settingService, '2026-10-15');
 
@@ -347,11 +310,6 @@ class RegistrationAutomationSettingsControllerTest extends TestCase
         $this->assertSame(0, (int) $count->fetchColumn());
     }
 
-    private function writeTemplates(): void
-    {
-        $this->content->set('registration_email_accepted_body', '<p>Bienvenue</p>', 'rich_text', 1);
-        $this->content->set('registration_email_refused_body', '<p>Désolés</p>', 'rich_text', 1);
-    }
 
     /**
      * @param array<string, string> $body

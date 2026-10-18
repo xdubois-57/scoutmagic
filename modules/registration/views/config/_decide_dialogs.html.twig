@@ -93,31 +93,22 @@
                     {# « Un e-mail va-t-il partir ? » (D8). On its own, at
                        the date shown, while the automatic sending is on
                        (IT-09: `*_auto_send_at`, when it would leave if
-                       decided now); otherwise by hand from the fiche, and
-                       not at all while its template is not written. #}
+                       decided now); otherwise by hand from the fiche. #}
                     <div class="rounded bg-body-tertiary p-3 small text-body-secondary">
-                        {% if not decision.accepted_email_ready and not decision.refused_email_ready %}
-                            Aucun e-mail de décision ne peut partir tant que les gabarits d'acceptation et de refus ne sont pas rédigés (voir <a href="/config/inscriptions/gabarits">Gabarits</a>). D'ici là, la famille voit toujours « en attente ».
-                        {% else %}
-                            <div>
-                                {% if decision.accepted_auto_send_at %}
-                                    Si vous acceptez : l'e-mail d'acceptation partira le {{ decision.accepted_auto_send_at|datetime_fr }}. D'ici là, vous pouvez changer d'avis sans que rien ne soit envoyé.
-                                {% elseif decision.accepted_email_ready %}
-                                    Si vous acceptez : aucun e-mail ne part tout seul, vous l'envoyez depuis la fiche.
-                                {% else %}
-                                    Si vous acceptez : aucun e-mail ne peut partir tant que le gabarit d'acceptation n'est pas rédigé (voir <a href="/config/inscriptions/gabarits">Gabarits</a>). D'ici là, la famille voit toujours « en attente ».
-                                {% endif %}
-                            </div>
-                            <div class="mt-1">
-                                {% if decision.refused_auto_send_at %}
-                                    Si vous refusez : l'e-mail de refus partira le {{ decision.refused_auto_send_at|datetime_fr }}.
-                                {% elseif decision.refused_email_ready %}
-                                    Si vous refusez : aucun e-mail ne part tout seul, vous l'envoyez depuis la fiche.
-                                {% else %}
-                                    Si vous refusez : aucun e-mail ne peut partir tant que le gabarit de refus n'est pas rédigé (voir <a href="/config/inscriptions/gabarits">Gabarits</a>). D'ici là, la famille voit toujours « en attente ».
-                                {% endif %}
-                            </div>
-                        {% endif %}
+                        <div>
+                            {% if decision.accepted_auto_send_at %}
+                                Si vous acceptez : l'e-mail d'acceptation partira le {{ decision.accepted_auto_send_at|datetime_fr }}. D'ici là, vous pouvez changer d'avis sans que rien ne soit envoyé.
+                            {% else %}
+                                Si vous acceptez : aucun e-mail ne part tout seul, vous l'envoyez depuis la fiche.
+                            {% endif %}
+                        </div>
+                        <div class="mt-1">
+                            {% if decision.refused_auto_send_at %}
+                                Si vous refusez : l'e-mail de refus partira le {{ decision.refused_auto_send_at|datetime_fr }}.
+                            {% else %}
+                                Si vous refusez : aucun e-mail ne part tout seul, vous l'envoyez depuis la fiche.
+                            {% endif %}
+                        </div>
                     </div>
                 </form>
             {% endblock %}

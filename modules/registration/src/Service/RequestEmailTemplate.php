@@ -14,8 +14,7 @@ use Core\Template\TokenCatalogue;
  * One of the four e-mails of the request flow, as « Gabarits » lists it
  * (issue #843, D10): where its body is stored, the address segment of its
  * edit page, its name and its French description, the body it ships with
- * — or none, for the two decision e-mails, which a chief must write — and
- * the closed list of `{{ variables }}` its sender substitutes.
+ * and the closed list of `{{ variables }}` its sender substitutes.
  *
  * Built only by {@see RequestEmailTemplateService::all()}: the catalogue
  * is one list, and nothing else decides which e-mails it holds.
@@ -27,13 +26,17 @@ final class RequestEmailTemplate
         public readonly string $slug,
         public readonly string $name,
         public readonly string $description,
-        public readonly ?string $defaultBody,
+        public readonly string $defaultBody,
         public readonly TokenCatalogue $variables
     ) {
     }
 
-    public function hasDefault(): bool
+    /**
+     * Whether this e-mail goes to a family, which is to say whether it
+     * declares `{{ lien_suivi }}` — and so must carry it (issue #932).
+     */
+    public function requiresTrackingLink(): bool
     {
-        return $this->defaultBody !== null;
+        return $this->variables->has(RequestEmailTemplateService::TRACKING_LINK_VARIABLE);
     }
 }

@@ -63,12 +63,10 @@ class RequestDecisionService
     /**
      * What happens to a decision's e-mail once it is taken — the answer
      * confirmation() gives: planned by the automatic sending (« partira le
-     * … »), to send by hand, or impossible while its template is not
-     * written.
+     * … ») or to send by hand.
      */
     private const EMAIL_AUTOMATIC = 'automatic';
     private const EMAIL_BY_HAND = 'by_hand';
-    private const EMAIL_TEMPLATE_MISSING = 'template_missing';
 
     private const MESSAGE_UNKNOWN_DECISION = 'Décision inconnue : choisissez « Accepter » ou « Refuser ».';
 
@@ -76,7 +74,6 @@ class RequestDecisionService
         private RegistrationRequestRepository $requestRepository,
         private RequestStatusService $statusService,
         private RecommendationService $recommendationService,
-        private RequestEmailService $emailService,
         private ScoutYearService $scoutYearService,
         private ScoutYearResolver $scoutYearResolver,
         private JournalService $journalService,
@@ -131,8 +128,6 @@ class RequestDecisionService
      *   decidable: bool,
      *   show_recommendation: bool,
      *   recommendations: array<int, Recommendation>,
-     *   accepted_email_ready: bool,
-     *   refused_email_ready: bool,
      *   accepted_auto_send_at: ?\DateTimeImmutable,
      *   refused_auto_send_at: ?\DateTimeImmutable,
      *   auto_accept: bool,
@@ -153,14 +148,8 @@ class RequestDecisionService
             'decidable' => $decidable,
             'show_recommendation' => $showRecommendation,
             'recommendations' => $recommendations,
-            'accepted_email_ready' => $this->emailService->isAcceptedBodyReady(),
-            'refused_email_ready' => $this->emailService->isRefusedBodyReady(),
-            'accepted_auto_send_at' => $this->automaticEmails->plannedDueAtIfDecidedNow(
-                DecisionEmail::DECISION_ACCEPTED
-            ),
-            'refused_auto_send_at' => $this->automaticEmails->plannedDueAtIfDecidedNow(
-                DecisionEmail::DECISION_REFUSED
-            ),
+            'accepted_auto_send_at' => $this->automaticEmails->plannedDueAtIfDecidedNow(),
+            'refused_auto_send_at' => $this->automaticEmails->plannedDueAtIfDecidedNow(),
             'auto_accept' => $autoAccept,
             'auto_accept_ids' => $from !== null
                 ? AutomaticAcceptancePolicy::acceptableRequestIds($recommendations, $from)
@@ -181,15 +170,6 @@ class RequestDecisionService
         }
 
         return $year['start_date'] >= $this->scoutYearResolver->getCurrentPublicYear()['start_date'];
-    }
-
-    /**
-     * Whether the e-mail of $decision could be sent from the fiche — what the
-     * confirmation after a decision says.
-     */
-    public function isEmailReady(string $decision): bool
-    {
-        return $this->emailService->isBodyReady(self::emailDecision($decision));
     }
 
     /**
@@ -332,8 +312,7 @@ class RequestDecisionService
      * $from the list, the fiche or the bulk refusal: the decision, then
      * whether an e-mail is leaving — on its own at $plannedFor, the due
      * date apply() answered (the latest one, for a bulk refusal), or not:
-     * « Aucun e-mail n'est parti », with where to send it from, or why it
-     * cannot be sent at all (its template is not written).
+     * « Aucun e-mail n'est parti », with where to send it from.
      */
     public function confirmation(
         string $decision,
@@ -354,18 +333,13 @@ class RequestDecisionService
             . ($refused ? 'refusée' : 'acceptée') . ($many ? 's' : '')
             . ($reason !== null ? ' (' . $reason . ')' : '') . '.';
 
-        $email = match ($this->emailOutcome($decision, $plannedFor)) {
+        $email = match ($this->emailOutcome($plannedFor)) {
             self::EMAIL_AUTOMATIC => ($many
                 ? 'Les e-mails ' . ($refused ? 'de refus' : "d'acceptation") . ' partiront vers le '
                 : ($refused ? "L'e-mail de refus partira le " : "L'e-mail d'acceptation partira le "))
                 . DateFilterExtension::datetimeFr($plannedFor)
                 . " ; d'ici là, vous pouvez changer la décision sans que rien ne soit envoyé. "
                 . ($many ? 'Les familles voient' : 'La famille voit') . ' « en attente » jusque-là.',
-            self::EMAIL_TEMPLATE_MISSING => "Aucun e-mail n'est parti : le gabarit "
-                . ($refused ? 'de refus' : "d'acceptation") . " n'est pas encore rédigé (voir Gabarits). "
-                . ($many
-                    ? "Les familles voient « en attente » jusqu'à l'envoi de leur e-mail."
-                    : "La famille voit « en attente » jusqu'à son envoi."),
             default => "Aucun e-mail n'est parti : " . match (true) {
                 $many => 'envoyez chacun depuis la fiche de sa demande. Les familles voient',
                 $from === self::FROM_REQUEST_PAGE
@@ -400,16 +374,11 @@ class RequestDecisionService
 
     /**
      * What becomes of the e-mail of a decision just taken: planned when
-     * apply() answered a due date, else by hand, or nothing at all while
-     * its template is not written.
+     * apply() answered a due date, else by hand.
      */
-    private function emailOutcome(string $decision, ?\DateTimeImmutable $plannedFor): string
+    private function emailOutcome(?\DateTimeImmutable $plannedFor): string
     {
-        return match (true) {
-            $plannedFor !== null => self::EMAIL_AUTOMATIC,
-            $this->isEmailReady($decision) => self::EMAIL_BY_HAND,
-            default => self::EMAIL_TEMPLATE_MISSING,
-        };
+        return $plannedFor !== null ? self::EMAIL_AUTOMATIC : self::EMAIL_BY_HAND;
     }
 
     /**

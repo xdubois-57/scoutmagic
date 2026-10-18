@@ -105,6 +105,8 @@ class RegistrationTestHelper
             status TEXT NOT NULL DEFAULT "pending",
             received_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             tracking_token_hash TEXT NOT NULL,
+            tracking_token_encrypted BLOB,
+            tracking_expires_at TEXT,
             intended_section_id INTEGER,
             fee_category_id INTEGER,
             internal_notes_encrypted BLOB,
@@ -448,9 +450,8 @@ class RegistrationTestHelper
     /**
      * The decision dialog's service (issue #843, IT-04), wired out of real
      * collaborators — the recommendation included, so a page rendered with
-     * it shows what the chief would read. The e-mail service is the
-     * caller's, since a test decides whether its templates are written,
-     * and so may the repository be, for a test that makes a write fail.
+     * it shows what the chief would read. The repository may be the
+     * caller's, for a test that makes a write fail.
      *
      * The automatic sending (IT-09) reads its switch and delay from
      * $settingService — off unless the test switched it on — and plans on
@@ -461,7 +462,6 @@ class RegistrationTestHelper
         \Core\Security\EncryptionService $encryption,
         \Core\Config\SettingService $settingService,
         \Modules\Registration\Service\RequestStatusService $statusService,
-        \Modules\Registration\Service\RequestEmailService $emailService,
         ?\Modules\Registration\Repository\RegistrationRequestRepository $requestRepository = null
     ): \Modules\Registration\Service\RequestDecisionService {
         $journal = new \Core\Journal\JournalService(new \Core\Journal\JournalRepository($pdo));
@@ -474,7 +474,7 @@ class RegistrationTestHelper
         );
 
         $slotService = self::slotService($pdo, $encryption, $settingService);
-        $automaticEmails = self::automaticDecisionEmails($pdo, $settingService, $emailService);
+        $automaticEmails = self::automaticDecisionEmails($pdo, $settingService);
 
         return new \Modules\Registration\Service\RequestDecisionService(
             $requestRepository,
@@ -487,7 +487,6 @@ class RegistrationTestHelper
                 $scoutYearResolver,
                 new \Modules\Registration\Service\PriorityOrderService($settingService)
             ),
-            $emailService,
             $scoutYearService,
             $scoutYearResolver,
             $journal,
@@ -499,10 +498,8 @@ class RegistrationTestHelper
     /**
      * The automatic acceptance of the « Oui » requests (issue #843, IT-10),
      * wired as Task\AutoAcceptRequestsHandler wires it but out of the
-     * test's collaborators — over $pdo (one session), with a transport that
-     * sends nothing, and the recommendation calling $afterRecommendation
-     * (HookedRecommendationService) when given. $content is the caller's
-     * when it changes a template mid-pass: the service caches what it read.
+     * test's collaborators — over $pdo (one session), and the recommendation calling $afterRecommendation
+     * (HookedRecommendationService) when given.
      *
      * @param (\Closure(int, int): void)|null $afterRecommendation
      */
@@ -510,9 +507,7 @@ class RegistrationTestHelper
         \PDO $pdo,
         \Core\Security\EncryptionService $encryption,
         \Core\Config\SettingService $settings,
-        \Core\Mail\MailService $mailService,
-        ?\Closure $afterRecommendation = null,
-        ?\Core\View\EditableContentService $content = null
+        ?\Closure $afterRecommendation = null
     ): \Modules\Registration\Service\AutomaticAcceptanceService {
         $journal = new \Core\Journal\JournalService(new \Core\Journal\JournalRepository($pdo));
         $decisionEmailRepository = new \Modules\Registration\Repository\DecisionEmailRepository($pdo);
@@ -523,18 +518,8 @@ class RegistrationTestHelper
             $decisionEmailRepository
         );
         $decisionEmails = new \Modules\Registration\Service\DecisionEmailService($decisionEmailRepository, $journal);
-        $emailService = new \Modules\Registration\Service\RequestEmailService(
-            $requests,
-            $mailService,
-            $content ?? new \Core\View\EditableContentService(new \Core\View\EditableContentRepository($pdo)),
-            $journal,
-            'https://example.com',
-            'Unité Test',
-            $decisionEmails
-        );
         $automaticEmails = new \Modules\Registration\Service\AutomaticDecisionEmailService(
             $settings,
-            $emailService,
             $decisionEmails
         );
         $slots = self::slotService($pdo, $encryption, $settings);
@@ -559,7 +544,6 @@ class RegistrationTestHelper
             $requests,
             new \Modules\Registration\Service\RequestStatusService($requests, $journal),
             $recommendations,
-            $emailService,
             $scoutYears,
             $resolver,
             $journal,
@@ -626,12 +610,10 @@ class RegistrationTestHelper
      */
     public static function automaticDecisionEmails(
         \PDO $pdo,
-        \Core\Config\SettingService $settingService,
-        \Modules\Registration\Service\RequestEmailService $emailService
+        \Core\Config\SettingService $settingService
     ): \Modules\Registration\Service\AutomaticDecisionEmailService {
         return new \Modules\Registration\Service\AutomaticDecisionEmailService(
             $settingService,
-            $emailService,
             new \Modules\Registration\Service\DecisionEmailService(
                 new \Modules\Registration\Repository\DecisionEmailRepository($pdo),
                 new \Core\Journal\JournalService(new \Core\Journal\JournalRepository($pdo))

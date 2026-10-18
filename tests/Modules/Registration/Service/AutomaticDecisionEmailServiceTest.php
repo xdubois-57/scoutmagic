@@ -61,16 +61,7 @@ class AutomaticDecisionEmailServiceTest extends TestCase
         $this->requests = new RegistrationRequestRepository($this->pdo, $encryption, null, $repository);
         $this->content = new EditableContentService(new EditableContentRepository($this->pdo));
         $this->decisionEmails = new DecisionEmailService($repository, $journal);
-        $emailService = new RequestEmailService(
-            $this->requests,
-            $this->createStub(MailService::class),
-            $this->content,
-            $journal,
-            'https://example.com',
-            'Unité Test',
-            $this->decisionEmails
-        );
-        $this->service = new AutomaticDecisionEmailService($this->settings, $emailService, $this->decisionEmails);
+        $this->service = new AutomaticDecisionEmailService($this->settings, $this->decisionEmails);
         $this->yearId = RegistrationTestHelper::insertScoutYear($this->pdo, '2027-2028', '2027-09-01', '2028-08-31');
     }
 
@@ -95,8 +86,7 @@ class AutomaticDecisionEmailServiceTest extends TestCase
         $this->assertFalse($this->service->isEnabled());
         $this->assertSame(24, $this->service->delayHours());
         $this->assertSame(
-            ['enabled' => false, 'delay_hours' => 24, 'templates_ready' => false, 'can_enable' => false,
-                'min_delay' => 1, 'max_delay' => 720],
+            ['enabled' => false, 'delay_hours' => 24, 'min_delay' => 1, 'max_delay' => 720],
             $this->service->boxState()
         );
 
@@ -112,47 +102,21 @@ class AutomaticDecisionEmailServiceTest extends TestCase
     }
 
     /**
-     * D7: impossible to switch on while the acceptance or the refusal
-     * template is « À rédiger » — the one definition of IT-07, an emptied
-     * paragraph included — and nothing is saved, the delay neither.
+     * Issue #932: the acceptance and the refusal ship with a text, so a
+     * fresh install — nothing written — switches the automatic sending on,
+     * and both decisions are planned.
      */
-    public function testSwitchingOnIsRefusedWhileADecisionTemplateIsToWrite(): void
+    public function testSwitchingOnNeedsNoTemplateToHaveBeenWritten(): void
     {
-        $this->content->set('registration_email_accepted_body', '<p>Bienvenue</p>', 'rich_text', 1);
-        $this->content->set('registration_email_refused_body', '<p>&nbsp;</p>', 'rich_text', 1);
-
-        try {
-            $this->save(true, '12');
-            $this->fail('Switching on without the refusal template must be refused.');
-        } catch (RegistrationException $e) {
-            $this->assertSame(AutomaticDecisionEmailService::MESSAGE_TEMPLATES_MISSING, $e->getMessage());
-        }
-
-        $this->assertFalse($this->service->isEnabled());
-        $this->assertSame(24, $this->service->delayHours());
-    }
-
-    /**
-     * Switching ON is what the templates condition: an active switch whose
-     * template went missing since may still be saved — to change its delay
-     * — and nothing is then planned for that decision.
-     */
-    public function testAnActiveSwitchCanBeKeptOnWhenATemplateWentMissingSince(): void
-    {
-        $this->writeTemplates();
-        $this->save(true, '24');
-        $this->content->set('registration_email_refused_body', '<p>&nbsp;</p>', 'rich_text', 1);
-
-        $this->save(true, '48');
+        $this->save(true, '12');
 
         $this->assertTrue($this->service->isEnabled());
-        $this->assertSame(48, $this->service->delayHours());
-        $this->assertNull($this->service->plannedDueAtIfDecidedNow(DecisionEmail::DECISION_REFUSED));
-        $this->assertNotNull($this->service->plannedDueAtIfDecidedNow(DecisionEmail::DECISION_ACCEPTED));
-        $this->assertTrue($this->service->boxState()['can_enable']);
+        $this->assertSame(12, $this->service->delayHours());
+        $this->assertNotNull($this->service->plannedDueAtIfDecidedNow());
+        $this->assertNotNull($this->service->plan($this->acceptedRequest(), DecisionEmail::DECISION_ACCEPTED));
     }
 
-    public function testSwitchingOnWithBothTemplatesSavesTheSwitchAndTheDelayAndSaysWhatLeaves(): void
+    public function testSwitchingOnSavesTheSwitchAndTheDelayAndSaysWhatLeaves(): void
     {
         $this->writeTemplates();
 
@@ -234,8 +198,7 @@ class AutomaticDecisionEmailServiceTest extends TestCase
 
     /**
      * Switching off cancels nothing, and the confirmation warns about the
-     * e-mails already planned — that they still leave, or that they will
-     * fail while a template is missing.
+     * e-mails already planned — that they still leave.
      */
     public function testSwitchingOffWarnsThatThePlannedEmailsStillLeave(): void
     {
@@ -252,14 +215,6 @@ class AutomaticDecisionEmailServiceTest extends TestCase
                 . 'depuis la fiche de la demande. Attention : les 2 e-mails déjà planifiés partiront quand même à '
                 . 'leur échéance ; « Envoyer maintenant », sur leur fiche, les fait partir tout de suite.',
             $message
-        );
-
-        // A template emptied since — the one definition counts an empty
-        // paragraph as « À rédiger ».
-        $this->content->set('registration_email_refused_body', '<p>&nbsp;</p>', 'rich_text', 1);
-        $this->assertStringContainsString(
-            "les 2 e-mails déjà planifiés restent prévus, mais leur envoi échouera tant que les gabarits",
-            $this->save(false, '24')
         );
     }
 
@@ -307,7 +262,6 @@ class AutomaticDecisionEmailServiceTest extends TestCase
         $store = $this->pdo->prepare('UPDATE settings SET setting_value = ? WHERE setting_key = ?');
         $service = fn(): AutomaticDecisionEmailService => new AutomaticDecisionEmailService(
             new SettingService(new SettingRepository($this->pdo)),
-            $this->createStub(RequestEmailService::class),
             $this->decisionEmails
         );
 
@@ -333,8 +287,8 @@ class AutomaticDecisionEmailServiceTest extends TestCase
 
     private function writeTemplates(): void
     {
-        $this->content->set('registration_email_accepted_body', '<p>Bienvenue</p>', 'rich_text', 1);
-        $this->content->set('registration_email_refused_body', '<p>Désolés</p>', 'rich_text', 1);
+        $this->content->set('registration_email_accepted_body', '<p>Bienvenue {{ lien_suivi }}</p>', 'rich_text', 1);
+        $this->content->set('registration_email_refused_body', '<p>Désolés {{ lien_suivi }}</p>', 'rich_text', 1);
     }
 
     private function acceptedRequest(string $firstName = 'Léa'): \Modules\Registration\Repository\RegistrationRequest

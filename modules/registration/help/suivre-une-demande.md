@@ -7,6 +7,7 @@ role_min: public
 discovery: 3
 question: Où en est ma demande d'inscription ?
 question: Que veut dire « En attente d'examen » sur ma demande ?
+question: Pendant combien de temps le lien de suivi fonctionne-t-il ?
 paths: /inscriptions/suivi/demande/*, /inscriptions/suivi/*/*, /inscriptions/suivi/emails/confirm/*
 related: inscrire-un-enfant, se-connecter
 ---
@@ -14,9 +15,16 @@ related: inscrire-un-enfant, se-connecter
 Le lien reçu après l'envoi d'une demande ouvre sa page de suivi. Sans
 connexion, elle reste volontairement minimale : le prénom de l'enfant,
 la date de réception et le statut — rien de plus, pour que le lien ne
-révèle pas vos coordonnées s'il circule. L'e-mail qui annonce la
-décision apporte un nouveau lien : utilisez le plus récent, l'ancien ne
-fonctionne plus.
+révèle pas vos coordonnées s'il circule. C'est toujours le même lien :
+celui de l'e-mail d'accusé de réception est repris tel quel dans
+l'e-mail qui annonce la décision, et ne change pas entre-temps.
+
+Ce lien fonctionne 18 mois à compter du dépôt de la demande (la durée
+peut être réglée autrement par l'unité). Passé ce délai, il affiche
+« introuvable » — comme un lien erroné —, mais la demande n'est pas
+supprimée pour autant : connectée avec l'adresse de la demande, la
+famille la retrouve toujours dans son espace. Un e-mail de décision
+reçu après l'échéance l'indique.
 
 Connectez-vous avec l'adresse utilisée lors de l'inscription pour voir
 la demande complète : la fiche apparaît alors aussi dans votre menu

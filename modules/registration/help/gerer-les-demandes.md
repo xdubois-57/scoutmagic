@@ -38,8 +38,8 @@ attente » rattrape une décision, sauf une demande déjà encodée.
 **La famille ne voit une décision que lorsque son e-mail est parti** :
 accepter sans envoyer l'e-mail la laisse « en attente » à ses yeux.
 Les e-mails s'envoient depuis le bloc « E-mail de décision » de la
-fiche, qui a son propre sujet d'aide, une fois leur texte rédigé dans
-l'onglet « Gabarits ».
+fiche, qui a son propre sujet d'aide ; leur texte, fourni par le site,
+se personnalise dans l'onglet « Gabarits ».
 
 ## La fiche d'une demande
 
