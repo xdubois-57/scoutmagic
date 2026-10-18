@@ -262,8 +262,8 @@ function steps(){
   return [
    {phase:1,key:'departures',title:'Départs de l\'unité',kind:'manual',
     checks: state.campaignOpen&&state.marks.departures?['Campagne rouverte après le marquage']:[],
-    blockMark: state.campaignOpen ? 'La campagne de réinscription 2027-2028 est en cours (fermeture le 15/05). L\'étape pourra être marquée une fois la campagne terminée.' : null,
-    body:`<div class="small">${state.campaignOpen?'<span class="pill block">Campagne en cours</span> ouverte le 01/03/2027, fermeture prévue le 15/05/2027.':'<span class="pill done">Campagne terminée</span> fermée le 15/05/2027 · 61 familles sur 68 ont répondu.'}</div>
+    blockMark: state.campaignOpen ? 'La campagne de réinscription 2027-2028 est en cours (fermeture le 15/08/2027). L\'étape pourra être marquée une fois la campagne terminée.' : null,
+    body:`<div class="small">${state.campaignOpen?'<span class="pill block">Campagne en cours</span> rouverte à la main le 10/07/2027, fermeture prévue le 15/08/2027.':'<span class="pill done">Campagne terminée</span> fermée le 15/05/2027 · 61 familles sur 68 ont répondu.'}</div>
       <div class="small">6 animés annoncés partants. La fin de la campagne ne vaut pas revue : confirmez que les départs ont été relus avec les staffs, même s'il n'y en a aucun.</div>
       <div class="actions">${state.campaignOpen?'<a href="#" class="btn">Gérer la campagne</a><a href="#" class="btn">Voir les départs</a>':'<a href="#" class="btn">Voir les départs</a><a href="#" class="btn">Gérer la campagne</a>'}</div>`},
    {phase:1,key:'passage',title:'Passages de branche',kind:'manual',
@@ -414,8 +414,8 @@ document.addEventListener('click',async e=>{
   }
   const a=e.target.closest('[data-act]'); if(!a) return;
   const act=a.dataset.act; if(a.closest('.modal')&&act!=='prebascule2') closeModal();
-  const ASK={preview:['Prévisualiser 2027-2028 ?','Le site vous montrera 2027-2028, à vous seul et pour cette session. Personne d\'autre n\'est concerné.','Prévisualiser'],
-    unpreview:['Quitter la prévisualisation ?','Le site vous montrera de nouveau l\'année qui vous revient.','Quitter'],
+  const ASK={preview:['Prévisualiser 2027-2028 ?','Le site vous montrera 2027-2028, à vous seul et pour cette session. Personne d\'autre n\'est concerné. Aucun e-mail n\'est envoyé.','Prévisualiser'],
+    unpreview:['Quitter la prévisualisation ?','Le site vous montrera de nouveau l\'année qui vous revient. Aucun e-mail n\'est envoyé.','Quitter'],
     staff:['Activer 2027-2028 pour les staffs ?','Les animateurs et intendants de 2027-2028 verront l\'année préparée. Les familles restent sur 2026-2027. Aucun e-mail n\'est envoyé.','Activer pour les staffs'],
     unstaff:['Désactiver 2027-2028 pour les staffs ?','Les staffs reviennent sur 2026-2027. Aucun e-mail n\'est envoyé.','Désactiver']};
   if(ASK[act]&&!a.dataset.confirmed){const q=ASK[act];
