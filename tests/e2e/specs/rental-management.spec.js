@@ -304,6 +304,17 @@ test.describe('Rentals — running an asset', () => {
         await page.goto(`/mes-locations/${ASSET_SLUG}/reservations`);
 
         await page.getByRole('link', { name: new RegExp(reference) }).first().click();
+        // The URL first, and only then anything on the page (issue #912).
+        // The list being left shows the renter's name too, so « Pierre
+        // Lambert » alone is visible before the click has navigated — and
+        // waitForConfirmReady() below, run against that list, finds
+        // confirm.js armed THERE. The step disc was then clicked on a
+        // reservation page still being parsed, before its own confirm.js
+        // had run: a native submit, a redirect back to the same URL, and no
+        // dialog — the sample the issue quotes, no dialog markup on an
+        // unchanged URL, delegated:true read afterwards on the page that
+        // redirect drew.
+        await expect(page).toHaveURL(new RegExp(`/mes-locations/${ASSET_SLUG}/reservations/\\d+$`));
         await expect(page.getByText('Pierre Lambert').first()).toBeVisible();
 
         // confirm.js must have installed its submit listener before this
