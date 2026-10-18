@@ -14,6 +14,7 @@ use Core\Config\SettingService;
 use Core\Mail\DkimManager;
 use Core\Mail\DnsCheckMemory;
 use Core\Mail\DnsRecordsReading;
+use Core\Mail\DnsSnapshot;
 use Core\Mail\DnsVerifier;
 use Core\Mail\MailIdentity;
 use Core\Mail\Transport\LaneChainRepository;
@@ -35,8 +36,9 @@ use Core\Mail\Transport\MailProviderDirectory;
  * **Only a definite « absent » triggers.** A resolver that could not be
  * asked reads as an empty answer inside {@see DnsVerifier}, which is right
  * for a screen with somebody watching it and wrong at four in the morning:
- * every host is probed first, and a single failed lookup makes the whole
- * reading inconclusive — and leaves the stored one alone. A record the
+ * every host is probed first, once ({@see DnsSnapshot}), and a single failed
+ * lookup makes the whole reading inconclusive — and leaves the stored one
+ * alone. A record the
  * site cannot judge (no DKIM key yet, no DMARC report asked for, an SPF
  * record with no relay to look for) is not missing either.
  *
@@ -96,13 +98,17 @@ final class MailDnsRecordsCheck implements OperationalCheck
             return AlertReading::inconclusive();
         }
 
+        // One lookup per host, shared by the probe and the verdict: two
+        // would let a resolver that answered the probe and failed the check
+        // a moment later turn « could not ask » back into « absent ».
+        $dns = new DnsSnapshot($this->dns);
         foreach (DnsRecordsReading::queriedHosts($identity, $selector, $publicKey !== null) as $host) {
-            if ($this->dns->txtRecordsFor($host) === null) {
+            if ($dns->txtRecordsFor($host) === null) {
                 return AlertReading::inconclusive();
             }
         }
 
-        $records = DnsRecordsReading::take($this->dns, $identity, $selector, $publicKey, $hosts);
+        $records = DnsRecordsReading::take($dns, $identity, $selector, $publicKey, $hosts);
         try {
             // Kept where the Authentification page reads it, so the page
             // and this alert never tell two stories.
@@ -125,8 +131,14 @@ final class MailDnsRecordsCheck implements OperationalCheck
             }
         }
 
+        // An SPF record with no relay to look for in it (« non vérifiable »)
+        // re-arms too: that state means no relay is configured, so nothing
+        // requires a mechanism — and reading it as inconclusive would leave
+        // a site that sends only from its own server unable ever to clear
+        // a DKIM or DMARC alert once fixed. The value says « aucun absent »
+        // rather than « publiés », which it may not be.
         if ($missing === []) {
-            return new AlertReading(false, true, 'publiés', '', '');
+            return new AlertReading(false, true, 'aucun absent', '', '');
         }
 
         $list = self::listOf($missing);

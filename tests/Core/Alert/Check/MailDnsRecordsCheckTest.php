@@ -171,6 +171,45 @@ class MailDnsRecordsCheckTest extends TestCase
         $this->assertSame($before, $this->settings->values[DnsCheckMemory::SETTING_KEY] ?? null);
     }
 
+    /**
+     * The probe and the verdict share one lookup per host: a resolver that
+     * answers once and fails a moment later must not turn into « absent ».
+     */
+    public function testAResolverThatFailsAfterTheProbeCannotProduceAFalseAbsent(): void
+    {
+        $zone = $this->completeZone();
+        $dns = new class ($zone) extends DnsVerifier {
+            /** @var array<string, int> */
+            public array $asked = [];
+
+            /** @param array<string, list<string>|null> $zone */
+            public function __construct(private array $zone)
+            {
+            }
+
+            protected function readTxtRecords(string $host): ?array
+            {
+                $this->asked[$host] = ($this->asked[$host] ?? 0) + 1;
+
+                // Answers the first question about a host, then goes down.
+                return $this->asked[$host] === 1 ? ($this->zone[$host] ?? []) : null;
+            }
+        };
+        $check = new MailDnsRecordsCheck(
+            $this->settings,
+            $dns,
+            $this->dkim,
+            $this->chains,
+            new MailProviderDirectory($this->providers, new ProviderConnections($this->secrets), $this->settings)
+        );
+
+        $reading = $check->read();
+
+        $this->assertFalse($reading->overTrigger);
+        $this->assertTrue($reading->underRearm);
+        $this->assertSame([1], array_values(array_unique($dns->asked)), 'each host asked exactly once');
+    }
+
     /** A record the site has nothing to publish for is not missing. */
     public function testNoDmarcReportAskedForNeedsNoDmarcRecord(): void
     {
