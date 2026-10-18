@@ -73,7 +73,9 @@
                     </span>
                 {% else %}
                     <span class="text-body-secondary">
-                        <a href="/config/stockage/emplacements/{{ location.id }}/modification">Enregistrez
+                        {# This partial is the edit page itself: the link leads to the
+                           OAuth fields above, never back to this same page. #}
+                        <a href="#drive-client-id">Enregistrez
                         d'abord l'identifiant et le secret du client OAuth</a>.
                     </span>
                 {% endif %}

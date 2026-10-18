@@ -2404,6 +2404,18 @@ class StorageConfigControllerTest extends TestCase
         )->getBody();
     }
 
+    /** Without OAuth credentials, the edit page points at its own fields, not at itself. */
+    public function testADriveWithoutCredentialsLeadsToTheOAuthFields(): void
+    {
+        $id = $this->repository->create(StorageLocationType::GoogleDrive, 'Drive à configurer', new GoogleDriveLocationConfig(), null);
+
+        $body = $this->editPage($id);
+
+        $this->assertStringContainsString('id="drive-client-id"', $body);
+        $this->assertStringContainsString('href="#drive-client-id"', $body);
+        $this->assertStringNotContainsString('href="/config/stockage/emplacements/' . $id . '/modification"', $body);
+    }
+
     /** A stale « En erreur » is checked again before the edit page shows it. */
     public function testTheEditPageRefreshesAStaleCheck(): void
     {
