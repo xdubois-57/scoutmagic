@@ -2310,6 +2310,7 @@ class StorageConfigControllerTest extends TestCase
 
         $this->assertStringContainsString('Cette autorisation a pris fin le', $body);
         $this->assertStringNotContainsString("aujourd'hui", $body);
+        $this->assertStringNotContainsString('Cette autorisation prend fin', $body);
     }
 
     /** A check that succeeded after the end is the proof it no longer applies. */

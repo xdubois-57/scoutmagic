@@ -935,7 +935,9 @@ class StorageLocationService
      * (#718 § C point 10.4). Read from the latest check alone, a failure
      * weeks later for an unrelated reason would bring the disproved end
      * back as an urgent « l'autorisation a pris fin ». So the end is dropped
-     * from the stored config the moment it is disproved.
+     * from the stored config the moment it is disproved — and only from the
+     * config the check read: a reconnection saved while the check ran keeps
+     * its new grant and folder.
      */
     private function keepTheProofThatTheGrantOutlivedItsEnd(StorageLocation $location): void
     {
@@ -945,7 +947,7 @@ class StorageLocationService
         }
         $end = DateInput::fromStorage($config->grantExpiresAt, AppClock::zone());
         if ($end !== null && $end <= AppClock::now()) {
-            $this->repository->updateConfig($location->id, $config->withGrantEndDisproved());
+            $this->repository->replaceConfigIfUnchanged($location->id, $config, $config->withGrantEndDisproved());
         }
     }
 

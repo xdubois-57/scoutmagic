@@ -1390,6 +1390,33 @@ class StorageLocationServiceTest extends TestCase
         $this->assertSame(\Core\Storage\Location\DriveGrantExpiry::NONE, \Core\Storage\Location\DriveGrantExpiry::of($after)->state);
     }
 
+    /**
+     * The disproof is built from the config the check read. A reconnection
+     * saved while the check ran — new folder, new grant — must survive it.
+     */
+    public function testAReconnectionDuringTheCheckIsNotOverwritten(): void
+    {
+        $end = \Core\Config\AppClock::now()->modify('-2 days')->format('c');
+        $id = $this->repository->create(
+            StorageLocationType::GoogleDrive,
+            'Photos Drive',
+            new \Core\Storage\Location\Config\GoogleDriveLocationConfig('client-1', 'folder-1', '2026-09-01T00:00:00+00:00', true, $end),
+            (string) json_encode(['client_secret' => 's', 'refresh_token' => 'r', 'account' => 'a@example.org'])
+        );
+        $seen = $this->repository->findById($id)?->config;
+        $this->assertInstanceOf(\Core\Storage\Location\Config\GoogleDriveLocationConfig::class, $seen);
+        $newEnd = \Core\Config\AppClock::now()->modify('+7 days')->format('c');
+        $reconnected = new \Core\Storage\Location\Config\GoogleDriveLocationConfig('client-1', 'folder-2', '2026-10-18T10:00:00+00:00', true, $newEnd);
+        $this->repository->replaceConfigIfUnchanged($id, $seen, $reconnected);
+
+        $this->assertFalse($this->repository->replaceConfigIfUnchanged($id, $seen, $seen->withGrantEndDisproved()));
+
+        $config = $this->repository->findById($id)?->config;
+        $this->assertInstanceOf(\Core\Storage\Location\Config\GoogleDriveLocationConfig::class, $config);
+        $this->assertSame('folder-2', $config->folderId);
+        $this->assertSame($newEnd, $config->grantExpiresAt);
+    }
+
     /** Before its end, a successful check proves nothing yet and the end stays. */
     public function testASuccessfulCheckBeforeTheGrantsEndKeepsTheEnd(): void
     {
