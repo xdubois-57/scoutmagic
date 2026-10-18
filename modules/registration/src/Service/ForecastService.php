@@ -10,6 +10,7 @@ namespace Modules\Registration\Service;
 
 use Core\Import\AgeBranchRepository;
 use Core\Member\MemberYearService;
+use Core\Member\NameDobKey;
 use Core\Member\SectionService;
 use Core\Security\EncryptionService;
 use Modules\Registration\Repository\PassageRosterRepository;
@@ -52,6 +53,16 @@ use Modules\Registration\Repository\PassageRosterRepository;
  * MigrationService) at the exact moment it gets a real linked_member_id —
  * the two statuses are mutually exclusive by construction, so bucket (d)
  * structurally never contains anyone bucket (a) could also contain.
+ *
+ * That guarantee covers an ENCODED request only. An ACCEPTED one, not yet
+ * linked to a member, has no such protection: its child can already be in
+ * (a), (b) or (c) — re-imported by Desk but not matched to the request
+ * (homonyms, twins, a spelling that differs), or a current animé whose
+ * family filed a request anyway. Bucket (d) therefore drops a request whose
+ * child (same name AND first name AND birth date, `Core\Member\NameDobKey`)
+ * is already one of the members above: the member row stays, because it
+ * carries the real section and `scout_year_offset`, and the request is not
+ * a second place (issue #890). Twins differ by first name and stay two.
  *
  * (b) and (c) get a second, defensive dedup on top: a member_id already
  * present in the target year's real member_years rows (bucket (a)) is
@@ -229,6 +240,12 @@ class ForecastService
         $projected = [];
         $agingOut = 0;
 
+        // The Desk row of every member that ENTERS the projection through (a),
+        // (b) or (c), by member id — what bucket (d) compares an accepted
+        // request against (issue #890). Rows only; nothing is decrypted for
+        // this unless there is an accepted request to compare.
+        $memberSourceRows = [];
+
         // (a) Certain — real target-year Desk data.
         $targetMemberIds = [];
         foreach ($this->passageService->getAnimeMemberYears($targetYearId) as $row) {
@@ -249,6 +266,7 @@ class ForecastService
                 continue;
             }
 
+            $memberSourceRows[$memberId] = $row;
             $projected[] = [
                 'member_id' => $memberId,
                 'request_id' => null,
@@ -312,6 +330,7 @@ class ForecastService
                 continue; // last rank — a Service\PassageService::getBranchChanges() candidate instead, see (c)
             }
 
+            $memberSourceRows[$memberId] = $row;
             $projected[] = [
                 'member_id' => $memberId,
                 'request_id' => null,
@@ -332,10 +351,18 @@ class ForecastService
         // (c) Hypothesis — branch changes, placed in their destination (or
         // "non attribués" when none is chosen).
         $branchChanges = $this->passageService->getBranchChanges($currentYearId, $currentYearLabel, $targetYearId);
+        $currentAnimeRowsById = [];
+        foreach ($currentAnimes as $currentAnimeRow) {
+            $currentAnimeRowsById[(int) $currentAnimeRow['member_id']] = $currentAnimeRow;
+        }
         foreach ($branchChanges as $group) {
             foreach ($group['members'] as $member) {
                 if (isset($targetMemberIds[(int) $member['member_id']])) {
                     continue;
+                }
+
+                if (isset($currentAnimeRowsById[(int) $member['member_id']])) {
+                    $memberSourceRows[(int) $member['member_id']] = $currentAnimeRowsById[(int) $member['member_id']];
                 }
 
                 $destinationSectionId = $member['destination_section_id'];
@@ -378,8 +405,23 @@ class ForecastService
             $targetYearLabel,
             $currentYearId
         );
+        $childKeysAlreadyProjected = $newRegistrations !== []
+            ? $this->childKeysOfMembers($memberSourceRows)
+            : [];
+        $countedRegistrations = 0;
         foreach ($newRegistrations as $row) {
             $request = $row['request'];
+
+            // Already one of the members above: that child's place is the
+            // member's, not a second one (issue #890).
+            if (isset($childKeysAlreadyProjected[$this->childKey(
+                $request->childLastName,
+                $request->childFirstName,
+                $request->birthDate
+            )])) {
+                continue;
+            }
+            $countedRegistrations++;
 
             $projected[] = [
                 'member_id' => null,
@@ -405,8 +447,52 @@ class ForecastService
             'rows' => $projected,
             'sections' => $sections,
             'aging_out' => $agingOut,
-            'new_registrations' => count($newRegistrations),
+            'new_registrations' => $countedRegistrations,
         ];
+    }
+
+    /**
+     * The comparison keys of the children behind these Desk rows, as a set.
+     * A row with no birth date has no key and is simply not in it — the
+     * same rule `Repository\ImportedMemberRepository::
+     * findNameDobBlindIndexesForYear()` applies for the reconciliation.
+     *
+     * @param array<int, array<string, mixed>> $memberRows
+     * @return array<string, true>
+     */
+    private function childKeysOfMembers(array $memberRows): array
+    {
+        $keys = [];
+        foreach ($memberRows as $row) {
+            if ($row['birth_date_encrypted'] === null
+                || $row['first_name_encrypted'] === null
+                || $row['last_name_encrypted'] === null
+            ) {
+                continue;
+            }
+
+            $keys[$this->childKey(
+                $this->encryption->decrypt($row['last_name_encrypted'], 'member_years.last_name'),
+                $this->encryption->decrypt($row['first_name_encrypted'], 'member_years.first_name'),
+                $this->encryption->decrypt($row['birth_date_encrypted'], 'member_years.birth_date')
+            )] = true;
+        }
+
+        return $keys;
+    }
+
+    /**
+     * « Is this the same child? » — the blind index of name, first name and
+     * birth date that the reconciliation and the duplicate signal already
+     * use, so the three can never disagree about who is who. Comparison
+     * only; never shown.
+     */
+    private function childKey(string $lastName, string $firstName, string $birthDate): string
+    {
+        return $this->encryption->blindIndex(
+            NameDobKey::normalize($lastName, $firstName, $birthDate),
+            NameDobKey::BLIND_INDEX_CONTEXT
+        );
     }
 
     /**
