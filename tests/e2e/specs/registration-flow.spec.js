@@ -19,7 +19,7 @@
 //      visibleStatus() — a chief deciding on Friday and sending Monday
 //      must not let the parent find out in between). The admin accepts;
 //      the family's page must still say "En attente d'examen", because
-//      this instance has no acceptance-email body written. Only two
+//      the acceptance e-mail has not been sent. Only two
 //      browsers with different privileges can watch both sides disagree
 //      on purpose.
 //   3. The branch hint under the birth-date field is computed client-side
@@ -217,12 +217,12 @@ test('a family registers a child, follows the mailed tracking link, and the admi
     await expect(copyBox.getByLabel('Adresse e-mail en copie')).toHaveValue(UNIT_COPY_EMAIL);
 
     // « Décisions automatiques » (#843, IT-09): off by default, a delay of
-    // 24 hours, and the switch locked while the acceptance and refusal
-    // templates are still to write — which they are on a fresh install.
+    // 24 hours, and the switch free from the start — the acceptance and the
+    // refusal ship with a text, so no template is ever « à rédiger ».
     const automationBox = page.locator('form[action="/config/inscriptions/decisions-automatiques"]');
     const autoSend = automationBox.getByRole('checkbox', { name: 'Envoyer automatiquement les e-mails de décision' });
     await expect(autoSend).not.toBeChecked();
-    await expect(autoSend).toBeDisabled();
+    await expect(autoSend).toBeEnabled();
     await expect(automationBox.getByLabel('Délai avant envoi')).toHaveValue('24');
     // Its automatic acceptance of the « Oui » requests (IT-10): off, and
     // locked for as long as the automatic sending is — its date picker
@@ -391,13 +391,11 @@ test('a family registers a child, follows the mailed tracking link, and the admi
         await expect(page.getByText('Acceptée', { exact: true })).toBeVisible();
 
         await expect(page.getByText('visible par la famille comme « en attente »')).toBeVisible();
-        // The « E-mail de décision » block (#843, IT-08): with no acceptance
-        // body written, it says so and offers no button to send anything.
-        await expect(page.getByText('Gabarit à rédiger', { exact: true })).toBeVisible();
-        await expect(
-            page.locator('form[action$="/e-mail/envoyer"]'),
-            'with no acceptance body written, nothing can be sent',
-        ).toHaveCount(0);
+        // The « E-mail de décision » block (#843, IT-08): nothing is planned
+        // and nothing has left, so the acceptance stays to send by hand. It
+        // is never « Gabarit à rédiger » (#932): the shipped text can go.
+        await expect(page.getByText('Non planifié', { exact: true })).toBeVisible();
+        await expect(page.getByText('Gabarit à rédiger', { exact: true })).toHaveCount(0);
 
         await familyPage.goto(trackingUrl, { waitUntil: 'domcontentloaded' });
         await expect(

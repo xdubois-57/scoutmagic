@@ -61,12 +61,11 @@ class DecisionEmailPanelTest extends TestCase
     /**
      * @param array<int, DecisionEmail> $emails
      */
-    private static function build(string $status, array $emails, bool $templateReady = true): ?DecisionEmailPanel
+    private static function build(string $status, array $emails): ?DecisionEmailPanel
     {
         return DecisionEmailPanel::build(
             self::request($status),
             $emails,
-            $templateReady,
             new \DateTimeImmutable(self::NOW)
         );
     }
@@ -103,17 +102,6 @@ class DecisionEmailPanelTest extends TestCase
             DecisionEmail::DECISION_REFUSED,
             self::build(RegistrationRequest::STATUS_REFUSED, [])?->decision
         );
-    }
-
-    public function testAnUnwrittenTemplateWinsOverEverythingButASend(): void
-    {
-        $scheduled = $this->email(DecisionEmail::STATE_SCHEDULED, ['due' => '2026-10-13 09:00:00']);
-
-        $panel = self::build(RegistrationRequest::STATUS_ACCEPTED, [$scheduled], false);
-
-        $this->assertSame(DecisionEmailPanel::STATE_TEMPLATE_MISSING, $panel?->state);
-        $this->assertSame([], $panel->actions);
-        $this->assertCount(1, $panel->history, 'the history is still shown');
     }
 
     public function testAPlannedEmailIsPrevuAtItsDueDate(): void
@@ -203,7 +191,7 @@ class DecisionEmailPanelTest extends TestCase
         $this->assertNull(self::build(RegistrationRequest::STATUS_ACCEPTED, [$sent])?->lastFailedResend);
     }
 
-    public function testNoResendWhileAnotherSendIsInPlayOrWithoutATemplate(): void
+    public function testNoResendWhileAnotherSendIsInPlay(): void
     {
         $sent = $this->email(DecisionEmail::STATE_SENT);
         $resending = $this->email(DecisionEmail::STATE_SENDING, [
@@ -211,10 +199,6 @@ class DecisionEmailPanelTest extends TestCase
         ]);
 
         $this->assertSame([], self::build(RegistrationRequest::STATUS_ACCEPTED, [$sent, $resending])?->actions);
-        $unwritten = self::build(RegistrationRequest::STATUS_ACCEPTED, [$sent], false);
-        $this->assertSame(DecisionEmailPanel::STATE_SENT, $unwritten?->state);
-        $this->assertSame([], $unwritten->actions);
-        $this->assertFalse($unwritten->templateReady);
     }
 
     /**

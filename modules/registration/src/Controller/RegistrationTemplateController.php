@@ -43,8 +43,8 @@ class RegistrationTemplateController extends AbstractController
     }
 
     /**
-     * GET /config/inscriptions/gabarits — the four templates, their state,
-     * and the warning while a decision e-mail cannot leave.
+     * GET /config/inscriptions/gabarits — the four templates and their
+     * state.
      *
      * @param array<string, string> $params
      */
@@ -62,20 +62,14 @@ class RegistrationTemplateController extends AbstractController
             ];
         }
 
-        $decisionTemplatesToWrite = $this->templateService->isToWrite(RequestEmailTemplateService::KEY_ACCEPTED)
-            || $this->templateService->isToWrite(RequestEmailTemplateService::KEY_REFUSED);
-
-        return $this->render('@registration/config/templates.html.twig', [
-            'templates' => $rows,
-            'decision_templates_to_write' => $decisionTemplatesToWrite,
-        ]);
+        return $this->render('@registration/config/templates.html.twig', ['templates' => $rows]);
     }
 
     /**
      * GET /config/inscriptions/gabarits/{template} — one template's editor,
      * its variables shown open beside it. The editor holds the text that
-     * would go out today: the unit's own, the default while nobody has
-     * written one, or nothing for a decision e-mail still to write.
+     * would go out today: the unit's own, or the default while nobody has
+     * written one.
      *
      * @param array<string, string> $params
      */
@@ -86,7 +80,7 @@ class RegistrationTemplateController extends AbstractController
             return $this->notFound();
         }
 
-        $body = (string) $this->templateService->bodyFor($template->key);
+        $body = $this->templateService->bodyFor($template->key);
 
         return $this->render('@registration/config/template_edit.html.twig', [
             'template' => $template,
@@ -101,9 +95,9 @@ class RegistrationTemplateController extends AbstractController
     /**
      * POST /config/inscriptions/gabarits/{template} — stores the body,
      * sanitised by the content store itself (SECURITY.md §7), and goes back
-     * to the list. A body that renders as nothing is refused, and the edit
-     * page reopens on the text stored before — what was refused had no text
-     * to keep.
+     * to the list. A body that renders as nothing, or that lacks the tracking
+     * link on a family template, is refused, and the edit page reopens on the
+     * text stored before.
      *
      * @param array<string, string> $params
      */
@@ -137,14 +131,14 @@ class RegistrationTemplateController extends AbstractController
 
     /**
      * POST /config/inscriptions/gabarits/{template}/defaut — « Rétablir le
-     * texte par défaut », for the two templates that have one.
+     * texte par défaut », which gives back a text with the tracking link.
      *
      * @param array<string, string> $params
      */
     public function restoreDefault(Request $request, array $params): Response
     {
         $template = $this->templateService->findBySlug((string) ($params['template'] ?? ''));
-        if ($template === null || !$template->hasDefault()) {
+        if ($template === null) {
             return $this->notFound();
         }
         if (($guard = $this->guardCsrf($request, $this->editPath($template))) !== null) {

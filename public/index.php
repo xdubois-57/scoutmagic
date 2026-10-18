@@ -11349,7 +11349,6 @@ if ($isEnabled('registration')) {
     // SendDecisionEmailsHandler (seeded in public/scheduler-bootstrap.php).
     $registrationAutomaticEmails = new \Modules\Registration\Service\AutomaticDecisionEmailService(
         $settingService,
-        $registrationEmailService,
         $registrationDecisionEmailService
     );
     // Issue #843 (IT-10): the automatic acceptance of the « Oui » requests —
@@ -11374,7 +11373,6 @@ if ($isEnabled('registration')) {
             $scoutYearResolver,
             new \Modules\Registration\Service\PriorityOrderService($settingService)
         ),
-        $registrationEmailService,
         $scoutYearService,
         $scoutYearResolver,
         $journalService,

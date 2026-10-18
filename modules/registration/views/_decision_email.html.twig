@@ -23,8 +23,6 @@
         <div class="mb-2">
             {% if panel.state == 'sent' %}
                 {% include 'partials/status_badge.html.twig' with { status: 'success', label: 'Envoyé le ' ~ panel.at|datetime_fr } only %}
-            {% elseif panel.state == 'template_missing' %}
-                {% include 'partials/status_badge.html.twig' with { status: 'blocked', label: 'Gabarit à rédiger' } only %}
             {% elseif panel.state == 'scheduled' %}
                 {% include 'partials/status_badge.html.twig' with { status: 'scheduled', label: 'Prévu le ' ~ panel.at|datetime_fr } only %}
             {% elseif panel.state == 'sending' %}
@@ -46,11 +44,6 @@
                 {% if panel.lastFailedResend %}
                     Le dernier renvoi a échoué le {{ panel.lastFailedResend.failedAt|datetime_fr }}{% if panel.lastFailedResend.failureMessage %} : {{ panel.lastFailedResend.failureMessage }}{% else %}.{% endif %}
                 {% endif %}
-                {% if not panel.templateReady %}
-                    Pour le renvoyer, son gabarit doit d'abord être rédigé — voir <a href="/config/inscriptions/gabarits">Gabarits</a>.
-                {% endif %}
-            {% elseif panel.state == 'template_missing' %}
-                Le corps de l'e-mail n'a pas encore été rédigé : rien ne peut partir. Rédigez-le dans <a href="/config/inscriptions/gabarits">Gabarits</a>.
             {% elseif panel.state == 'scheduled' and not auto_send_enabled %}
                 L'envoi automatique est désormais désactivé, mais cet e-mail, planifié avant, partira quand même
                 à son échéance. « Envoyer maintenant » le fait partir tout de suite ; changer la décision d'ici là
@@ -68,13 +61,12 @@
                    new e-mail at once (« Prévu le … »): this state is only
                    reached by a decision that was not planned. #}
                 L'e-mail prévu pour la décision précédente ne partira pas, et aucun envoi n'est prévu pour la
-                nouvelle : seules les décisions prises depuis l'activation de l'envoi automatique, gabarit rédigé,
-                sont planifiées. Son e-mail s'envoie à la main ; d'ici là, la famille voit « en attente ».
+                nouvelle : seules les décisions prises depuis l'activation de l'envoi automatique sont planifiées. Son e-mail s'envoie à la main ; d'ici là, la famille voit « en attente ».
             {% elseif panel.state == 'cancelled' %}
                 L'e-mail prévu pour la décision précédente ne partira pas. Celui de la nouvelle décision s'envoie à la main ; d'ici là, la famille voit « en attente ».
             {% elseif auto_send_enabled %}
                 Aucun envoi n'est prévu pour cette décision : seules les décisions prises depuis l'activation de
-                l'envoi automatique, gabarit rédigé, sont planifiées. L'e-mail s'envoie à la main.
+                l'envoi automatique sont planifiées. L'e-mail s'envoie à la main.
             {% else %}
                 L'envoi automatique est désactivé : l'e-mail s'envoie à la main.
             {% endif %}

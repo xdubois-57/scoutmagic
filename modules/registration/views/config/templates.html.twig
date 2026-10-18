@@ -6,11 +6,11 @@
   (template_edit.html.twig) — the shape of a rental asset's Gabarits page,
   without drag or bin: an e-mail is neither deleted nor reordered.
 
-  The states come from Service\RequestEmailTemplateService::stateOf(),
-  whose « À rédiger » is the very test the sender refuses to send without.
+  The states come from Service\RequestEmailTemplateService::stateOf(): all
+  four e-mails ship with a text (issue #932), so each is « Par défaut » or
+  « Personnalisé ».
 
-  Requires `templates` (slug, name, description, state, state_label) and
-  `decision_templates_to_write`.
+  Requires `templates` (slug, name, description, state, state_label).
 #}
 {% block content %}
     <div class="page-wide">
@@ -21,18 +21,11 @@
             <div class="card-body">
                 <h2 class="h5 mb-3">Gabarits des e-mails de demande</h2>
 
-                {% if decision_templates_to_write %}
-                    <div class="alert alert-warning" role="status">
-                        Les gabarits d'acceptation et de refus doivent être rédigés avant le premier envoi. Tant que
-                        l'un manque, aucun e-mail de décision ne part, ni à la main ni automatiquement.
-                    </div>
-                {% endif %}
-
                 {% embed 'partials/list_editor.html.twig' with {
                     list_id: 'registration-template-list',
                     items: templates|map(t => t|merge({id: t.slug})),
                     sortable: false,
-                    state_tones: {'default': 'neutral', 'custom': 'info', 'to_write': 'refused'},
+                    state_tones: {'default': 'neutral', 'custom': 'info'},
                 } only %}
                     {% block item_content %}
                         <div class="d-flex flex-wrap align-items-baseline gap-2">
@@ -53,6 +46,11 @@
                     {% endblock %}
                 {% endembed %}
 
+                <p class="small text-body-secondary">
+                    L'accusé de réception, l'acceptation et le refus doivent contenir le lien de suivi de la
+                    demande (la variable <code>{{ '{{ lien_suivi }}' }}</code>) : c'est le même lien dans les trois
+                    e-mails.
+                </p>
                 <p class="small text-body-secondary mb-0">
                     Les e-mails de réinscription se règlent dans la
                     <a href="/config/reinscription/reglages">gestion des réinscriptions</a>.

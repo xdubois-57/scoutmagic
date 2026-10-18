@@ -6,12 +6,12 @@
 // Formulaire d'inscription › Réglages, sub-box « Décisions automatiques »
 // (modules/registration/views/config/_settings_automation.html.twig, issue
 // #843 IT-10): « Accepter automatiquement les demandes « Oui » » can be on
-// only while waitlists are managed, the automatic sending of the decision
-// e-mails is on and the acceptance template is written — the order
+// only while waitlists are managed and the automatic sending of the decision
+// e-mails is on — the order
 // Modules\Registration\Service\AutomaticAcceptancePolicy checks them in,
 // and the server refuses the save otherwise. This file keeps the switch in
 // step without a reload: disabled and unchecked while one is missing, with
-// the help text that says which, usable again once all three are there —
+// the help text that says which, usable again once both are there —
 // when « Envoyer automatiquement les e-mails de décision » is ticked, or
 // when « Gérer les listes d'attente » is saved (the event
 // registration-capacity-settings.js dispatches once the server agreed).
@@ -25,13 +25,11 @@
      *
      * @param {boolean} waitlist « Gérer les listes d'attente » is on
      * @param {boolean} autoSend « Envoyer automatiquement les e-mails de décision » is ticked
-     * @param {boolean} templateReady the acceptance template is written
-     * @returns {string|null} 'waitlist', 'auto_send', 'template' or null
+     * @returns {string|null} 'waitlist', 'auto_send' or null
      */
-    function missingPrerequisite(waitlist, autoSend, templateReady) {
+    function missingPrerequisite(waitlist, autoSend) {
         if (!waitlist) return 'waitlist';
         if (!autoSend) return 'auto_send';
-        if (!templateReady) return 'template';
         return null;
     }
 
@@ -51,8 +49,7 @@
         }
         var missing = missingPrerequisite(
             form.dataset.waitlistEnabled === '1',
-            sendSwitch.checked,
-            form.dataset.acceptanceTemplateReady === '1'
+            sendSwitch.checked
         );
         acceptSwitch.disabled = missing !== null;
         if (missing !== null) {

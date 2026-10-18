@@ -20,6 +20,7 @@ use Modules\Registration\Repository\RegistrationYearCodeRepository;
 use Modules\Registration\Service\FamilyEmailCopyService;
 use Modules\Registration\Service\RegistrationException;
 use Modules\Registration\Service\RegistrationService;
+use Modules\Registration\Service\TrackingLinkValidity;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Registration\RegistrationTestHelper;
@@ -283,6 +284,213 @@ class RegistrationServiceTest extends TestCase
         $this->assertStringContainsString('/inscriptions/suivi/', $toParent[0]['bodyHtml']);
         $this->assertStringNotContainsString('/inscriptions/suivi/', $toUnit[0]['bodyHtml']);
         $this->assertStringContainsString('/config/inscriptions/demandes/', $toUnit[0]['bodyHtml']);
+    }
+
+    /**
+     * Issue #932: the token is generated with the request, stored hashed and
+     * encrypted, and the link the receipt carries is that very one — the
+     * link every later e-mail will read back.
+     */
+    public function testTheReceiptCarriesTheLinkTheRequestWasFiledWith(): void
+    {
+        $target = $this->service->resolveTargetYear(null);
+        $bodies = [];
+        $this->mailService->method('send')->willReturnCallback(function (...$args) use (&$bodies): void {
+            $bodies[$args[0]] = (string) $args[2];
+        });
+
+        $requestId = $this->service->submit(
+            (int) $target['id'],
+            (string) $target['label'],
+            $this->sampleFields(),
+            null,
+            [],
+            'Baladins — 1ère année'
+        );
+
+        $this->assertSame(
+            1,
+            preg_match('#https://example\.com/inscriptions/suivi/' . $requestId . '/([^"<\s]+)#', $bodies['marie.dupont@example.com'], $match)
+        );
+        $token = html_entity_decode($match[1]);
+        $this->assertTrue($this->requestRepository->verifyTrackingToken($requestId, $token));
+        $this->assertSame($token, $this->requestRepository->trackingLinkOf($requestId)['token'] ?? null);
+        // Stored encrypted and hashed, never in clear.
+        $row = $this->pdo->query(
+            'SELECT tracking_token_hash, tracking_token_encrypted FROM registration_requests WHERE id = ' . $requestId
+        )->fetch(\PDO::FETCH_ASSOC);
+        $this->assertStringNotContainsString($token, (string) $row['tracking_token_hash']);
+        $this->assertStringNotContainsString($token, (string) $row['tracking_token_encrypted']);
+        $this->assertNotSame('', (string) $row['tracking_token_encrypted']);
+    }
+
+    /**
+     * Issue #932: eighteen calendar months from the moment of filing by
+     * default, frozen on the row.
+     */
+    public function testTheLinkExpiresEighteenMonthsAfterTheFilingByDefault(): void
+    {
+        $target = $this->service->resolveTargetYear(null);
+
+        $requestId = $this->service->submit(
+            (int) $target['id'],
+            (string) $target['label'],
+            $this->sampleFields(),
+            null,
+            [],
+            'Baladins — 1ère année'
+        );
+
+        [$received, $expires] = $this->filingAndExpiry($requestId);
+        $this->assertSame(
+            TrackingLinkValidity::expiresAt(new \DateTimeImmutable($received), 18)->format('Y-m-d H:i:s'),
+            $expires
+        );
+    }
+
+    /**
+     * The setting is read when the request is filed: a later change only
+     * reaches the requests filed after it.
+     */
+    public function testChangingTheValidityOnlyAffectsTheRequestsFiledAfterwards(): void
+    {
+        $this->settingService->register(
+            TrackingLinkValidity::SETTING,
+            '18',
+            'number',
+            'Durée',
+            'desc',
+            'registration'
+        );
+        $target = $this->service->resolveTargetYear(null);
+        $file = fn(string $email): int => $this->service->submit(
+            (int) $target['id'],
+            (string) $target['label'],
+            $this->sampleFields(['email' => $email]),
+            null,
+            [],
+            'Baladins — 1ère année'
+        );
+
+        $this->settingService->set(TrackingLinkValidity::SETTING, '6', 'registration');
+        $sixMonths = $file('six@example.com');
+        $this->settingService->set(TrackingLinkValidity::SETTING, '24', 'registration');
+        $twentyFour = $file('vingt-quatre@example.com');
+
+        [$receivedA, $expiresA] = $this->filingAndExpiry($sixMonths);
+        [$receivedB, $expiresB] = $this->filingAndExpiry($twentyFour);
+        $this->assertSame(
+            TrackingLinkValidity::expiresAt(new \DateTimeImmutable($receivedA), 6)->format('Y-m-d H:i:s'),
+            $expiresA
+        );
+        $this->assertSame(
+            TrackingLinkValidity::expiresAt(new \DateTimeImmutable($receivedB), 24)->format('Y-m-d H:i:s'),
+            $expiresB
+        );
+        // The first one kept its own expiry after the second change.
+        [, $expiresAgain] = $this->filingAndExpiry($sixMonths);
+        $this->assertSame($expiresA, $expiresAgain);
+    }
+
+    /** Ordinary and in-year (special code) submissions follow the very same rule. */
+    public function testAnInYearSubmissionGetsTheSameValidity(): void
+    {
+        $code = $this->yearCodeRepository->regenerate($this->publicYearId);
+        $ordinary = $this->service->resolveTargetYear(null);
+        $inYear = $this->service->resolveTargetYear($code);
+
+        $a = $this->service->submit((int) $ordinary['id'], (string) $ordinary['label'], $this->sampleFields(), null, [], 'S');
+        $b = $this->service->submit(
+            (int) $inYear['id'],
+            (string) $inYear['label'],
+            $this->sampleFields(['email' => 'autre@example.com']),
+            null,
+            [],
+            'S'
+        );
+
+        foreach ([$a, $b] as $id) {
+            [$received, $expires] = $this->filingAndExpiry($id);
+            $this->assertSame(
+                TrackingLinkValidity::expiresAt(new \DateTimeImmutable($received), 18)->format('Y-m-d H:i:s'),
+                $expires,
+                "request #{$id}"
+            );
+        }
+    }
+
+    /**
+     * Issue #932: the receipt never goes out without the family's link. The
+     * request is recorded all the same — the family has filed — and the
+     * unit is still alerted.
+     */
+    public function testAReceiptBodyWithoutTheLinkIsNotSentButTheRequestIsStillFiled(): void
+    {
+        $this->settingService->set('registration_unit_alert_email', 'unite@example.com', 'registration');
+        $content = new EditableContentService(new EditableContentRepository($this->pdo));
+        $content->set('registration_email_receipt_body', '<p>Merci {{ prenom_enfant }}</p>', 'rich_text', 1);
+        $recipients = [];
+        $this->mailService->method('send')->willReturnCallback(function (...$args) use (&$recipients): void {
+            $recipients[] = $args[0];
+        });
+        $target = $this->service->resolveTargetYear(null);
+
+        $requestId = $this->service->submit(
+            (int) $target['id'],
+            (string) $target['label'],
+            $this->sampleFields(),
+            null,
+            [],
+            'Baladins — 1ère année'
+        );
+
+        $this->assertNotNull($this->requestRepository->findById($requestId));
+        $this->assertSame(['unite@example.com'], $recipients, 'nothing went to the family, the alert did');
+    }
+
+    /** The staff alert never carries the family's secret, not even as a literal variable. */
+    public function testTheUnitAlertNeverCarriesTheFamilysToken(): void
+    {
+        $this->settingService->set('registration_unit_alert_email', 'unite@example.com', 'registration');
+        $content = new EditableContentService(new EditableContentRepository($this->pdo));
+        $content->set(
+            'registration_email_unit_alert_body',
+            '<p>Demande de {{ prenom_enfant }} : {{ lien_fiche }} {{ lien_suivi }}</p>',
+            'rich_text',
+            1
+        );
+        $bodies = [];
+        $this->mailService->method('send')->willReturnCallback(function (...$args) use (&$bodies): void {
+            $bodies[$args[0]] = (string) $args[2];
+        });
+        $target = $this->service->resolveTargetYear(null);
+
+        $requestId = $this->service->submit(
+            (int) $target['id'],
+            (string) $target['label'],
+            $this->sampleFields(),
+            null,
+            [],
+            'Baladins — 1ère année'
+        );
+
+        $token = (string) ($this->requestRepository->trackingLinkOf($requestId)['token'] ?? '');
+        $this->assertNotSame('', $token);
+        $this->assertStringNotContainsString($token, $bodies['unite@example.com']);
+        $this->assertStringNotContainsString('/inscriptions/suivi/', $bodies['unite@example.com']);
+        $this->assertStringContainsString('/config/inscriptions/demandes/' . $requestId, $bodies['unite@example.com']);
+    }
+
+    /**
+     * @return array{0: string, 1: string} received_at and tracking_expires_at, as stored
+     */
+    private function filingAndExpiry(int $requestId): array
+    {
+        $row = $this->pdo->query(
+            'SELECT received_at, tracking_expires_at FROM registration_requests WHERE id = ' . $requestId
+        )->fetch(\PDO::FETCH_ASSOC);
+
+        return [(string) $row['received_at'], (string) $row['tracking_expires_at']];
     }
 
     /**
