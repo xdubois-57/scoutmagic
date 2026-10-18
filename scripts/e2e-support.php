@@ -835,7 +835,7 @@ function e2eProvision(string $repoRoot, string $instanceDir, int $port): void
  * registry row and journal entry all land exactly as they do on a real
  * install.
  *
- * Why all of them rather than the three `enabled_by_default` ones: the
+ * Why all of them rather than the six `enabled_by_default` ones: the
  * E2E harness exists to answer "does the application boot and serve a
  * page", and public/index.php wires EVERY enabled module into the front
  * controller before it routes anything. A module left disabled here is a

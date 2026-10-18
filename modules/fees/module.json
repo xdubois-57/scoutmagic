@@ -3,6 +3,7 @@
   "name": "Cotisations",
   "description": "Vérifie ce que la fédération facture, famille par famille.",
   "version": "1.4.6",
+  "enabled_by_default": true,
   "routes": [
     {
       "path": "/admin/fees",
