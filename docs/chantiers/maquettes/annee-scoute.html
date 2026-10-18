@@ -1,3 +1,8 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Année scoute #930</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <style>
@@ -116,11 +121,13 @@ ul.plain{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:3px}
 .rule{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}
 .rule div{border:1px solid var(--line);border-radius:7px;padding:8px 10px;font-size:13px}
 .rule div.on{border-color:var(--primary);background:var(--info-bg)}
-.screen[hidden]{display:none}
+.screen[hidden],.pill[hidden]{display:none}
 .phone .years{grid-template-columns:1fr 1fr}
 .phone .ph h1{font-size:22px}
 code{font-family:var(--mono);font-size:12.5px}
 </style>
+</head>
+<body>
 
 <div class="mock-bar" role="region" aria-label="Commandes de la maquette">
   <b>Maquette #930</b>
@@ -137,6 +144,7 @@ code{font-family:var(--mono);font-size:12.5px}
     <label><input type="checkbox" id="simImport" checked> Import 2027-2028 réussi</label>
     <label><input type="checkbox" id="simCampaign"> Campagne de réinscription ouverte</label>
     <label><input type="checkbox" id="simStaff"> Année staff activée</label>
+    <label><input type="checkbox" id="simReq" checked> Demandes d'inscription non clôturées</label>
     <label><input type="checkbox" id="simErr"> Prochain clic : erreur serveur</label>
   </span>
   <span id="importSim" style="display:none">
@@ -241,8 +249,8 @@ code{font-family:var(--mono);font-size:12.5px}
 <script>
 (function(){
 const $=s=>document.querySelector(s);
-const state={import:true,campaignOpen:false,staff:false,err:false,preview:false,public:false,
-  marks:{departures:true,passage:false,registrations:false,desk_staff:true,desk_members:false,fees:false,preview:false,ephemerides:false,badges:false,trombinoscope:false,staff_photos:false},
+const state={import:true,campaignOpen:false,openRequests:true,staff:false,err:false,preview:false,public:false,
+  marks:{departures:true,passage:false,confirm_registrations:false,desk_staff:true,desk_members:false,fees:false,preview:false,ephemerides:false,badges:false,trombinoscope:false,staff_photos:false},
   busy:null};
 const SECTIONS=['Baladins','Louveteaux','Éclaireurs','Pionniers'];
 
@@ -254,7 +262,7 @@ function steps(){
   const imp=state.import;
   return [
    {phase:1,key:'departures',title:'Départs de l\'unité',kind:'manual',
-    checks:[],
+    checks: state.campaignOpen&&state.marks.departures?['Campagne rouverte après le marquage']:[],
     blockMark: state.campaignOpen ? 'La campagne de réinscription 2027-2028 est en cours (fermeture le 15/05). L\'étape pourra être marquée une fois la campagne terminée.' : null,
     body:`<div class="small">${state.campaignOpen?'<span class="pill block">Campagne en cours</span> ouverte le 01/03/2027, fermeture prévue le 15/05/2027.':'<span class="pill done">Campagne terminée</span> fermée le 15/05/2027 · 61 familles sur 68 ont répondu.'}</div>
       <div class="small">6 animés annoncés partants. La fin de la campagne ne vaut pas revue : confirmez que les départs ont été relus avec les staffs, même s'il n'y en a aucun.</div>
@@ -266,10 +274,10 @@ function steps(){
       <tr><td>Léa Martin</td><td>Louveteaux</td><td class="w">Non choisie</td></tr></tbody></table></div>
       <div class="note">Sans aucun passage attendu, l'étape affiche « Aucun passage à effectuer » et se marque comme faite de la même façon.</div>
       <div class="actions"><a href="#" class="btn">Ouvrir Passage</a></div>`},
-   {phase:1,key:'registrations',title:'Nouvelles inscriptions',kind:'manual',
+   {phase:1,key:'confirm_registrations',title:'Nouvelles inscriptions',kind:'manual',
     checks:['3 demandes en attente','2 demandes acceptées sans section prévue'],
     body:`<div class="small">3 en attente · 4 acceptées (dont 2 sans section prévue) · 11 encodées.</div>
-      <div class="alert warn small">Indépendamment de cette étape, la bascule publique reste refusée tant que 7 demandes ne sont pas clôturées.</div>
+      ${state.openRequests?'<div class="alert warn small">Indépendamment de cette étape, la bascule publique reste refusée tant que 7 demandes ne sont pas clôturées.</div>':''}
       <div class="actions"><a href="#" class="btn">Gérer les inscriptions</a></div>`},
    {phase:2,key:'desk_staff',title:'Encoder les nouveaux staffs dans Desk',kind:'manual',
     checks: imp?['Pionniers : aucun responsable']:[],
@@ -304,7 +312,7 @@ function steps(){
     block: !imp ? 'Aucun import Desk réussi pour 2027-2028. L\'activation est refusée tant que l\'import n\'a pas eu lieu.' : null,
     body: state.staff?`<div class="small">Les staffs de 2027-2028 voient l'année préparée.</div><div class="actions"><button class="btn" type="button" data-act="unstaff">Désactiver pour les staffs</button></div>`
       : (!imp?`<div class="actions"><a href="#" class="btn primary">Importer 2027-2028</a><button class="btn" type="button" disabled>Activer pour les staffs</button></div>`
-      :`<div class="alert warn small">7 demandes d'inscription non clôturées (n'empêche pas cette étape).</div><div class="actions"><button class="btn primary" type="button" data-act="staff">Activer pour les staffs</button></div>`)},
+      :`${state.openRequests?'<div class="alert warn small">7 demandes d\'inscription non clôturées (n\'empêche pas cette étape).</div>':''}<div class="actions"><button class="btn primary" type="button" data-act="staff">Activer pour les staffs</button></div>`)},
    {phase:3,key:'ephemerides',title:'Éphémérides de l\'année',kind:'manual',module:'Calendrier',
     checks:['Pionniers : aucun événement'],
     body:`<div class="tw"><table><thead><tr><th>Section</th><th>Événements en 2027-2028</th></tr></thead><tbody>
@@ -436,7 +444,7 @@ function openPreSwitch(){
   const blockers=[];
   if(!state.staff) blockers.push('2027-2028 n\'est pas activée pour les staffs (étape 9).');
   if(!state.import) blockers.push('Aucun import Desk réussi pour 2027-2028. <a href="#">Importer</a>');
-  blockers.push('7 demandes d\'inscription ne sont pas clôturées. <a href="#">Les traiter</a>');
+  if(state.openRequests) blockers.push('7 demandes d\'inscription ne sont pas clôturées. <a href="#">Les traiter</a>');
   const done=list.filter(s=>s.st==='done'&&s.key!=='activate_public');
   const todo=list.filter(s=>s.st!=='done'&&s.key!=='activate_public');
   const checks=list.flatMap(s=>s.checks.map(c=>`${s.n}. ${c}`));
@@ -454,7 +462,8 @@ function openPreSwitch(){
 
 /* ---- sim toggles ---- */
 $('#simImport').addEventListener('change',e=>{state.import=e.target.checked; if(!state.import){state.staff=false;$('#simStaff').checked=false} render()});
-$('#simCampaign').addEventListener('change',e=>{state.campaignOpen=e.target.checked; if(state.campaignOpen) state.marks.departures=false; render()});
+$('#simCampaign').addEventListener('change',e=>{state.campaignOpen=e.target.checked; render()});
+$('#simReq').addEventListener('change',e=>{state.openRequests=e.target.checked; render()});
 $('#simStaff').addEventListener('change',e=>{ if(e.target.checked&&!state.import){e.target.checked=false;toast('Refusé : aucun import réussi pour 2027-2028.',true);return;} state.staff=e.target.checked; render()});
 $('#simErr').addEventListener('change',e=>{state.err=e.target.checked});
 
@@ -522,3 +531,5 @@ $('#setSave').addEventListener('click',()=>{
 render();
 })();
 </script>
+</body>
+</html>

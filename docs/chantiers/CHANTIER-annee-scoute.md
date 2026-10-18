@@ -31,7 +31,7 @@ ont été **validées par le mainteneur** : le chantier est prêt à implémente
   branche par lot). Le second à fusionner rebase sur le premier.
 - **Documentation dans le même lot** que le code qu'elle décrit :
   `specifications.md`, `ARCHITECTURE.md`, `design.md` si une convention bouge,
-  `docs/help/*`. Le lot E consolide, il ne rattrape pas.
+  `docs/help/*`. Le lot F consolide, il ne rattrape pas.
 - **Journal** : tenir à jour le §6 de ce fichier (une ligne par lot fusionné :
   PR, ce qui a été livré, écarts).
 - **Le site est en test** : pas de migration, schéma modifié directement dans
@@ -100,7 +100,7 @@ ont été **validées par le mainteneur** : le chantier est prêt à implémente
 
 ### 2.1 Modèle des étapes
 
-- Trois natures, affichées en **étiquettes** (pas en texte) :
+- Deux natures, affichées en **étiquettes** (pas en texte) :
   « Décision humaine », « Constaté par le site ». **Aucune étiquette de module.**
 - États affichés : **À faire**, **Étape faite**, **À vérifier** (pastille
   `n à vérifier`, cumulable avec les deux premiers), **Bloquée**.
@@ -321,7 +321,8 @@ Vague 3 :                          [F E2E, aide, clôture]
 ```
 
 A est indépendant de tout. D dépend de B. E dépend de B et C. D et E sont
-parallèles : B fixe le contrat qui les sépare (§3.B). F attend tout.
+parallèles : B fixe le contrat et crée les fichiers qui les séparent (§3, lot B).
+F attend tout.
 
 ### Lot A — Politique des années importables (vague 1)
 
@@ -353,6 +354,16 @@ parallèles : B fixe le contrat qui les sépare (§3.B). F attend tout.
   disponibles** (import par `import_journal`, année staff, publique,
   passages/veto via contrats existants) et des fournisseurs vides pour les
   autres — E les remplit sans toucher au moteur.
+- **Gabarits de détail** : B crée les 14 fichiers
+  `admin/scout_year/steps/{key}.html.twig` (contenu minimal : ce que B sait
+  déjà afficher). La propriété est ensuite fixée pour que D et E ne se
+  marchent pas dessus : **D possède la page et la coquille du dialogue** qui
+  inclut ces fichiers, **E possède le contenu** de ces 14 fichiers. D ne les
+  modifie pas ; E ne touche ni à la page ni au dialogue.
+- Étape 1 : B garde le comportement actuel du marquage (aucun blocage
+  aujourd'hui) ; le blocage pendant la campagne arrive avec E, qui a besoin du
+  contrat de C. L'intervalle est assumé : le site n'est en production nulle
+  part.
 - Nouvel ordre (§2.2), `preview`, `passage`, `ephemerides`, `staff_photos`
   deviennent humaines ; refus serveur du marquage d'une étape constatée.
 - Gardes dans `ScoutYearAdminService` (seul chemin d'écriture) :
@@ -397,9 +408,9 @@ quand c'est possible.
 - Confirmations sur les boutons qui agissent (§2.8) ; aucune sur le rond.
 - JS dans `public/assets/js/admin-scout-year.js` + tests Vitest (succès, erreur
   réseau, erreur serveur, double clic, état occupé).
-- Le dialogue Détails rend ce que fournit `StepCheckProvider` via un gabarit
-  par étape `admin/scout_year/steps/{key}.html.twig` (D crée les 14 gabarits
-  avec le contenu disponible ; E les enrichit).
+- Le dialogue Détails inclut les gabarits par étape
+  `admin/scout_year/steps/{key}.html.twig` créés par B ; D n'en modifie pas le
+  contenu (propriété de E).
 - `UxConventionsTest` reste vert (pas de script dans le gabarit, pas de
   `confirm()`, une action principale par écran, etc.).
 - Docs : `design.md` si une convention nouvelle émerge (rond-bascule
@@ -407,8 +418,10 @@ quand c'est possible.
 
 ### Lot E — Contrôles des 14 étapes (vague 2, après B et C)
 
-- Remplit les fournisseurs de contrôle et les gabarits de détail des étapes
-  1, 2, 3, 4, 5, 7, 10, 11, 12, 13 avec les contrats de C (§2.3 à §2.7).
+- Remplit les fournisseurs de contrôle et le contenu des gabarits
+  `admin/scout_year/steps/{key}.html.twig` des étapes 1, 2, 3, 4, 5, 7, 10, 11,
+  12, 13 avec les contrats de C (§2.3 à §2.7). Ne touche ni à la page ni à la
+  coquille du dialogue (propriété de D).
 - Blocage du marquage de l'étape 1 (§2.3), côté serveur.
 - Aucun contrôle ne produit de « ✓ » ni d'absence de point à vérifier sur des
   données manquantes (avant import : message d'attente).
