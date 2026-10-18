@@ -2321,6 +2321,33 @@ class StorageConfigControllerTest extends TestCase
         $this->assertStringNotContainsString('a pris fin', $this->locationsPage());
     }
 
+    /** The edit page of a Drive location shows the same expiry the card does. */
+    public function testTheDriveEditPageShowsTheAnnouncedEnd(): void
+    {
+        $end = \Core\Config\AppClock::now()->modify('+5 days');
+        $id = $this->declareObservedDrive($end->format('c'));
+
+        $body = (string) $this->controller->edit(
+            new Request('GET', '/config/stockage/emplacements/' . $id . '/modification', [], [], [], []),
+            ['id' => (string) $id]
+        )->getBody();
+
+        $this->assertStringContainsString('Cette autorisation prend fin le ' . $end->format('d/m/Y') . ', dans 5 jours', $body);
+    }
+
+    /** And of a Drive location connected before the end was recorded, that nobody knows it. */
+    public function testTheEditPageOfAnOldConnectionSaysTheExpiryIsUnknown(): void
+    {
+        $id = $this->declareDrive();
+
+        $body = (string) $this->controller->edit(
+            new Request('GET', '/config/stockage/emplacements/' . $id . '/modification', [], [], [], []),
+            ['id' => (string) $id]
+        )->getBody();
+
+        $this->assertStringContainsString('Expiration inconnue', $body);
+    }
+
     private function locationsPage(): string
     {
         return $this->controller->locations(
