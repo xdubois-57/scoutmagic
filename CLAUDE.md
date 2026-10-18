@@ -29,6 +29,16 @@ outside this repository and that nothing warns you about when it is wrong.
   Passing tests is a different guarantee. Never silence a finding of your
   own by adding it to a baseline.
 
+## Fixing the backlog
+
+« Fixe le backlog » takes the issues the maintainer moved to **Ready** on GitHub
+Project #1 — never a label — one at a time, and keeps watch hourly instead of
+stopping on an empty queue. A session without `gh` reads the queue and records
+its claim through the `backlog-project.yml` workflow; `PROJECTS_TOKEN` never
+reaches an agent. `AGENTS.md` § "Fix the backlog" has the rules and
+`docs/backlog-automation.md` the setup, including how to start, see and stop the
+watch.
+
 ## This container
 
 In a Claude Code **remote** session, the `SessionStart` hook has already

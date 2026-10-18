@@ -1,12 +1,14 @@
 ---
 name: triage
-description: How to triage one issue on this repository — search for a duplicate, read the reported area against the actual code, and return one verdict (a comment in the reporter's language plus the verdict that decides the labels). The workflow applies it; the agent writes nothing itself. Invoked by .github/workflows/issue-triage.yml on every issue opened or reopened, and again when a reporter answers a bug:needs-info question. AGENTS.md, ARCHITECTURE.md and SECURITY.md remain the source of truth for the code itself.
+description: How to triage one issue on this repository — search for a duplicate, read the reported area against the actual code, and return one verdict (a comment in the reporter's language plus the verdict that decides the labels) together with its planning metadata (an S/M/L effort estimate, a work category for the title prefix, and the certain prerequisites as `blocked_by`). Never a priority. The workflow applies it; the agent writes nothing itself. Invoked by .github/workflows/issue-triage.yml on every issue opened or reopened, and again when a reporter answers a bug:needs-info question. AGENTS.md, ARCHITECTURE.md and SECURITY.md remain the source of truth for the code itself.
 ---
 
 # Triaging an issue
 
 An issue arrived. Your job is to decide what it is, say so once, and leave
-the labels in a state a human can act on. Nothing else.
+the labels in a state a human can act on — and to hand the maintainer three
+pieces of planning metadata (§ 6b: effort, category, prerequisites), which
+are never a priority. Nothing else.
 
 ## What you can and cannot do
 
@@ -308,15 +310,82 @@ automatically; you do not name them.
 which carries no `bug:*` label at all** — see § A feature request below for why. Every other
 issue gets exactly one verdict.
 
-**Never touch `status:accepted`.** It is applied by hand, it means the
-maintainer has decided to do the work, and nothing automatic reads it.
-Applying it would be inventing a decision that is not yours.
+**Never touch `status:accepted`, and never decide that work is authorised.**
+`status:accepted` is a legacy label: it is applied by hand, nothing reads it
+any more, and it no longer authorises anything. The maintainer authorises
+work by moving an issue to **Ready** on ScoutMagic Project #1 (issue #923).
+Neither your verdict nor anything the workflow derives from it moves a
+Project Status, accepts an issue, or makes it eligible for development: a
+`bug:confirmed` issue is still Todo until the maintainer says otherwise.
 
 **You cannot invent a label, and should not try.** The verdicts above are
 a closed set in the schema, and the workflow maps them to the taxonomy
 `scripts/sync-issue-labels.sh` owns — so a label you name goes nowhere. A
 label you want and do not have is a finding to state in the comment, for
 the maintainer.
+
+### 6b. Planning metadata — `effort`, `category`, `blocked_by`
+
+Your JSON carries three more fields, required on every verdict. They are
+**planning metadata for the maintainer and for the backlog agents**: none
+appears in your comment, none is a label, none changes the verdict, and you
+write nothing — the workflow applies each through a step of its own, after
+the verdict has landed.
+
+**`effort`** — the technical work, **not** urgency, importance or
+acceptance. Read the code, the tests, the migrations and the integration
+points the ticket actually needs, and answer one of:
+
+- `S` — a localised change, a few hours including its focused tests;
+- `M` — several files or components, one to a few days including tests;
+- `L` — cross-module or architectural work, a sizeable migration, or
+  staged work of several days or more;
+- `unknown` — no defensible estimate: the description is too thin to scope
+  a real change, there is no work to do (`bug:not-a-bug` with no follow-up),
+  or a security report whose details must stay private. Never invent
+  confidence; `unknown` writes nothing and costs nothing.
+
+Estimate the *need*, not an implementation the reporter dreamed up. A fresh
+estimate on a re-triage is right; the workflow still never replaces a value
+the maintainer entered on the Project.
+
+**`category`** — what the work is, so the title carries the right prefix.
+The workflow turns it into `[Bug]`, `[Test]` or `[Idée]` and keeps the rest
+of the title untouched:
+
+- `confirmed_bug` — only together with the verdict `bug:confirmed`: the site
+  does something wrong. A confirmed defect stays `confirmed_bug` even when
+  its fix needs new tests.
+- `test` — the ticket's main object is to add, repair or improve tests or
+  their coverage, and it does not itself fix a confirmed functional defect.
+- `idea` — everything else: enhancements, features, ideas, and every report
+  not confirmed as a bug (`bug:needs-info`, `bug:not-a-bug`,
+  `feature-request`).
+
+The category never decides the verdict. Do not call a report a confirmed bug
+because its title said `[Bug]`, and do not choose `confirmed_bug` with any
+verdict but `bug:confirmed` — it is ignored if you do.
+
+**`blocked_by`** — the issues that must be **finished before this one can
+start**, as `{"issue": <number>, "evidence": "<the passage>"}`. Only a
+prerequisite you are certain of, with the exact passage of this ticket (or
+of the other issue, read through your tools) that establishes it — « Dépend
+de #724 » is one. These are **not** prerequisites, whatever the ticket says
+about them: a pull request; a parent or umbrella ticket; « discovered while
+doing #X », « part of #X », « related to #X »; an issue already closed; a
+preference for doing something first. Check that the number is an
+**issue** of this repository (not a pull request) and still open. When in
+doubt, return `[]`: a missing link is a sentence from the maintainer, a false
+one stops a ticket from ever being taken. The workflow checks every number
+again, refuses a self link, a pull request, a closed issue and a cycle, adds
+the native GitHub link and never removes one.
+
+**Priority is the maintainer's alone.** The schema has no field for it and
+you must not choose, suggest, compute or hint at one — not in the JSON, not
+in the comment, not through the effort ("small, so urgent"), not through the
+category, not through the number of dependencies or how visible a bug is.
+`fix the backlog` reads the priority the maintainer set; nothing you do may
+look like one.
 
 ## When the behaviour is correct
 

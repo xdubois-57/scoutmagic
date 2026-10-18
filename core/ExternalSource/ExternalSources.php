@@ -21,9 +21,10 @@ namespace Core\ExternalSource;
  * say, and three things read the list:
  *
  * - `scripts/check-external-sources.php`, which fetches each page and
- *   exits non-zero on any divergence — run by the sixth release gate, by
- *   the weekly `.github/workflows/external-sources-check.yml`, and at the
- *   start of « fixe le backlog » (AGENTS.md);
+ *   exits non-zero on any divergence — run by the sixth release gate and by
+ *   the weekly `.github/workflows/external-sources-check.yml` (« fixe le
+ *   backlog » used to run it at its start; issue #923 took it out, the
+ *   divergence issues it files now wait for Ready like any other);
  * - `Tests\Architecture\ExternalSourcesAreRegisteredTest`, which refuses a
  *   federation or console URL anywhere in shipped code that is not listed
  *   here, a listed file that no longer names its URL, and a shipped

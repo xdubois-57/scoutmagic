@@ -153,7 +153,7 @@ AGENTS.md § Fix the backlog, its closing step — named rather than
 numbered, because the numbering has already drifted once under it.
 
 Watch it after **each** ticket's merge rather than only at the end. The
-backlog is fixed one accepted ticket per pull request now (same section,
+backlog is fixed one Ready ticket per pull request now (same section,
 § Fix the backlog), so there is no single merge at which every issue is
 meant to close.
 

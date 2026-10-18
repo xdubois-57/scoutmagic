@@ -7,8 +7,10 @@ namespace Tests\Architecture;
 use PHPUnit\Framework\TestCase;
 
 /**
- * « Fixe le backlog » is one accepted ticket at a time, and several agents
- * may be given it at once (asked for on 2026-09-25).
+ * « Fixe le backlog » is one Ready ticket at a time, and several agents
+ * may be given it at once (asked for on 2026-09-25). Since issue #923 the
+ * ticket is chosen by Status = Ready on GitHub Project #1 and the instruction
+ * does not stop on an empty queue.
  *
  * It replaces a scheme that cut the backlog into blocks of issues, with a
  * ceiling of ten issues per pull request, a parallel-versus-serialised rule
@@ -71,10 +73,10 @@ final class BacklogIsOneTicketAtATimeTest extends TestCase
     }
 
     /** THE SHAPE. Without it an agent plans, batches, and asks before starting. */
-    public function testTheWorkIsOneAcceptedTicketAtATime(): void
+    public function testTheWorkIsOneReadyTicketAtATime(): void
     {
         $this->assertStringContainsString(
-            '**one accepted ticket at a time, carried from end to end**',
+            '**one Ready ticket at a time,',
             self::agentRules(),
             'AGENTS.md no longer says the backlog is fixed one ticket at a time. Without it the next '
             . 'agent batches the work again, and the ceiling below becomes the only thing standing '
@@ -190,21 +192,21 @@ final class BacklogIsOneTicketAtATimeTest extends TestCase
     }
 
     /**
-     * What `status:accepted` authorises, and what an unclear ticket costs.
+     * What Ready authorises, and what an unclear ticket costs.
      *
      * Both halves were given in one breath, and the second is the one an
      * eager agent drops: a ticket taken and guessed wrong costs a pull
      * request, a review round and a revert, where a ticket left alone costs
      * the maintainer a sentence.
      */
-    public function testAcceptedMeansImplementDirectlyAndUnclearMeansSkip(): void
+    public function testReadyMeansImplementDirectlyAndUnclearMeansSkip(): void
     {
         $rules = self::agentRules();
 
         $this->assertStringContainsString(
-            '**`status:accepted` also means the analysis is done.**',
+            '**Ready also means the analysis is done.**',
             $rules,
-            'AGENTS.md no longer says that an accepted ticket is implemented as it stands, so the next '
+            'AGENTS.md no longer says that a Ready ticket is implemented as it stands, so the next '
             . 'agent goes back to ask for a design the maintainer has already done.',
         );
 
@@ -239,33 +241,140 @@ final class BacklogIsOneTicketAtATimeTest extends TestCase
     }
 
     /**
-     * The external sources check (issue #355): asked for in the
-     * maintainer's words — « une vérification explicite quand je demande
-     * "fix the backlog" ». Pinned inside the section, because a sentence
-     * that drifted elsewhere in AGENTS.md is one the agent working the
-     * backlog never reads; and pinned with what it produces, because a
-     * check whose findings go nowhere is the silence #355 was opened
-     * about.
+     * The external sources check (issue #355) used to open « fixe le
+     * backlog ». Issue #923 took it out: the weekly workflow files the
+     * divergences, they wait for Ready like any other issue, and a
+     * network check on every hourly wake-up bought nothing. What stays
+     * pinned is that the workflow and the skill it follows still exist —
+     * removing the startup step must not be how the watch got lost.
      */
-    public function testFixingTheBacklogStartsWithTheExternalSourcesCheck(): void
+    public function testFixingTheBacklogDoesNotRunTheExternalSourcesCheck(): void
     {
         $section = self::backlogSection();
 
         $this->assertStringContainsString(
-            '**First, run the external sources check**',
+            '**The external sources check is not part of this.**',
             $section,
-            'AGENTS.md § "Fix the backlog" no longer runs the external sources check. The maintainer asked '
-            . 'for it explicitly (issue #355), and nothing else runs it between the weekly workflow and a '
-            . 'release.',
+            'AGENTS.md § "Fix the backlog" no longer says the external sources check is out of it.',
         );
-        $this->assertStringContainsString('php scripts/check-external-sources.php', $section);
+        $this->assertStringNotContainsString(
+            'php scripts/check-external-sources.php',
+            $section,
+            'AGENTS.md § "Fix the backlog" runs the external sources check again (issue #923 took it out).',
+        );
+        $root = dirname(__DIR__, 2);
+        $this->assertFileExists($root . '/.github/workflows/external-sources-check.yml', 'The weekly watch is gone.');
+        $this->assertFileExists($root . '/.claude/skills/external-sources/SKILL.md');
+    }
+
+    /** Only the Project's Ready status authorises, and an unreadable Project is not an empty one. */
+    public function testProjectReadyReplacesTheAcceptedLabel(): void
+    {
+        $section = self::backlogSection();
+        foreach ([
+            '**GitHub Projects is the source of truth**',
+            'Moving an issue to **Ready**',
+            'It replaced `status:accepted` **entirely**',
+            '**An unreadable Project is not an empty backlog.**',
+            'bash scripts/backlog-ready-queue.sh',
+            '`.github/workflows/backlog-project.yml`',
+            '**Priority belongs',
+        ] as $required) {
+            $this->assertStringContainsString($required, $section, 'AGENTS.md lost: ' . $required);
+        }
+        $this->assertStringNotContainsString('List the OPEN issues carrying `status:accepted`', $section);
+        $this->assertStringContainsString('never from labels', $section);
+    }
+
+    /** A prerequisite must be dealt with before its dependent, and never promoted behind the maintainer's back. */
+    public function testNativeBlockedByChainsControlTheOrder(): void
+    {
+        $section = self::backlogSection();
+        foreach ([
+            "GitHub's native `blocked by` links",
+            'any **open**',
+            '**inherits that higher urgency, transitively**',
+            'P0 → P3',
+            'does not become Ready by itself',
+            'Priority is never written',
+        ] as $required) {
+            $this->assertStringContainsString($required, $section, 'AGENTS.md lost: ' . $required);
+        }
+    }
+
+    /** The Project records the claim and never IS the claim; no assignee starts a native session. */
+    public function testTheProjectIsASignalAndNeverTheLock(): void
+    {
+        $section = self::backlogSection();
+        foreach ([
+            'signals for whoever reads',
+            'never locks',
+            'none of them a lock',
+            'Never assign the issue to a GitHub user or agent',
+            'an assignee can start a native agent session',
+            'Say who you are.',
+        ] as $required) {
+            $this->assertStringContainsString($required, $section, 'AGENTS.md lost: ' . $required);
+        }
+    }
+
+    /** An empty queue is a sleep of an hour, not an ending; only the maintainer stops it. */
+    public function testAnEmptyQueueSleepsAnHourAndOnlyTheMaintainerStopsIt(): void
+    {
+        $rules = self::agentRules();
+        $start = strpos($rules, '## Staying on watch');
+        $this->assertIsInt($start, 'AGENTS.md lost § Staying on watch.');
+        $end = strpos($rules, "\n## ", $start + 1);
+        $watch = substr($rules, $start, $end === false ? null : $end - $start);
+
+        foreach ([
+            "puts it to sleep for\n**one hour**",
+            'never `sleep` in a shell',
+            'run the first pass **immediately**',
+            '/loop 1h fix the backlog',
+            'Arm **one** wake-up per session',
+            'only when the maintainer asks',
+            'saying « stopped » is not',
+            'expires after seven days',
+            'Claude Code Routine',
+            'docs/backlog-automation.md',
+        ] as $required) {
+            $this->assertStringContainsString($required, $watch, 'AGENTS.md § Staying on watch lost: ' . $required);
+        }
+        $this->assertStringContainsString('None of these, and not an empty queue, ends the instruction.', self::backlogSection());
+    }
+
+    /** A canceled issue is not eligible, and an agent working it checks before arming. */
+    public function testCancellationStopsTheWorkWithoutTouchingAPeersBranch(): void
+    {
+        $rules = self::agentRules();
+        $start = strpos($rules, '## Cancellation');
+        $this->assertIsInt($start, 'AGENTS.md lost § Cancellation.');
+        $end = strpos($rules, "\n## ", $start + 1);
+        $cancellation = substr($rules, $start, $end === false ? null : $end - $start);
+
+        foreach ([
+            'notice before it continues or arms an auto-merge',
+            'never merge it',
+            '**its own** `claude/issue-<n>` branch',
+            'Never delete the branch of another agent',
+        ] as $required) {
+            $this->assertStringContainsString($required, $cancellation, 'AGENTS.md § Cancellation lost: ' . $required);
+        }
+        $this->assertStringContainsString('do not arm', self::backlogSection());
+    }
+
+    /** The queue contract test exercises a whole blocked-by chain offline, on every run of the suite. */
+    public function testTheQueueScriptsOwnTestIsRunByThisSuite(): void
+    {
+        $root = dirname(__DIR__, 2);
+        $this->assertFileExists($root . '/scripts/backlog-ready-queue.sh');
+        $this->assertFileExists($root . '/scripts/backlog-ready-queue.test.sh');
         $this->assertStringContainsString(
-            '.claude/skills/external-sources/SKILL.md',
-            $section,
-            'AGENTS.md no longer says how a divergence becomes an issue, so the check can find one and '
-            . 'leave no trace — or open a duplicate every time the backlog is fixed.',
+            "'backlog-ready-queue'",
+            (string) file_get_contents($root . '/tests/Security/BacklogProjectScriptsTest.php'),
+            'The Ready queue\'s offline test is no longer run by PHPUnit.',
         );
-        $this->assertFileExists(dirname(__DIR__, 2) . '/.claude/skills/external-sources/SKILL.md');
     }
 
     private static function backlogSection(): string

@@ -1702,7 +1702,13 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
         self::assertLessThan($agent, $extract, $workflow . ' fetches the extract after the agent has run.');
 
         $fetch = $this->firstRunScriptContaining($workflow, 'contents/scripts/');
-        foreach (['support-triage-extract.sh', 'triage-comment-gate.sh'] as $script) {
+        foreach ([
+            'support-triage-extract.sh',
+            'triage-comment-gate.sh',
+            'project-effort.sh',
+            'triage-title.sh',
+            'triage-dependencies.sh',
+        ] as $script) {
             self::assertStringContainsString($script, $fetch, $workflow . ' no longer fetches scripts/' . $script . '.');
             self::assertFileExists(
                 dirname(__DIR__, 2) . '/scripts/' . $script,
@@ -2750,6 +2756,139 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
         }
 
         return null;
+    }
+
+    /**
+     * Issue #923: the triage writes a title prefix, native `blocked by`
+     * links and the Project's `Effort`, each by a deterministic step after
+     * the verdict. The Projects credential is the dangerous one — a user
+     * Project is outside every repository permission, so it is a PAT — and
+     * it belongs to exactly one step per workflow, never the agent's and
+     * never the title-and-links step's.
+     */
+    #[DataProvider('issueWorkflows')]
+    public function testTheProjectsTokenIsInExactlyOneStepAndNeverTheAgents(string $workflow): void
+    {
+        $withToken = array_values(array_filter(
+            $this->stepBlocks($workflow),
+            static fn (string $step): bool => str_contains($step, 'secrets.PROJECTS_TOKEN'),
+        ));
+
+        self::assertCount(1, $withToken, $workflow . ' must expose the Projects token to exactly one step.');
+        self::assertStringContainsString('- name: Set Effort on ScoutMagic Project', $withToken[0]);
+        self::assertStringContainsString('triage-scripts/project-effort.sh', $withToken[0]);
+        self::assertStringNotContainsString('anthropics/claude-code-action', $withToken[0], 'The agent was handed the Projects token.');
+        self::assertStringNotContainsString('triage-dependencies.sh', $withToken[0]);
+        self::assertStringNotContainsString('triage-title.sh', $withToken[0]);
+        self::assertStringNotContainsString('github.token', $withToken[0], 'The Projects step must not also carry the repository token.');
+    }
+
+    #[DataProvider('issueWorkflows')]
+    public function testTheTitleAndLinksStepHoldsOnlyTheRepositoryToken(string $workflow): void
+    {
+        $steps = array_values(array_filter(
+            $this->stepBlocks($workflow),
+            static fn (string $step): bool => str_contains($step, 'triage-scripts/triage-title.sh'),
+        ));
+
+        self::assertCount(1, $steps, $workflow . ' must have exactly one step running triage-title.sh.');
+        self::assertStringContainsString('github.token', $steps[0]);
+        self::assertStringContainsString('triage-dependencies.sh', $steps[0]);
+        self::assertStringNotContainsString('secrets.PROJECTS_TOKEN', $steps[0]);
+        self::assertStringNotContainsString('anthropics/claude-code-action', $steps[0]);
+    }
+
+    /**
+     * The follow-up writes come after the verification of the verdict
+     * (so a failure in them cannot skip it) and before the extract is
+     * removed (which must always be last).
+     */
+    #[DataProvider('issueWorkflows')]
+    public function testTheFollowUpWritesComeAfterTheVerdictChecks(string $workflow): void
+    {
+        $names = array_map(
+            static fn (string $step): string => preg_match('/- name: (.+)/', $step, $m) === 1 ? trim($m[1]) : '',
+            $this->stepBlocks($workflow),
+        );
+        $position = static function (string $prefix) use ($names, $workflow): int {
+            foreach ($names as $index => $name) {
+                if (str_starts_with($name, $prefix)) {
+                    return $index;
+                }
+            }
+            self::fail($workflow . ' has no step starting with "' . $prefix . '".');
+        };
+
+        $verified = $position('Fail if');
+        self::assertGreaterThan($verified, $position('Normalise the title'));
+        self::assertGreaterThan($verified, $position('Set Effort on ScoutMagic Project'));
+        self::assertLessThan($position('Remove the extract'), $position('Set Effort on ScoutMagic Project'));
+        self::assertSame(count($names) - 1, $position('Remove the extract'), 'Removing the extract must stay the last step.');
+    }
+
+    /** The verdict gained three planning fields and, deliberately, no Priority. */
+    #[DataProvider('issueWorkflows')]
+    public function testTheSchemaCarriesPlanningFieldsAndNeverAPriority(string $workflow): void
+    {
+        $schemaLine = null;
+        foreach ($this->lines($workflow) as $line) {
+            if (preg_match("/^\\s+(?:VERDICT|SCAN)_SCHEMA: '/", $line) === 1) {
+                $schemaLine = $line;
+            }
+        }
+        self::assertNotNull($schemaLine, $workflow . ' has no schema line.');
+        $schema = json_decode(substr($schemaLine, (int) strpos($schemaLine, "'") + 1, -1), true, 512, JSON_THROW_ON_ERROR);
+
+        $json = json_encode($schema, JSON_THROW_ON_ERROR);
+        foreach (['"effort"', '"category"', '"blocked_by"'] as $field) {
+            self::assertStringContainsString($field, $json, $workflow . ' no longer asks for ' . $field . '.');
+        }
+        self::assertStringContainsString('"unknown"', $json);
+        self::assertStringContainsString('"confirmed_bug"', $json);
+        self::assertStringNotContainsStringIgnoringCase(
+            'priority',
+            $json,
+            $workflow . ' lets the model return a priority. Priority belongs to the maintainer alone (issue #923 § 8).',
+        );
+        self::assertStringContainsString('"additionalProperties":false', $json);
+    }
+
+    /** No shell step of either workflow can write a Priority or assign an issue. */
+    #[DataProvider('issueWorkflows')]
+    public function testNoStepWritesAPriorityOrAnAssignee(string $workflow): void
+    {
+        foreach ($this->runScripts($workflow) as $script) {
+            self::assertDoesNotMatchRegularExpression('/priority/i', preg_replace('/^\s*#.*$/m', '', $script) ?? $script);
+            self::assertDoesNotMatchRegularExpression('/--add-assignee|assignees\[\]|-f assignee|\/assignees/', $script);
+        }
+    }
+
+    /** The validity predicate rejects a verdict outside the closed enums. */
+    #[DataProvider('issueWorkflows')]
+    public function testAVerdictOutsideTheEnumsIsNotUsable(string $workflow): void
+    {
+        $contents = $this->contents($workflow);
+        $key = $workflow === self::TRIAGE ? 'VERDICT_VALID' : 'ENTRY_VALID';
+        self::assertSame(1, preg_match('/^\s+' . $key . ': >-\n((?:\s{8,}.+\n)+)/m', $contents, $match), $workflow . ' lost ' . $key . '.');
+        $predicate = trim((string) preg_replace('/\s+/', ' ', $match[1]));
+
+        exec('command -v jq', $unused, $jq);
+        self::assertSame(0, $jq, 'jq is required.');
+
+        $base = ['issue' => 5, 'verdict' => 'feature-request', 'comment' => 'x', 'effort' => 'M', 'category' => 'idea', 'blocked_by' => []];
+        $usable = static function (array $verdict) use ($predicate): bool {
+            exec('printf %s ' . escapeshellarg(json_encode($verdict, JSON_THROW_ON_ERROR)) . ' | jq -e ' . escapeshellarg($predicate) . ' >/dev/null 2>&1', $out, $code);
+
+            return $code === 0;
+        };
+
+        self::assertTrue($usable($base));
+        self::assertTrue($usable([...$base, 'effort' => 'unknown', 'blocked_by' => [['issue' => 724, 'evidence' => 'Dépend de #724']]]));
+        self::assertFalse($usable([...$base, 'effort' => 'XL']));
+        self::assertFalse($usable([...$base, 'category' => 'bug']));
+        self::assertFalse($usable([...$base, 'blocked_by' => 'x']));
+        self::assertFalse($usable([...$base, 'blocked_by' => [['issue' => '724', 'evidence' => 'x']]]));
+        self::assertFalse($usable([...$base, 'comment' => '']));
     }
 
     /**
