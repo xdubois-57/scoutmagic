@@ -49,7 +49,13 @@ describe('SummaryReporter', () => {
         expect(appended[0][1]).not.toContain('login-page');
     });
 
-    it('counts a timeout as a failure', () => {
+    it('escapes a title so it cannot turn into Markdown', () => {
+        const odd = fakeTest('/repo/tests/e2e/specs/y.spec.js', 9, ['', 'chromium', 'y.spec.js', 'a `code` and *stars*']);
+        const { appended } = run({ GITHUB_ACTIONS: 'true', GITHUB_STEP_SUMMARY: '/tmp/summary' }, [[odd, failed]]);
+        expect(appended[0][1]).toContain('a \\`code\\` and \\*stars\\*');
+    });
+
+        it('counts a timeout as a failure', () => {
         const { out } = run({ GITHUB_ACTIONS: 'true' }, [[red, { status: 'timedOut', errors: [{ message: 'Test timeout of 240000ms exceeded.' }] }]]);
         expect(out[0]).toContain('Test timeout of 240000ms exceeded.');
     });

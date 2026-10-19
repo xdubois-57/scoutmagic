@@ -113,7 +113,7 @@ export default class SummaryReporter {
         const summaryPath = this.env.GITHUB_STEP_SUMMARY;
         if (summaryPath) {
             const job = this.env.GITHUB_JOB ? ` (${this.env.GITHUB_JOB})` : '';
-            const lines = failures.map((f) => `- \`${f.file}:${f.line}\` — ${f.title}\n  - ${markdownCell(f.error)}`);
+            const lines = failures.map((f) => `- \`${f.file}:${f.line}\` — ${markdownCell(f.title)}\n  - ${markdownCell(f.error)}`);
             this.append(summaryPath, `### Failed E2E scenarios${job}\n\n${lines.join('\n')}\n\n`);
         }
     }
