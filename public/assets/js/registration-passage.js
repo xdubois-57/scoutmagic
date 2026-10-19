@@ -277,7 +277,7 @@
             // request (issue #733) — which can take a few seconds.
             inlineFeedback(box, 'Répartition en cours…', false);
 
-            api.withDisabled(optimizeButton, function () {
+            void api.withDisabled(optimizeButton, function () {
                 return api.postJson(optimizeButton.dataset.endpoint || '', {
                     method: chosen ? chosen.value : 'balanced',
                 }).then(function (res) {
@@ -311,14 +311,14 @@
             // (design.md §7.5). Asked here rather than through the
             // delegated form handler because this button posts JSON and
             // reloads; a real form submit would answer with a page.
-            window.ScoutMagicConfirm.ask({ message: question, confirmLabel: 'Réinitialiser' }).then(function (agreed) {
+            void window.ScoutMagicConfirm.ask({ message: question, confirmLabel: 'Réinitialiser' }).then(function (agreed) {
                 if (!agreed) {
                     return;
                 }
                 var box = document.getElementById('passage-optimize-feedback');
                 inlineFeedback(box, 'Réinitialisation…', false);
 
-                api.withDisabled(resetButton, function () {
+                void api.withDisabled(resetButton, function () {
                     return api.postJson(resetButton.dataset.endpoint || '', {}).then(function (res) {
                         if (res.data?.success) {
                             window.location.reload();
@@ -350,7 +350,7 @@
         var endpoint = /** @type {HTMLElement} */ (block).dataset.endpoint || '';
 
         checkbox.addEventListener('change', function () {
-            api.postJson(endpoint, { confirmed: checkbox.checked }).then(function (res) {
+            void api.postJson(endpoint, { confirmed: checkbox.checked }).then(function (res) {
                 if (res.data?.success) {
                     toast(checkbox.checked ? 'Confirmé.' : 'Confirmation retirée.', false);
                     block.classList.toggle('alert-success', checkbox.checked);
@@ -382,7 +382,7 @@
         // it is about, as on every form the chief submits on purpose.
         save.addEventListener('click', function () {
             inlineFeedback(box, 'Enregistrement…', false);
-            api.withDisabled(save, function () {
+            void api.withDisabled(save, function () {
                 return api.postJson(save.dataset.endpoint || '', {
                     matched_member_id: Number.parseInt(picker.value, 10),
                 });
