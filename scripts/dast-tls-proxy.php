@@ -149,13 +149,26 @@ function dastTlsFill(&$buffer, $stream, int $minimum): bool
  */
 function dastTlsReadHead(&$buffer, $stream): ?string
 {
+    // The caller waits for a NEW request under the long idle limit; the
+    // moment its first byte is here, the rest of the head gets the
+    // backend's limit, so a client that starts a request and stalls is not
+    // held for the idle limit.
+    if ($buffer !== '') {
+        stream_set_timeout($stream, DAST_TLS_BACKEND_TIMEOUT);
+    }
     while (($position = strpos($buffer, "\r\n\r\n")) === false) {
         if (strlen($buffer) > DAST_TLS_HEAD_LIMIT) {
             return null;
         }
-        $chunk = fread($stream, DAST_TLS_READ_CHUNK);
+        // A peer resetting the connection mid-read is ordinary during a
+        // scan; it ends this connection, and must not write a warning per
+        // occurrence into the log scripts/dast.sh prints.
+        $chunk = @fread($stream, DAST_TLS_READ_CHUNK);
         if ($chunk === false || $chunk === '') {
             return null;
+        }
+        if ($buffer === '') {
+            stream_set_timeout($stream, DAST_TLS_BACKEND_TIMEOUT);
         }
         $buffer .= $chunk;
     }
@@ -328,9 +341,19 @@ function dastTlsReframe(string $head, int $length, bool $keepAlive, bool $omitBo
 /**
  * One line per slow or failed request on stderr (scripts/dast.sh sends it to
  * tls-proxy.log and prints it whole when the browser suite fails), so a
- * scenario that waited says which request did. The query string is dropped: it
- * carries tokens (a magic link, a tracking page).
+ * scenario that waited says which request did. The query string is dropped
+ * (a magic link carries its token there), and so is any long opaque path
+ * segment ({@see dastTlsRedactPath()}).
  */
+function dastTlsRedactPath(string $path): string
+{
+    // Some routes carry a bearer token as a PATH segment, not a query
+    // parameter — /document/{token}, /locations/suivi/{id}/{token}. Any
+    // segment of 20 or more URL-safe characters is a token as far as this
+    // log is concerned; no route name is that long.
+    return (string) preg_replace('#/[A-Za-z0-9_-]{20,}#', '/…', $path);
+}
+
 function dastTlsLog(string $line): void
 {
     fwrite(STDERR, date('H:i:s') . ' dast-tls-proxy: ' . $line . "\n");
@@ -348,7 +371,7 @@ function dastTlsHandleConnection($client, string $backend): void
 
     for ($served = 0; $served < DAST_TLS_MAX_REQUESTS; $served++) {
         // Waiting for the NEXT request is bounded by the idle limit; once a
-        // head has arrived, the request gets the backend's.
+        // request has started arriving (its first byte, see dastTlsReadHead()), it gets the backend's.
         stream_set_timeout($client, DAST_TLS_IDLE_TIMEOUT);
         $head = dastTlsReadHead($buffer, $client);
         if ($head === null) {
@@ -375,7 +398,7 @@ function dastTlsHandleConnection($client, string $backend): void
 
         $response = dastTlsExchange($backend, $forwarded, $body);
         $target = $requestLine === false ? '' : (string) (explode(' ', $requestLine)[1] ?? '');
-        $path = (string) strtok($target, '?');
+        $path = dastTlsRedactPath((string) strtok($target, '?'));
         if ($response === null) {
             dastTlsLog(sprintf('%s %s -> backend failed after %d ms', $method, $path, intdiv(hrtime(true) - $startedAt, 1_000_000)));
             // The application server is gone (teardown, a crash). Answer
