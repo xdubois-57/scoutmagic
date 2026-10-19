@@ -1,0 +1,445 @@
+<title>Listes de diffusion #729</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* Mise en page : planche de maquettes — cadres de 390 px côte à côte, zones étiquetées nouveau / modifié / inchangé. */
+:root{
+  --bg:#eef1f4; --surface:#ffffff; --sunken:#f6f7f9; --fg:#1d2329; --muted:#5c6670; --line:#d9dee3;
+  --accent:#0d6efd; --accent-fg:#ffffff; --accent-soft:#e7f0ff;
+  --danger:#c62f3d; --new:#1f7a4c; --new-soft:#e3f4ea; --mod:#9a5b00; --mod-soft:#fff1d6; --same:#59626b; --same-soft:#eceff2;
+  --font:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#13171b; --surface:#1c2227; --sunken:#232a30; --fg:#e6eaee; --muted:#9aa5af; --line:#333c44;
+  --accent:#5b9bff; --accent-fg:#0b1220; --accent-soft:#1d2c44;
+  --danger:#ff7b86; --new:#6fd29d; --new-soft:#173327; --mod:#f0b45a; --mod-soft:#3a2a10; --same:#a7b0b8; --same-soft:#2a3036; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#13171b; --surface:#1c2227; --sunken:#232a30; --fg:#e6eaee; --muted:#9aa5af; --line:#333c44;
+  --accent:#5b9bff; --accent-fg:#0b1220; --accent-soft:#1d2c44;
+  --danger:#ff7b86; --new:#6fd29d; --new-soft:#173327; --mod:#f0b45a; --mod-soft:#3a2a10; --same:#a7b0b8; --same-soft:#2a3036; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--font);font-size:14px;line-height:1.45}
+.planche{max-width:1240px;margin:0 auto;padding-block:24px 64px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+h1{font-size:26px;margin:0 0 8px;text-wrap:balance}
+.lede{color:var(--muted);max-width:72ch;margin:0 0 10px}
+.sommaire{display:flex;flex-wrap:wrap;gap:8px;list-style:none;padding:0;margin:16px 0 32px}
+.sommaire a{display:inline-block;padding:6px 12px;border:1px solid var(--line);border-radius:999px;background:var(--surface);color:var(--fg);text-decoration:none;font-size:13px}
+.legende{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 8px}
+.ecrans{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(390px,100%),1fr));gap:32px 24px;align-items:start}
+.ecran{min-width:0}
+.ecran>h2{font-size:17px;margin:0 0 4px}
+.ecran>p{color:var(--muted);margin:0 0 12px;font-size:13px}
+.cadre{max-width:390px;background:var(--surface);border:1px solid var(--line);border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.dialogue{max-width:390px;background:var(--surface);border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.18)}
+.dlg-h{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid var(--line);font-weight:600;font-size:16px}
+.dlg-b{padding:16px;display:flex;flex-direction:column;gap:12px}
+.dlg-f{display:flex;justify-content:flex-end;gap:8px;padding:12px 16px;border-top:1px solid var(--line)}
+.nav{background:#1f3a5f;color:#fff;padding:10px 16px;font-weight:600;font-size:14px}
+.corps{padding:16px;display:flex;flex-direction:column;gap:14px}
+.ariane{font-size:12px;color:var(--muted)}
+.ariane a{color:var(--accent);text-decoration:none}
+.titre{display:flex;align-items:flex-start;gap:8px}
+.titre h3{margin:0;font-size:21px;flex:1;text-wrap:balance}
+.sous{color:var(--muted);font-size:13px;margin:2px 0 0}
+.zone{position:relative;border:1px dashed var(--line);border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:10px}
+.zone.nouveau{border-color:var(--new)} .zone.modifie{border-color:var(--mod)} .zone.inchange{border-color:var(--same)}
+.etq{align-self:flex-start;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;padding:2px 8px;border-radius:999px}
+.etq.nouveau{background:var(--new-soft);color:var(--new)} .etq.modifie{background:var(--mod-soft);color:var(--mod)} .etq.inchange{background:var(--same-soft);color:var(--same)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:36px;padding:6px 12px;border-radius:6px;border:1px solid var(--line);background:var(--surface);color:var(--fg);font:inherit;font-size:13px;cursor:pointer}
+.btn.pri{background:var(--accent);border-color:var(--accent);color:var(--accent-fg)}
+.btn.dgr{border-color:var(--danger);color:var(--danger)}
+.btn.plein-dgr{background:var(--danger);border-color:var(--danger);color:#fff}
+.btn.ico{width:36px;padding:0}
+.btn[disabled]{opacity:.5;cursor:not-allowed}
+.btn.large{width:100%;min-height:44px}
+.carte{border:1px solid var(--line);border-radius:8px;padding:12px;display:flex;flex-direction:column;gap:6px;background:var(--surface)}
+.carte .ligne{display:flex;align-items:center;gap:8px}
+.carte .nom{font-weight:600;flex:1}
+.carte .nom a{color:var(--accent);text-decoration:none}
+.p{margin:0;font-size:13px;color:var(--muted)}
+.fort{color:var(--fg)}
+.total{background:var(--accent-soft);border-radius:8px;padding:12px;display:flex;flex-direction:column;gap:6px}
+.total .chiffre{font-size:22px;font-weight:700;font-variant-numeric:tabular-nums}
+.plus{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.06em}
+.plus::before,.plus::after{content:"";flex:1;height:1px;background:var(--line)}
+.bloc{border:1px solid var(--line);border-radius:8px;padding:12px;display:flex;flex-direction:column;gap:8px}
+.bloc .tete{display:flex;align-items:center;gap:8px}
+.bloc .type{font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);flex:1}
+.phrase{font-size:15px;margin:0}
+.phrase b{font-weight:600}
+.compte{font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}
+.selbar{border:1px solid var(--line);border-radius:6px;background:var(--sunken);padding:8px 12px;display:flex;align-items:center;min-height:52px}
+.selbar .lbl{font-size:11px;color:var(--muted)}
+.selbar .val{font-size:15px}
+.selbar .chev{margin-left:auto;color:var(--muted)}
+.champ{display:flex;flex-direction:column;gap:4px}
+.champ label{font-size:12px;color:var(--muted)}
+.input{border:1px solid var(--line);border-radius:6px;padding:8px 10px;font:inherit;background:var(--surface);color:var(--fg);min-height:38px;width:100%}
+.rangee{display:flex;flex-wrap:wrap;gap:8px}
+.rangee .input{flex:1 1 140px;width:auto}
+.personnes{list-style:none;margin:0;padding:0;border-top:1px solid var(--line)}
+.personnes li{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--line)}
+.personnes .qui{flex:1;min-width:0}
+.personnes .qui > span{display:block}
+.personnes .qui .mail{font-size:12px;color:var(--muted);overflow-wrap:anywhere}
+.tag{font-size:11px;padding:1px 7px;border-radius:999px;background:var(--same-soft);color:var(--same);white-space:nowrap}
+.tag.membre{background:var(--accent-soft);color:var(--accent)}
+.grise{color:var(--muted)}
+.vide{text-align:center;padding:20px 8px;display:flex;flex-direction:column;gap:10px;align-items:center}
+.alerte{border-radius:6px;padding:10px 12px;font-size:13px;background:var(--mod-soft);color:var(--fg)}
+.note{font-size:12px;color:var(--muted);margin:0}
+.ico-svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.decisions{margin-top:48px;max-width:80ch}
+.decisions h2{font-size:18px;margin:0 0 8px}
+.decisions li{margin-bottom:6px}
+code{font-family:var(--mono);font-size:12px}
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6"/></symbol>
+  <symbol id="i-pen" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16v4zM13 7l4 4"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+  <symbol id="i-down" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></symbol>
+</svg>
+
+
+<style>
+.type-grille{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.type-choix{border:1px solid var(--line);border-radius:8px;padding:12px;display:flex;flex-direction:column;gap:4px;background:var(--surface);text-align:left;font:inherit;color:var(--fg);cursor:pointer;min-height:44px}
+.type-choix b{font-size:14px}
+.type-choix span{font-size:12px;color:var(--muted)}
+.axes{display:grid;grid-template-columns:auto 1fr 1fr;gap:4px 8px;font-size:11px;color:var(--muted);align-items:center}
+.axes .h{font-weight:700;text-transform:uppercase;letter-spacing:.05em}
+.rubrique{display:flex;align-items:baseline;gap:8px;margin-top:4px}
+.rubrique h4{margin:0;font-size:13px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);flex:1}
+.rubrique .n{font-size:12px;color:var(--muted)}
+.ligne-bloc{display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:8px;padding:8px 8px 8px 12px}
+.ligne-bloc .qui{flex:1;min-width:0}
+.ligne-bloc .qui > span{display:block}
+.ligne-bloc .qui .mail{font-size:12px;color:var(--muted);overflow-wrap:anywhere}
+.ligne-bloc.grise{color:var(--muted)}
+</style>
+
+<div class="planche">
+<h1>Listes de diffusion : une page par liste, deux sortes de blocs (#729)</h1>
+<p class="lede">Maquette de référence du chantier <code>CHANTIER-listes-de-diffusion-blocs.md</code>. Elle fait foi pour la hiérarchie des écrans, les libellés français et les états d'interaction, et pour rien d'autre : le produit est en Bootstrap 5 et suit <code>design.md</code> §7. Largeur de référence : 390 px. Aucun script.</p>
+<p class="lede">Une liste est une suite de <b>blocs</b>, additionnés. Il y a deux sortes de blocs, et aucune n'est limitée en nombre. Chacune a son propre dialogue, court. Une personne désignée par plusieurs blocs ne reçoit l'e-mail qu'une fois.</p>
+<div class="axes" style="max-width:520px;grid-template-columns:auto 1fr;margin:12px 0 16px">
+  <span class="h">Groupe de membres</span><span class="fort">Des membres de l'unité, par fonction, section ou badge. Adresses tirées de Desk <b>pour l'année choisie à l'envoi</b>.</span>
+  <span class="h">Groupe de contacts</span><span class="fort">Des personnes extérieures, tenues à jour par un fichier Excel. <b>Toujours incluses</b>, quelle que soit l'année.</span>
+</div>
+<div class="legende">
+  <span class="etq nouveau">Nouveau</span><span class="etq modifie">Modifié</span><span class="etq inchange">Inchangé</span>
+</div>
+<p class="note">Ce qui n'est pas dessiné ne change pas : la page d'un e-mail (<code>/mass-mail/{id}</code>) et son choix de liste, la désinscription, l'envoi, le gel des destinataires, les quatre listes par défaut.</p>
+
+<ul class="sommaire">
+  <li><a href="#e1">1. Les listes</a></li>
+  <li><a href="#e2">2. Nouvelle liste</a></li>
+  <li><a href="#e3">3. Liste vide</a></li>
+  <li><a href="#e4">4. Que voulez-vous ajouter ?</a></li>
+  <li><a href="#e5">5. Une liste</a></li>
+  <li><a href="#e6">6. Groupe de membres</a></li>
+  <li><a href="#e8">7. Nouveau groupe de contacts</a></li>
+  <li><a href="#e9">8. Un groupe de contacts</a></li>
+  <li><a href="#e11">9. Retirer un bloc</a></li>
+  <li><a href="#e12">10. Voir les destinataires</a></li>
+  <li><a href="#e13">11. Écrire un e-mail</a></li>
+</ul>
+
+<div class="ecrans">
+
+<!-- 1 -->
+<section class="ecran" id="e1">
+<h2>1. Les listes — <code>/admin/listes-de-diffusion</code></h2>
+<p>La page ne modifie plus rien : chaque liste personnalisée est une carte qui mène à sa page. Le résumé compte les blocs par sorte.</p>
+<div class="cadre">
+  <div class="nav">25 SV — Espace chefs d'U</div>
+  <div class="corps">
+    <div class="ariane">Espace chefs d'U / Communication</div>
+    <div class="titre"><h3>Listes de diffusion</h3><button class="btn pri"><svg class="ico-svg"><use href="#i-plus"/></svg>Nouvelle liste</button></div>
+    <p class="p">Une liste ne vise aucune année scoute : elle décrit qui reçoit, et l'année se choisit au moment d'écrire l'e-mail.</p>
+    <div class="zone inchange"><span class="etq inchange">Inchangé</span>
+      <p class="p fort"><b>Listes par défaut</b></p>
+      <p class="p">Membres actifs · Animateurs · Section… · Anciens — non modifiables, chacune avec sa description.</p>
+    </div>
+    <div class="zone modifie"><span class="etq modifie">Modifié</span>
+      <p class="p fort"><b>Vos listes</b></p>
+      <div class="carte">
+        <div class="ligne"><span class="nom"><a href="#e5">Staff élargi</a></span>
+          <button class="btn ico" aria-label="Désactiver la liste Staff élargi"><svg class="ico-svg"><use href="#i-eye"/></svg></button>
+          <button class="btn ico dgr" aria-label="Supprimer la liste Staff élargi"><svg class="ico-svg"><use href="#i-trash"/></svg></button></div>
+        <p class="p">Tous les animateurs, le trésorier et nos partenaires — infos de fonctionnement.</p>
+        <p class="p fort">2 groupes de membres · 1 groupe de contacts</p>
+        <p class="p">≈ 67 destinataires en 2026-2027</p>
+      </div>
+      <div class="carte">
+        <div class="ligne"><span class="nom"><a href="#e5">Partenaires locaux</a></span>
+          <button class="btn ico" aria-label="Désactiver la liste Partenaires locaux"><svg class="ico-svg"><use href="#i-eye"/></svg></button>
+          <button class="btn ico dgr" aria-label="Supprimer la liste Partenaires locaux"><svg class="ico-svg"><use href="#i-trash"/></svg></button></div>
+        <p class="p">Commune, paroisse, propriétaires de terrains — invitations aux fêtes.</p>
+        <p class="p fort">1 groupe de contacts</p>
+        <p class="p">≈ 35 destinataires en 2026-2027</p>
+      </div>
+      <div class="carte">
+        <div class="ligne"><span class="nom"><a href="#e5">Secouristes</a> <span class="tag">Désactivée</span></span>
+          <button class="btn ico" aria-label="Activer la liste Secouristes"><svg class="ico-svg"><use href="#i-eye"/></svg></button>
+          <button class="btn ico dgr" aria-label="Supprimer la liste Secouristes"><svg class="ico-svg"><use href="#i-trash"/></svg></button></div>
+        <p class="p">Porteurs du badge secouriste, pour les camps.</p>
+        <p class="p fort">1 groupe de membres</p>
+        <p class="p">≈ 9 destinataires en 2026-2027</p>
+      </div>
+    </div>
+    <p class="note">« ≈ » : le nombre est calculé pour l'année scoute effective ; l'e-mail peut viser une autre année.</p>
+  </div>
+</div>
+</section>
+
+<!-- 2 -->
+<section class="ecran" id="e2">
+<h2>2. Nouvelle liste — dialogue</h2>
+<p>Deux champs. « Enregistrer » crée la liste et ouvre aussitôt sa page (écran 3). Le crayon de la page rouvre ce même dialogue.</p>
+<div class="zone nouveau"><span class="etq nouveau">Nouveau</span>
+<div class="dialogue">
+  <div class="dlg-h">Nouvelle liste <svg class="ico-svg"><use href="#i-x"/></svg></div>
+  <div class="dlg-b">
+    <div class="champ"><label for="nl-nom">Nom</label><input class="input" id="nl-nom" value="Staff élargi"></div>
+    <div class="champ"><label for="nl-desc">Description</label><textarea class="input" id="nl-desc" rows="3">Tous les animateurs, le trésorier et nos partenaires — infos de fonctionnement.</textarea>
+      <p class="note">Affichée aux animateurs qui choisissent la liste au moment d'écrire.</p></div>
+  </div>
+  <div class="dlg-f"><button class="btn">Annuler</button><button class="btn pri">Enregistrer</button></div>
+</div>
+</div>
+</section>
+
+<!-- 3 -->
+<section class="ecran" id="e3">
+<h2>3. Une liste qui vient d'être créée</h2>
+<p>Un seul bouton : il ouvre le choix de la sorte de bloc (écran 4).</p>
+<div class="cadre">
+  <div class="nav">25 SV — Espace chefs d'U</div>
+  <div class="corps">
+    <div class="ariane"><a href="#e1">Listes de diffusion</a> / Staff élargi</div>
+    <div class="zone nouveau"><span class="etq nouveau">Nouveau</span>
+      <div class="titre"><h3>Staff élargi</h3><button class="btn ico" aria-label="Modifier le nom et la description"><svg class="ico-svg"><use href="#i-pen"/></svg></button></div>
+      <p class="sous">Tous les animateurs, le trésorier et nos partenaires — infos de fonctionnement.</p>
+      <div class="total"><span class="chiffre">0 destinataire</span><span class="p">Personne ne reçoit encore les e-mails de cette liste.</span></div>
+      <div class="vide">
+        <p class="p">Ajoutez des groupes de membres de l'unité ou des groupes de contacts extérieurs, autant que nécessaire.</p>
+        <button class="btn pri large"><svg class="ico-svg"><use href="#i-plus"/></svg>Ajouter des destinataires</button>
+      </div>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- 4 -->
+<section class="ecran" id="e4">
+<h2>4. Que voulez-vous ajouter ? — dialogue</h2>
+<p>Deux choix. Chacun ouvre son propre dialogue (écrans 6 et 7).</p>
+<div class="zone nouveau"><span class="etq nouveau">Nouveau</span>
+<div class="dialogue">
+  <div class="dlg-h">Que voulez-vous ajouter ? <svg class="ico-svg"><use href="#i-x"/></svg></div>
+  <div class="dlg-b">
+    <button class="type-choix"><b>Groupe de membres</b><span>Des membres de l'unité, par fonction, section ou badge. Leur adresse vient de Desk, pour l'année choisie au moment d'écrire.</span></button>
+    <button class="type-choix"><b>Groupe de contacts</b><span>Des personnes extérieures — commune, paroisse, propriétaire… — tenues à jour par un fichier Excel.</span></button>
+  </div>
+</div>
+</div>
+</section>
+
+<!-- 5 -->
+<section class="ecran" id="e5">
+<h2>5. Une liste — <code>/admin/listes-de-diffusion/{id}</code></h2>
+<p>Le total en haut, puis les blocs rangés par sorte, toujours dans le même ordre. Un clic sur un bloc rouvre son dialogue. Tout se modifie dans un dialogue qui se termine par « Enregistrer » ; seul le retrait se fait depuis la page, après confirmation.</p>
+<div class="cadre">
+  <div class="nav">25 SV — Espace chefs d'U</div>
+  <div class="corps">
+    <div class="ariane"><a href="#e1">Listes de diffusion</a> / Staff élargi</div>
+    <div class="zone nouveau"><span class="etq nouveau">Nouveau</span>
+      <div class="titre"><h3>Staff élargi</h3><button class="btn ico" aria-label="Modifier le nom et la description"><svg class="ico-svg"><use href="#i-pen"/></svg></button></div>
+      <p class="sous">Tous les animateurs, le trésorier et nos partenaires — infos de fonctionnement.</p>
+
+      <div class="total">
+        <span class="p">Reçoivent les e-mails de cette liste</span>
+        <span class="chiffre">67 destinataires en 2026-2027</span>
+        <span class="p">32 membres pour 2026-2027 et 37 contacts, dont 2 désinscrits. Une personne désignée par plusieurs blocs ne reçoit l'e-mail qu'une fois.</span>
+        <a class="p" href="#e12" style="color:var(--accent)">Voir les destinataires</a>
+      </div>
+
+      <div class="rubrique"><h4>Groupes de membres</h4><span class="n">32 membres</span></div>
+      <div class="ligne-bloc"><div class="qui"><span>Les membres qui ont la fonction <b>Animateur</b> ou <b>Animateur responsable</b>.</span><span class="mail">31 membres en 2026-2027</span></div>
+        <button class="btn ico dgr" aria-label="Retirer ce groupe de membres"><svg class="ico-svg"><use href="#i-trash"/></svg></button></div>
+      <div class="ligne-bloc"><div class="qui"><span>Les membres qui portent le badge <b>Trésorier</b>.</span><span class="mail">1 membre en 2026-2027</span></div>
+        <button class="btn ico dgr" aria-label="Retirer ce groupe de membres"><svg class="ico-svg"><use href="#i-trash"/></svg></button></div>
+
+      <div class="rubrique"><h4>Groupes de contacts</h4><span class="n">37 contacts</span></div>
+      <div class="ligne-bloc"><div class="qui"><span>Partenaires de la fête d'unité</span><span class="mail">37 contacts, dont 2 désinscrits · fichier remplacé le 12 septembre 2026</span></div>
+        <button class="btn ico dgr" aria-label="Retirer le groupe Partenaires de la fête d'unité"><svg class="ico-svg"><use href="#i-trash"/></svg></button></div>
+
+      <button class="btn pri large"><svg class="ico-svg"><use href="#i-plus"/></svg>Ajouter des destinataires</button>
+      <p class="note">Une rubrique vide n'est pas affichée. Le nombre de membres dépend de l'année : celui de la page est calculé pour l'année scoute effective.</p>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- 6 -->
+<section class="ecran" id="e6">
+<h2>6. Groupe de membres — dialogue</h2>
+<p>Les trois sélecteurs actuels (select bar, mode multiple), la phrase, le compteur. Un axe vide se lit « Peu importe » ; il faut au moins un choix.</p>
+<div class="zone nouveau"><span class="etq nouveau">Nouveau</span>
+<div class="dialogue">
+  <div class="dlg-h">Groupe de membres <svg class="ico-svg"><use href="#i-x"/></svg></div>
+  <div class="dlg-b">
+    <div class="selbar"><div><div class="lbl">Fonctions</div><div class="val">2 fonctions</div></div><svg class="ico-svg chev"><use href="#i-down"/></svg></div>
+    <div class="selbar"><div><div class="lbl">Sections</div><div class="val">Peu importe</div></div><svg class="ico-svg chev"><use href="#i-down"/></svg></div>
+    <div class="selbar"><div><div class="lbl">Badges</div><div class="val">Peu importe</div></div><svg class="ico-svg chev"><use href="#i-down"/></svg></div>
+    <div class="total" style="background:var(--sunken)">
+      <p class="phrase">Les membres qui ont la fonction <b>Animateur</b> ou <b>Animateur responsable</b>.</p>
+      <span class="compte">31 membres en 2026-2027</span>
+    </div>
+    <p class="note">Un membre doit remplir chaque choix fait ici. Pour d'autres membres, ajoutez un autre groupe.</p>
+  </div>
+  <div class="dlg-f"><button class="btn">Annuler</button><button class="btn pri">Enregistrer</button></div>
+</div>
+<div class="dialogue">
+  <div class="dlg-b">
+    <div class="total" style="background:var(--sunken)"><p class="p">Sans aucun choix : « Choisissez au moins une fonction, une section ou un badge. » — « Enregistrer » désactivé.</p></div>
+    <div class="total" style="background:var(--sunken)">
+      <p class="phrase">Les membres de la section <b>Baladins</b> qui portent le badge <b>Trésorier</b>.</p>
+      <span class="compte" style="color:var(--danger)">0 membre en 2026-2027</span>
+      <span class="p">Un badge n'est porté que par le Staff d'U et les animateurs.</span>
+    </div>
+  </div>
+</div>
+</div>
+</section>
+
+<!-- 8 -->
+<section class="ecran" id="e8">
+<h2>7. Nouveau groupe de contacts — dialogue</h2>
+<p>Un nom et un fichier. Le fichier est analysé dès qu'il est choisi et l'aperçu chiffré s'affiche ; rien n'est écrit avant « Enregistrer ».</p>
+<div class="zone nouveau"><span class="etq nouveau">Nouveau</span>
+<div class="dialogue">
+  <div class="dlg-h">Groupe de contacts <svg class="ico-svg"><use href="#i-x"/></svg></div>
+  <div class="dlg-b">
+    <div class="champ"><label for="gc-nom">Nom du groupe</label><input class="input" id="gc-nom" value="Partenaires de la fête d'unité"></div>
+    <div class="champ"><label>Fichier Excel</label>
+      <div class="rangee"><button class="btn">Choisir un fichier</button><span class="p" style="align-self:center">partenaires-2026.xlsx</span></div>
+      <p class="note">Colonnes « Nom » et « Adresse ». <a href="#e8" style="color:var(--accent)">Télécharger un modèle vide</a></p></div>
+    <div class="alerte"><b>37 contacts trouvés, 2 doublons fusionnés.</b> 1 ligne ignorée : « jean.dupont@ » n'est pas une adresse valide (ligne 14).</div>
+  </div>
+  <div class="dlg-f"><button class="btn">Annuler</button><button class="btn pri">Enregistrer</button></div>
+</div>
+</div>
+</section>
+
+<!-- 9 -->
+<section class="ecran" id="e9">
+<h2>8. Un groupe de contacts — dialogue</h2>
+<p>Le fichier est l'outil de modification : exporter, corriger dans Excel, choisir le fichier corrigé. Son aperçu dit ce qui changera ; le nom et le fichier sont enregistrés ensemble par « Enregistrer », et « Annuler » abandonne les deux. Les adresses se consultent et se cherchent, sans modification ligne à ligne : pour ajouter une personne, on ajoute une ligne au fichier.</p>
+<div class="zone nouveau"><span class="etq nouveau">Nouveau</span>
+<div class="dialogue">
+  <div class="dlg-h">Groupe de contacts <svg class="ico-svg"><use href="#i-x"/></svg></div>
+  <div class="dlg-b">
+    <div class="champ"><label for="gc2-nom">Nom du groupe</label><input class="input" id="gc2-nom" value="Partenaires de la fête d'unité"></div>
+    <span class="compte">37 contacts, dont 2 désinscrits · fichier remplacé le 12 septembre 2026</span>
+    <input class="input" placeholder="Rechercher un nom ou une adresse" aria-label="Rechercher dans ce groupe">
+    <ul class="personnes">
+      <li><div class="qui"><span>Abbé Lambert</span><span class="mail">paroisse.st-pierre@skynet.be</span></div></li>
+      <li class="grise"><div class="qui"><span>Brasserie du Coin</span><span class="mail">contact@brasserieducoin.be · désinscrite</span></div></li>
+      <li><div class="qui"><span>M. Delvaux</span><span class="mail">delvaux.j@proximus.be</span></div></li>
+    </ul>
+    <button class="btn">Afficher plus</button>
+    <div class="rangee"><button class="btn">Exporter en Excel</button><button class="btn">Choisir un fichier corrigé</button></div>
+    <p class="note">Le fichier remplacera tous les contacts de ce groupe. Les adresses désinscrites sont conservées et restent exclues des envois.</p>
+    <div class="alerte">
+      <p style="margin:0"><b>partenaires-2026-v2.xlsx — à l'enregistrement : 4 ajoutés, 1 retiré, 32 inchangés, 2 doublons fusionnés.</b></p>
+    </div>
+  </div>
+  <div class="dlg-f"><button class="btn">Annuler</button><button class="btn pri">Enregistrer</button></div>
+</div>
+</div>
+</section>
+
+<!-- 11 -->
+<section class="ecran" id="e11">
+<h2>9. Retirer un bloc</h2>
+<p>Une seule confirmation pour les quatre sortes, qui nomme le bloc, dit ce qu'il désignait et qu'aucun e-mail ne part.</p>
+<div class="zone nouveau"><span class="etq nouveau">Nouveau</span>
+<div class="dialogue">
+  <div class="dlg-h">Retirer ce groupe de contacts ?</div>
+  <div class="dlg-b">
+    <p class="phrase"><b>Partenaires de la fête d'unité</b> — 37 contacts</p>
+    <p class="p">Ces contacts ne recevront plus les e-mails de cette liste, sauf ceux qu'un autre bloc désigne. Les e-mails déjà envoyés ne changent pas. Aucun e-mail n'est envoyé.</p>
+    <p class="note">Les désinscriptions sont conservées : elles valent pour toute l'unité.</p>
+  </div>
+  <div class="dlg-f"><button class="btn">Annuler</button><button class="btn plein-dgr">Retirer</button></div>
+</div>
+</div>
+</section>
+
+<!-- 12 -->
+<section class="ecran" id="e12">
+<h2>10. Voir les destinataires — dialogue</h2>
+<p>La liste résolue pour l'année effective (un sélecteur permet de voir une autre année proposée à l'envoi), dédoublonnée comme l'envoi. Chaque ligne dit quel bloc l'apporte. Lecture seule.</p>
+<div class="zone nouveau"><span class="etq nouveau">Nouveau</span>
+<div class="dialogue">
+  <div class="dlg-h">67 destinataires en 2026-2027 <svg class="ico-svg"><use href="#i-x"/></svg></div>
+  <div class="dlg-b">
+    <input class="input" placeholder="Rechercher un nom ou une adresse" aria-label="Rechercher un destinataire">
+    <ul class="personnes">
+      <li><div class="qui"><span>Abbé Lambert</span><span class="mail">paroisse.st-pierre@skynet.be</span></div><span class="tag">Partenaires de la fête</span></li>
+      <li><div class="qui"><span>Administration communale</span><span class="mail">commune@wezembeek.be</span></div><span class="tag">Partenaires de la fête</span></li>
+      <li><div class="qui"><span>Julie Collard — Ourson</span><span class="mail">julie.collard@outlook.be</span></div><span class="tag membre">Animateurs</span></li>
+      <li><div class="qui"><span>Marc Dewit</span><span class="mail">marc.dewit@gmail.com</span></div><span class="tag membre">Animateurs · Trésorier</span></li>
+    </ul>
+    <p class="note">Les adresses désinscrites et les membres sans adresse n'apparaissent pas : ils ne recevraient rien.</p>
+  </div>
+</div>
+</div>
+</section>
+
+<!-- 13 -->
+<section class="ecran" id="e13">
+<h2>11. Écrire un e-mail — <code>/mass-mail/{id}</code></h2>
+<p>Seule retouche hors de la page des listes : quand une liste personnalisée est choisie, une phrase sous les années dit ce que l'année change. Le reste de la page est inchangé.</p>
+<div class="cadre">
+  <div class="nav">25 SV — Espace chefs d'U</div>
+  <div class="corps">
+    <div class="zone inchange"><span class="etq inchange">Inchangé</span>
+      <div class="selbar"><div><div class="lbl">Liste</div><div class="val">Staff élargi</div></div><svg class="ico-svg chev"><use href="#i-down"/></svg></div>
+      <p class="p">Tous les animateurs, le trésorier et nos partenaires — infos de fonctionnement.</p>
+      <p class="p fort"><b>Année(s) scoute(s)</b></p>
+      <label class="note" style="display:flex;gap:6px;align-items:center"><input type="checkbox"> Année précédente (2025-2026)</label>
+      <label class="note" style="display:flex;gap:6px;align-items:center"><input type="checkbox" checked> Année en cours (2026-2027)</label>
+      <label class="note" style="display:flex;gap:6px;align-items:center"><input type="checkbox"> Année suivante (2027-2028)</label>
+    </div>
+    <div class="zone modifie"><span class="etq modifie">Modifié</span>
+      <p class="p fort">Les années choisies s'appliquent aux groupes de membres de cette liste. Ses groupes de contacts sont toujours inclus.</p>
+      <p class="note">Trois cas, selon la liste choisie : avec des groupes des deux sortes, cette phrase ; avec seulement des groupes de contacts, « Cette liste ne contient que des contacts : l'année ne change rien. » ; avec seulement des groupes de membres, aucune phrase — elle se comporte comme les listes par défaut.</p>
+    </div>
+  </div>
+</div>
+</section>
+
+</div>
+
+<section class="decisions">
+<h2>Ce que la maquette fixe</h2>
+<ul>
+  <li>Une liste est une suite de blocs additionnés (union), de deux sortes : <b>groupe de membres</b> et <b>groupe de contacts</b>. Aucune limite de nombre par sorte. Pas de membre ni de contact ajouté un par un.</li>
+  <li>« Ajouter des destinataires » ouvre d'abord le choix de la sorte, puis le dialogue propre à cette sorte.</li>
+  <li>Les blocs s'affichent rangés par sorte, groupes de membres d'abord, sans réordonnancement à la main : dans une addition, l'ordre ne change rien.</li>
+  <li>Dans un groupe de membres : chaque choix fait doit être rempli (ET entre fonctions, sections, badges ; OU à l'intérieur), comme aujourd'hui. Au moins un choix ; un axe vide se lit « Peu importe ».</li>
+  <li>À l'envoi, les années choisies sur la page de l'e-mail s'appliquent aux groupes de membres ; les groupes de contacts sont toujours inclus. La page de l'e-mail le dit.</li>
+  <li>Un groupe de contacts a un nom et se modifie uniquement par son fichier : export, correction, nouveau fichier avec aperçu chiffré.</li>
+  <li>Tous les dialogues se terminent par « Annuler » et « Enregistrer ». Rien n'est écrit avant « Enregistrer », pas même le choix d'un fichier. Le retrait d'un bloc se fait depuis la page et demande une confirmation qui dit qu'aucun e-mail ne part.</li>
+  <li>Pas d'exclusion (« sauf … »), pas de carnet d'adresses partagé entre listes. La désinscription reste globale à l'unité.</li>
+</ul>
+</section>
+</div>
