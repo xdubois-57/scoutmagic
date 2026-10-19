@@ -18,6 +18,11 @@ use Core\Member\MemberProfile;
  * Core\Module\HomeBannerProvider / HomeNewsProvider (ARCHITECTURE.md
  * §7.4). The trombinoscope module implements this using its existing
  * per-function "responsable" flag (Core\Module\FunctionFlagsProvider).
+ *
+ * The year is always explicit: the responsable of a scout year is whoever
+ * holds a flagged function in THAT year's import. The "Année scoute"
+ * workflow relies on exactly that to check the year it prepares rather
+ * than the one the public sees.
  */
 interface SectionResponsableProvider
 {

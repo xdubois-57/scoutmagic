@@ -58,6 +58,37 @@ class SectionPhotoRepository
     }
 
     /**
+     * Of $sectionIds, those with no group photo of their own for exactly
+     * this scout year — countSectionsWithPhotoForYear()'s question asked
+     * per section, so the "Année scoute" workflow can name the sections
+     * still to photograph. Last year's photo, which the Staffs page shows
+     * in the meantime, does not count. In the order given.
+     *
+     * @param array<int, int> $sectionIds
+     * @return list<int>
+     */
+    public function findSectionIdsWithoutPhotoForYear(array $sectionIds, int $scoutYearId): array
+    {
+        $sectionIds = array_values(array_unique(array_map('intval', $sectionIds)));
+        if ($sectionIds === []) {
+            return [];
+        }
+
+        $placeholders = implode(', ', array_fill(0, count($sectionIds), '?'));
+        $stmt = $this->pdo->prepare(
+            "SELECT DISTINCT section_id FROM section_staff_photos
+             WHERE scout_year_id = ? AND section_id IN ({$placeholders})"
+        );
+        $stmt->execute([$scoutYearId, ...$sectionIds]);
+        $withPhoto = array_flip(array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN)));
+
+        return array_values(array_filter(
+            $sectionIds,
+            static fn(int $sectionId): bool => !isset($withPhoto[$sectionId])
+        ));
+    }
+
+    /**
      * Create or replace the photo for a section at a given scout year.
      */
     public function upsert(int $sectionId, int $scoutYearId, int $fileId, ?int $createdBy): void

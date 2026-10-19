@@ -75,6 +75,56 @@ class MemberPhotoRepository
     }
 
     /**
+     * findFileIdsForYearOrEarlier() with the answer to the question it
+     * hides: is the photo shown for each member that year's own, one
+     * carried over from an earlier year, or is there none? Same resolution
+     * (most recent photo up to and including the year, by start date), so
+     * the origin is always that of the photo actually displayed.
+     *
+     * @param array<int, int> $memberIds
+     * @return array<int, MemberPhotoYear> member id => photo, every requested id present
+     */
+    public function findPhotoYears(array $memberIds, int $scoutYearId): array
+    {
+        $memberIds = array_values(array_unique(array_map('intval', $memberIds)));
+        if ($memberIds === []) {
+            return [];
+        }
+
+        $placeholders = implode(', ', array_fill(0, count($memberIds), '?'));
+        $stmt = $this->pdo->prepare(
+            "SELECT mp.member_id, mp.file_id, mp.scout_year_id
+             FROM member_photos mp
+             JOIN scout_years sy ON sy.id = mp.scout_year_id
+             JOIN scout_years target ON target.id = ?
+             WHERE mp.member_id IN ({$placeholders}) AND sy.start_date <= target.start_date
+             ORDER BY mp.member_id ASC, sy.start_date DESC"
+        );
+        $stmt->execute([$scoutYearId, ...$memberIds]);
+
+        $photos = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $memberId = (int) $row['member_id'];
+            if (isset($photos[$memberId])) {
+                continue;
+            }
+            $photoYearId = (int) $row['scout_year_id'];
+            $photos[$memberId] = new MemberPhotoYear(
+                $memberId,
+                $photoYearId === $scoutYearId ? PhotoOrigin::Exact : PhotoOrigin::Earlier,
+                $photoYearId,
+                (int) $row['file_id']
+            );
+        }
+
+        foreach ($memberIds as $memberId) {
+            $photos[$memberId] ??= new MemberPhotoYear($memberId, PhotoOrigin::None, null, null);
+        }
+
+        return $photos;
+    }
+
+    /**
      * Create or replace the photo for a member at a given scout year.
      */
     public function upsert(int $memberId, int $scoutYearId, int $fileId, ?int $createdBy): void
