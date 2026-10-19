@@ -427,6 +427,35 @@ class RegistrationRequestRepository
     }
 
     /**
+     * The requests for $scoutYearId still waiting on the staff, in one
+     * pass — Api\ScoutYearRegistrationReviewProvider::requestCounts():
+     * still `pending`; `accepted` (never `encoded`, which is already in
+     * Desk); and of those accepted, the ones with no « section prévue ».
+     *
+     * @return array{pending: int, accepted: int, accepted_without_intended_section: int}
+     */
+    public function countWaitingForYear(int $scoutYearId): array
+    {
+        $stmt = $this->pdo->prepare(
+            "SELECT
+                 COALESCE(SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END), 0) AS pending,
+                 COALESCE(SUM(CASE WHEN status = 'accepted' THEN 1 ELSE 0 END), 0) AS accepted,
+                 COALESCE(SUM(CASE WHEN status = 'accepted' AND intended_section_id IS NULL THEN 1 ELSE 0 END), 0)
+                     AS accepted_without_intended_section
+             FROM registration_requests
+             WHERE scout_year_id = ?"
+        );
+        $stmt->execute([$scoutYearId]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+        return [
+            'pending' => (int) ($row['pending'] ?? 0),
+            'accepted' => (int) ($row['accepted'] ?? 0),
+            'accepted_without_intended_section' => (int) ($row['accepted_without_intended_section'] ?? 0),
+        ];
+    }
+
+    /**
      * The year ids once each, as integers — a repeated year must not need
      * a second placeholder.
      *

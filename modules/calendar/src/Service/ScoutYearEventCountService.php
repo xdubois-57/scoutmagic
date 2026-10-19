@@ -28,4 +28,9 @@ class ScoutYearEventCountService implements ScoutYearEventCountProvider
     {
         return $this->repository->countStartingBetween($fromDate, $toDate);
     }
+
+    public function countEventsBySectionBetween(string $fromDate, string $toDate): array
+    {
+        return $this->repository->countStartingBetweenBySection($fromDate, $toDate);
+    }
 }

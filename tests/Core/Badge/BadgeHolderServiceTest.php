@@ -182,6 +182,112 @@ final class BadgeHolderServiceTest extends TestCase
         $this->assertSame(['Adèle X', 'Émile X', 'Zoé X'], array_map(static fn($h) => $h->name, $holders));
     }
 
+    // ── Filed by section, for the "Année scoute" workflow (§2.6) ──
+
+    /**
+     * A transversal badge is filed under its holder's section THAT year:
+     * the same person wearing it in Lutins last year and in Louveteaux
+     * this year counts for Louveteaux only.
+     */
+    public function testATransversalBadgeIsFiledUnderTheHoldersSectionOfThatYear(): void
+    {
+        $lut = $this->section('LUT', 'Lutins', branchOrder: 1);
+        $lou = $this->section('LOU', 'Louveteaux', branchOrder: 2);
+        $nurse = $this->badge('Infirmier', default: true);
+        $then = $this->memberYear('Claire', 'Renard', $this->otherYearId, $lut, 'Animatrice');
+        $memberId = (int) $this->pdo->query("SELECT member_id FROM member_years WHERE id = {$then}")->fetchColumn();
+        $now = $this->memberYear('Claire', 'Renard', $this->yearId, $lou, 'Animatrice', $memberId);
+        $this->memberBadges->assign($then, $nurse, null);
+        $this->memberBadges->assign($now, $nurse, null);
+
+        $aggregate = $this->service->sectionAggregateForYear($this->yearId, [$lut, $lou]);
+
+        $this->assertSame([$lut, $lou], array_keys($aggregate->bySection));
+        $this->assertSame([], $aggregate->bySection[$lut]);
+        $this->assertSame(['Infirmier'], $this->names($aggregate->bySection[$lou]));
+        $this->assertSame($now, $aggregate->bySection[$lou][0]->holders[0]->memberYearId);
+        $this->assertSame([], $aggregate->withoutSection);
+    }
+
+    /**
+     * A referent badge is worn by the Staff d'U and filed there — never
+     * under the section it names, which therefore never "lacks" it.
+     */
+    public function testAReferentBadgeIsFiledUnderTheStaffDuNeverItsOwnSection(): void
+    {
+        $lut = $this->section('LUT', 'Lutins', branchOrder: 1);
+        $lou = $this->section('LOU', 'Louveteaux', branchOrder: 2);
+        $staff = $this->section('STAFFDU', "Staff d'U", branchOrder: 50);
+        $referent = $this->badge('Référent Lutins', default: true, referentSection: $lut);
+        $this->memberBadges->assign($this->memberYear('Marie', 'Dubois', $this->yearId, $staff, "Chef d'unité"), $referent, null);
+
+        $aggregate = $this->service->sectionAggregateForYear($this->yearId, [$lut, $lou]);
+
+        $this->assertSame([$lut, $lou, $staff], array_keys($aggregate->bySection), 'The unit staff section is always listed.');
+        $this->assertSame(['Référent Lutins'], $this->names($aggregate->bySection[$staff]));
+        $this->assertSame([], $aggregate->bySection[$lut]);
+        $this->assertSame([], $aggregate->transversalGaps, 'A referent badge is never a gap.');
+        $this->assertSame([], $aggregate->defaultBadgesUnworn, 'Nor an unworn default badge.');
+    }
+
+    public function testListsTheDefaultBadgesNobodyWearsInAnySection(): void
+    {
+        $lut = $this->section('LUT', 'Lutins', branchOrder: 1);
+        $nurse = $this->badge('Infirmier', default: true);
+        $this->badge('Trésorier', default: true);
+        $retired = $this->badge('Archiviste', default: true);
+        $this->badges->setActive($retired, false);
+        $this->badge('Communication');
+        $this->memberBadges->assign($this->memberYear('Claire', 'Renard', $this->yearId, $lut, 'Animatrice'), $nurse, null);
+
+        $aggregate = $this->service->sectionAggregateForYear($this->yearId, [$lut]);
+
+        $this->assertSame(['Trésorier'], array_map(static fn($b) => $b->name, $aggregate->defaultBadgesUnworn));
+    }
+
+    public function testATransversalBadgeWornInSomeSectionsAndNotOthersIsAGap(): void
+    {
+        $lut = $this->section('LUT', 'Lutins', branchOrder: 1);
+        $lou = $this->section('LOU', 'Louveteaux', branchOrder: 2);
+        $ecl = $this->section('ECL', 'Éclaireurs', branchOrder: 3);
+        $nurse = $this->badge('Infirmier', default: true);
+        $everywhere = $this->badge('Communication');
+        foreach ([$lut, $lou, $ecl] as $section) {
+            $this->memberBadges->assign($this->memberYear('A', 'B', $this->yearId, $section, 'Animateur'), $everywhere, null);
+        }
+        $this->memberBadges->assign($this->memberYear('Claire', 'Renard', $this->yearId, $lou, 'Animatrice'), $nurse, null);
+
+        $gaps = $this->service->sectionAggregateForYear($this->yearId, [$lut, $lou, $ecl])->transversalGaps;
+
+        $this->assertCount(1, $gaps);
+        $this->assertSame('Infirmier', $gaps[0]->badge->name);
+        $this->assertSame([$lou], $gaps[0]->sectionIdsWith);
+        $this->assertSame([$lut, $ecl], $gaps[0]->sectionIdsWithout);
+    }
+
+    public function testAHolderWithNoSectionThatYearIsFiledApart(): void
+    {
+        $lut = $this->section('LUT', 'Lutins', branchOrder: 1);
+        $nurse = $this->badge('Infirmier', default: true);
+        $this->pdo->prepare('INSERT INTO members (desk_id) VALUES (?)')->execute(['D-NOSECTION']);
+        $memberId = (int) $this->pdo->lastInsertId();
+        $this->pdo->prepare(
+            'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted) VALUES (?, ?, ?, ?)'
+        )->execute([
+            $memberId,
+            $this->yearId,
+            $this->encryption->encrypt('Sans', 'member_years.first_name'),
+            $this->encryption->encrypt('Section', 'member_years.last_name'),
+        ]);
+        $this->memberBadges->assign((int) $this->pdo->lastInsertId(), $nurse, null);
+
+        $aggregate = $this->service->sectionAggregateForYear($this->yearId, [$lut]);
+
+        $this->assertSame(['Infirmier'], $this->names($aggregate->withoutSection));
+        $this->assertSame([], $aggregate->bySection[$lut]);
+        $this->assertSame(['Infirmier'], array_map(static fn($b) => $b->name, $aggregate->defaultBadgesUnworn));
+    }
+
     /** @param list<BadgeHolders> $groups @return list<string> */
     private function names(array $groups): array
     {

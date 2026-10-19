@@ -220,6 +220,35 @@ class RegistrationRequestRepositoryOnMysqlTest extends TestCase
     /**
      * @param array<int> $siblingMemberIds
      */
+    /**
+     * The "Année scoute" workflow's three counts, one conditional SUM each,
+     * on the production engine — and zeros, not NULLs, for an empty year.
+     */
+    public function testTheWaitingCountsReadOneYearOnTheRealSchema(): void
+    {
+        $this->assertSame(
+            ['pending' => 0, 'accepted' => 0, 'accepted_without_intended_section' => 0],
+            $this->repository->countWaitingForYear($this->yearId)
+        );
+
+        $branchId = RegistrationTestHelper::insertAgeBranch($this->pdo, 'LOUV', 'Louveteaux', 20);
+        $this->pdo->prepare('INSERT INTO sections (desk_code, age_branch_id, name) VALUES (?, ?, ?)')
+            ->execute(['LOUV1', $branchId, 'Meute']);
+        $sectionId = (int) $this->pdo->lastInsertId();
+
+        $this->create($this->yearId, 'Léa');
+        $this->repository->updateStatus($this->create($this->yearId, 'Tom'), 'accepted', null);
+        $placed = $this->create($this->yearId, 'Zoé');
+        $this->repository->updateStatus($placed, 'accepted', null);
+        $this->repository->updateIntendedSection($placed, $sectionId);
+        $this->create($this->previousYearId, 'Eva');
+
+        $this->assertSame(
+            ['pending' => 1, 'accepted' => 2, 'accepted_without_intended_section' => 1],
+            $this->repository->countWaitingForYear($this->yearId)
+        );
+    }
+
     private function create(int $yearId, string $firstName, array $siblingMemberIds = []): int
     {
         return $this->repository->create($yearId, [

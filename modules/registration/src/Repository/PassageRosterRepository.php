@@ -184,6 +184,91 @@ class PassageRosterRepository
     }
 
     /**
+     * The animés of $scoutYearId marked leaving — exactly the set
+     * {@see countLeavingAnimes()} counts — by name, one row per member_year,
+     * with the section of the same function {@see findAnimeMemberYears()}
+     * would pick (main first, then lowest `mf.id`). Ordered by name.
+     *
+     * @return list<array{member_id: int, member_year_id: int, name: string, section_id: int}>
+     */
+    public function findLeavingAnimes(int $scoutYearId): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT my.id AS member_year_id, my.member_id, my.first_name_encrypted, my.last_name_encrypted,
+                    mf.section_id
+             FROM member_years my
+             JOIN member_functions mf ON mf.member_year_id = my.id
+             JOIN functions f ON mf.function_id = f.id
+             WHERE my.scout_year_id = ? AND my.is_active = 1 AND my.leaving = 1
+               AND ' . self::NOT_STAFF . '
+             ORDER BY my.id, mf.is_main_function DESC, mf.id ASC'
+        );
+        $stmt->execute([$scoutYearId]);
+
+        $leavers = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $memberYearId = (int) $row['member_year_id'];
+            if (isset($leavers[$memberYearId])) {
+                continue;
+            }
+            $leavers[$memberYearId] = [
+                'member_id' => (int) $row['member_id'],
+                'member_year_id' => $memberYearId,
+                'name' => $this->decryptName($row['first_name_encrypted'], $row['last_name_encrypted']),
+                'section_id' => (int) $row['section_id'],
+            ];
+        }
+
+        $leavers = array_values($leavers);
+        usort($leavers, static fn(array $a, array $b): int => strcasecmp($a['name'], $b['name']));
+
+        return $leavers;
+    }
+
+    /**
+     * The active row of each of $memberIds in $scoutYearId — any function,
+     * animé or not — with its name, decrypted, and the section of its main
+     * function (then lowest `mf.id`) among those that have one; null when
+     * none does. A member with no active row that year is absent.
+     *
+     * @param array<int, int> $memberIds
+     * @return array<int, array{member_year_id: int, name: string, section_id: ?int}> member id => row
+     */
+    public function findActiveRowsWithSection(array $memberIds, int $scoutYearId): array
+    {
+        $memberIds = array_values(array_unique(array_map('intval', $memberIds)));
+        if ($memberIds === []) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($memberIds), '?'));
+        $stmt = $this->pdo->prepare(
+            'SELECT my.member_id, my.id AS member_year_id, my.first_name_encrypted, my.last_name_encrypted,
+                    mf.section_id
+             FROM member_years my
+             LEFT JOIN member_functions mf ON mf.member_year_id = my.id AND mf.section_id IS NOT NULL
+             WHERE my.member_id IN (' . $placeholders . ') AND my.scout_year_id = ? AND my.is_active = 1
+             ORDER BY my.id, mf.is_main_function DESC, mf.id ASC'
+        );
+        $stmt->execute([...$memberIds, $scoutYearId]);
+
+        $rows = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $memberId = (int) $row['member_id'];
+            if (isset($rows[$memberId])) {
+                continue;
+            }
+            $rows[$memberId] = [
+                'member_year_id' => (int) $row['member_year_id'],
+                'name' => $this->decryptName($row['first_name_encrypted'], $row['last_name_encrypted']),
+                'section_id' => $row['section_id'] !== null ? (int) $row['section_id'] : null,
+            ];
+        }
+
+        return $rows;
+    }
+
+    /**
      * Gender and birth date, decrypted, and the chief's offset of each of
      * $memberIds on their $scoutYearId row — active or not, animé or not:
      * the caller already knows who they are and only needs what to project

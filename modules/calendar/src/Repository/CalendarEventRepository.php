@@ -191,6 +191,32 @@ class CalendarEventRepository
         return (int) $stmt->fetchColumn();
     }
 
+    /**
+     * countStartingBetween() split by the section whose calendar holds the
+     * event, section calendars only. A section with no event in the range
+     * is absent.
+     *
+     * @return array<int, int> section id => event count
+     */
+    public function countStartingBetweenBySection(string $fromDate, string $toDate): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT c.section_id, COUNT(*) AS event_count
+             FROM calendar_events e
+             JOIN calendar_calendars c ON c.id = e.calendar_id
+             WHERE c.section_id IS NOT NULL AND e.start_date BETWEEN ? AND ?
+             GROUP BY c.section_id'
+        );
+        $stmt->execute([$fromDate, $toDate]);
+
+        $counts = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $counts[(int) $row['section_id']] = (int) $row['event_count'];
+        }
+
+        return $counts;
+    }
+
     public function calendarHasEvents(int $calendarId): bool
     {
         $stmt = $this->pdo->prepare('SELECT 1 FROM calendar_events WHERE calendar_id = ? LIMIT 1');

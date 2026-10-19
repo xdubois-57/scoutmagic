@@ -240,6 +240,47 @@ final class SectionRepository
     }
 
     /**
+     * Every visible section with at least one active member in
+     * $scoutYearId, with its distinct animateurs (chief/admin) and animés
+     * (any role but chief/admin/intendant) of that year, in the unit's own
+     * order (branch, then Desk code).
+     *
+     * Read from that year's member_functions, never from `sections.is_active`,
+     * which only says what the LATEST import contained.
+     *
+     * @return list<array{id: int, desk_code: string, name: ?string, branch_sort_order: int, chiefs: int, animes: int}>
+     */
+    public function headcountsForYear(int $scoutYearId): array
+    {
+        $stmt = $this->connection->getPdo()->prepare(
+            "SELECT s.id, s.desk_code, s.name, ab.sort_order AS branch_sort_order,
+                    COUNT(DISTINCT CASE WHEN f.role IN ('chief', 'admin') THEN my.id END) AS chiefs,
+                    COUNT(DISTINCT CASE WHEN f.role NOT IN ('chief', 'admin', 'intendant') THEN my.id END) AS animes
+             FROM sections s
+             JOIN age_branches ab ON ab.id = s.age_branch_id
+             JOIN member_functions mf ON mf.section_id = s.id
+             JOIN member_years my ON my.id = mf.member_year_id
+             JOIN functions f ON f.id = mf.function_id
+             WHERE s.is_visible = 1 AND my.scout_year_id = ? AND my.is_active = 1
+             GROUP BY s.id, s.desk_code, s.name, ab.sort_order
+             ORDER BY ab.sort_order, s.desk_code"
+        );
+        $stmt->execute([$scoutYearId]);
+
+        return array_map(
+            static fn(array $row): array => [
+                'id' => (int) $row['id'],
+                'desk_code' => (string) $row['desk_code'],
+                'name' => $row['name'] !== null ? (string) $row['name'] : null,
+                'branch_sort_order' => (int) $row['branch_sort_order'],
+                'chiefs' => (int) $row['chiefs'],
+                'animes' => (int) $row['animes'],
+            ],
+            $stmt->fetchAll(\PDO::FETCH_ASSOC)
+        );
+    }
+
+    /**
      * The sections one member year ANIMATES — chief or admin on a real
      * section. An `intendant` function does not animate: the role exists to
      * reach the finances without being a chief, and carries no section

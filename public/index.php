@@ -11732,6 +11732,23 @@ if ($isEnabled('registration')) {
         $registrationReenrollmentRepository,
         $registrationPassageService
     );
+
+    // Api\ScoutYearRegistrationReviewProvider (ARCHITECTURE.md §7.5) — what
+    // the "Année scoute" workflow's checks read about this module for an
+    // explicit target year: the campaign's state, the requests still
+    // waiting, the announced departures, the passages without a
+    // destination and the gaps against the target year's import. Built on
+    // the module's one campaign, one PassageService and the reconciliation's
+    // own repositories, never on second copies. Null outside this block.
+    $registrationScoutYearReview = new \Modules\Registration\Service\ScoutYearRegistrationReviewService(
+        $registrationReenrollmentCampaign,
+        $registrationPassageService,
+        $registrationPassageRosterRepo,
+        $registrationSectionTransferRepo,
+        $registrationRequestRepo,
+        $registrationImportedMemberRepo,
+        $scoutYearService
+    );
     $registrationReenrollmentMenuHook = new \Modules\Registration\Service\ReenrollmentMenuHookService(
         $registrationReenrollmentForm,
         $scoutYearResolver,
@@ -12774,15 +12791,21 @@ if ($isEnabled('fees')) {
         )
     );
 
-    $attentionProviders[] = new \Modules\Fees\Service\FeesAttentionProvider(
-        new \Modules\Fees\Service\FeeAccuracyService(
-            $householdService,
-            new \Modules\Fees\Repository\HouseholdDetailRepository($pdo, $encryptionService),
-            $feesTariffService,
-            $feesIgnoredHouseholdRepo,
-            $feeCategoryRepo
-        )
+    $feesAccuracyService = new \Modules\Fees\Service\FeeAccuracyService(
+        $householdService,
+        new \Modules\Fees\Repository\HouseholdDetailRepository($pdo, $encryptionService),
+        $feesTariffService,
+        $feesIgnoredHouseholdRepo,
+        $feeCategoryRepo
     );
+    $attentionProviders[] = new \Modules\Fees\Service\FeesAttentionProvider($feesAccuracyService);
+
+    // Api\FeeAccuracySummaryProvider (ARCHITECTURE.md §7.5), the module's
+    // first public contract: « Justesse des tarifs » as three counts for an
+    // explicit scout year, for the "Année scoute" workflow's fees step. The
+    // same report as the attention point above, never a second reading.
+    // Null outside this block, which is what drops that step.
+    $feesAccuracySummary = new \Modules\Fees\Service\FeeAccuracySummaryService($feesAccuracyService);
 
     $feesInvoiceRepo = new \Modules\Fees\Repository\InvoiceRepository($pdo);
     $feesSnapshotRepo = $rosterSnapshotRepository;

@@ -108,4 +108,26 @@ class SectionPhotoRepositoryTest extends TestCase
         $count = (int) $this->pdo->query('SELECT COUNT(*) FROM section_staff_photos')->fetchColumn();
         $this->assertSame(1, $count);
     }
+
+    /**
+     * Only a photo of exactly that year counts: last year's, which the
+     * Staffs page still shows, leaves the section on the list.
+     */
+    public function testFindSectionIdsWithoutPhotoForYearIgnoresLastYearsPhoto(): void
+    {
+        $branchId = (int) $this->pdo->query('SELECT age_branch_id FROM sections WHERE id = ' . $this->sectionId)->fetchColumn();
+        $this->pdo->exec("INSERT INTO sections (desk_code, age_branch_id, name) VALUES ('LOU02', {$branchId}, 'Louveteaux B')");
+        $carriedOver = (int) $this->pdo->lastInsertId();
+        $this->pdo->exec("INSERT INTO sections (desk_code, age_branch_id, name) VALUES ('LOU03', {$branchId}, 'Louveteaux C')");
+        $never = (int) $this->pdo->lastInsertId();
+
+        $this->repository->upsert($this->sectionId, $this->yearNewId, $this->fileIdA, null);
+        $this->repository->upsert($carriedOver, $this->yearMidId, $this->fileIdB, null);
+
+        $this->assertSame(
+            [$carriedOver, $never],
+            $this->repository->findSectionIdsWithoutPhotoForYear([$this->sectionId, $carriedOver, $never], $this->yearNewId)
+        );
+        $this->assertSame([], $this->repository->findSectionIdsWithoutPhotoForYear([], $this->yearNewId));
+    }
 }
