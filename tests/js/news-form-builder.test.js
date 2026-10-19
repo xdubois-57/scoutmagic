@@ -479,6 +479,28 @@ describe('news-form-builder.js: createRichTextEditor()', () => {
         expect(execCommand).toHaveBeenCalledWith('formatBlock', false, '<h3>');
     });
 
+    it('says so in an error toast when the image upload never reaches the server', async () => {
+        const originalFetch = global.fetch;
+        global.fetch = vi.fn(() => Promise.reject(new TypeError('Failed to fetch')));
+        try {
+            document.body.replaceChildren();
+            const { wrapper } = nfb.createRichTextEditor('', null, null);
+            document.body.appendChild(wrapper);
+            const imageInput = wrapper.querySelector('input[type="file"]');
+            Object.defineProperty(imageInput, 'files', {
+                value: [new File(['x'], 'photo.png', { type: 'image/png' })],
+                configurable: true,
+            });
+
+            imageInput.dispatchEvent(new Event('change'));
+
+            await vi.waitFor(() => expect(document.querySelector('.toast-body')).not.toBeNull());
+            expect(document.querySelector('.toast-body').textContent).toBe("Erreur lors de l'envoi de l'image.");
+        } finally {
+            global.fetch = originalFetch;
+        }
+    });
+
     it('keeps its own image button out of the shared toolbar', () => {
         const { wrapper } = nfb.createRichTextEditor('', null, null);
 
