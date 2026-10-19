@@ -653,6 +653,45 @@ class ImportServiceTest extends TestCase
         $this->assertStringNotContainsString('126001000146', $raw);
     }
 
+    /**
+     * Chantier #927, §2.6: the refund a manager makes from the bank, with
+     * the receivable's communication, is reconciled by the import itself —
+     * up to the surplus, the rest of the debit left unreconciled — and
+     * importing the same statement again writes nothing more.
+     */
+    public function testADebitCarryingAReceivablesCommunicationIsReconciledAsItsRefundOnImport(): void
+    {
+        $receivables = new \Modules\Finance\Repository\ExpectedReceivableRepository(
+            $this->pdo,
+            new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
+        );
+        $receivableId = $receivables->create('rental', 7, $this->account->id, 62200, '+++090/9337/55493+++', null);
+
+        $this->parserFactory->ibans = [$this->account->iban];
+        $this->parserFactory->lines = [
+            $this->line('R1', '2026-10-01', 818.0, 'Virement +++090/9337/55493+++'),
+            $this->line('R2', '2026-10-20', -200.0, 'Remboursement caution +++090/9337/55493+++'),
+        ];
+        $this->import(1000.0, 'a.csv');
+        $this->import(null, 'a.csv');
+
+        $rows = $this->pdo->query(
+            'SELECT t.bank_reference, a.amount_cents, a.source FROM finance_receivable_allocations a '
+            . 'JOIN finance_transactions t ON t.id = a.transaction_id ORDER BY t.bank_reference'
+        )->fetchAll(\PDO::FETCH_ASSOC);
+        $this->assertSame([
+            ['bank_reference' => 'R1', 'amount_cents' => 62200, 'source' => 'auto'],
+            ['bank_reference' => 'R2', 'amount_cents' => -19600, 'source' => 'auto'],
+        ], array_map(static fn (array $row): array => [
+            'bank_reference' => $row['bank_reference'],
+            'amount_cents' => (int) $row['amount_cents'],
+            'source' => $row['source'],
+        ], $rows));
+        $this->assertSame(1, (int) $this->pdo->query(
+            "SELECT COUNT(*) FROM finance_receivable_allocations WHERE receivable_id = {$receivableId} AND amount_cents < 0"
+        )->fetchColumn());
+    }
+
     public function testAppliesCategoryRuleEngineDuringImport(): void
     {
         $categoryId = $this->categoryRepository->create('Alimentation');

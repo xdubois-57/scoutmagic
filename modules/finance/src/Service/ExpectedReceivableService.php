@@ -10,6 +10,8 @@ namespace Modules\Finance\Service;
 
 use Modules\Finance\Api\ExpectedReceivableInterface;
 use Modules\Finance\Api\FinanceException;
+use Modules\Finance\Api\ReceivableStanding;
+use Modules\Finance\Api\RefundCandidate;
 use Modules\Finance\Repository\ExpectedReceivable;
 use Modules\Finance\Repository\ExpectedReceivableRepository;
 
@@ -132,15 +134,19 @@ class ExpectedReceivableService implements ExpectedReceivableInterface
         // being capped at the amount due: a receivable of 467,50 € that
         // has seen 500 € come in has allocated 467,50 €, and comparing
         // against that would wave through a lowering to 480 € as if
-        // nothing had been paid past it.
-        $received = $this->allocations->refreshAndSettle([$receivable])[$receivable->id]->amountDesignatedCents;
+        // nothing had been paid past it. Less what has already gone back
+        // (chantier #927): a refunded surplus is no longer money held, so
+        // an amount raised back over what was kept owes nobody anything.
+        $settlement = $this->allocations->refreshAndSettle([$receivable])[$receivable->id];
+        $received = $settlement->amountDesignatedCents - $settlement->amountRefundedCents;
 
         if (!$allowBelowReceived && $amountCents < $received) {
             throw new FinanceException(sprintf(
-                'Le nouveau montant (%s €) est inférieur à ce qui a déjà été reçu (%s €). '
+                'Le nouveau montant (%s €) est inférieur à ce qui a déjà été reçu (%s €%s). '
                 . 'Cela créerait un trop-perçu à rembourser : confirmez explicitement si c\'est voulu.',
                 number_format($amountCents / 100, 2, ',', ' '),
-                number_format($received / 100, 2, ',', ' ')
+                number_format($received / 100, 2, ',', ' '),
+                $settlement->amountRefundedCents > 0 ? ', remboursements déduits' : ''
             ));
         }
 
@@ -175,6 +181,74 @@ class ExpectedReceivableService implements ExpectedReceivableInterface
         $this->repository->deleteBySource($sourceModule, $sourceReferenceId);
     }
 
+    public function getReceivableStanding(string $sourceModule, int $receivableId): ?ReceivableStanding
+    {
+        $receivable = $this->ownedBy($sourceModule, $receivableId);
+        if ($receivable === null) {
+            return null;
+        }
+
+        $settlement = $this->allocations->refreshAndSettle([$receivable])[$receivable->id];
+        /** @var 'paid'|'partial'|'unpaid'|'waived' $status */
+        $status = $settlement->status;
+
+        return new ReceivableStanding(
+            amountDueCents: $settlement->amountDueCents,
+            amountReceivedCents: $settlement->amountDesignatedCents,
+            amountRefundedCents: $settlement->amountRefundedCents,
+            amountOverpaidCents: $settlement->amountOverpaidCents,
+            amountRemainingCents: $settlement->amountRemainingCents(),
+            status: $status
+        );
+    }
+
+    public function getReceivableMovements(string $sourceModule, int $receivableId): array
+    {
+        $receivable = $this->ownedBy($sourceModule, $receivableId);
+
+        return $receivable !== null ? $this->allocations->movementsFor($receivable) : [];
+    }
+
+    public function findRefundCandidates(string $sourceModule, int $receivableId, \DateTimeImmutable $since): array
+    {
+        $receivable = $this->ownedBy($sourceModule, $receivableId);
+        if ($receivable === null) {
+            return [];
+        }
+
+        $candidates = [];
+        foreach ($this->allocations->refundCandidatesFor($receivable, $since->format('Y-m-d')) as $debit) {
+            $candidates[] = new RefundCandidate(
+                transactionId: $debit->id,
+                date: $debit->transactionDate,
+                amountCents: (int) round(-$debit->amount * 100),
+                counterpartyName: $debit->counterpartyName
+            );
+        }
+
+        return $candidates;
+    }
+
+    public function reconcileRefund(
+        string $sourceModule,
+        int $receivableId,
+        int $transactionId,
+        \DateTimeImmutable $since,
+        ?int $actorUserAccountId
+    ): void {
+        $receivable = $this->ownedBy($sourceModule, $receivableId);
+        if ($receivable === null) {
+            throw new FinanceException("Cette créance n'existe pas.");
+        }
+
+        $this->allocations->refundFromCandidate(
+            $receivable,
+            $transactionId,
+            $since->format('Y-m-d'),
+            $actorUserAccountId
+        );
+    }
+
     /**
      * Statuses for many receivables at once, keyed by receivable id — the
      * reconciliation page (Service\ReceivablesOverviewService) needs one
@@ -192,6 +266,19 @@ class ExpectedReceivableService implements ExpectedReceivableInterface
         }
 
         return $statuses;
+    }
+
+    /**
+     * The receivable, when $sourceModule is the module that raised it —
+     * and null otherwise, exactly as for an id that does not exist, so a
+     * module asking about somebody else's receivable learns nothing, not
+     * even that it exists.
+     */
+    private function ownedBy(string $sourceModule, int $receivableId): ?ExpectedReceivable
+    {
+        $receivable = $this->repository->findById($receivableId);
+
+        return $receivable !== null && $receivable->sourceModule === $sourceModule ? $receivable : null;
     }
 
     private function digitsOnly(string $value): string

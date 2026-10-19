@@ -44,11 +44,15 @@ correspondant à aucune créance, sur aucun compte. Deux issues :
 ## Trop-perçus
 
 Une créance qui a reçu plus que son montant, quand ce surplus n'est pas
-déjà proposé à la répartition. Deux réponses : le déclarer à rembourser
-— il passera à « remboursé » quand le débit correspondant apparaîtra —
+déjà proposé à la répartition. Deux réponses : le déclarer à rembourser,
 ou l'imputer sur une autre créance du même foyer, souvent la bonne
 réponse : un parent qui arrondit veut payer, pas se faire rembourser
 6,75 €.
+
+Pour rembourser, faites le virement depuis la banque **avec la
+communication de la créance** : à l'import de l'extrait, le débit est
+rapproché tout seul, dans la limite du trop-perçu, et la créance passe
+à « remboursé ».
 
 ## Mauvais compte
 

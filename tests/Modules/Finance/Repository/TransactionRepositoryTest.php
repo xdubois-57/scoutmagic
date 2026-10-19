@@ -106,6 +106,29 @@ class TransactionRepositoryTest extends TestCase
         $this->assertSame('2026-10-10', $after[0]->transactionDate);
     }
 
+    public function testFindDebitsSinceKeepsTheDebitsOfThatAccountFromThatDateOn(): void
+    {
+        $this->repository->create($this->accountId, $this->fiscalYearId, 'R1', '2026-10-04', 'Avant', -1.0, null, null, Transaction::SOURCE_MANUAL, null);
+        $this->repository->create($this->accountId, $this->fiscalYearId, 'R2', '2026-10-06', 'Plus tard', -2.0, null, null, Transaction::SOURCE_MANUAL, null);
+        $this->repository->create($this->accountId, $this->fiscalYearId, 'R3', '2026-10-05', 'Le jour même', -3.0, null, null, Transaction::SOURCE_MANUAL, null);
+        $this->repository->create($this->accountId, $this->fiscalYearId, 'R4', '2026-10-07', 'Un crédit', 4.0, null, null, Transaction::SOURCE_MANUAL, null);
+
+        $debits = $this->repository->findDebitsSince($this->accountId, '2026-10-05');
+
+        $this->assertSame(['Le jour même', 'Plus tard'], array_map(static fn (Transaction $t): string => $t->label, $debits));
+        $this->assertSame([], $this->repository->findDebitsSince($this->accountId + 1, '2026-01-01'));
+    }
+
+    /** SQLite has no FOR UPDATE: the lock is a no-op there (ReceivableRefundOnMysqlTest takes the real one). */
+    public function testLockForUpdateIsHarmlessOnSqlite(): void
+    {
+        $id = $this->repository->create($this->accountId, $this->fiscalYearId, 'R1', '2026-10-04', 'A', -1.0, null, null, Transaction::SOURCE_MANUAL, null);
+
+        $this->repository->lockForUpdate($id);
+
+        $this->assertNotNull($this->repository->findById($id));
+    }
+
     public function testDeleteAllForAccountReturnsCountAndClearsTable(): void
     {
         $this->repository->create($this->accountId, $this->fiscalYearId, 'R1', '2026-10-01', 'A', -1.0, null, null, Transaction::SOURCE_MANUAL, null);

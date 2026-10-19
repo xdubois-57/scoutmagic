@@ -47,6 +47,45 @@ class ExpectedReceivableRepositoryTest extends TestCase
         $this->receivableId = $this->repository->create('news', 42, $accountId, 2500, $this->communication, 'Camp 2026');
     }
 
+    public function testTheWorkUnderTheLockIsCommittedAndItsResultReturned(): void
+    {
+        $result = $this->repository->withReceivableLocked($this->receivableId, function (): string {
+            $this->repository->updateAmount($this->receivableId, 3000);
+
+            return 'fait';
+        });
+
+        $this->assertSame('fait', $result);
+        $this->assertFalse($this->pdo->inTransaction());
+        $this->assertSame(3000, $this->repository->findById($this->receivableId)?->amountDueCents);
+    }
+
+    public function testTheWorkUnderTheLockIsRolledBackWhenItThrows(): void
+    {
+        try {
+            $this->repository->withReceivableLocked($this->receivableId, function (): void {
+                $this->repository->updateAmount($this->receivableId, 3000);
+                throw new \RuntimeException('stop');
+            });
+            $this->fail('the exception was swallowed');
+        } catch (\RuntimeException) {
+        }
+
+        $this->assertFalse($this->pdo->inTransaction());
+        $this->assertSame(2500, $this->repository->findById($this->receivableId)?->amountDueCents);
+    }
+
+    /** Inside a transaction already open, it joins it rather than committing on its own. */
+    public function testTheLockJoinsATransactionAlreadyOpen(): void
+    {
+        $this->pdo->beginTransaction();
+        $this->repository->withReceivableLocked($this->receivableId, fn () => $this->repository->updateAmount($this->receivableId, 3000));
+        $this->assertTrue($this->pdo->inTransaction());
+        $this->pdo->rollBack();
+
+        $this->assertSame(2500, $this->repository->findById($this->receivableId)?->amountDueCents);
+    }
+
     public function testItFindsAReceivableByItsIssuedForm(): void
     {
         $found = $this->repository->findByCommunication($this->communication);
