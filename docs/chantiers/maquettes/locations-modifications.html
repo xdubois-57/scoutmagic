@@ -1,0 +1,415 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Locations #927</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* Layout: ScoutMagic Bootstrap-like look, hand-rolled; mockup control bar on top, then the booking pages at desktop or phone width. */
+:root{
+  --bg:#f3f4f7; --surface:#fff; --surface-2:#f8f9fb; --fg:#1f2430; --muted:#5f6675; --line:#dfe2e8;
+  --primary:#2f5bd3; --primary-fg:#fff; --ok:#1e7a46; --ok-bg:#e3f4ea; --warn:#8a5a00; --warn-bg:#fff3d6;
+  --danger:#b4232c; --danger-bg:#fde7e8; --info-bg:#e8eefc; --new:#7a2fd3; --mod:#c46200; --same:#7b8190;
+  --font:"Source Sans 3","Segoe UI",system-ui,sans-serif; --mono:ui-monospace,"JetBrains Mono",monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#14161b; --surface:#1d2027; --surface-2:#23262e; --fg:#e7e9ee; --muted:#a2a8b5; --line:#343844;
+  --primary:#6f93f2; --primary-fg:#0e1220; --ok:#6fd39b; --ok-bg:#183326; --warn:#f2c35e; --warn-bg:#3a2f12;
+  --danger:#ff8a90; --danger-bg:#3d1c20; --info-bg:#1f2a45; --new:#b892f5; --mod:#f2a25e; --same:#8b91a0; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#14161b; --surface:#1d2027; --surface-2:#23262e; --fg:#e7e9ee; --muted:#a2a8b5; --line:#343844;
+  --primary:#6f93f2; --primary-fg:#0e1220; --ok:#6fd39b; --ok-bg:#183326; --warn:#f2c35e; --warn-bg:#3a2f12;
+  --danger:#ff8a90; --danger-bg:#3d1c20; --info-bg:#1f2a45; --new:#b892f5; --mod:#f2a25e; --same:#8b91a0; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--font);font-size:15px;line-height:1.45;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:16px}
+h1,h2,h3{text-wrap:balance;margin:0}
+button{font:inherit;cursor:pointer}
+button:focus-visible,select:focus-visible,a:focus-visible,input:focus-visible,summary:focus-visible{outline:3px solid var(--primary);outline-offset:2px}
+a{color:var(--primary)}
+.mock-bar{max-width:1100px;margin:0 auto 14px;background:var(--surface-2);border:1px dashed var(--line);border-radius:8px;padding:10px 12px;display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;font-size:13px}
+.mock-bar b{font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-size:11px}
+.mock-bar label{display:inline-flex;gap:6px;align-items:center}
+.mock-bar select{font:inherit;padding:3px 6px;border:1px solid var(--line);border-radius:6px;background:var(--surface);color:var(--fg)}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:6px;overflow:hidden;flex-wrap:wrap}
+.seg button{border:0;background:var(--surface);color:var(--fg);padding:5px 10px;font-size:13px}
+.seg button[aria-pressed="true"]{background:var(--primary);color:var(--primary-fg)}
+.legend{display:flex;gap:8px;flex-wrap:wrap}
+.tag{display:inline-block;font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;padding:1px 6px;border-radius:4px;border:1px solid currentColor;vertical-align:middle;background:var(--surface)}
+.tag.new{color:var(--new)}.tag.mod{color:var(--mod)}.tag.same{color:var(--same)}.tag.gone{color:var(--danger)}
+.frame{max-width:1100px;margin:0 auto}
+.frame.phone{max-width:400px}
+.site{background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.crumbs{font-size:13px;color:var(--muted);padding:10px 18px;border-bottom:1px solid var(--line);background:var(--surface-2)}
+.page{padding:18px;display:flex;flex-direction:column;gap:14px}
+.ph{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.ph h1{font-size:24px}
+.sub{font-size:14px;color:var(--muted)}
+.rail{display:flex;gap:4px;overflow-x:auto;border-bottom:1px solid var(--line)}
+.rail a{padding:8px 10px;text-decoration:none;color:var(--muted);white-space:nowrap;border-bottom:2px solid transparent;font-size:14px}
+.rail a[aria-current="page"]{color:var(--fg);border-bottom-color:var(--primary);font-weight:600}
+.zone{position:relative;border:1px dashed transparent;border-radius:9px}
+.zone>.tag{position:absolute;top:-9px;right:10px;z-index:1}
+.zone.new{border-color:color-mix(in srgb,var(--new) 45%,transparent)}
+.zone.mod{border-color:color-mix(in srgb,var(--mod) 45%,transparent)}
+.zone.same{border-color:color-mix(in srgb,var(--same) 35%,transparent)}
+.zone.gone{border-color:color-mix(in srgb,var(--danger) 45%,transparent)}
+.card{border:1px solid var(--line);border-radius:8px;background:var(--surface)}
+.card>header{padding:10px 14px;border-bottom:1px solid var(--line);display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between}
+.card>header h2{font-size:16px}
+.card .body{padding:12px 14px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.muted{color:var(--muted)} .small{font-size:13px}
+.pill{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600;padding:2px 9px;border-radius:999px;white-space:nowrap}
+.pill.todo{background:var(--surface-2);color:var(--muted);border:1px solid var(--line)}
+.pill.ok{background:var(--ok-bg);color:var(--ok)}
+.pill.warn{background:var(--warn-bg);color:var(--warn)}
+.pill.danger{background:var(--danger-bg);color:var(--danger)}
+.pill.info{background:var(--info-bg);color:var(--fg)}
+.btn{border:1px solid var(--line);background:var(--surface);color:var(--fg);padding:6px 12px;border-radius:6px;font-size:14px;text-decoration:none;display:inline-block}
+.btn.primary{background:var(--primary);color:var(--primary-fg);border-color:var(--primary)}
+.btn.outline{border-color:var(--muted)}
+.btn.danger-o{border-color:var(--danger);color:var(--danger)}
+.btn.danger{background:var(--danger);border-color:var(--danger);color:var(--surface)}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.alert{border-radius:7px;padding:9px 12px;font-size:14px}
+.alert.warn{background:var(--warn-bg);border-left:4px solid var(--warn)}
+.alert.danger{background:var(--danger-bg);border-left:4px solid var(--danger)}
+.alert.info{background:var(--info-bg);border-left:4px solid var(--primary)}
+.alert.ok{background:var(--ok-bg);border-left:4px solid var(--ok)}
+.banner{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;justify-content:space-between}
+.tw{overflow-x:auto;border:1px solid var(--line);border-radius:7px}
+table{border-collapse:collapse;width:100%;font-size:13.5px;font-variant-numeric:tabular-nums}
+th,td{text-align:left;padding:6px 9px;border-top:1px solid var(--line);white-space:nowrap}
+thead th{border-top:0;background:var(--surface-2);font-weight:600}
+td.r,th.r{text-align:right}
+.old{color:var(--muted);text-decoration:line-through}
+.newv{font-weight:700}
+.cmp{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px}
+.cmp>div{border:1px solid var(--line);border-radius:8px;padding:10px 12px}
+.cmp>div.now{background:var(--surface-2)}
+.cmp>div.next{border-color:var(--primary)}
+.k{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+dl.kv{display:grid;grid-template-columns:max-content 1fr;gap:4px 12px;margin:0;font-variant-numeric:tabular-nums}
+dl.kv dt{color:var(--muted)} dl.kv dd{margin:0}
+.steps{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.steps li{display:flex;gap:8px;align-items:center;font-size:14px}
+.dot{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:700;border:2px solid var(--line);color:var(--muted);flex:none}
+.dot.done{background:var(--ok);border-color:var(--ok);color:var(--surface)}
+.dot.cur{border-color:var(--primary);color:var(--primary)}
+.form{display:flex;flex-direction:column;gap:12px}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}
+.field label{display:block;font-weight:600;margin-bottom:4px;font-size:14px}
+.field input,.field select{width:100%;padding:7px 9px;border:1px solid var(--line);border-radius:6px;background:var(--surface);color:var(--fg);font:inherit}
+.field input:disabled{background:var(--surface-2);color:var(--muted)}
+.help{font-size:12.5px;color:var(--muted);margin-top:3px}
+.note{font-size:12.5px;color:var(--muted);border-left:3px solid var(--line);padding-left:8px}
+.qrwrap{display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start}
+.qr{width:150px;height:150px;border:1px solid var(--line);border-radius:6px;background:#fff;padding:8px;cursor:zoom-in;flex:none}
+.qr canvas{width:100%;height:100%;image-rendering:pixelated;display:block}
+.comm{font-family:var(--mono);font-size:15px;letter-spacing:.02em;font-weight:600}
+details.fold>summary{cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center;gap:8px;padding:10px 14px}
+details.fold>summary::-webkit-details-marker{display:none}
+details.fold>summary::after{content:"▾";color:var(--muted)}
+details.fold[open]>summary::after{content:"▴"}
+details.fold>summary h2{font-size:16px}
+.overlay{position:fixed;inset:0;background:color-mix(in srgb,#000 45%,transparent);display:grid;place-items:center;padding:16px;z-index:20}
+.modal{background:var(--surface);color:var(--fg);border-radius:10px;max-width:560px;width:100%;max-height:88vh;overflow:auto;border:1px solid var(--line)}
+.modal header,.modal footer{padding:12px 16px}
+.modal header{border-bottom:1px solid var(--line)}
+.modal footer{border-top:1px solid var(--line);display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap}
+.modal .mb{padding:14px 16px;display:flex;flex-direction:column;gap:10px}
+.qrbig{width:min(320px,80vw);height:min(320px,80vw);background:#fff;padding:12px;border-radius:8px;margin:0 auto}
+.qrbig canvas{width:100%;height:100%;image-rendering:pixelated}
+.toasts{position:fixed;right:max(16px,env(safe-area-inset-right,0px));bottom:calc(16px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;gap:8px;z-index:30}
+.toast{background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--ok);border-radius:7px;padding:9px 12px;box-shadow:0 4px 14px rgba(0,0,0,.15);max-width:320px;font-size:14px}
+.screen[hidden],.pill[hidden]{display:none}
+ul.plain{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:3px}
+</style>
+</head>
+<body>
+
+<div class="mock-bar" role="region" aria-label="Commandes de la maquette">
+  <b>Maquette #927</b>
+  <div class="seg" id="screenSeg">
+    <button type="button" data-s="dash" aria-pressed="true">Tableau de bord</button>
+    <button type="button" data-s="mods" aria-pressed="false">Modifications</button>
+    <button type="button" data-s="proj" aria-pressed="false">Page d'une modification</button>
+    <button type="button" data-s="fin" aria-pressed="false">Finances</button>
+    <button type="button" data-s="docs" aria-pressed="false">Documents</button>
+    <button type="button" data-s="inv" aria-pressed="false">Facture</button>
+    <button type="button" data-s="mail" aria-pressed="false">Courrier</button>
+    <button type="button" data-s="track" aria-pressed="false">Suivi locataire</button>
+  </div>
+  <div class="seg" id="widthSeg">
+    <button type="button" data-w="desk" aria-pressed="true">Ordinateur</button>
+    <button type="button" data-w="phone" aria-pressed="false">Téléphone</button>
+  </div>
+  <label><input type="checkbox" id="simSent" checked> Premier contrat envoyé</label>
+  <label>Modification <select id="simProj">
+    <option value="none">aucune</option>
+    <option value="draft" selected>en préparation</option>
+    <option value="sent">contrat envoyé — copie attendue</option>
+    <option value="received">copie reçue à vérifier</option>
+    <option value="refused">copie refusée</option>
+  </select></label>
+  <label><input type="checkbox" id="simFin" checked> Finances actif</label>
+  <label><input type="checkbox" id="simSettle"> Décompte validé</label>
+  <div class="legend"><span class="tag new">nouveau</span><span class="tag mod">modifié</span><span class="tag same">inchangé</span><span class="tag gone">retiré</span></div>
+</div>
+
+<div class="frame" id="frame">
+  <section class="site" aria-label="Pages de la réservation">
+    <div class="crumbs" id="crumbs"></div>
+    <div class="page" id="page"></div>
+  </section>
+</div>
+<div class="toasts" id="toasts" aria-live="polite"></div>
+<div id="modalHost"></div>
+
+<script>
+(function(){
+const $=s=>document.querySelector(s);
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const COMM='+++270/3140/51697+++';
+const st={screen:'dash',sent:true,proj:'draft',fin:true,settle:false,history:[
+  {d:'02/02/2027',what:'Dates 12 → 14 mars, 25 pers.',status:'Appliquée directement',by:'Xavier Dubois',note:'avant le premier envoi'},
+  {d:'21/02/2027',what:'Ajout ligne « Nettoyage » 80,00 €',status:'Annulée',by:'Claire Martin',note:'contrat de remplacement non envoyé'}
+]};
+function toast(m){const t=document.createElement('div');t.className='toast';t.textContent=m;$('#toasts').appendChild(t);setTimeout(()=>t.remove(),3000)}
+function modal(h){$('#modalHost').innerHTML=`<div class="overlay" role="dialog" aria-modal="true">${h}</div>`;const c=$('#modalHost [data-cancel]');if(c)c.focus()}
+function closeModal(){$('#modalHost').innerHTML=''}
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal()});
+function ask(title,msg,label,fn,danger){
+  modal(`<div class="modal"><header><h3>${esc(title)}</h3></header><div class="mb"><p style="margin:0">${msg}</p></div><footer><button class="btn outline" type="button" data-cancel>Annuler</button><button class="btn ${danger?'danger':'primary'}" type="button" id="okBtn">${esc(label)}</button></footer></div>`);
+  $('#okBtn').addEventListener('click',()=>{closeModal();fn()});
+}
+document.addEventListener('click',e=>{if(e.target.closest('[data-cancel]'))closeModal()});
+
+/* ---------- tiny QR-like pattern (illustrative, not scannable) ---------- */
+function drawQr(canvas,seed){const n=29,ctx=canvas.getContext('2d');canvas.width=n;canvas.height=n;ctx.fillStyle='#fff';ctx.fillRect(0,0,n,n);ctx.fillStyle='#000';let x=seed;for(let i=0;i<n;i++)for(let j=0;j<n;j++){x=(x*1103515245+12345)&0x7fffffff;if(x%3===0)ctx.fillRect(i,j,1,1)}
+  [[0,0],[n-7,0],[0,n-7]].forEach(([a,b])=>{ctx.fillStyle='#000';ctx.fillRect(a,b,7,7);ctx.fillStyle='#fff';ctx.fillRect(a+1,b+1,5,5);ctx.fillStyle='#000';ctx.fillRect(a+2,b+2,3,3)})}
+
+/* ---------- shared pieces ---------- */
+const header=()=>`<div class="ph"><h1>LOC-2027-014</h1><span class="pill info">Contrat envoyé</span></div>
+  <div class="sub">Local Saint-Georges · Patro Sainte-Anne (Julie Lambert) · 12 → 14 mars 2027 · 25 personnes</div>`;
+const RAIL=[['dash','Tableau de bord'],['mods','Modifications'],['fin','Finances'],['docs','Documents'],['inv','Facture'],['mail','Courrier']];
+function rail(cur){return `<nav class="rail" aria-label="Pages de la réservation">${RAIL.map(([k,l])=>`<a href="#" data-go="${k}" ${k===cur?'aria-current="page"':''}>${l}${k==='mods'&&st.proj!=='none'?' (1)':''}</a>`).join('')}</nav>`}
+function zone(kind,label,inner){return `<div class="zone ${kind}"><span class="tag ${kind}">${label}</span>${inner}</div>`}
+const projActive=()=>st.proj!=='none';
+const PROJ_STATUS={draft:['En préparation','info'],sent:['Copie signée attendue','warn'],received:['Copie reçue à vérifier','warn'],refused:['Copie refusée — nouvelle copie attendue','danger']};
+function nextStep(){return {draft:'Générer puis envoyer le contrat de remplacement',sent:'Attendre la copie signée du locataire',received:'Vérifier la copie, puis contresigner',refused:'Attendre une nouvelle copie du même contrat'}[st.proj]}
+
+function bannerHtml(){
+  if(!projActive()) return '';
+  const [s,c]=PROJ_STATUS[st.proj];
+  return zone('new','nouveau',`<div class="alert info banner"><div><b>Une modification est en cours</b> <span class="pill ${c}">${s}</span><div class="small">Les dates, le nombre de participants, le prix et le contrat affichés ci-dessous restent ceux qui s'appliquent tant que la modification n'est pas contresignée.</div></div><a href="#" class="btn" data-go="proj">Voir la modification</a></div>`);
+}
+
+/* ---------- screens ---------- */
+function nextAction(){
+  let head,lines=[],primary='';
+  const hold=st.proj==='received'?'Dates bloquées fermement : copie signée reçue le 03/03/2027.':'Dates bloquées jusqu\'au 18/03/2027 ; sans copie signée, elles se libèrent à cette date.';
+  if(projActive()){
+    head={draft:'Modification en cours : envoyer le contrat de remplacement',sent:'Modification en cours : copie signée du nouveau contrat attendue',received:'Modification en cours : vérifier la copie signée et contresigner',refused:'Modification en cours : nouvelle copie attendue (la précédente a été refusée)'}[st.proj];
+    lines.push('Les dates, les participants, le prix et le contrat de cette page restent ceux qui s\'appliquent jusqu\'à la contresignature.');
+    primary={draft:'<a href="#" class="btn primary" data-go="proj">Ouvrir la modification</a>',sent:'<a href="#" class="btn primary" data-go="proj">Ouvrir la modification</a>',received:'<a href="#" class="btn primary" data-go="docs">Vérifier et contresigner</a>',refused:'<a href="#" class="btn primary" data-go="proj">Ouvrir la modification</a>'}[st.proj];
+  } else {
+    head='Attendre la copie signée du contrat';
+    primary='<a href="#" class="btn" data-go="docs">Voir le contrat</a>';
+  }
+  return `<div class="card"><header><h2>Prochaine action</h2></header><div class="body">
+    <div style="font-weight:600">${head}</div>
+    ${lines.map(l=>`<div class="small muted">${l}</div>`).join('')}
+    <div class="small" style="color:var(--warn)">${hold}</div>
+    <div class="actions">${primary}<button class="btn outline" type="button" data-act="noop">Autres décisions</button></div></div></div>`;
+}
+function dash(){
+  return `${header()}${rail('dash')}
+  ${zone('mod','modifié — même boîte, nouveaux cas',nextAction())}
+  ${zone('same','inchangé',`<div class="card"><header><h2>Cycle de vie</h2></header><div class="body small muted">Phases et étapes inchangées (page #462). L'étape « Dates bloquées » dit désormais « bloquées fermement » dès qu'une copie signée non refusée est reçue.</div></div>`)}`;
+}
+
+function mods(){
+  let top;
+  if(!st.sent){
+    top=zone('new','nouveau — avant le premier envoi',`<div class="card"><header><h2>Modifier la réservation</h2><span class="pill todo">Aucun contrat envoyé</span></header><div class="body">
+      <div class="small">Tant qu'aucun contrat n'a été envoyé, vos changements s'appliquent directement à la réservation. Ils restent dans l'historique ; le locataire n'est pas prévenu. Un contrat déjà généré mais pas envoyé est marqué « à régénérer ».</div>
+      <div class="actions"><a href="#" class="btn primary" data-go="proj">Modifier les dates, les participants ou le prix</a></div></div></div>`);
+  } else if(!projActive()){
+    top=zone('new','nouveau',`<div class="card"><header><h2>Modification en cours</h2><span class="pill todo">Aucune</span></header><div class="body">
+      <div class="small">Un contrat a déjà été envoyé : toute modification passe par un contrat de remplacement, que le locataire signe. La réservation actuelle ne change pas avant votre contresignature.</div>
+      <div class="actions"><a href="#" class="btn primary" data-go="proj">Créer une modification</a></div></div></div>`);
+  } else {
+    const [s,c]=PROJ_STATUS[st.proj];
+    top=zone('new','nouveau',`<div class="card"><header><h2>Modification en cours</h2><span class="pill ${c}">${s}</span></header><div class="body">
+      <div class="cmp"><div class="now"><div class="k">Aujourd'hui</div><dl class="kv"><dt>Dates</dt><dd>12 → 14 mars</dd><dt>Participants</dt><dd>25</dd><dt>Prix</dt><dd>540,00 €</dd></dl></div>
+      <div class="next"><div class="k">Après contresignature</div><dl class="kv"><dt>Dates</dt><dd class="newv">12 → 15 mars</dd><dt>Participants</dt><dd class="newv">32</dd><dt>Prix</dt><dd class="newv">748,00 €</dd></dl></div></div>
+      <div class="small"><b>Prochaine étape :</b> ${nextStep()}</div>
+      <div class="actions"><a href="#" class="btn primary" data-go="proj">Ouvrir la modification</a></div></div></div>`);
+  }
+  const hist=`<div class="card"><header><h2>Historique des modifications</h2></header><div class="body"><div class="tw"><table><thead><tr><th>Date</th><th>Changement</th><th>Statut</th><th>Par</th><th></th></tr></thead><tbody>
+    ${st.history.map(h=>`<tr><td>${h.d}</td><td>${esc(h.what)}</td><td><span class="pill ${h.status==='Annulée'?'danger':'ok'}">${esc(h.status)}</span><div class="small muted">${esc(h.note)}</div></td><td>${esc(h.by)}</td><td><a href="#" data-go="proj">Consulter</a></td></tr>`).join('')}
+    </tbody></table></div></div></div>`;
+  return `${header()}${rail('mods')}${top}${zone('new','nouveau',hist)}
+  ${zone('gone','retiré',`<div class="card"><div class="body small muted">Demandes et propositions de modification (accepter / refuser) : supprimées des deux côtés.</div></div>`)}`;
+}
+
+function priceTable(editable){
+  const rows=[['Location du local — nuit','3 nuits','180,00','540,00'],['Supplément par personne au-delà de 25','7 pers.','8,00','56,00'],['Nettoyage final (tarif du bien)','1','120,00','120,00']];
+  return `<div class="tw"><table><thead><tr><th>Ligne</th><th class="r">Qté</th><th class="r">Prix unitaire</th><th class="r">Montant</th></tr></thead><tbody>
+  ${rows.map(r=>`<tr><td>${r[0]}</td><td class="r">${r[1]}</td><td class="r">${r[2]} €</td><td class="r">${r[3]} €</td></tr>`).join('')}
+  <tr><td colspan="3">${editable?`<div class="grid2"><div class="field"><label for="rl">Remise — libellé</label><input id="rl" value="Remise fidélité"></div><div class="field"><label for="ra">Montant</label><input id="ra" value="-48,00"></div></div>`:'Remise fidélité'}</td><td class="r">-48,00 €</td></tr>
+  <tr><th colspan="3">Total de la location</th><th class="r">668,00 €</th></tr></tbody></table></div>
+  <div class="note">Les lignes du tarif se recalculent seules à partir des dates et des participants ; seule la remise se saisit à la main. Après le séjour, un geste commercial se fait au décompte final.</div>`;
+}
+
+function proj(){
+  const direct=!st.sent;
+  const locked=st.sent && ['sent','received','refused'].includes(st.proj);
+  const title=direct?'Modifier la réservation':(st.proj==='none'?'Nouvelle modification':'Modification du 03/03/2027');
+  const [s,c]=direct?['Appliquée directement','todo']:(st.proj==='none'?['Nouvelle','todo']:PROJ_STATUS[st.proj]);
+  const steps=direct?'':`<ol class="steps">
+    ${[['Préparer les nouvelles conditions','draft'],['Envoyer le contrat de remplacement','sent'],['Recevoir la copie signée','received'],['Contresigner : la modification s\'applique','done']].map(([l,k],i)=>{
+      const order=['none','draft','sent','received','done']; const cur=st.proj==='refused'?'sent':st.proj; const ci=order.indexOf(cur); const ki=order.indexOf(k);
+      const cls=ki<ci?'done':(ki===ci?'cur':''); return `<li><span class="dot ${cls}">${ki<ci?'✓':i+1}</span>${l}</li>`}).join('')}</ol>`;
+  const dis=locked?'disabled':'';
+  const form=`<div class="form">
+    <div class="cmp"><div class="now"><div class="k">Aujourd'hui (s'applique)</div><dl class="kv"><dt>Arrivée</dt><dd>12/03/2027</dd><dt>Départ</dt><dd>14/03/2027</dd><dt>Participants</dt><dd>25</dd><dt>Prix</dt><dd>540,00 €</dd></dl></div>
+    <div class="next"><div class="k">${direct?'Nouvelles valeurs':'Proposé'}</div>
+      <div class="grid2"><div class="field"><label for="pA">Arrivée</label><input id="pA" type="date" value="2027-03-12" ${dis}></div><div class="field"><label for="pD">Départ</label><input id="pD" type="date" value="2027-03-15" ${dis}></div><div class="field"><label for="pP">Participants</label><input id="pP" type="number" value="32" ${dis}></div></div>
+      <div class="help">Les nouvelles dates sont vérifiées à l'enregistrement : refusées si une autre location, même non confirmée, ou un blocage les occupe.</div></div></div>
+    <div><h3 style="font-size:15px;margin-bottom:6px">Prix <span class="tag mod">déplacé depuis Finances</span></h3>${priceTable(!locked)}</div>
+    ${locked?'<div class="alert info small">Le contrat de remplacement est parti : ces conditions ne se modifient plus. Pour corriger, annulez cette modification et créez-en une nouvelle.</div>':''}
+  </div>`;
+  let actions='';
+  if(direct) actions=`<button class="btn primary" type="button" data-act="saveDirect">Enregistrer</button>`;
+  else if(st.proj==='none') actions=`<button class="btn primary" type="button" data-act="createProj">Enregistrer la modification</button>`;
+  else if(st.proj==='draft') actions=`<button class="btn primary" type="button" data-act="genSend">Générer et envoyer le contrat de remplacement</button><button class="btn" type="button" data-act="saveProj">Enregistrer</button><button class="btn danger-o" type="button" data-act="cancelProj">Annuler la modification</button>`;
+  else if(st.proj==='sent'||st.proj==='refused') actions=`<button class="btn" type="button" data-act="resend">Renvoyer le contrat de remplacement</button><button class="btn danger-o" type="button" data-act="cancelProj">Annuler la modification</button>`;
+  else if(st.proj==='received') actions=`<a href="#" class="btn primary" data-go="docs">Vérifier et contresigner</a><button class="btn danger-o" type="button" data-act="cancelProj">Annuler la modification</button>`;
+  const docs=direct||st.proj==='none'||st.proj==='draft'?'':`<div class="alert info small">Le contrat de remplacement, la copie signée du locataire, sa vérification et la contresignature se gèrent sur la page <a href="#" data-go="docs">Documents</a>, à côté du contrat en vigueur.</div>`;
+  return `<div class="ph"><h1>${title}</h1><span class="pill ${c}">${s}</span></div><div class="sub">LOC-2027-014 · Local Saint-Georges</div>
+  ${zone('new','nouveau — page dédiée',`<div class="card"><div class="body">${steps}${form}<div class="actions">${actions}</div></div></div>`)}
+  ${docs}`;
+}
+
+function fin(){
+  const settled=st.settle;
+  const total=settled?'622,00':'818,00', received=settled?'818,00':'250,00';
+  const summary=`<div class="card"><header><h2>Résumé</h2>${settled?'<span class="pill warn">196,00 € à rembourser</span>':'<span class="pill warn">568,00 € restant dû</span>'}</header><div class="body">
+    <dl class="kv"><dt>Prix de la location</dt><dd>668,00 €${settled?' <span class="small muted">(convenu, inchangé)</span>':''}</dd><dt>Caution</dt><dd>150,00 €</dd>
+    ${settled?'<dt>Retenu au décompte</dt><dd>Électricité 34,00 € · aucun dégât → <b>montant conservé 622,00 €</b></dd>':''}
+    <dt>Montant attendu</dt><dd><b>${total} €</b></dd><dt>Reçu</dt><dd>${received} €</dd><dt>${settled?'Trop-perçu':'Restant dû'}</dt><dd><b>${settled?'196,00':'568,00'} €</b></dd>
+    <dt>Acompte</dt><dd>${settled?'reçu':'250,00 € <span class="pill ok">reçu le 05/03</span>'} · dû 15 jours après l'envoi du contrat</dd><dt>Solde</dt><dd>${settled?'reçu':'dû le 26/02 (14 jours avant l\'arrivée)'}</dd></dl>
+    <div class="note">Une seule créance, une seule communication pour l'acompte, le solde et la caution. Une modification en préparation ne change rien ici.</div></div></div>`;
+  const moves=`<div class="card"><header><h2>Mouvements du compte</h2></header><div class="body"><div class="tw"><table><thead><tr><th>Date</th><th>Libellé</th><th class="r">Montant</th><th>Imputation</th></tr></thead><tbody>
+    <tr><td>05/03/2027</td><td>Patro Sainte-Anne — ${COMM}</td><td class="r">+250,00 €</td><td><span class="pill ok">Automatique</span></td></tr>
+    ${settled?`<tr><td>08/03/2027</td><td>Patro Sainte-Anne — ${COMM}</td><td class="r">+568,00 €</td><td><span class="pill ok">Automatique</span></td></tr>`:''}
+    ${settled?`<tr><td>20/03/2027</td><td>Remboursement caution</td><td class="r">-196,00 €</td><td><span class="pill todo">En attente de l'extrait</span></td></tr>`:''}
+    </tbody></table></div><div class="note">Les virements apparaissent après l'import d'un extrait bancaire. Seuls les mouvements de cette réservation sont montrés.</div></div></div>`;
+  const pay=`<div class="card"><header><h2>Informations de paiement</h2></header><div class="body">
+    ${settled?`<div class="alert warn small"><b>À rembourser au locataire : 196,00 €</b> — faites le virement depuis la banque vers <span class="comm">BE71 0961 2345 6769</span> (Patro Sainte-Anne) en indiquant la communication <span class="comm">${COMM}</span> : il sera rapproché automatiquement à l'import de l'extrait.</div>
+      <div class="actions"><button class="btn primary" type="button" data-act="matchRefund">Rapprocher le remboursement</button></div>
+      <div class="note">« Rapprocher » sert si le virement est parti sans la communication : le site propose les débits non rapprochés de ce compte, d'au plus 196,00 €, depuis le décompte.</div>`
+    :`<div class="qrwrap"><div class="qr" role="button" tabindex="0" aria-label="Agrandir le QR code" data-act="bigqr"><canvas id="qrc"></canvas></div>
+      <dl class="kv"><dt>Bénéficiaire</dt><dd>Unité 25 SV — Locations</dd><dt>IBAN</dt><dd class="comm">BE68 5390 0754 7034</dd><dt>Communication</dt><dd class="comm">${COMM}</dd><dt>À verser maintenant</dt><dd><b>568,00 €</b> <span class="small muted">(solde, caution comprise)</span></dd></dl></div>
+      <div class="actions"><button class="btn primary" type="button" data-act="bigqr">Agrandir le QR code</button></div>`}
+  </div></div>`;
+  const off=`<div class="card"><div class="body"><div class="alert info small">Le module « Finances » n'est pas actif : le site ne suit pas les paiements de cette réservation. Le prix, l'acompte et la caution restent indiqués ici et dans le contrat, sans communication structurée.</div></div></div>`;
+  return `${header()}${rail('fin')}
+  ${st.fin?zone('new','nouveau — 1',summary)+zone('new','nouveau — 2',moves)+zone('new','nouveau — 3',pay):zone('new','nouveau — sans Finances',off)}
+  ${zone('gone','retiré',`<div class="card"><div class="body small muted">Boîte « Prix » (déplacée vers Modifications), boîte « Paiements » (devenue Résumé), seconde communication de caution, formulaire manuel de restitution (gardé seulement sans Finances).</div></div>`)}`;
+}
+
+function inv(){
+  const known=true;
+  return `${header()}${rail('inv')}
+  ${zone('mod','modifié — passe en premier',`<div class="card"><header><h2>Décompte final</h2>${st.settle?'<span class="pill ok">Validé</span>':'<span class="pill todo">À faire après le séjour</span>'}</header><div class="body small"><div class="muted">Consommations, dégâts et retenues : inchangés. Nouveau : une ligne « Geste commercial » (libellé + montant négatif) pour une remise accordée après le séjour, sans nouveau contrat.</div><div class="muted">À la validation, la créance passe au montant conservé ; la caution à rendre apparaît en trop-perçu dans Finances.</div></div></div>`)}
+  ${zone('mod','modifié — replié si complet',`<div class="card"><details class="fold" ${known?'':'open'}><summary><div><h2>Coordonnées de facturation</h2><div class="small muted">Patro Sainte-Anne · Rue de l'Église 12, 5000 Namur</div></div></summary><div class="body small">
+    <div class="grid2"><div class="field"><label for="b1">Nom ou organisation</label><input id="b1" value="Patro Sainte-Anne"></div><div class="field"><label for="b2">Adresse</label><input id="b2" value="Rue de l'Église 12, 5000 Namur"></div><div class="field"><label for="b3">N° TVA (facultatif)</label><input id="b3" value=""></div></div>
+    <div class="actions"><button class="btn primary" type="button" data-act="noop">Enregistrer</button></div></div></details></div>`)}
+  ${zone('same','inchangé — passe en dernier',`<div class="card"><header><h2>Facture</h2></header><div class="body small muted">Génération, versions et envoi : inchangés.</div></div>`)}`;
+}
+
+function track(){
+  const copy={none:'',draft:'',sent:'<div class="alert info small">Un <b>nouveau contrat</b> vous a été envoyé le 04/03/2027 (il remplace le précédent une fois signé par les deux parties). Déposez-en la copie signée ci-dessous.</div>',
+    received:'<div class="alert ok small">Copie signée du nouveau contrat reçue le 06/03/2027. Nous la vérifions.</div>',
+    refused:'<div class="alert danger small">Votre copie du 05/03/2027 n\'a pas pu être acceptée : « page 2 manquante ». Déposez une nouvelle copie du même contrat.</div>'}[st.proj];
+  return `<div class="ph"><h1>Votre location</h1><span class="pill info">Contrat envoyé</span></div><div class="sub">LOC-2027-014 · Local Saint-Georges · 12 → 14 mars 2027</div>
+  ${zone('same','inchangé',`<div class="card"><div class="body small muted">État de la demande, informations pratiques, coordonnées de facturation (bloc qui se replie une fois rempli).</div></div>`)}
+  ${zone('mod','modifié',`<div class="card"><header><h2>Votre contrat</h2></header><div class="body">${copy||'<div class="small">Contrat signé par les deux parties. <a href="#">Télécharger</a></div>'}
+    ${['sent','refused'].includes(st.proj)?'<div class="field"><label for="up">Copie signée (PDF ou photo)</label><input id="up" type="file"></div><div class="actions"><button class="btn primary" type="button" data-act="noop">Envoyer ma copie signée</button></div>':''}</div></div>`)}
+  ${st.fin?zone('new','nouveau',`<div class="card"><header><h2>Paiement</h2></header><div class="body"><div class="qrwrap"><div class="qr" role="button" tabindex="0" aria-label="Agrandir le QR code" data-act="bigqr"><canvas id="qrt"></canvas></div>
+    <dl class="kv"><dt>Bénéficiaire</dt><dd>Unité 25 SV — Locations</dd><dt>IBAN</dt><dd class="comm">BE68 5390 0754 7034</dd><dt>Communication</dt><dd class="comm">${COMM}</dd><dt>À verser</dt><dd><b>568,00 €</b> avant le 26/02/2027</dd></dl></div>
+    <div class="note">Utilisez toujours cette communication, pour l'acompte, le solde et la caution.</div></div></div>`):''}
+  ${zone('gone','retiré',`<div class="card"><div class="body small muted">« Modifier votre demande », « Réponse attendue » sur une proposition, et « Annuler ma demande » : pour tout changement, le locataire contacte le gestionnaire.</div></div>`)}`;
+}
+
+function docs(){
+  const v2={draft:'<span class="pill todo">Pas encore généré</span>',sent:'<span class="pill warn">Envoyé le 04/03/2027 — copie attendue</span>',received:'<span class="pill warn">Copie reçue le 06/03/2027 — à vérifier</span>',refused:'<span class="pill danger">Copie du 05/03 refusée : page 2 manquante</span>'}[st.proj];
+  const v2actions=st.proj==='received'?'<button class="btn primary" type="button" data-act="countersign">Contresigner</button><button class="btn danger-o" type="button" data-act="refuseCopy">Refuser la copie</button><a href="#">Ouvrir la copie</a>':(st.proj==='draft'?'<a href="#" data-go="proj">Préparer depuis la modification</a>':'<a href="#">Ouvrir</a>');
+  return `${header()}${rail('docs')}${bannerHtml()}
+  ${zone('mod','modifié — contrat de remplacement à côté du contrat en vigueur',`<div class="card"><header><h2>Contrat</h2></header><div class="body small">
+    <div class="tw"><table><thead><tr><th>Version</th><th>État</th><th></th></tr></thead><tbody>
+    <tr><td>Contrat v1 — 12 → 14 mars, 25 pers., 540,00 €</td><td><span class="pill ok">En vigueur</span> signé par les deux parties</td><td><a href="#">Ouvrir</a></td></tr>
+    ${projActive()?`<tr><td>Contrat de remplacement v2 — 12 → 15 mars, 32 pers., 668,00 €<div class="muted">Modification du 03/03/2027</div></td><td>${v2}</td><td><div class="actions">${v2actions}</div></td></tr>`:''}
+    </tbody></table></div>
+    <div class="note">La v1 reste le contrat en vigueur jusqu'à la contresignature de la v2 ; elle passe alors « Remplacé ». Même communication structurée sur les deux.</div></div></div>`)}
+  ${zone('same','inchangé',`<div class="card"><div class="body small muted">Facture, autres documents, dépôt de fichiers : inchangés.</div></div>`)}`;
+}
+function mail(){
+  return `${header()}${rail('mail')}
+  ${zone('same','inchangé',`<div class="card"><div class="body small muted">Messages reçus et envoyés : inchangés.</div></div>`)}
+  ${zone('mod','modifié — bouton icône seule',`<div class="card"><header><h2>Autres adresses du locataire</h2></header><div class="body">
+    ${['tresorier@patro-sainte-anne.be','julie.lambert@exemple.be'].map(m=>`<div class="actions" style="justify-content:space-between"><span>${m}</span><button class="btn danger-o" type="button" data-act="removeAddr" title="Retirer ${m}" aria-label="Retirer ${m}">✕</button></div>`).join('')}
+    <div class="actions"><button class="btn" type="button" data-act="noop">Ajouter une adresse</button></div></div></div>`)}`;
+}
+/* ---------- render & actions ---------- */
+const SCREENS={dash,mods,proj,fin,docs,inv,mail,track};
+const CRUMB={dash:'Gérer mes locations › Local Saint-Georges › Réservations › <b>LOC-2027-014</b>',mods:'… › LOC-2027-014 › <b>Modifications</b>',proj:'… › LOC-2027-014 › Modifications › <b>Modification</b>',fin:'… › LOC-2027-014 › <b>Finances</b>',inv:'… › LOC-2027-014 › <b>Facture</b>',track:'Page de suivi du locataire (lien reçu par e-mail)',docs:'… › LOC-2027-014 › <b>Documents</b>',mail:'… › LOC-2027-014 › <b>Courrier</b>'};
+function render(){
+  $('#crumbs').innerHTML=CRUMB[st.screen];
+  $('#page').innerHTML=SCREENS[st.screen]();
+  ['qrc','qrt'].forEach(id=>{const c=document.getElementById(id);if(c)drawQr(c,7)});
+  document.querySelectorAll('#screenSeg button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.s===st.screen));
+  $('#simSent').checked=st.sent;$('#simProj').value=st.proj;$('#simFin').checked=st.fin;$('#simSettle').checked=st.settle;
+}
+function go(s){if(!SCREENS[s]){toast('Page hors maquette : inchangée.');return}st.screen=s;render()}
+document.addEventListener('click',e=>{
+  const g=e.target.closest('[data-go]'); if(g){e.preventDefault();go(g.dataset.go);return}
+  const a=e.target.closest('[data-act]'); if(!a) return; e.preventDefault();
+  const act=a.dataset.act;
+  const A={
+    noop:()=>toast('Comportement existant, inchangé.'),
+    removeAddr:()=>ask('Retirer cette adresse ?','Les messages déjà rattachés restent ; les suivants, de ou vers cette adresse, ne le seront plus automatiquement.','Retirer',()=>toast('Adresse retirée.'),true),
+    extend:()=>ask('Prolonger le blocage des dates ?','Les dates du 12 au 14 mars resteront bloquées jusqu\'au 01/04/2027. Aucun e-mail n\'est envoyé.','Prolonger',()=>toast('Blocage prolongé jusqu\'au 01/04/2027.')),
+    saveDirect:()=>ask('Appliquer ces changements à la réservation ?','Les dates, les participants et le prix changent tout de suite. Le contrat déjà généré devra être régénéré. Aucun e-mail n\'est envoyé au locataire.','Appliquer',()=>{st.history.unshift({d:'06/03/2027',what:'Dates 12 → 15 mars, 32 pers., 668,00 €',status:'Appliquée directement',by:'Xavier Dubois',note:'avant le premier envoi'});st.screen='mods';render();toast('Réservation modifiée.')}),
+    createProj:()=>ask('Enregistrer cette modification ?','Les nouvelles dates (12 → 15 mars) sont bloquées dès maintenant, sans échéance, tant que la modification est active. La réservation actuelle ne change pas. Aucun e-mail n\'est envoyé.','Enregistrer',()=>{st.proj='draft';render();toast('Modification enregistrée, nouvelles dates bloquées.')}),
+    saveProj:()=>toast('Modification enregistrée.'),
+    genSend:()=>ask('Envoyer le contrat de remplacement ?','Le locataire reçoit par e-mail le nouveau contrat complet à signer. Ensuite, cette modification ne pourra plus être changée : il faudra l\'annuler et en créer une nouvelle.','Envoyer au locataire',()=>{st.proj='sent';render();toast('Contrat de remplacement envoyé.')}),
+    resend:()=>ask('Renvoyer le contrat de remplacement ?','Le locataire reçoit à nouveau le même contrat par e-mail.','Renvoyer',()=>toast('Contrat renvoyé.')),
+    refuseCopy:()=>{modal(`<div class="modal"><header><h3>Refuser cette copie ?</h3></header><div class="mb"><p style="margin:0">Le locataire reçoit un e-mail avec la raison et peut déposer une autre copie du même contrat. La modification reste active, ses dates restent bloquées.</p><div class="field"><label for="why">Raison (montrée au locataire)</label><input id="why" value="page 2 manquante"></div></div><footer><button class="btn outline" type="button" data-cancel>Annuler</button><button class="btn danger" type="button" id="okR">Refuser la copie</button></footer></div>`);$('#okR').addEventListener('click',()=>{closeModal();st.proj='refused';render();toast('Copie refusée, locataire prévenu.')})},
+    countersign:()=>ask('Contresigner le contrat de remplacement ?','La modification s\'applique aussitôt : la réservation passe au 12 → 15 mars, 32 personnes, 668,00 €. La créance passe à 818,00 € (caution comprise), avec la même communication. Les nuits libérées par l\'ancien séjour le sont aussi. Le locataire reçoit le contrat signé par les deux parties. Le statut de confirmation ne change pas.','Contresigner',()=>{st.history.unshift({d:'06/03/2027',what:'Dates 12 → 15 mars, 32 pers., 668,00 €',status:'Appliquée',by:'Xavier Dubois',note:'contrat v2 contresigné'});st.proj='none';st.screen='mods';render();toast('Modification appliquée.')}),
+    cancelProj:()=>ask('Annuler cette modification ?','Ses nouvelles dates sont libérées ; la réservation, le contrat et la créance actuels ne changent pas. Le locataire reçoit un e-mail l\'informant que la modification est abandonnée.','Annuler la modification',()=>{st.history.unshift({d:'06/03/2027',what:'Dates 12 → 15 mars, 32 pers.',status:'Annulée',by:'Xavier Dubois',note:st.proj==='draft'?'avant envoi du contrat':'après envoi du contrat'});st.proj='none';st.screen='mods';render();toast('Modification annulée, locataire prévenu.')},true),
+    bigqr:()=>{modal(`<div class="modal"><header><h3>Payer 568,00 €</h3></header><div class="mb"><div class="qrbig"><canvas id="qrb"></canvas></div><div class="comm" style="text-align:center">${COMM}</div></div><footer><button class="btn outline" type="button" data-cancel>Fermer</button></footer></div>`);drawQr($('#qrb'),7)},
+    matchRefund:()=>{modal(`<div class="modal"><header><h3>Rapprocher le remboursement</h3></header><div class="mb"><div class="small">Débits non rapprochés du compte, d'au plus 196,00 €, depuis le 18/03/2027 :</div>
+      <div class="tw"><table><thead><tr><th></th><th>Date</th><th>Contrepartie</th><th class="r">Montant</th></tr></thead><tbody>
+      <tr><td><input type="radio" name="d" id="d1" checked></td><td><label for="d1">20/03/2027</label></td><td>J. LAMBERT</td><td class="r">-196,00 €</td></tr>
+      <tr><td><input type="radio" name="d" id="d2"></td><td><label for="d2">21/03/2027</label></td><td>BRICO NAMUR</td><td class="r">-42,10 €</td></tr></tbody></table></div></div>
+      <footer><button class="btn outline" type="button" data-cancel>Annuler</button><button class="btn primary" type="button" id="okM">Rapprocher</button></footer></div>`);$('#okM').addEventListener('click',()=>{closeModal();toast('Remboursement rapproché : caution restituée.')})}
+  };
+  (A[act]||A.noop)();
+});
+document.addEventListener('keydown',e=>{const q=e.target.closest&&e.target.closest('.qr');if(q&&(e.key==='Enter'||e.key===' ')){e.preventDefault();q.click()}});
+document.querySelectorAll('#screenSeg button').forEach(b=>b.addEventListener('click',()=>go(b.dataset.s)));
+document.querySelectorAll('#widthSeg button').forEach(b=>b.addEventListener('click',()=>{document.querySelectorAll('#widthSeg button').forEach(x=>x.setAttribute('aria-pressed',x===b));$('#frame').classList.toggle('phone',b.dataset.w==='phone')}));
+$('#simSent').addEventListener('change',e=>{st.sent=e.target.checked;if(!st.sent)st.proj='none';render()});
+$('#simProj').addEventListener('change',e=>{st.proj=e.target.value;if(st.proj!=='none')st.sent=true;render()});
+$('#simFin').addEventListener('change',e=>{st.fin=e.target.checked;render()});
+$('#simSettle').addEventListener('change',e=>{st.settle=e.target.checked;render()});
+render();
+})();
+</script>
+</body>
+</html>
