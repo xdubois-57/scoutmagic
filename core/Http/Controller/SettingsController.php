@@ -12,6 +12,7 @@ use Core\Config\SettingException;
 use Core\Config\SettingService;
 use Core\Http\Request;
 use Core\Http\Response;
+use Core\Import\DeskImportYearDates;
 use Core\Journal\JournalService;
 use Core\Notification\NotificationService;
 use Core\Photo\UnitLogoService;
@@ -63,6 +64,16 @@ class SettingsController extends AbstractController
         // Configuration > Synchronisation des contacts shows it next to
         // the devices it would cut off.
         \Core\Contact\Device\DeviceCredentialService::SETTING_SYNC_ENABLED,
+    ];
+
+    /**
+     * Checked as a pair whenever either is saved — see update().
+     *
+     * @var string[]
+     */
+    private const DESK_IMPORT_DATE_KEYS = [
+        DeskImportYearDates::SETTING_NEXT_START,
+        DeskImportYearDates::SETTING_ENCODING,
     ];
 
     public function __construct(
@@ -187,6 +198,33 @@ class SettingsController extends AbstractController
 
         // Get old value for journal context
         $oldValue = $this->settingService->get($key, $moduleId);
+
+        // The two days that decide which years a Desk import may target
+        // only mean something together (Core\Import\DeskImportYearDates):
+        // the one typed is checked against the one already stored, and an
+        // incoherent pair is refused here, through this page's own JSON
+        // answer, rather than saved and then silently replaced by the
+        // defaults the import policy falls back on.
+        if ($moduleId === null && in_array($key, self::DESK_IMPORT_DATE_KEYS, true)) {
+            $nextStart = $key === DeskImportYearDates::SETTING_NEXT_START
+                ? trim((string) $value)
+                : trim((string) $this->settingService->get(
+                    DeskImportYearDates::SETTING_NEXT_START,
+                    null,
+                    DeskImportYearDates::DEFAULT_NEXT_START
+                ));
+            $encoding = $key === DeskImportYearDates::SETTING_ENCODING
+                ? trim((string) $value)
+                : trim((string) $this->settingService->get(
+                    DeskImportYearDates::SETTING_ENCODING,
+                    null,
+                    DeskImportYearDates::DEFAULT_ENCODING
+                ));
+            $error = DeskImportYearDates::coherenceError($nextStart, $encoding);
+            if ($error !== null) {
+                return $this->json(['success' => false, 'error' => $error]);
+            }
+        }
 
         try {
             $this->settingService->set($key, $value, $moduleId);

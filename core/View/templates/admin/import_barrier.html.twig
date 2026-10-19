@@ -52,7 +52,7 @@
             </p>
         </div>
 
-        {# La comparaison, en clair : ce que contient le fichier, ce que contient le site. #}
+        {# The comparison, in plain words: what the file holds, what the site holds. #}
         <div class="row g-0 border-top">
             <div class="col-6 border-end p-3">
                 <p class="text-uppercase fw-semibold small text-body-secondary mb-1">Le fichier déposé</p>
@@ -83,10 +83,9 @@
         </div>
 
         {#
-           Les conséquences, nommées et chiffrées. Celles qui sont
-           favorables s'affichent en vert : une liste qui ne dit que du
-           mal cesse d'être lue, et c'est précisément la liste qu'il faut
-           lire ici.
+           The consequences, named and counted. The favourable ones show
+           in green: a list that only ever brings bad news stops being
+           read, and this is precisely the list that has to be read.
         #}
         <div class="border-top p-3">
             <p class="small fw-semibold mb-2">Ce que cet import ferait</p>
@@ -99,10 +98,9 @@
                 {% endif %}
 
                 {#
-                   Les conséquences d'accès ne s'affichent que pour l'année
-                   dont les rôles sont réellement lus : sur une année
-                   préparée à l'avance, elles parleraient d'un avenir que
-                   personne n'a encore choisi.
+                   Access consequences only show for the year whose roles
+                   are actually read: on a year prepared in advance they
+                   would describe a future nobody has chosen yet.
                 #}
                 {% if not assessment.yearBearsAccess %}
                     <li class="d-flex gap-2 mb-2">
@@ -156,9 +154,9 @@
             </ul>
 
             {#
-               La conséquence qui vous concerne est isolée plutôt que
-               noyée au milieu des autres : c'est la seule que personne ne
-               peut réparer à votre place.
+               The consequence that concerns the importer is set apart
+               rather than buried among the others: it is the one nobody
+               else can repair for them.
             #}
             {% if assessment.importerLosesAdmin %}
                 <div class="alert alert-danger d-flex gap-2 mt-2 mb-0" role="alert">
@@ -183,7 +181,7 @@
     </div>
 
     {% if overridable %}
-        {# Zone dangereuse — seulement là où passer outre a un sens. #}
+        {# Danger zone — only where overriding makes sense. #}
         <div class="card border-danger">
             <details>
                 <summary class="card-body fw-semibold text-danger-emphasis tap-target">
@@ -199,6 +197,14 @@
                     <form method="post" action="/admin/import" enctype="multipart/form-data">
                         {{ csrf_field()|raw }}
                         <input type="hidden" name="scout_year_id" value="{{ scout_year_id }}">
+                        {# The year confirmation already given on the import
+                           page, carried along: this form posts to the same
+                           route, and the year policy would otherwise refuse
+                           the second deposit. The typed word below stays the
+                           barrier's own, separate question. #}
+                        {% if confirmed_year|default(null) %}
+                            <input type="hidden" name="confirmed_year" value="{{ confirmed_year }}">
+                        {% endif %}
                         <div class="mb-3">
                             <label class="form-label" for="barrier-csv-file">Le même fichier CSV</label>
                             <input type="file" name="csv_file" accept=".csv" class="form-control"

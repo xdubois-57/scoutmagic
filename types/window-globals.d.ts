@@ -33,6 +33,25 @@ interface HelpSearchEntry {
 // common canonical grammar (issue #844).
 // What a form() field's action can do with the dialog's fields
 // (public/assets/js/confirm.js).
+// The Desk import page's island (#desk-import-years), as
+// core/View/templates/admin/import.html.twig writes it and
+// public/assets/js/admin-import.js reads it: one entry per year the
+// import policy offers today.
+interface DeskImportConfirmation {
+    title: string;
+    message: string;
+    confirmLabel: string;
+}
+interface DeskImportYear {
+    id: number;
+    label: string;
+    confirm: DeskImportConfirmation | null;
+    lastImport: { id: number; summary: string } | null;
+}
+interface DeskImportIsland {
+    years?: DeskImportYear[];
+}
+
 interface ScoutMagicFormControl {
     inputs: HTMLInputElement[];
     value: (name: string) => string;
@@ -437,6 +456,15 @@ interface Window {
     // the submit button looks clickable.
     ScoutMagicImportBarrier?: {
         matchesConfirmation: (typed: string, word: string) => boolean;
+    };
+    // public/assets/js/admin-import.js — the Desk import page: the year
+    // confirmation asked before submitting, and the « Dernier import »
+    // block that follows the selected year. The year policy itself is
+    // enforced server-side (Core\Import\DeskImportYearPolicy).
+    ScoutMagicDeskImport?: {
+        confirmationFor: (data: DeskImportIsland | null, yearId: string | number) => DeskImportConfirmation | null;
+        maySubmit: (data: DeskImportIsland | null, yearId: string, confirmedYear: string) => boolean;
+        renderLastImport: (container: HTMLElement, year: DeskImportYear | null) => void;
     };
     // public/assets/js/push-subscribe.js — subscribing and unsubscribing
     // this device to Web Push, shared by the « Mon compte » switch and by

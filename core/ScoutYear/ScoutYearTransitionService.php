@@ -11,6 +11,7 @@ namespace Core\ScoutYear;
 use Core\Config\AppClock;
 use Core\Config\ScoutYearService;
 use Core\Config\SettingService;
+use Core\Import\DeskImportYearDates;
 use Core\Import\ImportJournalRepository;
 use Core\Journal\JournalRepository;
 use Core\ScoutYear\Step\PublicYearSwitch;
@@ -79,10 +80,12 @@ use Core\Service\DateInput;
  * import, a check that reads it says so (StepContext::
  * waitingForImportMessage()) and produces neither a point nor a « ✓ ».
  *
- * **The date is a signpost.** The "encodage dans Desk" date
+ * **On this page the date is a signpost.** The "encodage dans Desk" date
  * (SETTING_DESK_ENCODING_DATE, 15 August by default) labels the phases and
- * says which one the calendar is currently in. It activates nothing and
- * triggers nothing on this page — specifications.md §16.4 removed
+ * says which one the calendar is currently in. Here it disables nothing,
+ * activates nothing and triggers nothing (elsewhere it closes the public
+ * year to the Desk import — Core\Import\DeskImportYearPolicy — and never
+ * switches a year) — specifications.md §16.4 removed
  * date-driven transitions on purpose, because a computed date cannot be
  * told "not yet" by the registration veto.
  */
@@ -90,8 +93,9 @@ class ScoutYearTransitionService
 {
     /**
      * Day and month (MM-JJ) from which the workflow presents the Desk
-     * encoding phase as the current one. Indicative only on this page —
-     * see the class comment.
+     * encoding phase as the current one. Indicative on this page — see the
+     * class comment; the Desk import's year policy reads it too
+     * (Core\Import\DeskImportYearDates::SETTING_ENCODING).
      */
     public const SETTING_DESK_ENCODING_DATE = 'scout_year_desk_encoding_date';
 
@@ -540,10 +544,7 @@ class ScoutYearTransitionService
      */
     private function deskEncodingDate(array $targetYear): string
     {
-        $configured = trim((string) $this->settingService->get(self::SETTING_DESK_ENCODING_DATE, null, '08-15'));
-        if (preg_match('/^(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$/', $configured) !== 1) {
-            $configured = '08-15';
-        }
+        $configured = DeskImportYearDates::fromSettings($this->settingService)->encoding;
 
         $startYear = substr((string) $targetYear['start_date'], 0, 4);
 

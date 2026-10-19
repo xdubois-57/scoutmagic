@@ -378,7 +378,7 @@ The RGPD page does not embed a cookie list inline — it links to the dedicated 
 ## 7. Desk CSV import
 
 ### 7.1 Pipeline
-Upload → valide les en-têtes → confronte le fichier au roster (barrière anti-export filtré) → groupe par `desk_id` → résout les correspondances → met à jour → **conserve le CSV chiffré** → journal.
+Upload → vérifie que l'année cible est importable aujourd'hui (§7.1.2) → valide les en-têtes → confronte le fichier au roster (barrière anti-export filtré) → groupe par `desk_id` → résout les correspondances → met à jour → **conserve le CSV chiffré** → journal.
 
 Le CSV consommé n'est plus supprimé : il est conservé chiffré, rattaché à
 la ligne d'import, pendant une durée exprimée en années scoutes (2 par
@@ -406,6 +406,49 @@ Le rapport ne recalcule rien : il lit le diff stocké. Les **points
 d'attention** — l'état actuel de l'unité, recalculé à chaque affichage —
 sont un écran distinct, précisément pour que l'un puisse être daté et
 l'autre vivant.
+
+### 7.1.2 Années importables
+
+L'import n'accepte que les années que `Core\Import\DeskImportYearPolicy`
+permet le jour même ; la page ne propose qu'elles et le serveur refuse
+toutes les autres, quelle que soit la requête. Deux réglages MM-JJ —
+`scout_year_import_next_start_date` (« Ouverture de l'import pour l'année
+suivante », `07-01` par défaut) et `scout_year_desk_encoding_date`
+(« Date d'encodage Desk », `08-15`) — sont placés dans l'année civile de
+**fin de l'année publique réellement configurée** :
+
+| Période (hors mode configuration) | Années importables | Proposée |
+|---|---|---|
+| avant l'ouverture | publique | publique |
+| de l'ouverture à la veille de la date d'encodage | publique **et** suivante | suivante |
+| à partir de la date d'encodage, jusqu'à la bascule | suivante | suivante |
+
+- Après la bascule publique, la règle repart de la nouvelle année
+  publique ; une deuxième année d'avance n'est jamais ouverte au motif du
+  calendrier (bascule le 20/08/2027 vers 2027-2028 : seule 2027-2028
+  jusqu'au 30/06/2028).
+- L'année publique choisie pendant la période intermédiaire demande une
+  **confirmation** (dialogue, sans case à cocher) ; le formulaire porte
+  alors `confirmed_year` égal à l'identifiant de l'année, que le serveur
+  exige — un envoi forgé ou rejoué sans lui est refusé. Ce champ est
+  distinct du mot `REMPLACER` de la barrière anti-export filtré, qui
+  reste entière.
+- **Mode configuration** (lu côté serveur) : toutes les années
+  existantes ; une année hors de la règle habituelle demande la même
+  confirmation. Toutes les validations du fichier et la barrière
+  s'appliquent.
+- Année refusée : message clair, rien n'est lu ni écrit, journal
+  `desk_import_year_refused` (identifiants et raison seulement).
+- `/admin/import?annee={id}` présélectionne cette année si elle est
+  permise, et l'ignore sinon. Le bloc « Dernier import » suit l'année
+  sélectionnée ; son lien d'historique porte `?annee=`.
+- À l'enregistrement, les deux dates doivent être au format MM-JJ,
+  tomber avant le `09-01`, et l'ouverture précéder strictement la date
+  d'encodage ; un refus cite les deux valeurs. Une paire **stockée**
+  incohérente (écrite autrement que par la page des réglages) fait
+  retomber **les deux** dates sur leurs défauts.
+- Le rejeu du jeu de référence et les tests passent explicitement une
+  politique sans restriction ; le chemin web ne peut pas la demander.
 
 ### 7.2 Mapping tables
 
@@ -632,7 +675,7 @@ A refused activation is journalled (`scout_year_staff_activation_blocked`, `scou
 
 **Dernière bascule.** The page reads the latest switch for everyone back from the journal (`scout_year_public_activated`): « Dernière bascule : {ancienne} → {nouvelle}, le … par … ». Nothing new is stored for it; once the journal retention has purged that entry, the line is simply absent.
 
-**The dates are signposts.** One admin-configurable parameter (day and month, 15 August by default) separates the preparation phase from the Desk-encoding phase and marks which of the two the calendar is currently in. On this page it never enables, disables or triggers anything — see §16.4.
+**The date separates the phases, and closes the public year to the import.** One admin-configurable parameter (day and month, 15 August by default, « Date d'encodage Desk ») separates the preparation phase from the Desk-encoding phase and marks which of the two the calendar is currently in. On this page it enables, disables or triggers nothing — see §16.4. It is also, with its companion « Ouverture de l'import pour l'année suivante », what decides which years the Desk import accepts (§7.1.2): from that date on, only the target year can be imported.
 
 ### 16.4 Manual transition only
 
@@ -640,7 +683,7 @@ The transition to a new public year is exclusively manual — step 14 is availab
 
 This is deliberate: the "inscriptions" module vetoes step 14 while registration requests are still open (§19.2), and a date-driven automatic transition would have bypassed that veto — a calculated date can't be told "not yet". Manual and automatic are incompatible, so manual wins.
 
-The Desk-encoding date of §16.3 does not reopen this question. On the Année scoute page it labels phases and nothing else: no step is disabled before it, none is triggered on it, and a malformed value simply falls back to the default rather than affecting the page.
+The Desk-encoding date of §16.3 does not reopen this question. On the transition page it labels phases: no step is disabled before it, none is triggered on it, and a malformed value simply falls back to the default rather than affecting the page. What it does decide is outside this page: from that date, the Desk import accepts only the year after the public one (§7.1.2) — it closes an import, it never switches a year.
 
 Without an automatic catch-up, a unit that never runs the transition would stay on a stale public year indefinitely with no visible sign. The Année scoute page shows a non-blocking warning when the current public year is past its end date, inviting the admin to run the transition workflow — it never blocks anything and never changes anything on its own.
 
