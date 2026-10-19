@@ -245,7 +245,8 @@ class ScoutYearTransitionService
             $this->phases($steps, $context, $deskDate),
             $steps,
             $deskDate,
-            $this->lastPublicSwitch()
+            $this->lastPublicSwitch(),
+            DeskImportYearDates::fromSettings($this->settingService)->fellBack
         );
     }
 

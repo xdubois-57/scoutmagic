@@ -79,6 +79,14 @@
 {% else %}
 <div class="mb-3"></div>
 {% endif %}
+{% if workflow.deskDatesFellBack %}
+<div class="alert alert-warning small" role="alert" data-desk-dates-fell-back>
+    Les deux dates enregistrées dans les réglages ne vont pas ensemble : l'ouverture de l'import pour l'année
+    suivante doit précéder la date d'encodage Desk, et les deux tomber avant le 1er septembre. Les dates par
+    défaut s'appliquent donc, ici comme sur la page Import Desk.
+    <a href="/config/settings">Corriger les réglages</a>
+</div>
+{% endif %}
 
 {# Summary: what is done, what to check, what really blocks. #}
 {% set done_count = workflow.doneCount %}

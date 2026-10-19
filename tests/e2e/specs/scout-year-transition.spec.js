@@ -76,6 +76,7 @@ import { fileURLToPath } from 'node:url';
 import { expect, test } from '@playwright/test';
 
 import { autoConfirm } from '../support/confirm-dialog.js';
+import { closeModal, openModal } from '../support/modal.js';
 import { loginAsAdmin } from '../support/admin-login.js';
 // Shared with specs/optional-module-dependencies.spec.js, which switches
 // modules off for the opposite reason — see support/modules.js.
@@ -430,8 +431,11 @@ test('the whole site transitions to the next scout year through the documented w
     // the review's confirmation is disabled.
     await expect(step(page, 'activate_public')).toHaveAttribute('data-state', 'blocked');
     await expect(step(page, 'activate_public')).toContainText(`${targetYear} n'est pas activée pour les staffs`);
-    await expect(page.locator('#scout-year-review').getByRole('button', { name: `Basculer sur ${targetYear}`, includeHidden: true }))
-        .toBeDisabled();
+    await page.waitForFunction(() => document.documentElement.classList.contains('scout-year-js'));
+    const blockedReview = await openModal(page, 'scout-year-review',
+        () => step(page, 'activate_public').getByRole('button', { name: 'Revoir avant la bascule…' }).click());
+    await expect(blockedReview.getByRole('button', { name: `Basculer sur ${targetYear}` })).toBeDisabled();
+    await closeModal(page, 'scout-year-review', () => blockedReview.getByRole('button', { name: 'Annuler' }).click());
     await expect(staffYearCard).toContainText('Pas encore activée');
     await expect(page.locator('[data-summary]')).toContainText('blocage');
 
@@ -627,9 +631,8 @@ test('the whole site transitions to the next scout year through the documented w
     // the staff year is cleared automatically.
     // ---------------------------------------------------------------
     await page.waitForFunction(() => document.documentElement.classList.contains('scout-year-js'));
-    await step(page, 'activate_public').getByRole('button', { name: 'Revoir avant la bascule…' }).click();
-    const review = page.locator('#scout-year-review');
-    await expect(review).toBeVisible();
+    const review = await openModal(page, 'scout-year-review',
+        () => step(page, 'activate_public').getByRole('button', { name: 'Revoir avant la bascule…' }).click());
     await expect(review.locator('[data-review-switch]')).toContainText(outgoingYear);
     await expect(review.locator('[data-review-switch]')).toContainText(targetYear);
     await expect(review.locator('[data-review-blockers]')).toHaveCount(0);

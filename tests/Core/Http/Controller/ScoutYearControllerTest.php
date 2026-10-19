@@ -7,6 +7,7 @@ namespace Tests\Core\Http\Controller;
 use Core\Config\ScoutYearService;
 use Core\Config\SettingRepository;
 use Core\Config\SettingService;
+use Core\Import\DeskImportYearDates;
 use Core\Http\Controller\ScoutYearController;
 use Core\Http\Request;
 use Core\Import\ImportJournalRepository;
@@ -563,6 +564,25 @@ class ScoutYearControllerTest extends TestCase
 
         $this->assertStringContainsString('Dernière bascule :', $body);
         $this->assertStringContainsString('2024-2025 → 2025-2026', $body);
+    }
+
+    /**
+     * An encoding date set back when it was only a label (06-15 here) no
+     * longer holds with the opening date: both defaults apply, and this
+     * page says so, as the import page does.
+     */
+    public function testAnIncoherentPairOfDeskDatesIsAnnounced(): void
+    {
+        $this->settingService->setInternal(ScoutYearResolver::SETTING_PUBLIC_YEAR, (string) $this->yearA);
+        $this->assertStringNotContainsString('data-desk-dates-fell-back', $this->index($this->controller));
+
+        $this->settingService->register(DeskImportYearDates::SETTING_NEXT_START, '07-01', 'text', 'L', 'D');
+        $this->settingService->register(DeskImportYearDates::SETTING_ENCODING, '08-15', 'text', 'L', 'D');
+        $this->settingService->setInternal(DeskImportYearDates::SETTING_ENCODING, '06-15');
+
+        $body = html_entity_decode($this->index($this->controller), ENT_QUOTES, 'UTF-8');
+        $this->assertStringContainsString('data-desk-dates-fell-back', $body);
+        $this->assertStringContainsString("s'appliquent donc, ici comme sur la page Import Desk", $body);
     }
 
     // ---------------------------------------------------------------
