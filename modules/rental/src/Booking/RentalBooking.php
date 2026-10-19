@@ -75,7 +75,17 @@ final class RentalBooking
          * (#708, IT-01) — kept after the expiry task clears `$holdUntil`, so
          * the page can still say since when the dates are free again.
          */
-        public readonly ?\DateTimeImmutable $holdLapsedAt = null
+        public readonly ?\DateTimeImmutable $holdLapsedAt = null,
+        /**
+         * When the renter's signed copy of the contract in force arrived —
+         * the earliest one not refused — or null while there is none
+         * (#927, chantier §2.1). **Derived at read, never stored**: the
+         * repository computes it from `rental_documents` with the booking,
+         * so it can never disagree with the copies themselves. A copy of a
+         * contract the booking has outgrown (`superseded_at`) counts for
+         * nothing, like the contract it was signed from.
+         */
+        public readonly ?\DateTimeImmutable $signedCopyReceivedAt = null
     ) {
     }
 
@@ -93,6 +103,30 @@ final class RentalBooking
     }
 
     /**
+     * Whether this booking holds its dates **firmly** — against everyone,
+     * with no deadline (#927, chantier §2.1).
+     *
+     * Two ways, both derived and never stored: the booking is confirmed or
+     * closed, or the renter has sent a signed copy of the contract in force
+     * that the unit has not refused. The second is the renter's own
+     * commitment: once they have signed, their dates no longer lapse while
+     * the unit checks the copy, countersigns, or waits for the deposit.
+     *
+     * **It confirms nothing.** The status stays where it is and confirming
+     * stays a manager's decision (specifications.md §22.5); this answers
+     * "may anybody else take these dates", and nothing more. A refused,
+     * cancelled or expired booking holds nothing, whatever it once received.
+     */
+    public function holdsFirmly(): bool
+    {
+        if (!$this->status->occupiesTheAsset()) {
+            return false;
+        }
+
+        return $this->status->firmlyOccupiesTheAsset() || $this->signedCopyReceivedAt !== null;
+    }
+
+    /**
      * Whether this booking holds its dates against everyone else at $now.
      *
      * Three cases, and the middle one is the whole reason this takes a
@@ -100,22 +134,21 @@ final class RentalBooking
      *
      * - **Refused, cancelled, expired** — never. The period is released the
      *   moment the decision is taken.
-     * - **Confirmed or closed** — always. It is a commitment; no deadline
-     *   enters into it.
-     * - **Anything still provisional** (received, information requested,
-     *   an option proposed) — **only while a hold is running**.
-     *   A request holds the dates for a configurable period so two visitors
-     *   cannot both be told yes, and when that period lapses the dates are
-     *   free again while the request itself stays waiting (spec §22.5). The
-     *   `automatic_hold_days` setting says so in as many words, down to
-     *   what 0 means.
+     * - **Held firmly** (`holdsFirmly()`: confirmed, closed, or a signed
+     *   copy not refused) — always. No deadline enters into it.
+     * - **Anything else still provisional** (received, information
+     *   requested, an option proposed, a contract sent and not yet signed)
+     *   — **only while a hold is running**. A request holds the dates for a
+     *   configurable period so two visitors cannot both be told yes, and
+     *   when that period lapses the dates are free again while the request
+     *   itself stays waiting (spec §22.5) — even with a contract out.
      *
-     * Reading it off the status alone made the hold decorative: an abandoned
-     * request blocked its dates against every visitor for ever, and the
-     * expiry task clearing `hold_until` made it worse rather than better.
-     * Availability is computed, never stored (spec §22.2) — so a hold that
-     * lapsed a minute ago frees its dates on this page load, not on the next
-     * run of the task.
+     * **This is the one predicate.** Every surface that asks whether a
+     * booking takes its dates — the availability check under the lock, the
+     * public calendar and form, the calendar publication — reads it, at the
+     * real instant and never at midnight. Availability is computed, never
+     * stored (spec §22.2): a hold that lapsed a minute ago frees its dates
+     * on this page load, not on the next run of the task.
      */
     public function occupiesTheAsset(\DateTimeImmutable $now): bool
     {
@@ -123,7 +156,7 @@ final class RentalBooking
             return false;
         }
 
-        if ($this->status->firmlyOccupiesTheAsset()) {
+        if ($this->holdsFirmly()) {
             return true;
         }
 
@@ -185,7 +218,7 @@ final class RentalBooking
 
     private function stillWaitsOnAHold(\DateTimeImmutable $now): bool
     {
-        return !$this->status->firmlyOccupiesTheAsset() && !$this->status->isFinal() && !$this->holdIsActive($now);
+        return !$this->holdsFirmly() && !$this->status->isFinal() && !$this->holdIsActive($now);
     }
 
     /**
@@ -193,8 +226,11 @@ final class RentalBooking
      *
      * Deliberately drops everything about who the renter is and why the
      * asset is held: the reference goes in only so a *manager's* calendar
-     * can link back, and every public surface takes the same object with no
-     * variant to leak (specifications.md §22.2).
+     * can link back and so the booking can be left out of its own
+     * conflicts, and every public surface takes the same object with no
+     * variant to leak (specifications.md §22.2). Firm or provisional makes
+     * no difference here either: once a booking occupies the asset, it
+     * stops everybody else the same way (#927, chantier §2.1).
      */
     public function toOccupancy(): Occupancy
     {
@@ -202,11 +238,7 @@ final class RentalBooking
             arrivalDate: $this->arrivalDate,
             departureDate: $this->departureDate,
             units: max(1, $this->units),
-            reference: $this->reference,
-            // A request still being weighed holds the dates against the
-            // public but is not a commitment, so it must not stop a manager
-            // confirming a competing request for the same week.
-            isFirm: $this->status->firmlyOccupiesTheAsset()
+            reference: $this->reference
         );
     }
 

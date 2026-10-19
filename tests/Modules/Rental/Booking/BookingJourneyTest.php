@@ -945,6 +945,10 @@ class BookingJourneyTest extends TestCase
         $this->assertStringContainsString('la réservation expire', (string) $option->explanation);
     }
 
+    /**
+     * A confirmed booking holds its dates firmly, and the line says so
+     * (#927, chantier §2.1) — never the warning of a hold that lapsed.
+     */
     public function testAConfirmedBookingHasNoHoldWarning(): void
     {
         $base = $this->automaticallyHeld(null, new \DateTimeImmutable('2027-01-09 14:00:00'));
@@ -953,6 +957,59 @@ class BookingJourneyTest extends TestCase
         $line = $this->holdLine($confirmed, '2027-01-10 12:00:00');
 
         $this->assertNull($line->warning);
-        $this->assertFalse($line->isApplicable);
+        $this->assertSame('Dates bloquées fermement', $line->label);
+        $this->assertTrue($line->isDone);
+    }
+
+    // ── A firm hold (#927, chantier §2.1) ───────────────────────────────
+
+    private function withSignedCopy(RentalBooking $booking, string $receivedAt): RentalBooking
+    {
+        return new RentalBooking(...array_merge(
+            get_object_vars($booking),
+            ['signedCopyReceivedAt' => new \DateTimeImmutable($receivedAt)]
+        ));
+    }
+
+    /**
+     * A signed copy not refused holds the dates firmly, past the deadline
+     * that ran when it arrived: no warning, no lapse, and the line says
+     * since when — the wording of the maquette.
+     */
+    public function testASignedCopyHoldsTheDatesFirmlyPastTheirDeadline(): void
+    {
+        $sent = new RentalBooking(...array_merge(
+            get_object_vars($this->automaticallyHeld(new \DateTimeImmutable('2027-01-09 14:00:00'))),
+            ['status' => BookingStatus::CONTRACT_SENT]
+        ));
+        $signed = $this->withSignedCopy($sent, '2027-01-08 09:30:00');
+        $now = new \DateTimeImmutable('2027-01-20 12:00:00');
+
+        $this->assertTrue($signed->holdsFirmly());
+        $this->assertTrue($signed->occupiesTheAsset($now), 'The lapsed deadline frees nothing.');
+        $this->assertFalse($sent->occupiesTheAsset($now), 'Without the copy, it would.');
+        $this->assertNull($signed->holdLapsedSince($now));
+
+        $line = $this->holdLine($signed, '2027-01-20 12:00:00');
+        $this->assertSame('Dates bloquées fermement', $line->label);
+        $this->assertTrue($line->isDone);
+        $this->assertTrue($line->isApplicable);
+        $this->assertSame('copie signée reçue le 08/01/2027', $line->detail);
+        $this->assertNull($line->warning);
+        $this->assertStringContainsString('sans échéance', (string) $line->explanation);
+    }
+
+    /** A copy on a booking that was refused, cancelled or expired holds nothing. */
+    public function testAnAbandonedBookingHoldsNothingWhateverItReceived(): void
+    {
+        foreach ([BookingStatus::REFUSED, BookingStatus::CANCELLED, BookingStatus::EXPIRED] as $status) {
+            $booking = $this->withSignedCopy(
+                new RentalBooking(...array_merge(get_object_vars($this->booking()), ['status' => $status])),
+                '2027-01-08 09:30:00'
+            );
+
+            $this->assertFalse($booking->holdsFirmly(), $status->value);
+            $this->assertFalse($booking->occupiesTheAsset(new \DateTimeImmutable('2027-01-10')), $status->value);
+        }
     }
 }

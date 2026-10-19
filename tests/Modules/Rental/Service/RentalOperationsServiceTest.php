@@ -210,7 +210,7 @@ class RentalOperationsServiceTest extends TestCase
             $booking = $this->createBooking('LOC-2027-010' . $i);
             $this->bookingRepository->setStatus($booking->id, $from, $this->now());
 
-            $this->service->contractSent($this->reload($booking), 1, $this->now());
+            $this->service->contractSent($this->reload($booking), $this->asset(), 1, $this->now());
 
             $this->assertSame(BookingStatus::CONTRACT_SENT, $this->reload($booking)->status, $from->value);
         }
@@ -220,12 +220,12 @@ class RentalOperationsServiceTest extends TestCase
     {
         $sent = $this->createBooking('LOC-2027-0201');
         $this->bookingRepository->setStatus($sent->id, BookingStatus::CONTRACT_SENT, $this->now());
-        $this->service->contractSent($this->reload($sent), 1, $this->now());
+        $this->service->contractSent($this->reload($sent), $this->asset(), 1, $this->now());
         $this->assertSame(BookingStatus::CONTRACT_SENT, $this->reload($sent)->status);
 
         $confirmed = $this->createBooking('LOC-2027-0202', '2027-08-01', '2027-08-04');
         $this->bookingRepository->setStatus($confirmed->id, BookingStatus::CONFIRMED, $this->now());
-        $this->service->contractSent($this->reload($confirmed), 1, $this->now());
+        $this->service->contractSent($this->reload($confirmed), $this->asset(), 1, $this->now());
         $this->assertSame(BookingStatus::CONFIRMED, $this->reload($confirmed)->status);
         $this->assertNull($this->reload($confirmed)->holdUntil);
     }
@@ -241,18 +241,18 @@ class RentalOperationsServiceTest extends TestCase
         // Sent on 1 February, stay on 1 July: the 15-day floor is 16 February.
         $longer = $this->createBooking('LOC-2027-0301');
         $this->bookingRepository->setHold($longer->id, new \DateTimeImmutable('2027-03-15 10:00:00'), HoldOrigin::MANAGER);
-        $this->service->contractSent($this->reload($longer), 1, $this->now());
+        $this->service->contractSent($this->reload($longer), $this->asset(), 1, $this->now());
         $this->assertSame('2027-03-15 10:00:00', $this->reload($longer)->holdUntil?->format('Y-m-d H:i:s'));
         $this->assertSame(HoldOrigin::MANAGER, $this->reload($longer)->holdOrigin);
 
         $shorter = $this->createBooking('LOC-2027-0302', '2027-08-01', '2027-08-04');
         $this->bookingRepository->setHold($shorter->id, new \DateTimeImmutable('2027-02-05 10:00:00'), HoldOrigin::MANAGER);
-        $this->service->contractSent($this->reload($shorter), 1, $this->now());
+        $this->service->contractSent($this->reload($shorter), $this->asset(), 1, $this->now());
         $this->assertSame('2027-02-16 10:00:00', $this->reload($shorter)->holdUntil?->format('Y-m-d H:i:s'));
         $this->assertSame(HoldOrigin::MANAGER, $this->reload($shorter)->holdOrigin, 'an option stays an option');
 
         $none = $this->createBooking('LOC-2027-0303', '2027-09-01', '2027-09-04');
-        $this->service->contractSent($this->reload($none), 1, $this->now());
+        $this->service->contractSent($this->reload($none), $this->asset(), 1, $this->now());
         $this->assertSame('2027-02-16 10:00:00', $this->reload($none)->holdUntil?->format('Y-m-d H:i:s'));
         $this->assertSame(HoldOrigin::AUTOMATIC, $this->reload($none)->holdOrigin);
     }
@@ -265,7 +265,7 @@ class RentalOperationsServiceTest extends TestCase
     public function testTheContractHoldIsRecordedAsAnExtensionNotAnOption(): void
     {
         $booking = $this->createBooking('LOC-2027-0304', '2027-09-01', '2027-09-04');
-        $this->service->contractSent($booking, 1, $this->now());
+        $this->service->contractSent($booking, $this->asset(), 1, $this->now());
 
         $keys = array_map(
             static fn($entry) => $entry->fieldKey,
@@ -279,7 +279,7 @@ class RentalOperationsServiceTest extends TestCase
     {
         $soon = $this->createBooking('LOC-2027-0401', '2027-02-08', '2027-02-10');
 
-        $this->service->contractSent($soon, 1, $this->now());
+        $this->service->contractSent($soon, $this->asset(), 1, $this->now());
 
         $this->assertSame('2027-02-08 00:00:00', $this->reload($soon)->holdUntil?->format('Y-m-d H:i:s'));
     }
@@ -305,7 +305,7 @@ class RentalOperationsServiceTest extends TestCase
             }
 
             $announced = $this->service->contractHoldUntil($this->reload($booking), $this->now());
-            $this->service->contractSent($this->reload($booking), 1, $this->now());
+            $this->service->contractSent($this->reload($booking), $this->asset(), 1, $this->now());
 
             $this->assertNotNull($announced, $label);
             $this->assertEquals($announced, $this->reload($booking)->holdUntil, $label);
@@ -582,7 +582,7 @@ class RentalOperationsServiceTest extends TestCase
     {
         $booking = $this->createBooking();
 
-        $this->service->placeOption($booking, new \DateTimeImmutable('2027-03-22 18:00:00'), 7, $this->now());
+        $this->service->placeOption($booking, $this->asset(), new \DateTimeImmutable('2027-03-22 18:00:00'), 7, $this->now());
 
         $fresh = $this->reload($booking);
         $this->assertSame(HoldOrigin::MANAGER, $fresh->holdOrigin);
@@ -596,6 +596,7 @@ class RentalOperationsServiceTest extends TestCase
 
         $this->service->placeOption(
             $this->createBooking(),
+            $this->asset(),
             new \DateTimeImmutable('2027-01-01 10:00:00'),
             1,
             $this->now()
@@ -611,6 +612,7 @@ class RentalOperationsServiceTest extends TestCase
 
         $this->service->placeOption(
             $this->reload($booking),
+            $this->asset(),
             new \DateTimeImmutable('2027-03-01'),
             1,
             $this->now()
@@ -623,7 +625,7 @@ class RentalOperationsServiceTest extends TestCase
         $this->service->clearHold($booking, 1);
         $this->assertSame([], RentalTestHelper::bookingHistory($this->pdo, $this->encryption, $booking->id));
 
-        $this->service->placeOption($booking, new \DateTimeImmutable('2027-03-01'), 1, $this->now());
+        $this->service->placeOption($booking, $this->asset(), new \DateTimeImmutable('2027-03-01'), 1, $this->now());
         $this->service->clearHold($this->reload($booking), 1);
 
         $this->assertNull($this->reload($booking)->holdUntil);
@@ -1619,12 +1621,11 @@ class RentalOperationsServiceTest extends TestCase
     }
 
     /**
-     * **Two requests for the same week are what a manager is there to
-     * arbitrate**, and `isRangeFree()` says so in as many words — which is
-     * why `acceptChange()` asks it with `firmOnly: true`. Validating a
-     * manager's proposal at request time counted the competing renter's
-     * soft hold as occupancy and refused the very arbitration the module
-     * exists to allow.
+     * **A proposal changes nothing, so it is not where availability is
+     * asked.** Recording it is free; accepting it is what takes the dates,
+     * and `acceptChange()` asks then, under the asset's lock, against every
+     * occupation — a competing request's running hold included (#927,
+     * chantier §2.1).
      */
     public function testAManagersProposalIsNotBlockedByACompetingRequestsHold(): void
     {

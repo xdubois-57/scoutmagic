@@ -166,14 +166,23 @@ final class BookingMilestones
             $warning = "L'option est échue depuis le " . $optionLapsedSince->format('d/m/Y à H\hi')
                 . ' : les dates sont libres et la réservation va expirer.';
         }
+        // Held firmly — confirmed, or a signed copy not refused (#927,
+        // chantier §2.1) — the line says so in as many words: those dates
+        // no longer lapse, whatever the deadline below them said.
+        $firm = !$abandoned && $booking->holdsFirmly();
+        $held = $firm || $booking->holdIsActive($now);
+        $detail = null;
+        if ($firm && $booking->signedCopyReceivedAt !== null) {
+            $detail = 'copie signée reçue le ' . $booking->signedCopyReceivedAt->format('d/m/Y');
+        } elseif (!$firm && $booking->holdIsActive($now) && $booking->holdUntil !== null) {
+            $detail = "jusqu'au " . $booking->holdUntil->format('d/m/Y à H\hi');
+        }
         $milestones[] = new BookingMilestone(
             'hold',
-            $booking->holdOrigin?->managerLabel() ?? 'Dates bloquées',
-            $booking->holdIsActive($now),
-            ($booking->holdIsActive($now) || $warning !== null) && !$abandoned,
-            $booking->holdIsActive($now) && $booking->holdUntil !== null
-                ? "jusqu'au " . $booking->holdUntil->format('d/m/Y à H\hi')
-                : null,
+            $firm ? 'Dates bloquées fermement' : ($booking->holdOrigin?->managerLabel() ?? 'Dates bloquées'),
+            $held,
+            ($held || $warning !== null) && !$abandoned,
+            $detail,
             isState: true,
             warning: $warning
         );
@@ -246,7 +255,8 @@ final class BookingMilestones
                 $booking->status,
                 $offsite,
                 $booking->lapseEndsTheBooking(),
-                in_array($m->key, $manual, true)
+                in_array($m->key, $manual, true),
+                $firm
             ),
             $milestones
         );
@@ -293,7 +303,8 @@ final class BookingMilestones
         BookingStatus $status,
         array $offsite,
         bool $lapseEndsTheBooking = false,
-        bool $isManual = false
+        bool $isManual = false,
+        bool $holdsFirmly = false
     ): BookingMilestone {
         $kind = MilestoneKind::DERIVED;
         $explanation = null;
@@ -303,12 +314,16 @@ final class BookingMilestones
             case 'hold':
                 $kind = MilestoneKind::DERIVED;
                 // What happens at the deadline depends on who set it — and,
-                // for an option, on whether the contract has gone out.
-                $explanation = $lapseEndsTheBooking
+                // for an option, on whether the contract has gone out. Held
+                // firmly, there is no deadline at all (#927, chantier §2.1).
+                $explanation = $holdsFirmly
+                    ? 'Une copie signée du contrat est reçue, ou la réservation est confirmée : les dates sont '
+                        . 'bloquées sans échéance. Une copie refusée les rebloque au moins trois jours.'
+                    : ($lapseEndsTheBooking
                     ? "Une option bloque les dates jusqu'à son échéance ; passée sans confirmation, la "
                         . 'réservation expire et les dates se libèrent.'
                     : 'Les dates sont bloquées automatiquement le temps de répondre ; passé ce délai, elles '
-                        . 'se libèrent et la demande reste en attente.';
+                        . 'se libèrent et la demande reste en attente.');
                 break;
             case self::CONTRACT_GENERATED:
                 $kind = MilestoneKind::HERE;

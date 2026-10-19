@@ -49,6 +49,27 @@ class RentalBookingRepository
     private const CTX_BILLING_REFERENCE = 'rental_bookings.billing_reference';
     private const CTX_TRACKING_TOKEN = 'rental_bookings.tracking_token';
 
+    /**
+     * When the renter's signed copy of the contract in force arrived — the
+     * earliest copy neither refused nor signed from a contract the booking
+     * has outgrown — read with the booking (#927, chantier §2.1).
+     *
+     * **This is what a firm hold is**, and it is derived here, never
+     * stored: one correlated subquery on the documents of this same
+     * module, so a calendar of a hundred bookings stays one query and the
+     * answer cannot drift from the copies (`RentalBooking::holdsFirmly()`).
+     * `superseded_at` is what ties a copy to the contract in force: a
+     * contract voided by a change takes the copies signed from it along
+     * (`RentalContractValidityService`).
+     */
+    private const SIGNED_COPY_RECEIVED_AT = "SELECT MIN(d.created_at) FROM rental_documents d
+         WHERE d.booking_id = b.id AND d.document_type = 'signed_copy'
+           AND d.refused_at IS NULL AND d.superseded_at IS NULL";
+
+    /** Every column of a booking, and its derived firm hold — the one way a booking is read. */
+    private const SELECT_BOOKINGS = 'SELECT b.*, (' . self::SIGNED_COPY_RECEIVED_AT
+        . ') AS signed_copy_received_at FROM rental_bookings b';
+
     /** The retired « En cours d'examen » status — see storedValuesOf(). */
     private const RETIRED_REVIEWING = 'reviewing';
 
@@ -186,7 +207,7 @@ class RentalBookingRepository
 
     public function findById(int $id): ?RentalBooking
     {
-        $stmt = $this->pdo->prepare('SELECT * FROM rental_bookings WHERE id = ?');
+        $stmt = $this->pdo->prepare(self::SELECT_BOOKINGS . ' WHERE id = ?');
         $stmt->execute([$id]);
         $row = $stmt->fetch(\PDO::FETCH_ASSOC);
 
@@ -226,7 +247,7 @@ class RentalBookingRepository
 
     public function findByReference(string $reference): ?RentalBooking
     {
-        $stmt = $this->pdo->prepare('SELECT * FROM rental_bookings WHERE reference = ?');
+        $stmt = $this->pdo->prepare(self::SELECT_BOOKINGS . ' WHERE reference = ?');
         $stmt->execute([$reference]);
         $row = $stmt->fetch(\PDO::FETCH_ASSOC);
 
@@ -326,7 +347,7 @@ class RentalBookingRepository
         $placeholders = implode(',', array_fill(0, count($stored), '?'));
 
         $stmt = $this->pdo->prepare(
-            "SELECT * FROM rental_bookings
+            self::SELECT_BOOKINGS . "
              WHERE asset_id = ?
                AND status IN ({$placeholders})
                AND arrival_date <= ?
@@ -367,7 +388,7 @@ class RentalBookingRepository
 
         $placeholders = implode(',', array_fill(0, count($assetIds), '?'));
         $stmt = $this->pdo->prepare(
-            "SELECT * FROM rental_bookings
+            self::SELECT_BOOKINGS . "
              WHERE asset_id IN ({$placeholders})
                AND arrival_date <= ?
                AND departure_date >= ?
@@ -390,7 +411,7 @@ class RentalBookingRepository
         }
 
         $placeholders = implode(',', array_fill(0, count($assetIds), '?'));
-        $sql = "SELECT * FROM rental_bookings WHERE asset_id IN ({$placeholders})";
+        $sql = self::SELECT_BOOKINGS . " WHERE asset_id IN ({$placeholders})";
         $params = $assetIds;
 
         if ($status !== null) {
@@ -414,9 +435,15 @@ class RentalBookingRepository
      */
     public function findWithLapsedHold(\DateTimeImmutable $now, int $limit = 200): array
     {
+        // A booking held firmly by a signed copy is never the sweep's to
+        // touch (#927, chantier §2.1): its dates do not lapse, and its
+        // deadline is kept as it was, for a refused copy to fall back on.
+        // Filtered here rather than skipped in PHP, so that firm bookings
+        // can never fill the batch and starve the others.
         $stmt = $this->pdo->prepare(
-            'SELECT * FROM rental_bookings
+            self::SELECT_BOOKINGS . '
              WHERE hold_until IS NOT NULL AND hold_until <= ?
+               AND (' . self::SIGNED_COPY_RECEIVED_AT . ') IS NULL
              ORDER BY hold_until ASC
              LIMIT ' . max(1, $limit)
         );
@@ -585,14 +612,13 @@ class RentalBookingRepository
     }
 
     /**
-     * Runs $work with the booking rows for $assetId locked, so an
-     * availability check and the write that depends on it cannot be
-     * interleaved with another confirmation.
+     * Runs $work holding `$assetId`'s row (`AssetLock`), so an availability
+     * check and the write that depends on it cannot be interleaved with
+     * any other writer of the asset's occupations (#927, chantier §2.1).
      *
-     * `FOR UPDATE` is issued only on MySQL/MariaDB: SQLite has no row locks
-     * and does not need them — its transactions are whole-database — so the
-     * test database gets the same guarantee through a different mechanism
-     * rather than a weaker one.
+     * It used to lock the asset's BOOKING rows, which locks nothing on an
+     * asset that has none yet: the first two requests for a fresh hall
+     * both read it free and both landed.
      *
      * @template T
      * @param callable(): T $work
@@ -600,31 +626,7 @@ class RentalBookingRepository
      */
     public function withAssetLocked(int $assetId, callable $work): mixed
     {
-        $ownTransaction = !$this->pdo->inTransaction();
-        if ($ownTransaction) {
-            $this->pdo->beginTransaction();
-        }
-
-        try {
-            if ($this->pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) !== 'sqlite') {
-                $lock = $this->pdo->prepare('SELECT id FROM rental_bookings WHERE asset_id = ? FOR UPDATE');
-                $lock->execute([$assetId]);
-                $lock->fetchAll();
-            }
-
-            $result = $work();
-
-            if ($ownTransaction) {
-                $this->pdo->commit();
-            }
-
-            return $result;
-        } catch (\Throwable $e) {
-            if ($ownTransaction) {
-                $this->pdo->rollBack();
-            }
-            throw $e;
-        }
+        return AssetLock::run($this->pdo, $assetId, $work);
     }
 
     /**
@@ -1028,7 +1030,7 @@ class RentalBookingRepository
         // (rental_booking_emails).
         $index = $this->encryption->blindIndex(self::normalizeEmail($email), self::BLIND_INDEX_PURPOSE);
         $stmt = $this->pdo->prepare(
-            'SELECT b.* FROM rental_bookings b
+            self::SELECT_BOOKINGS . '
               WHERE b.renter_email_blind_index = ?
                  OR EXISTS (SELECT 1 FROM rental_booking_emails e
                              WHERE e.booking_id = b.id AND e.email_blind_index = ?)
@@ -1152,7 +1154,7 @@ class RentalBookingRepository
     public function findEndedOnOrBefore(string $date): array
     {
         $stmt = $this->pdo->prepare(
-            'SELECT * FROM rental_bookings WHERE departure_date <= ? ORDER BY id ASC'
+            self::SELECT_BOOKINGS . ' WHERE departure_date <= ? ORDER BY id ASC'
         );
         $stmt->execute([$date]);
 
@@ -1270,6 +1272,9 @@ class RentalBookingRepository
             ),
             holdLapsedAt: DateInput::fromStorage(
                 ($row['hold_lapsed_at'] ?? null) === null ? null : (string) $row['hold_lapsed_at']
+            ),
+            signedCopyReceivedAt: DateInput::fromStorage(
+                ($row['signed_copy_received_at'] ?? null) === null ? null : (string) $row['signed_copy_received_at']
             )
         );
     }
