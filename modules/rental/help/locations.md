@@ -54,7 +54,9 @@ e-mail.
 
 ## Suivre sa demande
 
-La page de suivi montre l'état de votre demande, le détail du prix,
-et vos contacts dans l'unité. Pour changer vos dates ou vos
-participants, ou pour annuler, contactez l'unité. Les documents — contrat, facture — vous parviennent toujours
-par e-mail, et un bouton ajoute votre séjour à votre agenda.
+La page de suivi montre l'état de votre demande, votre contrat — où
+déposer votre copie signée —, ce qu'il reste à payer avec un QR code,
+le détail du prix et vos contacts dans l'unité. Pour changer vos dates
+ou vos participants, ou pour annuler, contactez l'unité : la page ne
+modifie rien. Le contrat et la facture vous parviennent par e-mail, et
+un bouton ajoute votre séjour à votre agenda.

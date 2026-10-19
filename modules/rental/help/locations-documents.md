@@ -8,7 +8,7 @@ question: Comment modifier le contrat d'une location déjà envoyé ?
 question: Pourquoi ne puis-je plus modifier le texte de ma facture ?
 question: Comment envoyer le contrat de location au locataire ?
 paths: /mes-locations/*/reservations/*/document/*, /mes-locations/*/reservations/*/documents
-related: gerer-les-locations, locations-reglages, locations-courrier, locations-facture
+related: gerer-les-locations, locations-modifications, locations-signatures, locations-reglages, locations-courrier, locations-facture
 ---
 
 La page « Documents » d'une réservation réunit ses documents — contrat,
@@ -28,27 +28,24 @@ la copie de **cette** réservation : la modifier ne change aucune autre
 réservation, et retoucher le gabarit du bien ensuite ne revient pas dessus.
 
 Les mots-clés — en bleu — sont remplacés par les valeurs de la réservation
-au moment de la génération. Insérez-les depuis la liste plutôt que de les
-taper : ils forment un bloc insécable, qu'une mise en forme ne peut plus
-couper en deux. Si un mot-clé n'est pas reconnu, la page vous le dit avant
-que le document ne parte.
+à la génération. Insérez-les depuis la liste : ils forment un bloc
+insécable. Un mot-clé non reconnu vous est signalé avant l'envoi.
 
 ## Le bailleur
 
-L'en-tête du contrat et de la facture nomme le bailleur. Par défaut,
-c'est l'unité : son nom et son adresse postale (Paramètres, cœur du
-site). Si les locaux appartiennent à une ASBL distincte, renseignez son
-nom, son adresse et son numéro d'entreprise dans Paramètres › Locations.
-Un bien qui appartient à quelqu'un d'autre a son propre bailleur, dans la
-section « Bailleur » de ses réglages. Si l'adresse du bailleur manque, le
-site vous prévient avant la génération.
+L'en-tête du contrat et de la facture nomme le bailleur : par défaut
+l'unité (Paramètres, cœur du site), ou l'ASBL propriétaire des locaux
+(Paramètres › Locations). Un bien qui appartient à quelqu'un d'autre a
+son propre bailleur, dans la section « Bailleur » de ses réglages. Une
+adresse manquante vous est signalée avant la génération.
 
 ## Générer, puis envoyer
 
 **Le contrat se génère et s'envoie depuis le tableau de bord**, à son
-étape : générez, relisez le PDF, puis envoyez. La facture se génère sur
-la page « Facture ». Cette page-ci les liste avec les autres documents
-et les renvoie.
+étape : générez, relisez le PDF, puis envoyez. Il imprime la
+communication structurée de la réservation, la même pour tous ses
+paiements. La facture se génère sur la page « Facture ». Cette page-ci
+les liste avec les autres documents et les renvoie.
 
 Générer produit un PDF. Chaque génération crée une version de plus **sans
 écraser la précédente** : une version déjà signée reste intacte. Le
@@ -64,5 +61,14 @@ Envoyer le contrat ne verrouille que le contrat : la facture reste
 modifiable tant qu'elle n'est pas partie elle-même.
 
 Le locataire ne télécharge rien depuis le site, sauf le contrat signé par
-les deux parties — ses documents lui parviennent par email, et un email
+les deux parties : ses documents lui parviennent par e-mail, et un e-mail
 perdu se renvoie.
+
+## Le contrat de remplacement
+
+Un contrat envoyé ne se corrige pas : un changement passe par la page
+« Modifications » (« Modifier une réservation »). Pendant une
+modification, la boîte « Contrat » montre le contrat en vigueur et, à
+côté, le contrat de remplacement avec la copie du locataire,
+« Refuser la copie » et « Contresigner » ; un bandeau « Une modification
+est en cours » le rappelle sur cette page.

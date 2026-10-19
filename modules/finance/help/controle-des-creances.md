@@ -39,8 +39,8 @@ payant, « Locations » pour une réservation. Chaque origine annonce son
 total reçu sur son total attendu.
 
 À l'intérieur, un second niveau n'apparaît **que s'il regroupe vraiment
-quelque chose** — un formulaire répondu par trente familles, une
-réservation et sa caution. Quand chaque créance est seule de son espèce,
+quelque chose** — un formulaire répondu par trente familles. Une
+réservation n'a qu'une créance, location et caution ensemble. Quand chaque créance est seule de son espèce,
 la liste s'affiche directement : un sous-groupe par ligne n'apprendrait
 rien à personne.
 

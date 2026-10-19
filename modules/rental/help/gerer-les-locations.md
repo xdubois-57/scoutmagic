@@ -8,7 +8,7 @@ question: Comment traiter une demande de location reçue ?
 question: Comment savoir si un locataire a payé son acompte ?
 question: Pourquoi une réservation confirmée apparaît-elle dans « À traiter » ?
 paths: /mes-locations, /mes-locations/*, /mes-locations/*/reservations
-related: locations, locations-calendrier, locations-reservation, locations-documents, locations-courrier, config-locations, courrier-entrant, locations-reglages, locations-conformite, locations-gabarits
+related: locations, locations-calendrier, locations-reservation, locations-modifications, locations-finances, locations-documents, locations-courrier, config-locations, courrier-entrant, locations-reglages, locations-conformite, locations-gabarits
 ---
 
 « Gérer mes locations » est l'espace des gestionnaires : les personnes
@@ -29,19 +29,20 @@ comptent la même chose.
 ## Traiter une demande
 
 Chaque réservation a sa fiche, décrite dans « La fiche d'une
-réservation » : quatre pages — tableau de bord, finances, documents,
-courrier — dont la première dit où en est la réservation et la seule
-chose qui vous attend. Les boutons y agissent sans recharger, et ceux
-qui écrivent au locataire vous laissent ajouter un mot.
+réservation » : sept pages, dont la première, le tableau de bord, dit
+où en est la réservation et la seule chose qui vous attend. Les boutons
+y agissent sans recharger, et ceux qui écrivent au locataire vous
+laissent ajouter un mot. Votre réponse à une demande, c'est le contrat.
 
 ## Le prix et les paiements
 
-L'estimation du visiteur reste figée ; le prix **convenu** se construit
-sur la page « Finances » de la réservation, ligne par ligne — une ligne retouchée à la main n'est plus
-recalculée. Avec Finances, une seule créance — location et caution — et
-une seule communication structurée servent à l'acompte, au solde et à la
-caution. Le décompte final ajoute ses lignes sans réécrire le prix
-convenu.
+L'estimation du visiteur reste figée. Le prix **convenu** suit le tarif
+du bien, les dates et les participants ; seule une remise s'y ajoute, sur
+la page « Modifications » de la réservation (« Modifier une
+réservation »). Avec Finances, une seule créance — location et caution —
+et une seule communication structurée servent à l'acompte, au solde, à la
+caution et à son remboursement ; la page « Finances » les suit. Le
+décompte final ajoute ses lignes sans réécrire le prix convenu.
 
 ## Les documents
 
