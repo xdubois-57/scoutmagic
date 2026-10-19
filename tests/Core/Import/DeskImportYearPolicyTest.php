@@ -181,6 +181,12 @@ class DeskImportYearPolicyTest extends TestCase
         $this->assertSame('2027-07-01', $window->nextStartDate);
         $this->assertSame('2027-08-15', $window->encodingDate);
         $this->assertSame(DeskImportYearWindow::PERIOD_BETWEEN, $window->period);
+        $this->assertTrue($window->datesFellBack);
+    }
+
+    public function testACoherentPairDoesNotFallBack(): void
+    {
+        $this->assertFalse($this->policy('2027-07-01')->window()->datesFellBack);
     }
 
     /**

@@ -45,7 +45,14 @@ final class DeskImportYearWindow
         /** 'Y-m-d' — the first day the next year may be imported. */
         public readonly string $nextStartDate,
         /** 'Y-m-d' — the first day the public year may no longer be imported. */
-        public readonly string $encodingDate
+        public readonly string $encodingDate,
+        /**
+         * The two stored dates did not hold together, so both defaults
+         * apply — said on the page, never applied in silence: a unit that
+         * set the encoding date when it was only a label must learn that
+         * its value is no longer the one in force.
+         */
+        public readonly bool $datesFellBack = false
     ) {
     }
 
