@@ -256,6 +256,29 @@ async function stepKeys(page) {
     );
 }
 
+/**
+ * Turns configuration mode on or off through the page that owns the
+ * toggle (same helper as specs/editable-rich-text.spec.js): idempotent,
+ * stated as the state wanted.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {boolean} active
+ */
+async function setConfigurationMode(page, active) {
+    await page.goto('/config/general', { waitUntil: 'domcontentloaded' });
+
+    const card = page.locator('#main-content');
+    const toTurnItOn = card.getByRole('button', { name: 'Activer', exact: true });
+    const toTurnItOff = card.getByRole('button', { name: 'Désactiver', exact: true });
+    const wanted = active ? toTurnItOn : toTurnItOff;
+
+    if (await wanted.count() > 0) {
+        await wanted.click();
+    }
+
+    await expect(active ? toTurnItOff : toTurnItOn).toBeVisible();
+}
+
 test('the whole site transitions to the next scout year through the documented workflow', async ({ page }) => {
     /** @type {string[]} */
     const pageErrors = [];
@@ -446,21 +469,33 @@ test('the whole site transitions to the next scout year through the documented w
     // has members (ScoutYearResolver::countMembers() > 0), which no
     // amount of clicking can fake.
     // ---------------------------------------------------------------
+    //
+    // The import accepts the target year only from the opening date
+    // (1 July by default) of the summer that ends the public year
+    // (Core\Import\DeskImportYearPolicy). This scenario runs on whatever
+    // day the suite runs, so it imports in configuration mode, which opens
+    // every existing year behind a confirmation the site's own dialog asks
+    // — answered by autoConfirm() — and turns the mode off again at once.
+    // ---------------------------------------------------------------
+    await setConfigurationMode(page, true);
+    await page.goto('/admin/scout-year', { waitUntil: 'domcontentloaded' });
     await step(page, 'import').getByRole('link', { name: "Aller à l'import Desk" }).click();
     await expect(page.getByRole('heading', { level: 1, name: 'Import Desk' })).toBeVisible();
 
     const importForm = page.locator('form[action="/admin/import"]');
-    await importForm.getByLabel('Année scoute cible').selectOption({ label: targetYear });
-    await importForm.getByLabel('Fichier CSV à importer').setInputFiles({
+    // The step's link carries the target year, and the page selects it.
+    await expect(importForm.getByLabel('Année scoute cible').locator('option:checked')).toContainText(targetYear);
+    await importForm.getByLabel('Fichier CSV exporté de Desk').setInputFiles({
         name: 'desk_export.csv',
         mimeType: 'text/csv',
         buffer: Buffer.from(deskExportCarryingTheUnitChief(), 'utf8'),
     });
-    // exact: Chromium exposes <input type="file"> as a button too, and its
-    // accessible name ("Fichier CSV à importer") contains "importer".
+    // exact: Chromium exposes <input type="file"> as a button too, so a
+    // loose « Importer » could match more than the submit button.
     await importForm.getByRole('button', { name: 'Importer', exact: true }).click();
 
     await expect(page.getByText(/membres importés/)).toBeVisible();
+    await setConfigurationMode(page, false);
 
     await page.goto('/admin/scout-year', { waitUntil: 'domcontentloaded' });
     await expect(step(page, 'import').locator('.step-circle--done')).toBeVisible();

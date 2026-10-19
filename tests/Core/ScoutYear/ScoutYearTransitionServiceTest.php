@@ -277,6 +277,15 @@ class ScoutYearTransitionServiceTest extends TestCase
         $this->assertTrue($this->step($workflow, 'activate_public')['done']);
     }
 
+    /** The import step opens the import page on the target year — which selects it only if its policy allows it. */
+    public function testTheImportStepLinksToTheImportOfTheTargetYear(): void
+    {
+        $this->assertSame(
+            '/admin/import?annee=' . $this->targetYear['id'],
+            $this->step($this->build(), 'import')['action_url']
+        );
+    }
+
     /**
      * The highlighted step is "the first one still to do", so once there is
      * none there is nothing to highlight either — the workflow is over.

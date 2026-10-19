@@ -8,7 +8,7 @@ question: Comment faire passer le site à l'année scoute suivante ?
 question: Que faut-il finir avant de basculer d'année ?
 question: Peut-on revenir en arrière après la bascule d'année ?
 paths: /admin/scout-year
-related: import-desk, membres-par-section
+related: import-desk, import-desk-annee, membres-par-section
 ---
 
 La page « Année scoute » accompagne tout le changement d'année : la
@@ -19,7 +19,9 @@ bouton vers la bonne page.
 ## L'ordre est un conseil, pas un verrou
 
 Vous pouvez agir à tout moment sur n'importe quelle étape ; les dates
-affichées sont de simples repères. Certaines étapes se cochent à la
+affichées sont des repères pour les étapes. La date d'encodage Desk
+décide en plus des années importables (voir « Quelle année scoute
+importer, et quand »). Certaines étapes se cochent à la
 main (« Marquer cette étape comme faite » — la page retient qui et
 quand) ; d'autres, le site les constate lui-même : un import réalisé,
 une année activée, des photos de staff complètes. Les étapes d'une

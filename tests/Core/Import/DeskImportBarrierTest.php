@@ -44,6 +44,8 @@ class DeskImportBarrierTest extends TestCase
 {
     private \PDO $pdo;
     private DeskImportService $service;
+    /** @var \Closure(\Core\Import\DeskImportYearPolicy): DeskImportService */
+    private \Closure $serviceWith;
     private string $fixturePath;
     private string $storagePath;
     private int $scoutYearId;
@@ -72,7 +74,7 @@ class DeskImportBarrierTest extends TestCase
 
         $functionRepo = new FunctionRepository($this->pdo);
         $memberYearRepo = new MemberYearRepository($this->pdo);
-        $this->service = new DeskImportService(
+        $this->serviceWith = fn(\Core\Import\DeskImportYearPolicy $policy): DeskImportService => new DeskImportService(
             $this->pdo,
             $encryption,
             new DeskCsvParser(),
@@ -104,8 +106,10 @@ class DeskImportBarrierTest extends TestCase
                 $this->storagePath
             ),
             new \Core\Import\ImportDiffCalculator(new \Core\Import\RosterSnapshotRepository($this->pdo)),
-            new \Core\Config\ScoutYearService($this->pdo)
+            new \Core\Config\ScoutYearService($this->pdo),
+            $policy
         );
+        $this->service = ($this->serviceWith)(\Core\Import\DeskImportYearPolicy::unrestricted());
     }
 
     protected function tearDown(): void
@@ -223,6 +227,81 @@ class DeskImportBarrierTest extends TestCase
      * — the very hazard `tests/fixtures/reference-dataset/README.md`
      * warns about.
      */
+    /**
+     * The year confirmation of the import page and the barrier's typed
+     * word are two separate questions, and answering one never answers
+     * the other: a confirmed year still meets the barrier.
+     */
+    public function testAConfirmedYearStillMeetsTheBarrier(): void
+    {
+        $this->importFullRoster();
+        $service = ($this->serviceWith)($this->policyInTheTransitionWindow());
+        $filtered = $this->csvKeeping(['T003']);
+
+        try {
+            $service->import($filtered, $this->scoutYearId, 1, false, $this->scoutYearId);
+            $this->fail('A confirmed year must not lift the roster-replacement barrier.');
+        } catch (RosterReplacementRefusedException $e) {
+            $this->assertSame(RosterReplacementVerdict::FILTERED_EXPORT, $e->assessment->verdict);
+        }
+
+        $this->assertSame(3, $this->countActiveMembers());
+        $this->assertSame(1, $this->countImportJournalRows());
+    }
+
+    /** And the typed word is no year confirmation: without `confirmed_year` the year policy refuses first. */
+    public function testTheBarrierWordIsNoYearConfirmation(): void
+    {
+        $this->importFullRoster();
+        $service = ($this->serviceWith)($this->policyInTheTransitionWindow());
+
+        try {
+            $service->import($this->csvKeeping(['T003']), $this->scoutYearId, 1, true);
+            $this->fail('The barrier word must not stand in for the year confirmation.');
+        } catch (\Core\Import\DeskImportYearRefusedException $e) {
+            $this->assertSame(\Core\Import\DeskImportYearRefusedException::REASON_CONFIRMATION_MISSING, $e->reason);
+        }
+
+        $this->assertSame(3, $this->countActiveMembers());
+        $this->assertSame(1, $this->countImportJournalRows());
+        $this->assertSame('desk_import_year_refused', $this->lastJournalEntry()['event_type']);
+    }
+
+    /** Both answered: the barrier lets a legitimate override through, as it always did. */
+    public function testBothConfirmationsTogetherImport(): void
+    {
+        $this->importFullRoster();
+        $service = ($this->serviceWith)($this->policyInTheTransitionWindow());
+
+        $result = $service->import($this->csvKeeping(['T003']), $this->scoutYearId, 1, true, $this->scoutYearId);
+
+        $this->assertSame(1, $result->memberCount);
+        $this->assertSame(2, $this->countImportJournalRows());
+    }
+
+    /**
+     * The site policy on a day between the opening of the next year and
+     * the Desk-encoding date: the public year (the one this test imports
+     * into) needs its confirmation.
+     */
+    private function policyInTheTransitionWindow(): \Core\Import\DeskImportYearPolicy
+    {
+        $scoutYears = new ScoutYearService($this->pdo);
+        $settings = new SettingService(new SettingRepository($this->pdo));
+        $public = $scoutYears->findById($this->scoutYearId);
+        $this->assertNotNull($public);
+        $scoutYears->ensureYear(ScoutYearService::nextLabel($public['label']));
+        $endYear = substr($public['end_date'], 0, 4);
+
+        return \Core\Import\DeskImportYearPolicy::forSite(
+            new ScoutYearResolver($scoutYears, $settings, new MemberYearRepository($this->pdo)),
+            $scoutYears,
+            $settings,
+            static fn(): \DateTimeImmutable => new \DateTimeImmutable($endYear . '-07-20'),
+            static fn(): bool => false
+        );
+    }
+
     private function importFullRoster(): void
     {
         $this->service->import($this->csvKeeping(['T001', 'T002', 'T003']), $this->scoutYearId, 1);

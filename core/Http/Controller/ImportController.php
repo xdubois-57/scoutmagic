@@ -8,12 +8,15 @@ declare(strict_types=1);
 
 namespace Core\Http\Controller;
 
+use Core\Config\ScoutYearService;
 use Core\File\FileRepository;
 use Core\Http\FlashMessage;
 use Core\Http\Request;
 use Core\Http\Response;
 use Core\Import\DeskImportRejectedException;
 use Core\Import\DeskImportService;
+use Core\Import\DeskImportYearPolicy;
+use Core\Import\DeskImportYearRefusedException;
 use Core\Import\FunctionRepository;
 use Core\Import\ImportException;
 use Core\Import\ImportJournalRepository;
@@ -47,6 +50,12 @@ class ImportController extends AbstractController
     public function __construct(
         protected Environment $twig,
         private DeskImportService $importService,
+        /**
+         * What the page offers, proposes and asks about. The same
+         * instance the import service enforces in the composition root,
+         * so the page never offers a year the POST would refuse.
+         */
+        private DeskImportYearPolicy $yearPolicy,
         private ScoutYearResolver $scoutYearResolver,
         private ImportJournalRepository $importJournalRepo,
         private FunctionRepository $functionRepo,
@@ -64,13 +73,18 @@ class ImportController extends AbstractController
     /**
      * GET /admin/import — render the import page.
      *
+     * `?annee={id}` selects that year when the policy allows it today —
+     * the « Année scoute » page links here with its target year. A year
+     * the policy does not offer is ignored, never added: a link cannot
+     * widen what may be imported.
+     *
      * @param array<string, string> $params
      */
     public function index(Request $request, array $params): Response
     {
-        $currentYear = $this->scoutYearResolver->getCurrentPublicYear();
+        $requested = (int) $request->getQuery('annee', '0');
 
-        $data = $this->importPageData($currentYear['id']) + [
+        $data = $this->importPageData($requested > 0 ? $requested : null) + [
             'import_result' => null,
             'import_rejection' => null,
         ];
@@ -79,23 +93,46 @@ class ImportController extends AbstractController
     }
 
     /**
-     * What the import page shows whatever just happened: the years, the
-     * last import of $journalYearId, the functions still to qualify.
+     * What the import page shows whatever just happened: the years the
+     * policy allows today with the last import of each, the one selected,
+     * the functions still to qualify.
      *
      * @return array<string, mixed>
      */
-    private function importPageData(int $journalYearId): array
+    private function importPageData(?int $requestedYearId): array
     {
-        $journals = $this->importJournalRepo->findByYear($journalYearId);
-        $lastImport = count($journals) > 0 ? $journals[0] : null;
+        // Ensures the year after the public one exists, so it can be
+        // offered once the policy opens it. Called for that side effect
+        // only: what is ALLOWED is the policy's decision, never this list.
+        $this->scoutYearResolver->listYears();
+
+        $window = $this->yearPolicy->window();
+        $selectedId = $window->selectedId($requestedYearId);
+
+        $years = [];
+        $selectedLastImport = null;
+        foreach ($window->options as $option) {
+            $journals = $this->importJournalRepo->findByYear($option->id);
+            $lastImport = $journals[0] ?? null;
+            $years[] = [
+                'option' => $option,
+                'last_import' => $lastImport,
+                'last_import_author' => $lastImport !== null
+                    ? $this->authorName($lastImport['user_account_id'] ?? null)
+                    : null,
+            ];
+            if ($option->id === $selectedId) {
+                $selectedLastImport = $lastImport;
+            }
+        }
 
         return [
-            'current_year' => $this->scoutYearResolver->getCurrentPublicYear(),
-            'years' => $this->scoutYearResolver->listYears(),
-            'last_import' => $lastImport,
-            'last_import_author' => $lastImport !== null
-                ? $this->authorName($lastImport['user_account_id'] ?? null)
-                : null,
+            'current_year' => $window->publicYear,
+            'next_year_label' => $window->nextYear['label'] ?? ScoutYearService::nextLabel($window->publicYear['label']),
+            'import_window' => $window,
+            'import_years' => $years,
+            'selected_year_id' => $selectedId,
+            'last_import' => $selectedLastImport,
             'unconfirmed_count' => count($this->functionRepo->findUnconfirmed()),
             'retention_years' => $this->retentionService->retentionYears(),
         ];
@@ -244,6 +281,26 @@ class ImportController extends AbstractController
             return $this->redirect('/admin/import');
         }
 
+        $importedBy = AuthSession::getUserAccountId() ?? 0;
+
+        // The year the importer confirmed in the page's dialog, when the
+        // policy asked for one. Only ever compared with $scoutYearId, on
+        // the server: a value that is not a whole number is no
+        // confirmation at all.
+        $confirmedRaw = trim((string) $request->getBody('confirmed_year', ''));
+        $confirmedYearId = ctype_digit($confirmedRaw) ? (int) $confirmedRaw : null;
+
+        // The year first, before the upload is even looked at: a year the
+        // policy refuses today costs no deposited file. The service makes
+        // the same check again before reading anything, so this one is an
+        // early answer, not the gate.
+        try {
+            $this->importService->assertYearImportable($scoutYearId, $confirmedYearId, $importedBy);
+        } catch (DeskImportYearRefusedException $e) {
+            FlashMessage::set('error', $e->getMessage());
+            return $this->redirect('/admin/import');
+        }
+
         // Validate file upload
         $file = $_FILES['csv_file'] ?? null;
         if ($file === null || $file['error'] !== UPLOAD_ERR_OK) {
@@ -285,8 +342,6 @@ class ImportController extends AbstractController
         $tempPath = $tempDir . '/import_' . bin2hex(random_bytes(16)) . '.csv';
         move_uploaded_file($file['tmp_name'], $tempPath);
 
-        $importedBy = AuthSession::getUserAccountId() ?? 0;
-
         $confirmed = strtoupper(trim((string) $request->getBody(
             'confirm_keyword',
             ''
@@ -299,7 +354,13 @@ class ImportController extends AbstractController
         // file, or a crash three layers down. The kept copy the import
         // registers is encrypted; the plaintext never survives the request.
         try {
-            $result = $this->importService->import($tempPath, $scoutYearId, $importedBy, $confirmed);
+            $result = $this->importService->import(
+                $tempPath,
+                $scoutYearId,
+                $importedBy,
+                $confirmed,
+                $confirmedYearId
+            );
         } catch (RosterReplacementRefusedException $e) {
             // Nothing was written, and nothing is kept: a refused import
             // registers no encrypted copy either, so it leaves no trace of
@@ -320,6 +381,11 @@ class ImportController extends AbstractController
                 'scout_year_id' => $scoutYearId,
                 'scout_year' => $targetYear,
                 'confirmation_word' => self::KEYWORD_REPLACE_ROSTER,
+                // The year confirmation already given, carried to the
+                // barrier's second deposit — which posts to the same
+                // route, and would otherwise be refused for want of it.
+                // The typed word remains the barrier's own question.
+                'confirmed_year' => $confirmedYearId === $scoutYearId ? $scoutYearId : null,
             ]);
         } catch (DeskImportRejectedException $e) {
             // Every error, as a list, on the page itself rather than in a
