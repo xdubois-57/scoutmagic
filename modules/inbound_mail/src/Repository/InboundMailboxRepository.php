@@ -98,7 +98,12 @@ class InboundMailboxRepository
      * decrypt credentials it has no use for nor fail because one of them
      * cannot be read.
      *
-     * @return list<array{name: string, state: SyncState, lastSyncedAt: ?\DateTimeImmutable, failingSince: ?\DateTimeImmutable}>
+     * @return list<array{
+     *     name: string,
+     *     state: SyncState,
+     *     lastSyncedAt: ?\DateTimeImmutable,
+     *     failingSince: ?\DateTimeImmutable
+     * }>
      */
     public function enabledSyncStates(): array
     {
@@ -210,8 +215,8 @@ class InboundMailboxRepository
     ): void {
         $stmt = $this->pdo->prepare(
             'UPDATE inbound_mailboxes
-                SET ' . ($isEnabled ? self::FAILING_SINCE_ON_ENABLE : '') . 'name = ?, host = ?, port = ?, encryption = ?,
-                    username_encrypted = ?, folders = ?, is_enabled = ?, updated_at = ?
+                SET ' . ($isEnabled ? self::FAILING_SINCE_ON_ENABLE : '') . 'name = ?, host = ?, port = ?,
+                    encryption = ?, username_encrypted = ?, folders = ?, is_enabled = ?, updated_at = ?
               WHERE id = ?'
         );
         $stmt->execute([
