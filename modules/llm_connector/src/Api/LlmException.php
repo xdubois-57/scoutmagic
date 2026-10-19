@@ -32,6 +32,12 @@ class LlmException extends \RuntimeException implements UserFacingException
     public const RATE_LIMITED = 3;
     public const TIMEOUT = 4;
     public const API_ERROR = 5;
+    /**
+     * The request could not be built on this side of the wire: the provider
+     * was never contacted, so this is never a provider failure (#718 § C
+     * point 9). Since 1.4.0 — it was reported as API_ERROR before.
+     */
+    public const INVALID_REQUEST = 6;
 
     /**
      * The provider's own words — an HTTP response body, a driver name, a
@@ -108,7 +114,7 @@ class LlmException extends \RuntimeException implements UserFacingException
         return new self(
             'La requête n\'a pas pu être préparée pour le fournisseur IA — le contenu à envoyer contient des '
                 . 'caractères illisibles.',
-            self::API_ERROR,
+            self::INVALID_REQUEST,
             null,
             $detail !== '' ? $detail : null
         );

@@ -22,6 +22,7 @@ use Modules\LlmConnector\Provider\MistralProvider;
 use Modules\LlmConnector\Provider\ScalewayProvider;
 use Modules\LlmConnector\Repository\ProviderModelRepository;
 use Modules\LlmConnector\Repository\ProviderRepository;
+use Modules\LlmConnector\Service\LastFailureStore;
 use Modules\LlmConnector\Service\OcrModelSelector;
 use Core\Scheduler\SchedulerService;
 use Twig\Environment;
@@ -34,7 +35,9 @@ class ConfigController extends AbstractController
         private ProviderModelRepository $modelRepo,
         private OcrModelSelector $ocrModelSelector,
         private SchedulerService $schedulerService,
-        private JournalService $journalService
+        private JournalService $journalService,
+        /** Cleared by a passing test of the provider the site uses. */
+        private ?LastFailureStore $lastFailure = null
     ) {
     }
 
@@ -249,6 +252,7 @@ class ConfigController extends AbstractController
                 ['provider_id' => $provider['id'], 'model_count' => count($models)],
                 AuthSession::getUserAccountId()
             );
+            $this->lastFailure?->clearAfterPassingTest((int) $provider['id'], $this->providerRepo);
 
             // Fetch assigned tier models
             $cheapModel = $this->modelRepo->findByProviderAndTier($provider['id'], LlmTier::CHEAP);

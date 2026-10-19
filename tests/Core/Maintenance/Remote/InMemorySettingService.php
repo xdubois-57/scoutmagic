@@ -71,6 +71,18 @@ class InMemorySettingService extends SettingService
      */
     public bool $refuseWrites = false;
 
+    /** @param array<string, string> $values */
+    public function setManyInternal(array $values, ?string $moduleId = null): void
+    {
+        if ($this->refuseWrites) {
+            throw new \RuntimeException('the settings table is unavailable');
+        }
+
+        foreach ($values as $key => $value) {
+            $this->values[$key] = $value;
+        }
+    }
+
     public function setInternal(string $key, string $value, ?string $moduleId = null): void
     {
         if ($this->refuseWrites) {

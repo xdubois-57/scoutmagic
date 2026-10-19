@@ -136,7 +136,10 @@ function scoutmagicBootstrapScheduler(
         static fn (): object => new \Modules\LlmConnector\Service\LlmConnectorService(
             new \Modules\LlmConnector\Repository\ProviderRepository($pdo, $encryptionService),
             new \Modules\LlmConnector\Repository\ProviderModelRepository($pdo),
-            $journalService
+            $journalService,
+            // Background calls (receipt reading, categorisation) are most of
+            // them: their outcome must reach the attention page too.
+            new \Modules\LlmConnector\Service\LastFailureStore($settingService)
         )
     );
 
@@ -353,7 +356,10 @@ function scoutmagicBootstrapScheduler(
                                 ? new \Modules\LlmConnector\Service\LlmConnectorService(
                                     $providerRepository,
                                     $modelRepository,
-                                    $journalService
+                                    $journalService,
+                                    // Minutes-long calls: their outcome
+                                    // reaches the attention page too.
+                                    new \Modules\LlmConnector\Service\LastFailureStore($settingService)
                                 )
                                 : null
                         );

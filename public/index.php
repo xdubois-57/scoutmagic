@@ -6442,10 +6442,18 @@ if ($isEnabled('llm_connector')) {
     \Core\Debug\RequestTimeline::mark('module_llm_connector');
     $llmProviderRepo = new \Modules\LlmConnector\Repository\ProviderRepository($pdo, $encryptionService);
     $llmModelRepo = new \Modules\LlmConnector\Repository\ProviderModelRepository($pdo);
+    // The last call's outcome, kept for the attention page (#718 § C
+    // point 9): written by the connector, cleared by a passing test.
+    $llmLastFailure = new \Modules\LlmConnector\Service\LastFailureStore($settingService);
     $llmConnectorForOthers = new \Modules\LlmConnector\Service\LlmConnectorService(
         $llmProviderRepo,
         $llmModelRepo,
-        $journalService
+        $journalService,
+        $llmLastFailure
+    );
+    $attentionProviders[] = new \Modules\LlmConnector\Service\LlmAttentionProvider(
+        $llmConnectorForOthers,
+        $llmLastFailure
     );
     $llmSubProcessorProvider = new \Modules\LlmConnector\Service\LlmSubProcessorService(
         $llmProviderRepo,
@@ -6460,7 +6468,8 @@ if ($isEnabled('llm_connector')) {
             $llmModelRepo,
             new \Modules\LlmConnector\Service\OcrModelSelector(),
             $schedulerService,
-            $journalService
+            $journalService,
+            $llmLastFailure
         )
     );
 }
@@ -7585,6 +7594,12 @@ if ($isEnabled('sos_staff')) {
         $settingService,
         $moduleHooks->getOptional(\Core\Module\SectionResponsableProvider::class)
     );
+    // No operator configured, or the last redirect change failed (#718 § C
+    // point 9) — read from the stored outcome, never from the operator.
+    $attentionProviders[] = new \Modules\SosStaff\Service\SosAttentionProvider(
+        $sosProviderConfigService,
+        $sosSettingsService
+    );
     $sosOnCallService = new \Modules\SosStaff\Service\OnCallService(
         $sosOnCallRepo,
         $schedulerService,
@@ -8183,7 +8198,8 @@ if ($isEnabled('inbound_mail')) {
     // with a slower clock. Two aggregate counts, no decryption.
     $attentionProviders[] = new \Modules\InboundMail\Service\InboundMailAttentionProvider(
         $inboundMessageRepository,
-        $settingService
+        $settingService,
+        $inboundMailboxRepository
     );
 
     // `/courrier` is deliberately NOT declared in the module's `offline`
