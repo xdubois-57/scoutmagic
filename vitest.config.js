@@ -30,8 +30,9 @@ export default defineConfig({
             // scripts/js-floating-promises.mjs is listed for the same reason:
             // its logic is unit-tested (tests/js/js-floating-promises.test.js),
             // so its coverage is a real number, where leaving it out made
-            // SonarCloud count every line of it as untested.
-            include: ['public/assets/js/**/*.js', 'public/sw.js', 'scripts/js-floating-promises.mjs'],
+            // SonarCloud count every line of it as untested. Same for
+            // scripts/e2e-summary-reporter.mjs (tests/js/e2e-summary-reporter.test.js).
+            include: ['public/assets/js/**/*.js', 'public/sw.js', 'scripts/js-floating-promises.mjs', 'scripts/e2e-summary-reporter.mjs'],
             exclude: [
                 // Third-party vendored libraries (Bootstrap, Chart.js, ...)
                 // are never first-party coverage — see AGENTS.md.
