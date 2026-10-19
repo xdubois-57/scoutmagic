@@ -307,8 +307,8 @@ class RentalSingleReceivableTest extends TestCase
         $booking = $this->createBooking();
         $this->firstContract($booking);
 
-        $this->operations->contractSent($booking, 1, new \DateTimeImmutable('2027-01-20 10:00'));
-        $this->operations->contractSent($this->reload($booking->id), 1, new \DateTimeImmutable('2027-02-10 10:00'));
+        $this->operations->contractSent($booking, $this->asset(), 1, new \DateTimeImmutable('2027-01-20 10:00'));
+        $this->operations->contractSent($this->reload($booking->id), $this->asset(), 1, new \DateTimeImmutable('2027-02-10 10:00'));
 
         $this->assertSame('2027-02-04', $this->paymentStatus($booking)['deposit_due_date']);
     }
@@ -502,7 +502,7 @@ class RentalSingleReceivableTest extends TestCase
         $booking = $this->createBooking();
 
         $this->assertNull($withoutFinance->communicationForContract($booking, $this->settings()));
-        $this->operations->contractSent($booking, 1, new \DateTimeImmutable('2027-01-20 10:00'));
+        $this->operations->contractSent($booking, $this->asset(), 1, new \DateTimeImmutable('2027-01-20 10:00'));
         $this->operations->changeStatus(
             $this->reload($booking->id),
             BookingStatus::CANCELLED,
@@ -516,5 +516,13 @@ class RentalSingleReceivableTest extends TestCase
         $this->assertNull($status['communication']);
         // The rental and its security deposit are still stated.
         $this->assertSame(81800, $status['total_cents']);
+    }
+
+    private function asset(): \Modules\Rental\Repository\RentalAsset
+    {
+        $asset = (new RentalAssetRepository($this->pdo, $this->encryption))->findById($this->assetId);
+        $this->assertNotNull($asset);
+
+        return $asset;
     }
 }

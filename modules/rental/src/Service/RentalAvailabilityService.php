@@ -23,14 +23,18 @@ use Modules\Rental\Repository\RentalConstraintsRepository;
  * Everything around `Availability\AvailabilityCalculator` that needs a
  * database: an asset's constraints, and who currently holds it.
  *
- * **Where occupancies come from.** Bookings and manual blocks arrive in
- * later iterations, so this service collects them through
- * `Availability\OccupancyProvider` implementations registered at wiring
- * time. Today there are none and every asset reads as entirely free — which
- * is honest, and lets the calendar, the price estimate and the whole public
- * page be finished and tested now rather than waiting on the booking model.
- * Iteration 4's bookings and iteration 5's manual blocks each add a provider
- * and nothing here changes.
+ * **Where occupancies come from.** Every source registers an
+ * `Availability\OccupancyProvider` at wiring time — the bookings
+ * (`RentalBookingService`) and the manual blocks (`RentalBlockRepository`)
+ * today, a booking's active modification project tomorrow (chantier #927,
+ * §2.3) — and this service merges what they answer. A new source is one
+ * more provider in the list and nothing here changes.
+ *
+ * **One answer for every surface** (#927, chantier §2.1). The public
+ * calendar, the request form, the managed calendar and the checks taken
+ * under the asset's lock all read the same providers at the same instant,
+ * `$now`, and none of them may filter what they return: what occupies the
+ * asset stops everybody, a manager included.
  *
  * That indirection also preserves the confidentiality rule: a provider
  * yields `Occupancy` objects with no notion of *why* the asset is held, so
@@ -88,9 +92,11 @@ class RentalAvailabilityService
      * day and never one per booking. A month view asks once; an ICS feed
      * asks once.
      *
-     * @param string|null $excludeReference Drops the occupancy carrying this
-     *   reference — the "is this range free if I move THIS booking into it?"
-     *   question, which must not count a booking against itself.
+     * @param string|null $excludeReference Drops every occupancy carrying
+     *   this reference — the "is this range free if I move THIS booking into
+     *   it?" question, which must not count a booking against itself. Every
+     *   occupancy a booking causes carries its reference (its own dates, its
+     *   modification project's), so all of them go, and nobody else's.
      * @return Occupancy[]
      */
     public function occupanciesFor(
@@ -126,6 +132,13 @@ class RentalAvailabilityService
      * never about them. What still binds a manager is physical reality:
      * the asset cannot be in two places at once, and there are only so many
      * tents.
+     *
+     * **Every occupancy counts**, a competing request's provisional hold
+     * as much as a confirmed booking or a manual block (#927, chantier
+     * §2.1). The manager's arbitration between two requests for the same
+     * week happens before the second one holds anything: once it does, it
+     * is taken, and confirming over it would let two renters both be told
+     * yes.
      */
     public function isRangeFree(
         RentalAsset $asset,
@@ -134,8 +147,7 @@ class RentalAvailabilityService
         \DateTimeImmutable $departure,
         int $units,
         \DateTimeImmutable $now,
-        ?string $excludeReference = null,
-        bool $firmOnly = false
+        ?string $excludeReference = null
     ): bool {
         $constraints = $this->constraintsFor($asset->id);
         $pad = $this->windowPadDays($constraints);
@@ -147,19 +159,6 @@ class RentalAvailabilityService
             $now,
             $excludeReference
         );
-
-        if ($firmOnly) {
-            // A competing request's temporary hold does not stand in the way
-            // of a confirmation: two requests for the same week are exactly
-            // what a manager is there to arbitrate, and if a soft hold
-            // blocked the confirmation neither could ever be accepted.
-            // Confirmed bookings and manual blocks are commitments and do
-            // stop it (Availability\Occupancy).
-            $occupancies = array_values(array_filter(
-                $occupancies,
-                static fn(Occupancy $occupancy) => $occupancy->isFirm
-            ));
-        }
 
         return $this->calculator->isRangeAvailable(
             $arrival,
@@ -175,6 +174,13 @@ class RentalAvailabilityService
     /**
      * The day states for one month of an asset's public calendar.
      *
+     * **Two clocks, never one.** `$today` (midnight) is what the booking
+     * rules count from — a past day, the notice period, the horizon.
+     * `$now` (this instant) is what decides whether a hold still runs: a
+     * hold that lapsed at ten this morning frees its dates at five past,
+     * not tomorrow (chantier #927, §4). Given null, the hold is read at
+     * `$today` — kept only for a caller with a single instant of its own.
+     *
      * @param array{0: string, 1: string|null}|null $selection
      * @return array<string, DayState>
      */
@@ -186,7 +192,8 @@ class RentalAvailabilityService
         \DateTimeImmutable $today,
         ?array $selection = null,
         bool $discloseOccupancy = false,
-        bool $withoutUnitBlocks = false
+        bool $withoutUnitBlocks = false,
+        ?\DateTimeImmutable $now = null
     ): array {
         // Widened either side, matching the whole-weeks grid the caller
         // renders — a stay crossing the month boundary must not appear to
@@ -199,7 +206,7 @@ class RentalAvailabilityService
             $asset->id,
             $first->modify('-' . $pad . ' days'),
             $first->modify('last day of this month')->modify('+' . $pad . ' days'),
-            $today
+            $now ?? $today
         );
 
         if ($withoutUnitBlocks) {
@@ -292,7 +299,8 @@ class RentalAvailabilityService
         \DateTimeImmutable $today,
         ?int $persons = null,
         ?string $excludeReference = null,
-        bool $arrivalIsNew = true
+        bool $arrivalIsNew = true,
+        ?\DateTimeImmutable $now = null
     ): array {
         $constraints = $this->constraintsWithCapacity($asset);
 
@@ -305,7 +313,7 @@ class RentalAvailabilityService
                 $asset->id,
                 $arrival->modify('-' . $this->windowPadDays($constraints) . ' days'),
                 $departure->modify('+' . $this->windowPadDays($constraints) . ' days'),
-                $today,
+                $now ?? $today,
                 $excludeReference
             ),
             $billingUnit,

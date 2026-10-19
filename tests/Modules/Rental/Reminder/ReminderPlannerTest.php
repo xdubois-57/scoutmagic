@@ -353,6 +353,38 @@ class ReminderPlannerTest extends TestCase
         );
     }
 
+    /** A week ahead by default (#927, chantier §2.1): a day was too short to decide in. */
+    public function testAHoldIsMentionedAWeekBeforeItLapses(): void
+    {
+        $this->assertSame(7, ReminderKind::HOLD_EXPIRING->defaultDays());
+        $booking = $this->booking(
+            BookingStatus::RECEIVED,
+            receivedAt: '2027-01-01 10:00:00',
+            holdUntil: new \DateTimeImmutable('2027-01-08 12:00:00')
+        );
+
+        $this->assertContains(ReminderKind::HOLD_EXPIRING->value, self::kinds($this->plan($booking, '2027-01-02 00:00:00')));
+        $this->assertNotContains(ReminderKind::HOLD_EXPIRING->value, self::kinds($this->plan($booking, '2026-12-31 00:00:00')));
+    }
+
+    /** Dates held firmly by a signed copy do not lapse: nothing to warn about. */
+    public function testAHoldUnderASignedCopyIsNotMentioned(): void
+    {
+        $booking = new RentalBooking(...array_merge(
+            get_object_vars($this->booking(
+                BookingStatus::CONTRACT_SENT,
+                receivedAt: '2027-01-01 10:00:00',
+                holdUntil: new \DateTimeImmutable('2027-01-02 12:00:00')
+            )),
+            ['signedCopyReceivedAt' => new \DateTimeImmutable('2027-01-01 18:00:00')]
+        ));
+
+        $this->assertNotContains(
+            ReminderKind::HOLD_EXPIRING->value,
+            self::kinds($this->plan($booking, '2027-01-02 00:00:00'))
+        );
+    }
+
     public function testARefusedBookingProducesNothingAtAll(): void
     {
         // Nothing about money, paperwork or a stay applies to a booking

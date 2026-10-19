@@ -1244,7 +1244,7 @@
     },
     {
       "key": "reminder_hold_expiring_days",
-      "default_value": "1",
+      "default_value": "7",
       "type": "number",
       "label": "Blocage de dates bientôt expiré — délai (jours)",
       "description": "Nombre de jours avant l'échéance d'un blocage de dates pour prévenir les gestionnaires. Passé le blocage, les dates redeviennent libres pour tout le monde, et c'est une décision que l'unité devrait prendre plutôt que découvrir. La tâche tourne une fois par jour : un délai en heures serait une précision que la machine ne peut pas tenir. Un bien peut donner sa propre valeur, ou désactiver ce rappel, dans ses réglages."

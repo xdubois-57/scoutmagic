@@ -2688,6 +2688,39 @@ class RentalManagementControllerTest extends TestCase
     }
 
     /**
+     * A contract never leaves for dates somebody else holds since this
+     * booking's own hold lapsed (#927, chantier §2.1): refused before the
+     * e-mail, nothing marked sent, the status untouched.
+     */
+    public function testAContractIsNotSentForDatesAnotherRequestHolds(): void
+    {
+        $this->loginAsManager();
+        $this->setContractTemplate();
+        $booking = $this->createBooking();
+        $competitor = $this->createBooking(reference: 'LOC-Q8R9S2');
+        $this->bookingRepository->setHold($competitor->id, new \DateTimeImmutable('+10 days'), HoldOrigin::AUTOMATIC);
+
+        $this->post('/mes-locations/document-generer', 'generateDocument', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'document_type' => 'contract',
+        ]);
+        \Core\Http\FlashMessage::get();
+        $document = $this->documentService->forBooking($booking->id)[0];
+        $this->post('/mes-locations/document-envoyer', 'sendDocument', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'document_id' => (string) $document->id,
+        ]);
+
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertSame('error', $flash['type'] ?? null);
+        $this->assertSame(\Modules\Rental\Service\RentalOperationsService::DATES_TAKEN_FOR_CONTRACT, $flash['message'] ?? null);
+        $this->assertNull($this->documentService->find($document->id)?->sentAt);
+        $this->assertSame(BookingStatus::RECEIVED, $this->bookingRepository->findById($booking->id)?->status);
+    }
+
+    /**
      * The contract is generated, read, then sent from its own steps on the
      * dashboard (#708, IT-16) — two gestures, so the PDF can be read before
      * it leaves — and the send says, before anything goes, to whom and how

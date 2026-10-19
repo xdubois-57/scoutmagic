@@ -1158,15 +1158,25 @@ class RentalManagementController extends AbstractController
                     $marks = $this->milestoneMarkService;
                     $this->operationsService->atomicallyOnAsset(
                         $asset->id,
-                        function () use ($marks, $booking, $key, $milestone, $done, $now): void {
+                        function () use ($marks, $booking, $asset, $key, $milestone, $done, $now): void {
                             $marks->set($booking, $key, $milestone->label, $done, $this->actorMemberId(), $now);
 
                             if ($key !== BookingMilestones::CONTRACT_SENT) {
                                 return;
                             }
                             if ($done) {
+                                // Nothing has left yet: dates taken by
+                                // somebody else refuse the tick, and the
+                                // mark rolls back with it (#927, §2.1).
+                                $this->operationsService->assertContractMayHold(
+                                    $booking,
+                                    $asset,
+                                    $now,
+                                    $this->contractHoldMinDays()
+                                );
                                 $this->operationsService->contractSent(
                                     $booking,
+                                    $asset,
                                     $this->actorMemberId(),
                                     $now,
                                     $this->contractHoldMinDays()
@@ -1430,7 +1440,10 @@ class RentalManagementController extends AbstractController
      */
     public function resendEmail(Request $request, array $params): Response
     {
-        return $this->bookingAction($request, function (RentalBooking $booking) use ($request): void {
+        return $this->bookingAction($request, function (
+            RentalBooking $booking,
+            RentalAsset $asset
+        ) use ($request): void {
             $sent = $this->sentEmails?->findById((int) $request->getBody('sent_email_id', 0));
             if ($sent === null || $sent->bookingId !== $booking->id || $this->mailService === null) {
                 throw new RentalException("Cet e-mail n'appartient pas à cette réservation.");
@@ -1448,10 +1461,20 @@ class RentalManagementController extends AbstractController
                     $sent,
                     $booking,
                     $this->bookingService?->trackingTokenFor($booking->id),
-                    function (int $documentId) use ($booking, &$documents): ?array {
+                    function (int $documentId) use ($booking, $asset, &$documents): ?array {
                         $document = $this->documentService?->find($documentId);
                         if ($document === null || $document->bookingId !== $booking->id) {
                             return null;
+                        }
+                        // The same check as a first send (sendDocument()),
+                        // before anything leaves (#927, chantier §2.1).
+                        if ($document->type === DocumentType::CONTRACT) {
+                            $this->operationsService->assertContractMayHold(
+                                $booking,
+                                $asset,
+                                new \DateTimeImmutable(),
+                                $this->contractHoldMinDays()
+                            );
                         }
                         // The same refusal as the Documents page's own
                         // « Renvoyer » (sendDocument()): a void contract
@@ -1487,6 +1510,7 @@ class RentalManagementController extends AbstractController
                 if ($document->type === DocumentType::CONTRACT) {
                     $this->operationsService->contractSent(
                         $booking,
+                        $asset,
                         $this->actorMemberId(),
                         $now,
                         $this->contractHoldMinDays()
@@ -2177,6 +2201,14 @@ class RentalManagementController extends AbstractController
 
             $now = new \DateTimeImmutable();
             if ($document->type === DocumentType::CONTRACT) {
+                // Never a contract for dates somebody else holds since this
+                // booking's hold lapsed (#927, chantier §2.1).
+                $this->operationsService->assertContractMayHold(
+                    $booking,
+                    $asset,
+                    $now,
+                    $this->contractHoldMinDays()
+                );
                 // What to do with it, and by when (#708, IT-16).
                 $this->mailService->sendContract(
                     $booking,
@@ -2205,16 +2237,22 @@ class RentalManagementController extends AbstractController
 
             // The contract is the unit's answer (#708, IT-13): « Contrat
             // envoyé », and the dates held while the renter signs.
+            $held = true;
             if ($document->type === DocumentType::CONTRACT) {
-                $this->operationsService->contractSent(
+                $held = $this->operationsService->contractSent(
                     $booking,
+                    $asset,
                     $this->actorMemberId(),
                     $now,
                     $this->contractHoldMinDays()
                 );
             }
 
-            FlashMessage::set('success', $document->label() . ' envoyé au locataire par email.');
+            FlashMessage::set(
+                $held ? 'success' : 'warning',
+                $document->label() . ' envoyé au locataire par email.'
+                    . ($held ? '' : ' Ses dates ont été prises entre-temps : elles ne sont pas bloquées.')
+            );
         });
     }
 
@@ -2410,7 +2448,9 @@ class RentalManagementController extends AbstractController
             // The unit's own blocks are laid over the bookings rather than
             // merged into them, so a day shows both and a gesture can tell
             // which days the unit holds (#708, IT-07).
-            withoutUnitBlocks: true
+            withoutUnitBlocks: true,
+            // The same instant as every other check (#927, chantier §2.1).
+            now: new \DateTimeImmutable()
         );
 
         $from = $window->firstDay()->modify('-7 days');
@@ -3440,7 +3480,10 @@ class RentalManagementController extends AbstractController
      */
     public function placeOption(Request $request, array $params): Response
     {
-        return $this->bookingAction($request, function (RentalBooking $booking) use ($request): void {
+        return $this->bookingAction($request, function (
+            RentalBooking $booking,
+            RentalAsset $asset
+        ) use ($request): void {
             $until = (string) $request->getBody('until', '');
 
             if ($until === '') {
@@ -3459,6 +3502,7 @@ class RentalManagementController extends AbstractController
 
             $this->operationsService->placeOption(
                 $booking,
+                $asset,
                 $deadline,
                 $this->actorMemberId(),
                 new \DateTimeImmutable()

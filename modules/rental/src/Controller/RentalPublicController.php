@@ -126,7 +126,10 @@ class RentalPublicController extends AbstractController
             $year,
             $month,
             $today,
-            $selection
+            $selection,
+            // Holds are read at this instant, never at midnight: one that
+            // lapsed this morning is free now (#927, chantier §4).
+            now: new \DateTimeImmutable()
         );
 
         return $this->render(
@@ -303,7 +306,10 @@ class RentalPublicController extends AbstractController
             $year,
             $month,
             $today,
-            $selection
+            $selection,
+            // Holds are read at this instant, never at midnight: one that
+            // lapsed this morning is free now (#927, chantier §4).
+            now: new \DateTimeImmutable()
         );
 
         return [
@@ -483,7 +489,8 @@ class RentalPublicController extends AbstractController
                 DateInput::requireFromStorage($selection[1], 'the selected departure date'),
                 $units,
                 $today,
-                $persons > 0 ? $persons : null
+                $persons > 0 ? $persons : null,
+                now: new \DateTimeImmutable()
             ),
         ];
     }

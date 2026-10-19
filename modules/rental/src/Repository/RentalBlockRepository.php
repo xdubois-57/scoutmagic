@@ -107,9 +107,9 @@ class RentalBlockRepository implements OccupancyProvider
      * Two clicks in quick succession are two requests planned from the
      * same snapshot otherwise: the second one's DELETE matches nothing and
      * its insert puts back what the first had just changed, while both
-     * report success. The lock is on the asset rather than on its blocks
-     * because an asset with no block yet has no row to lock. SQLite, the
-     * test engine, serialises writers on its own and has no FOR UPDATE.
+     * report success. It is `AssetLock`, the one lock every writer of an
+     * occupation takes — a booking's confirmation waits on a block being
+     * drawn, and the other way round.
      *
      * @template T
      * @param callable(): T $work
@@ -117,15 +117,7 @@ class RentalBlockRepository implements OccupancyProvider
      */
     public function withAssetLocked(int $assetId, callable $work): mixed
     {
-        return $this->inTransaction(function () use ($assetId, $work): mixed {
-            if ($this->pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) !== 'sqlite') {
-                $lock = $this->pdo->prepare('SELECT id FROM rental_assets WHERE id = ? FOR UPDATE');
-                $lock->execute([$assetId]);
-                $lock->fetchAll();
-            }
-
-            return $work();
-        });
+        return AssetLock::run($this->pdo, $assetId, $work);
     }
 
     /**
