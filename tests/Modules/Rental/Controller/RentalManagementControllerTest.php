@@ -170,13 +170,6 @@ class RentalManagementControllerTest extends TestCase
             new RentalConstraintsRepository($this->pdo),
             [new RentalBookingService($this->bookingRepository, $journal), $this->blockRepository]
         );
-        $this->stayService = new \Modules\Rental\Service\RentalStayService(
-            new \Modules\Rental\Repository\RentalStayRepository($this->pdo, $this->encryption),
-            $bookingAudit,
-            $this->pricingService,
-            new \Modules\Rental\Stay\SettlementCalculator(),
-            $journal
-        );
 
         // Finance, wired exactly as public/index.php does: the payment
         // panel and the "still owed" warning are only real when the
@@ -194,6 +187,17 @@ class RentalManagementControllerTest extends TestCase
             $journal,
             FinanceTestHelper::receivableService($this->pdo, $this->encryption, $receivableRepository),
             new StructuredCommunicationService($receivableRepository)
+        );
+
+        $this->stayService = new \Modules\Rental\Service\RentalStayService(
+            new \Modules\Rental\Repository\RentalStayRepository($this->pdo, $this->encryption),
+            $bookingAudit,
+            $this->pricingService,
+            new \Modules\Rental\Stay\SettlementCalculator(),
+            $journal,
+            // As public/index.php wires it: the settlement reads what was
+            // paid on the booking's receivable.
+            $this->paymentService
         );
 
         $this->operationsService = new RentalOperationsService(
@@ -1744,11 +1748,13 @@ class RentalManagementControllerTest extends TestCase
      * received — the ordinary state of a rental a fortnight before the
      * stay.
      */
-    private function bookingOwedFor(int $totalCents = 46750): RentalBooking
+    private function bookingOwedFor(int $totalCents = 46750, ?int $securityDepositCents = null): RentalBooking
     {
         $this->paymentService->saveSettings($this->assetId, new \Modules\Rental\Payment\PaymentSettings(
             enabled: true,
             financeAccountId: $this->financeAccountId,
+            securityDepositEnabled: $securityDepositCents !== null,
+            securityDepositAmountCents: $securityDepositCents,
             financeCategoryId: $this->financeCategoryId
         ));
         $booking = $this->createBooking();
@@ -5311,6 +5317,38 @@ class RentalManagementControllerTest extends TestCase
         $this->assertSame(200, $response->getStatusCode());
 
         return (string) preg_replace('/\s+/', ' ', (string) $response->getBody());
+    }
+
+    public function testTheSettlementShowsTheSecurityDepositReturnOnceWithinTheRefund(): void
+    {
+        // 467,50 € rental and a 150 € deposit, all paid on the booking's one
+        // receivable: 150 € is owed back, and the screen must say 150 €
+        // once — never a balance and a deposit return that add up to 300 €.
+        $this->loginAsManager();
+        $booking = $this->bookingOwedFor(46750, 15000);
+        $communication = (string) $this->paymentService->statusFor(
+            $booking,
+            $this->paymentService->settingsFor($this->assetId)
+        )['communication'];
+        (new TransactionRepository($this->pdo, $this->encryption))->create(
+            $this->financeAccountId,
+            FinanceTestHelper::createScoutYear($this->pdo, 'Exercice des locations', '2030-09-01', '2031-08-31'),
+            null,
+            '2030-10-01',
+            'Virement ' . $communication,
+            617.50,
+            null,
+            null,
+            'import',
+            null
+        );
+
+        $body = $this->invoicePage($booking);
+
+        $this->assertStringContainsString('Solde à rembourser', $body);
+        $this->assertStringNotContainsString('Caution à restituer', $body);
+        $this->assertMatchesRegularExpression('/Solde à rembourser\s*<\/td>\s*<td[^>]*>\s*150,00/u', $body);
+        $this->assertMatchesRegularExpression('/dont la caution à rendre\s*:?\s*150,00/u', $body);
     }
 
     private function generateInvoice(RentalBooking $booking): void

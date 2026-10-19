@@ -58,7 +58,8 @@ final class SettlementCalculator
      *     kept_cents: int,
      *     balance_cents: int,
      *     security_deposit_withheld_cents: int,
-     *     security_deposit_return_cents: int
+     *     security_deposit_return_cents: int,
+     *     paid_includes_security_deposit: bool
      * }
      */
     public function compute(
@@ -110,6 +111,10 @@ final class SettlementCalculator
             'balance_cents' => ($paidIncludesSecurityDeposit ? $kept : $total) - $alreadyPaidCents,
             'security_deposit_withheld_cents' => $withheld,
             'security_deposit_return_cents' => max(0, ($securityDepositCents ?? 0) - $withheld),
+            // Said so the screen does not add the deposit's return to a
+            // balance that already contains it: with one receivable, a
+            // negative balance IS everything owed back, deposit included.
+            'paid_includes_security_deposit' => $paidIncludesSecurityDeposit,
         ];
     }
 

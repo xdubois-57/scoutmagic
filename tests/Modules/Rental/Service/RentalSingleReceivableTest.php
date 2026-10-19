@@ -368,6 +368,59 @@ class RentalSingleReceivableTest extends TestCase
         $this->assertSame(1, $this->receivableCount());
     }
 
+    public function testAFullyPaidBookingCancelledStillHoldsItsSecurityDeposit(): void
+    {
+        // The receivable is brought to 0, but the 150 € deposit the renter
+        // paid is still in the unit's hands, to be given back — never
+        // « À recevoir » again.
+        $booking = $this->createBooking();
+        $this->pay($this->firstContract($booking), 818.00);
+        $this->assertSame(
+            \Modules\Rental\Payment\SecurityDepositStatus::RECEIVED,
+            $this->paymentStatus($booking)['security_deposit']['status']
+        );
+
+        $this->operations->changeStatus(
+            $this->reload($booking->id),
+            BookingStatus::CANCELLED,
+            1,
+            new \DateTimeImmutable('2027-01-25')
+        );
+
+        $security = $this->paymentStatus($booking)['security_deposit'];
+        $this->assertSame(\Modules\Rental\Payment\SecurityDepositStatus::RECEIVED, $security['status']);
+        $this->assertSame(15000, $security['received_cents']);
+    }
+
+    public function testAPartlyPaidBookingCancelledDoesNotClaimItsSecurityDeposit(): void
+    {
+        $booking = $this->createBooking();
+        $this->pay($this->firstContract($booking), 250.00);
+
+        $this->operations->changeStatus(
+            $this->reload($booking->id),
+            BookingStatus::CANCELLED,
+            1,
+            new \DateTimeImmutable('2027-01-25')
+        );
+
+        $security = $this->paymentStatus($booking)['security_deposit'];
+        $this->assertSame(\Modules\Rental\Payment\SecurityDepositStatus::TO_RECEIVE, $security['status']);
+        $this->assertSame(0, $security['received_cents']);
+    }
+
+    public function testASettledBookingKeepsItsSecurityDepositReceived(): void
+    {
+        $booking = $this->createBooking();
+        $this->pay($this->firstContract($booking), 818.00);
+        $settlement = $this->stay->recordSettlement($this->reload($booking->id), $this->assetId, null, [], 1);
+        $this->stay->validateSettlement($this->reload($booking->id), $settlement->id, 1);
+
+        $security = $this->paymentStatus($booking)['security_deposit'];
+        $this->assertSame(\Modules\Rental\Payment\SecurityDepositStatus::RECEIVED, $security['status']);
+        $this->assertSame(15000, $security['received_cents']);
+    }
+
     public function testAnExpiredOptionKeepsItsReceivableAtZero(): void
     {
         $booking = $this->createBooking();

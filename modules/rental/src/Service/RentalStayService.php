@@ -612,7 +612,8 @@ class RentalStayService
      *     kept_cents: int,
      *     balance_cents: int,
      *     security_deposit_withheld_cents: int,
-     *     security_deposit_return_cents: int
+     *     security_deposit_return_cents: int,
+     *     paid_includes_security_deposit: bool
      * }
      */
     public function previewSettlement(

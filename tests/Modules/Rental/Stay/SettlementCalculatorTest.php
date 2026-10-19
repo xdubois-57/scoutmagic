@@ -512,6 +512,8 @@ class SettlementCalculatorTest extends TestCase
         $this->assertSame(41000, $result['kept_cents']);
         $this->assertSame(-12000, $result['balance_cents']);
         $this->assertSame(12000, $result['security_deposit_return_cents']);
+        // The same 120 € — the screen must not add one to the other.
+        $this->assertTrue($result['paid_includes_security_deposit']);
     }
 
     public function testWithASingleReceivableAndNoWithholdingTheWholeDepositIsOwedBack(): void

@@ -507,14 +507,20 @@ class RentalPaymentService
         $fullyPaid = $totalCents !== null && $totalCents > 0 && $receivedCents >= $totalCents;
 
         // "Reçue" is DERIVED from the account, like `deposit_received`: the
-        // security deposit is in hand once the whole receivable is, since
-        // it is due with the balance and nothing splits the receipts. Only
-        // the outstanding state is derived — once a manager has moved the
-        // deposit on to `to_return` or settled it, what they recorded
-        // stands.
-        if ($depositStatus === SecurityDepositStatus::TO_RECEIVE && $fullyPaid) {
+        // security deposit is in hand once the AGREED total — rental plus
+        // deposit — has come in, since it is due with the balance and
+        // nothing splits the receipts. Against the agreed total, never the
+        // receivable's live amount: an abandoned booking's receivable is at
+        // 0 and a settled one's at the kept amount, and neither gives the
+        // renter's deposit back. Only the outstanding state is derived —
+        // once it was recorded held (abandonAmount(), settleAmount()) or a
+        // manager moved it on, what was recorded stands.
+        if ($depositStatus === SecurityDepositStatus::TO_RECEIVE
+            && self::agreedTotalReached($rentalCents, $securityAmountCents, $receivedCents)
+        ) {
             $depositStatus = SecurityDepositStatus::RECEIVED;
         }
+        $depositHeld = $depositStatus->isHeld() || $depositStatus->isSettled();
 
         $balanceDueDate = $settings->balanceDueDate($booking->arrivalDate);
 
@@ -540,7 +546,7 @@ class RentalPaymentService
                 'amount_cents' => $securityAmountCents,
                 // All or nothing, from the same threshold as the balance:
                 // never an allocation of the receipts between two debts.
-                'received_cents' => $fullyPaid ? (int) ($securityAmountCents ?? 0) : 0,
+                'received_cents' => $depositHeld ? (int) ($securityAmountCents ?? 0) : 0,
                 'due_date' => $securityAmountCents !== null ? $balanceDueDate : null,
                 'returned_cents' => $payment['security_deposit_returned_cents'] ?? null,
                 'withheld_cents' => $payment['security_deposit_withheld_cents'] ?? null,
@@ -736,9 +742,24 @@ class RentalPaymentService
      */
     private function bringTo(RentalBooking $booking, int $amountCents, string $summary, ?int $actorMemberId): void
     {
-        $receivableId = $this->paymentRepository->loadBookingPayment($booking->id)['rental_receivable_id'] ?? null;
-        if ($receivableId === null || $this->receivables === null) {
+        $payment = $this->paymentRepository->loadBookingPayment($booking->id);
+        $receivableId = $payment['rental_receivable_id'] ?? null;
+        if ($payment === null || $receivableId === null || $this->receivables === null) {
             return;
+        }
+
+        // A deposit fully paid is recorded as held BEFORE the amount moves:
+        // afterwards the receivable no longer says what was asked, and what
+        // Finance reports as received for a receivable at 0 is not
+        // something « Reçue » may depend on.
+        if ($payment['security_deposit_status'] === SecurityDepositStatus::TO_RECEIVE
+            && self::agreedTotalReached(
+                $booking->effectiveTotalCents(),
+                $payment['security_deposit_amount_cents'],
+                $this->receivableAmounts($receivableId)['amount_received']
+            )
+        ) {
+            $this->paymentRepository->setSecurityDepositStatus($booking->id, SecurityDepositStatus::RECEIVED);
         }
 
         try {
@@ -773,6 +794,20 @@ class RentalPaymentService
             $summary,
             $actorMemberId
         );
+    }
+
+    /**
+     * Whether the receipts reach what the booking agreed — the rental price
+     * plus the security deposit snapshotted with the receivable. Only
+     * meaningful with a deposit to hold.
+     */
+    private static function agreedTotalReached(?int $rentalCents, ?int $securityCents, int $receivedCents): bool
+    {
+        if ($rentalCents === null || $securityCents === null || $securityCents <= 0) {
+            return false;
+        }
+
+        return $receivedCents >= $rentalCents + $securityCents;
     }
 
     /**

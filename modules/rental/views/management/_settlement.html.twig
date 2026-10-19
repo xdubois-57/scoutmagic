@@ -49,7 +49,27 @@
                             {{ preview.balance_cents|abs|money_cents }}
                         </td>
                     </tr>
-                    {% if preview.security_deposit_return_cents or preview.security_deposit_withheld_cents %}
+                    {#
+                      With the booking's single receivable the balance
+                      already nets the deposit out (issue #927): a refund
+                      names the deposit inside it, never as a second sum
+                      to add. Without one the deposit is held by hand,
+                      beside the balance, and keeps its own row.
+                    #}
+                    {% if preview.paid_includes_security_deposit|default(false) %}
+                        {% if preview.balance_cents < 0
+                            and (preview.security_deposit_return_cents or preview.security_deposit_withheld_cents) %}
+                            <tr>
+                                <td colspan="2" class="text-body-secondary small">
+                                    dont la caution à rendre :
+                                    {{ min(preview.security_deposit_return_cents, -preview.balance_cents)|money_cents }}
+                                    {%- if preview.security_deposit_withheld_cents %}
+                                        ({{ preview.security_deposit_withheld_cents|money_cents }} retenus)
+                                    {%- endif %}
+                                </td>
+                            </tr>
+                        {% endif %}
+                    {% elseif preview.security_deposit_return_cents or preview.security_deposit_withheld_cents %}
                         <tr>
                             <td>Caution à restituer</td>
                             <td class="text-end">
