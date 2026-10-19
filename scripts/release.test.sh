@@ -185,6 +185,15 @@ if ( run_gate s2 "External sources" check_sources_gate ) > /dev/null 2>&1 \
 else
     fail "conforming external sources did not pass the gate, or wrote no report"
 fi
+# Issue #760: the gate asks a source that did not answer a second time, so
+# a host answering one request in three does not stop a release.
+php() { printf '%s\n' "$*" > "${GATE_TMP_DIR}/php-args"; return 0; }
+( run_gate s3 "External sources" check_sources_gate ) > /dev/null 2>&1
+if grep -q -- '--retry-unreachable' "${GATE_TMP_DIR}/php-args" 2>/dev/null; then
+    ok "the external sources gate allows a second request to an unanswered source"
+else
+    fail "the external sources gate does not pass --retry-unreachable to the checker"
+fi
 unset -f php
 
 # The order is the documented one, and it is the order of the file.

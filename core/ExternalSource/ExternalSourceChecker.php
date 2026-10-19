@@ -26,6 +26,13 @@ namespace Core\ExternalSource;
  *   sign-in page, or refusing an anonymous visitor, still exists); dead on
  *   anything else — 404, 410, an unknown domain, no answer, a server error.
  *
+ * ATTEMPTS. A host that answers only some of the time (issue #760) must not
+ * make the release gate a coin toss, so a caller may allow more than one
+ * request per source. Only silence is retried — no answer at all — never a
+ * status: a 404 or a 500 is the host speaking, and asking again would only
+ * hide a page that really is gone. The default stays a single request, which
+ * is what the weekly check runs.
+ *
  * THE REFERENCE SCALE is the federal scale shipped with the site
  * (`modules/fees/data/federal-scale.json`, issue #355), which
  * `scripts/check-external-sources.php` passes in: the page's amounts must
@@ -38,6 +45,7 @@ final class ExternalSourceChecker
     public function __construct(
         private readonly PageFetcherInterface $fetcher,
         private readonly ?FederalScale $referenceScale = null,
+        private readonly int $attempts = 1,
     ) {
     }
 
@@ -52,13 +60,18 @@ final class ExternalSourceChecker
 
     public function check(ExternalSource $source): SourceCheckResult
     {
+        $attempts = max(1, $this->attempts);
         $page = $this->fetcher->fetch($source->url);
+        for ($attempt = 1; $page->status === 0 && $attempt < $attempts; $attempt++) {
+            $page = $this->fetcher->fetch($source->url);
+        }
 
         if ($page->status === 0) {
             return new SourceCheckResult(
                 $source,
                 0,
-                ['no answer (' . ($page->error ?? 'unknown error') . ') — unknown domain, or the host is down']
+                ['no answer' . ($attempts > 1 ? ' after ' . $attempts . ' attempts' : '')
+                    . ' (' . ($page->error ?? 'unknown error') . ') — unknown domain, or the host is down']
             );
         }
 
