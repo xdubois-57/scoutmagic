@@ -514,6 +514,29 @@ class MaintenanceControllerTest extends TestCase
         $this->assertStringNotContainsString('Disque du serveur', $picker);
     }
 
+    /** A local destination chosen before the rule stays listed and selected, so saving does not drop it. */
+    public function testALegacyLocalDestinationStaysSelectedInThePicker(): void
+    {
+        $locations = new \Core\Storage\Location\StorageLocationRepository(
+            $this->pdo,
+            new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
+        );
+        $local = $locations->create(
+            \Core\Storage\Location\StorageLocationType::Local,
+            'Ancien dossier',
+            new \Core\Storage\Location\Config\LocalLocationConfig('backups-copie'),
+            null
+        );
+        $destination = $this->remoteDestination();
+        $destination->choose($local);
+        $this->controller = ($this->rebuildController)($this->backupService, null, $destination);
+
+        $body = $this->page('automaticBackupPage');
+
+        $this->assertMatchesRegularExpression('~<option value="' . $local . '" selected>\s*Ancien dossier — sur ce serveur, pas hors site~', $body);
+        $this->assertStringContainsString("Cette destination n'est pas hors site.", $body);
+    }
+
     /**
      * **A reading is never shown without a destination** (IT-05 review):
      * the figures describe a folder, and with no destination chosen there

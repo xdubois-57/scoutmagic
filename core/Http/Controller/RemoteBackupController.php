@@ -294,6 +294,21 @@ final class RemoteBackupController extends AbstractController
             return $this->redirect(self::BOX);
         }
 
+        // A local destination chosen before the rule below, saved again
+        // unchanged: it stays as it is. Only a replacement or « Aucune »
+        // moves the archives elsewhere.
+        if ($location->id === $this->destination->locationId() && !RemoteBackupDestination::canReceive($location)) {
+            FlashMessage::set(
+                'warning',
+                sprintf(
+                    'Destination inchangée : « %s » reste sur ce serveur, et n\'est pas hors site.',
+                    $location->label
+                )
+            );
+
+            return $this->redirect(self::BOX);
+        }
+
         // The site's own server is never off-site, whatever the path says
         // (#718 § C point 11) — RemoteBackupDestination::canReceive().
         if (!RemoteBackupDestination::canReceive($location)) {
@@ -301,8 +316,8 @@ final class RemoteBackupController extends AbstractController
                 'error',
                 sprintf(
                     '« %s » est un dossier du serveur du site : si l\'hébergement est perdu, les sauvegardes '
-                    . 'le sont avec lui. Choisissez un emplacement externe, comme Google Drive, un partage '
-                    . 'WebDAV ou un stockage S3.',
+                    . 'le sont avec lui. Choisissez un emplacement externe qui sait reprendre un envoi '
+                    . 'interrompu, comme un dossier Google Drive.',
                     $location->label
                 )
             );

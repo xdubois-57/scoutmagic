@@ -155,6 +155,15 @@
                                 <label class="form-label small" for="remote-backup-location">Emplacement de destination</label>
                                 <select class="form-select form-select-sm" id="remote-backup-location" name="location_id">
                                     <option value="0">Aucune — ne rien envoyer hors site</option>
+                                    {# A local destination chosen before the site's own server
+                                       stopped being offered is no candidate any more, but stays
+                                       listed and selected: saving the form unchanged must not
+                                       turn it into « Aucune » (#718 § C point 11). #}
+                                    {% if remote_backup_location and remote_backup_location.type.value == 'local' %}
+                                        <option value="{{ remote_backup_location.id }}" selected>
+                                            {{ remote_backup_location.label }} — sur ce serveur, pas hors site
+                                        </option>
+                                    {% endif %}
                                     {% for candidate in remote_backup_locations %}
                                         <option value="{{ candidate.id }}"
                                                 {{ remote_backup_location and remote_backup_location.id == candidate.id ? 'selected' : '' }}>

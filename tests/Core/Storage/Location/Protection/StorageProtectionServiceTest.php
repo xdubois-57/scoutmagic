@@ -239,6 +239,27 @@ final class StorageProtectionServiceTest extends TestCase
         $this->service->save($this->local('Galerie'), $this->local('NAS', '/mnt/nas'), 30, 24, true);
     }
 
+    /** A pair declared before the rule can still be paused, and only paused. */
+    public function testALegacyServerToServerCopyCanBePausedButNotResumed(): void
+    {
+        $source = $this->local('Galerie');
+        $destination = $this->local('NAS', 'nas');
+        $this->protections->save($source, $destination, 30, 24, true);
+
+        $this->service->save($source, $destination, 30, 24, false);
+        $this->assertFalse($this->protections->findBySourceId($source)?->enabled);
+
+        $this->expectException(StorageLocationException::class);
+        $this->service->save($source, $destination, 30, 24, true);
+    }
+
+    /** Paused or not, a new server-to-server pair is refused. */
+    public function testANewServerToServerCopyIsRefusedEvenPaused(): void
+    {
+        $this->expectException(StorageLocationException::class);
+        $this->service->save($this->local('Galerie'), $this->local('NAS', 'nas'), 30, 24, false);
+    }
+
     /** A remote location copied onto the server survives losing the remote account. */
     public function testARemoteLocationMayBeCopiedOntoTheServer(): void
     {

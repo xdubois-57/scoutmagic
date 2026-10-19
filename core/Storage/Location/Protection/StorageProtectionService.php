@@ -87,7 +87,7 @@ class StorageProtectionService
         $destination = $this->requireLocation($destinationLocationId);
 
         $this->refuseCycle($source, $destination);
-        $this->refuseSameServer($source, $destination);
+        $this->refuseSameServer($source, $destination, $enabled);
         $this->refuseExposure($source, $destination);
 
         if ($gracePeriodDays < self::MIN_GRACE_PERIOD_DAYS) {
@@ -318,11 +318,18 @@ class StorageProtectionService
      * try. A remote source copied to the server stays allowed — that one
      * survives losing the remote account, which is what it is for.
      *
+     * A pair declared before the rule may still be paused: pausing copies
+     * nothing, and refusing it would leave deletion as the only way to
+     * silence it.
+     *
      * @throws StorageLocationException
      */
-    private function refuseSameServer(StorageLocation $source, StorageLocation $destination): void
+    private function refuseSameServer(StorageLocation $source, StorageLocation $destination, bool $enabled): void
     {
         if ($source->type !== StorageLocationType::Local || $destination->type !== StorageLocationType::Local) {
+            return;
+        }
+        if (!$enabled && $this->protections->findBySourceId($source->id)?->destinationLocationId === $destination->id) {
             return;
         }
 

@@ -93,7 +93,7 @@ class MaintenanceAttentionProvider implements AttentionPointProvider
                 title: 'Les sauvegardes « hors site » restent sur le serveur du site',
                 why: "La destination choisie, « " . $location->label . " », est un dossier du serveur où se trouve "
                     . "le site : si l'hébergement est perdu, les sauvegardes le sont avec lui. Choisissez un "
-                    . 'emplacement externe : Google Drive, un partage WebDAV ou un stockage S3.',
+                    . 'emplacement externe qui sait reprendre un envoi interrompu, comme un dossier Google Drive.',
                 actionLabel: 'Changer de destination',
                 actionUrl: '/config/maintenance/sauvegarde-automatique',
                 severity: AttentionPoint::SEVERITY_ATTENTION

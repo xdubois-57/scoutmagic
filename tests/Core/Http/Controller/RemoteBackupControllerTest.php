@@ -166,6 +166,33 @@ final class RemoteBackupControllerTest extends TestCase
         $this->assertStringContainsString('« Disque monté » est un dossier du serveur du site', $flash['message'] ?? '');
     }
 
+    /** A local destination chosen before the rule, saved again unchanged, stays. */
+    public function testResavingALegacyLocalDestinationKeepsIt(): void
+    {
+        $id = $this->locations->create(StorageLocationType::Local, 'Ancien dossier', new LocalLocationConfig('backups'), null);
+        $this->destination->choose($id);
+        FlashMessage::get();
+
+        $this->controller()->chooseDestination($this->postRequest(['location_id' => (string) $id]), []);
+
+        $this->assertSame($id, $this->destination->locationId());
+        $this->assertStringContainsString('Destination inchangée', FlashMessage::get()['message'] ?? '');
+    }
+
+    /** The refusal names a destination that would be accepted, never one refused for another reason. */
+    public function testTheRefusalSuggestsADestinationThatCanResumeAnUpload(): void
+    {
+        $id = $this->locations->create(StorageLocationType::Local, 'Disque', new LocalLocationConfig('/mnt/x'), null);
+        FlashMessage::get();
+
+        $this->controller()->chooseDestination($this->postRequest(['location_id' => (string) $id]), []);
+
+        $message = FlashMessage::get()['message'] ?? '';
+        $this->assertStringContainsString('Google Drive', $message);
+        $this->assertStringNotContainsString('S3', $message);
+        $this->assertStringNotContainsString('WebDAV', $message);
+    }
+
     /** The rule the action applies is the one the list is filtered on. */
     public function testOnlyAnExternalLocationThatResumesUploadsMayReceiveTheArchives(): void
     {
