@@ -61,6 +61,7 @@ import { loginAsAdmin } from '../support/admin-login.js';
 import { expectRendersAsACalendar } from '../support/calendar.js';
 import { answerCookieBanner } from '../support/cookie-banner.js';
 import { openCard } from '../support/collapsible-card.js';
+import { openModal } from '../support/modal.js';
 import { openSectionEditor } from '../support/section-editor.js';
 import { waitOutHumanCheckDelay } from '../support/human-check.js';
 
@@ -314,9 +315,12 @@ test.describe('Rentals', () => {
         const form = page.locator('#modification-form');
         await form.locator('input[name="arrival"]').fill(PROPOSED_ARRIVAL);
         await form.locator('input[name="departure"]').fill(PROPOSED_DEPARTURE);
-        await page.locator('[data-modification-actions]').getByRole('button', { name: 'Enregistrer', exact: true }).click();
         // Applied at once, so it asks first — and says no e-mail leaves.
-        const confirm = page.getByRole('dialog').filter({ hasText: "Aucun e-mail n'est envoyé" });
+        // The confirmation submits the form and leaves the page, so the
+        // dialog is never seen closing: the URL below is the end of it.
+        const confirm = await openModal(page, 'sm-confirm-modal', () =>
+            page.locator('[data-modification-actions]').getByRole('button', { name: 'Enregistrer', exact: true }).click());
+        await expect(confirm).toContainText("Aucun e-mail n'est envoyé");
         await confirm.getByRole('button', { name: 'Appliquer', exact: true }).click();
         await page.waitForURL(/\/reservations\/\d+\/modifications$/, { waitUntil: 'load' });
         await expect(page.getByText('Appliquée directement').first()).toBeVisible();
