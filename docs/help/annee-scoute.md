@@ -1,7 +1,7 @@
 ---
 id: annee-scoute
 title: Passer à la nouvelle année scoute
-summary: Le parcours guidé en trois temps pour basculer le site sur l'année suivante.
+summary: Les étapes, en trois temps, pour basculer le site sur l'année suivante, et les trois vrais blocages.
 category: Espace chefs d'U
 role_min: admin
 question: Comment faire passer le site à l'année scoute suivante ?
@@ -38,14 +38,19 @@ fonction désactivée disparaissent simplement de la liste.
 - **Activer pour tout le monde** bascule le site entier. L'année du
   staff s'efface alors d'elle-même : tout le monde est réaligné.
 
-## Les deux seuls vrais blocages
+## Les trois seuls vrais blocages
 
-« Activer pour tout le monde » refuse de s'exécuter tant que :
+Le site les vérifie lui-même, quoi que montre la page :
 
-1. aucune année n'a été activée pour le staff ;
-2. des demandes d'inscription restent ouvertes — la page indique
-   combien et renvoie vers leur gestion, où un traitement en masse
-   (« tout refuser », « tout retirer ») existe.
+1. l'étape des départs ne peut pas être marquée tant que la campagne
+   de réinscription de l'année cible n'est pas terminée ;
+2. l'année cible ne peut pas être activée pour les staffs tant
+   qu'aucun import Desk réussi de cette année n'existe ;
+3. la bascule pour tout le monde est refusée tant que l'année du staff
+   n'est pas l'année cible, qu'aucun import réussi n'existe, ou que des
+   demandes d'inscription restent ouvertes — la page indique combien
+   et renvoie vers leur gestion, où un traitement en masse (« tout
+   refuser », « tout retirer ») existe.
 
 Tout le reste est permis à tout moment, y compris dans le désordre.
 
