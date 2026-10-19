@@ -21,13 +21,13 @@
        reads as a rule and not as an unexplained short list. #}
     {% set _public_label = current_year.label %}
     {% set _next_label = next_year_label %}
-    {% set _opening = import_window.nextStartDate|date('d/m') %}
-    {% set _eve_of_encoding = import_window.encodingDate|date_modify('-1 day')|date('d/m') %}
+    {% set _opening = import_window.nextStartDayMonth() %}
+    {% set _eve_of_encoding = import_window.eveOfEncodingDayMonth() %}
     {% set _periods = [
         { key: 'before', title: 'Avant le ' ~ _opening, years: _public_label ~ ' seulement' },
         { key: 'between', title: 'Du ' ~ _opening ~ ' au ' ~ _eve_of_encoding,
           years: _public_label ~ ' et ' ~ _next_label ~ ' (proposée)' },
-        { key: 'after', title: 'À partir du ' ~ import_window.encodingDate|date('d/m'), years: _next_label ~ ' seulement' },
+        { key: 'after', title: 'À partir du ' ~ import_window.encodingDayMonth(), years: _next_label ~ ' seulement' },
     ] %}
     <div class="card mb-3">
         <div class="card-body">

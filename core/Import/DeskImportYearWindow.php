@@ -71,4 +71,37 @@ final class DeskImportYearWindow
 
         return $this->preselectedId;
     }
+
+    /** The opening day as the page shows it, « 01/07 ». */
+    public function nextStartDayMonth(): string
+    {
+        return self::dayMonth($this->nextStartDate);
+    }
+
+    /** The Desk-encoding day as the page shows it, « 15/08 ». */
+    public function encodingDayMonth(): string
+    {
+        return self::dayMonth($this->encodingDate);
+    }
+
+    /**
+     * The last day both years may be imported, « 14/08 ». Computed here
+     * rather than in the template, which must never parse a date itself
+     * (TemplateDateReadingRatchetTest).
+     */
+    public function eveOfEncodingDayMonth(): string
+    {
+        $encoding = \DateTimeImmutable::createFromFormat('!Y-m-d', $this->encodingDate);
+        if ($encoding === false) {
+            return '';
+        }
+
+        return $encoding->modify('-1 day')->format('d/m');
+    }
+
+    /** 'Y-m-d' → 'd/m', on the string: a 02-29 stays the 29th. */
+    private static function dayMonth(string $isoDate): string
+    {
+        return substr($isoDate, 8, 2) . '/' . substr($isoDate, 5, 2);
+    }
 }
