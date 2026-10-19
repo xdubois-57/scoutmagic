@@ -52,8 +52,12 @@ cette page.
   calendrier la propose comme lieu d'un nouvel évènement, sauf si un
   autre lieu par défaut y est configuré.
 
-## Deux autres réglages à connaître
+## D'autres réglages à connaître
 
+- Les deux dates de l'**import Desk**, « Ouverture de l'import pour
+  l'année suivante » et « Date d'encodage Desk » : elles décident des
+  années importables (voir « Quelle année scoute importer, et quand »),
+  et le réglage refuse une paire incohérente en citant les deux valeurs.
 - La **plage d'heures calmes par défaut** des notifications : elle
   s'applique à tous les membres qui n'ont pas défini la leur.
 - Les **couleurs de l'application installée** : changer la couleur de

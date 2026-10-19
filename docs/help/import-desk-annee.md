@@ -33,7 +33,10 @@ importable jusqu'à l'été suivant. Le site n'ouvre jamais une deuxième
 année d'avance.
 
 Importer ne change jamais l'année que voient les familles. Le bloc
-« Dernier import » suit l'année choisie dans la liste.
+« Dernier import » suit l'année choisie dans la liste. Depuis la page
+« Année scoute », le lien d'import ouvre cette page sur l'année cible,
+présélectionnée seulement si la règle l'accepte aujourd'hui. La page
+montre toujours les trois périodes, celle du jour mise en évidence.
 
 ## Régler les deux dates
 
