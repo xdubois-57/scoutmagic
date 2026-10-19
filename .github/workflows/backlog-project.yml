@@ -93,6 +93,21 @@ jobs:
           set -euo pipefail
           scripts="${RUNNER_TEMP}/scripts"
 
+          # Every answer is ALSO written as a `::notice` annotation, the one
+          # output of a run the GitHub API returns inline
+          # (GET /check-runs/{id}/annotations). The log and the step summary
+          # live on a storage host an agent session without `gh` cannot
+          # reach, so before this the queue it dispatched was unreadable to
+          # it (issue #912). Workflow-command escaping: %, CR, LF.
+          annotate() {
+            local title="$1" body
+            body="$(cat)"
+            body="${body//'%'/'%25'}"
+            body="${body//$'\r'/'%0D'}"
+            body="${body//$'\n'/'%0A'}"
+            echo "::notice title=${title}::${body}"
+          }
+
           case "${OPERATION}" in
             queue)
               out="$(mktemp)"
@@ -106,12 +121,19 @@ jobs:
                 cat "${out}"
                 echo '```'
               } >> "${GITHUB_STEP_SUMMARY}"
+              jq -c . "${out}" 2>/dev/null | annotate 'Ready queue' || annotate 'Ready queue' < "${out}"
               ;;
-            status)
-              bash "${scripts}/project-agent.sh" status "${ISSUE}"
-              ;;
-            claim|done|release)
-              bash "${scripts}/project-agent.sh" "${OPERATION}" "${ISSUE}" "${AGENT}"
+            status|claim|done|release)
+              out="$(mktemp)"
+              status=0
+              if [ "${OPERATION}" = status ]; then
+                bash "${scripts}/project-agent.sh" status "${ISSUE}" > "${out}" 2>&1 || status=$?
+              else
+                bash "${scripts}/project-agent.sh" "${OPERATION}" "${ISSUE}" "${AGENT}" > "${out}" 2>&1 || status=$?
+              fi
+              cat "${out}"
+              annotate "Project ${OPERATION} #${ISSUE//[^0-9]/} (exit ${status})" < "${out}"
+              exit "${status}"
               ;;
             *)
               echo "::error title=Unknown operation::'${OPERATION}' is not one of queue, status, claim, done, release."
