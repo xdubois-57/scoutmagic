@@ -75,12 +75,13 @@ final class ActivatePublicStepCheck implements StepCheckProvider
      */
     private function refusal(array $blockers, string $target): string
     {
+        // Each reason carries its own « que », so « qu'aucun » elides.
         $reasons = array_map(static fn(ActivationBlocker $b): string => match ($b->code) {
-            ActivationBlocker::STAFF_YEAR_NOT_TARGET => "{$target} n'est pas activée pour les staffs",
-            ActivationBlocker::NO_SUCCESSFUL_IMPORT => "aucun import réussi de {$target} n'existe",
-            default => "{$b->count} demande(s) d'inscription restent ouvertes",
+            ActivationBlocker::STAFF_YEAR_NOT_TARGET => "que {$target} n'est pas activée pour les staffs",
+            ActivationBlocker::NO_SUCCESSFUL_IMPORT => "qu'aucun import réussi de {$target} n'existe",
+            default => "que {$b->count} demande(s) d'inscription restent ouvertes",
         }, $blockers);
 
-        return 'La bascule est refusée tant que ' . implode(', ', $reasons) . '.';
+        return 'La bascule est refusée tant ' . implode(', ', $reasons) . '.';
     }
 }
