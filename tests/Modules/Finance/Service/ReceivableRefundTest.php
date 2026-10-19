@@ -233,6 +233,27 @@ final class ReceivableRefundTest extends TestCase
     }
 
     /**
+     * A refund given, then the amount raised back to what first arrived:
+     * the money that went back is expected again, so the standing reads
+     * « partial » with the refund still to come — not « paid » because the
+     * credit's share alone covers the new amount.
+     */
+    public function testTheStandingNetsTheRefundsOutOfWhatWasReceived(): void
+    {
+        $id = $this->receivable(62200, '0909337554');
+        $this->movement('2027-03-08', 818.00, 'Virement ' . $this->comm('0909337554'));
+        $this->movement('2027-03-20', -196.00, 'Remboursement ' . $this->comm('0909337554'));
+        $this->allocationService->reconcileAccount($this->accountId);
+
+        $this->api->updateReceivableAmount($id, 81800);
+
+        $standing = $this->api->getReceivableStanding('rental', $id);
+        $this->assertSame('partial', $standing?->status);
+        $this->assertSame(19600, $standing?->amountRemainingCents);
+        $this->assertSame(0, $standing?->amountOverpaidCents);
+    }
+
+    /**
      * What already went back is no longer money held: lowering the amount
      * is compared with what came in less the refunds, not with the gross.
      */

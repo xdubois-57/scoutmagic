@@ -189,15 +189,25 @@ class ExpectedReceivableService implements ExpectedReceivableInterface
         }
 
         $settlement = $this->allocations->refreshAndSettle([$receivable])[$receivable->id];
-        /** @var 'paid'|'partial'|'unpaid'|'waived' $status */
-        $status = $settlement->status;
+
+        // What the payer is still owed or still owes is read against what
+        // they have NET of the refunds: a refund given, then the amount
+        // raised again, is money expected once more — never « paid »
+        // because the credit's share alone covers the new amount.
+        $netReceived = $settlement->amountDesignatedCents - $settlement->amountRefundedCents;
+        $status = match (true) {
+            $settlement->isWaived() => ReceivableSettlement::STATUS_WAIVED,
+            $netReceived <= 0 => ReceivableSettlement::STATUS_UNPAID,
+            $netReceived >= $settlement->amountDueCents => ReceivableSettlement::STATUS_PAID,
+            default => ReceivableSettlement::STATUS_PARTIAL,
+        };
 
         return new ReceivableStanding(
             amountDueCents: $settlement->amountDueCents,
             amountReceivedCents: $settlement->amountDesignatedCents,
             amountRefundedCents: $settlement->amountRefundedCents,
             amountOverpaidCents: $settlement->amountOverpaidCents,
-            amountRemainingCents: $settlement->amountRemainingCents(),
+            amountRemainingCents: $settlement->isWaived() ? 0 : max(0, $settlement->amountDueCents - $netReceived),
             status: $status
         );
     }
