@@ -42,10 +42,20 @@ final class SettlementCalculator
     /**
      * @param MeterConsumption[] $consumptions
      * @param Incident[] $incidents
-     * @param SettlementLine[] $manualLines Lines a manager added by hand.
+     * @param SettlementLine[] $manualLines Lines a manager added by hand —
+     *   the « Geste commercial » among them.
+     * @param bool $paidIncludesSecurityDeposit whether $alreadyPaidCents
+     *   came in on the booking's single receivable, which holds the
+     *   security deposit too (issue #927). Then the balance is measured
+     *   against the KEPT amount — the total plus what is withheld from the
+     *   deposit — and a negative one is everything to pay back, the
+     *   deposit's return included. Without it (no Finance) the deposit is
+     *   held by hand beside the rental, and the balance is the total less
+     *   what was paid, as it always was.
      * @return array{
      *     lines: SettlementLine[],
      *     total_cents: int,
+     *     kept_cents: int,
      *     balance_cents: int,
      *     security_deposit_withheld_cents: int,
      *     security_deposit_return_cents: int
@@ -58,7 +68,8 @@ final class SettlementCalculator
         array $incidents,
         array $manualLines,
         int $alreadyPaidCents,
-        ?int $securityDepositCents
+        ?int $securityDepositCents,
+        bool $paidIncludesSecurityDeposit = false
     ): array {
         $lines = array_merge(
             $this->agreedLines($agreedPrice, $finalPersons),
@@ -84,13 +95,19 @@ final class SettlementCalculator
         // who wants the difference invoices it as a charge instead.
         $withheld = $securityDepositCents !== null ? min($withheld, $securityDepositCents) : 0;
 
+        // What the unit keeps of the money: the agreed rental, the
+        // consumptions and the charged damage, less any gesture — the
+        // total — plus what it withholds from the security deposit.
+        $kept = $total + $withheld;
+
         return [
             'lines' => $lines,
             'total_cents' => $total,
+            'kept_cents' => $kept,
             // Deliberately signed: an overpayment is a real outcome, and
             // flooring it at zero is how a refund nobody knows about
             // happens.
-            'balance_cents' => $total - $alreadyPaidCents,
+            'balance_cents' => ($paidIncludesSecurityDeposit ? $kept : $total) - $alreadyPaidCents,
             'security_deposit_withheld_cents' => $withheld,
             'security_deposit_return_cents' => max(0, ($securityDepositCents ?? 0) - $withheld),
         ];

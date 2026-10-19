@@ -599,10 +599,17 @@ class RentalStayService
      * from `recordSettlement()` on purpose: looking must not create a
      * version, or a manager who opens the page twice ends up with two.
      *
+     * With the booking's single receivable (issue #927), what was paid
+     * includes the security deposit, so the balance is measured against the
+     * kept amount: negative, it is everything to pay back, the deposit's
+     * return included. The deposit is the one snapshotted on the booking
+     * when the receivable was raised, not today's setting.
+     *
      * @param SettlementLine[] $manualLines
      * @return array{
      *     lines: SettlementLine[],
      *     total_cents: int,
+     *     kept_cents: int,
      *     balance_cents: int,
      *     security_deposit_withheld_cents: int,
      *     security_deposit_return_cents: int
@@ -617,6 +624,7 @@ class RentalStayService
     ): array {
         $paymentSettings ??= $this->paymentService?->settingsFor($assetId) ?? new PaymentSettings();
         $paymentStatus = $this->paymentService?->statusFor($booking, $paymentSettings);
+        $onReceivable = ($paymentStatus['communication'] ?? null) !== null;
 
         return $this->calculator->compute(
             $booking->effectivePrice(),
@@ -625,7 +633,10 @@ class RentalStayService
             $this->stayRepository->findIncidents($booking->id),
             $manualLines,
             (int) ($paymentStatus['received_cents'] ?? 0),
-            $paymentSettings->securityDepositAmount()
+            $onReceivable
+                ? ($paymentStatus['security_deposit']['amount_cents'] ?? null)
+                : $paymentSettings->securityDepositAmount(),
+            $onReceivable
         );
     }
 
@@ -701,7 +712,13 @@ class RentalStayService
     }
 
     /**
-     * Validates a settlement, making it immutable.
+     * Validates a settlement, making it immutable — and brings the
+     * booking's receivable to the amount it keeps (issue #927), so what
+     * was received beyond it, the security deposit to give back first,
+     * reads as an overpayment in Finances. The agreed price is untouched.
+     *
+     * The validation stands even if Finance fails afterwards: the payment
+     * service journals that and says so in the booking's history.
      *
      * @throws RentalException
      */
@@ -729,6 +746,8 @@ class RentalStayService
             'Décompte final',
             $actorMemberId
         );
+
+        $this->paymentService?->settleAmount($booking, $settlement->keptCents(), $actorMemberId);
     }
 
     /**

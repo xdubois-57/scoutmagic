@@ -59,7 +59,13 @@ class RentalBookingService implements OccupancyProvider
          */
         private ?RentalChangeRequestRepository $changeRequestRepository = null,
         private ?BookingAudit $bookingAudit = null,
-        ?BookingReference $references = null
+        ?BookingReference $references = null,
+        /**
+         * The expiry sweep brings an expired booking's receivable to 0
+         * (issue #927). Null where nothing expires, or without Finance —
+         * the service then raises and moves nothing anyway.
+         */
+        private ?RentalPaymentService $paymentService = null
     ) {
         $this->references = $references ?? BookingReference::secure();
     }
@@ -529,6 +535,9 @@ class RentalBookingService implements OccupancyProvider
                 $this->bookingRepository->setStatus($booking->id, BookingStatus::EXPIRED, $now);
                 $this->bookingRepository->clearHold($booking->id);
                 $this->refusePendingChangeRequests($booking->id);
+                // Nothing is owed for an expired option any more; what came
+                // in shows as an overpayment. Never throws.
+                $this->paymentService?->abandonAmount($booking);
                 $expired++;
 
                 $this->journal->log(

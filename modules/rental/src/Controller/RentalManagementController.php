@@ -75,6 +75,7 @@ use Modules\Rental\Service\RentalStayService;
 use Modules\Rental\Stay\IncidentDecision;
 use Modules\Rental\Stay\InventoryKind;
 use Modules\Rental\Stay\ReadingPhase;
+use Modules\Rental\Stay\SettlementLine;
 use Modules\Rental\Support;
 use Twig\Environment;
 
@@ -2105,7 +2106,12 @@ class RentalManagementController extends AbstractController
             }
 
             $settings = $this->paymentService?->settingsFor($asset->id) ?? new PaymentSettings();
-            $communication = $this->paymentService?->statusFor($booking, $settings)['communication'] ?? null;
+            // A contract prints the real communication: the receivable is
+            // raised first, and the generation refused when payments are on
+            // but it cannot be (issue #927).
+            $communication = $type === DocumentType::CONTRACT
+                ? $this->paymentService?->communicationForContract($booking, $settings, $this->actorMemberId())
+                : ($this->paymentService?->statusFor($booking, $settings)['communication'] ?? null);
 
             $document = $this->documentService->generate(
                 $booking,
@@ -3051,6 +3057,9 @@ class RentalManagementController extends AbstractController
         $finalPersons = $latestSettlement !== null && $latestSettlement->finalPersons !== null
             ? $latestSettlement->finalPersons
             : $booking->estimatedPersons;
+        // The gesture too, for the same reason — and so the preview counts
+        // it, as the next version would.
+        $gesture = $latestSettlement?->gesture();
 
         $invoice = null;
         foreach ($this->documentService?->forBooking($booking->id) ?? [] as $document) {
@@ -3070,9 +3079,15 @@ class RentalManagementController extends AbstractController
             'billing' => $this->operationsService->billingIdentity($booking->id),
             'settlements' => $this->stayService?->settlementsFor($booking->id) ?? [],
             'final_persons' => $finalPersons,
+            'gesture' => $gesture,
             // Recomputed live, so the figure a manager sees is the one the
             // next version would record — looking never creates a version.
-            'preview' => $this->stayService?->previewSettlement($booking, $asset->id, $finalPersons),
+            'preview' => $this->stayService?->previewSettlement(
+                $booking,
+                $asset->id,
+                $finalPersons,
+                $gesture !== null ? [$gesture] : []
+            ),
             'decided_incidents' => array_values(array_filter(
                 $this->stayService?->incidentsFor($booking->id) ?? [],
                 static fn(\Modules\Rental\Stay\Incident $incident): bool
@@ -3274,11 +3289,18 @@ class RentalManagementController extends AbstractController
                 throw new RentalException('Le décompte final n\'est pas disponible.');
             }
 
+            // The goodwill gesture after the stay (issue #927): a line of the
+            // settlement, never a change to the agreed price.
+            $gesture = SettlementLine::gesture(
+                Support::optionalString($request->getBody('gesture_label')),
+                RentalPricingService::parseAmountToCents((string) $request->getBody('gesture_amount', ''))
+            );
+
             $settlement = $this->stayService->recordSettlement(
                 $booking,
                 $asset->id,
                 self::optionalInt($request->getBody('final_persons')),
-                [],
+                $gesture !== null ? [$gesture] : [],
                 $this->actorMemberId()
             );
 
@@ -3367,14 +3389,13 @@ class RentalManagementController extends AbstractController
     /** `467,50 €` — for a flash message a human reads, never for arithmetic. */
 
     /**
-     * The sentence a manager needs when they close a booking that is still
-     * owed money.
+     * The sentence a manager needs about the money when a booking ends.
      *
-     * Nothing here decides anything — §6.17 is explicit that there is no
-     * automatic cancellation scale and nothing computes a refund. But
-     * cancelling a booking leaves its receivable exactly where it was, and
-     * "Réservation « Annulée »." alone reads as "everything is settled".
-     * A manager who is not told has to remember to look.
+     * Refused, cancelled or expired, its receivable has just been brought
+     * to 0 and kept (issue #927): said, because what the renter already
+     * paid is now theirs to get back, and nothing computes a refund for
+     * the unit (§6.17). Closed while still owed money, it says how much —
+     * "Réservation « Clôturée »." alone reads as "everything is settled".
      */
     private function outstandingMoneyWarning(
         RentalBooking $booking,
@@ -3386,6 +3407,13 @@ class RentalManagementController extends AbstractController
         }
 
         $status = $this->paymentStatus($booking, $asset);
+        if ($target->isAbandoned()) {
+            return ($status['communication'] ?? null) !== null
+                ? ' La créance de cette réservation est ramenée à 0 € : un paiement déjà reçu apparaît en '
+                    . 'trop-perçu dans les Finances.'
+                : '';
+        }
+
         $due = (int) ($status['total_cents'] ?? 0);
         $received = (int) ($status['received_cents'] ?? 0);
         if ($due <= 0 || $received >= $due) {

@@ -32,18 +32,26 @@ use Modules\Rental\Repository\RentalPaymentRepository;
  * the module carries on unchanged. A unit that settles its rentals by hand
  * is a perfectly normal unit, and it must not meet a single error page.
  *
- * **One receivable for the whole rental** (§6.19). The deposit is a
- * *threshold* on it — "deposit received" means `amount_received >=
- * deposit_amount` — and the deposit and the balance share one structured
- * communication. Two receivables would mean two communications, and a
- * renter paying the balance with the deposit's reference would settle the
- * wrong one.
+ * **One receivable for the whole booking** (§6.19, issue #927): the rental
+ * price plus the security deposit, under one structured communication used
+ * for the deposit, the balance, the security deposit and any complement.
+ * The deposit is a *threshold* on it — "deposit received" means
+ * `amount_received >= deposit_amount` — and so is the rest: the receipts
+ * are compared, cumulatively, to the deposit and then to the total, and
+ * never split between the rental and the security deposit on screen. Two
+ * receivables meant two communications, and a renter paying with the wrong
+ * one settled the wrong debt.
  *
- * **The security deposit is a different thing entirely** (§6.20): its own
- * receivable, its own communication, and never rental revenue. A unit
- * holding 500 € of somebody else's money has not earned 500 €. Its return
- * is tracked by hand, because Finance reconciles incoming transfers and not
- * outgoing ones — a documented limitation rather than an invented feature.
+ * **Raised before the first contract is generated**, so the contract prints
+ * the real communication (`communicationForContract()`), and reused for
+ * every regeneration, version or modification after it. Its amount then
+ * follows the booking: the direct changes made before the first send, the
+ * countersigned modification after it (`updateRentalAmount()`), **0** when
+ * the booking is refused, cancelled or expires (`abandonAmount()`) and the
+ * kept amount once the final settlement is validated (`settleAmount()`).
+ * It is never deleted outside the retention purge (`forgetBooking()`):
+ * whatever came in for a booking that ended shows as an overpayment, which
+ * is what it is.
  *
  * Journal entries carry the reference and the ids, never the renter
  * (SECURITY.md §5).
@@ -190,93 +198,79 @@ class RentalPaymentService
         );
     }
 
-    // ── Raising the receivables ─────────────────────────────────────────
+    // ── The booking's receivable ────────────────────────────────────────
 
     /**
-     * Raises (or updates) the rental receivable for a booking, and the
-     * security-deposit one if the asset asks for it.
+     * Raises the booking's single receivable — rental price plus security
+     * deposit — or returns the one already raised.
      *
-     * Called when a booking is confirmed. **Idempotent**: called again on a
-     * booking that already has a receivable, it updates the amount in place
-     * rather than minting a second communication — which would orphan every
-     * transfer the renter already made.
+     * **Idempotent, and reuse never moves anything**: called again on a
+     * booking that already has a receivable, it returns that one untouched.
+     * A second communication would orphan every transfer the renter already
+     * made, and the amount is kept in step by the gestures that change it
+     * (`updateRentalAmount()`, `abandonAmount()`, `settleAmount()`), not by
+     * whoever happens to ask for the receivable next.
      *
-     * Silently does nothing when Finance is unavailable or the asset has
-     * payments off. That is the nullable dependency working, not a failure:
-     * there is no receivable to raise, and saying so on screen is the
-     * configuration page's job, not this one's.
+     * Returns null, raising nothing, when Finance is unavailable or the
+     * asset has payments off. That is the nullable dependency working, not
+     * a failure.
      *
-     * @return array{rental: ?int, security_deposit: ?int} The receivable ids in play.
-     * @throws RentalException
+     * @throws RentalException when payments are on but nothing could be
+     *   raised: no price yet, or Finance refused.
      */
-    public function ensureReceivables(
+    public function ensureReceivable(
         RentalBooking $booking,
         PaymentSettings $settings,
-        \DateTimeImmutable $now,
         ?int $actorMemberId = null
-    ): array {
+    ): ?int {
         if (!$this->isAvailable() || !$settings->canRaiseReceivables()) {
-            return ['rental' => null, 'security_deposit' => null];
+            return null;
         }
 
-        $total = $booking->effectiveTotalCents();
-        if ($total === null) {
+        $existing = $this->paymentRepository->loadBookingPayment($booking->id) ?? [];
+        $receivableId = $existing['rental_receivable_id'] ?? null;
+        if (is_int($receivableId)) {
+            return $receivableId;
+        }
+
+        $rentalCents = $booking->effectiveTotalCents();
+        if ($rentalCents === null) {
             throw new RentalException(
                 "Cette réservation n'a pas encore de prix : impossible de demander un paiement."
             );
         }
 
-        $existing = $this->paymentRepository->loadBookingPayment($booking->id) ?? [];
+        $securityCents = $settings->securityDepositAmount();
+        $totalCents = $rentalCents + ($securityCents ?? 0);
 
-        return [
-            'rental' => $this->ensureRentalReceivable($booking, $settings, $existing, $total, $now, $actorMemberId),
-            'security_deposit' => $this->ensureSecurityDepositReceivable($booking, $settings, $existing, $now),
-        ];
-    }
-
-    /**
-     * Pushes a new total onto an existing rental receivable (§6.12).
-     *
-     * Refuses to drop below what has already come in unless the caller says
-     * it means to create an overpayment — the guard lives in Finance, and
-     * this only translates its refusal into the module's own exception so a
-     * controller catches one type.
-     *
-     * @throws RentalException
-     */
-    public function updateRentalAmount(
-        RentalBooking $booking,
-        PaymentSettings $settings,
-        int $totalCents,
-        bool $allowOverpayment = false,
-        ?int $actorMemberId = null
-    ): void {
-        $payment = $this->paymentRepository->loadBookingPayment($booking->id);
-        $receivableId = $payment['rental_receivable_id'] ?? null;
-
-        if ($this->receivables === null || $receivableId === null) {
-            return;
+        $communication = $this->communications?->generate();
+        if ($communication === null) {
+            return null;
         }
 
         try {
-            $this->receivables->updateReceivableAmount($receivableId, $totalCents, $allowOverpayment);
+            $receivableId = $this->receivables?->createReceivable(
+                self::SOURCE_MODULE,
+                $booking->id,
+                (int) $settings->financeAccountId,
+                $totalCents,
+                $communication,
+                // The label may identify the payer, and Finance encrypts it
+                // for exactly that reason — so the reference alone would be
+                // needlessly opaque to whoever reconciles the account.
+                $booking->reference . ' — ' . $booking->renterName,
+                (int) $settings->financeCategoryId
+            );
         } catch (\Throwable $e) {
             // Finance's own refusals are written for the person in front of
-            // this booking — « Le nouveau montant (…) est inférieur à ce qui
-            // a déjà été reçu (…). Cela créerait un trop-perçu à rembourser »
-            // — and that sentence is the only thing that explains the
-            // refusal, so it must survive. Anything else Finance throws is
-            // about its internals (a repository, a column, a PDO driver) and
-            // has nothing to say here.
-            //
-            // UserFacingMessage decides which of the two this is, from the
-            // class alone — no catch on Finance\Api\FinanceException,
-            // which would reach past that module's Api namespace into its
-            // internals (ARCHITECTURE.md §7.5).
+            // this booking and must survive; anything else is about its
+            // internals and has nothing to say here. UserFacingMessage
+            // decides which from the class alone, without catching
+            // Finance\Api\FinanceException by name (ARCHITECTURE.md §7.5).
             throw new RentalException(
                 UserFacingMessage::from(
                     $e,
-                    "Le montant à percevoir n'a pas pu être mis à jour dans les Finances — "
+                    "La créance de cette location n'a pas pu être créée dans les Finances — "
                     . 'vérifiez le compte financier configuré pour les locations, puis réessayez.'
                 ),
                 0,
@@ -284,14 +278,115 @@ class RentalPaymentService
             );
         }
 
-        $this->paymentRepository->linkRentalReceivable(
+        if ($receivableId === null) {
+            return null;
+        }
+
+        $this->paymentRepository->linkReceivable(
             $booking->id,
             $receivableId,
-            (string) ($payment['rental_communication'] ?? ''),
-            $settings->depositFor($totalCents),
-            $payment['deposit_due_date'] ?? null,
-            $payment['balance_due_date'] ?? null
+            $communication,
+            $settings->depositFor($rentalCents),
+            $securityCents
         );
+
+        $this->journal->log(
+            'rental',
+            'rental_receivable_created',
+            'info',
+            'Créance de location créée pour ' . $booking->reference,
+            ['booking_id' => $booking->id, 'amount_cents' => $totalCents]
+        );
+
+        return $receivableId;
+    }
+
+    /**
+     * The structured communication a contract about to be generated prints
+     * — raising the receivable first if it does not exist yet (issue #927).
+     *
+     * Null only in the explicit degraded mode: Finance not available, or
+     * payments off on this asset. Then the contract prints « — » and the
+     * Finances page says the payments are followed outside the site.
+     *
+     * **Payments on and no communication is never an outcome**: the
+     * generation is refused with the reason instead, because a contract
+     * that went out without a communication cannot be corrected afterwards
+     * — the renter pays against what they were sent.
+     *
+     * @throws RentalException
+     */
+    public function communicationForContract(
+        RentalBooking $booking,
+        PaymentSettings $settings,
+        ?int $actorMemberId = null
+    ): ?string {
+        if (!$this->isAvailable() || !$settings->enabled) {
+            return null;
+        }
+
+        $refusal = 'Le contrat n\'a pas été généré : un contrat ne part jamais sans la communication '
+            . 'structurée des paiements, et la créance de cette location n\'a pas pu être créée. ';
+
+        if (!$settings->canRaiseReceivables()) {
+            throw new RentalException(
+                $refusal . 'Aucun compte ou aucune catégorie Finances n\'est associé à ce bien : demandez à '
+                . 'un chef d\'unité de les choisir depuis « Espace chefs d\'U > Locations ».'
+            );
+        }
+
+        try {
+            $receivableId = $this->ensureReceivable($booking, $settings, $actorMemberId);
+        } catch (RentalException $e) {
+            throw new RentalException($refusal . $e->getMessage(), 0, $e);
+        }
+
+        $communication = $receivableId !== null
+            ? ($this->paymentRepository->loadBookingPayment($booking->id)['rental_communication'] ?? null)
+            : null;
+        if ($communication === null || $communication === '') {
+            throw new RentalException(
+                $refusal . 'Vérifiez le compte financier configuré pour les locations, puis réessayez.'
+            );
+        }
+
+        return $communication;
+    }
+
+    /**
+     * Moves the receivable to a new rental price, the security deposit
+     * snapshotted with it added on top — **same receivable, same
+     * communication, every match kept**.
+     *
+     * The method a changed price calls: a direct change before the first
+     * contract was sent, and the countersignature of a modification after
+     * it (issue #927). A modification still being prepared changes nothing
+     * here — only its countersignature does. The deposit threshold follows
+     * the new price when it is a percentage of it.
+     *
+     * Refuses to drop below what has already come in unless the caller says
+     * it means to create an overpayment — the guard lives in Finance, and
+     * this only translates its refusal into the module's own exception.
+     * Does nothing when no receivable was ever raised.
+     *
+     * @throws RentalException
+     */
+    public function updateRentalAmount(
+        RentalBooking $booking,
+        PaymentSettings $settings,
+        int $rentalTotalCents,
+        bool $allowOverpayment = false,
+        ?int $actorMemberId = null
+    ): void {
+        $payment = $this->paymentRepository->loadBookingPayment($booking->id);
+        if ($payment === null || $payment['rental_receivable_id'] === null || $this->receivables === null) {
+            return;
+        }
+
+        $totalCents = $rentalTotalCents + ($payment['security_deposit_amount_cents'] ?? 0);
+        $this->moveAmount($payment['rental_receivable_id'], $totalCents, $allowOverpayment);
+
+        $this->paymentRepository->updateDepositAmount($booking->id, $settings->depositFor($rentalTotalCents));
 
         $this->bookingAudit->record(
             $booking->id,
@@ -303,24 +398,84 @@ class RentalPaymentService
         );
     }
 
+    /**
+     * Brings the receivable to **0** for a booking refused, cancelled or
+     * expired (issue #927) — with `allowBelowReceived`, because anything
+     * already received is now owed back and must show as an overpayment.
+     * The receivable and its communication stay: a transfer still arriving
+     * later must find the booking it was meant for.
+     *
+     * Never throws. The status change it follows has committed and is
+     * true; a Finance failure is journaled and written into the booking's
+     * history, where whoever opens it will see the amount was not moved.
+     */
+    public function abandonAmount(RentalBooking $booking, ?int $actorMemberId = null): void
+    {
+        $this->bringTo($booking, 0, 'Créance ramenée à 0 : la réservation est abandonnée', $actorMemberId);
+    }
+
+    /**
+     * Brings the receivable to the amount the final settlement keeps —
+     * agreed rental, consumptions and withholdings, less any goodwill
+     * gesture — once that settlement is validated (issue #927). What was
+     * received beyond it, the security deposit to give back first, then
+     * shows as an overpayment. The booking's agreed price is not touched:
+     * the settlement sits beside it.
+     *
+     * Never throws, for the reason `abandonAmount()` gives.
+     */
+    public function settleAmount(RentalBooking $booking, int $keptCents, ?int $actorMemberId = null): void
+    {
+        $this->bringTo(
+            $booking,
+            max(0, $keptCents),
+            'Créance ramenée au montant conservé par le décompte final',
+            $actorMemberId
+        );
+    }
+
+    /**
+     * The first contract went out at $sentAt: the deposit's deadline is
+     * set from it (`depositDueDays` after), **once** — a later send, a
+     * replacement contract included, never moves it (issue #927).
+     *
+     * Stored whether or not a receivable exists yet, so a booking whose
+     * payments are switched on later still knows when its deposit was due.
+     */
+    public function contractSent(RentalBooking $booking, PaymentSettings $settings, \DateTimeImmutable $sentAt): void
+    {
+        $due = $settings->depositDueDate($sentAt);
+        if ($due === null) {
+            return;
+        }
+
+        $this->paymentRepository->setDepositDueDateIfUnset($booking->id, $due);
+    }
+
     // ── Reading where the money is ──────────────────────────────────────
 
     /**
      * What is owed, what has arrived, and which stage that puts the booking
      * at (§6.19).
      *
-     * The deposit is a **threshold**, so "acompte reçu" is a comparison
-     * rather than a stored flag — it can never disagree with the bank
-     * statement, and no scheduled task has to keep it in step.
+     * Every stage is a **threshold on the cumulative receipts**, compared
+     * live — the deposit first, then the total, the security deposit
+     * included — rather than a stored flag: it can never disagree with the
+     * bank statement, and no scheduled task has to keep it in step. Nothing
+     * is split between the rental and the security deposit: one
+     * communication, one running total.
+     *
+     * `total_cents` is what the receivable expects — rental plus security
+     * deposit, 0 once the booking was abandoned, the kept amount after a
+     * validated settlement — and `overpaid_cents` what came in beyond it.
      *
      * @return array{
      *   available: bool, enabled: bool,
-     *   total_cents: ?int, received_cents: int, remaining_cents: int,
+     *   total_cents: ?int, rental_cents: ?int, received_cents: int, remaining_cents: int, overpaid_cents: int,
      *   deposit_cents: ?int, deposit_received: bool, fully_paid: bool,
      *   communication: ?string, deposit_due_date: ?string, balance_due_date: ?string,
      *   security_deposit: array{
-     *     status: SecurityDepositStatus, amount_cents: ?int, received_cents: int,
-     *     communication: ?string, due_date: ?string,
+     *     status: SecurityDepositStatus, amount_cents: ?int, received_cents: int, due_date: ?string,
      *     returned_cents: ?int, withheld_cents: ?int, returned_at: ?string, note: ?string
      *   }
      * }
@@ -329,57 +484,64 @@ class RentalPaymentService
     {
         $payment = $this->paymentRepository->loadBookingPayment($booking->id) ?? [];
         $depositStatus = $payment['security_deposit_status'] ?? SecurityDepositStatus::NONE;
+        $receivableId = $payment['rental_receivable_id'] ?? null;
 
-        $totalCents = $payment['rental_receivable_id'] !== null
-            ? $this->receivableAmounts($payment['rental_receivable_id'])['amount_due']
-            : $booking->effectiveTotalCents();
-        $receivedCents = $payment['rental_receivable_id'] !== null
-            ? $this->receivableAmounts($payment['rental_receivable_id'])['amount_received']
-            : 0;
+        $rentalCents = $booking->effectiveTotalCents();
+        // The snapshot once a receivable exists, the asset's setting until
+        // then: a deposit changed on the asset afterwards does not rewrite
+        // what a renter was asked.
+        $securityAmountCents = $receivableId !== null
+            ? ($payment['security_deposit_amount_cents'] ?? null)
+            : $settings->securityDepositAmount();
+
+        if ($receivableId !== null) {
+            $amounts = $this->receivableAmounts($receivableId);
+            $totalCents = $amounts['amount_due'];
+            $receivedCents = $amounts['amount_received'];
+        } else {
+            $totalCents = $rentalCents !== null ? $rentalCents + ($securityAmountCents ?? 0) : null;
+            $receivedCents = 0;
+        }
 
         $depositCents = $payment['deposit_amount_cents'] ?? null;
+        $fullyPaid = $totalCents !== null && $totalCents > 0 && $receivedCents >= $totalCents;
 
-        $securityAmountCents = $payment['security_deposit_amount_cents'] ?? null;
-        $securityReceivedCents = $payment['security_deposit_receivable_id'] !== null
-            ? $this->receivableAmounts($payment['security_deposit_receivable_id'])['amount_received']
-            : 0;
-
-        // "Reçue" is DERIVED from the account, exactly like `deposit_received`
-        // just below, and for the same reason: nothing reconciles an incoming
-        // transfer into a status column, so a stored flag would spend its
-        // whole life saying "À recevoir" about money the unit is already
-        // holding. Only the outstanding state is derived — once a manager has
-        // moved the deposit on to `to_return` or settled it, what they
-        // recorded stands.
-        if ($depositStatus === SecurityDepositStatus::TO_RECEIVE
-            && $securityAmountCents !== null
-            && $securityAmountCents > 0
-            && $securityReceivedCents >= $securityAmountCents
-        ) {
+        // "Reçue" is DERIVED from the account, like `deposit_received`: the
+        // security deposit is in hand once the whole receivable is, since
+        // it is due with the balance and nothing splits the receipts. Only
+        // the outstanding state is derived — once a manager has moved the
+        // deposit on to `to_return` or settled it, what they recorded
+        // stands.
+        if ($depositStatus === SecurityDepositStatus::TO_RECEIVE && $fullyPaid) {
             $depositStatus = SecurityDepositStatus::RECEIVED;
         }
+
+        $balanceDueDate = $settings->balanceDueDate($booking->arrivalDate);
 
         return [
             'available' => $this->isAvailable(),
             'enabled' => $settings->enabled,
             'total_cents' => $totalCents,
+            'rental_cents' => $rentalCents,
             'received_cents' => $receivedCents,
             'remaining_cents' => max(0, ($totalCents ?? 0) - $receivedCents),
+            'overpaid_cents' => $totalCents !== null ? max(0, $receivedCents - $totalCents) : 0,
             'deposit_cents' => $depositCents,
             // The threshold, compared live. Never a stored "deposit paid"
             // flag: that would spend part of its life disagreeing with the
             // account.
             'deposit_received' => $depositCents !== null && $receivedCents >= $depositCents,
-            'fully_paid' => $totalCents !== null && $totalCents > 0 && $receivedCents >= $totalCents,
+            'fully_paid' => $fullyPaid,
             'communication' => $payment['rental_communication'] ?? null,
             'deposit_due_date' => $payment['deposit_due_date'] ?? null,
-            'balance_due_date' => $payment['balance_due_date'] ?? null,
+            'balance_due_date' => $balanceDueDate,
             'security_deposit' => [
                 'status' => $depositStatus,
                 'amount_cents' => $securityAmountCents,
-                'received_cents' => $securityReceivedCents,
-                'communication' => $payment['security_deposit_communication'] ?? null,
-                'due_date' => $payment['security_deposit_due_date'] ?? null,
+                // All or nothing, from the same threshold as the balance:
+                // never an allocation of the receipts between two debts.
+                'received_cents' => $fullyPaid ? (int) ($securityAmountCents ?? 0) : 0,
+                'due_date' => $securityAmountCents !== null ? $balanceDueDate : null,
                 'returned_cents' => $payment['security_deposit_returned_cents'] ?? null,
                 'withheld_cents' => $payment['security_deposit_withheld_cents'] ?? null,
                 'returned_at' => $payment['security_deposit_returned_at'] ?? null,
@@ -390,8 +552,8 @@ class RentalPaymentService
 
     /**
      * A SEPA QR for the amount that is actually due **at this stage**: the
-     * deposit while it is outstanding, the remaining balance afterwards
-     * (§6.19).
+     * deposit while it is outstanding, the remaining balance — security
+     * deposit included — afterwards (§6.19).
      *
      * Null whenever anything needed is missing — Finance off, no account,
      * no IBAN, nothing left to pay. The caller renders nothing rather than
@@ -428,37 +590,6 @@ class RentalPaymentService
             null,
             $amount,
             $communication
-        );
-    }
-
-    /**
-     * The security deposit's own QR — a different communication and a
-     * different amount, because it is a different debt (§6.20).
-     */
-    public function securityDepositQrPng(RentalBooking $booking, PaymentSettings $settings): ?string
-    {
-        if ($this->sepaQr === null || !$settings->canRaiseReceivables()) {
-            return null;
-        }
-
-        $status = $this->statusFor($booking, $settings)['security_deposit'];
-        $amount = ($status['amount_cents'] ?? 0) - $status['received_cents'];
-
-        if ($status['communication'] === null || $amount <= 0) {
-            return null;
-        }
-
-        $account = $this->accountById($settings->financeAccountId);
-        if ($account === null || ($account['iban'] ?? null) === null) {
-            return null;
-        }
-
-        return $this->sepaQr->generatePng(
-            (string) ($account['holder_name'] ?? $account['name']),
-            (string) $account['iban'],
-            null,
-            $amount,
-            $status['communication']
         );
     }
 
@@ -573,155 +704,75 @@ class RentalPaymentService
     // ── Internals ───────────────────────────────────────────────────────
 
     /**
-     * @param array<string, mixed> $existing
+     * @throws RentalException
      */
-    private function ensureRentalReceivable(
-        RentalBooking $booking,
-        PaymentSettings $settings,
-        array $existing,
-        int $totalCents,
-        \DateTimeImmutable $now,
-        ?int $actorMemberId
-    ): ?int {
-        $depositCents = $settings->depositFor($totalCents);
-
-        $receivableId = $existing['rental_receivable_id'] ?? null;
-        if (is_int($receivableId)) {
-            // Already raised: move the amount in place. Minting a second
-            // communication here would orphan the transfers already made.
-            $this->updateRentalAmount($booking, $settings, $totalCents, false, $actorMemberId);
-
-            return $receivableId;
-        }
-
-        $communication = $this->communications?->generate();
-        if ($communication === null) {
-            return null;
-        }
-
+    private function moveAmount(int $receivableId, int $totalCents, bool $allowOverpayment): void
+    {
         try {
-            $receivableId = $this->receivables?->createReceivable(
-                self::SOURCE_MODULE,
-                $booking->id,
-                (int) $settings->financeAccountId,
-                $totalCents,
-                $communication,
-                // The label may identify the payer, and Finance encrypts it
-                // for exactly that reason — so the reference alone would be
-                // needlessly opaque to whoever reconciles the account.
-                $booking->reference . ' — ' . $booking->renterName,
-                (int) $settings->financeCategoryId
-            );
+            $this->receivables?->updateReceivableAmount($receivableId, $totalCents, $allowOverpayment);
         } catch (\Throwable $e) {
-            // Same rule as updateReceivable() above: Finance's own refusal
-            // survives, its internals do not.
+            // Finance's own refusals are written for the person in front of
+            // this booking — « Le nouveau montant (…) est inférieur à ce qui
+            // a déjà été reçu (…). Cela créerait un trop-perçu à rembourser »
+            // — and that sentence is the only thing that explains the
+            // refusal, so it must survive. Anything else Finance throws is
+            // about its internals and has nothing to say here.
             throw new RentalException(
                 UserFacingMessage::from(
                     $e,
-                    "La créance de cette location n'a pas pu être créée dans les Finances — "
+                    "Le montant à percevoir n'a pas pu être mis à jour dans les Finances — "
                     . 'vérifiez le compte financier configuré pour les locations, puis réessayez.'
                 ),
                 0,
                 $e
             );
         }
-
-        if ($receivableId === null) {
-            return null;
-        }
-
-        $this->paymentRepository->linkRentalReceivable(
-            $booking->id,
-            $receivableId,
-            $communication,
-            $depositCents,
-            PaymentSettings::dueDate($settings->depositDueDays, $now),
-            PaymentSettings::dueDate($settings->balanceDueDays, $now)
-        );
-
-        $this->journal->log(
-            'rental',
-            'rental_receivable_created',
-            'info',
-            'Créance de location créée pour ' . $booking->reference,
-            ['booking_id' => $booking->id, 'amount_cents' => $totalCents]
-        );
-
-        return $receivableId;
     }
 
     /**
-     * @param array<string, mixed> $existing
+     * Sets the receivable to $amountCents, accepting an overpayment, and
+     * swallows a failure into the journal and the booking's history — the
+     * shared body of `abandonAmount()` and `settleAmount()`.
      */
-    private function ensureSecurityDepositReceivable(
-        RentalBooking $booking,
-        PaymentSettings $settings,
-        array $existing,
-        \DateTimeImmutable $now
-    ): ?int {
-        $amount = $settings->securityDepositAmount();
-        if ($amount === null) {
-            return null;
-        }
-
-        $existingId = $existing['security_deposit_receivable_id'] ?? null;
-        if (is_int($existingId)) {
-            return $existingId;
-        }
-
-        // Its OWN communication, deliberately different from the rental's:
-        // a renter transferring the security deposit must not accidentally
-        // settle part of the rental with it, and the two must be separable
-        // on the account (§6.20).
-        $communication = $this->communications?->generate();
-        if ($communication === null) {
-            return null;
+    private function bringTo(RentalBooking $booking, int $amountCents, string $summary, ?int $actorMemberId): void
+    {
+        $receivableId = $this->paymentRepository->loadBookingPayment($booking->id)['rental_receivable_id'] ?? null;
+        if ($receivableId === null || $this->receivables === null) {
+            return;
         }
 
         try {
-            $receivableId = $this->receivables?->createReceivable(
-                self::SOURCE_MODULE,
-                $booking->id,
-                (int) $settings->financeAccountId,
-                $amount,
-                $communication,
-                'Caution ' . $booking->reference . ' — ' . $booking->renterName,
-                (int) $settings->financeCategoryId
-            );
+            $this->moveAmount($receivableId, $amountCents, true);
         } catch (\Throwable $e) {
-            // Same rule again.
-            throw new RentalException(
-                UserFacingMessage::from(
-                    $e,
-                    "La créance de caution n'a pas pu être créée dans les Finances — "
-                    . 'vérifiez le compte financier configuré pour les locations, puis réessayez.'
-                ),
-                0,
-                $e
+            // Ids and amounts only (SECURITY.md §5); the history entry is
+            // what tells a manager on the booking itself.
+            $this->journal->log(
+                'rental',
+                'rental_receivable_not_updated',
+                'warning',
+                'Créance non mise à jour pour ' . $booking->reference . ' : ' . $e->getMessage(),
+                ['booking_id' => $booking->id, 'to_cents' => $amountCents]
             );
+            $this->bookingAudit->record(
+                $booking->id,
+                BookingAudit::PRICE_CHANGED,
+                null,
+                null,
+                'Créance non mise à jour dans les Finances : à corriger depuis Finances',
+                $actorMemberId
+            );
+
+            return;
         }
 
-        if ($receivableId === null) {
-            return null;
-        }
-
-        $this->paymentRepository->linkSecurityDepositReceivable(
+        $this->bookingAudit->record(
             $booking->id,
-            $receivableId,
-            $communication,
-            $amount,
-            PaymentSettings::dueDate($settings->securityDepositDueDays, $now)
+            BookingAudit::PRICE_CHANGED,
+            null,
+            Support::euros($amountCents),
+            $summary,
+            $actorMemberId
         );
-
-        $this->journal->log(
-            'rental',
-            'rental_security_deposit_receivable_created',
-            'info',
-            'Créance de caution créée pour ' . $booking->reference,
-            ['booking_id' => $booking->id, 'amount_cents' => $amount]
-        );
-
-        return $receivableId;
     }
 
     /**

@@ -1763,20 +1763,16 @@ class RentalManagementControllerTest extends TestCase
 
         $fresh = $this->bookingRepository->findById($booking->id);
         $this->assertNotNull($fresh);
-        $this->paymentService->ensureReceivables(
-            $fresh,
-            $this->paymentService->settingsFor($this->assetId),
-            new \DateTimeImmutable('2027-01-01 10:00:00')
-        );
+        $this->paymentService->ensureReceivable($fresh, $this->paymentService->settingsFor($this->assetId));
 
         return $fresh;
     }
 
-    public function testCancellingABookingStillOwedMoneySaysSo(): void
+    public function testCancellingABookingBringsItsReceivableToZeroAndSaysSo(): void
     {
-        // §6.17 is explicit that nothing computes a refund — but cancelling
-        // leaves the receivable exactly where it was, and "Réservation
-        // « Annulée »." on its own reads as "everything is settled".
+        // §6.17 is explicit that nothing computes a refund — but the
+        // receivable goes to 0 and stays (issue #927), and what was paid is
+        // now an overpayment the manager must hear about.
         $this->loginAsManager();
         $booking = $this->bookingOwedFor();
 
@@ -1787,8 +1783,11 @@ class RentalManagementControllerTest extends TestCase
         ]);
 
         $flash = (string) (\Core\Http\FlashMessage::get()['message'] ?? '');
-        $this->assertStringContainsString('Attention', $flash);
-        $this->assertStringContainsString('créance', $flash);
+        $this->assertStringContainsString('ramenée à 0', $flash);
+        $this->assertStringContainsString('trop-perçu', $flash);
+        $this->assertSame(0, (int) $this->pdo->query(
+            "SELECT amount_due_cents FROM finance_expected_receivables WHERE source_module = 'rental'"
+        )->fetchColumn());
     }
 
     public function testAnOrdinaryTransitionSaysNothingAboutMoney(): void
@@ -2562,6 +2561,84 @@ class RentalManagementControllerTest extends TestCase
         $documents = $this->documentService->forBooking($booking->id);
         $this->assertCount(1, $documents);
         $this->assertSame('contrat-LOC-A2B3C4-v1.pdf', $documents[0]->originalName);
+    }
+
+    public function testTheFirstContractPrintsTheCommunicationOfTheReceivableItRaises(): void
+    {
+        // The receivable is raised before the first contract (issue #927),
+        // so the contract prints the real communication, and a second
+        // version prints the same one.
+        $this->loginAsManager();
+        $this->setContractTemplate('<p>Virement : {{ communication }}</p>');
+        $booking = $this->bookingOwedFor();
+        $this->pdo->exec('DELETE FROM finance_expected_receivables');
+        $this->pdo->exec('UPDATE rental_bookings SET rental_receivable_id = NULL, rental_communication = NULL');
+
+        foreach ([1, 2] as $ignored) {
+            $this->post('/mes-locations/document-generer', 'generateDocument', [
+                'asset_id' => (string) $this->assetId,
+                'booking_id' => (string) $booking->id,
+                'document_type' => 'contract',
+            ]);
+        }
+
+        $communication = $this->pdo->query('SELECT communication FROM finance_expected_receivables')->fetchColumn();
+        $this->assertIsString($communication);
+        $this->assertSame(1, (int) $this->pdo->query(
+            'SELECT COUNT(*) FROM finance_expected_receivables'
+        )->fetchColumn());
+        $snapshots = $this->pdo->query(
+            "SELECT generated_snapshot FROM rental_documents WHERE document_type = 'contract'"
+        )->fetchAll(\PDO::FETCH_COLUMN);
+        $this->assertCount(2, $snapshots);
+        foreach ($snapshots as $snapshot) {
+            $this->assertSame($communication, json_decode((string) $snapshot, true)['communication'] ?? null);
+        }
+    }
+
+    public function testNoContractIsGeneratedWhenPaymentsAreOnButTheReceivableCannotBeRaised(): void
+    {
+        // Payments on, but the category the receivable must name is gone:
+        // generating would send a contract without a communication.
+        $this->loginAsManager();
+        $this->setContractTemplate('<p>Virement : {{ communication }}</p>');
+        $this->paymentService->saveSettings($this->assetId, new \Modules\Rental\Payment\PaymentSettings(
+            enabled: true,
+            financeAccountId: $this->financeAccountId,
+            financeCategoryId: $this->financeCategoryId
+        ));
+        $this->pdo->exec('UPDATE rental_assets SET finance_category_id = NULL');
+        $booking = $this->createBooking();
+
+        $this->post('/mes-locations/document-generer', 'generateDocument', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'document_type' => 'contract',
+        ]);
+
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertSame('error', $flash['type'] ?? null);
+        $this->assertStringContainsString("Le contrat n'a pas été généré", (string) ($flash['message'] ?? ''));
+        $this->assertSame([], $this->documentService->forBooking($booking->id));
+    }
+
+    public function testAGoodwillGestureIsRecordedAsALineOfTheSettlement(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+
+        $this->post('/mes-locations/decompte', 'recordSettlement', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'final_persons' => '20',
+            'gesture_label' => 'Geste commercial',
+            'gesture_amount' => '50,00',
+        ]);
+
+        $settlement = $this->stayService->latestSettlement($booking->id);
+        $this->assertNotNull($settlement);
+        $this->assertSame(-5000, $settlement->gesture()?->amountCents);
+        $this->assertSame('Geste commercial', $settlement->gesture()?->label);
     }
 
     /**

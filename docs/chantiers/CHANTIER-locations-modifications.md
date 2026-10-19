@@ -468,4 +468,4 @@ gabarit** : si D fusionne avant E, il supprime seulement la ligne d'inclusion.
 
 | Lot | PR | Livré | Écarts / notes |
 |---|---|---|---|
-| | | | |
+| C | #? | Créance unique : une créance location + caution et une communication, créées à la première génération du contrat (refus de générer si paiements activés et créance impossible) ; acompte = premier envoi + N jours, solde et caution = X jours avant l'arrivée (dérivé) ; créance à 0 sur refus, annulation, expiration ; décompte validé → montant conservé, ligne « Geste commercial » ; colonnes et réglage de la caution retirés (`drops.sql`). | `updateRentalAmount()` pour D (prix de location, caution ajoutée par le service) ; rappel « caution non reçue » tu quand celui du solde part ; Finances lit 0 € reçu sur une créance ramenée à 0 (allocation automatique à 0 traitée comme manuelle) — à corriger côté Finances (lot B) pour que le trop-perçu apparaisse. |

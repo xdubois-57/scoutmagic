@@ -273,12 +273,12 @@ class ReminderPlanner
         }
 
         $balanceDue = self::dateOrNull($payment['balance_due_date'] ?? null);
-        if ($balanceDue !== null
+        $balanceLate = $balanceDue !== null
             && $stillWorthAsking
             && $schedule->isActive(ReminderKind::BALANCE_MISSING)
             && self::paymentLateFrom($balanceDue, ReminderKind::BALANCE_MISSING, $schedule) <= $midnight
-            && ($payment['fully_paid'] ?? false) !== true
-        ) {
+            && ($payment['fully_paid'] ?? false) !== true;
+        if ($balanceLate) {
             $due[] = $this->booking(
                 $booking,
                 $asset,
@@ -295,7 +295,12 @@ class ReminderPlanner
         $securityAmount = $security['amount_cents'] ?? null;
         $securityReceived = (int) ($security['received_cents'] ?? 0);
 
+        // The security deposit is part of the booking's one receivable and
+        // falls due with the balance (issue #927): when the balance is
+        // being chased, that reminder already asks for it, and a second one
+        // about the same transfer would only be noise.
         if ($securityDue !== null
+            && !$balanceLate
             && $stillWorthAsking
             && $schedule->isActive(ReminderKind::SECURITY_DEPOSIT_MISSING)
             && self::paymentLateFrom($securityDue, ReminderKind::SECURITY_DEPOSIT_MISSING, $schedule) <= $midnight

@@ -115,23 +115,25 @@ CREATE TABLE IF NOT EXISTS rental_assets (
     finance_category_id INT UNSIGNED NULL,
 
     -- 'none' | 'fixed' | 'percentage'. The deposit is a THRESHOLD on the
-    -- single rental receivable, never a second receivable (§6.19): the
-    -- deposit and the balance share one communication, and "deposit
-    -- received" means amount_received >= deposit_amount.
+    -- booking's single receivable, never a second receivable (§6.19): one
+    -- communication for everything, and "deposit received" means
+    -- amount_received >= deposit_amount.
     deposit_mode VARCHAR(20) NOT NULL DEFAULT 'none',
     deposit_amount_cents INT UNSIGNED NULL,
     deposit_percentage TINYINT UNSIGNED NULL,
-    -- Days after confirmation, not a fixed date: an asset's rule has to
-    -- outlive any single booking.
+    -- Days, not a fixed date: an asset's rule has to outlive any single
+    -- booking. The deposit falls due this many days AFTER the first contract
+    -- is sent; the balance — and the security deposit with it — this many
+    -- days BEFORE the arrival (issue #927).
     deposit_due_days SMALLINT UNSIGNED NULL,
     balance_due_days SMALLINT UNSIGNED NULL,
 
-    -- 'none' | 'fixed'. The security deposit IS its own receivable with its
-    -- own communication (§6.20) — it is not part of the rental price and
-    -- must never be counted as rental revenue.
+    -- 'none' | 'fixed'. The security deposit is ADDED to the rental price
+    -- in the booking's single receivable, under the same communication, and
+    -- falls due with the balance (issue #927) — so it has no deadline of
+    -- its own.
     security_deposit_mode VARCHAR(20) NOT NULL DEFAULT 'none',
     security_deposit_amount_cents INT UNSIGNED NULL,
-    security_deposit_due_days SMALLINT UNSIGNED NULL,
 
     -- ── Calendar publication (§6.30) ─────────────────────────────────
     -- Occupancy is published as VIRTUAL events (§6.31): nothing is ever
@@ -476,10 +478,11 @@ CREATE TABLE IF NOT EXISTS rental_bookings (
     privacy_acknowledged_at DATETIME NULL,
 
     -- ── Payments (§6.19, §6.20) ──────────────────────────────────────
-    -- ONE receivable for the whole rental. The deposit is a threshold on
-    -- it, not a second one: two receivables would mean two communications,
-    -- and a renter paying the balance with the deposit's reference would
-    -- settle the wrong one.
+    -- ONE receivable per booking: the rental price plus the security
+    -- deposit, under one structured communication (issue #927). Raised
+    -- before the first contract is generated, so the contract prints it,
+    -- and never deleted outside the retention purge: abandoned, it is
+    -- brought to 0; settled, to the amount the final settlement keeps.
     --
     -- The id points into Finance and is reached only through its public
     -- API (Modules\Finance\Api\ExpectedReceivableInterface), so there is
@@ -491,21 +494,18 @@ CREATE TABLE IF NOT EXISTS rental_bookings (
     -- move under a renter who was told a figure. A percentage that changes
     -- on the asset afterwards does not rewrite what was asked.
     deposit_amount_cents INT UNSIGNED NULL,
+    -- Set once, at the FIRST contract sent: a replacement contract does not
+    -- move it. The balance's deadline is not stored — it is the arrival
+    -- less the asset's `balance_due_days`, read when shown.
     deposit_due_date DATE NULL,
-    balance_due_date DATE NULL,
 
-    -- The security deposit: its OWN receivable, its OWN communication, and
-    -- never rental revenue (§6.20).
-    security_deposit_receivable_id INT UNSIGNED NULL,
-    security_deposit_communication VARCHAR(24) NULL,
+    -- The security deposit included in the receivable, snapshotted with it
+    -- for the same reason as the deposit threshold.
     security_deposit_amount_cents INT UNSIGNED NULL,
-    security_deposit_due_date DATE NULL,
     -- 'none' | 'to_receive' | 'received' | 'to_return' | 'returned'
     -- | 'partially_withheld' | 'fully_withheld'.
     security_deposit_status VARCHAR(30) NOT NULL DEFAULT 'none',
-    -- The return is tracked BY HAND here, deliberately: Finance does not
-    -- reconcile outgoing payments, and inventing that would be out of
-    -- scope. Documented rather than hidden (§6.20).
+    -- The return as a manager recorded it by hand (§6.20).
     security_deposit_returned_cents INT UNSIGNED NULL,
     security_deposit_withheld_cents INT UNSIGNED NULL,
     security_deposit_returned_at DATE NULL,

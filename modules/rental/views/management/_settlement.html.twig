@@ -5,7 +5,8 @@
 
   Requires `asset`, `booking`, `settlements`, `final_persons`, `preview`,
   `decided_incidents` and `inventory_url` (null where the asset keeps no
-  inventory page).
+  inventory page). Optional: `gesture`, the « Geste commercial » line of the
+  latest version, carried into the form (issue #927).
 #}
 <div class="card mb-3">
     <div class="card-body">
@@ -99,7 +100,21 @@
                 <input type="number" inputmode="numeric" min="0" class="form-control form-control-sm" id="final-persons"
                        name="final_persons" value="{{ final_persons }}">
             </div>
+            {# A discount granted after the stay: a negative line of the
+               settlement, never a change to the agreed price (issue #927). #}
             <div class="col-6 col-md-4">
+                <label class="form-label" for="gesture-label">Geste commercial</label>
+                <input type="text" class="form-control form-control-sm" id="gesture-label" name="gesture_label"
+                       maxlength="120" placeholder="Geste commercial"
+                       value="{{ gesture ? gesture.label : '' }}">
+            </div>
+            <div class="col-6 col-md-2">
+                <label class="form-label" for="gesture-amount">Montant déduit (€)</label>
+                <input type="text" class="form-control form-control-sm" id="gesture-amount" name="gesture_amount"
+                       inputmode="decimal"
+                       value="{{ gesture ? (gesture.amountCents|abs / 100)|number_format(2, ',', '') : '' }}">
+            </div>
+            <div class="col-12 col-md-3">
                 <button type="submit" class="btn btn-sm btn-outline-secondary w-100">
                     Enregistrer un décompte
                 </button>
@@ -125,7 +140,8 @@
                             {% include 'partials/status_badge.html.twig' with { status: 'done', label: 'Validé' } only %}
                         {% else %}
                             <form method="post" action="/mes-locations/decompte-valider"
-                                  data-confirm="Valider ce décompte ? Il ne pourra plus être modifié.">
+                                  data-confirm="{{ 'Valider ce décompte ? Il ne pourra plus être modifié, '
+                                      ~ 'et la créance passe au montant conservé. Aucun e-mail n\'est envoyé.' }}">
                                 {{ csrf_field()|raw }}
                                 <input type="hidden" name="asset_id" value="{{ asset.id }}">
                                 <input type="hidden" name="booking_id" value="{{ booking.id }}">

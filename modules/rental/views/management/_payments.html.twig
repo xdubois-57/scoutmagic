@@ -6,11 +6,11 @@
   unit that settles its rentals by hand is a perfectly normal unit, and it
   must not meet a half-working screen.
 
-  Two distinct things live here and must not be confused. The DEPOSIT is a
-  threshold on the single rental receivable — same communication as the
-  balance, because two communications would let a renter settle the wrong
-  one. The SECURITY DEPOSIT is a separate receivable with its own
-  communication, and never counts as rental revenue.
+  ONE receivable per booking — the rental price plus the security deposit —
+  with one structured communication (issue #927). The DEPOSIT is a
+  threshold on it, due some days after the first contract is sent; the
+  balance and the security deposit fall due together, some days before
+  arrival.
 
   The Finance ACCOUNT is deliberately not a field here: it is pinned by the
   unit staff on « Espace chefs d'U > Locations », because the account list
@@ -51,10 +51,9 @@
             </p>
         {% else %}
             <p class="text-body-secondary small mb-3">
-                Une seule créance est créée pour toute la location. L'acompte n'est pas une créance
-                séparée : c'est un <strong>seuil</strong>, avec la même communication structurée que
-                le solde. La caution, elle, est bien une créance distincte — et elle n'entre jamais
-                dans le revenu de location.
+                Une seule créance est créée par réservation : le prix de la location et la caution,
+                avec une seule communication structurée pour l'acompte, le solde et la caution.
+                L'acompte est un <strong>seuil</strong> sur cette créance, pas un paiement à part.
             </p>
 
             <dl class="row mb-3">
@@ -80,13 +79,16 @@
                     {{ payment_settings.depositMode.label }}
                     {%- if payment_settings.depositAmountCents is not null %} · {{ payment_settings.depositAmountCents|money_cents }}{% endif %}
                     {%- if payment_settings.depositPercentage is not null %} · {{ payment_settings.depositPercentage }} %{% endif %}
-                    {%- if payment_settings.depositDueDays %} · attendu {{ payment_settings.depositDueDays }} jour{{ payment_settings.depositDueDays > 1 ? 's' : '' }} après la confirmation{% endif %}
+                    {%- if payment_settings.depositDueDays %} · attendu {{ payment_settings.depositDueDays }}
+                        jour{{ payment_settings.depositDueDays > 1 ? 's' : '' }} après le premier envoi du contrat
+                    {%- endif %}
                 </dd>
 
                 <dt class="col-sm-5 col-lg-4">Solde</dt>
                 <dd class="col-sm-7 col-lg-8">
                     {% if payment_settings.balanceDueDays %}
-                        Attendu {{ payment_settings.balanceDueDays }} jour{{ payment_settings.balanceDueDays > 1 ? 's' : '' }} après la confirmation
+                        Attendu {{ payment_settings.balanceDueDays }}
+                        jour{{ payment_settings.balanceDueDays > 1 ? 's' : '' }} avant l'arrivée
                     {% else %}
                         Aucune échéance annoncée
                     {% endif %}
@@ -95,8 +97,7 @@
                 <dt class="col-sm-5 col-lg-4">Caution</dt>
                 <dd class="col-sm-7 col-lg-8 mb-0">
                     {% if payment_settings.securityDepositEnabled %}
-                        {{ payment_settings.securityDepositAmountCents|money_cents }}
-                        {%- if payment_settings.securityDepositDueDays %} · attendue {{ payment_settings.securityDepositDueDays }} jour{{ payment_settings.securityDepositDueDays > 1 ? 's' : '' }} après la confirmation{% endif %}
+                        {{ payment_settings.securityDepositAmountCents|money_cents }} · attendue avec le solde
                     {% else %}
                         Aucune caution demandée
                     {% endif %}
@@ -165,7 +166,7 @@
                         {% include 'partials/form_field.html.twig' with {
                             field_id: 'deposit-due-days', field_name: 'deposit_due_days', type: 'number',
                             label: 'Échéance (jours)', min: 0,
-                            help: 'Après la confirmation.',
+                            help: 'Après le premier envoi du contrat.',
                             value: payment_settings.depositDueDays,
                         } only %}
                     </div>
@@ -174,15 +175,15 @@
                 {% include 'partials/form_field.html.twig' with {
                     field_id: 'balance-due-days', field_name: 'balance_due_days', type: 'number',
                     label: 'Échéance du solde (jours)', min: 0,
-                    help: 'Après la confirmation également. Laissez vide pour ne rien annoncer.',
+                    help: "Avant l'arrivée. La caution est attendue à la même date. "
+                        ~ 'Laissez vide pour ne rien annoncer.',
                     value: payment_settings.balanceDueDays,
                 } only %}
 
                 <h3 class="h6 mt-4">Caution</h3>
                 <p class="text-body-secondary small">
-                    La caution fait l'objet d'une créance distincte, avec sa propre communication.
-                    Sa <strong>restitution se saisit à la main</strong> : Finances rapproche les
-                    virements entrants, pas les sortants — c'est une limite assumée, pas un oubli.
+                    La caution s'ajoute au prix dans la même créance, avec la même communication,
+                    et elle est attendue avec le solde.
                 </p>
                 <div class="form-check mb-3">
                     <input class="form-check-input" type="checkbox" id="security-deposit-enabled"
@@ -192,25 +193,13 @@
                         Demander une caution
                     </label>
                 </div>
-                <div class="row g-3">
-                    <div class="col-6 col-md-6">
-                        {% include 'partials/form_field.html.twig' with {
-                            field_id: 'security-deposit-amount', field_name: 'security_deposit_amount',
-                            label: 'Montant (€)', inputmode: 'decimal',
-                            wrapper_class: 'mb-0',
-                            value: payment_settings.securityDepositAmountCents is not null
-                                ? (payment_settings.securityDepositAmountCents / 100)|number_format(2, ',', '') : '',
-                        } only %}
-                    </div>
-                    <div class="col-6 col-md-6">
-                        {% include 'partials/form_field.html.twig' with {
-                            field_id: 'security-deposit-due-days', field_name: 'security_deposit_due_days',
-                            type: 'number', label: 'Échéance (jours)', min: 0,
-                            wrapper_class: 'mb-0',
-                            value: payment_settings.securityDepositDueDays,
-                        } only %}
-                    </div>
-                </div>
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'security-deposit-amount', field_name: 'security_deposit_amount',
+                    label: 'Montant (€)', inputmode: 'decimal',
+                    wrapper_class: 'mb-0',
+                    value: payment_settings.securityDepositAmountCents is not null
+                        ? (payment_settings.securityDepositAmountCents / 100)|number_format(2, ',', '') : '',
+                } only %}
             </form>
         {% endblock %}
         {% block footer %}

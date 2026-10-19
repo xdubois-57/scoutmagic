@@ -11,16 +11,14 @@ namespace Modules\Rental\Payment;
 /**
  * Where a security deposit is in its own life (§6.20).
  *
- * A separate workflow from the rental price, with its own receivable and
- * its own structured communication — and it **never counts as rental
- * revenue**. A unit holding 500 € of somebody else's money has not earned
- * 500 €.
+ * Part of the booking's single receivable and its one communication
+ * (issue #927): « reçue » is derived from the cumulative receipts reaching
+ * the whole amount — rental and security deposit — never from a share of
+ * them, and the final settlement leaves what is to be given back as the
+ * receivable's overpayment.
  *
- * The **return half is tracked by hand**, deliberately. Finance reconciles
- * incoming transfers, not outgoing ones, so "we paid it back" cannot be
- * detected from a bank statement. Inventing that would be out of scope;
- * the limitation is documented rather than hidden, and the manager records
- * the date, the amount and the reason.
+ * The **return half is recorded by hand** on the booking, with the date,
+ * the amount and the reason for any withholding.
  */
 enum SecurityDepositStatus: string
 {

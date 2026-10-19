@@ -39,10 +39,10 @@ qui écrivent au locataire vous laissent ajouter un mot.
 
 L'estimation du visiteur reste figée ; le prix **convenu** se construit
 sur la page « Finances » de la réservation, ligne par ligne — une ligne retouchée à la main n'est plus
-recalculée. Avec Finances, l'acompte et le solde se pointent grâce à la
-communication structurée ; la caution a la sienne et sa restitution se
-note à la main. Le décompte final ajoute ses lignes sans réécrire le
-prix convenu.
+recalculée. Avec Finances, une seule créance — location et caution — et
+une seule communication structurée servent à l'acompte, au solde et à la
+caution. Le décompte final ajoute ses lignes sans réécrire le prix
+convenu.
 
 ## Les documents
 

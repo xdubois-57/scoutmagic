@@ -24,6 +24,14 @@ final class SettlementLine
     public const ORIGIN_PER_PERSON = 'per_person';
     public const ORIGIN_INCIDENT = 'incident';
     public const ORIGIN_MANUAL = 'manual';
+    /**
+     * A goodwill gesture granted after the stay (issue #927): a discount on
+     * the settlement, never on the agreed price, and with no new contract.
+     */
+    public const ORIGIN_GESTURE = 'gesture';
+
+    /** What a gesture is called when the manager names it nothing else. */
+    public const GESTURE_LABEL = 'Geste commercial';
 
     public function __construct(
         public readonly string $label,
@@ -32,6 +40,29 @@ final class SettlementLine
         /** Free detail — a consumption, a head count. Never a calculation to redo. */
         public readonly ?string $detail = null
     ) {
+    }
+
+    /**
+     * The « Geste commercial » line for a discount of $amountCents, or null
+     * when there is none.
+     *
+     * Always negative, whichever sign was typed: a gesture lowers what the
+     * stay comes to, and a manager typing « 50 » into a field labelled as a
+     * discount means fifty euros off, not fifty more.
+     */
+    public static function gesture(?string $label, ?int $amountCents): ?self
+    {
+        if ($amountCents === null || $amountCents === 0) {
+            return null;
+        }
+
+        $label = $label !== null ? trim($label) : '';
+
+        return new self(
+            $label !== '' ? mb_substr($label, 0, 120) : self::GESTURE_LABEL,
+            -abs($amountCents),
+            self::ORIGIN_GESTURE
+        );
     }
 
     /**

@@ -37,10 +37,12 @@ visiteur verra le même.
 
 ## Acompte, solde et caution
 
-Cette section n'existe que si le module Finances est actif. L'acompte n'est
-pas une créance séparée : c'est un seuil sur celle de la location, avec la
-même communication structurée que le solde. La caution, elle, est une
-créance à part entière et n'entre jamais dans le revenu de location.
+Cette section n'existe que si le module Finances est actif. Chaque
+réservation a une seule créance — le prix de la location plus la caution —
+avec une seule communication structurée. L'acompte est un seuil sur cette
+créance, attendu le nombre de jours choisi après le premier envoi du
+contrat. Le solde et la caution sont attendus ensemble, le nombre de jours
+choisi avant l'arrivée : la caution n'a pas d'échéance à elle.
 
 Le compte bancaire attendu ne se choisit pas ici : il est fixé par le Staff
 d'Unité, la liste des comptes portant les IBAN de l'unité.
