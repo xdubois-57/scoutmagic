@@ -106,7 +106,10 @@ export default defineConfig({
     // 'list' for whoever is watching the run (a developer's terminal, the
     // CI log, scripts/release.sh's gate output), plus an HTML report that
     // CI uploads as an artifact when the job fails.
-    reporter: [['list'], ['html', { outputFolder: './playwright-report', open: 'never' }]],
+    // The third one names the red scenarios as annotations and in the job
+    // summary on GitHub Actions, where an agent reading the API can see
+    // them (issue #912); it does nothing anywhere else.
+    reporter: [['list'], ['html', { outputFolder: './playwright-report', open: 'never' }], ['./support/summary-reporter.js']],
     use: {
         baseURL,
         // Diagnostics on failure only — a green run leaves nothing behind

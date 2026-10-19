@@ -281,6 +281,16 @@ and never to get a flaky test out of CI's way.
 in `tests/e2e/specs/rental-management.spec.js` documents a failure that
 surfaced only under it. Reproduce a red `e2e-tests` with the flag on.
 
+**A red scenario is named where the API can read it.** On GitHub Actions,
+`tests/e2e/support/summary-reporter.js` turns every failed or timed-out
+scenario into an annotation on the job's check run and a line of the job
+summary (file, line, title, first line of the error). Both browser jobs get
+it, the DAST profiles included, since `scripts/dast.sh` hands its
+environment to Playwright. Before it, a failure said « exit code 1 » to the
+API, and the raw log and the Playwright report live on a storage host an
+agent session cannot reach — issue #912 had to be diagnosed from a log
+pasted by hand.
+
 ### Dynamic scan — OWASP ZAP
 
 `scripts/dast.sh`, profiles `passive`, `standard`, `deep`, `audit`.
