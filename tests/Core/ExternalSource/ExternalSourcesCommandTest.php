@@ -100,6 +100,33 @@ final class ExternalSourcesCommandTest extends TestCase
         $this->assertSame('', $stderr);
     }
 
+    /**
+     * The scale the script loads is the reference the fees page is compared
+     * with: a page whose amounts differ from it diverges, naming both.
+     */
+    public function testTheLoadedScaleIsTheReferenceTheFeesPageIsComparedWith(): void
+    {
+        $feesUrl = ExternalSources::byId(ExternalSources::FEES_PAGE_ID)?->url;
+        $this->assertNotNull($feesUrl);
+        $page = new FetchedPage(200, (string) file_get_contents(dirname(__DIR__, 2) . '/fixtures/external-sources/fees-conform.html'));
+        $fetcher = new class ($feesUrl, $page) implements PageFetcherInterface {
+            public function __construct(private readonly string $feesUrl, private readonly FetchedPage $page)
+            {
+            }
+
+            public function fetch(string $url): FetchedPage
+            {
+                return $url === $this->feesUrl ? $this->page : new FetchedPage(200);
+            }
+        };
+
+        [, $same] = self::execute($fetcher, [], static fn (): FederalScale => new FederalScale(5750, 4600, 3900));
+        [, $other] = self::execute($fetcher, [], static fn (): FederalScale => new FederalScale(1, 2, 3));
+
+        $this->assertStringNotContainsString('amounts changed', $same);
+        $this->assertStringContainsString('amounts changed', $other);
+    }
+
     /** The weekly check: one request per source, whatever the host does. */
     public function testWithoutTheOptionEachSourceIsAskedOnce(): void
     {
