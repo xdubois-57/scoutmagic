@@ -261,6 +261,126 @@ final class ExternalSourceCheckerTest extends TestCase
         $this->assertSame(['redirects to https://auth.example.test/login'], $result->notes);
     }
 
+    // ── A host that answers only some of the time (issue #760) ─────────
+
+    /**
+     * A fetcher replaying `$pages` in order, one per call, and counting the
+     * calls: the number of requests the checker makes is what is tested.
+     *
+     * @param list<FetchedPage> $pages
+     */
+    private static function sequence(array $pages): object
+    {
+        return new class ($pages) implements PageFetcherInterface {
+            public int $calls = 0;
+
+            /** @param list<FetchedPage> $pages */
+            public function __construct(private readonly array $pages)
+            {
+            }
+
+            public function fetch(string $url): FetchedPage
+            {
+                return $this->pages[min($this->calls++, count($this->pages) - 1)];
+            }
+        };
+    }
+
+    public function testASingleAttemptIsTheDefaultAndAnUnansweredRequestDiverges(): void
+    {
+        $fetcher = self::sequence([FetchedPage::unreachable('timed out'), new FetchedPage(200)]);
+
+        $result = (new ExternalSourceChecker($fetcher))->check(self::link());
+
+        $this->assertFalse($result->isConform());
+        $this->assertSame(1, $fetcher->calls);
+        $this->assertStringContainsString('no answer (timed out)', $result->divergences[0]);
+    }
+
+    public function testAnIsolatedFailureDoesNotDivergeWhenASecondAttemptIsAllowed(): void
+    {
+        $fetcher = self::sequence([FetchedPage::unreachable('timed out'), new FetchedPage(200)]);
+
+        $result = (new ExternalSourceChecker($fetcher, attempts: 2))->check(self::link());
+
+        $this->assertTrue($result->isConform(), implode("\n", $result->divergences));
+        $this->assertSame(200, $result->status);
+        $this->assertSame(2, $fetcher->calls);
+    }
+
+    public function testARepeatedFailureStillDivergesAndSaysHowManyAttemptsWereMade(): void
+    {
+        $fetcher = self::sequence([FetchedPage::unreachable('timed out')]);
+
+        $result = (new ExternalSourceChecker($fetcher, attempts: 2))->check(self::link());
+
+        $this->assertFalse($result->isConform());
+        $this->assertSame(2, $fetcher->calls);
+        $this->assertStringContainsString('no answer after 2 attempts (timed out)', $result->divergences[0]);
+    }
+
+    /**
+     * Only silence is retried: a server that answered 404 or 500 said what
+     * it had to say, and asking again would hide a page that really is gone.
+     */
+    public function testARealAnswerIsNeverRetried(): void
+    {
+        $fetcher = self::sequence([new FetchedPage(404), new FetchedPage(200)]);
+
+        $result = (new ExternalSourceChecker($fetcher, attempts: 2))->check(self::link());
+
+        $this->assertFalse($result->isConform());
+        $this->assertSame(1, $fetcher->calls);
+        $this->assertSame(['HTTP 404 — the page is gone'], $result->divergences);
+    }
+
+    public function testASecondAttemptAlsoSavesAContentSource(): void
+    {
+        $fetcher = self::sequence([
+            FetchedPage::unreachable('timed out'),
+            new FetchedPage(200, self::fixture('fees-conform.html')),
+        ]);
+
+        $result = (new ExternalSourceChecker($fetcher, attempts: 2))->check(self::feesSource());
+
+        $this->assertTrue($result->isConform(), implode("\n", $result->divergences));
+        $this->assertSame(2, $fetcher->calls);
+    }
+
+    public function testFewerThanOneAttemptStillMakesOneRequest(): void
+    {
+        $fetcher = self::sequence([new FetchedPage(200)]);
+
+        (new ExternalSourceChecker($fetcher, attempts: 0))->check(self::link());
+
+        $this->assertSame(1, $fetcher->calls);
+    }
+
+    /**
+     * The retry is for the release gate only (the maintainer's decision on
+     * #760): the weekly check stays a single attempt, and the option is
+     * spelled out. An unknown option exits 2 — "could not run" — before any
+     * page is fetched, rather than being ignored.
+     */
+    public function testTheScriptRefusesAnUnknownOptionBeforeFetchingAnything(): void
+    {
+        $script = dirname(__DIR__, 3) . '/scripts/check-external-sources.php';
+
+        $process = proc_open(
+            [PHP_BINARY, $script, '--no-such-option'],
+            [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+            $pipes
+        );
+        $this->assertIsResource($process);
+        $stdout = (string) stream_get_contents($pipes[1]);
+        $stderr = (string) stream_get_contents($pipes[2]);
+        $exit = proc_close($process);
+
+        $this->assertSame(2, $exit);
+        $this->assertSame('', $stdout, 'A page was checked despite the unknown option.');
+        $this->assertStringContainsString('--retry-unreachable', $stderr);
+    }
+
     // ── The report and the exit code ───────────────────────────────────
 
     public function testTheReportListsDivergencesFirstAndCounts(): void

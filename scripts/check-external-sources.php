@@ -14,9 +14,14 @@ declare(strict_types=1);
  * page, and prints one line per source — divergences first. Exits 0 when
  * everything conforms, 1 on any divergence, 2 when it could not run.
  *
+ * `--retry-unreachable` allows a second request to a source that did not
+ * answer at all (issue #760: a host answering one request in three made the
+ * release gate a coin toss). Only the release gate passes it; without it, a
+ * source is asked once. Any other argument exits 2.
+ *
  * Two callers, one verdict:
  * - `scripts/release.sh`'s sixth gate, « Sources externes », which refuses
- *   the release on exit 1;
+ *   the release on exit 1, and passes `--retry-unreachable`;
  * - `.github/workflows/external-sources-check.yml`, weekly, where Claude
  *   reads this report and opens or updates an issue per divergence
  *   (`.claude/skills/external-sources/SKILL.md`);
@@ -51,6 +56,16 @@ if (!is_file($autoload)) {
 }
 require $autoload;
 
+// Not silently ignored: a mistyped option must not run a check the caller
+// believes is configured otherwise.
+$options = array_slice($argv, 1);
+$unknown = array_values(array_diff($options, ['--retry-unreachable']));
+if ($unknown !== []) {
+    fwrite(STDERR, 'Unknown option ' . $unknown[0] . ". The only option is --retry-unreachable.\n");
+    exit(2);
+}
+$attempts = in_array('--retry-unreachable', $options, true) ? 2 : 1;
+
 // The scale shipped with the site (modules/fees/data/federal-scale.json) is
 // the reference: the fees page's three amounts must equal it, or the fees
 // source diverges and the report names both. A shipped file that cannot be
@@ -62,7 +77,7 @@ try {
     exit(2);
 }
 
-$checker = new ExternalSourceChecker(new StreamPageFetcher(), referenceScale: $referenceScale);
+$checker = new ExternalSourceChecker(new StreamPageFetcher(), referenceScale: $referenceScale, attempts: $attempts);
 $results = $checker->checkAll(ExternalSources::all());
 
 echo ExternalSourceChecker::report($results);

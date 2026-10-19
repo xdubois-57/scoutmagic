@@ -730,6 +730,11 @@ check_sonar_gate() {
 # The same script runs weekly (.github/workflows/external-sources-check.yml),
 # so a divergence found here should already have its issue.
 #
+# A host that answers only some of the time (issue #760) must not make
+# this gate a coin toss, so the script is run with --retry-unreachable: a
+# source that did not answer at all is asked a second time. The weekly
+# check does not pass it.
+#
 # Last, because it is the one gate that depends on third parties'
 # websites rather than on this repository: whatever it says, every gate
 # before it has already said everything about the code.
@@ -741,7 +746,7 @@ check_sources_gate() {
     # errexit is off here (see run_gate), so the failure is propagated by
     # hand, exactly as check_sonar_gate does. The script prints its own
     # report, divergences first.
-    php "${script_dir}/check-external-sources.php" || {
+    php "${script_dir}/check-external-sources.php" --retry-unreachable || {
         echo "ERROR: release blocked by the external sources gate — see the divergences above." >&2
         echo "Fix the register or the code that depends on the page (the weekly check's issue says how), or re-run with --skip-sources-gate to bypass (emergency use only)." >&2
         exit 1
