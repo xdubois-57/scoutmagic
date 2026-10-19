@@ -77,7 +77,9 @@ final class TrombinoscopeStepCheck implements StepCheckProvider
 
         $rows = [];
         /**
-         * @var array<int, array{name: string, section: string, url: string, origin: string, photo_year: ?string}> $people
+         * @var array<int, array{
+         *     name: string, section: string, url: string, origin: string, photo_year: ?string
+         * }> $people
          */
         $people = [];
         foreach ($checked as $section) {
