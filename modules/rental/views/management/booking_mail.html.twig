@@ -56,9 +56,12 @@
                                 <input type="hidden" name="booking_id" value="{{ booking.id }}">
                                 <input type="hidden" name="booking_page" value="{{ booking_page.value }}">
                                 <input type="hidden" name="other_email_id" value="{{ other.id }}">
+                                {# Icon only (chantier #927, §2.4): the address beside it
+                                   already says what goes; the name is for whoever cannot
+                                   see the cross. #}
                                 <button type="submit" class="btn btn-outline-secondary btn-sm"
-                                        aria-label="Retirer {{ other.email }}">
-                                    <i class="bi bi-x-lg" aria-hidden="true"></i> Retirer
+                                        aria-label="Retirer {{ other.email }}" title="Retirer {{ other.email }}">
+                                    <i class="bi bi-x-lg" aria-hidden="true"></i>
                                 </button>
                             </form>
                         </li>

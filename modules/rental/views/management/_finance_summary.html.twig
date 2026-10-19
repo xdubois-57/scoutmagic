@@ -1,0 +1,122 @@
+{#
+  « Résumé » — the first card of « Finances » (chantier #927, §2.4):
+  what the booking costs, what the receivable expects at this point,
+  what came in, and what is still due or owed back. Read-only: no price
+  is edited here.
+
+  Every figure is Finance's answer for the booking's ONE receivable
+  (RentalPaymentService::statusFor()): the deposit and the full payment
+  are thresholds on the cumulative receipts, never a split of them
+  between the rental and the security deposit. « Montant attendu » is the
+  receivable's live amount — 0 once the booking was abandoned, the kept
+  amount once the final settlement is validated — and what came in
+  beyond it, less what already went back, reads « Trop-perçu ».
+
+  Requires `booking`, `payment` and `settlement` (the validated one, or
+  null).
+#}
+{% set security = payment.security_deposit %}
+{% set overpaid = payment.overpaid_cents|default(0) %}
+<div class="card mb-3">
+    <div class="card-body">
+        <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+            <h2 class="h5 mb-0">Résumé</h2>
+            <span data-booking-panel="payment-figure">
+                {% if overpaid > 0 %}
+                    {% include 'partials/status_badge.html.twig' with {
+                        status: 'pending', label: overpaid|money_cents ~ ' à rembourser',
+                    } only %}
+                {% elseif payment.remaining_cents > 0 %}
+                    {% include 'partials/status_badge.html.twig' with {
+                        status: 'pending', label: payment.remaining_cents|money_cents ~ ' restant dû',
+                    } only %}
+                {% elseif payment.fully_paid or payment.refunded_cents|default(0) > 0 %}
+                    {% include 'partials/status_badge.html.twig' with { status: 'done', label: 'Soldé' } only %}
+                {% endif %}
+            </span>
+        </div>
+
+        <div data-booking-panel="payment">
+            <dl class="row mb-3">
+                <dt class="col-sm-5">Prix de la location</dt>
+                <dd class="col-sm-7">
+                    {% if payment.rental_cents is not null %}
+                        {{ payment.rental_cents|money_cents }}
+                        {% if settlement %}<span class="small text-body-secondary">(convenu)</span>{% endif %}
+                    {% else %}
+                        —
+                    {% endif %}
+                </dd>
+
+                {% if security.amount_cents is not null and security.amount_cents > 0 %}
+                    <dt class="col-sm-5">Caution</dt>
+                    <dd class="col-sm-7">
+                        {{ security.amount_cents|money_cents }}
+                        <span class="badge text-bg-secondary ms-1">{{ security.status.label }}</span>
+                    </dd>
+                {% endif %}
+
+                {% if settlement %}
+                    <dt class="col-sm-5">Décompte final</dt>
+                    <dd class="col-sm-7">
+                        validé le {{ settlement.validatedAt|date_fr }} —
+                        <strong>montant conservé {{ payment.total_cents|money_cents }}</strong>
+                    </dd>
+                {% elseif booking.status.isAbandoned %}
+                    <dt class="col-sm-5">Réservation</dt>
+                    <dd class="col-sm-7">{{ booking.status.label }} — plus rien n'est attendu</dd>
+                {% endif %}
+
+                <dt class="col-sm-5">Montant attendu</dt>
+                <dd class="col-sm-7">
+                    <strong>{{ payment.total_cents is not null ? payment.total_cents|money_cents : '—' }}</strong>
+                </dd>
+                <dt class="col-sm-5">Reçu</dt>
+                <dd class="col-sm-7">{{ payment.received_cents|money_cents }}</dd>
+                {% if payment.refunded_cents|default(0) > 0 %}
+                    <dt class="col-sm-5">Remboursé</dt>
+                    <dd class="col-sm-7">{{ payment.refunded_cents|money_cents }}</dd>
+                {% endif %}
+                {% if overpaid > 0 %}
+                    <dt class="col-sm-5">Trop-perçu</dt>
+                    <dd class="col-sm-7"><strong>{{ overpaid|money_cents }}</strong> à rembourser</dd>
+                {% else %}
+                    <dt class="col-sm-5">Restant dû</dt>
+                    <dd class="col-sm-7"><strong>{{ payment.remaining_cents|money_cents }}</strong></dd>
+                {% endif %}
+
+                {% if payment.deposit_cents is not null %}
+                    <dt class="col-sm-5">Acompte</dt>
+                    <dd class="col-sm-7">
+                        {{ payment.deposit_cents|money_cents }}
+                        {% include 'partials/status_badge.html.twig' with {
+                            status: payment.deposit_received ? 'done' : 'pending',
+                            label: payment.deposit_received ? 'Acompte reçu' : 'Acompte en attente',
+                        } only %}
+                        {% if payment.deposit_due_date and not payment.deposit_received %}
+                            <span class="small text-body-secondary d-block">
+                                attendu pour le {{ payment.deposit_due_date|date_fr }}
+                            </span>
+                        {% endif %}
+                    </dd>
+                {% endif %}
+
+                <dt class="col-sm-5">Solde</dt>
+                <dd class="col-sm-7 mb-0">
+                    {% if payment.fully_paid %}
+                        reçu
+                    {% elseif payment.balance_due_date %}
+                        attendu pour le {{ payment.balance_due_date|date_fr }}{% if security.amount_cents %}, caution comprise{% endif %}
+                    {% else %}
+                        aucune échéance annoncée
+                    {% endif %}
+                </dd>
+            </dl>
+
+            <p class="small text-body-secondary mb-0">
+                Une seule créance et une seule communication pour l'acompte, le solde et la caution.
+                Une modification en préparation ne change rien ici.
+            </p>
+        </div>
+    </div>
+</div>

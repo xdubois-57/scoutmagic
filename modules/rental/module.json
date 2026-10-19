@@ -294,6 +294,15 @@
       "label": ""
     },
     {
+      "path": "/mes-locations/remboursement-rapprocher",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "reconcileRefund",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
       "path": "/mes-locations/gabarit",
       "method": "POST",
       "controller": "Modules\\Rental\\Controller\\RentalManagementController",

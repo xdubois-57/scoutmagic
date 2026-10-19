@@ -1,0 +1,86 @@
+{#
+  « Mouvements du compte » — the second card of « Finances » (chantier
+  #927, §2.4): the bank movements reconciled with the booking's
+  receivable, oldest first — the renter's payments and the refunds of
+  their surplus.
+
+  Read through Finance's Api (ExpectedReceivableInterface::
+  getReceivableMovements()), so each line is THIS booking's share of a
+  movement and nothing else of the account is ever shown: not the rest
+  of a transfer shared with another receivable, not the movements that
+  belong to nobody yet.
+
+  A payment's share is capped at what the receivable expects, so once it
+  was brought down — a validated settlement, an abandoned booking — part
+  of what came in is nobody's share: it is the surplus, shown as its own
+  line so the column still adds up to what the renter paid.
+
+  Requires `movements` (list<Finance\Api\ReceivableMovement>) and
+  `payment`.
+#}
+{% set absorbed = movements|filter(m => m.amountCents > 0)|reduce((sum, m) => sum + m.amountCents, 0) %}
+{% set beyond = payment.received_cents|default(0) - absorbed %}
+<div class="card mb-3">
+    <div class="card-body">
+        <h2 class="h5 mb-3">Mouvements du compte</h2>
+        <div data-booking-panel="payment-movements">
+            {% if movements is empty and beyond <= 0 %}
+                <p class="small text-body-secondary mb-2" data-finance-movements-empty>
+                    Aucun mouvement rapproché pour cette réservation.
+                </p>
+            {% else %}
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-2" data-finance-movements>
+                        <caption class="visually-hidden">Mouvements du compte rapprochés de cette réservation</caption>
+                        <thead>
+                            <tr>
+                                <th scope="col">Date</th>
+                                <th scope="col">Libellé</th>
+                                <th scope="col" class="text-end">Montant</th>
+                                <th scope="col">Imputation</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for movement in movements %}
+                                <tr>
+                                    <td class="text-nowrap">{{ movement.date|date_fr }}</td>
+                                    <td class="text-break">
+                                        {% if movement.counterpartyName %}{{ movement.counterpartyName }} — {% endif %}{{ movement.label }}
+                                        {% if movement.isRefund %}
+                                            <span class="small text-body-secondary d-block">Remboursement</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="text-end text-nowrap">
+                                        {{ movement.amountCents > 0 ? '+' : '' }}{{ movement.amountCents|money_cents }}
+                                    </td>
+                                    <td>
+                                        {% include 'partials/status_badge.html.twig' with {
+                                            status: movement.automatic ? 'done' : 'info',
+                                            label: movement.automatic ? 'Automatique' : 'Manuelle',
+                                        } only %}
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                            {% if beyond > 0 %}
+                                <tr data-finance-movement-beyond>
+                                    <td></td>
+                                    <td>Reçu au-delà du montant attendu</td>
+                                    <td class="text-end text-nowrap">+{{ beyond|money_cents }}</td>
+                                    <td>
+                                        {% include 'partials/status_badge.html.twig' with {
+                                            status: 'pending', label: 'Trop-perçu',
+                                        } only %}
+                                    </td>
+                                </tr>
+                            {% endif %}
+                        </tbody>
+                    </table>
+                </div>
+            {% endif %}
+            <p class="small text-body-secondary mb-0">
+                Les virements apparaissent après l'import d'un extrait bancaire. Seuls les mouvements de
+                cette réservation sont montrés.
+            </p>
+        </div>
+    </div>
+</div>

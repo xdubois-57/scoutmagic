@@ -1329,10 +1329,7 @@ class RentalManagementController extends AbstractController
                 BookingPage::CHANGES => [
                     'change_requests' => $this->changeRequestRepository->findForBooking($booking->id),
                 ],
-                BookingPage::FINANCES => [
-                    'quote' => $this->operationsService->workingQuote($booking, $asset),
-                    'payment' => $this->paymentStatus($booking, $asset),
-                ],
+                BookingPage::FINANCES => $this->financesContext($booking, $asset),
                 BookingPage::DOCUMENTS => [
                     'documents' => $documents = $this->documentService?->forBooking($booking->id) ?? [],
                     // A contract whose stored PDF is gone cannot be sent
@@ -2377,17 +2374,104 @@ class RentalManagementController extends AbstractController
     }
 
     /**
-     * POST /mes-locations/caution — records what was actually given back
-     * (§6.20).
+     * What « Finances » renders (chantier #927, §2.4), in the page's order:
+     * the summary, the movements reconciled with the booking's receivable,
+     * and how to pay — or, once something is owed back, how to refund and
+     * the debits that could be that refund.
      *
-     * By hand, deliberately: Finance reconciles incoming transfers, not
-     * outgoing ones, so no bank statement can confirm this.
+     * The movements and the candidates come from Finance's `Api\` and
+     * nothing else (ARCHITECTURE.md §7.5): this booking's share of each
+     * movement, and of a candidate only when, how much and to whom.
+     *
+     * @return array<string, mixed>
+     */
+    private function financesContext(RentalBooking $booking, RentalAsset $asset): array
+    {
+        $payment = $this->paymentStatus($booking, $asset);
+        $settings = $this->paymentService?->settingsFor($asset->id);
+        $settlement = $this->stayService?->latestSettlement($booking->id);
+        $overpaid = (int) ($payment['overpaid_cents'] ?? 0);
+
+        return [
+            // The « Prix » box still reads it while it sits on this page.
+            'quote' => $this->operationsService->workingQuote($booking, $asset),
+            'payment' => $payment,
+            'settlement' => $settlement !== null && $settlement->isValidated ? $settlement : null,
+            'movements' => $this->paymentService?->movementsFor($booking) ?? [],
+            'instructions' => $settings !== null
+                ? $this->paymentService->paymentInstructions($booking, $settings, $payment)
+                : null,
+            // Read only when something is owed back: the candidates are
+            // movements of the unit's account that belong to nobody yet.
+            'refund_since' => $overpaid > 0 ? $this->refundSince($booking) : null,
+            'refund_candidates' => $overpaid > 0
+                ? $this->paymentService?->refundCandidates($booking, $this->refundSince($booking)) ?? []
+                : [],
+        ];
+    }
+
+    /**
+     * Since when a debit may be this booking's refund — worked out here,
+     * from the booking and its settlement, on the page and again on the
+     * POST, never taken from the form.
+     */
+    private function refundSince(RentalBooking $booking): \DateTimeImmutable
+    {
+        $settlement = $this->stayService?->latestSettlement($booking->id);
+
+        return RentalPaymentService::refundSince(
+            $booking,
+            $settlement !== null && $settlement->isValidated ? $settlement->validatedAt : null
+        );
+    }
+
+    /**
+     * POST /mes-locations/remboursement-rapprocher — « Rapprocher le
+     * remboursement » (chantier #927, §2.6): the debit a manager picked,
+     * made from the bank without the booking's communication, becomes the
+     * refund of its surplus. Finance re-checks the candidate under its
+     * locks; nothing is sent to anybody.
+     *
+     * @param array<string, string> $params
+     */
+    public function reconcileRefund(Request $request, array $params): Response
+    {
+        return $this->bookingAction($request, function (RentalBooking $booking) use ($request): void {
+            if ($this->paymentService === null) {
+                throw new RentalException("Le module « Finances » n'est pas actif.");
+            }
+
+            $transactionId = (int) $request->getBody('transaction_id', 0);
+            if ($transactionId <= 0) {
+                throw new RentalException('Choisissez le débit qui rembourse le locataire.');
+            }
+
+            $this->paymentService->reconcileRefund(
+                $booking,
+                $transactionId,
+                $this->refundSince($booking),
+                AuthSession::getUserAccountId(),
+                $this->actorMemberId()
+            );
+
+            FlashMessage::set('success', 'Remboursement rapproché.');
+        });
+    }
+
+    /**
+     * POST /mes-locations/caution — records what was actually given back
+     * (§6.20), on a booking whose money Finances does not follow: the
+     * module off, or payments off on the asset. With Finances, the refund
+     * is a bank transfer the account shows, and the service refuses this.
      *
      * @param array<string, string> $params
      */
     public function recordSecurityDeposit(Request $request, array $params): Response
     {
-        return $this->bookingAction($request, function (RentalBooking $booking) use ($request): void {
+        return $this->bookingAction($request, function (
+            RentalBooking $booking,
+            RentalAsset $asset
+        ) use ($request): void {
             if ($this->paymentService === null) {
                 throw new RentalException("Le module « Finances » n'est pas actif.");
             }
@@ -2400,7 +2484,8 @@ class RentalManagementController extends AbstractController
                 RentalPricingService::parseAmountToCents((string) $request->getBody('returned', '')) ?? 0,
                 Support::optionalString($request->getBody('note')),
                 $returnedAt,
-                $this->actorMemberId()
+                $this->actorMemberId(),
+                $this->paymentService->settingsFor($asset->id)
             );
 
             FlashMessage::set('success', 'Restitution de la caution enregistrée.');

@@ -1,8 +1,10 @@
 {% extends '@rental/management/_booking_frame.html.twig' %}
 {#
   « Facture » (Booking\BookingPage::INVOICE, #708 IT-18): what the invoice
-  is made of, in the order it is made — the billing details, the final
-  settlement, then the invoice itself.
+  is made of, in a strict order (chantier #927, §2.4) — the final
+  settlement first, the billing details folded under a summary once their
+  name and address are known (open while they are not), then the invoice
+  itself.
 
   **The invoice waits for the departure inventory.** Until it is complete
   — validated, or ticked by hand — « Générer la facture » is replaced by
@@ -17,9 +19,9 @@
 {% block booking_content %}
     <div id="{{ boxes.invoice.anchor }}">
         <div data-booking-panel="invoice">
-            {% include '@rental/management/_billing.html.twig' %}
-
             {% include '@rental/management/_settlement.html.twig' %}
+
+            {% include '@rental/management/_billing.html.twig' %}
 
             <div class="card mb-3">
                 <div class="card-body">
@@ -79,4 +81,7 @@
     </div>
 {% endblock %}
 
-{% block booking_scripts %}{% endblock %}
+{% block booking_scripts %}
+    {# « Modifier » ⇄ « Replier » on the billing details' fold. #}
+    <script src="{{ asset('/assets/js/collapse-label.js') }}" defer></script>
+{% endblock %}

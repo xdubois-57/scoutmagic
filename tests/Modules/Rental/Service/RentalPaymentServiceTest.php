@@ -817,34 +817,107 @@ class RentalPaymentServiceTest extends TestCase
         );
     }
 
-    public function testWhatAManagerRecordedAboutTheReturnIsNeverOverwritten(): void
+    public function testWithFinancesTheReturnIsNeverTypedByHand(): void
     {
-        // Only the outstanding state is derived. Once the deposit has been
-        // settled by hand, the money is back with the renter and the account
-        // still shows it as received — re-deriving would undo the manager.
+        // Chantier #927, §2.6: the deposit goes back by bank transfer with
+        // the booking's communication and the account says it went. A
+        // hand-typed return beside it would be a second answer that could
+        // disagree with the bank.
         $booking = $this->createBooking();
         $settings = $this->settings(securityDeposit: true, securityDepositCents: 50000);
         $this->service->ensureReceivable($booking, $settings);
-
         $status = $this->service->statusFor($booking, $settings);
         $this->pay((string) $status['communication'], 967.50);
-        $this->service->recordSecurityDepositReturn($booking, 50000, null, new \DateTimeImmutable('2027-07-10'), 1);
+
+        try {
+            $this->service->recordSecurityDepositReturn(
+                $booking,
+                50000,
+                null,
+                new \DateTimeImmutable('2027-07-10'),
+                1,
+                $settings
+            );
+            $this->fail('A return was typed by hand on a booking Finances follows.');
+        } catch (RentalException $e) {
+            $this->assertStringContainsString('virement', $e->getMessage());
+        }
 
         $this->assertSame(
-            SecurityDepositStatus::RETURNED,
+            SecurityDepositStatus::RECEIVED,
             $this->service->statusFor($booking, $settings)['security_deposit']['status']
         );
     }
 
+    public function testPaymentsSwitchedOffAfterAReceivableStillRefuseTheReturnTypedByHand(): void
+    {
+        // The receivable raised while payments were on stays, and Finance
+        // still reconciles its communication whatever the asset's setting:
+        // the booking is still followed, and the account — not a typed
+        // return — says where the deposit went.
+        $booking = $this->createBooking();
+        $on = $this->settings(securityDeposit: true, securityDepositCents: 50000);
+        $this->service->ensureReceivable($booking, $on);
+        $off = $this->settings(enabled: false, securityDeposit: true, securityDepositCents: 50000);
+
+        try {
+            $this->service->recordSecurityDepositReturn(
+                $booking,
+                50000,
+                null,
+                new \DateTimeImmutable('2027-07-10'),
+                1,
+                $off
+            );
+            $this->fail('A return was typed by hand on a booking Finances still follows.');
+        } catch (RentalException $e) {
+            $this->assertStringContainsString('virement', $e->getMessage());
+        }
+
+        $status = $this->service->statusFor($booking, $off);
+        $this->assertTrue($status['tracked']);
+        $this->assertNull($status['security_deposit']['returned_cents']);
+        // Nothing more is asked of the renter: no amount, no QR.
+        $this->assertNull($this->service->paymentInstructions($booking, $off));
+    }
+
+    /**
+     * Without Finances the asset's own setting says how much the deposit
+     * is — there is no receivable to have snapshotted it — and the return
+     * is written down by hand, the only place it can be.
+     */
+    private function withoutFinanceReturn(
+        int $returnedCents,
+        ?string $note,
+        ?RentalBooking $booking = null
+    ): RentalBooking {
+        $booking ??= $this->createBooking();
+        $this->withoutFinance()->recordSecurityDepositReturn(
+            $booking,
+            $returnedCents,
+            $note,
+            new \DateTimeImmutable('2027-07-10'),
+            1,
+            $this->settings(enabled: false, securityDeposit: true, securityDepositCents: 50000)
+        );
+
+        return $booking;
+    }
+
+    /** @return array<string, mixed> the security deposit, as read without Finances */
+    private function securityWithoutFinance(RentalBooking $booking): array
+    {
+        return $this->withoutFinance()->statusFor(
+            $booking,
+            $this->settings(enabled: false, securityDeposit: true, securityDepositCents: 50000)
+        )['security_deposit'];
+    }
+
     public function testAFullReturnIsRecordedByHandAndLandsOnReturned(): void
     {
-        $booking = $this->createBooking();
-        $settings = $this->settings(securityDeposit: true, securityDepositCents: 50000);
-        $this->service->ensureReceivable($booking, $settings);
+        $booking = $this->withoutFinanceReturn(50000, null);
 
-        $this->service->recordSecurityDepositReturn($booking, 50000, null, new \DateTimeImmutable('2027-07-10'), 1);
-
-        $status = $this->service->statusFor($booking, $settings)['security_deposit'];
+        $status = $this->securityWithoutFinance($booking);
         $this->assertSame(SecurityDepositStatus::RETURNED, $status['status']);
         $this->assertSame(50000, $status['returned_cents']);
         $this->assertSame(0, $status['withheld_cents']);
@@ -855,31 +928,17 @@ class RentalPaymentServiceTest extends TestCase
     {
         // Withholding somebody's money without a written reason is not
         // something to allow quietly.
-        $booking = $this->createBooking();
-        $settings = $this->settings(securityDeposit: true, securityDepositCents: 50000);
-        $this->service->ensureReceivable($booking, $settings);
-
         $this->expectException(RentalException::class);
         $this->expectExceptionMessageMatches('/retenue/');
 
-        $this->service->recordSecurityDepositReturn($booking, 30000, null, new \DateTimeImmutable('2027-07-10'), 1);
+        $this->withoutFinanceReturn(30000, null);
     }
 
     public function testAPartialReturnWithAReasonLandsOnPartiallyWithheld(): void
     {
-        $booking = $this->createBooking();
-        $settings = $this->settings(securityDeposit: true, securityDepositCents: 50000);
-        $this->service->ensureReceivable($booking, $settings);
+        $booking = $this->withoutFinanceReturn(30000, 'Vitre cassée dans le réfectoire.');
 
-        $this->service->recordSecurityDepositReturn(
-            $booking,
-            30000,
-            'Vitre cassée dans le réfectoire.',
-            new \DateTimeImmutable('2027-07-10'),
-            1
-        );
-
-        $status = $this->service->statusFor($booking, $settings)['security_deposit'];
+        $status = $this->securityWithoutFinance($booking);
         $this->assertSame(SecurityDepositStatus::PARTIALLY_WITHHELD, $status['status']);
         $this->assertSame(20000, $status['withheld_cents']);
         $this->assertSame('Vitre cassée dans le réfectoire.', $status['note']);
@@ -887,17 +946,7 @@ class RentalPaymentServiceTest extends TestCase
 
     public function testTheWithholdingReasonIsStoredEncrypted(): void
     {
-        $booking = $this->createBooking();
-        $settings = $this->settings(securityDeposit: true, securityDepositCents: 50000);
-        $this->service->ensureReceivable($booking, $settings);
-
-        $this->service->recordSecurityDepositReturn(
-            $booking,
-            0,
-            'Le groupe a laissé le local dans un état déplorable.',
-            new \DateTimeImmutable('2027-07-10'),
-            1
-        );
+        $this->withoutFinanceReturn(0, 'Le groupe a laissé le local dans un état déplorable.');
 
         $raw = (string) json_encode($this->pdo->query('SELECT * FROM rental_bookings')->fetch(\PDO::FETCH_ASSOC));
         $this->assertStringNotContainsString('état déplorable', $raw);
@@ -905,17 +954,7 @@ class RentalPaymentServiceTest extends TestCase
 
     public function testTheWithholdingReasonNeverReachesTheJournal(): void
     {
-        $booking = $this->createBooking();
-        $settings = $this->settings(securityDeposit: true, securityDepositCents: 50000);
-        $this->service->ensureReceivable($booking, $settings);
-
-        $this->service->recordSecurityDepositReturn(
-            $booking,
-            0,
-            'Le groupe a laissé le local dans un état déplorable.',
-            new \DateTimeImmutable('2027-07-10'),
-            1
-        );
+        $this->withoutFinanceReturn(0, 'Le groupe a laissé le local dans un état déplorable.');
 
         $journal = (string) json_encode($this->pdo->query('SELECT * FROM event_log')->fetchAll(\PDO::FETCH_ASSOC));
         $this->assertStringContainsString('LOC-A2B3C4', $journal);
@@ -925,13 +964,9 @@ class RentalPaymentServiceTest extends TestCase
 
     public function testReturningMoreThanTheDepositIsRefused(): void
     {
-        $booking = $this->createBooking();
-        $settings = $this->settings(securityDeposit: true, securityDepositCents: 50000);
-        $this->service->ensureReceivable($booking, $settings);
-
         $this->expectException(RentalException::class);
 
-        $this->service->recordSecurityDepositReturn($booking, 60000, null, new \DateTimeImmutable('2027-07-10'), 1);
+        $this->withoutFinanceReturn(60000, null);
     }
 
     public function testRecordingAReturnWithNoDepositAtAllIsRefused(): void

@@ -1,10 +1,46 @@
 {% extends '@rental/management/_booking_frame.html.twig' %}
 {#
-  « Finances » — the money of one booking (Booking\BookingPage::FINANCES):
-  the price as it is being agreed, and what has been paid against it. Both
-  boxes arrive open: this page exists for them.
+  « Finances » — the money of one booking (Booking\BookingPage::FINANCES,
+  chantier #927 §2.4), in a strict order: the summary, the movements of
+  the account reconciled with the booking's receivable, then how to pay —
+  or, once something is owed back, how to refund.
+
+  ONE receivable — the rental price plus the security deposit — and one
+  structured communication for the deposit, the balance, the security
+  deposit and any complement. Nothing below the « Prix » box edits a
+  price.
+
+  The three cards sit under the payment box's anchor
+  (Booking\BookingBox::PAYMENT), which is where a journey line about the
+  money lands. Each region an action can change is its own
+  `data-booking-panel`, refreshed in place by rental-booking.js.
+
+  A booking Finances follows (`payment.tracked`: a receivable exists and
+  Finance answers for it) always gets the three cards, even with payments
+  switched off on the asset since: Finance still reconciles its
+  communication, so the account — never a hand-typed return — says where
+  the deposit went. Only an untracked booking — the module off, or
+  payments off before any receivable — shows that the payments are
+  followed outside the site, with the deposit's return recorded here by
+  hand (§2.6).
+
+  Requires the context of RentalManagementController::financesContext().
 #}
 {% block booking_content %}
     {% include '@rental/management/_box_price.html.twig' with { open: true } %}
-    {% include '@rental/management/_box_payment.html.twig' with { open: true } %}
+
+    <div id="{{ boxes.payment.anchor }}">
+        {% if payment.tracked|default(false) or (payment.available and payment.enabled) %}
+            {% include '@rental/management/_finance_summary.html.twig' %}
+            {% include '@rental/management/_finance_movements.html.twig' %}
+            {% include '@rental/management/_finance_instructions.html.twig' %}
+        {% else %}
+            {% include '@rental/management/_finance_off.html.twig' %}
+        {% endif %}
+    </div>
+{% endblock %}
+
+{% block booking_scripts %}
+    {# Keeps the screen awake while the enlarged QR is on it. #}
+    <script src="{{ asset('/assets/js/payment-qr.js') }}" defer></script>
 {% endblock %}

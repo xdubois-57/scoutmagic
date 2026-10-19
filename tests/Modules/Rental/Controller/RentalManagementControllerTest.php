@@ -186,7 +186,10 @@ class RentalManagementControllerTest extends TestCase
             $bookingAudit,
             $journal,
             FinanceTestHelper::receivableService($this->pdo, $this->encryption, $receivableRepository),
-            new StructuredCommunicationService($receivableRepository)
+            new StructuredCommunicationService($receivableRepository),
+            // The QR and the account's IBAN on « Finances » (#927, §2.4).
+            new \Modules\Finance\Service\SepaQrCodeService(),
+            new \Modules\Finance\Service\FinanceAccountService(new AccountRepository($this->pdo, $this->encryption))
         );
 
         $this->stayService = new \Modules\Rental\Service\RentalStayService(
@@ -3312,7 +3315,7 @@ class RentalManagementControllerTest extends TestCase
         $expected = [
             'dashboard' => ['milestones', 'next-step', 'history', 'history-figure', 'comments'],
             'changes' => ['changes'],
-            'finances' => ['price', 'price-figure', 'payment', 'payment-figure'],
+            'finances' => ['price', 'price-figure', 'payment'],
             'documents' => ['documents', 'documents-figure'],
         ];
         foreach ($expected as $page => $panels) {
@@ -5433,6 +5436,369 @@ class RentalManagementControllerTest extends TestCase
         $this->assertMatchesRegularExpression('/dont la caution à rendre\s*:?\s*150,00/u', $body);
     }
 
+    // ── « Finances » (chantier #927, §2.4 and §2.6) ─────────────────────
+
+    private function financesPage(RentalBooking $booking): string
+    {
+        $response = $this->filePage(BookingPage::FINANCES, 'local-saint-georges', $booking->id);
+        $this->assertSame(200, $response->getStatusCode());
+
+        return (string) preg_replace('/\s+/', ' ', (string) $response->getBody());
+    }
+
+    /** A debit of the unit's account carrying no communication — a refund made by hand at the bank. */
+    private function debitWithoutCommunication(float $amount, string $date = '2030-10-05'): int
+    {
+        return (new TransactionRepository($this->pdo, $this->encryption))->create(
+            $this->financeAccountId,
+            FinanceTestHelper::createScoutYear($this->pdo, 'Exercice ' . bin2hex(random_bytes(3)), '2030-09-01', '2031-08-31'),
+            null,
+            $date,
+            'Virement européen',
+            -$amount,
+            null,
+            null,
+            'import',
+            null,
+            'J. LAMBERT'
+        );
+    }
+
+    private function cancel(RentalBooking $booking): void
+    {
+        $this->post('/mes-locations/statut', 'changeStatus', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'status' => 'cancelled',
+        ]);
+        \Core\Http\FlashMessage::get();
+    }
+
+    private function reconcileRefundPost(RentalBooking $booking, int $transactionId): Response
+    {
+        return $this->post('/mes-locations/remboursement-rapprocher', 'reconcileRefund', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'booking_page' => 'finances',
+            'transaction_id' => (string) $transactionId,
+        ]);
+    }
+
+    public function testTheFinancesPageReadsTheSummaryTheMovementsThenHowToPay(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->bookingOwedFor(46750, 15000);
+        $this->payOnReceivable($booking, 250.00);
+        $communication = (string) $this->paymentService->statusFor(
+            $booking,
+            $this->paymentService->settingsFor($this->assetId)
+        )['communication'];
+
+        $body = $this->financesPage($booking);
+
+        $summary = strpos($body, '>Résumé<');
+        $movements = strpos($body, '>Mouvements du compte<');
+        $instructions = strpos($body, '>Informations de paiement<');
+        $this->assertNotFalse($summary);
+        $this->assertNotFalse($movements);
+        $this->assertNotFalse($instructions);
+        $this->assertTrue($summary < $movements && $movements < $instructions);
+
+        // The summary: 467,50 € + 150,00 €, 250,00 € in, 367,50 € to go.
+        $this->assertStringContainsString('367,50 € restant dû', $body);
+        $this->assertMatchesRegularExpression('/Montant attendu\s*<\/dt>\s*<dd[^>]*>\s*<strong>617,50/u', $body);
+        // The movement, this booking's share, matched by its communication.
+        $this->assertStringContainsString('+250,00 €', $body);
+        $this->assertStringContainsString('Automatique', $body);
+        // How to pay: the account, the one communication, the amount, the QR.
+        $this->assertStringContainsString('BE68 5390 0754 7034', $body);
+        $this->assertStringContainsString('Unité Test', $body);
+        $this->assertStringContainsString($communication, $body);
+        $this->assertStringContainsString('<strong>367,50 €</strong>', $body);
+        $this->assertStringContainsString('src="data:image/png;base64,', $body);
+        $this->assertStringContainsString('Agrandir le QR code', $body);
+        $this->assertStringContainsString('id="qr-paiement"', $body);
+        $this->assertStringNotContainsString('À rembourser au locataire', $body);
+        // No price is edited outside the « Prix » box, and no hand-typed
+        // return of the deposit while Finances follows the money.
+        $this->assertStringNotContainsString('action="/mes-locations/caution"', $body);
+    }
+
+    public function testAnAccountWithoutAnIbanShowsNoQrAndSaysWhy(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->bookingOwedFor(46750);
+        $this->pdo->prepare('UPDATE finance_accounts SET iban = NULL, iban_blind_index = NULL WHERE id = ?')
+            ->execute([$this->financeAccountId]);
+
+        $body = $this->financesPage($booking);
+
+        $this->assertStringContainsString('data-finance-no-iban', $body);
+        $this->assertStringNotContainsString('data:image/png;base64,', $body);
+        $this->assertStringNotContainsString('Agrandir le QR code', $body);
+    }
+
+    public function testBeforeTheFirstContractThereIsNoCommunicationToShowYet(): void
+    {
+        $this->loginAsManager();
+        $this->paymentService->saveSettings($this->assetId, new \Modules\Rental\Payment\PaymentSettings(
+            enabled: true,
+            financeAccountId: $this->financeAccountId,
+            financeCategoryId: $this->financeCategoryId
+        ));
+        $booking = $this->createBooking();
+
+        $body = $this->financesPage($booking);
+
+        $this->assertStringContainsString('data-finance-no-receivable', $body);
+        $this->assertStringContainsString('Aucun mouvement rapproché', $body);
+    }
+
+    public function testAnAbandonedBookingShowsWhatCameInAsToRefund(): void
+    {
+        // Lot B reads what a receivable at 0 received: the renter's 250 €
+        // are owed back, and the page says so — never « 0,00 € reçu ».
+        $this->loginAsManager();
+        $booking = $this->bookingOwedFor(46750, 15000);
+        $this->payOnReceivable($booking, 250.00);
+        $this->cancel($booking);
+
+        $body = $this->financesPage($booking);
+
+        $this->assertStringContainsString('250,00 € à rembourser', $body);
+        $this->assertStringContainsString('À rembourser au locataire : 250,00 €', $body);
+        $this->assertMatchesRegularExpression('/Reçu\s*<\/dt>\s*<dd[^>]*>\s*250,00/u', $body);
+        $this->assertStringContainsString('Annulée — plus rien n\'est attendu', $body);
+        // The receivable at 0 absorbs none of it: the movements say where
+        // the 250 € went, as a line of its own.
+        $this->assertMatchesRegularExpression('/Reçu au-delà du montant attendu\s*<\/td>\s*<td[^>]*>\s*\+250,00/u', $body);
+        $this->assertStringContainsString('Rapprocher le remboursement', $body);
+        $this->assertStringNotContainsString('Agrandir le QR code', $body);
+    }
+
+    public function testARefundMadeWithoutTheCommunicationIsReconciledFromTheBooking(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->bookingOwedFor(46750, 15000);
+        $this->payOnReceivable($booking, 250.00);
+        $this->cancel($booking);
+        $debitId = $this->debitWithoutCommunication(250.00);
+        // Another debit of the account, too large to be this refund.
+        $this->debitWithoutCommunication(900.00);
+
+        $body = $this->financesPage($booking);
+        $this->assertStringContainsString('value="' . $debitId . '"', $body);
+        $this->assertStringContainsString('J. LAMBERT', $body);
+        $this->assertSame(1, substr_count($body, 'name="transaction_id"'));
+        $this->assertStringContainsString('Aucun e-mail n\'est envoyé', $body);
+
+        $response = $this->reconcileRefundPost($booking, $debitId);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertStringEndsWith('/finances', (string) $response->getHeaders()['Location']);
+        $this->assertSame('Remboursement rapproché.', \Core\Http\FlashMessage::get()['message'] ?? null);
+        $after = $this->financesPage($booking);
+        $this->assertStringNotContainsString('à rembourser', $after);
+        $this->assertMatchesRegularExpression('/Remboursé\s*<\/dt>\s*<dd[^>]*>\s*250,00/u', $after);
+        $this->assertStringContainsString('-250,00 €', $after);
+        $this->assertStringContainsString('Manuelle', $after);
+        // In the booking's history as a payment, never as « Prix ».
+        $this->assertSame(1, (int) $this->fetchScalar(
+            'SELECT COUNT(*) FROM entity_changes WHERE entity_type = ? AND entity_id = ? AND field_key = ?',
+            [\Modules\Rental\Audit\BookingAudit::ENTITY_TYPE, $booking->id, \Modules\Rental\Audit\BookingAudit::PAYMENT_RECORDED]
+        ));
+        $this->assertSame('Paiement', \Modules\Rental\Audit\BookingAudit::FIELD_LABELS['payment_recorded']);
+        $this->assertSame(0, (int) $this->paymentService->statusFor(
+            $booking,
+            $this->paymentService->settingsFor($this->assetId)
+        )['overpaid_cents']);
+    }
+
+    public function testADebitThatIsNoLongerACandidateIsRefusedWithFinancesOwnReason(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->bookingOwedFor(46750, 15000);
+        $this->payOnReceivable($booking, 250.00);
+        $this->cancel($booking);
+        $tooLarge = $this->debitWithoutCommunication(900.00);
+
+        $this->reconcileRefundPost($booking, $tooLarge);
+
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertSame('error', $flash['type'] ?? null);
+        $this->assertSame(25000, (int) $this->paymentService->statusFor(
+            $booking,
+            $this->paymentService->settingsFor($this->assetId)
+        )['overpaid_cents']);
+    }
+
+    public function testReconcilingARefundIsItsManagersAlone(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->bookingOwedFor(46750, 15000);
+        $this->payOnReceivable($booking, 250.00);
+        $this->cancel($booking);
+        $debitId = $this->debitWithoutCommunication(250.00);
+        $overpaid = fn(): int => (int) $this->paymentService->statusFor(
+            $booking,
+            $this->paymentService->settingsFor($this->assetId)
+        )['overpaid_cents'];
+
+        // Anonymous: refused, nothing written.
+        AuthSession::logout();
+        $this->assertContains($this->reconcileRefundPost($booking, $debitId)->getStatusCode(), [302, 401, 403]);
+        $this->assertSame(25000, $overpaid());
+
+        // An identified member who manages nothing: a 404, nothing written.
+        AuthSession::login(1, 'nobody@test.be', 'identified');
+        $this->assertSame(404, $this->reconcileRefundPost($booking, $debitId)->getStatusCode());
+        $this->assertSame(25000, $overpaid());
+
+        // The asset's manager, at the route's role_min: allowed.
+        AuthSession::login(1, 'manager@test.be', 'identified');
+        $this->assertSame(302, $this->reconcileRefundPost($booking, $debitId)->getStatusCode());
+        $this->assertSame(0, $overpaid());
+    }
+
+    public function testWithoutFinancesThePageSaysSoAndKeepsTheManualReturn(): void
+    {
+        $this->loginAsManager();
+        $this->paymentService->saveSettings($this->assetId, new \Modules\Rental\Payment\PaymentSettings(
+            enabled: false,
+            securityDepositEnabled: true,
+            securityDepositAmountCents: 15000
+        ));
+        $booking = $this->createBooking();
+
+        $body = $this->financesPage($booking);
+
+        $this->assertStringContainsString('data-finance-off', $body);
+        $this->assertStringContainsString('sans communication structurée', $body);
+        $this->assertStringContainsString('action="/mes-locations/caution"', $body);
+        $this->assertStringNotContainsString('>Mouvements du compte<', $body);
+
+        $this->post('/mes-locations/caution', 'recordSecurityDeposit', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'returned' => '150,00',
+            'returned_at' => '2027-07-10',
+        ]);
+        $this->assertSame('Restitution de la caution enregistrée.', \Core\Http\FlashMessage::get()['message'] ?? null);
+        $this->assertStringNotContainsString('action="/mes-locations/caution"', $this->financesPage($booking));
+    }
+
+    public function testATrackedBookingWithPaymentsSwitchedOffKeepsTheFinancesCards(): void
+    {
+        // Payments switched off on the asset after the receivable was
+        // raised: Finance still reconciles its communication, so the page
+        // stays Finance's — and asks the renter for nothing any more.
+        $this->loginAsManager();
+        $booking = $this->bookingOwedFor(46750, 15000);
+        $this->payOnReceivable($booking, 250.00);
+        $this->paymentService->saveSettings($this->assetId, new \Modules\Rental\Payment\PaymentSettings(
+            enabled: false,
+            financeAccountId: $this->financeAccountId,
+            securityDepositEnabled: true,
+            securityDepositAmountCents: 15000,
+            financeCategoryId: $this->financeCategoryId
+        ));
+
+        $body = $this->financesPage($booking);
+
+        $this->assertStringContainsString('>Résumé<', $body);
+        $this->assertStringContainsString('>Mouvements du compte<', $body);
+        $this->assertStringContainsString('+250,00 €', $body);
+        $this->assertStringContainsString('data-finance-payments-off', $body);
+        $this->assertStringNotContainsString('data-finance-off', $body);
+        $this->assertStringNotContainsString('action="/mes-locations/caution"', $body);
+        $this->assertStringNotContainsString('data:image/png;base64,', $body);
+    }
+
+    public function testAnAssetWithoutADepositAsksForTheBalanceAlone(): void
+    {
+        $this->loginAsManager();
+        $body = $this->financesPage($this->bookingOwedFor(46750));
+
+        $this->assertStringContainsString('<span class="small text-body-secondary d-block">solde</span>', $body);
+        $this->assertStringNotContainsString('caution comprise', $body);
+    }
+
+    public function testABalanceCarryingTheDepositSaysSo(): void
+    {
+        $this->loginAsManager();
+        $body = $this->financesPage($this->bookingOwedFor(46750, 15000));
+
+        $this->assertStringContainsString(
+            '<span class="small text-body-secondary d-block">solde, caution comprise</span>',
+            $body
+        );
+    }
+
+    public function testTheManualReturnIsRefusedWhileFinancesFollowsTheBooking(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->bookingOwedFor(46750, 15000);
+
+        $this->post('/mes-locations/caution', 'recordSecurityDeposit', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'returned' => '150,00',
+        ]);
+
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertSame('error', $flash['type'] ?? null);
+        $this->assertStringContainsString('virement', (string) ($flash['message'] ?? ''));
+    }
+
+    public function testTheBillingDetailsFoldOnceTheNameAndTheAddressAreKnown(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+
+        // Nothing yet: open, as the task it is.
+        $empty = $this->invoicePage($booking);
+        $this->assertStringContainsString('class="collapse show" id="coordonnees-facturation-body"', $empty);
+        $this->assertStringNotContainsString('data-billing-summary', $empty);
+
+        // A name alone keeps it open.
+        $this->operationsService->saveBillingIdentity($booking->id, ['name' => 'Patro Sainte-Anne']);
+        $this->assertStringContainsString(
+            'class="collapse show" id="coordonnees-facturation-body"',
+            $this->invoicePage($booking)
+        );
+
+        // Name and address, no VAT number: folded, with both as its summary.
+        $this->operationsService->saveBillingIdentity($booking->id, [
+            'name' => 'Patro Sainte-Anne',
+            'address' => "Rue de l'Église 12, 5000 Namur",
+        ]);
+        $folded = $this->invoicePage($booking);
+        $this->assertStringContainsString('class="collapse" id="coordonnees-facturation-body"', $folded);
+        $this->assertStringContainsString('aria-expanded="false" aria-controls="coordonnees-facturation-body"', $folded);
+        $this->assertMatchesRegularExpression(
+            '/data-billing-summary>\s*Patro Sainte-Anne · Rue de l(&#039;|\')Église 12, 5000 Namur/u',
+            $folded
+        );
+        $this->assertMatchesRegularExpression('/data-collapse-label>\s*Modifier\s*</u', $folded);
+        $this->assertStringContainsString('collapse-label.js', $folded);
+    }
+
+    public function testRemovingAnotherAddressIsAnIconWithItsName(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+        $this->bookingRepository->addRenterEmail($booking->id, 'tresorier@patro.example');
+
+        $response = $this->filePage(BookingPage::MAIL, 'local-saint-georges', $booking->id);
+        $body = (string) preg_replace('/\s+/', ' ', (string) $response->getBody());
+
+        $this->assertMatchesRegularExpression(
+            '#aria-label="Retirer tresorier@patro.example" title="Retirer tresorier@patro.example"> '
+            . '<i class="bi bi-x-lg" aria-hidden="true"></i> </button>#',
+            $body
+        );
+    }
+
     private function generateInvoice(RentalBooking $booking): void
     {
         $this->post('/mes-locations/document-generer', 'generateDocument', [
@@ -5466,7 +5832,9 @@ class RentalManagementControllerTest extends TestCase
         $this->assertNotFalse($billing);
         $this->assertNotFalse($settlement);
         $this->assertNotFalse($invoice);
-        $this->assertTrue($billing < $settlement && $settlement < $invoice);
+        // The settlement first, then the billing details, then the invoice
+        // (chantier #927, §2.4).
+        $this->assertTrue($settlement < $billing && $billing < $invoice);
         $this->assertStringContainsString('ne modifie jamais le prix convenu', $body);
     }
 

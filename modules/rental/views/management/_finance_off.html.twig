@@ -1,0 +1,88 @@
+{#
+  « Finances » when Finances does not follow this booking's money
+  (chantier #927, §2.4): the module is off, or payments are off on the
+  asset. One honest sentence instead of a dead summary, the price and
+  the security deposit as the contract states them, and — the one case
+  left for it (§2.6) — the security deposit's return recorded by hand,
+  with a written reason for any withholding.
+
+  Requires `asset`, `booking`, `booking_page` and `payment`.
+#}
+{% set security = payment.security_deposit|default({}) %}
+<div class="card mb-3">
+    <div class="card-body">
+        <div data-booking-panel="payment">
+            <p class="alert alert-info small" data-finance-off>
+                {% if not payment.available %}
+                    Le module « Finances » n'est pas actif : le site ne suit pas les paiements de cette
+                    réservation.
+                {% else %}
+                    Les paiements de ce bien ne passent pas par Finances : le site ne suit pas ceux de cette
+                    réservation. Ils se configurent dans les réglages du bien.
+                {% endif %}
+                Le prix, l'acompte et la caution restent indiqués ici et dans le contrat, sans communication
+                structurée.
+            </p>
+
+            <dl class="row mb-0">
+                <dt class="col-sm-5">Prix de la location</dt>
+                <dd class="col-sm-7">
+                    {{ booking.effectiveTotalCents is not null ? booking.effectiveTotalCents|money_cents : '—' }}
+                </dd>
+                {% if security.amount_cents|default(null) %}
+                    <dt class="col-sm-5">Caution</dt>
+                    <dd class="col-sm-7">
+                        {{ security.amount_cents|money_cents }}
+                        <span class="badge text-bg-secondary ms-1">{{ security.status.label }}</span>
+                    </dd>
+                    {% if security.returned_at %}
+                        <dt class="col-sm-5">Restituée le</dt>
+                        <dd class="col-sm-7">
+                            {{ security.returned_at|date_fr }} — {{ security.returned_cents|money_cents }}
+                            {% if security.withheld_cents %}
+                                (retenu {{ security.withheld_cents|money_cents }})
+                            {% endif %}
+                        </dd>
+                    {% endif %}
+                    {% if security.note %}
+                        <dt class="col-sm-5">Motif de la retenue</dt>
+                        <dd class="col-sm-7">{{ security.note|nl2br }}</dd>
+                    {% endif %}
+                {% endif %}
+            </dl>
+
+            {% if security.amount_cents|default(null) and not security.status.isSettled %}
+                <hr>
+                <h3 class="h6">Restitution de la caution</h3>
+                <p class="small text-body-secondary">
+                    Sans Finances, rien ne voit le virement : notez ici ce qui a été rendu, et le motif d'une
+                    retenue.
+                </p>
+                <form method="post" action="/mes-locations/caution" class="row g-2 align-items-end">
+                    {{ csrf_field()|raw }}
+                    <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                    <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                    <input type="hidden" name="booking_page" value="{{ booking_page.value }}">
+                    <div class="col-6 col-md-3">
+                        <label class="form-label" for="deposit-returned">Montant restitué (€)</label>
+                        <input type="text" class="form-control form-control-sm" id="deposit-returned"
+                               name="returned" inputmode="decimal"
+                               value="{{ (security.amount_cents / 100)|number_format(2, ',', '') }}">
+                    </div>
+                    <div class="col-6 col-md-3">
+                        <label class="form-label" for="deposit-returned-at">Le</label>
+                        <input type="date" class="form-control form-control-sm" id="deposit-returned-at"
+                               name="returned_at">
+                    </div>
+                    <div class="col-12 col-md-4">
+                        <label class="form-label" for="deposit-note">Motif d'une retenue</label>
+                        <input type="text" class="form-control form-control-sm" id="deposit-note" name="note">
+                    </div>
+                    <div class="col-12 col-md-2">
+                        <button type="submit" class="btn btn-sm btn-outline-secondary w-100">Enregistrer</button>
+                    </div>
+                </form>
+            {% endif %}
+        </div>
+    </div>
+</div>
