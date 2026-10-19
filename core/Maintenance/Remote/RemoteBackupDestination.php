@@ -15,7 +15,6 @@ use Core\Storage\Location\Backend\StorageBackendFactory;
 use Core\Storage\Location\StorageCapability;
 use Core\Storage\Location\StorageLocation;
 use Core\Storage\Location\StorageLocationRepository;
-use Core\Storage\Location\StorageLocationType;
 
 /**
  * Which declared storage location the off-site backup sends to.
@@ -89,8 +88,7 @@ final class RemoteBackupDestination
      */
     public static function canReceive(StorageLocation $location): bool
     {
-        return $location->type !== StorageLocationType::Local
-            && $location->supports(StorageCapability::ResumableUpload);
+        return $location->type->canReceiveOffSiteBackups();
     }
 
     public function locationId(): int
