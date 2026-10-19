@@ -64,7 +64,7 @@
         // saving it is not offered at all.
         if (!isDefault && nameInput) {
             nameInput.addEventListener('blur', function () {
-                api.postJson('/admin/badges/update', { badge_id: badgeId, name: nameInput.value })
+                void api.postJson('/admin/badges/update', { badge_id: badgeId, name: nameInput.value })
                     .then(function (res) {
                         if (isSuccess(res)) {
                             // A rename can rewrite the badge everywhere it
@@ -80,7 +80,7 @@
 
         if (activeInput) {
             activeInput.addEventListener('change', function () {
-                api.withDisabled(activeInput, function () {
+                void api.withDisabled(activeInput, function () {
                     return api.postJson('/admin/badges/toggle-active', {
                         badge_id: badgeId,
                         active: activeInput.checked
@@ -124,7 +124,7 @@
 
     if (addBtn && newNameInput) {
         addBtn.addEventListener('click', function () {
-            api.withDisabled(addBtn, function () {
+            void api.withDisabled(addBtn, function () {
                 return api.postJson('/admin/badges/add', { name: newNameInput.value });
             }).then(function (res) {
                 if (isSuccess(res)) {

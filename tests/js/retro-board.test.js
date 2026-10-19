@@ -807,6 +807,23 @@ describe('retro-board.js: sharing the board', () => {
         }
     });
 
+    it('hands the link over in an error toast when the clipboard refuses the write', async () => {
+        await bootWithShareControls();
+        Object.defineProperty(navigator, 'clipboard', {
+            value: { writeText: () => Promise.reject(new Error('NotAllowedError')) },
+            configurable: true,
+        });
+        const btn = document.getElementById('retro-copy-link');
+
+        click(btn);
+        await settle();
+
+        expect(btn.textContent).not.toContain('Copié');
+        const toast = document.querySelector('.toast-body');
+        expect(toast).not.toBeNull();
+        expect(toast.textContent).toContain('https://unite.example/r/tok');
+    });
+
     it('falls back to execCommand where the clipboard API is unavailable', async () => {
         await bootWithShareControls();
         Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true });

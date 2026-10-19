@@ -148,7 +148,7 @@
                 : form.querySelector('button[type="submit"]')
         );
 
-        api.withDisabled(button, function () {
+        void api.withDisabled(button, function () {
             return fetch(form.action, {
                 method: 'POST',
                 body: payload,

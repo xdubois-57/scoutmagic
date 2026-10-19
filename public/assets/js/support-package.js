@@ -127,7 +127,7 @@
         button.disabled = true;
         if (progressEl) progressEl.classList.remove('d-none');
 
-        window.ScoutMagicApi.postJson('/config/support/package', {})
+        void window.ScoutMagicApi.postJson('/config/support/package', {})
             .then(function (res) {
                 if (!res.data) {
                     showError('Erreur réseau.');

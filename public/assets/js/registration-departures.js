@@ -84,7 +84,7 @@
             var memberYearId = checkbox.dataset.memberYearId || '';
             toggleCommentRow(memberYearId, checkbox.checked);
 
-            save(memberYearId, { leaving: checkbox.checked }).then(function (recorded) {
+            void save(memberYearId, { leaving: checkbox.checked }).then(function (recorded) {
                 if (recorded) {
                     return;
                 }

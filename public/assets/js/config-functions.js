@@ -312,7 +312,7 @@
             return;
         }
         leadInput.addEventListener('change', function () {
-            save(leadInput, '/config/functions/flags', {
+            void save(leadInput, '/config/functions/flags', {
                 function_id: Number.parseInt(group.dataset.id, 10),
                 lead: leadInput.checked
             }, flipBack(leadInput));
@@ -359,7 +359,7 @@
 
         if (visibleInput) {
             visibleInput.addEventListener('change', function () {
-                save(visibleInput, '/config/functions/section-visibility', {
+                void save(visibleInput, '/config/functions/section-visibility', {
                     section_id: sectionId,
                     visible: visibleInput.checked
                 }, flipBack(visibleInput));

@@ -187,14 +187,14 @@
 
     document.getElementById('receipts-filter-btn').addEventListener('click', () => {
         clearTimeout(searchTimeout);
-        fetchReceipts(1);
+        void fetchReceipts(1);
     });
 
     document.getElementById('receipts-reset-btn').addEventListener('click', () => {
         clearTimeout(searchTimeout);
         /** @type {HTMLInputElement} */ (document.getElementById('receipts-search')).value = '';
         /** @type {HTMLInputElement} */ (document.getElementById('receipts-pending-only')).checked = false;
-        fetchReceipts(1);
+        void fetchReceipts(1);
     });
 
     function bindGridEvents() {
@@ -203,7 +203,7 @@
         document.querySelectorAll('#receipts-grid .page-link[data-page]').forEach(link => {
             link.addEventListener('click', (e) => {
                 e.preventDefault();
-                fetchReceipts(Number.parseInt(/** @type {HTMLElement} */ (link).dataset.page, 10));
+                void fetchReceipts(Number.parseInt(/** @type {HTMLElement} */ (link).dataset.page, 10));
             });
         });
 
@@ -212,7 +212,7 @@
                 currentAttachmentId = /** @type {HTMLElement} */ (btn).dataset.id;
                 currentAttachmentDate = /** @type {HTMLElement} */ (btn).dataset.suggestedDate || '';
                 /** @type {HTMLInputElement} */ (document.getElementById('associate-search')).value = '';
-                runAssociateSearch('');
+                void runAssociateSearch('');
                 associateModal ? associateModal.show() : associateModalEl.classList.add('show');
             });
         });
@@ -256,7 +256,7 @@
                 }
                 const res = await window.ScoutMagicApi.postJson('/finance/receipts/' + /** @type {HTMLElement} */ (btn).dataset.id, {}, { method: 'DELETE' });
                 if (res.data?.success) {
-                    fetchReceipts(currentPage);
+                    void fetchReceipts(currentPage);
                 } else {
                     window.ScoutMagicToast.show(res.data?.error || 'Une erreur est survenue.', { variant: 'error' });
                 }
@@ -367,7 +367,7 @@
             if (associateModal) {
                 associateModal.hide();
             }
-            fetchReceipts(currentPage);
+            void fetchReceipts(currentPage);
         } else {
             window.ScoutMagicToast.show(res.data?.error || 'Une erreur est survenue.', { variant: 'error' });
         }
@@ -397,8 +397,8 @@
                     await window.ScoutMagicApi.postJson('/finance/receipts/' + currentMovementsAttachmentId + '/dissociate', {
                         transaction_id: Number.parseInt(/** @type {HTMLElement} */ (btn).dataset.transactionId, 10)
                     });
-                    loadMovements(currentMovementsAttachmentId);
-                    fetchReceipts(currentPage);
+                    void loadMovements(currentMovementsAttachmentId);
+                    void fetchReceipts(currentPage);
                 });
             });
         }

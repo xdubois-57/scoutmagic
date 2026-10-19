@@ -97,7 +97,7 @@
         modal.show();
 
         function onSave() {
-            api.postJson('/api/rich-text-content', {
+            void api.postJson('/api/rich-text-content', {
                 key: 'banner_content_' + bannerId,
                 value: editorContent.innerHTML,
                 type: 'rich_text'
@@ -119,7 +119,7 @@
             saveBtn.removeEventListener('click', onSave);
             modalEl.removeEventListener('hidden.bs.modal', onHidden);
             if (!saved) {
-                api.postJson('/config/banner/delete', { id: bannerId });
+                void api.postJson('/config/banner/delete', { id: bannerId });
             }
         }
 

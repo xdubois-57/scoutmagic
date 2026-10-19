@@ -27,7 +27,8 @@
     }
 
     function postToServiceWorker(message) {
-        navigator.serviceWorker.ready.then(function (registration) {
+        // `ready` never rejects: it waits until a worker is active.
+        void navigator.serviceWorker.ready.then(function (registration) {
             if (registration.active) {
                 registration.active.postMessage(message);
             }

@@ -176,7 +176,7 @@
 
     /** @type {NodeListOf<HTMLElement>} */ (document.querySelectorAll('.toggle-account-btn')).forEach(btn => {
         btn.addEventListener('click', () => {
-            postAccountAction(btn.dataset.active === '1' ? 'deactivate' : 'activate', Number.parseInt(btn.dataset.id, 10));
+            void postAccountAction(btn.dataset.active === '1' ? 'deactivate' : 'activate', Number.parseInt(btn.dataset.id, 10));
         });
     });
 })();

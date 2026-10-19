@@ -11,7 +11,7 @@
     if (!select) return;
 
     select.addEventListener('change', function () {
-        window.ScoutMagicApi.postJson('/config/maintenance/backup/auto-frequency', { frequency: select.value })
+        void window.ScoutMagicApi.postJson('/config/maintenance/backup/auto-frequency', { frequency: select.value })
             .then(function (res) {
                 if (res.data?.success) {
                     window.ScoutMagicToast.show('Enregistré.', { variant: 'success' });
@@ -85,7 +85,7 @@
             submitBtn.disabled = true;
             progressEl.classList.remove('d-none');
 
-            window.ScoutMagicApi.postJson(request.endpoint, request.payload).then(function (res) {
+            void window.ScoutMagicApi.postJson(request.endpoint, request.payload).then(function (res) {
                 if (!res.data) {
                     showError('Erreur réseau.');
                     return;
@@ -207,7 +207,7 @@
             if (submitBtn) submitBtn.disabled = true;
             if (progressEl) progressEl.classList.remove('d-none');
 
-            window.ScoutMagicApi.postJson('/config/maintenance/update/install', {})
+            void window.ScoutMagicApi.postJson('/config/maintenance/update/install', {})
                 .then(function (res) {
                     if (!res.data) {
                         showError('Erreur réseau.');
@@ -254,7 +254,7 @@
         dialog.classList.add('d-none');
         progressEl.classList.remove('d-none');
 
-        window.ScoutMagicApi.postJson('/config/maintenance/update/check-now', {})
+        void window.ScoutMagicApi.postJson('/config/maintenance/update/check-now', {})
             .then(function (res) {
                 btn.disabled = false;
                 progressEl.classList.add('d-none');
@@ -345,7 +345,7 @@
             var levelRadio = /** @type {HTMLInputElement} */ (document.querySelector('input[name="auto-update-level"]:checked'));
             errorEl.classList.add('d-none');
 
-            window.ScoutMagicApi.postJson('/config/maintenance/auto-update/save', {
+            void window.ScoutMagicApi.postJson('/config/maintenance/auto-update/save', {
                 enabled: enabledCheckbox.checked,
                 level: levelRadio ? levelRadio.value : 'patch',
                 day: /** @type {HTMLSelectElement} */ (document.getElementById('auto-update-day')).value,
@@ -372,7 +372,7 @@
     if (webhookBtn) {
         webhookBtn.addEventListener('click', function () {
             webhookBtn.disabled = true;
-            window.ScoutMagicApi.postJson('/api/maintenance/webhook-secret', {})
+            void window.ScoutMagicApi.postJson('/api/maintenance/webhook-secret', {})
                 .then(function (res) {
                     webhookBtn.disabled = false;
                     if (!res.data) {
@@ -477,7 +477,7 @@
             submitBtn.disabled = true;
             progressEl.classList.remove('d-none');
 
-            window.ScoutMagicApi.postJson('/config/maintenance/reset/settings', {
+            void window.ScoutMagicApi.postJson('/config/maintenance/reset/settings', {
                 confirm_keyword: /** @type {HTMLInputElement} */ (document.getElementById('reset-settings-keyword')).value
             })
                 .then(function (res) {
@@ -538,7 +538,7 @@
         if (!revealButton || !revealOutput) return;
         revealButton.addEventListener('click', function () {
             revealButton.disabled = true;
-            window.ScoutMagicApi.postJson('/config/maintenance/reset/full/password', {}).then(function (res) {
+            void window.ScoutMagicApi.postJson('/config/maintenance/reset/full/password', {}).then(function (res) {
                 var data = res.data || {};
                 revealButton.disabled = false;
                 revealOutput.textContent = '';
@@ -574,7 +574,7 @@
             submitBtn.disabled = true;
             progressEl.classList.remove('d-none');
 
-            window.ScoutMagicApi.postJson('/config/maintenance/reset/full', {
+            void window.ScoutMagicApi.postJson('/config/maintenance/reset/full', {
                 confirm_keyword: /** @type {HTMLInputElement} */ (document.getElementById('full-reset-keyword')).value,
                 confirm_checkbox: true,
                 password_noted: fullResetNoted?.checked === true
@@ -653,7 +653,7 @@
                 }
                 return;
             }
-            window.ScoutMagicConfirm.ask({
+            void window.ScoutMagicConfirm.ask({
                 message: 'Cette action va remplacer les données actuelles par celles de la sauvegarde sélectionnée. Continuer ?',
                 confirmLabel: 'Restaurer'
             }).then(function (confirmed) {
@@ -744,7 +744,7 @@
             }
 
             passphraseReveal.disabled = true;
-            window.ScoutMagicApi.postJson('/config/maintenance/remote/passphrase/reveal', {})
+            void window.ScoutMagicApi.postJson('/config/maintenance/remote/passphrase/reveal', {})
                 .then(function (res) {
                     var data = res.data || {};
                     passphraseReveal.disabled = false;
@@ -793,7 +793,7 @@
                 passwordOutput.textContent = '';
                 return;
             }
-            revealBackupPassword(id, backupButton, passwordOutput);
+            void revealBackupPassword(id, backupButton, passwordOutput);
         });
 
         var row = backupButton.closest('li');
@@ -823,7 +823,7 @@
             // attribute keeps it still), so an automatic second click
             // would take the password off the screen the moment it
             // appeared. The operator notes it, then taps again.
-            revealBackupPassword(id, backupButton, passwordOutput).then(function () {
+            void revealBackupPassword(id, backupButton, passwordOutput).then(function () {
                 revealing = false;
                 if (isInstalledApp()) {
                     var again = document.createElement('span');

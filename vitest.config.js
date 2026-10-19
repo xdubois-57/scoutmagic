@@ -26,7 +26,12 @@ export default defineConfig({
             // the assets glob below would never reach it. Without this entry it
             // was excluded from coverage entirely, which meant its 477 lines
             // were not merely untested but not counted as untested.
-            include: ['public/assets/js/**/*.js', 'public/sw.js'],
+            //
+            // scripts/js-floating-promises.mjs is listed for the same reason:
+            // its logic is unit-tested (tests/js/js-floating-promises.test.js),
+            // so its coverage is a real number, where leaving it out made
+            // SonarCloud count every line of it as untested.
+            include: ['public/assets/js/**/*.js', 'public/sw.js', 'scripts/js-floating-promises.mjs'],
             exclude: [
                 // Third-party vendored libraries (Bootstrap, Chart.js, ...)
                 // are never first-party coverage — see AGENTS.md.
