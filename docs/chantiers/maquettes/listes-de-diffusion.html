@@ -124,13 +124,12 @@ code{font-family:var(--mono);font-size:12px}
 </style>
 
 <div class="planche">
-<h1>Listes de diffusion : une page par liste, quatre sortes de blocs (#729)</h1>
-<p class="lede">Maquette de référence du chantier <code>CHANTIER-listes-de-diffusion-v2.md</code>. Elle fait foi pour la hiérarchie des écrans, les libellés français et les états d'interaction, et pour rien d'autre : le produit est en Bootstrap 5 et suit <code>design.md</code> §7. Largeur de référence : 390 px. Aucun script.</p>
-<p class="lede">Une liste est une suite de <b>blocs</b>, additionnés. Il y a quatre sortes de blocs, rangées sur deux questions : <i>des membres de l'unité ou des personnes extérieures ?</i> et <i>un ensemble ou une seule personne ?</i> Chaque sorte a son propre dialogue, court. Aucune sorte n'est limitée en nombre. Une personne désignée par plusieurs blocs ne reçoit l'e-mail qu'une fois.</p>
-<div class="axes" style="max-width:420px;margin:12px 0 16px">
-  <span></span><span class="h">Un ensemble</span><span class="h">Une personne</span>
-  <span class="h">Membres de l'unité</span><span class="fort">Groupe de membres</span><span class="fort">Membre</span>
-  <span class="h">Personnes extérieures</span><span class="fort">Groupe de contacts (Excel)</span><span class="fort">Contact</span>
+<h1>Listes de diffusion : une page par liste, deux sortes de blocs (#729)</h1>
+<p class="lede">Maquette de référence du chantier <code>CHANTIER-listes-de-diffusion-blocs.md</code>. Elle fait foi pour la hiérarchie des écrans, les libellés français et les états d'interaction, et pour rien d'autre : le produit est en Bootstrap 5 et suit <code>design.md</code> §7. Largeur de référence : 390 px. Aucun script.</p>
+<p class="lede">Une liste est une suite de <b>blocs</b>, additionnés. Il y a deux sortes de blocs, et aucune n'est limitée en nombre. Chacune a son propre dialogue, court. Une personne désignée par plusieurs blocs ne reçoit l'e-mail qu'une fois.</p>
+<div class="axes" style="max-width:520px;grid-template-columns:auto 1fr;margin:12px 0 16px">
+  <span class="h">Groupe de membres</span><span class="fort">Des membres de l'unité, par fonction, section ou badge. Adresses tirées de Desk <b>pour l'année choisie à l'envoi</b>.</span>
+  <span class="h">Groupe de contacts</span><span class="fort">Des personnes extérieures, tenues à jour par un fichier Excel. <b>Toujours incluses</b>, quelle que soit l'année.</span>
 </div>
 <div class="legende">
   <span class="etq nouveau">Nouveau</span><span class="etq modifie">Modifié</span><span class="etq inchange">Inchangé</span>
@@ -144,12 +143,11 @@ code{font-family:var(--mono);font-size:12px}
   <li><a href="#e4">4. Que voulez-vous ajouter ?</a></li>
   <li><a href="#e5">5. Une liste</a></li>
   <li><a href="#e6">6. Groupe de membres</a></li>
-  <li><a href="#e7">7. Membre</a></li>
-  <li><a href="#e8">8. Nouveau groupe de contacts</a></li>
-  <li><a href="#e9">9. Un groupe de contacts</a></li>
-  <li><a href="#e10">10. Contact</a></li>
-  <li><a href="#e11">11. Retirer un bloc</a></li>
-  <li><a href="#e12">12. Voir les destinataires</a></li>
+  <li><a href="#e8">7. Nouveau groupe de contacts</a></li>
+  <li><a href="#e9">8. Un groupe de contacts</a></li>
+  <li><a href="#e11">9. Retirer un bloc</a></li>
+  <li><a href="#e12">10. Voir les destinataires</a></li>
+  <li><a href="#e13">11. Écrire un e-mail</a></li>
 </ul>
 
 <div class="ecrans">
@@ -175,8 +173,8 @@ code{font-family:var(--mono);font-size:12px}
           <button class="btn ico" aria-label="Désactiver la liste Staff élargi"><svg class="ico-svg"><use href="#i-eye"/></svg></button>
           <button class="btn ico dgr" aria-label="Supprimer la liste Staff élargi"><svg class="ico-svg"><use href="#i-trash"/></svg></button></div>
         <p class="p">Tous les animateurs, le trésorier et nos partenaires — infos de fonctionnement.</p>
-        <p class="p fort">2 groupes de membres · 1 membre · 1 groupe de contacts · 2 contacts</p>
-        <p class="p">≈ 72 destinataires en 2026-2027</p>
+        <p class="p fort">2 groupes de membres · 1 groupe de contacts</p>
+        <p class="p">≈ 67 destinataires en 2026-2027</p>
       </div>
       <div class="carte">
         <div class="ligne"><span class="nom"><a href="#e5">Partenaires locaux</a></span>
@@ -230,7 +228,7 @@ code{font-family:var(--mono);font-size:12px}
       <p class="sous">Tous les animateurs, le trésorier et nos partenaires — infos de fonctionnement.</p>
       <div class="total"><span class="chiffre">0 destinataire</span><span class="p">Personne ne reçoit encore les e-mails de cette liste.</span></div>
       <div class="vide">
-        <p class="p">Ajoutez des membres de l'unité ou des personnes extérieures, autant de fois que nécessaire.</p>
+        <p class="p">Ajoutez des groupes de membres de l'unité ou des groupes de contacts extérieurs, autant que nécessaire.</p>
         <button class="btn pri large"><svg class="ico-svg"><use href="#i-plus"/></svg>Ajouter des destinataires</button>
       </div>
     </div>
@@ -241,21 +239,13 @@ code{font-family:var(--mono);font-size:12px}
 <!-- 4 -->
 <section class="ecran" id="e4">
 <h2>4. Que voulez-vous ajouter ? — dialogue</h2>
-<p>Quatre choix, rangés comme le tableau du haut. Chacun ouvre son propre dialogue (écrans 6, 7, 8, 10).</p>
+<p>Deux choix. Chacun ouvre son propre dialogue (écrans 6 et 7).</p>
 <div class="zone nouveau"><span class="etq nouveau">Nouveau</span>
 <div class="dialogue">
   <div class="dlg-h">Que voulez-vous ajouter ? <svg class="ico-svg"><use href="#i-x"/></svg></div>
   <div class="dlg-b">
-    <p class="note fort"><b>Des membres de l'unité</b> — leur adresse vient de Desk</p>
-    <div class="type-grille">
-      <button class="type-choix"><b>Groupe de membres</b><span>Par fonction, section ou badge. Suit Desk d'une année à l'autre.</span></button>
-      <button class="type-choix"><b>Membre</b><span>Une personne précise, choisie par son nom.</span></button>
-    </div>
-    <p class="note fort"><b>Des personnes extérieures</b> — commune, paroisse, propriétaire…</p>
-    <div class="type-grille">
-      <button class="type-choix"><b>Groupe de contacts</b><span>Plusieurs adresses, tenues à jour par un fichier Excel.</span></button>
-      <button class="type-choix"><b>Contact</b><span>Une personne, avec son nom et son adresse.</span></button>
-    </div>
+    <button class="type-choix"><b>Groupe de membres</b><span>Des membres de l'unité, par fonction, section ou badge. Leur adresse vient de Desk, pour l'année choisie au moment d'écrire.</span></button>
+    <button class="type-choix"><b>Groupe de contacts</b><span>Des personnes extérieures — commune, paroisse, propriétaire… — tenues à jour par un fichier Excel.</span></button>
   </div>
 </div>
 </div>
@@ -275,8 +265,8 @@ code{font-family:var(--mono);font-size:12px}
 
       <div class="total">
         <span class="p">Reçoivent les e-mails de cette liste</span>
-        <span class="chiffre">72 destinataires en 2026-2027</span>
-        <span class="p">Une personne désignée par plusieurs blocs ne reçoit l'e-mail qu'une fois.</span>
+        <span class="chiffre">67 destinataires en 2026-2027</span>
+        <span class="p">32 membres pour 2026-2027 et 37 contacts, dont 2 désinscrits. Une personne désignée par plusieurs blocs ne reçoit l'e-mail qu'une fois.</span>
         <a class="p" href="#e12" style="color:var(--accent)">Voir les destinataires</a>
       </div>
 
@@ -286,23 +276,12 @@ code{font-family:var(--mono);font-size:12px}
       <div class="ligne-bloc"><div class="qui"><span>Les membres qui portent le badge <b>Trésorier</b>.</span><span class="mail">1 membre en 2026-2027</span></div>
         <button class="btn ico dgr" aria-label="Retirer ce groupe de membres"><svg class="ico-svg"><use href="#i-trash"/></svg></button></div>
 
-      <div class="rubrique"><h4>Membres</h4><span class="n">2</span></div>
-      <div class="ligne-bloc"><div class="qui"><span>Martine Lejeune</span><span class="mail">Parent responsable · Louveteaux</span></div>
-        <button class="btn ico dgr" aria-label="Retirer Martine Lejeune"><svg class="ico-svg"><use href="#i-trash"/></svg></button></div>
-      <div class="ligne-bloc grise"><div class="qui"><span>Thomas Renard</span><span class="mail">Pas membre en 2026-2027 — ne reçoit rien cette année</span></div>
-        <button class="btn ico dgr" aria-label="Retirer Thomas Renard"><svg class="ico-svg"><use href="#i-trash"/></svg></button></div>
-
       <div class="rubrique"><h4>Groupes de contacts</h4><span class="n">37 contacts</span></div>
       <div class="ligne-bloc"><div class="qui"><span>Partenaires de la fête d'unité</span><span class="mail">37 contacts, dont 2 désinscrits · fichier remplacé le 12 septembre 2026</span></div>
         <button class="btn ico dgr" aria-label="Retirer le groupe Partenaires de la fête d'unité"><svg class="ico-svg"><use href="#i-trash"/></svg></button></div>
 
-      <div class="rubrique"><h4>Contacts</h4><span class="n">2</span></div>
-      <div class="ligne-bloc"><div class="qui"><span>Administration communale</span><span class="mail">commune@wezembeek.be</span></div>
-        <button class="btn ico dgr" aria-label="Retirer commune@wezembeek.be"><svg class="ico-svg"><use href="#i-trash"/></svg></button></div>
-      <div class="ligne-bloc grise"><div class="qui"><span>Ferme du Bois</span><span class="mail">fermedubois@gmail.com · désinscrite</span></div></div>
-
       <button class="btn pri large"><svg class="ico-svg"><use href="#i-plus"/></svg>Ajouter des destinataires</button>
-      <p class="note">Une rubrique vide n'est pas affichée. Une adresse désinscrite n'a pas de corbeille : elle reste visible pour que personne ne la rajoute.</p>
+      <p class="note">Une rubrique vide n'est pas affichée. Le nombre de membres dépend de l'année : celui de la page est calculé pour l'année scoute effective.</p>
     </div>
   </div>
 </div>
@@ -340,29 +319,9 @@ code{font-family:var(--mono);font-size:12px}
 </div>
 </section>
 
-<!-- 7 -->
-<section class="ecran" id="e7">
-<h2>7. Membre — dialogue</h2>
-<p>Le sélecteur de recherche générique (<code>partials/search_picker</code>, mode simple). Choisir un nom le sélectionne seulement ; rien n'est écrit avant « Enregistrer ». Un membre par bloc. L'adresse utilisée est celle de Desk pour l'année de l'e-mail.</p>
-<div class="zone nouveau"><span class="etq nouveau">Nouveau</span>
-<div class="dialogue">
-  <div class="dlg-h">Membre <svg class="ico-svg"><use href="#i-x"/></svg></div>
-  <div class="dlg-b">
-    <input class="input" value="lej" aria-label="Rechercher un membre par son nom">
-    <ul class="personnes">
-      <li><div class="qui"><span>Martine Lejeune</span><span class="mail">Parent responsable · Louveteaux</span></div><span class="tag">Déjà dans la liste</span></li>
-      <li style="background:var(--accent-soft);padding-left:8px"><div class="qui"><span>Hugo Lejeune — Tamarin</span><span class="mail">Louveteau · Meute</span></div><span class="tag membre">Choisi</span></li>
-    </ul>
-    <p class="note">Seuls les membres connus de Desk sont proposés. Pour quelqu'un d'autre, ajoutez un contact.</p>
-  </div>
-  <div class="dlg-f"><button class="btn">Annuler</button><button class="btn pri">Enregistrer</button></div>
-</div>
-</div>
-</section>
-
 <!-- 8 -->
 <section class="ecran" id="e8">
-<h2>8. Nouveau groupe de contacts — dialogue</h2>
+<h2>7. Nouveau groupe de contacts — dialogue</h2>
 <p>Un nom et un fichier. Le fichier est analysé dès qu'il est choisi et l'aperçu chiffré s'affiche ; rien n'est écrit avant « Enregistrer ».</p>
 <div class="zone nouveau"><span class="etq nouveau">Nouveau</span>
 <div class="dialogue">
@@ -381,8 +340,8 @@ code{font-family:var(--mono);font-size:12px}
 
 <!-- 9 -->
 <section class="ecran" id="e9">
-<h2>9. Un groupe de contacts — dialogue</h2>
-<p>Le fichier est l'outil de modification : exporter, corriger dans Excel, choisir le fichier corrigé. Son aperçu dit ce qui changera ; le nom et le fichier sont enregistrés ensemble par « Enregistrer », et « Annuler » abandonne les deux. Les adresses se consultent et se cherchent, sans modification ligne à ligne.</p>
+<h2>8. Un groupe de contacts — dialogue</h2>
+<p>Le fichier est l'outil de modification : exporter, corriger dans Excel, choisir le fichier corrigé. Son aperçu dit ce qui changera ; le nom et le fichier sont enregistrés ensemble par « Enregistrer », et « Annuler » abandonne les deux. Les adresses se consultent et se cherchent, sans modification ligne à ligne : pour ajouter une personne, on ajoute une ligne au fichier.</p>
 <div class="zone nouveau"><span class="etq nouveau">Nouveau</span>
 <div class="dialogue">
   <div class="dlg-h">Groupe de contacts <svg class="ico-svg"><use href="#i-x"/></svg></div>
@@ -407,25 +366,9 @@ code{font-family:var(--mono);font-size:12px}
 </div>
 </section>
 
-<!-- 10 -->
-<section class="ecran" id="e10">
-<h2>10. Contact — dialogue</h2>
-<p>Un nom, une adresse, modifiables tous les deux ici. Une adresse désinscrite ailleurs est acceptée mais enregistrée désinscrite, et le dialogue le dit (règle actuelle). Un contact désinscrit s'ouvre en lecture seule, avec « Fermer » pour seul bouton.</p>
-<div class="zone nouveau"><span class="etq nouveau">Nouveau</span>
-<div class="dialogue">
-  <div class="dlg-h">Contact <svg class="ico-svg"><use href="#i-x"/></svg></div>
-  <div class="dlg-b">
-    <div class="champ"><label for="ct-nom">Nom</label><input class="input" id="ct-nom" value="Administration communale"></div>
-    <div class="champ"><label for="ct-mail">Adresse e-mail</label><input class="input" id="ct-mail" value="commune@wezembeek.be"></div>
-  </div>
-  <div class="dlg-f"><button class="btn">Annuler</button><button class="btn pri">Enregistrer</button></div>
-</div>
-</div>
-</section>
-
 <!-- 11 -->
 <section class="ecran" id="e11">
-<h2>11. Retirer un bloc</h2>
+<h2>9. Retirer un bloc</h2>
 <p>Une seule confirmation pour les quatre sortes, qui nomme le bloc, dit ce qu'il désignait et qu'aucun e-mail ne part.</p>
 <div class="zone nouveau"><span class="etq nouveau">Nouveau</span>
 <div class="dialogue">
@@ -442,16 +385,16 @@ code{font-family:var(--mono);font-size:12px}
 
 <!-- 12 -->
 <section class="ecran" id="e12">
-<h2>12. Voir les destinataires — dialogue</h2>
-<p>La liste résolue pour l'année effective, dédoublonnée comme l'envoi. Chaque ligne dit quel bloc l'apporte. Lecture seule.</p>
+<h2>10. Voir les destinataires — dialogue</h2>
+<p>La liste résolue pour l'année effective (un sélecteur permet de voir une autre année proposée à l'envoi), dédoublonnée comme l'envoi. Chaque ligne dit quel bloc l'apporte. Lecture seule.</p>
 <div class="zone nouveau"><span class="etq nouveau">Nouveau</span>
 <div class="dialogue">
-  <div class="dlg-h">72 destinataires en 2026-2027 <svg class="ico-svg"><use href="#i-x"/></svg></div>
+  <div class="dlg-h">67 destinataires en 2026-2027 <svg class="ico-svg"><use href="#i-x"/></svg></div>
   <div class="dlg-b">
     <input class="input" placeholder="Rechercher un nom ou une adresse" aria-label="Rechercher un destinataire">
     <ul class="personnes">
       <li><div class="qui"><span>Abbé Lambert</span><span class="mail">paroisse.st-pierre@skynet.be</span></div><span class="tag">Partenaires de la fête</span></li>
-      <li><div class="qui"><span>Administration communale</span><span class="mail">commune@wezembeek.be</span></div><span class="tag">Contact</span></li>
+      <li><div class="qui"><span>Administration communale</span><span class="mail">commune@wezembeek.be</span></div><span class="tag">Partenaires de la fête</span></li>
       <li><div class="qui"><span>Julie Collard — Ourson</span><span class="mail">julie.collard@outlook.be</span></div><span class="tag membre">Animateurs</span></li>
       <li><div class="qui"><span>Marc Dewit</span><span class="mail">marc.dewit@gmail.com</span></div><span class="tag membre">Animateurs · Trésorier</span></li>
     </ul>
@@ -461,19 +404,42 @@ code{font-family:var(--mono);font-size:12px}
 </div>
 </section>
 
+<!-- 13 -->
+<section class="ecran" id="e13">
+<h2>11. Écrire un e-mail — <code>/mass-mail/{id}</code></h2>
+<p>Seule retouche hors de la page des listes : quand une liste personnalisée est choisie, une phrase sous les années dit ce que l'année change. Le reste de la page est inchangé.</p>
+<div class="cadre">
+  <div class="nav">25 SV — Espace chefs d'U</div>
+  <div class="corps">
+    <div class="zone inchange"><span class="etq inchange">Inchangé</span>
+      <div class="selbar"><div><div class="lbl">Liste</div><div class="val">Staff élargi</div></div><svg class="ico-svg chev"><use href="#i-down"/></svg></div>
+      <p class="p">Tous les animateurs, le trésorier et nos partenaires — infos de fonctionnement.</p>
+      <p class="p fort"><b>Année(s) scoute(s)</b></p>
+      <label class="note" style="display:flex;gap:6px;align-items:center"><input type="checkbox"> Année précédente (2025-2026)</label>
+      <label class="note" style="display:flex;gap:6px;align-items:center"><input type="checkbox" checked> Année en cours (2026-2027)</label>
+      <label class="note" style="display:flex;gap:6px;align-items:center"><input type="checkbox"> Année suivante (2027-2028)</label>
+    </div>
+    <div class="zone modifie"><span class="etq modifie">Modifié</span>
+      <p class="p fort">Les années choisies s'appliquent aux groupes de membres de cette liste. Ses groupes de contacts sont toujours inclus.</p>
+      <p class="note">Trois cas, selon la liste choisie : avec des groupes des deux sortes, cette phrase ; avec seulement des groupes de contacts, « Cette liste ne contient que des contacts : l'année ne change rien. » ; avec seulement des groupes de membres, aucune phrase — elle se comporte comme les listes par défaut.</p>
+    </div>
+  </div>
+</div>
+</section>
+
 </div>
 
 <section class="decisions">
 <h2>Ce que la maquette fixe</h2>
 <ul>
-  <li>Une liste est une suite de blocs additionnés (union), avec quatre sortes : <b>groupe de membres</b>, <b>membre</b>, <b>groupe de contacts</b> (Excel), <b>contact</b>. Aucune limite de nombre par sorte.</li>
-  <li>Chaque sorte a son propre dialogue ; « Ajouter des destinataires » ouvre d'abord le choix de la sorte.</li>
-  <li>Les blocs s'affichent rangés par sorte, dans cet ordre, sans réordonnancement à la main : dans une addition, l'ordre ne change rien.</li>
+  <li>Une liste est une suite de blocs additionnés (union), de deux sortes : <b>groupe de membres</b> et <b>groupe de contacts</b>. Aucune limite de nombre par sorte. Pas de membre ni de contact ajouté un par un.</li>
+  <li>« Ajouter des destinataires » ouvre d'abord le choix de la sorte, puis le dialogue propre à cette sorte.</li>
+  <li>Les blocs s'affichent rangés par sorte, groupes de membres d'abord, sans réordonnancement à la main : dans une addition, l'ordre ne change rien.</li>
   <li>Dans un groupe de membres : chaque choix fait doit être rempli (ET entre fonctions, sections, badges ; OU à l'intérieur), comme aujourd'hui. Au moins un choix ; un axe vide se lit « Peu importe ».</li>
-  <li>Un membre choisi suit Desk : l'adresse est celle de l'année de l'e-mail ; s'il n'est pas membre de cette année, il ne reçoit rien et la page le dit.</li>
-  <li>Un groupe de contacts se modifie par son fichier (export, correction, nouveau fichier avec aperçu chiffré) ; un contact se corrige dans son dialogue.</li>
+  <li>À l'envoi, les années choisies sur la page de l'e-mail s'appliquent aux groupes de membres ; les groupes de contacts sont toujours inclus. La page de l'e-mail le dit.</li>
+  <li>Un groupe de contacts a un nom et se modifie uniquement par son fichier : export, correction, nouveau fichier avec aperçu chiffré.</li>
+  <li>Tous les dialogues se terminent par « Annuler » et « Enregistrer ». Rien n'est écrit avant « Enregistrer », pas même le choix d'un fichier. Le retrait d'un bloc se fait depuis la page et demande une confirmation qui dit qu'aucun e-mail ne part.</li>
   <li>Pas d'exclusion (« sauf … »), pas de carnet d'adresses partagé entre listes. La désinscription reste globale à l'unité.</li>
-  <li>Tous les dialogues se terminent de la même façon : « Annuler » et « Enregistrer ». Rien n'est écrit avant « Enregistrer », pas même le choix d'un membre ou d'un fichier. Le retrait d'un bloc se fait depuis la page et demande une confirmation qui dit qu'aucun e-mail ne part.</li>
 </ul>
 </section>
 </div>
