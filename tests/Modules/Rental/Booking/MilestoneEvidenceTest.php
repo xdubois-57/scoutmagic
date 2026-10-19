@@ -325,6 +325,52 @@ class MilestoneEvidenceTest extends TestCase
         $this->assertSame('20/07/2027', $evidence->details[BookingMilestones::SECURITY_DEPOSIT_RETURNED]);
     }
 
+    /**
+     * The balance's « attendus » is the single receivable's — rental and
+     * security deposit together — so the deposit's own line names no amount:
+     * 1 000 € of rent and 500 € of deposit never read as 2 000 € owed.
+     */
+    public function testTheSecurityDepositOwedIsCountedOnceInTheBalance(): void
+    {
+        $payment = $this->payment([
+            'total_cents' => 150000,
+            'balance_due_date' => '2027-06-01',
+            'security_deposit' => [
+                'status' => SecurityDepositStatus::TO_RECEIVE,
+                'amount_cents' => 50000,
+                'due_date' => '2027-06-01',
+            ],
+        ]);
+
+        $evidence = MilestoneEvidence::collect(
+            $this->booking(),
+            [],
+            $payment,
+            null,
+            null,
+            true,
+            [],
+            new \DateTimeImmutable('2027-03-05')
+        );
+
+        $this->assertSame(
+            '1 500,00 € attendus pour le 01/06/2027',
+            $evidence->details[BookingMilestones::BALANCE_RECEIVED]
+        );
+        $this->assertFalse($evidence->done[BookingMilestones::SECURITY_DEPOSIT_RECEIVED]);
+        $this->assertArrayNotHasKey(BookingMilestones::SECURITY_DEPOSIT_RECEIVED, $evidence->details);
+
+        // Payments off: no balance line counts it, so its own line does.
+        $offline = MilestoneEvidence::collect(
+            $this->booking(),
+            [],
+            array_merge($payment, ['enabled' => false]),
+            null,
+            null
+        );
+        $this->assertSame('500,00 € attendus', $offline->details[BookingMilestones::SECURITY_DEPOSIT_RECEIVED]);
+    }
+
     public function testNoSecurityDepositMeansNoSecurityDepositLines(): void
     {
         $evidence = MilestoneEvidence::collect($this->booking(), [], $this->payment(), null, null);
