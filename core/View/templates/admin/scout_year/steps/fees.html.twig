@@ -1,11 +1,27 @@
 {#
- Detail of the « fees » step of the Année scoute workflow (chantier #930).
- Receives `step` (Core\ScoutYear\Step\TransitionStep) and reads only
- `step.details`, `step.pendingMessage` and the step itself — the points to
+ Detail of the « fees » step of the Année scoute workflow (chantier #930),
+ written as the content of the step's Détails dialog. Receives `step`
+ (Core\ScoutYear\Step\TransitionStep) and reads only `step.details`,
+ `step.pendingMessage` and the step itself; the keys of `step.details` are
+ documented on Core\ScoutYear\Step\Check\FeesStepCheck. The points to
  check, the actions and who marked the step are rendered by the page
  around this file, never here. Owned by the step checks (lot E); the page
  and the Détails dialog that include it are not.
 #}
 {% if step.pendingMessage %}
-<p class="text-body-secondary small mb-2">{{ step.pendingMessage }}</p>
+<div class="alert alert-info small py-2 px-3 mb-2" role="note">{{ step.pendingMessage }}</div>
 {% endif %}
+{% if step.details.households_checked is defined %}
+{% set d = step.details %}
+<p class="small mb-2">
+    {{ d.households_checked }} {{ d.households_checked <= 1 ? 'foyer contrôlé' : 'foyers contrôlés' }} à partir de
+    l'import du {{ d.imported_at|date_fr }} :
+    {{ d.households_to_correct }} à corriger,
+    {{ d.households_set_aside }} mis de côté,
+    {{ d.members_without_address }} {{ d.members_without_address <= 1 ? 'membre' : 'membres' }} sans adresse exploitable.
+</p>
+{% endif %}
+<p class="text-body-secondary small mb-2">
+    Seulement les catégories de cotisation encodées dans Desk. Factures et paiements ne sont pas vérifiés ici. La page
+    Justesse des tarifs montre l'année que vous voyez : prévisualisez l'année préparée pour y retrouver ces chiffres.
+</p>

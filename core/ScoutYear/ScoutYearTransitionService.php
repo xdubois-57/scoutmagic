@@ -540,10 +540,12 @@ class ScoutYearTransitionService
     /**
      * The indicative Desk-encoding date for one transition, as 'Y-m-d':
      * the configured MM-JJ placed in the calendar year the target scout
-     * year starts in (15 August 2026 for the 2026-2027 transition). An
-     * unparseable setting falls back to 15 August rather than throwing —
-     * a page that refuses to render because a signpost is malformed would
-     * be a far worse failure than a signpost pointing at the default.
+     * year starts in (15 August 2026 for the 2026-2027 transition). The
+     * day is read by DeskImportYearDates, the Desk import's own reading of
+     * it, so the page and the import never disagree on it: a stored pair
+     * that does not hold together falls back to the defaults there, and
+     * so here — never an exception, because a page that refuses to render
+     * over a malformed signpost would be a far worse failure.
      *
      * @param array{id: int, label: string, start_date: string, end_date: string} $targetYear
      */

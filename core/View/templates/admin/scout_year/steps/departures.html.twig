@@ -1,11 +1,47 @@
 {#
- Detail of the « departures » step of the Année scoute workflow (chantier #930).
- Receives `step` (Core\ScoutYear\Step\TransitionStep) and reads only
- `step.details`, `step.pendingMessage` and the step itself — the points to
+ Detail of the « departures » step of the Année scoute workflow (chantier #930),
+ written as the content of the step's Détails dialog. Receives `step`
+ (Core\ScoutYear\Step\TransitionStep) and reads only `step.details`,
+ `step.pendingMessage` and the step itself; the keys of `step.details` are
+ documented on Core\ScoutYear\Step\Check\DeparturesStepCheck. The points to
  check, the actions and who marked the step are rendered by the page
  around this file, never here. Owned by the step checks (lot E); the page
  and the Détails dialog that include it are not.
 #}
 {% if step.pendingMessage %}
-<p class="text-body-secondary small mb-2">{{ step.pendingMessage }}</p>
+<div class="alert alert-info small py-2 px-3 mb-2" role="note">{{ step.pendingMessage }}</div>
+{% endif %}
+{% if step.details.campaign is defined and step.details.campaign is not null %}
+{% set campaign = step.details.campaign %}
+<p class="small mb-2">
+    {% if campaign.state == 'finished' %}
+        <span class="badge text-bg-success">Campagne terminée</span>
+    {% elseif campaign.state == 'open' %}
+        <span class="badge text-bg-danger">Campagne en cours</span>
+    {% else %}
+        <span class="badge text-bg-secondary">Campagne programmée</span>
+    {% endif %}
+    Campagne de réinscription {{ step.details.target_label }}
+    {%- if campaign.opens_on %} · ouverture le {{ campaign.opens_on }}{% endif %}
+    {%- if campaign.closes_on %} · fermeture le {{ campaign.closes_on }}{% endif %}.
+</p>
+{% endif %}
+{% if step.details.leavers is defined %}
+    {% set leavers = step.details.leavers %}
+    {% if leavers is empty %}
+    <p class="small mb-2">Aucun animé annoncé partant.</p>
+    {% else %}
+    <p class="small mb-1">
+        {{ leavers|length }} {{ leavers|length <= 1 ? 'animé annoncé partant' : 'animés annoncés partants' }} :
+    </p>
+    <ul class="small mb-2">
+        {% for leaver in leavers %}
+        <li><a href="{{ leaver.url }}">{{ leaver.name }}</a>{% if leaver.section %} ({{ leaver.section }}){% endif %}</li>
+        {% endfor %}
+    </ul>
+    {% endif %}
+    <p class="text-body-secondary small mb-2">
+        La fin de la campagne ne vaut pas revue : confirmez que les départs ont été relus avec les staffs, même s'il
+        n'y en a aucun.
+    </p>
 {% endif %}

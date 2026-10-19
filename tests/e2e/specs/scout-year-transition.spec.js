@@ -415,7 +415,11 @@ test('the whole site transitions to the next scout year through the documented w
     // successful import of the target year.
     // ---------------------------------------------------------------
     await expect(step(page, 'preview').getByRole('button', { name: `Prévisualiser ${targetYear}` })).toBeEnabled();
-    await expect(step(page, 'departures').getByRole('link', { name: "Aller aux départs de l'unité" })).toBeVisible();
+    // Step 1's one action follows the campaign (the harness's campaign is
+    // not finished, so it is the campaign itself); the departures page is
+    // among every action of the step, in its Détails dialog.
+    await expect(details(page, 'departures').getByRole('link', { name: 'Voir les départs', includeHidden: true }))
+        .toHaveCount(1);
 
     // Hard block: no staff year without a successful import of it. The
     // page says so in words, the step's one action is the import that
@@ -561,7 +565,7 @@ test('the whole site transitions to the next scout year through the documented w
 
     // Now that the year has sections, the photo step can measure itself —
     // and the missing photos are a point to check, never the step done.
-    await expect(details(page, 'staff_photos')).toContainText('ont une photo de groupe de');
+    await expect(details(page, 'staff_photos')).toContainText(/\d+ sections? sur\s+\d+ (a|ont) une photo de groupe de/);
     await expect(step(page, 'staff_photos')).toContainText('à vérifier');
     await expect(step(page, 'staff_photos').locator('.step-circle--done')).toHaveCount(0);
 
@@ -591,8 +595,8 @@ test('the whole site transitions to the next scout year through the documented w
     // decisions, all four: whatever the site counts (events, photos) is a
     // point to check, never the step done.
     // ---------------------------------------------------------------
-    await expect(step(page, 'ephemerides').getByRole('link', { name: 'Aller au calendrier' })).toBeVisible();
-    await expect(step(page, 'badges').getByRole('link', { name: 'Aller aux staffs et badges' })).toBeVisible();
+    await expect(step(page, 'ephemerides').getByRole('link', { name: 'Ouvrir le calendrier' })).toBeVisible();
+    await expect(step(page, 'badges').getByRole('link', { name: 'Ouvrir Staffs' })).toBeVisible();
     await expect(step(page, 'trombinoscope').getByRole('link', { name: 'Aller aux animateurs' })).toBeVisible();
 
     for (const key of ['ephemerides', 'badges', 'trombinoscope', 'staff_photos']) {

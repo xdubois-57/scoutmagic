@@ -25,7 +25,11 @@ use Core\ScoutYear\Step\StepState;
 use Core\ScoutYear\Step\TransitionStep;
 use Core\ScoutYear\Step\TransitionWorkflow;
 use Modules\Calendar\Api\ScoutYearEventCountProvider;
+use Modules\Registration\Api\PreparedImportGaps;
+use Modules\Registration\Api\ReenrollmentCampaignState;
+use Modules\Registration\Api\RegistrationRequestCounts;
 use Modules\Registration\Api\ScoutYearPreparationProvider;
+use Modules\Registration\Api\ScoutYearRegistrationReviewProvider;
 use Modules\Registration\Api\ScoutYearTransitionVetoProvider;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
@@ -284,7 +288,7 @@ class ScoutYearTransitionServiceTest extends TestCase
             $this->scoutYearService,
             TransitionServiceFactory::users($this->pdo),
             $this->settingService,
-            [new DeparturesStepCheck()],
+            [new DeparturesStepCheck(null, $this->stepRepository, TransitionServiceFactory::sections($this->pdo))],
             []
         );
 
@@ -439,7 +443,7 @@ class ScoutYearTransitionServiceTest extends TestCase
         $step = $this->step($this->build(['registration'], null, null, null, $this->preparation(12, 0)), 'passage');
         $this->assertFalse($step->isDone());
         $this->assertSame([], $step->pointsToCheck);
-        $this->assertSame(['passage_count' => 12, 'unassigned_count' => 0], $step->details);
+        $this->assertSame(['passage_count' => 12, 'unassigned_count' => 0, 'unassigned' => []], $step->details);
     }
 
     public function testNoPassageAtAllIsSaidAsSuch(): void
@@ -490,8 +494,8 @@ class ScoutYearTransitionServiceTest extends TestCase
         $this->givenSectionPhoto(2, (int) $this->publicYear['id']);
 
         $step = $this->step($this->build(), 'staff_photos');
-        $this->assertSame(['1 section sans photo de groupe de 2026-2027'], $step->pointsToCheck);
-        $this->assertSame(['section_count' => 2, 'with_photo_count' => 1], $step->details);
+        $this->assertSame(['S2 : pas de photo 2026-2027'], $step->pointsToCheck);
+        $this->assertSame(['section_count' => 2, 'with_photo_count' => 1, 'missing' => ['S2']], $step->details);
 
         $this->givenSectionPhoto(2, (int) $this->targetYear['id']);
         $step = $this->step($this->build(), 'staff_photos');
@@ -598,6 +602,56 @@ class ScoutYearTransitionServiceTest extends TestCase
         $this->assertTrue($step->isDone());
         $this->assertFalse($step->isBlocking());
         $this->assertSame(StepMarkResult::UNMARKED, $service->markStep($context, 'departures', false, null)->outcome);
+    }
+
+    /**
+     * Hard block 1 with the real step-1 check (§2.3): a running campaign
+     * refuses the mark on the server, with its reason; once finished, the
+     * same request marks; reopened afterwards, the mark stays and the
+     * reopening becomes a point to check.
+     */
+    public function testTheDeparturesMarkIsRefusedOnTheServerUntilTheCampaignIsFinished(): void
+    {
+        $state = ReenrollmentCampaignState::OPEN;
+        $review = $this->createStub(ScoutYearRegistrationReviewProvider::class);
+        $review->method('reenrollmentCampaign')->willReturnCallback(
+            static function () use (&$state): ReenrollmentCampaignState {
+                return new ReenrollmentCampaignState($state, '2026-2027', '2026-05-01', '2026-06-15');
+            }
+        );
+        $review->method('announcedLeavers')->willReturn([]);
+        $review->method('requestCounts')->willReturn(new RegistrationRequestCounts(0, 0, 0));
+        $review->method('passagesWithoutDestination')->willReturn([]);
+        $review->method('preparedImportGaps')->willReturn(new PreparedImportGaps([], [], []));
+
+        $service = TransitionServiceFactory::create(
+            $this->pdo,
+            $this->settingService,
+            new ScoutYearAdminService($this->settingService, $this->importJournal, null),
+            ['registration'],
+            null,
+            null,
+            [],
+            $review
+        );
+        $context = $this->context($service);
+
+        $result = $service->markStep($context, 'departures', true, null);
+        $this->assertSame(StepMarkResult::REFUSED, $result->outcome);
+        $this->assertSame(
+            'La campagne de réinscription 2026-2027 est en cours (fermeture le 15/06/2026). '
+                . "L'étape pourra être marquée une fois la campagne terminée.",
+            $result->reason
+        );
+        $this->assertSame([], $this->stepRepository->findByYear((int) $this->targetYear['id']));
+
+        $state = ReenrollmentCampaignState::FINISHED;
+        $this->assertSame(StepMarkResult::MARKED, $service->markStep($context, 'departures', true, null)->outcome);
+
+        $state = ReenrollmentCampaignState::OPEN;
+        $step = $this->step($service->buildWorkflow($context), 'departures');
+        $this->assertTrue($step->isDone());
+        $this->assertSame(['Campagne rouverte après le marquage'], $step->pointsToCheck);
     }
 
     /**
@@ -815,15 +869,16 @@ class ScoutYearTransitionServiceTest extends TestCase
     }
 
     /**
-     * ScoutYearResolver::countSections() counts the sections that have an
-     * active staffed member function that year — the same shape a real
-     * Desk import produces.
+     * SectionService::getSectionHeadcountsForYear() — the sections a check
+     * looks at — lists the visible sections with an active member that
+     * year, here one animateur each: the shape a real Desk import produces.
      *
      * @param array<int, int> $sectionIds
      */
     private function givenTargetYearHasSectionsWithStaff(array $sectionIds): void
     {
         $this->pdo->exec("INSERT OR IGNORE INTO age_branches (id, desk_code, label) VALUES (1, 'BR', 'Branche')");
+        $this->pdo->exec("INSERT OR IGNORE INTO functions (id, desk_code, label, role) VALUES (1, 'ANIM', 'Animateur', 'chief')");
 
         foreach ($sectionIds as $sectionId) {
             $this->pdo->exec(
