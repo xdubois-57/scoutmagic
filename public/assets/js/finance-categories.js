@@ -116,7 +116,7 @@
                 confirmLabel: 'Supprimer'
             });
             if (confirmed) {
-                postCategoryAction('delete', Number.parseInt(btn.dataset.id, 10));
+                void postCategoryAction('delete', Number.parseInt(btn.dataset.id, 10));
             }
         });
     });
@@ -273,7 +273,7 @@
 
     // Reflect an already-in-progress run on page load (e.g. the admin
     // navigated away and back while it was still running).
-    (async () => {
+    void (async () => {
         const res = await api.postJson('/config/finance/rules', { action: 'run_status' });
         if (res.data?.success && res.data.running) {
             setRunRulesRunning(true, res.data.progress);
@@ -364,7 +364,7 @@
                 confirmLabel: 'Supprimer'
             });
             if (confirmed) {
-                postRuleAction('delete', { id: Number.parseInt(btn.dataset.id, 10) });
+                void postRuleAction('delete', { id: Number.parseInt(btn.dataset.id, 10) });
             }
         });
     });
@@ -399,7 +399,7 @@
 
     // --- Move up/down (touch-friendly alternative to drag-and-drop for rules) ---
     function persistRuleOrder() {
-        api.postJson('/config/finance/rules', { action: 'reorder', ordered_ids: orderedRuleIds() })
+        void api.postJson('/config/finance/rules', { action: 'reorder', ordered_ids: orderedRuleIds() })
             .then(res => { if (!res.data?.success) toastError(res.data?.error); });
     }
     function updateRuleMoveButtons() {
