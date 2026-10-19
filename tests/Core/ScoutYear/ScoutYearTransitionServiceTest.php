@@ -277,6 +277,15 @@ class ScoutYearTransitionServiceTest extends TestCase
         $this->assertTrue($this->step($workflow, 'activate_public')['done']);
     }
 
+    /** The import step opens the import page on the target year — which selects it only if its policy allows it. */
+    public function testTheImportStepLinksToTheImportOfTheTargetYear(): void
+    {
+        $this->assertSame(
+            '/admin/import?annee=' . $this->targetYear['id'],
+            $this->step($this->build(), 'import')['action_url']
+        );
+    }
+
     /**
      * The highlighted step is "the first one still to do", so once there is
      * none there is nothing to highlight either — the workflow is over.
@@ -483,8 +492,8 @@ class ScoutYearTransitionServiceTest extends TestCase
     {
         $this->assertSame('2026-08-15', $this->build()['desk_encoding_date']);
 
-        $this->settingService->setInternal(ScoutYearTransitionService::SETTING_DESK_ENCODING_DATE, '07-01');
-        $this->assertSame('2026-07-01', $this->build()['desk_encoding_date']);
+        $this->settingService->setInternal(ScoutYearTransitionService::SETTING_DESK_ENCODING_DATE, '07-20');
+        $this->assertSame('2026-07-20', $this->build()['desk_encoding_date']);
     }
 
     /**

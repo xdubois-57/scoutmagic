@@ -112,8 +112,6 @@ final class TwigCommentsAreEnglishTest extends TestCase
     private const FRENCH_COMMENT_ALLOWLIST = [
         'core/View/templates/admin/attention.html.twig' => 1,
         'core/View/templates/admin/duplicates.html.twig' => 1,
-        'core/View/templates/admin/import.html.twig' => 1,
-        'core/View/templates/admin/import_barrier.html.twig' => 4,
         'core/View/templates/admin/import_history.html.twig' => 1,
         'core/View/templates/admin/import_report.html.twig' => 1,
         'core/View/templates/admin/members/show.html.twig' => 7,
@@ -269,7 +267,7 @@ final class TwigCommentsAreEnglishTest extends TestCase
             . "l'application ne parte pas sur le fichier."
         ));
 
-        // The real comment (admin/import.html.twig) that the first version
+        // A real comment (admin/import.html.twig, since translated) that the first version
         // of this detector let through: French beyond argument, but only
         // ten words long, so counting markers made length the test rather
         // than language. As a density it is nowhere near the line.

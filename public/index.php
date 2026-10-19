@@ -1332,26 +1332,44 @@ $settingService->register(
     true,
     250
 );
-// Scout year transition (Core\ScoutYear\ScoutYearTransitionService) — the
-// day the "Année scoute" page starts presenting the Desk encoding phase as
-// the current one. A signpost and nothing else: it labels the phases and
-// says which one the calendar is in, and it never enables, disables or
-// triggers anything. specifications.md §16.4 removed date-driven
-// transitions deliberately (a computed date cannot be told "not yet" by
-// the registration veto), and this parameter does not bring them back.
+// The two days of the summer that decide which scout years a Desk import
+// may target (Core\Import\DeskImportYearPolicy, Core\Import\
+// DeskImportYearDates): from the first, the next year may be imported and
+// is the one proposed; from the second, only the next year may. The second
+// also separates the phases of the "Année scoute" page
+// (Core\ScoutYear\ScoutYearTransitionService). Neither switches the public
+// year: specifications.md §16.4 keeps the transition manual (a computed
+// date cannot be told "not yet" by the registration veto). The pair is
+// checked together when either is saved (SettingsController), and a
+// stored pair that does not hold together falls back to both defaults.
 $settingService->register(
-    'scout_year_desk_encoding_date',
-    '08-15',
+    \Core\Import\DeskImportYearDates::SETTING_ENCODING,
+    \Core\Import\DeskImportYearDates::DEFAULT_ENCODING,
     'text',
-    'Bascule vers l\'encodage dans Desk',
-    'Jour et mois (MM-JJ) à partir desquels la page « Année scoute » présente l\'encodage dans Desk comme la '
-        . 'période en cours — jamais d\'année à indiquer, la même configuration se répète d\'une année scoute à '
-        . 'l\'autre. Purement indicatif : cette date n\'active, ne bloque et ne déclenche jamais rien.',
+    \Core\Import\DeskImportYearDates::LABEL_ENCODING,
+    'Jour et mois (MM-JJ). Sépare les phases de la page « Année scoute » et, à partir de cette date, ferme '
+        . 'l\'import dans l\'année publique : seule l\'année suivante reste importable, jusqu\'à la bascule. '
+        . 'Doit tomber avant le 1er septembre et après l\'ouverture de l\'import pour l\'année suivante. Jamais '
+        . 'd\'année à indiquer : la même configuration se répète d\'une année scoute à l\'autre.',
     null,
     '^(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$',
     null,
     true,
-    252
+    249
+);
+$settingService->register(
+    \Core\Import\DeskImportYearDates::SETTING_NEXT_START,
+    \Core\Import\DeskImportYearDates::DEFAULT_NEXT_START,
+    'text',
+    \Core\Import\DeskImportYearDates::LABEL_NEXT_START,
+    'Jour et mois (MM-JJ). À partir de cette date, l\'année suivante peut être importée, et devient l\'année '
+        . 'proposée ; l\'année publique reste importable, après confirmation, jusqu\'à la date d\'encodage Desk. '
+        . 'Doit tomber avant le 1er septembre et avant la date d\'encodage Desk.',
+    null,
+    '^(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$',
+    null,
+    true,
+    248
 );
 $settingService->register(
     'section_document_compression_enabled',
@@ -2909,6 +2927,17 @@ $deskImportListeners = new \Core\Import\DeskImportListenerRegistry();
 $deskImportListeners->register(
     new \Core\Badge\TreasurerBadgeDeskImportListener($badgeService, $journalService)
 );
+// Which scout years a Desk import may target today — one instance, handed
+// to the service that enforces it and to the controller that renders it,
+// so the page never offers a year the POST would refuse. The web path is
+// always the site policy: DeskImportYearPolicy::unrestricted() belongs to
+// the reference-dataset replay and the tests, and nothing here can ask
+// for it.
+$deskImportYearPolicy = \Core\Import\DeskImportYearPolicy::forSite(
+    $scoutYearResolver,
+    $scoutYearService,
+    $settingService
+);
 $importService = new DeskImportService(
     $pdo,
     $encryptionService,
@@ -2926,6 +2955,7 @@ $importService = new DeskImportService(
     $encryptedFileStorageService,
     $importDiffCalculator,
     $scoutYearService,
+    $deskImportYearPolicy,
     $duplicateMemberDetector,
     $deskImportListeners
 );
@@ -6899,6 +6929,7 @@ $frontController->registerController(
     new ImportController(
         $twig,
         $importService,
+        $deskImportYearPolicy,
         $scoutYearResolver,
         $importJournalRepo,
         $functionRepo,
@@ -11827,6 +11858,7 @@ if ($isEnabled('registration')) {
         new ImportController(
             $twig,
             $importService,
+            $deskImportYearPolicy,
             $scoutYearResolver,
             $importJournalRepo,
             $functionRepo,

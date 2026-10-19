@@ -18,6 +18,7 @@ use Core\Database\Connection;
 use Core\Import\DeskCsvParser;
 use Core\Import\DeskImportListenerRegistry;
 use Core\Import\DeskImportService;
+use Core\Import\DeskImportYearPolicy;
 use Core\Import\FeeCategoryRepository;
 use Core\Import\FunctionRepository;
 use Core\Import\ImportDiffCalculator;
@@ -255,6 +256,9 @@ final class DeskImportReplay
             ),
             new ImportDiffCalculator(new RosterSnapshotRepository($this->pdo)),
             new ScoutYearService($this->pdo),
+            // The replay imports three historical seasons into years long
+            // past, on purpose: no « years importable today » applies to it.
+            DeskImportYearPolicy::unrestricted(),
             null,
             $this->importListeners(),
         );

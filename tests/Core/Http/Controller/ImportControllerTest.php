@@ -7,11 +7,13 @@ namespace Tests\Core\Http\Controller;
 use Core\Config\ScoutYearService;
 use Core\Config\SettingRepository;
 use Core\Config\SettingService;
+use Core\Import\DeskImportYearDates;
 use Core\Http\Controller\ImportController;
 use Core\Http\Request;
 use Core\Import\AgeBranchRepository;
 use Core\Import\DeskCsvParser;
 use Core\Import\DeskImportService;
+use Core\Import\DeskImportYearPolicy;
 use Core\Import\FeeCategoryRepository;
 use Core\Import\FunctionRepository;
 use Core\Import\ImportJournalRepository;
@@ -40,6 +42,11 @@ class ImportControllerTest extends TestCase
     private string $installPath;
     private \PDO $pdo;
     private EncryptionService $encryption;
+    /** « Today » for the year policy — moved by the tests that need another day. */
+    private string $today;
+    private bool $configurationMode = false;
+    private int $publicYearId;
+    private string $endCalendarYear;
 
     protected function setUp(): void
     {
@@ -56,6 +63,12 @@ class ImportControllerTest extends TestCase
         // Create scout year
         [$label, $yearStart, $yearEnd] = DatabaseTestHelper::scoutYear();
         $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('{$label}', '{$yearStart}', '{$yearEnd}', 1)");
+        $this->publicYearId = (int) $this->pdo->lastInsertId();
+        $this->endCalendarYear = substr($yearEnd, 0, 4);
+        // Before the next year opens: the public year alone, no question
+        // asked — the day every test that does not care about the policy
+        // runs on.
+        $this->today = $this->endCalendarYear . '-03-01';
 
         // Create admin user
         $stmt = $this->pdo->prepare("INSERT INTO user_accounts (email_encrypted, email_blind_index, is_super_admin) VALUES (?, 'admin_idx', 1)");
@@ -94,6 +107,13 @@ class ImportControllerTest extends TestCase
         $userAccountRepo = new UserAccountRepository($this->pdo, $this->encryption);
         $mappingResolver = new MappingResolver($functionRepo, $ageBranchRepo, $sectionRepo, $feeRepo);
         $parser = new DeskCsvParser();
+        $yearPolicy = DeskImportYearPolicy::forSite(
+            new ScoutYearResolver($scoutYearService, new SettingService(new SettingRepository($this->pdo)), $memberYearRepo),
+            $scoutYearService,
+            new SettingService(new SettingRepository($this->pdo)),
+            fn(): \DateTimeImmutable => new \DateTimeImmutable($this->today),
+            fn(): bool => $this->configurationMode
+        );
         $importService = new DeskImportService(
             $this->pdo, $this->encryption, $parser, $mappingResolver,
             $memberRepo, $memberYearRepo, $importJournalRepo, $userAccountRepo,
@@ -111,7 +131,8 @@ class ImportControllerTest extends TestCase
                 $storagePath
             ),
             new \Core\Import\ImportDiffCalculator(new \Core\Import\RosterSnapshotRepository($this->pdo)),
-            $scoutYearService
+            $scoutYearService,
+            $yearPolicy
         );
 
         $settingService = new SettingService(new SettingRepository($this->pdo));
@@ -129,6 +150,7 @@ class ImportControllerTest extends TestCase
         ) use (
             $twig,
             $importService,
+            $yearPolicy,
             $scoutYearResolver,
             $importJournalRepo,
             $functionRepo,
@@ -142,6 +164,7 @@ class ImportControllerTest extends TestCase
             return new ImportController(
                 $twig,
                 $importServiceOverride ?? $importService,
+                $yearPolicy,
                 $scoutYearResolver,
                 $importJournalRepo,
                 $functionRepo,
@@ -253,6 +276,288 @@ class ImportControllerTest extends TestCase
         $repo->storeDiff($importId, \Core\Import\ImportDiff::unavailable(\Core\Import\ImportDiff::UNAVAILABLE_FIRST_OF_SEASON));
 
         return $importId;
+    }
+
+    // ------------------------------------------------------------------
+    // The year policy (Core\Import\DeskImportYearPolicy) on the page and
+    // on the POST. The page is checked for what it OFFERS — an <option> —
+    // and the POST for what it REFUSES, journal and all.
+    // ------------------------------------------------------------------
+
+    private function yearId(int $offset): int
+    {
+        return (new ScoutYearService($this->pdo))->ensureYear(DatabaseTestHelper::scoutYear($offset)[0]);
+    }
+
+    private function indexBody(string $query = ''): string
+    {
+        parse_str($query, $get);
+        $response = $this->controller->index(new Request('GET', '/admin/import', $get, [], [], []), []);
+        $this->assertSame(200, $response->getStatusCode());
+
+        return html_entity_decode($response->getBody(), ENT_QUOTES | ENT_HTML5);
+    }
+
+    /** @return array<string, mixed> */
+    private function island(string $body): array
+    {
+        $this->assertSame(1, preg_match('#<script type="application/json" id="desk-import-years">(.*?)</script>#s', $body, $m));
+        $data = json_decode(trim($m[1]), true);
+        $this->assertIsArray($data);
+
+        return $data;
+    }
+
+    public function testBeforeTheOpeningThePageOffersThePublicYearAlone(): void
+    {
+        $body = $this->indexBody();
+        $next = $this->yearId(1);
+
+        $this->assertStringContainsString('<option value="' . $this->publicYearId . '" selected>', $body);
+        $this->assertStringNotContainsString('<option value="' . $next . '"', $body);
+        $this->assertStringContainsString("Une seule année est importable aujourd'hui.", $body);
+        $this->assertStringContainsString('data-import-period="before" aria-current="date"', $body);
+        $this->assertStringContainsString('src="/assets/js/admin-import.js', $body);
+    }
+
+    public function testInTheWindowBothYearsAreOfferedTheNextOneProposedAndThePublicOneAsked(): void
+    {
+        $this->today = $this->endCalendarYear . '-07-20';
+        $next = $this->yearId(1);
+
+        $body = $this->indexBody();
+
+        $this->assertStringContainsString('<option value="' . $next . '" selected>', $body);
+        $this->assertStringContainsString('<option value="' . $this->publicYearId . '">', $body);
+        $this->assertStringContainsString(DatabaseTestHelper::scoutYear(1)[0] . ' — année suivante', $body);
+        $this->assertStringContainsString(DatabaseTestHelper::scoutYear()[0] . ' — année publique', $body);
+
+        $years = array_column($this->island($body)['years'], null, 'id');
+        $this->assertNull($years[$next]['confirm']);
+        $this->assertSame(
+            'Importer dans ' . DatabaseTestHelper::scoutYear()[0],
+            $years[$this->publicYearId]['confirm']['confirmLabel']
+        );
+        $this->assertStringContainsString("l'année que voient les familles", $years[$this->publicYearId]['confirm']['message']);
+    }
+
+    public function testTheLinkFromTheScoutYearPageSelectsAnOfferedYearAndNothingElse(): void
+    {
+        $this->today = $this->endCalendarYear . '-07-20';
+        $next = $this->yearId(1);
+        $this->assertStringContainsString(
+            '<option value="' . $this->publicYearId . '" selected>',
+            $this->indexBody('annee=' . $this->publicYearId)
+        );
+        $this->assertStringContainsString('<option value="' . $next . '" selected>', $this->indexBody('annee=' . $next));
+
+        // Before the opening the next year is not offered: the link names
+        // it, the page ignores it.
+        $this->today = $this->endCalendarYear . '-03-01';
+        $body = $this->indexBody('annee=' . $next);
+        $this->assertStringNotContainsString('<option value="' . $next . '"', $body);
+        $this->assertStringContainsString('<option value="' . $this->publicYearId . '" selected>', $body);
+    }
+
+    public function testFromTheEncodingDateOnlyTheNextYearIsOffered(): void
+    {
+        $this->today = $this->endCalendarYear . '-08-15';
+        $next = $this->yearId(1);
+
+        $body = $this->indexBody();
+
+        $this->assertStringContainsString('<option value="' . $next . '" selected>', $body);
+        $this->assertStringNotContainsString('<option value="' . $this->publicYearId . '"', $body);
+    }
+
+    /**
+     * An encoding date set back when it was only a label (06-15 here) no
+     * longer holds with the opening date: both defaults apply, and the page
+     * says so instead of applying them in silence.
+     */
+    public function testAnIncoherentPairOfDatesIsAnnouncedOnThePage(): void
+    {
+        $settings = new SettingService(new SettingRepository($this->pdo));
+        $settings->register(DeskImportYearDates::SETTING_NEXT_START, '07-01', 'text', 'L', 'D');
+        $settings->register(DeskImportYearDates::SETTING_ENCODING, '08-15', 'text', 'L', 'D');
+        $settings->setInternal(DeskImportYearDates::SETTING_ENCODING, '06-15');
+
+        $body = $this->indexBody();
+
+        $this->assertStringContainsString('data-import-dates-fell-back', $body);
+        $this->assertStringContainsString("Les dates par défaut s'appliquent donc : le 01/07", $body);
+    }
+
+    public function testACoherentPairOfDatesIsNotAnnounced(): void
+    {
+        $this->assertStringNotContainsString('data-import-dates-fell-back', $this->indexBody());
+    }
+
+    public function testConfigurationModeOffersEveryYearAndSaysSo(): void
+    {
+        $previous = $this->yearId(-1);
+        $this->configurationMode = true;
+
+        $body = $this->indexBody();
+
+        $this->assertStringContainsString('<option value="' . $previous . '">', $body);
+        $this->assertStringContainsString('Mode configuration actif : toutes les années existantes sont importables.', $body);
+        $years = array_column($this->island($body)['years'], null, 'id');
+        $this->assertStringContainsString("n'est importable qu'en mode configuration", $years[$previous]['confirm']['message']);
+        $this->assertNull($years[$this->publicYearId]['confirm']);
+    }
+
+    public function testTheLastImportBlockFollowsTheSelectedYear(): void
+    {
+        $importId = $this->seedImport();
+        $this->today = $this->endCalendarYear . '-07-20';
+        $nextLabel = DatabaseTestHelper::scoutYear(1)[0];
+        $publicLabel = DatabaseTestHelper::scoutYear()[0];
+
+        // The next year is selected and has no import yet.
+        $body = $this->indexBody();
+        $this->assertStringContainsString('Dernier import de ' . $nextLabel, $body);
+        $this->assertStringContainsString('Aucun import pour ' . $nextLabel . '.', $body);
+
+        // The public one carries its import in the island, ready for the select.
+        $years = array_column($this->island($body)['years'], null, 'id');
+        $this->assertSame($importId, $years[$this->publicYearId]['lastImport']['id']);
+        $this->assertStringContainsString('262 membres, 268 lignes', $years[$this->publicYearId]['lastImport']['summary']);
+
+        // Selected through the link, the block is the public year's, with its history link.
+        $body = $this->indexBody('annee=' . $this->publicYearId);
+        $this->assertStringContainsString('Dernier import de ' . $publicLabel, $body);
+        $this->assertStringContainsString('/admin/import/' . $importId . '/rapport', $body);
+        $this->assertStringContainsString('/admin/import/historique?annee=' . $this->publicYearId, $body);
+    }
+
+    /**
+     * @param array<string, string> $extra
+     */
+    private function postYear(int $yearId, array $extra = []): \Core\Http\Response
+    {
+        $token = bin2hex(random_bytes(32));
+        $_SESSION['_csrf_token'] = $token;
+
+        return $this->controller->import(new Request(
+            'POST',
+            '/admin/import',
+            [],
+            ['_csrf_token' => $token, 'scout_year_id' => (string) $yearId] + $extra,
+            [],
+            []
+        ), []);
+    }
+
+    /** @return list<array<string, mixed>> */
+    private function yearRefusals(): array
+    {
+        $stmt = $this->pdo->query("SELECT * FROM event_log WHERE event_type = 'desk_import_year_refused' ORDER BY id");
+
+        return $stmt === false ? [] : $stmt->fetchAll(\PDO::FETCH_ASSOC);
+    }
+
+    private function assertRefusedWith(\Core\Http\Response $response, string $sentence, string $reason): void
+    {
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('/admin/import', $response->getHeaders()['Location'] ?? null);
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertSame('error', $flash['type'] ?? null);
+        $this->assertStringContainsString($sentence, (string) ($flash['message'] ?? ''));
+
+        $refusals = $this->yearRefusals();
+        $this->assertNotSame([], $refusals);
+        $this->assertStringContainsString('"reason":"' . $reason . '"', (string) $refusals[count($refusals) - 1]['context']);
+
+        // Nothing deposited, nothing imported.
+        $this->assertSame([], glob($this->storagePath . '/temp/import_*.csv') ?: []);
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM import_journal')->fetchColumn());
+    }
+
+    /** The year is the server's question: a POST naming a year the page does not offer is refused, file or no file. */
+    public function testAPostOfAYearNotOfferedIsRefused(): void
+    {
+        $next = $this->yearId(1);
+        $_FILES['csv_file'] = [
+            'name' => 'effectifs.csv',
+            'type' => 'text/csv',
+            'tmp_name' => $this->storagePath . '/never-read.csv',
+            'error' => UPLOAD_ERR_OK,
+            'size' => 4096,
+        ];
+
+        try {
+            $response = $this->postYear($next, ['confirmed_year' => (string) $next]);
+        } finally {
+            unset($_FILES['csv_file']);
+        }
+
+        $this->assertRefusedWith($response, "ne peut pas recevoir d'import Desk aujourd'hui", 'not_offered');
+    }
+
+    /** A forged or replayed POST into the public year during the window, without the confirmation, is refused. */
+    public function testAForgedPostWithoutConfirmedYearIsRefused(): void
+    {
+        $this->today = $this->endCalendarYear . '-07-20';
+        $this->yearId(1);
+
+        $this->assertRefusedWith($this->postYear($this->publicYearId), 'demande une confirmation', 'confirmation_missing');
+    }
+
+    /**
+     * @return iterable<string, array{string}>
+     */
+    public static function confirmationsThatAreNot(): iterable
+    {
+        yield 'empty' => [''];
+        yield 'not a number' => ['12abc'];
+        yield 'another year' => ['999999'];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('confirmationsThatAreNot')]
+    public function testOnlyTheYearItselfConfirmsIt(string $confirmedYear): void
+    {
+        $this->today = $this->endCalendarYear . '-07-20';
+        $this->yearId(1);
+
+        $this->assertRefusedWith(
+            $this->postYear($this->publicYearId, ['confirmed_year' => $confirmedYear]),
+            'demande une confirmation',
+            'confirmation_missing'
+        );
+    }
+
+    /** With its confirmation the year gets past the policy — to the next check, the file. */
+    public function testAConfirmedYearGetsPastThePolicy(): void
+    {
+        $this->today = $this->endCalendarYear . '-07-20';
+        $this->yearId(1);
+
+        $response = $this->postYear($this->publicYearId, ['confirmed_year' => (string) $this->publicYearId]);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('Veuillez sélectionner un fichier CSV valide.', \Core\Http\FlashMessage::get()['message'] ?? null);
+        $this->assertSame([], $this->yearRefusals());
+    }
+
+    public function testConfigurationModeOpensAPastYearBehindTheSameConfirmation(): void
+    {
+        $previous = $this->yearId(-1);
+
+        // Off: not offered at all, confirmation or not.
+        $this->assertRefusedWith(
+            $this->postYear($previous, ['confirmed_year' => (string) $previous]),
+            "ne peut pas recevoir d'import Desk",
+            'not_offered'
+        );
+
+        // On: offered, and asked.
+        $this->configurationMode = true;
+        $this->assertRefusedWith($this->postYear($previous), 'demande une confirmation', 'confirmation_missing');
+
+        $response = $this->postYear($previous, ['confirmed_year' => (string) $previous]);
+        $this->assertSame('Veuillez sélectionner un fichier CSV valide.', \Core\Http\FlashMessage::get()['message'] ?? null);
+        $this->assertSame(302, $response->getStatusCode());
     }
 
     public function testImportRejectsMissingCsrf(): void

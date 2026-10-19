@@ -60,7 +60,7 @@ class DeskImportServiceTest extends TestCase
         $this->service = $this->createService();
     }
 
-    private function createService(): DeskImportService
+    private function createService(?\Core\Import\DeskImportYearPolicy $policy = null): DeskImportService
     {
         $functionRepo = new FunctionRepository($this->pdo);
         $ageBranchRepo = new AgeBranchRepository($this->pdo);
@@ -94,8 +94,76 @@ class DeskImportServiceTest extends TestCase
                 $this->storagePath
             ),
             new \Core\Import\ImportDiffCalculator(new \Core\Import\RosterSnapshotRepository($this->pdo)),
-            new \Core\Config\ScoutYearService($this->pdo)
+            new \Core\Config\ScoutYearService($this->pdo),
+            $policy ?? \Core\Import\DeskImportYearPolicy::unrestricted()
         );
+    }
+
+    /**
+     * The site policy on a given day, with 2025-2026 as the public year.
+     */
+    private function sitePolicy(string $today): \Core\Import\DeskImportYearPolicy
+    {
+        $settings = new \Core\Config\SettingService(new \Core\Config\SettingRepository($this->pdo));
+        $settings->register('current_scout_year_id', '0', 'number', 'L', 'D', null, null, null, false);
+        $settings->setInternal('current_scout_year_id', (string) $this->scoutYearId);
+        $scoutYears = new \Core\Config\ScoutYearService($this->pdo);
+
+        return \Core\Import\DeskImportYearPolicy::forSite(
+            new \Core\ScoutYear\ScoutYearResolver($scoutYears, $settings, new MemberYearRepository($this->pdo)),
+            $scoutYears,
+            $settings,
+            static fn(): \DateTimeImmutable => new \DateTimeImmutable($today),
+            static fn(): bool => false
+        );
+    }
+
+    /**
+     * From the Desk-encoding date on, the public year is closed to the
+     * import: refused before the file is even read, nothing written,
+     * nothing kept, one journal line with ids and the reason.
+     */
+    public function testAYearThePolicyRefusesIsRefusedBeforeAnythingIsWritten(): void
+    {
+        $service = $this->createService($this->sitePolicy('2026-08-20'));
+        $tmpFile = tempnam(sys_get_temp_dir(), 'csv');
+        copy($this->fixturePath, $tmpFile);
+
+        try {
+            $service->import($tmpFile, $this->scoutYearId, 1, true, $this->scoutYearId);
+            $this->fail('The public year must be refused once the Desk-encoding date has passed.');
+        } catch (\Core\Import\DeskImportYearRefusedException $e) {
+            $this->assertSame(\Core\Import\DeskImportYearRefusedException::REASON_NOT_OFFERED, $e->reason);
+            $this->assertInstanceOf(\Core\Exception\UserFacingException::class, $e);
+        } finally {
+            @unlink($tmpFile);
+        }
+
+        foreach (['members', 'member_years', 'import_journal', 'files', 'fees_roster_snapshots'] as $table) {
+            $this->assertSame(0, (int) $this->pdo->query("SELECT COUNT(*) FROM {$table}")->fetchColumn(), $table);
+        }
+
+        $row = $this->pdo->query("SELECT * FROM event_log WHERE event_type = 'desk_import_year_refused'")
+            ->fetch(\PDO::FETCH_ASSOC);
+        $this->assertIsArray($row);
+        $this->assertSame('warning', $row['level']);
+        $context = json_decode((string) $row['context'], true);
+        $this->assertSame(
+            ['scout_year_id' => $this->scoutYearId, 'confirmed_year_id' => $this->scoutYearId, 'reason' => 'not_offered'],
+            $context
+        );
+    }
+
+    /** The same file, the same year, on a day the policy allows it: imported. */
+    public function testAYearThePolicyAllowsIsImported(): void
+    {
+        $service = $this->createService($this->sitePolicy('2026-03-01'));
+        $tmpFile = tempnam(sys_get_temp_dir(), 'csv');
+        copy($this->fixturePath, $tmpFile);
+
+        $result = $service->import($tmpFile, $this->scoutYearId, 1);
+
+        $this->assertSame(3, $result->memberCount);
     }
 
     private function importFixture(): \Core\Import\ImportResult
