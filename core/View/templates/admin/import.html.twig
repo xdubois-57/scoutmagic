@@ -36,6 +36,15 @@
                 L'année publique est <strong>{{ _public_label }}</strong>. Importer ne change jamais l'année que
                 voient les familles.
             </p>
+            {% if import_window.datesFellBack %}
+                <div class="alert alert-warning small" role="alert" data-import-dates-fell-back>
+                    Les deux dates enregistrées dans les réglages ne vont pas ensemble : l'ouverture de l'import
+                    pour l'année suivante doit précéder la date d'encodage Desk, et les deux tomber avant le
+                    1er septembre. Les dates par défaut s'appliquent donc : le {{ import_window.nextStartDayMonth() }}
+                    et le {{ import_window.encodingDayMonth() }}.
+                    <a href="/config/settings">Corriger les réglages</a>
+                </div>
+            {% endif %}
             <div class="row g-2 small">
                 {% for period in _periods %}
                     {% set _today = period.key == import_window.period and not import_window.configurationMode %}

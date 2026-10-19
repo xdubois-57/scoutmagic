@@ -147,6 +147,27 @@
 .step-disc-button:focus-visible .step-circle {
     box-shadow: 0 0 0 0.25rem rgba(var(--bs-primary-rgb), 0.35);
 }
+/* A disc the site decides (Année scoute: an observed step) is drawn with a
+   dotted ring, so it does not read as one more disc to click. */
+.step-circle--observed {
+    outline: 2px dotted var(--bs-border-color);
+    outline-offset: 2px;
+}
+/* A disc or step button whose request is in flight (admin-scout-year.js). */
+.step-disc-button.is-busy .step-circle,
+.btn.is-busy {
+    animation: step-busy-pulse 0.7s infinite alternate;
+}
+@keyframes step-busy-pulse {
+    to { opacity: 0.4; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .step-disc-button.is-busy .step-circle,
+    .btn.is-busy {
+        animation: none;
+        opacity: 0.5;
+    }
+}
 /* Vertical connector linking each step's circle to the next. */
 .step-item__marker {
     position: relative;

@@ -140,7 +140,15 @@
         var target = /** @type {HTMLElement} */ (event.target);
         var button = /** @type {HTMLButtonElement} */ (target.closest('.audit-timeline-more'));
         if (button) {
-            loadMore(button);
+            loadMore(button).catch(function () {
+                // A dropped connection or an unreadable body: same answer
+                // as a refused page — the button comes back for a retry.
+                button.disabled = false;
+                window.ScoutMagicToast.show(
+                    'La suite de l\'historique n\'a pas pu être chargée.',
+                    { variant: 'error' }
+                );
+            });
         }
     });
 })();

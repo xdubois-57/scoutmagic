@@ -1,7 +1,7 @@
 ---
 id: annee-scoute
 title: Passer à la nouvelle année scoute
-summary: Le parcours guidé en trois temps pour basculer le site sur l'année suivante.
+summary: Les étapes, en trois temps, pour basculer le site sur l'année suivante, et les trois vrais blocages.
 category: Espace chefs d'U
 role_min: admin
 question: Comment faire passer le site à l'année scoute suivante ?
@@ -21,9 +21,9 @@ bouton vers la bonne page.
 Vous pouvez agir à tout moment sur n'importe quelle étape ; les dates
 affichées sont des repères pour les étapes. La date d'encodage Desk
 décide en plus des années importables (voir « Quelle année scoute
-importer, et quand »). Certaines étapes se cochent à la
-main (« Marquer cette étape comme faite » — la page retient qui et
-quand) ; d'autres, le site les constate lui-même : un import réalisé,
+importer, et quand »). Certaines étapes se marquent à la
+main, d'un clic sur leur rond numéroté (« Cliquer pour marquer comme
+faite » — la page retient qui et quand) ; d'autres, le site les constate lui-même : un import réalisé,
 une année activée, des photos de staff complètes. Les étapes d'une
 fonction désactivée disparaissent simplement de la liste.
 
@@ -38,18 +38,21 @@ fonction désactivée disparaissent simplement de la liste.
 - **Activer pour tout le monde** bascule le site entier. L'année du
   staff s'efface alors d'elle-même : tout le monde est réaligné.
 
-## Les vrais blocages
+## Les trois seuls vrais blocages
 
-« Activer pour tout le monde » refuse de s'exécuter tant que :
+Le site les vérifie lui-même, quoi que montre la page :
 
-1. aucune année n'a été activée pour le staff ;
-2. des demandes d'inscription restent ouvertes — la page indique
-   combien et renvoie vers leur gestion, où un traitement en masse
-   (« tout refuser », « tout retirer ») existe.
+1. l'étape des départs ne peut pas être marquée tant que la campagne
+   de réinscription de l'année cible n'est pas terminée ;
+2. l'année cible ne peut pas être activée pour les staffs tant
+   qu'aucun import Desk réussi de cette année n'existe ;
+3. la bascule pour tout le monde est refusée tant que l'année du staff
+   n'est pas l'année cible, qu'aucun import réussi n'existe, ou que des
+   demandes d'inscription restent ouvertes — la page indique combien
+   et renvoie vers leur gestion, où un traitement en masse (« tout
+   refuser », « tout retirer ») existe.
 
-L'étape des départs, elle, ne peut pas être marquée faite tant que la
-campagne de réinscription de l'année préparée n'est pas terminée. Tout
-le reste est permis à tout moment, y compris dans le désordre.
+Tout le reste est permis à tout moment, y compris dans le désordre.
 
 > La bascule publique est immédiate et visible par toutes les
 > familles. Assurez-vous d'avoir importé l'année cible : sinon le

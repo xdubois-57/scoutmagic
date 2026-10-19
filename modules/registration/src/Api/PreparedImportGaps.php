@@ -38,6 +38,8 @@ final class PreparedImportGaps
 
     public function isEmpty(): bool
     {
-        return $this->leaversStillActive === [] && $this->passagesElsewhere === [] && $this->acceptedRequestsMissing === [];
+        return $this->leaversStillActive === []
+            && $this->passagesElsewhere === []
+            && $this->acceptedRequestsMissing === [];
     }
 }

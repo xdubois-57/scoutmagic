@@ -1,0 +1,74 @@
+{#
+ The « Détails » dialog of one step (CHANTIER-annee-scoute.md §2.8): what the step is
+ for, its points to check and real blocks, the step's own detail —
+ admin/scout_year/steps/{key}.html.twig, whose content belongs to the step
+ checks (lot E) and is only included here —, who marked it and when, and
+ EVERY action of the step.
+
+ A step that opens the review before the switch keeps its POST for that
+ review: the switch is confirmed there, with every blocker in view, and
+ never from a button beside the others.
+
+ Context: step (Core\ScoutYear\Step\TransitionStep).
+#}
+{% set has_review = step.actions|filter(a => a.review)|length > 0 %}
+{% embed 'partials/modal.html.twig' with {
+    id: 'step-details-' ~ step.key,
+    title: step.number ~ '. ' ~ step.title,
+    scrollable: true,
+    size: 'lg',
+    step: step,
+    has_review: has_review,
+} only %}
+    {% block body %}
+        <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+            {% include 'partials/status_badge.html.twig' with {
+                status: step.done ? 'done' : (step.blocked ? 'blocked' : 'neutral'),
+                label: step.state.label,
+            } only %}
+            <span class="badge bg-body-tertiary text-body-secondary border fw-normal">{{ step.nature.label }}</span>
+        </div>
+        <p class="text-body-secondary small">{{ step.description }}</p>
+
+        {% if step.blockReason %}
+        <div class="alert alert-danger py-2 px-3 small" role="alert">{{ step.blockReason }}</div>
+        {% endif %}
+        {% if step.markRefusal and not step.done %}
+        <div class="alert alert-danger py-2 px-3 small" role="alert">{{ step.markRefusal }}</div>
+        {% endif %}
+
+        {% if step.pointsToCheck is not empty %}
+        <div class="mb-2">
+            <p class="fw-semibold mb-1">À vérifier</p>
+            <ul class="small mb-0">
+                {% for point in step.pointsToCheck %}<li>{{ point }}</li>{% endfor %}
+            </ul>
+        </div>
+        {% endif %}
+
+        {% include step.detailTemplate with { step: step } only %}
+
+        {% if step.mark %}
+        <p class="small text-body-secondary mb-2" data-step-mark>
+            Marquée comme faite le {{ step.mark.doneAt|date_fr }}{% if step.mark.doneBy %} par {{ step.mark.doneBy }}{% endif %}.
+        </p>
+        {% endif %}
+
+        {% if step.actions is not empty %}
+        <div class="d-flex flex-wrap gap-2 mt-3">
+            {% for action in step.actions %}
+                {% if not (has_review and action.post) %}
+                    {% include 'admin/scout_year/_action.html.twig' with {
+                        action: action,
+                        place: 'details',
+                        variant: 'btn-outline-secondary',
+                    } only %}
+                {% endif %}
+            {% endfor %}
+        </div>
+        {% endif %}
+    {% endblock %}
+    {% block footer %}
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Fermer</button>
+    {% endblock %}
+{% endembed %}

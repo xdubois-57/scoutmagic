@@ -778,7 +778,7 @@
             restoreProgress.textContent = 'Restauration en cours… ne fermez pas cette page.';
             restoreProgress.classList.remove('d-none');
 
-            fetch('/setup/restore-portable', { method: 'POST', body: data })
+            void fetch('/setup/restore-portable', { method: 'POST', body: data })
                 .then(function (r) { return r.json(); })
                 .catch(function () { return { success: false, message: 'Erreur réseau.' }; })
                 .then(function (json) {
@@ -895,7 +895,7 @@
 
             portableProgress.classList.remove('d-none');
             portableProgress.textContent = 'Restauration en cours… ne fermez pas cette page.';
-            postPortable(portableCredentials(), file);
+            void postPortable(portableCredentials(), file);
         });
     }
 

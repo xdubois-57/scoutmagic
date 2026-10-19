@@ -6,7 +6,7 @@
   "license": "AGPL-3.0-or-later",
   "type": "module",
   "scripts": {
-    "typecheck": "node scripts/js-typecheck.mjs",
+    "typecheck": "node scripts/js-typecheck.mjs && node scripts/js-floating-promises.mjs",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "e2e": "./scripts/e2e.sh --grep-invert @full",

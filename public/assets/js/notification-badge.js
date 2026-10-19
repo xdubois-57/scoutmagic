@@ -61,7 +61,7 @@
 
     if (badges.length === 0) return;
 
-    refresh();
+    void refresh();
     window.ScoutMagicApi.poll(refresh, { intervalMs: 60000 });
 
     if ('serviceWorker' in navigator) {
@@ -70,7 +70,7 @@
                 if (typeof event.data.unreadCount === 'number') {
                     render(event.data.unreadCount);
                 } else {
-                    refresh();
+                    void refresh();
                 }
             }
         });

@@ -1,0 +1,30 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{#
+  The site-wide band saying which scout year this page is served in when
+  it is not the public one: this session's preview, or the staff year.
+
+  Rendered by base.html.twig on every page (from the request's globals),
+  and by Core\Http\Controller\ScoutYearController in the JSON answer of an
+  action on the Année scoute page, recomputed after the action — a preview
+  started or left there must not leave a stale band behind.
+
+  Context: override_type ('session' | 'staff' | null), year_label.
+#}
+{% if override_type == 'session' %}
+<div class="alert alert-warning d-flex align-items-center gap-2 rounded-0 mb-0 border-start-0 border-end-0" role="alert">
+    <i class="bi bi-clock-history" aria-hidden="true"></i>
+    <span>Vous visualisez le site en {{ year_label }} (session uniquement).</span>
+    <form method="post" action="/admin/scout-year/clear-preview" class="ms-auto">
+        {{ csrf_field()|raw }}
+        <button type="submit" class="btn-close" aria-label="Revenir à l'année courante"></button>
+    </form>
+</div>
+{% elseif override_type == 'staff' %}
+<div class="alert alert-info d-flex align-items-center gap-2 rounded-0 mb-0 border-start-0 border-end-0" role="alert">
+    <i class="bi bi-info-circle" aria-hidden="true"></i>
+    <span>Le staff voit actuellement l'année {{ year_label }}.</span>
+</div>
+{% endif %}

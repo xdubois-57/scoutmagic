@@ -7,6 +7,7 @@ namespace Tests\Core\Http\Controller;
 use Core\Config\ScoutYearService;
 use Core\Config\SettingRepository;
 use Core\Config\SettingService;
+use Core\Import\DeskImportYearDates;
 use Core\Http\Controller\ImportController;
 use Core\Http\Request;
 use Core\Import\AgeBranchRepository;
@@ -367,6 +368,29 @@ class ImportControllerTest extends TestCase
 
         $this->assertStringContainsString('<option value="' . $next . '" selected>', $body);
         $this->assertStringNotContainsString('<option value="' . $this->publicYearId . '"', $body);
+    }
+
+    /**
+     * An encoding date set back when it was only a label (06-15 here) no
+     * longer holds with the opening date: both defaults apply, and the page
+     * says so instead of applying them in silence.
+     */
+    public function testAnIncoherentPairOfDatesIsAnnouncedOnThePage(): void
+    {
+        $settings = new SettingService(new SettingRepository($this->pdo));
+        $settings->register(DeskImportYearDates::SETTING_NEXT_START, '07-01', 'text', 'L', 'D');
+        $settings->register(DeskImportYearDates::SETTING_ENCODING, '08-15', 'text', 'L', 'D');
+        $settings->setInternal(DeskImportYearDates::SETTING_ENCODING, '06-15');
+
+        $body = $this->indexBody();
+
+        $this->assertStringContainsString('data-import-dates-fell-back', $body);
+        $this->assertStringContainsString("Les dates par défaut s'appliquent donc : le 01/07", $body);
+    }
+
+    public function testACoherentPairOfDatesIsNotAnnounced(): void
+    {
+        $this->assertStringNotContainsString('data-import-dates-fell-back', $this->indexBody());
     }
 
     public function testConfigurationModeOffersEveryYearAndSaysSo(): void

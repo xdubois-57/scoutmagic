@@ -378,8 +378,8 @@ class ScoutYearTransitionServiceTest extends TestCase
 
         $this->assertSame(StepState::BLOCKED, $step->state);
         $this->assertSame(
-            "La bascule est refusée tant que 2026-2027 n'est pas activée pour les staffs, aucun import réussi de "
-            . "2026-2027 n'existe, 3 demande(s) d'inscription restent ouvertes.",
+            "La bascule est refusée tant que 2026-2027 n'est pas activée pour les staffs, qu'aucun import réussi de "
+            . "2026-2027 n'existe, que 3 demande(s) d'inscription restent ouvertes.",
             $step->blockReason
         );
         $this->assertCount(3, $step->details['blockers']);
@@ -746,11 +746,13 @@ class ScoutYearTransitionServiceTest extends TestCase
         $users->updateProfile($user->id, 'Xavier', 'Dubois');
         $journal = new JournalRepository($this->pdo);
 
-        $this->pdo->exec(
-            "INSERT INTO event_log (logged_at, user_account_id, category, event_type, level, description, context) VALUES "
-            . "('2025-08-20 10:00:00', NULL, 'core', 'scout_year_public_activated', 'security', 'old', '"
-            . json_encode(['old_year_id' => null, 'new_year_id' => (int) $this->publicYear['id']]) . "')"
-        );
+        $this->pdo->prepare(
+            'INSERT INTO event_log (logged_at, user_account_id, category, event_type, level, description, context) '
+            . "VALUES (?, NULL, 'core', 'scout_year_public_activated', 'security', 'old', ?)"
+        )->execute([
+            '2025-08-20 10:00:00',
+            json_encode(['old_year_id' => null, 'new_year_id' => (int) $this->publicYear['id']]),
+        ]);
         $journal->insert(
             'core',
             'scout_year_public_activated',
@@ -777,11 +779,13 @@ class ScoutYearTransitionServiceTest extends TestCase
     /** An entry written before the labels were logged names its years through their ids. */
     public function testALastSwitchWithoutLabelsFallsBackOnTheYearIds(): void
     {
-        $this->pdo->exec(
-            "INSERT INTO event_log (logged_at, user_account_id, category, event_type, level, description, context) VALUES "
-            . "('2025-08-20 10:00:00', NULL, 'core', 'scout_year_public_activated', 'security', 'old', '"
-            . json_encode(['old_year_id' => null, 'new_year_id' => (int) $this->publicYear['id']]) . "')"
-        );
+        $this->pdo->prepare(
+            'INSERT INTO event_log (logged_at, user_account_id, category, event_type, level, description, context) '
+            . "VALUES (?, NULL, 'core', 'scout_year_public_activated', 'security', 'old', ?)"
+        )->execute([
+            '2025-08-20 10:00:00',
+            json_encode(['old_year_id' => null, 'new_year_id' => (int) $this->publicYear['id']]),
+        ]);
 
         $switch = $this->build()->lastPublicSwitch;
 

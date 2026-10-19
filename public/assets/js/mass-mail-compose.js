@@ -132,7 +132,7 @@
         // rather than behind a second « Importer » click: there is exactly
         // one thing to do with an .xlsx here.
         window.ScoutMagicDropZone.bind(dropZone, (files) => {
-            if (files.length) importAudience(files[0]);
+            if (files.length) void importAudience(files[0]);
         }, { input: fileInput });
     }
 
@@ -144,7 +144,13 @@
         formData.append('file', file);
         formData.append('_csrf_token', api.csrfToken());
 
-        const res = await fetch('/mass-mail/audiences', { method: 'POST', body: formData });
+        const res = await fetch('/mass-mail/audiences', { method: 'POST', body: formData }).catch(() => null);
+        if (!res) {
+            // Never reached the server: the file is not at fault, so not
+            // the refused-file box — the status line says what happened.
+            setText('mm-merge-chosen', 'Erreur réseau : « ' + file.name + ' » n\'a pas été importé.');
+            return;
+        }
         const data = await res.json().catch(() => null);
         setText('mm-merge-chosen', '');
         if (!data?.success) {
@@ -475,6 +481,6 @@
         // line that proves nothing. The server picks a row at random —
         // see Service\MassMailService::getMergePreview().
         setPreviewControlsDisabled(true);
-        loadMergePreview(null);
+        void loadMergePreview(null);
     }
 })();

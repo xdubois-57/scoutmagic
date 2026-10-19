@@ -117,6 +117,35 @@ class ScoutYearRbacTest extends TestCase
             $this->assertSame('/login', $response->getHeaders()['Location']);
         }
     }
+
+    /**
+     * The JSON variant of each action is the same route, so the same
+     * boundary: a script's request is refused one level below exactly
+     * like a form's (CHANTIER-annee-scoute.md §2.8).
+     */
+    public function testTheJsonVariantKeepsTheSameBoundary(): void
+    {
+        $this->startTestSession();
+        $json = ['CONTENT_TYPE' => 'application/json', 'HTTP_ACCEPT' => 'application/json'];
+
+        AuthSession::login(1, 'unitchief@test.com', 'admin');
+        $fc = $this->buildFrontController();
+        foreach (self::ROUTES as [$method, $path]) {
+            if ($method === 'POST') {
+                $this->assertSame(200, $fc->handle(new Request($method, $path, [], [], [], $json))->getStatusCode(), "{$path} as JSON, admin");
+            }
+        }
+
+        AuthSession::login(1, 'chief@test.com', 'chief');
+        $fc = $this->buildFrontController();
+        foreach (self::ROUTES as [$method, $path]) {
+            if ($method === 'POST') {
+                $response = $fc->handle(new Request($method, $path, [], [], [], $json));
+                $this->assertSame(403, $response->getStatusCode(), "{$path} as JSON should be denied for chief");
+                $this->assertStringNotContainsString('stub-ok', $response->getBody());
+            }
+        }
+    }
 }
 
 class ScoutYearStubController extends AbstractController

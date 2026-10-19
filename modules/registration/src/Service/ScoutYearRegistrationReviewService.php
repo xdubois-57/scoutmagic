@@ -102,7 +102,8 @@ class ScoutYearRegistrationReviewService implements ScoutYearRegistrationReviewP
         }
 
         $passages = [];
-        foreach ($this->passageService->getBranchChanges($previous['id'], $previous['label'], $targetYearId) as $key => $group) {
+        $branchChanges = $this->passageService->getBranchChanges($previous['id'], $previous['label'], $targetYearId);
+        foreach ($branchChanges as $key => $group) {
             foreach ($group['members'] as $member) {
                 if ($member['destination_section_id'] !== null) {
                     continue;
@@ -152,7 +153,12 @@ class ScoutYearRegistrationReviewService implements ScoutYearRegistrationReviewP
             if ($row === null) {
                 continue;
             }
-            $stillActive[] = new ScoutYearMember($leaver->memberId, $row['member_year_id'], $leaver->name, $row['section_id']);
+            $stillActive[] = new ScoutYearMember(
+                $leaver->memberId,
+                $row['member_year_id'],
+                $leaver->name,
+                $row['section_id']
+            );
         }
 
         return $stillActive;
@@ -257,7 +263,8 @@ class ScoutYearRegistrationReviewService implements ScoutYearRegistrationReviewP
 
         usort(
             $missing,
-            static fn(MissingAcceptedRequest $a, MissingAcceptedRequest $b): int => strcasecmp($a->childName, $b->childName)
+            static fn(MissingAcceptedRequest $a, MissingAcceptedRequest $b): int
+                => strcasecmp($a->childName, $b->childName)
         );
 
         return $missing;

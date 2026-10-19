@@ -327,7 +327,7 @@
         }
 
         keepRechecking();
-        confirmConnectivity();
+        void confirmConnectivity();
     }
 
     var modalEl = document.getElementById('offline-dialog');

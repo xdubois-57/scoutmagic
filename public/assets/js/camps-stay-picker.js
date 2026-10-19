@@ -138,7 +138,7 @@
         // dates this very message announces, then what is still to come.
         search.addEventListener('focus', function () {
             if (hidden.value === '' && results.classList.contains('d-none')) {
-                run();
+                void run();
             }
         });
 

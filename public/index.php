@@ -1355,7 +1355,7 @@ $settingService->register(
     '^(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$',
     null,
     true,
-    252
+    249
 );
 $settingService->register(
     \Core\Import\DeskImportYearDates::SETTING_NEXT_START,
@@ -1369,7 +1369,7 @@ $settingService->register(
     '^(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$',
     null,
     true,
-    252
+    248
 );
 $settingService->register(
     'section_document_compression_enabled',
