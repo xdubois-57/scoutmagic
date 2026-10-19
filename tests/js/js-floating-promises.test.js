@@ -29,6 +29,7 @@ load().then(function () {}, undefined);         // 15: floating, no rejection ha
 plain() > 0 && load();                          // 16: floating behind &&
 plain() ? load() : null;                        // 17: floating in a conditional
 maybe();                                        // 18: floating, Promise<number> | false
+(load());                                       // 19: floating, parenthesised
 
 void load();                                    // accepted: deliberately ignored
 load().catch(function () {});                   // accepted: catch
@@ -58,7 +59,7 @@ afterAll(() => {
 
 describe('findFloatingPromises', () => {
     it('reports every promise statement nobody handles, and only those', () => {
-        expect(found.map((f) => f.line)).toEqual([8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]);
+        expect(found.map((f) => f.line)).toEqual([8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]);
     });
 
     it('names the statement it reports', () => {
