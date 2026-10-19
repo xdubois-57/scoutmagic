@@ -29,15 +29,17 @@ declare(strict_types=1);
  * « Fixe le backlog » no longer runs it (issue #923): the weekly workflow files
  * the divergences as issues, and an issue is developed once it is Ready.
  *
- * Everything that decides lives in Core\ExternalSource\ExternalSourceChecker,
- * tested on recorded pages; this file only wires the real network in, and
- * the scale shipped with the site (Modules\Fees\Support\ShippedFederalScale)
- * as the reference the fees page's amounts are compared with. Exit 2 also
- * covers a shipped scale file that cannot be read.
+ * Everything that decides lives in Core\ExternalSource\ExternalSourceChecker
+ * (tested on recorded pages) and Core\ExternalSource\ExternalSourcesCommand
+ * (the arguments, the exit code, the report); this file only wires the real
+ * network in, and the scale shipped with the site
+ * (Modules\Fees\Support\ShippedFederalScale) as the reference the fees
+ * page's amounts are compared with. Exit 2 also covers a shipped scale file
+ * that cannot be read.
  */
 
-use Core\ExternalSource\ExternalSourceChecker;
-use Core\ExternalSource\ExternalSources;
+use Core\ExternalSource\ExternalSourcesCommand;
+use Core\ExternalSource\FederalScale;
 use Core\ExternalSource\StreamPageFetcher;
 use Modules\Fees\Support\ShippedFederalScale;
 
@@ -56,30 +58,7 @@ if (!is_file($autoload)) {
 }
 require $autoload;
 
-// Not silently ignored: a mistyped option must not run a check the caller
-// believes is configured otherwise.
-$options = array_slice($argv, 1);
-$unknown = array_values(array_diff($options, ['--retry-unreachable']));
-if ($unknown !== []) {
-    fwrite(STDERR, 'Unknown option ' . $unknown[0] . ". The only option is --retry-unreachable.\n");
-    exit(2);
-}
-$attempts = in_array('--retry-unreachable', $options, true) ? 2 : 1;
-
-// The scale shipped with the site (modules/fees/data/federal-scale.json) is
-// the reference: the fees page's three amounts must equal it, or the fees
-// source diverges and the report names both. A shipped file that cannot be
-// read is a broken checkout, not a finding about the page — exit 2.
-try {
-    $referenceScale = ShippedFederalScale::load()->toFederalScale();
-} catch (\UnexpectedValueException $e) {
-    fwrite(STDERR, 'Shipped federal scale unreadable: ' . $e->getMessage() . "\n");
-    exit(2);
-}
-
-$checker = new ExternalSourceChecker(new StreamPageFetcher(), referenceScale: $referenceScale, attempts: $attempts);
-$results = $checker->checkAll(ExternalSources::all());
-
-echo ExternalSourceChecker::report($results);
-
-exit(ExternalSourceChecker::allConform($results) ? 0 : 1);
+exit((new ExternalSourcesCommand(
+    new StreamPageFetcher(),
+    static fn (): FederalScale => ShippedFederalScale::load()->toFederalScale()
+))->run(array_slice($argv, 1), STDOUT, STDERR));
