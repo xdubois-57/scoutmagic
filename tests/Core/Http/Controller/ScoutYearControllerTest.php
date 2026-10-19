@@ -243,6 +243,28 @@ class ScoutYearControllerTest extends TestCase
         $this->assertStringNotContainsString('bi-check-lg', $body); // nothing completed yet
     }
 
+    public function testOnlyTheCurrentStepsActionIsThePrimaryButton(): void
+    {
+        $this->settingService->setInternal(ScoutYearResolver::SETTING_PUBLIC_YEAR, (string) $this->yearB);
+        // Every step before the import done: the import, whose one action is
+        // « Importer 2026-2027 », becomes the current step.
+        foreach (['departures', 'passage', 'confirm_registrations', 'desk_staff', 'desk_members'] as $key) {
+            $this->controller->toggleStep(
+                $this->post('/admin/scout-year/step', ['_csrf_token' => $this->token, 'step_key' => $key, 'done' => '1']),
+                [],
+            );
+        }
+
+        $body = $this->controller->index(new Request('GET', '/admin/scout-year', [], [], [], []), [])->getBody();
+
+        // The <li> is written around the step's include: the include must
+        // still be handed is_current, or no action is ever primary.
+        $this->assertSame(1, preg_match('/<li class="step-item[^"]*step-item--current".*?<\/li>/s', $body, $current));
+        $this->assertStringContainsString('data-step="import"', $current[0]);
+        $this->assertStringContainsString('btn-sm btn-primary', $current[0]);
+        $this->assertSame(1, substr_count($body, 'btn-sm btn-primary'));
+    }
+
     public function testStaffStepShowsCompletedWhenStaffYearIsTarget(): void
     {
         $this->settingService->setInternal(ScoutYearResolver::SETTING_PUBLIC_YEAR, (string) $this->yearB);

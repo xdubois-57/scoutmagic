@@ -140,7 +140,7 @@
         {% set is_current = step.number == workflow.currentStepNumber %}
         <li class="step-item d-flex gap-3 {{ loop.last ? '' : 'pb-4' }} {{ step.done ? 'step-item--done' : (is_current ? 'step-item--current' : '') }}"
             data-step="{{ step.key }}" data-state="{{ step.state.value }}" data-nature="{{ step.nature.value }}">
-            {% include 'admin/scout_year/_step.html.twig' with { step: step } only %}
+            {% include 'admin/scout_year/_step.html.twig' with { step: step, is_current: is_current } only %}
         </li>
         {% endfor %}
     </ol>

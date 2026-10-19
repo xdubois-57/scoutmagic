@@ -14,7 +14,8 @@
  The <li> holding it is written by _state.html.twig, around the include, so
  the list item never sits outside its <ol>.
 
- Context: step (Core\ScoutYear\Step\TransitionStep).
+ Context: step (Core\ScoutYear\Step\TransitionStep), is_current (its one
+ action is then the page's primary button).
 #}
 {% set disc_label = step.done
     ? 'Étape faite — cliquer pour la remettre à faire'
