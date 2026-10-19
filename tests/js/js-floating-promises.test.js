@@ -15,19 +15,27 @@ const SOURCE = `
 function load() { return Promise.resolve(1); }
 /** @returns {number} */
 function plain() { return 1; }
+/** @returns {Promise<number> | false} */
+function maybe() { return plain() > 0 && load(); }
 
-load();                                         // 6: floating
-load().then(function (n) { return n; });        // 7: floating, no rejection handler
-fetch('/x');                                    // 8: floating
-(async function () {})();                       // 9: floating IIFE
-navigator.clipboard?.writeText('x');            // 10: floating, optional chain
-load().finally(function () {});                 // 11: floating, finally handles nothing
+load();                                         // 8: floating
+load().then(function (n) { return n; });        // 9: floating, no rejection handler
+fetch('/x');                                    // 10: floating
+(async function () {})();                       // 11: floating IIFE
+navigator.clipboard?.writeText('x');            // 12: floating, optional chain
+load().finally(function () {});                 // 13: floating, finally handles nothing
+load().catch();                                 // 14: floating, catch without a handler
+load().then(function () {}, undefined);         // 15: floating, no rejection handler
+plain() > 0 && load();                          // 16: floating behind &&
+plain() ? load() : null;                        // 17: floating in a conditional
+maybe();                                        // 18: floating, Promise<number> | false
 
 void load();                                    // accepted: deliberately ignored
 load().catch(function () {});                   // accepted: catch
 load().then(function () {}, function () {});    // accepted: rejection handler
 plain();                                        // not a promise
 var kept = load();                              // assigned: someone else's
+kept = kept || load();                          // assigned: someone else's
 async function run() { await load(); return load(); }
 `;
 
@@ -50,7 +58,7 @@ afterAll(() => {
 
 describe('findFloatingPromises', () => {
     it('reports every promise statement nobody handles, and only those', () => {
-        expect(found.map((f) => f.line)).toEqual([6, 7, 8, 9, 10, 11]);
+        expect(found.map((f) => f.line)).toEqual([8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]);
     });
 
     it('names the statement it reports', () => {

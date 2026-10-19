@@ -16,11 +16,15 @@
 //
 // What counts as handled, statement by statement — the same answers the rule
 // accepts:
-//   - the chain ends in `.catch(...)`, or in `.then(onFulfilled, onRejected)`;
+//   - the chain ends in `.catch(onRejected)`, or in `.then(onFulfilled,
+//     onRejected)` — with a handler: `.catch()` alone handles nothing;
 //   - the statement is `void promise` — a deliberate « nothing to handle »,
 //     which is right for ScoutMagicApi.postJson()/getJson() (they never
 //     reject: see api.js) and for a function that handles its own failures;
 //   - it is awaited, returned or assigned — then it is somebody else's.
+// A promise on either side of `&&`, `||`, `??`, a comma or a `? :` is as
+// thrown away as one standing alone, and a value typed `Promise<T> | false`
+// is a promise on the branch that matters.
 //
 // Read with the TypeScript checker over the same tsconfig.json as the type
 // check, so « is this a promise » is the compiler's answer and not a guess on
@@ -30,11 +34,15 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { API, SignatureKind } from 'typescript/unstable/sync';
+import { SyntaxKind } from 'typescript/unstable/ast';
 import {
+    isAssignmentOperator,
     isAwaitExpression,
     isBinaryExpression,
     isCallExpression,
+    isConditionalExpression,
     isExpressionStatement,
+    isIdentifier,
     isParenthesizedExpression,
     isPropertyAccessExpression,
     isVoidExpression,
@@ -46,6 +54,17 @@ import {
 // do alone, after the merge.
 
 /**
+ * @param {any} argument
+ * @returns {boolean} whether the argument is no handler at all
+ */
+function isNullish(argument) {
+    return argument === undefined
+        || argument.kind === SyntaxKind.NullKeyword
+        || (isIdentifier(argument) && argument.text === 'undefined')
+        || isVoidExpression(argument);
+}
+
+/**
  * @param {any} expression
  * @returns {boolean} whether the outermost call handles a rejection
  */
@@ -55,7 +74,46 @@ function handlesRejection(expression) {
     }
     const method = expression.expression.name.text;
 
-    return method === 'catch' || (method === 'then' && expression.arguments.length >= 2);
+    return (method === 'catch' && !isNullish(expression.arguments[0]))
+        || (method === 'then' && !isNullish(expression.arguments[1]));
+}
+
+const VALUE_PASSING_OPERATORS = new Set([
+    SyntaxKind.AmpersandAmpersandToken,
+    SyntaxKind.BarBarToken,
+    SyntaxKind.QuestionQuestionToken,
+    SyntaxKind.CommaToken,
+]);
+
+/**
+ * The expressions of a statement whose value is thrown away, and so whose
+ * promise, if they are one, nobody handles: `ready && fetch(url)` and
+ * `ok ? save() : null` drop one as surely as `fetch(url)` does, where an
+ * assignment keeps it for whoever reads the variable.
+ *
+ * @param {any} expression
+ * @returns {any[]}
+ */
+function discardedOperands(expression) {
+    while (isParenthesizedExpression(expression)) {
+        expression = expression.expression;
+    }
+    if (isVoidExpression(expression) || isAwaitExpression(expression) || handlesRejection(expression)) {
+        return [];
+    }
+    if (isBinaryExpression(expression)) {
+        const operator = expression.operatorToken.kind;
+        if (isAssignmentOperator(operator) || !VALUE_PASSING_OPERATORS.has(operator)) {
+            return [];
+        }
+
+        return [...discardedOperands(expression.left), ...discardedOperands(expression.right)];
+    }
+    if (isConditionalExpression(expression)) {
+        return [...discardedOperands(expression.whenTrue), ...discardedOperands(expression.whenFalse)];
+    }
+
+    return [expression];
 }
 
 /**
@@ -69,6 +127,10 @@ function isThenable(type, checker, location) {
         return false;
     }
     const definite = checker.getNonNullableType(type) ?? type;
+    if (definite.isUnionType?.()) {
+        // `Promise<T> | false`: one branch is a promise, and that is enough.
+        return (definite.getTypes() ?? []).some((member) => isThenable(member, checker, location));
+    }
     const then = checker.getPropertyOfType(definite, 'then');
     if (!then) {
         return false;
@@ -107,15 +169,7 @@ export function findFloatingPromises(tsconfigPath, include) {
             /** @param {any} node */
             const visit = (node) => {
                 if (isExpressionStatement(node)) {
-                    let expression = node.expression;
-                    while (isParenthesizedExpression(expression)) {
-                        expression = expression.expression;
-                    }
-                    if (!isVoidExpression(expression)
-                        && !isAwaitExpression(expression)
-                        && !isBinaryExpression(expression)
-                        && !handlesRejection(expression)
-                    ) {
+                    for (const expression of discardedOperands(node.expression)) {
                         candidates.push({ statement: node, expression });
                     }
                 }
@@ -128,10 +182,12 @@ export function findFloatingPromises(tsconfigPath, include) {
 
             const types = checker.getTypeAtLocation(candidates.map((candidate) => candidate.expression));
             const text = source.text ?? source.getText();
+            const reported = new Set();
             candidates.forEach((candidate, index) => {
-                if (!isThenable(types[index], checker, candidate.expression)) {
+                if (reported.has(candidate.statement) || !isThenable(types[index], checker, candidate.expression)) {
                     return;
                 }
+                reported.add(candidate.statement);
                 const start = candidate.statement.getStart(source);
                 const line = text.slice(0, start).split('\n').length;
                 found.push({
