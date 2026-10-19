@@ -850,7 +850,15 @@ class RentalPaymentService
         ?PaymentSettings $settings = null
     ): void {
         $payment = $this->paymentRepository->loadBookingPayment($booking->id);
-        if (($payment['rental_receivable_id'] ?? null) !== null && $this->receivables !== null) {
+        // Followed means a receivable AND payments still on for the asset: a
+        // receivable raised before payments were switched off stays in place
+        // (nothing removes it), yet nothing reconciles it any more, and the
+        // Finances page then offers this form — the only way left to write
+        // the return down.
+        $followed = ($payment['rental_receivable_id'] ?? null) !== null
+            && $this->receivables !== null
+            && $settings?->enabled !== false;
+        if ($followed) {
             throw new RentalException(
                 'Les paiements de cette réservation sont suivis dans les Finances : la caution se rend par '
                 . 'virement avec la communication de la réservation, et se rapproche depuis la page Finances.'
