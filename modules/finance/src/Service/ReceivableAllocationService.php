@@ -384,8 +384,15 @@ class ReceivableAllocationService
             if ($transaction->amount <= 0) {
                 continue;
             }
-            $left = self::toCents($transaction->amount) - ($usedByTransaction[$transaction->id] ?? 0);
-            foreach ($this->communicationsOf($transaction) as $communication) {
+            // The rest of a credit naming SEVERAL communications is nobody's
+            // surplus in particular, so it is nobody's: counting it for each
+            // would let two refunds hand the same money back twice. A
+            // treasurer decides whose it is.
+            $communications = $this->communicationsOf($transaction);
+            $left = count($communications) > 1
+                ? 0
+                : self::toCents($transaction->amount) - ($usedByTransaction[$transaction->id] ?? 0);
+            foreach ($communications as $communication) {
                 foreach ($byCommunication[$communication] ?? [] as $receivable) {
                     $pair = $existingByPair[$transaction->id][$receivable->id] ?? null;
                     // A person's « pays nothing here » rules the movement out;
@@ -1182,6 +1189,12 @@ class ReceivableAllocationService
                 // lowered to 0 after a payment keeps it all as surplus.
                 $pair = $byTransaction[$transaction->id] ?? null;
                 if ($pair !== null && $pair->isManual() && $pair->amountCents <= 0) {
+                    continue;
+                }
+                // The rest of a movement naming several communications is
+                // nobody's in particular: it stays out of every surplus
+                // (and so out of every automatic or proposed refund).
+                if (count($communicationsByTransaction[$transaction->id]) > 1) {
                     continue;
                 }
                 $designated += self::toCents($transaction->amount) - ($usedByTransaction[$transaction->id] ?? 0);

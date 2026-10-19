@@ -162,6 +162,33 @@ final class ReceivableRefundTest extends TestCase
         $this->assertSame(-500, $this->allocations->findPair($debit, $second)?->amountCents);
     }
 
+    /**
+     * One credit naming two receivables, with more than both are worth:
+     * the rest of it is nobody's surplus in particular, so it is nobody's
+     * at all — never counted twice, never refunded automatically. A
+     * treasurer decides whose it is.
+     */
+    public function testTheRestOfACreditNamingTwoReceivablesIsNeitherOnesSurplus(): void
+    {
+        $first = $this->receivable(1000, '1230000001');
+        $second = $this->receivable(1000, '1230000002');
+        $this->movement(
+            '2027-03-08',
+            30.00,
+            'Deux paiements ' . $this->comm('1230000001') . ' ' . $this->comm('1230000002')
+        );
+        $refundFirst = $this->movement('2027-03-20', -10.00, 'Remboursement ' . $this->comm('1230000001'));
+        $refundSecond = $this->movement('2027-03-20', -10.00, 'Remboursement ' . $this->comm('1230000002'));
+
+        $this->allocationService->reconcileAccount($this->accountId);
+
+        $this->assertNull($this->allocations->findPair($refundFirst, $first));
+        $this->assertNull($this->allocations->findPair($refundSecond, $second));
+        $this->assertSame(0, $this->api->getReceivableStanding('rental', $first)?->amountOverpaidCents);
+        $this->assertSame(0, $this->api->getReceivableStanding('rental', $second)?->amountOverpaidCents);
+        $this->assertSame([], $this->api->findRefundCandidates('rental', $first, new \DateTimeImmutable('2027-03-01')));
+    }
+
     /** A person's word on the pair — here, "this debit refunds nothing here" — outlives the next pass. */
     public function testThePassLeavesAPersonsRowOnThePairAlone(): void
     {
