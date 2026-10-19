@@ -388,7 +388,10 @@ class ReceivableAllocationService
             foreach ($this->communicationsOf($transaction) as $communication) {
                 foreach ($byCommunication[$communication] ?? [] as $receivable) {
                     $pair = $existingByPair[$transaction->id][$receivable->id] ?? null;
-                    if ($pair !== null && $pair->amountCents <= 0) {
+                    // A person's « pays nothing here » rules the movement out;
+                    // the pass's own share brought to 0 (a receivable lowered
+                    // to 0) does not — what arrived is still the surplus.
+                    if ($pair !== null && $pair->isManual() && $pair->amountCents <= 0) {
                         continue;
                     }
                     $designated[$receivable->id] += $left;
@@ -1174,8 +1177,11 @@ class ReceivableAllocationService
                 // attaching a share of it, or by saying it pays nothing
                 // here — has had its say. Only the part still lying
                 // unattached on a movement that names this receivable
-                // counts as arrived-and-unabsorbed.
-                if (isset($byTransaction[$transaction->id]) && $byTransaction[$transaction->id]->amountCents <= 0) {
+                // counts as arrived-and-unabsorbed. The pass's own share
+                // brought to 0 is not a treasurer speaking: a receivable
+                // lowered to 0 after a payment keeps it all as surplus.
+                $pair = $byTransaction[$transaction->id] ?? null;
+                if ($pair !== null && $pair->isManual() && $pair->amountCents <= 0) {
                     continue;
                 }
                 $designated += self::toCents($transaction->amount) - ($usedByTransaction[$transaction->id] ?? 0);

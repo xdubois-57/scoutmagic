@@ -206,6 +206,33 @@ final class ReceivableRefundTest extends TestCase
     }
 
     /**
+     * A receivable brought to 0 — the booking refused, cancelled or
+     * expired after a payment (chantier #927, §2.5) — keeps what arrived
+     * for it as a surplus: the automatic share the pass rewrote to 0 is
+     * not a person saying « pays nothing here », and the refund debit that
+     * follows is reconciled like any other.
+     */
+    public function testAReceivableBroughtToZeroShowsWhatArrivedAsSurplusAndTakesItsRefund(): void
+    {
+        $id = $this->receivable(62200, '0909337554');
+        $credit = $this->movement('2027-03-08', 622.00, 'Virement ' . $this->comm('0909337554'));
+        $this->allocationService->reconcileAccount($this->accountId);
+
+        $this->api->updateReceivableAmount($id, 0, allowBelowReceived: true);
+
+        $this->assertSame(0, $this->allocations->findPair($credit, $id)?->amountCents);
+        $standing = $this->api->getReceivableStanding('rental', $id);
+        $this->assertSame(62200, $standing?->amountReceivedCents);
+        $this->assertSame(62200, $standing?->amountOverpaidCents);
+
+        $debit = $this->movement('2027-03-20', -622.00, 'Remboursement ' . $this->comm('0909337554'));
+        $this->allocationService->reconcileAccount($this->accountId);
+
+        $this->assertSame(-62200, $this->allocations->findPair($debit, $id)?->amountCents);
+        $this->assertSame(0, $this->api->getReceivableStanding('rental', $id)?->amountOverpaidCents);
+    }
+
+    /**
      * What already went back is no longer money held: lowering the amount
      * is compared with what came in less the refunds, not with the gross.
      */
