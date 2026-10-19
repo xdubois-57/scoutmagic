@@ -189,6 +189,95 @@ final class ReceivableRefundTest extends TestCase
         $this->assertSame([], $this->api->findRefundCandidates('rental', $first, new \DateTimeImmutable('2027-03-01')));
     }
 
+    /**
+     * Only a communication that names a receivable of the account makes a
+     * credit "several receivables'": a SEPA reference, a stray number or the
+     * communication of a receivable on another account, spelled out next to
+     * the real one, leaves the surplus where it is.
+     */
+    public function testAnUnrelatedTokenNextToTheRealCommunicationLeavesTheSurplusAlone(): void
+    {
+        $id = $this->receivable(62200, '0909337554');
+        $this->receivables->create('rental', 2, $this->otherAccountId, 1000, $this->comm('1230000003'), null);
+        $stray = preg_replace('/\D+/', '', $this->comm('5550000001'));
+        $this->movement(
+            '2027-03-08',
+            818.00,
+            'Virement ' . $this->comm('0909337554') . ' réf ' . $stray . ' ' . $this->comm('1230000003')
+        );
+        $debit = $this->movement('2027-03-20', -100.00, 'Remboursement ' . $this->comm('0909337554'));
+        $other = $this->movement('2027-03-21', -50.00, 'Virement sans communication');
+
+        $this->allocationService->reconcileAccount($this->accountId);
+
+        $this->assertSame(-10000, $this->allocations->findPair($debit, $id)?->amountCents);
+        $this->assertSame(9600, $this->api->getReceivableStanding('rental', $id)?->amountOverpaidCents);
+        $this->assertSame(
+            [$other],
+            array_map(
+                static fn (RefundCandidate $c): int => $c->transactionId,
+                $this->api->findRefundCandidates('rental', $id, new \DateTimeImmutable('2027-03-18'))
+            )
+        );
+    }
+
+    /**
+     * A refund a person recorded after the automatic pass took its
+     * snapshot — under the receivable's lock — is seen before the pass
+     * writes: the two never refund more than the surplus together.
+     */
+    public function testTheAutomaticRefundRereadsARefundRecordedAfterItsSnapshot(): void
+    {
+        $id = $this->receivable(62200, '0909337554');
+        $this->movement('2027-03-08', 818.00, 'Virement ' . $this->comm('0909337554'));
+        $this->allocationService->reconcileAccount($this->accountId);
+        $auto = $this->movement('2027-03-20', -196.00, 'Remboursement ' . $this->comm('0909337554'));
+        $manual = $this->movement('2027-03-20', -196.00, 'Virement sans communication');
+
+        $pdo = $this->pdo;
+        $allocations = new class ($pdo, static function () use ($pdo, $manual, $id): void {
+            // What a concurrent reconcileRefund() commits right after the
+            // snapshot this pass reads.
+            $pdo->prepare(
+                "INSERT INTO finance_receivable_allocations (transaction_id, receivable_id, amount_cents, source, "
+                . "created_by) VALUES (?, ?, -19600, 'manual', 7)"
+            )->execute([$manual, $id]);
+        }) extends ReceivableAllocationRepository {
+            private bool $fired = false;
+
+            public function __construct(\PDO $pdo, private \Closure $afterSnapshot)
+            {
+                parent::__construct($pdo);
+            }
+
+            public function findByTransactionIds(array $transactionIds): array
+            {
+                $result = parent::findByTransactionIds($transactionIds);
+                if (!$this->fired) {
+                    $this->fired = true;
+                    ($this->afterSnapshot)();
+                }
+
+                return $result;
+            }
+        };
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $service = new ReceivableAllocationService(
+            $this->receivables,
+            $allocations,
+            $this->transactions,
+            new \Modules\Finance\Repository\AccountRepository($this->pdo, $encryption),
+            new \Modules\Finance\Service\AccountVisibility(\Modules\Finance\Service\TreasurerScope::systemCaller())
+        );
+
+        $service->reconcileAccount($this->accountId);
+
+        $this->assertNull($this->allocations->findPair($auto, $id));
+        $standing = $this->api->getReceivableStanding('rental', $id);
+        $this->assertSame(19600, $standing?->amountRefundedCents);
+        $this->assertSame(0, $standing?->amountOverpaidCents);
+    }
+
     /** A person's word on the pair — here, "this debit refunds nothing here" — outlives the next pass. */
     public function testThePassLeavesAPersonsRowOnThePairAlone(): void
     {

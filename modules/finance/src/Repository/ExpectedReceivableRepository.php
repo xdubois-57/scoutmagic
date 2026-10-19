@@ -201,6 +201,29 @@ class ExpectedReceivableRepository
         }
     }
 
+    /**
+     * The twelve digits of every receivable's communication on one
+     * account, as a set — what tells a communication that names one of
+     * this account's receivables from any other twelve-digit run a bank
+     * text happens to carry (a SEPA reference, an invoice number, the
+     * communication of a receivable on another account). Reads the one
+     * column, decrypts nothing.
+     *
+     * @return array<string, true>
+     */
+    public function findCommunicationDigitsByAccountId(int $accountId): array
+    {
+        $stmt = $this->pdo->prepare('SELECT communication FROM finance_expected_receivables WHERE account_id = ?');
+        $stmt->execute([$accountId]);
+
+        $digits = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_COLUMN) as $communication) {
+            $digits[preg_replace('/\D+/', '', (string) $communication) ?? ''] = true;
+        }
+
+        return $digits;
+    }
+
     public function findById(int $id): ?ExpectedReceivable
     {
         $stmt = $this->pdo->prepare('SELECT * FROM finance_expected_receivables WHERE id = ?');

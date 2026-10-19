@@ -47,6 +47,19 @@ class ExpectedReceivableRepositoryTest extends TestCase
         $this->receivableId = $this->repository->create('news', 42, $accountId, 2500, $this->communication, 'Camp 2026');
     }
 
+    public function testTheCommunicationDigitsOfAnAccountAreItsReceivablesOnly(): void
+    {
+        $accountId = (int) $this->pdo->query('SELECT account_id FROM finance_expected_receivables')->fetchColumn();
+        $this->pdo->exec("INSERT INTO finance_accounts (name, account_type) VALUES ('Autre', 'bank')");
+        $otherAccountId = (int) $this->pdo->lastInsertId();
+        $this->repository->create('news', 43, $otherAccountId, 100, StructuredCommunicationService::format('1230000001'), null);
+
+        $this->assertSame(
+            [preg_replace('/\D+/', '', $this->communication) => true],
+            $this->repository->findCommunicationDigitsByAccountId($accountId)
+        );
+    }
+
     public function testTheWorkUnderTheLockIsCommittedAndItsResultReturned(): void
     {
         $result = $this->repository->withReceivableLocked($this->receivableId, function (): string {
