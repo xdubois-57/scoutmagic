@@ -64,6 +64,14 @@ CREATE TABLE IF NOT EXISTS inbound_mailboxes (
     -- account name and the server's verbatim rejection of a credential.
     last_error VARCHAR(500) NULL,
     last_error_at DATETIME NULL,
+    -- When the current run of failed passes began: set by the first failure
+    -- after a success, kept by the next ones, cleared by a success — and by
+    -- switching the box back on, so a pause is never counted as an outage.
+    -- `last_error_at` cannot stand in for it: every failed pass rewrites it,
+    -- and the configuration page shows it as the time of the last error.
+    -- What the attention point measures its grace from (#718 § C point 8);
+    -- `last_synced_at` would count the time a box spent switched off.
+    failing_since DATETIME NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

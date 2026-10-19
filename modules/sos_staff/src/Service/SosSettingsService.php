@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\SosStaff\Service;
 
 use Core\Config\SettingService;
+use Core\Service\DateInput;
 use Core\Import\MemberYearRepository;
 use Core\Member\SectionService;
 use Core\Member\UnitStaffSectionService;
@@ -29,6 +30,7 @@ class SosSettingsService
 {
     private const TRANSITION_HOUR_KEY = 'transition_hour';
     private const EMAIL_NOTIFICATIONS_KEY = 'email_notifications_enabled';
+    private const REDIRECT_LAST_FAILURE_KEY = 'redirect_last_failure_at';
 
     /**
      * age_branches.sort_order values for Baladins/Louveteaux/Éclaireurs/
@@ -255,5 +257,38 @@ class SosSettingsService
     public function setEmailNotificationsEnabled(bool $enabled): void
     {
         $this->coreSettingService->set(self::EMAIL_NOTIFICATIONS_KEY, $enabled ? '1' : '0', 'sos_staff');
+    }
+
+    /**
+     * When the last redirect change failed, null once one has succeeded
+     * since — read by SosAttentionProvider (#718 § C point 9). Until now
+     * that outcome lived only in the journal and in one alert e-mail.
+     */
+    public function lastRedirectFailureAt(): ?\DateTimeImmutable
+    {
+        return DateInput::fromStorage(
+            (string) $this->coreSettingService->get(self::REDIRECT_LAST_FAILURE_KEY, 'sos_staff', '')
+        );
+    }
+
+    /**
+     * Best-effort: the bookkeeping must never mask the failure it records,
+     * nor turn a redirect that worked into an error.
+     */
+    public function recordRedirectOutcome(bool $failed, \DateTimeImmutable $at): void
+    {
+        try {
+            if ($failed) {
+                $this->coreSettingService->setInternal(
+                    self::REDIRECT_LAST_FAILURE_KEY,
+                    $at->format('Y-m-d H:i:s'),
+                    'sos_staff'
+                );
+            } elseif ($this->lastRedirectFailureAt() !== null) {
+                $this->coreSettingService->setInternal(self::REDIRECT_LAST_FAILURE_KEY, '', 'sos_staff');
+            }
+        } catch (\Throwable) {
+            // See above.
+        }
     }
 }

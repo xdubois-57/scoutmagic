@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\SosStaff\Service;
 
+use Core\Config\AppClock;
 use Core\Journal\JournalService;
 use Core\Mail\MailService;
 use Core\Mail\Template\EmailTemplateRenderer;
@@ -92,6 +93,7 @@ class RedirectService
             $current = $provider->readForwardingState();
             if ($current->active && $current->number === $targetNumber) {
                 $this->logOutcome('no_change', "Redirection déjà correcte ({$targetNumber}).", $newMemberId);
+                $this->settingsService->recordRedirectOutcome(false, AppClock::now());
                 return;
             }
 
@@ -109,6 +111,12 @@ class RedirectService
             // page may render, with $e as $previous so nothing is lost.
             $detailed = "Échec du changement de redirection : {$e->getMessage()}";
             $this->logOutcome('failure', $detailed, $newMemberId);
+            // Kept for the attention page (#718 § C point 9) — this branch
+            // only: the operator was asked and refused. No operator, or no
+            // number to send calls to, is a configuration gap the attention
+            // page reads from the configuration itself, and recording it
+            // here would surface later as « l'opérateur a refusé ».
+            $this->settingsService->recordRedirectOutcome(true, AppClock::now());
             $this->sendAdminAlert($detailed);
             throw new SosException(
                 'Le changement de redirection du numéro SOS a échoué — vérifiez la configuration du fournisseur de '
@@ -119,6 +127,7 @@ class RedirectService
         }
 
         $this->logOutcome('success', "Redirection changée vers {$targetNumber}.", $newMemberId);
+        $this->settingsService->recordRedirectOutcome(false, AppClock::now());
         $this->notifyHandover($newMemberId, $previousMemberId, $scoutYearId);
     }
 
