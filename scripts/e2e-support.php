@@ -35,6 +35,10 @@ declare(strict_types=1);
  *                              repository ships activated — see
  *                              e2eActivateAllModules() for why all of
  *                              them and not just the default three.
+ *   set-public-year <label>    Put the site's public scout year on <label>
+ *                              (created if missing) and print its id —
+ *                              the one state no page can move backwards;
+ *                              see e2eSetPublicYear().
  *   teardown-db                Drop every table of the E2E database and
  *                              the database itself.
  *   merge-coverage <dir> <out> Fold every per-request coverage fragment
@@ -122,6 +126,17 @@ function e2eSupportMain(array $argv): void
                 exit(1);
             }
             exit(e2eRunScheduler($instanceDir));
+
+        case 'set-public-year':
+            $label = $argv[2] ?? '';
+            if (preg_match('/^\d{4}-\d{4}$/', $label) !== 1) {
+                fwrite(STDERR, "Usage: e2e-support.php set-public-year <YYYY-YYYY>\n");
+                exit(1);
+            }
+            require_once $repoRoot . '/vendor/autoload.php';
+            e2eApplyApplicationClock();
+            echo e2eSetPublicYear($label), "\n";
+            exit(0);
 
         case 'teardown-db':
             require_once $repoRoot . '/vendor/autoload.php';
@@ -2026,6 +2041,40 @@ function e2eHumanCheckMinDelaySeconds(string $instanceDir): int
     return is_string($stored) && trim($stored) !== '' && ctype_digit(trim($stored))
         ? max(0, (int) trim($stored))
         : 3;
+}
+
+/**
+ * Put the public scout year (`current_scout_year_id`) on $label, creating
+ * the year if it does not exist yet, and return its id.
+ *
+ * The Import Desk scenario needs it (specs/desk-import-years.spec.js).
+ * Which years Core\Import\DeskImportYearPolicy opens is decided by today's
+ * date placed in the calendar year the PUBLIC year ends in, and an E2E run
+ * happens on whatever day it happens. Moving the public year one year back
+ * puts every date of the rule in the past, so the period « from the
+ * Desk-encoding date » holds on any day of the year — the scenario then
+ * asserts a rule, not a calendar. No page can do this: the site moves its
+ * public year forwards only, through the « Année scoute » switch.
+ *
+ * The same setting ScoutYearAdminService writes, through the same
+ * SettingService::setInternal(); the scenario puts the harness's pinned
+ * year back when it is done.
+ */
+function e2eSetPublicYear(string $label): int
+{
+    $config = e2eDatabaseConfig();
+    $pdo = new PDO(
+        sprintf('mysql:host=%s;port=%d;dbname=%s;charset=utf8mb4', $config['host'], $config['port'], $config['name']),
+        $config['user'],
+        $config['password'],
+        [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]
+    );
+
+    $yearId = (new Core\Config\ScoutYearService($pdo))->ensureYear($label);
+    (new Core\Config\SettingService(new Core\Config\SettingRepository($pdo)))
+        ->setInternal(Core\ScoutYear\ScoutYearResolver::SETTING_PUBLIC_YEAR, (string) $yearId);
+
+    return $yearId;
 }
 
 /**

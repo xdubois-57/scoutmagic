@@ -39,9 +39,20 @@
 // Calendrier, 12 to Trombinoscope; a step whose module is off is not in the
 // workflow at all.
 //
-// The blocks that are real, all refused by the server: the staff year
-// needs a successful import of the target; the switch for everyone needs
-// the staff year on the target, that import, and no open registration.
+// The three blocks that are real, each refused by the SERVER (a request
+// that skips the page is asserted refused too, not only a disabled
+// button):
+//   1. step 1 cannot be marked while the re-enrolment campaign of the
+//      target is scheduled or running;
+//   2. the staff year needs a successful import of the target;
+//   3. the switch for everyone needs the staff year on the target, that
+//      import, and no open registration — shown in the review before the
+//      switch, whose confirmation stays disabled while one remains.
+// Everything else is advice: points « à vérifier » never stop anything.
+//
+// Nothing on the page reloads it (CHANTIER-annee-scoute.md §2.8): every
+// action is a JSON call answered with the recomputed state, and act()
+// below asserts, action by action, that the main frame never navigated.
 // ============================================================================
 //
 // Why this is worth an end-to-end test rather than more unit tests: the
@@ -76,8 +87,8 @@ import { fileURLToPath } from 'node:url';
 import { expect, test } from '@playwright/test';
 
 import { autoConfirm } from '../support/confirm-dialog.js';
-import { closeModal, openModal } from '../support/modal.js';
 import { loginAsAdmin } from '../support/admin-login.js';
+import { closeModal, openModal } from '../support/modal.js';
 // Shared with specs/optional-module-dependencies.spec.js, which switches
 // modules off for the opposite reason — see support/modules.js.
 import { toggleModule } from '../support/modules.js';
@@ -226,15 +237,19 @@ function phase(page, key) {
 /**
  * Run one action of the page and wait until the page has swapped in the
  * state the server sent back. Nothing reloads (CHANTIER-annee-scoute.md §2.8): the
- * request is JSON, and the page marks itself busy for exactly as long as
- * the call runs (public/assets/js/admin-scout-year.js), so the end of the
- * busy state is the moment the new state is in the DOM.
+ * request is JSON — this waits for ITS answer, never for a page load —
+ * and the page marks itself busy for exactly as long as the call runs
+ * (public/assets/js/admin-scout-year.js), so the end of the busy state is
+ * the moment the new state is in the DOM. The main frame must not have
+ * navigated in between, whatever the answer.
  *
  * @param {import('@playwright/test').Page} page
  * @param {string} route the /admin/scout-year/* route the action posts to
  * @param {() => Promise<void>} trigger
+ * @param {{ refused?: boolean }} [options] refused: the server is expected
+ *        to say no (422, with the recomputed state all the same)
  */
-async function act(page, route, trigger) {
+async function act(page, route, trigger, options = {}) {
     // Wait for the page to REACT before clicking it: a click landing
     // before admin-scout-year.js bound its listener posts the plain form
     // and reloads the page instead (same marker convention as
@@ -244,13 +259,83 @@ async function act(page, route, trigger) {
     // survives the swap): clear it so the wait below sees THIS action end.
     await page.evaluate(() => document.getElementById('scout-year-state')?.removeAttribute('aria-busy'));
 
-    await Promise.all([
-        waitForServerResponse(page, (response) =>
-            response.url().endsWith(route) && response.request().method() === 'POST'
-            && (response.request().headers()['content-type'] ?? '').includes('application/json')),
-        trigger(),
-    ]);
-    await expect(page.locator('#scout-year-state')).toHaveAttribute('aria-busy', 'false');
+    let navigations = 0;
+    /** @param {import('@playwright/test').Frame} frame */
+    const count = (frame) => {
+        if (frame === page.mainFrame()) {
+            navigations++;
+        }
+    };
+    page.on('framenavigated', count);
+    try {
+        const [response] = await Promise.all([
+            waitForServerResponse(page, (r) =>
+                r.url().endsWith(route) && r.request().method() === 'POST'
+                && (r.request().headers()['content-type'] ?? '').includes('application/json')),
+            trigger(),
+        ]);
+        expect(response.status(), `the answer of ${route}`).toBe(options.refused ? 422 : 200);
+        await expect(page.locator('#scout-year-state')).toHaveAttribute('aria-busy', 'false');
+    } finally {
+        page.off('framenavigated', count);
+    }
+    expect(navigations, `${route} reloaded the Année scoute page`).toBe(0);
+}
+
+/**
+ * POST one action of the page straight to its route, as a script that
+ * skipped the page would: the same JSON body admin-scout-year.js sends,
+ * CSRF token included, but no button, enabled or not. What the server
+ * answers is the block, independently of what the page shows.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {string} route
+ * @param {Record<string, unknown>} body
+ * @returns {Promise<{status: number, body: {success?: boolean, error?: string}}>}
+ */
+async function postBehindThePagesBack(page, route, body) {
+    return page.evaluate(async ({ url, payload }) => {
+        const token = document.querySelector('meta[name="csrf-token"]');
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                ...payload,
+                _csrf_token: token instanceof HTMLMetaElement ? token.content : '',
+            }),
+        });
+
+        return { status: response.status, body: await response.json() };
+    }, { url: route, payload: body });
+}
+
+/**
+ * The manual switch of the re-enrolment campaign (Inscriptions), through
+ * the endpoint the Réglages page itself posts to. On, the campaign of the
+ * target year is « en cours » whatever the calendar says — the only state
+ * of it this scenario can set without depending on today's date.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {boolean} open
+ */
+async function setReenrollmentSwitch(page, open) {
+    const answer = await page.evaluate(async (value) => {
+        const token = document.querySelector('meta[name="csrf-token"]');
+        const response = await fetch('/config/settings/update', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                module_id: 'registration',
+                key: 'registration_reenrollment_open',
+                value,
+                _csrf_token: token instanceof HTMLMetaElement ? token.content : '',
+            }),
+        });
+        return { status: response.status, body: await response.json() };
+    }, open ? '1' : '0');
+
+    expect(answer.status, 'the settings endpoint answered').toBe(200);
+    expect(answer.body.success, 'the campaign switch was accepted').toBe(true);
 }
 
 /**
@@ -399,49 +484,104 @@ test('the whole site transitions to the next scout year through the documented w
     expect(targetYear, 'the page must target a different year than the current public one')
         .not.toBe(outgoingYear);
 
-    // Every action from here on stays on the page: count the navigations
-    // of the main frame while the page is driven through its own controls.
-    let navigations = 0;
-    page.on('framenavigated', (frame) => {
-        if (frame === page.mainFrame()) {
-            navigations++;
-        }
-    });
+    // The target year's id, as the page's own activation form carries it
+    // — what a request that skips the page would have to name.
+    const targetYearId = await details(page, 'activate_staff')
+        .locator('form[action="/admin/scout-year/activate-staff"] input[name="scout_year_id"]')
+        .inputValue();
 
     // ---------------------------------------------------------------
     // The order is advice, not a gate. Nothing has been done yet, and
     // every control is already usable except the ones the server would
-    // refuse anyway — the staff year and the switch, both waiting for a
-    // successful import of the target year.
+    // refuse anyway.
     // ---------------------------------------------------------------
     await expect(step(page, 'preview').getByRole('button', { name: `Prévisualiser ${targetYear}` })).toBeEnabled();
-    // Step 1's one action follows the campaign (the harness's campaign is
-    // not finished, so it is the campaign itself); the departures page is
-    // among every action of the step, in its Détails dialog.
+    await expect(staffYearCard).toContainText('Pas encore activée');
+    await expect(page.locator('[data-summary]')).toContainText('blocage');
+
+    // ---------------------------------------------------------------
+    // Block 1 — step 1 cannot be marked while the re-enrolment campaign
+    // of the target runs. The campaign is opened by its manual switch
+    // (the one state of it that does not depend on the calendar), and
+    // the disc is pressed anyway: the server refuses, the page says why,
+    // and the step stays to do.
+    // ---------------------------------------------------------------
+    await setReenrollmentSwitch(page, true);
+    await page.goto('/admin/scout-year', { waitUntil: 'domcontentloaded' });
+
+    const campaignRunning = new RegExp(`La campagne de réinscription ${targetYear} est en cours`);
+    await expect(step(page, 'departures')).toContainText(campaignRunning);
+    // The step's one action is the campaign; the departures page is among
+    // every action of the step, in its Détails dialog.
+    await expect(step(page, 'departures').getByRole('link', { name: 'Gérer la campagne' })).toBeVisible();
     await expect(details(page, 'departures').getByRole('link', { name: 'Voir les départs', includeHidden: true }))
         .toHaveCount(1);
 
-    // Hard block: no staff year without a successful import of it. The
+    await act(page, '/admin/scout-year/step', () => disc(page, 'departures').click(), { refused: true });
+    await expect(page.locator('.toast-body').filter({ hasText: campaignRunning })).toBeVisible();
+    await expect(disc(page, 'departures')).toHaveAttribute('aria-pressed', 'false');
+    await expect(step(page, 'departures')).toHaveAttribute('data-state', 'todo');
+
+    // The same mark, posted without the page: refused the same way.
+    const forgedMark = await postBehindThePagesBack(page, '/admin/scout-year/step', { step_key: 'departures', done: true });
+    expect(forgedMark.status).toBe(422);
+    expect(forgedMark.body.error).toMatch(campaignRunning);
+
+    await setReenrollmentSwitch(page, false);
+    await page.goto('/admin/scout-year', { waitUntil: 'domcontentloaded' });
+
+    // ---------------------------------------------------------------
+    // Block 2 — no staff year without a successful import of it. The
     // page says so in words, the step's one action is the import that
-    // unblocks it, and the activation waits, disabled, in its dialog.
+    // unblocks it, and the activation waits, disabled, in its dialog;
+    // posted anyway, the server refuses it.
+    // ---------------------------------------------------------------
     await expect(step(page, 'activate_staff')).toHaveAttribute('data-state', 'blocked');
     await expect(step(page, 'activate_staff')).toContainText(`Aucun import Desk réussi pour ${targetYear}.`);
     await expect(step(page, 'activate_staff').getByRole('link', { name: `Importer ${targetYear}` })).toBeVisible();
     await expect(details(page, 'activate_staff').getByRole('button', { name: 'Activer pour les staffs', includeHidden: true }))
         .toBeDisabled();
 
-    // Hard block: the switch needs the staff year on the target, that
-    // import, and no open registration — every reason said at once, and
-    // the review's confirmation is disabled.
+    const forgedStaff = await postBehindThePagesBack(page, '/admin/scout-year/activate-staff', { scout_year_id: targetYearId });
+    expect(forgedStaff.status).toBe(422);
+    expect(forgedStaff.body.error).toBe(
+        `Impossible d'activer ${targetYear} pour les staffs. Aucun import Desk réussi pour ${targetYear}.`,
+    );
+
+    // ---------------------------------------------------------------
+    // Block 3 — the switch needs the staff year on the target, that
+    // import, and no open registration. The review before the switch
+    // opens all the same, says « {publique} → {cible} », lists every
+    // blocker with the link that resolves it, and keeps its
+    // confirmation disabled; posted anyway, the server refuses it.
+    // ---------------------------------------------------------------
     await expect(step(page, 'activate_public')).toHaveAttribute('data-state', 'blocked');
     await expect(step(page, 'activate_public')).toContainText(`${targetYear} n'est pas activée pour les staffs`);
+
     await page.waitForFunction(() => document.documentElement.classList.contains('scout-year-js'));
     const blockedReview = await openModal(page, 'scout-year-review',
         () => step(page, 'activate_public').getByRole('button', { name: 'Revoir avant la bascule…' }).click());
+    await expect(blockedReview.locator('[data-review-switch]')).toContainText(`${outgoingYear}`);
+    await expect(blockedReview.locator('[data-review-switch]')).toContainText(`${targetYear}`);
+    const blockers = blockedReview.locator('[data-review-blockers]');
+    await expect(blockers).toContainText('Bascule impossible pour l\'instant');
+    await expect(blockers).toContainText(`${targetYear} n'est pas activée pour les staffs.`);
+    await expect(blockers).toContainText(`Aucun import Desk réussi pour ${targetYear}.`);
+    await expect(blockers.getByRole('link', { name: `Importer ${targetYear}` }))
+        .toHaveAttribute('href', `/admin/import?annee=${targetYearId}`);
     await expect(blockedReview.getByRole('button', { name: `Basculer sur ${targetYear}` })).toBeDisabled();
     await closeModal(page, 'scout-year-review', () => blockedReview.getByRole('button', { name: 'Annuler' }).click());
     await expect(staffYearCard).toContainText('Pas encore activée');
     await expect(page.locator('[data-summary]')).toContainText('blocage');
+
+    const forgedSwitch = await postBehindThePagesBack(page, '/admin/scout-year/activate-public', { scout_year_id: targetYearId });
+    expect(forgedSwitch.status).toBe(422);
+    expect(forgedSwitch.body.error).toContain(`Impossible de basculer sur ${targetYear}.`);
+    expect(forgedSwitch.body.error).toContain(`${targetYear} n'est pas activée pour les staffs.`);
+    expect(forgedSwitch.body.error).toContain(`Aucun import Desk réussi pour ${targetYear}.`);
+    // Refused, so nothing moved.
+    await page.goto('/admin/scout-year', { waitUntil: 'domcontentloaded' });
+    expect(await yearOf(page, 'Année publique')).toBe(outgoingYear);
 
     // The Desk-encoding date is a signpost: it labels the phases and says
     // which period the calendar is in. It disables nothing — the whole
@@ -462,15 +602,21 @@ test('the whole site transitions to the next scout year through the documented w
     await toggleStep(page, 'desk_staff');
 
     await expect(disc(page, 'desk_staff')).toHaveAttribute('aria-pressed', 'true');
+    await expect(disc(page, 'desk_staff')).toHaveAttribute('title', 'Étape faite — cliquer pour la remettre à faire');
     await expect(step(page, 'desk_staff')).toContainText('Étape faite');
     await expect(step(page, 'desk_staff').locator('.step-circle--done')).toBeVisible();
-    await expect(details(page, 'desk_staff')).toContainText('Marquée comme faite le');
     await expect(page.locator('[data-summary-done]')).toContainText('1 étape faite sur 14');
+
+    // « Détails » is a dialog, opened from the page as it stands after the
+    // swap: who marked the step and when.
+    const deskStaffDetails = await openModal(page, 'step-details-desk_staff',
+        () => step(page, 'desk_staff').getByRole('button', { name: /^Détails/ }).click());
+    await expect(deskStaffDetails.locator('[data-step-mark]')).toContainText('Marquée comme faite le');
+    await closeModal(page, 'step-details-desk_staff', () => deskStaffDetails.locator('.modal-footer').getByRole('button', { name: 'Fermer' }).click());
 
     // It survives a reload — this is stored state, not something the
     // browser happens to be holding.
     await page.reload({ waitUntil: 'domcontentloaded' });
-    navigations = 0;
     await expect(disc(page, 'desk_staff')).toHaveAttribute('aria-pressed', 'true');
 
     // And it can be taken back: a step marked by mistake is not a
@@ -517,8 +663,6 @@ test('the whole site transitions to the next scout year through the documented w
     await toggleStep(page, 'preview');
     await expect(step(page, 'preview').locator('.step-circle--done')).toBeVisible();
 
-    expect(navigations, 'an action of the Année scoute page reloaded it').toBe(0);
-
     // ---------------------------------------------------------------
     // Step 6 — "Importer les données Desk pour <cible>". Followed through
     // the page's own link, and done with a real multipart upload of a real
@@ -558,7 +702,6 @@ test('the whole site transitions to the next scout year through the documented w
     await setConfigurationMode(page, false);
 
     await page.goto('/admin/scout-year', { waitUntil: 'domcontentloaded' });
-    navigations = 0;
     await expect(step(page, 'import').locator('.step-circle--done')).toBeVisible();
     await expect(details(page, 'import')).toContainText('Dernier import réussi :');
     await expect(step(page, 'import').getByRole('link', { name: 'Voir le rapport' })).toBeVisible();
@@ -640,6 +783,10 @@ test('the whole site transitions to the next scout year through the documented w
     await expect(review.locator('[data-review-switch]')).toContainText(outgoingYear);
     await expect(review.locator('[data-review-switch]')).toContainText(targetYear);
     await expect(review.locator('[data-review-blockers]')).toHaveCount(0);
+    // What is left is advice, said as such: the points to check and the
+    // steps nobody marked (1 to 3 here) never stop the switch.
+    await expect(review).toContainText("n'empêche pas la bascule");
+    await expect(review).toContainText('Étapes non faites (3)');
     const switchButton = review.getByRole('button', { name: `Basculer sur ${targetYear}` });
     await expect(switchButton).toBeEnabled();
 
@@ -668,8 +815,6 @@ test('the whole site transitions to the next scout year through the documented w
     for (const key of ['desk_staff', 'desk_members', 'fees', 'preview', 'ephemerides', 'badges', 'trombinoscope', 'staff_photos']) {
         await expect(disc(page, key)).toHaveAttribute('aria-pressed', 'false');
     }
-
-    expect(navigations, 'an action of the Année scoute page reloaded it').toBe(0);
 
     expect(serverErrors, 'the application returned a server error').toEqual([]);
     expect(pageErrors, 'uncaught JavaScript error in the browser').toEqual([]);
