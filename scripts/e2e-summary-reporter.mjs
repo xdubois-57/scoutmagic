@@ -25,11 +25,13 @@ const FAILED = new Set(['failed', 'timedOut', 'interrupted']);
  * The first line of the first error, without ANSI colour codes and capped:
  * enough to tell a timeout from an assertion, short enough for one line.
  *
- * @param {{ errors?: Array<{ message?: string }> }} result
+ * @param {{ errors?: Array<{ message?: string, value?: string }> }} result
  * @returns {string}
  */
 export function firstErrorLine(result) {
-    const message = result.errors?.[0]?.message ?? '';
+    // A thrown non-Error (a string, an object) carries its text in `value`.
+    const error = result.errors?.[0];
+    const message = error?.message ?? error?.value ?? '';
     // eslint-disable-next-line no-control-regex
     const line = message.replace(/\u001b\[[0-9;]*m/g, '').split('\n').map((l) => l.trim()).find((l) => l !== '') ?? '';
     return line.length > 200 ? `${line.slice(0, 199)}…` : line;
@@ -51,6 +53,17 @@ export function escapeCommand(value, property = false) {
     return escaped;
 }
 
+/**
+ * Text placed in the Markdown summary: backslashes first, then the
+ * characters Markdown would read as markup.
+ *
+ * @param {string} value
+ * @returns {string}
+ */
+export function markdownCell(value) {
+    return value.replace(/\\/g, '\\\\').replace(/([|`*_])/g, '\\$1');
+}
+
 export default class SummaryReporter {
     /** @param {{ rootDir?: string, env?: Record<string, string|undefined>, write?: (s: string) => void, append?: (path: string, s: string) => void }} [options] */
     constructor(options = {}) {
@@ -58,39 +71,49 @@ export default class SummaryReporter {
         this.rootDir = options.rootDir ?? process.cwd();
         this.write = options.write ?? ((s) => process.stdout.write(s));
         this.append = options.append ?? ((path, s) => appendFileSync(path, s));
-        /** @type {Array<{ key: string, title: string, file: string, line: number, error: string }>} */
-        this.failures = [];
+        /** @type {Map<object, { status: string, errors?: Array<{ message?: string, value?: string }> }>} */
+        this.lastResults = new Map();
     }
 
     onTestEnd(test, result) {
-        if (!FAILED.has(result.status)) {
-            return;
+        // Keep only the LAST attempt of each test; whether it counts as a
+        // failure is decided at the end, from the test's final outcome, so a
+        // test that fails then passes on retry (« flaky ») or is expected to
+        // fail is never reported.
+        this.lastResults.set(test, result);
+    }
+
+    /** @returns {Array<{ title: string, file: string, line: number, error: string }>} */
+    failures() {
+        const failures = [];
+        for (const [test, result] of this.lastResults) {
+            const failed = typeof test.outcome === 'function' ? test.outcome() === 'unexpected' : FAILED.has(result.status);
+            if (!failed) {
+                continue;
+            }
+            failures.push({
+                // titlePath() is [root, project, file, …describes, test]: keep the describes and the test.
+                title: test.titlePath().filter((t) => t !== '').slice(2).join(' › '),
+                file: relative(this.rootDir, test.location.file).split('\\').join('/'),
+                line: test.location.line,
+                error: firstErrorLine(result),
+            });
         }
-        // A retried test that ends green is reported by its last attempt;
-        // retries are 0 today, but a later attempt replaces an earlier one.
-        const key = `${test.location.file}:${test.location.line}:${test.titlePath().join(' › ')}`;
-        this.failures = this.failures.filter((f) => f.key !== key);
-        this.failures.push({
-            key,
-            // titlePath() is [root, project, file, …describes, test]: keep the describes and the test.
-            title: test.titlePath().filter((t) => t !== '').slice(2).join(' › '),
-            file: relative(this.rootDir, test.location.file).split('\\').join('/'),
-            line: test.location.line,
-            error: firstErrorLine(result),
-        });
+        return failures;
     }
 
     onEnd() {
-        if (this.env.GITHUB_ACTIONS !== 'true' || this.failures.length === 0) {
+        const failures = this.env.GITHUB_ACTIONS === 'true' ? this.failures() : [];
+        if (failures.length === 0) {
             return;
         }
-        for (const f of this.failures) {
+        for (const f of failures) {
             this.write(`::error file=${escapeCommand(f.file, true)},line=${f.line},title=${escapeCommand('Scénario E2E en échec', true)}::${escapeCommand(`${f.title} — ${f.error}`)}\n`);
         }
         const summaryPath = this.env.GITHUB_STEP_SUMMARY;
         if (summaryPath) {
             const job = this.env.GITHUB_JOB ? ` (${this.env.GITHUB_JOB})` : '';
-            const lines = this.failures.map((f) => `- \`${f.file}:${f.line}\` — ${f.title}\n  - ${f.error.replace(/\|/g, '\\|')}`);
+            const lines = failures.map((f) => `- \`${f.file}:${f.line}\` — ${f.title}\n  - ${markdownCell(f.error)}`);
             this.append(summaryPath, `### Scénarios E2E en échec${job}\n\n${lines.join('\n')}\n\n`);
         }
     }

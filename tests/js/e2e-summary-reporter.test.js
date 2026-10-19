@@ -1,12 +1,16 @@
-// tests/e2e/support/summary-reporter.js (issue #912): a red browser
+// scripts/e2e-summary-reporter.mjs (issue #912): a red browser
 // scenario must be readable through the GitHub API, as an annotation, and
 // by a person, as a line of the job summary — and nothing is written
 // outside GitHub Actions or when everything passed.
 import { describe, expect, it } from 'vitest';
-import SummaryReporter, { escapeCommand, firstErrorLine } from '../e2e/support/summary-reporter.js';
+import SummaryReporter, { escapeCommand, firstErrorLine, markdownCell } from '../../scripts/e2e-summary-reporter.mjs';
 
-function fakeTest(file, line, titles) {
-    return { location: { file, line }, titlePath: () => titles };
+function fakeTest(file, line, titles, outcome = undefined) {
+    const test = { location: { file, line }, titlePath: () => titles };
+    if (outcome !== undefined) {
+        test.outcome = () => outcome;
+    }
+    return test;
 }
 
 function run(env, results) {
@@ -66,13 +70,36 @@ describe('SummaryReporter', () => {
         const { out } = run({ GITHUB_ACTIONS: 'true' }, [[red, failed], [red, failed]]);
         expect(out).toHaveLength(1);
     });
+
+    it('reports nothing for a test that failed then passed on retry', () => {
+        const flaky = fakeTest('/repo/tests/e2e/specs/x.spec.js', 3, ['', 'chromium', 'x.spec.js', 'flaky'], 'flaky');
+        const { out } = run({ GITHUB_ACTIONS: 'true' }, [[flaky, failed], [flaky, { status: 'passed', errors: [] }]]);
+        expect(out).toEqual([]);
+    });
+
+    it('reports nothing for a test expected to fail', () => {
+        const expected = fakeTest('/repo/tests/e2e/specs/x.spec.js', 3, ['', 'chromium', 'x.spec.js', 'fails on purpose'], 'expected');
+        const { out } = run({ GITHUB_ACTIONS: 'true' }, [[expected, failed]]);
+        expect(out).toEqual([]);
+    });
+
+    it('trusts the final outcome when Playwright gives one', () => {
+        const unexpected = fakeTest('/repo/tests/e2e/specs/x.spec.js', 3, ['', 'chromium', 'x.spec.js', 'broken'], 'unexpected');
+        const { out } = run({ GITHUB_ACTIONS: 'true' }, [[unexpected, failed]]);
+        expect(out).toHaveLength(1);
+    });
 });
 
 describe('helpers', () => {
     it('keeps the first non-empty line, without colour codes, capped', () => {
         expect(firstErrorLine({ errors: [{ message: '\n\u001b[2m  TimeoutError: waited\u001b[22m\nmore' }] })).toBe('TimeoutError: waited');
         expect(firstErrorLine({ errors: [] })).toBe('');
+        expect(firstErrorLine({ errors: [{ value: 'a thrown string' }] })).toBe('a thrown string');
         expect(firstErrorLine({ errors: [{ message: 'x'.repeat(500) }] })).toHaveLength(200);
+    });
+
+    it('escapes Markdown, backslashes first', () => {
+        expect(markdownCell('a\\b|c`d*e_f')).toBe('a\\\\b\\|c\\`d\\*e\\_f');
     });
 
     it('escapes workflow command characters', () => {

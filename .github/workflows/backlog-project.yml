@@ -121,7 +121,11 @@ jobs:
                 cat "${out}"
                 echo '```'
               } >> "${GITHUB_STEP_SUMMARY}"
-              jq -c . "${out}" 2>/dev/null | annotate 'Ready queue' || annotate 'Ready queue' < "${out}"
+              if json="$(jq -c . "${out}" 2>/dev/null)"; then
+                annotate 'Ready queue' <<< "${json}"
+              else
+                annotate 'Ready queue' < "${out}"
+              fi
               ;;
             status|claim|done|release)
               out="$(mktemp)"

@@ -282,8 +282,8 @@ in `tests/e2e/specs/rental-management.spec.js` documents a failure that
 surfaced only under it. Reproduce a red `e2e-tests` with the flag on.
 
 **A red scenario is named where the API can read it.** On GitHub Actions,
-`tests/e2e/support/summary-reporter.js` turns every failed or timed-out
-scenario into an annotation on the job's check run and a line of the job
+`scripts/e2e-summary-reporter.mjs` turns every scenario whose final outcome
+is a failure (a test that passes on retry is not one) into an annotation on the job's check run and a line of the job
 summary (file, line, title, first line of the error). Both browser jobs get
 it, the DAST profiles included, since `scripts/dast.sh` hands its
 environment to Playwright. Before it, a failure said « exit code 1 » to the

@@ -109,7 +109,7 @@ export default defineConfig({
     // The third one names the red scenarios as annotations and in the job
     // summary on GitHub Actions, where an agent reading the API can see
     // them (issue #912); it does nothing anywhere else.
-    reporter: [['list'], ['html', { outputFolder: './playwright-report', open: 'never' }], ['./support/summary-reporter.js']],
+    reporter: [['list'], ['html', { outputFolder: './playwright-report', open: 'never' }], ['../../scripts/e2e-summary-reporter.mjs']],
     use: {
         baseURL,
         // Diagnostics on failure only — a green run leaves nothing behind
