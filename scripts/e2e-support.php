@@ -39,10 +39,10 @@ declare(strict_types=1);
  *                              (created if missing) and print its id —
  *                              the one state no page can move backwards;
  *                              see e2eSetPublicYear().
- *   raise-human-check-limit    Lift the public-form rate limit on the
- *                              instance — scripts/dast.sh, active
- *                              profiles only; see e2eRaiseHumanCheckLimit().
- *   teardown-db               Drop every table of the E2E database and
+ *   relax-human-check          Lift the public-form rate limit and form
+ *                              lifetime on the instance — scripts/dast.sh,
+ *                              active profiles only; see e2eRelaxHumanCheck().
+ *   teardown-db                Drop every table of the E2E database and
  *                              the database itself.
  *   merge-coverage <dir> <out> Fold every per-request coverage fragment
  *                              scripts/e2e-coverage-prepend.php wrote into
@@ -141,10 +141,10 @@ function e2eSupportMain(array $argv): void
             echo e2eSetPublicYear($label), "\n";
             exit(0);
 
-        case 'raise-human-check-limit':
+        case 'relax-human-check':
             require_once $repoRoot . '/vendor/autoload.php';
             e2eApplyApplicationClock();
-            e2eRaiseHumanCheckLimit();
+            e2eRelaxHumanCheck();
             exit(0);
 
         case 'teardown-db':
@@ -2053,21 +2053,27 @@ function e2eHumanCheckMinDelaySeconds(string $instanceDir): int
 }
 
 /**
- * Lift HumanCheck's per-address limit on public forms
- * (`human_check_rate_limit_max_attempts`, 5 per window by default) on the
- * throwaway instance, so that an ACTIVE DAST profile's replays reach the
- * handler behind a public form instead of all stopping at « rate_limited »
- * after the fifth: the scanner replays every recorded request hundreds of
- * times from one address, and a scan that only ever meets the limiter has
- * scanned the limiter.
+ * Lift the two HumanCheck barriers an ACTIVE DAST scan would otherwise spend
+ * its time on, on the throwaway instance, so its replays reach the handler
+ * behind a public form:
+ *
+ * - the per-address limit (`human_check_rate_limit_max_attempts`, 5 per
+ *   window by default): the scanner replays every recorded request hundreds
+ *   of times from one address, and past the fifth each replay would only meet
+ *   « rate_limited »;
+ * - the form lifetime (`human_check_form_validity_seconds`, 4 h by default):
+ *   ZAP replays the signed `human_check_token` verbatim — it only refreshes
+ *   the CSRF token — and an `audit` run's active phase outlasts 4 h, after
+ *   which every replay would meet « form_expired ».
  *
  * Only scripts/dast.sh calls it, and only for `deep` and `audit`. Never the
- * E2E harness — a scenario must keep meeting the limit production enforces —
- * and never production: the setting's default is untouched. The row exists
- * once the instance has booted (public/index.php registers it), which is why
- * the caller runs this after the server first answers.
+ * E2E harness — a scenario must keep meeting the barriers production
+ * enforces — and never production: the settings' defaults are untouched. The
+ * rows exist once the instance has booted (public/index.php registers them),
+ * which is why the caller runs this after the server first answers. Both are
+ * written as one decision (setManyInternal()).
  */
-function e2eRaiseHumanCheckLimit(): void
+function e2eRelaxHumanCheck(): void
 {
     $config = e2eDatabaseConfig();
     $pdo = new PDO(
@@ -2077,8 +2083,11 @@ function e2eRaiseHumanCheckLimit(): void
         [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]
     );
 
-    (new Core\Config\SettingService(new Core\Config\SettingRepository($pdo)))
-        ->setInternal('human_check_rate_limit_max_attempts', '100000');
+    (new Core\Config\SettingService(new Core\Config\SettingRepository($pdo)))->setManyInternal([
+        'human_check_rate_limit_max_attempts' => '100000',
+        // A week: longer than any scan the plans allow, `audit` included.
+        'human_check_form_validity_seconds' => '604800',
+    ]);
 }
 
 /**
