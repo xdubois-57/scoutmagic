@@ -135,6 +135,38 @@ class ScoutYearControllerTest extends TestCase
         $this->assertNull(ScoutYearSession::getPreviewId());
     }
 
+    /**
+     * The banner's « Revenir » goes back where it came from — but the
+     * Referer is a header anybody can set, so only its path is kept and a
+     * foreign host never becomes the redirect target.
+     */
+    public function testClearPreviewNeverRedirectsOffTheSite(): void
+    {
+        ScoutYearSession::setPreview($this->yearB);
+
+        $request = new Request(
+            'POST',
+            '/admin/scout-year/clear-preview',
+            [],
+            ['_csrf_token' => $this->token],
+            [],
+            ['HTTP_REFERER' => 'https://evil.example/phish?x=1']
+        );
+        $response = $this->controller->clearPreview($request, []);
+
+        $this->assertSame('/phish?x=1', $response->getHeaders()['Location'] ?? null);
+
+        $local = new Request(
+            'POST',
+            '/admin/scout-year/clear-preview',
+            [],
+            ['_csrf_token' => $this->token],
+            [],
+            ['HTTP_REFERER' => 'https://site.example/chefs/membres?section=2']
+        );
+        $this->assertSame('/chefs/membres?section=2', $this->controller->clearPreview($local, [])->getHeaders()['Location'] ?? null);
+    }
+
     public function testActivateStaffSetsSettingAndJournals(): void
     {
         $this->givenImport($this->yearB);
@@ -209,6 +241,28 @@ class ScoutYearControllerTest extends TestCase
         $this->assertStringContainsString("Aller à l'import Desk (2026-2027)", html_entity_decode($body, ENT_QUOTES, 'UTF-8'));
         $this->assertStringContainsString('2026-2027', $body); // dynamic target label
         $this->assertStringNotContainsString('bi-check-lg', $body); // nothing completed yet
+    }
+
+    public function testOnlyTheCurrentStepsActionIsThePrimaryButton(): void
+    {
+        $this->settingService->setInternal(ScoutYearResolver::SETTING_PUBLIC_YEAR, (string) $this->yearB);
+        // Every step before the import done: the import, whose one action is
+        // « Importer 2026-2027 », becomes the current step.
+        foreach (['departures', 'passage', 'confirm_registrations', 'desk_staff', 'desk_members'] as $key) {
+            $this->controller->toggleStep(
+                $this->post('/admin/scout-year/step', ['_csrf_token' => $this->token, 'step_key' => $key, 'done' => '1']),
+                [],
+            );
+        }
+
+        $body = $this->controller->index(new Request('GET', '/admin/scout-year', [], [], [], []), [])->getBody();
+
+        // The <li> is written around the step's include: the include must
+        // still be handed is_current, or no action is ever primary.
+        $this->assertSame(1, preg_match('/<li class="step-item[^"]*step-item--current".*?<\/li>/s', $body, $current));
+        $this->assertStringContainsString('data-step="import"', $current[0]);
+        $this->assertStringContainsString('btn-sm btn-primary', $current[0]);
+        $this->assertSame(1, substr_count($body, 'btn-sm btn-primary'));
     }
 
     public function testStaffStepShowsCompletedWhenStaffYearIsTarget(): void

@@ -542,6 +542,13 @@ helpers; a page-level primary action that happens to call an AI
   - An action driven from JavaScript cannot use the attribute — the
     handler delegates from a `<form>` — so it asks with
     `window.ScoutMagicConfirm.ask()` instead. Same rule, same wording.
+  - One deliberate exception to « leaving a preview or a mode » above:
+    the step buttons of « Année scoute » that act at once — preview,
+    leave the preview, activate or deactivate the target year for the
+    staffs — ask with `window.ScoutMagicConfirm.ask()`, saying the
+    consequence and that no e-mail is sent
+    (`docs/chantiers/CHANTIER-annee-scoute.md` §2.8). The step's disc
+    keeps the no-dialog rule (§7.15).
   - Held by `UxConventionsTest::testEveryDestructivePostFormAsksFirst()`
     for the first list and `testNoUndoAsksForConfirmation()` for the
     second. Its allowlist is NOT the exceptions above — those never match

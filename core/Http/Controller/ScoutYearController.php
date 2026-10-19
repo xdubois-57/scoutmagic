@@ -12,6 +12,7 @@ use Core\Config\ScoutYearService;
 use Core\Http\FlashMessage;
 use Core\Http\Request;
 use Core\Http\Response;
+use Core\Http\SafeRedirect;
 use Core\Journal\JournalService;
 use Core\ScoutYear\ActivationBlocker;
 use Core\ScoutYear\PublicYearActivationBlockedException;
@@ -111,7 +112,11 @@ class ScoutYearController extends AbstractController
 
         ScoutYearSession::clear();
 
-        return $this->succeeded($json, 'Retour à l\'année courante.', $request->getReferer() ?? '/admin/scout-year');
+        // The Referer is not trusted: only its own path is kept, so the
+        // banner's « Revenir » never sends anyone off the site.
+        $back = SafeRedirect::internalPathFromUrl($request->getReferer() ?? '/admin/scout-year', '/admin/scout-year');
+
+        return $this->succeeded($json, 'Retour à l\'année courante.', $back);
     }
 
     /**
