@@ -197,5 +197,11 @@
                 form.submit();
             }
         });
+
+        // Until this line runs, « Importer » submits natively, unasked, and
+        // the server refuses a year that needs confirming. A test (or a
+        // future script) waits for this mark rather than for the page to
+        // look ready.
+        form.dataset.yearConfirmReady = '1';
     });
 })();

@@ -123,6 +123,16 @@ describe('admin-import', () => {
     });
 
     describe('submitting', () => {
+        it('marks the form ready only once its submit handler is wired', async () => {
+            buildPage();
+            const form = /** @type {HTMLFormElement} */ (document.getElementById('desk-import-form'));
+            expect(form.dataset.yearConfirmReady).toBeUndefined();
+
+            await load();
+
+            expect(form.dataset.yearConfirmReady).toBe('1');
+        });
+
         it('lets a year without a question through untouched', async () => {
             buildPage();
             await load();
