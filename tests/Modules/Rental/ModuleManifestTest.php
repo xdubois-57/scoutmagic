@@ -156,7 +156,7 @@ class ModuleManifestTest extends TestCase
      */
     public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
     {
-        $this->assertSame('1.47.0', $this->manifest->version);
+        $this->assertSame('1.48.0', $this->manifest->version);
     }
 
     /**
@@ -170,9 +170,9 @@ class ModuleManifestTest extends TestCase
             '/mes-locations/statut',
             '/mes-locations/option',
             '/mes-locations/commentaire',
-            '/mes-locations/ligne',
-            '/mes-locations/proposition',
-            '/mes-locations/demande',
+            '/mes-locations/modification',
+            '/mes-locations/modification-envoyer',
+            '/mes-locations/modification-annuler',
             '/mes-locations/blocage-motif',
             '/mes-locations/{slug}/calendrier/jours',
             '/mes-locations/blocage-supprimer',
@@ -198,8 +198,6 @@ class ModuleManifestTest extends TestCase
             '/mes-locations/decompte',
             '/mes-locations/decompte-valider',
             '/mes-locations/calendrier-publication',
-            '/locations/suivi/{id}/{token}/demande',
-            '/locations/suivi/{id}/{token}/reponse',
             '/mes-locations/{slug}/reglages/regles',
             '/mes-locations/{slug}/reglages/tarif',
             '/mes-locations/{slug}/reglages/periode',

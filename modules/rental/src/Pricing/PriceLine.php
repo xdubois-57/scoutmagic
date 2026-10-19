@@ -17,11 +17,11 @@ namespace Modules\Rental\Pricing;
  * which fee each part came from. It is a stable machine key, not prose —
  * the human explanation is `$label`.
  *
- * `$isManual` marks a line a manager typed or edited by hand. Such a line is
- * **never recalculated** (§6.12): if the dates or the head count change
- * later, automatic lines are recomputed and manual ones are left exactly as
- * they were. The flag lives here, on the line, because that is the only
- * place that survives being snapshotted.
+ * `$isManual` marks a line a manager typed by hand — the discount of a
+ * price (`RULE_DISCOUNT`, #927), and the hand-edited lines older snapshots
+ * may still carry. Such a line is never re-scaled by the final settlement
+ * (`Stay\SettlementCalculator`). The flag lives here, on the line, because
+ * that is the only place that survives being snapshotted.
  */
 final class PriceLine
 {
@@ -31,6 +31,11 @@ final class PriceLine
     /** A meter fee, listed for information — never part of the total. */
     public const RULE_FEE_METER = 'fee_meter';
     public const RULE_MANUAL = 'manual';
+    /**
+     * The one line a manager types on a price (#927, chantier §2.3): a
+     * labelled discount, never positive. Every other line is the tariff's.
+     */
+    public const RULE_DISCOUNT = 'discount';
 
     /**
      * @param int $quantity Whole units — nights, person-nights, people, rooms. Never a fraction: the engine has no

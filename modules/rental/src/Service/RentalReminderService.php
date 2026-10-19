@@ -241,7 +241,9 @@ class RentalReminderService
             || in_array(BookingMilestones::CONTRACT_COUNTERSIGNED, $ticked, true);
 
         foreach ($this->documentService?->forBooking($bookingId) ?? [] as $document) {
-            if ($document->isSuperseded()) {
+            // A replacement contract's paperwork belongs to its project
+            // until the countersignature (#927, chantier §2.3).
+            if (!$document->countsForTheBooking()) {
                 continue;
             }
             if ($document->type === \Modules\Rental\Document\DocumentType::CONTRACT && $document->sentAt !== null) {

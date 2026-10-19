@@ -314,6 +314,7 @@
     "/mes-locations/{slug}": {
       "document": "conditions",
       "id": "1",
+      "modificationId": "1",
       "slug": "salle-des-fetes",
       "type": "contrat"
     },

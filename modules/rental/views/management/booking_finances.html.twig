@@ -5,6 +5,5 @@
   boxes arrive open: this page exists for them.
 #}
 {% block booking_content %}
-    {% include '@rental/management/_box_price.html.twig' with { open: true } %}
     {% include '@rental/management/_box_payment.html.twig' with { open: true } %}
 {% endblock %}

@@ -1,151 +1,89 @@
 {#
-  The price of one booking (§6.12), a box of « Le dossier ».
+  The « Prix » box of a modification (#927, chantier §2.3), on its own page
+  — it used to sit on Finances, every line editable.
 
-  Lifted out of booking.html.twig when that page was reorganised into folded
-  boxes; nothing in it changed. It sits inside the box's own card, so it
-  carries no card and no heading of its own — the fold's header is the
-  heading, and Booking\BookingBox holds its name.
+  **The tariff's lines are read only**: they are recomputed from the dates
+  and the participants at every save, so what a renter is asked to pay can
+  always be explained line by line. The one thing typed by hand is a single
+  « Remise » — a label and a negative amount. No line is edited, none is
+  added, nothing is « recalculé » by hand. A discount granted after the stay
+  is a « Geste commercial » of the final settlement instead, with no new
+  contract.
 
-  Requires `asset`, `booking` and `quote`.
+  Rendered inside the modification's form when `editable`, so the discount
+  posts with the dates.
+
+  Requires `quote` (a Pricing\PriceQuote), `editable` and
+  `max_discount_label_length`; optional `discount`, the discount line in
+  force (Pricing\PriceLine).
 #}
-<div class="card-body pt-0">
-                {% if booking.status.value == 'confirmed' %}
-                    <output class="alert alert-warning d-block">
-                        <strong>Cette réservation est confirmée.</strong> Modifier le prix maintenant :
-                        <ul class="mb-0">
-                            <li>le contrat sera à régénérer en nouvelle version ;</li>
-                            <li>la créance sera mise à jour ;</li>
-                            <li>le changement est visible immédiatement du locataire ;</li>
-                            <li>les paiements déjà reçus ne sont pas touchés — seul le solde change,
-                                et un trop-perçu est possible si le nouveau total passe sous le montant encaissé.</li>
-                        </ul>
-                    </output>
-                {% endif %}
-
-                <div class="table-responsive">
-                    <table class="table table-sm align-middle mb-2">
-                        <thead>
-                            <tr>
-                                <th scope="col">Ligne</th>
-                                <th scope="col" class="text-end">Quantité</th>
-                                <th scope="col" class="text-end">Montant</th>
-                                <th scope="col"><span class="visually-hidden">Actions</span></th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for line in quote.lines %}
-                                <tr>
-                                    <td>
-                                        {{ line.label }}
-                                        {% if line.isManual %}
-                                            <span class="badge text-bg-info ms-1"
-                                                  title="Cette ligne ne sera plus recalculée">Modifiée à la main</span>
-                                        {% endif %}
-                                        {% if line.isInformational %}
-                                            <span class="text-body-secondary small d-block">
-                                                Facturé sur relevé — hors total
-                                            </span>
-                                        {% endif %}
-                                    </td>
-                                    <td class="text-end">{{ line.quantity }}</td>
-                                    <td class="text-end">{{ line.amountCents|money_cents }}</td>
-                                    <td class="text-end">
-                                        <form method="post" action="/mes-locations/ligne" class="d-inline"
-                                              data-confirm="Supprimer la ligne « {{ line.label }} » ?">
-                                            {{ csrf_field()|raw }}
-                                            <input type="hidden" name="asset_id" value="{{ asset.id }}">
-                                            <input type="hidden" name="booking_id" value="{{ booking.id }}">
-                                            <input type="hidden" name="booking_page" value="{{ booking_page.value }}">
-                                            <input type="hidden" name="line_action" value="remove">
-                                            <input type="hidden" name="index" value="{{ loop.index0 }}">
-                                            <button type="submit" class="btn btn-sm btn-outline-danger">
-                                                Supprimer
-                                            </button>
-                                        </form>
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td colspan="4" class="pt-0">
-                                        <form method="post" action="/mes-locations/ligne" class="row g-2 align-items-end">
-                                            {{ csrf_field()|raw }}
-                                            <input type="hidden" name="asset_id" value="{{ asset.id }}">
-                                            <input type="hidden" name="booking_id" value="{{ booking.id }}">
-                                            <input type="hidden" name="booking_page" value="{{ booking_page.value }}">
-                                            <input type="hidden" name="line_action" value="edit">
-                                            <input type="hidden" name="index" value="{{ loop.index0 }}">
-                                            <div class="col-12 col-md-5">
-                                                <label class="form-label visually-hidden" for="label-{{ loop.index0 }}">Libellé</label>
-                                                <input type="text" class="form-control form-control-sm"
-                                                       id="label-{{ loop.index0 }}" name="label" value="{{ line.label }}">
-                                            </div>
-                                            <div class="col-6 col-md-2">
-                                                <label class="form-label visually-hidden" for="qty-{{ loop.index0 }}">Quantité</label>
-                                                <input type="number" inputmode="numeric" min="1" class="form-control form-control-sm"
-                                                       id="qty-{{ loop.index0 }}" name="quantity" value="{{ line.quantity }}">
-                                            </div>
-                                            <div class="col-6 col-md-3">
-                                                <label class="form-label visually-hidden" for="amount-{{ loop.index0 }}">Montant</label>
-                                                <input type="text" class="form-control form-control-sm"
-                                                       id="amount-{{ loop.index0 }}" name="amount"
-                                                       value="{{ (line.amountCents / 100)|number_format(2, ',', '') }}"
-                                                       inputmode="decimal">
-                                            </div>
-                                            <div class="col-12 col-md-2">
-                                                <button type="submit" class="btn btn-sm btn-outline-secondary w-100">Modifier</button>
-                                            </div>
-                                        </form>
-                                    </td>
-                                </tr>
-                            {% endfor %}
-                        </tbody>
-                        <tfoot>
-                            <tr class="fw-semibold">
-                                <td colspan="2">Total</td>
-                                <td class="text-end">{{ quote.totalCents|money_cents }}</td>
-                                <td></td>
-                            </tr>
-                        </tfoot>
-                    </table>
-                </div>
-
-                <form method="post" action="/mes-locations/ligne" class="row g-2 align-items-end mb-3">
-                    {{ csrf_field()|raw }}
-                    <input type="hidden" name="asset_id" value="{{ asset.id }}">
-                    <input type="hidden" name="booking_id" value="{{ booking.id }}">
-                    <input type="hidden" name="booking_page" value="{{ booking_page.value }}">
-                    <input type="hidden" name="line_action" value="add">
-                    <div class="col-12 col-md-5">
-                        <label class="form-label" for="new-label">Nouvelle ligne</label>
-                        <input type="text" class="form-control form-control-sm" id="new-label" name="label"
-                               placeholder="Remise exceptionnelle">
-                    </div>
-                    <div class="col-6 col-md-2">
-                        <label class="form-label" for="new-quantity">Quantité</label>
-                        <input type="number" inputmode="numeric" min="1" class="form-control form-control-sm" id="new-quantity"
-                               name="quantity" value="1">
-                    </div>
-                    <div class="col-6 col-md-3">
-                        <label class="form-label" for="new-amount">Montant</label>
-                        <input type="text" class="form-control form-control-sm" id="new-amount" name="amount"
-                               inputmode="decimal" placeholder="-50,00">
-                    </div>
-                    <div class="col-12 col-md-2">
-                        <button type="submit" class="btn btn-sm btn-outline-secondary w-100">Ajouter</button>
-                    </div>
-                </form>
-
-                <form method="post" action="/mes-locations/ligne">
-                    {{ csrf_field()|raw }}
-                    <input type="hidden" name="asset_id" value="{{ asset.id }}">
-                    <input type="hidden" name="booking_id" value="{{ booking.id }}">
-                    <input type="hidden" name="booking_page" value="{{ booking_page.value }}">
-                    <input type="hidden" name="line_action" value="recalculate">
-                    <button type="submit" class="btn btn-sm btn-outline-secondary">
-                        Recalculer les lignes automatiques
-                    </button>
-                    <span class="form-text d-block">
-                        Reprend le tarif en vigueur pour les lignes automatiques. Les lignes modifiées
-                        à la main sont conservées telles quelles.
-                    </span>
-                </form>
+{% set discount_line = quote.lines|filter(l => l.rule == 'discount')|first %}
+<div class="card mb-3" id="prix">
+    <div class="card-body">
+        <h2 class="h5 mb-3">Prix</h2>
+        <div class="table-responsive">
+            <table class="table table-sm align-middle mb-2">
+                <caption class="visually-hidden">Lignes du prix de la location</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Ligne</th>
+                        <th scope="col" class="text-end">Qté</th>
+                        <th scope="col" class="text-end">Prix unitaire</th>
+                        <th scope="col" class="text-end">Montant</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for line in quote.lines|filter(l => l.rule != 'discount') %}
+                        <tr>
+                            <td>
+                                {{ line.label }}
+                                {% if line.isInformational %}
+                                    <span class="text-body-secondary small d-block">Facturé sur relevé — hors total</span>
+                                {% endif %}
+                            </td>
+                            <td class="text-end">{{ line.quantity }}</td>
+                            <td class="text-end">{{ line.unitPriceCents is not null ? line.unitPriceCents|money_cents : '—' }}</td>
+                            <td class="text-end">{{ line.amountCents|money_cents }}</td>
+                        </tr>
+                    {% endfor %}
+                    {% if editable %}
+                        <tr>
+                            <td colspan="3">
+                                {% include 'partials/form_field.html.twig' with {
+                                    field_id: 'discount-label', field_name: 'discount_label',
+                                    label: 'Remise — libellé', size: 'sm', wrapper_class: 'mb-0',
+                                    value: discount_line ? discount_line.label : '',
+                                    maxlength: max_discount_label_length,
+                                    placeholder: 'Remise fidélité',
+                                } only %}
+                            </td>
+                            <td>
+                                {% include 'partials/form_field.html.twig' with {
+                                    field_id: 'discount-amount', field_name: 'discount_amount',
+                                    label: 'Montant', size: 'sm', wrapper_class: 'mb-0',
+                                    value: discount_line ? (discount_line.amountCents / 100)|number_format(2, ',', '') : '',
+                                    inputmode: 'decimal', placeholder: '-50,00',
+                                } only %}
+                            </td>
+                        </tr>
+                    {% elseif discount_line %}
+                        <tr>
+                            <td colspan="3">{{ discount_line.label }}</td>
+                            <td class="text-end">{{ discount_line.amountCents|money_cents }}</td>
+                        </tr>
+                    {% endif %}
+                </tbody>
+                <tfoot>
+                    <tr class="fw-semibold">
+                        <td colspan="3">Total de la location</td>
+                        <td class="text-end">{{ quote.totalCents|money_cents }}</td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+        <p class="form-text mb-0">
+            Les lignes du tarif se recalculent seules à partir des dates et des participants ; seule la remise se
+            saisit à la main. Après le séjour, un geste commercial se fait au décompte final.
+        </p>
+    </div>
 </div>

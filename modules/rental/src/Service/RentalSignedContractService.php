@@ -76,7 +76,14 @@ class RentalSignedContractService
          * Null leaves both unguarded — a fixture's shortcut, never a
          * screen's.
          */
-        private ?RentalOccupancyGuard $occupancy = null
+        private ?RentalOccupancyGuard $occupancy = null,
+        /**
+         * A booking's modification in progress (#927, chantier §2.3): its
+         * replacement contract is the one awaiting a copy while it is out,
+         * and its countersignature applies the modification. Null leaves
+         * every booking with its first contract only.
+         */
+        private ?RentalModificationService $modifications = null
     ) {
     }
 
@@ -86,12 +93,17 @@ class RentalSignedContractService
 
     // ── Where the contract stands ───────────────────────────────────────
 
-    /** The latest contract sent to the renter, or null while none has gone. */
+    /**
+     * The latest contract in force sent to the renter, or null while none
+     * has gone. A replacement contract still waiting for its
+     * countersignature is not it (`replacement()`).
+     */
     public function sentContract(int $bookingId): ?RentalDocument
     {
         $found = null;
         foreach ($this->documentRepository->findForBooking($bookingId) as $document) {
-            if ($document->type === DocumentType::CONTRACT && $document->sentAt !== null && !$document->isSuperseded()
+            if ($document->type === DocumentType::CONTRACT && $document->sentAt !== null
+                && $document->countsForTheBooking()
                 && ($found === null || $document->version > $found->version)
             ) {
                 $found = $document;
@@ -143,6 +155,26 @@ class RentalSignedContractService
     }
 
     /**
+     * The booking's modification in progress with its replacement contract
+     * and the copies of it (#927, chantier §2.3), or null.
+     */
+    public function replacement(int $bookingId): ?\Modules\Rental\Booking\ModificationProgress
+    {
+        return $this->modifications?->progress($bookingId);
+    }
+
+    /**
+     * The same, only once its replacement contract has reached the renter:
+     * until then the copy a renter sends answers the contract in force.
+     */
+    private function replacementOut(int $bookingId): ?\Modules\Rental\Booking\ModificationProgress
+    {
+        $replacement = $this->replacement($bookingId);
+
+        return $replacement !== null && $replacement->contract?->sentAt !== null ? $replacement : null;
+    }
+
+    /**
      * Whether the renter may send a copy now: a contract has gone, none is
      * signed by both parties yet, none is waiting for an answer, and the
      * booking is still alive.
@@ -167,6 +199,20 @@ class RentalSignedContractService
         ?RentalAsset $asset = null,
         ?\DateTimeImmutable $now = null
     ): ?string {
+        // A replacement contract out for signature is the one a copy
+        // answers (chantier §2.3). Its new dates are held by its project, so
+        // nothing about the booking's own hold is asked.
+        $replacement = $this->replacementOut($booking->id);
+        if ($replacement !== null && $replacement->contract !== null) {
+            if ($booking->status->isAbandoned()) {
+                return "Aucun contrat n'attend votre signature pour le moment.";
+            }
+
+            return $replacement->pendingCopy !== null
+                ? 'Votre copie signée du nouveau contrat a déjà été reçue : elle est en cours de vérification.'
+                : null;
+        }
+
         if ($this->finalContract($booking->id) !== null) {
             return 'Votre contrat est déjà signé par les deux parties.';
         }
@@ -207,13 +253,14 @@ class RentalSignedContractService
         ?\DateTimeImmutable $now = null
     ): RentalDocument {
         $now ??= new \DateTimeImmutable();
-        $file = function () use ($booking, $asset, $fileId, $now): int {
+        $file = function () use ($booking, $asset, $fileId, $now): array {
             $current = $this->occupancy?->fresh($booking) ?? $booking;
             $refusal = $this->whyNoCopy($current, $asset, $now);
             if ($refusal !== null) {
                 throw new RentalException($refusal);
             }
 
+            [$contractId, $modificationId] = $this->copyTarget($current);
             $documentId = $this->documentRepository->create(
                 $current->id,
                 $fileId,
@@ -221,7 +268,10 @@ class RentalSignedContractService
                 1,
                 false,
                 null,
-                null
+                null,
+                RentalDocument::SOURCE_MANUAL,
+                $contractId,
+                $modificationId
             );
 
             $this->bookingAudit->record(
@@ -229,20 +279,101 @@ class RentalSignedContractService
                 BookingAudit::STATUS_CHANGED,
                 null,
                 DocumentType::SIGNED_COPY->label(),
-                'Copie signée déposée par le locataire',
+                $modificationId !== null
+                    ? 'Copie signée du contrat de remplacement déposée par le locataire'
+                    : 'Copie signée déposée par le locataire',
                 null
+            );
+
+            return [$documentId, $modificationId !== null];
+        };
+        [$documentId, $ofReplacement] = $this->occupancy !== null
+            ? $this->occupancy->onAsset($asset->id, $file)
+            : $file();
+
+        // After the commit: a notification that fails must not take the
+        // copy back with it.
+        $this->notifyManagers($booking, $asset, $ofReplacement);
+
+        return $this->documentRepository->findById($documentId)
+            ?? throw new RentalException("Votre copie n'a pas pu être enregistrée.");
+    }
+
+    /**
+     * Files a signed copy a manager brought in — uploaded by hand, or an
+     * e-mail's attachment reclassified (`$existingDocumentId`) — **through
+     * the same guard as the renter's** (#927, chantier §2.1): under the
+     * asset's lock, refused when it would hold dates somebody else took
+     * since this booking's hold lapsed, and tied to the contract it
+     * answers — the replacement contract out for signature, else the
+     * contract in force. No notification: the manager is the one filing it.
+     * Returns the document's id.
+     *
+     * @throws RentalException
+     */
+    public function fileCopyFromManager(
+        RentalBooking $booking,
+        RentalAsset $asset,
+        ?int $fileId,
+        ?int $existingDocumentId,
+        bool $isForRenter,
+        ?int $actorMemberId,
+        ?\DateTimeImmutable $now = null
+    ): int {
+        $now ??= new \DateTimeImmutable();
+        $file = function () use (
+            $booking,
+            $asset,
+            $fileId,
+            $existingDocumentId,
+            $isForRenter,
+            $actorMemberId,
+            $now
+        ): int {
+            $current = $this->occupancy?->fresh($booking) ?? $booking;
+            [$contractId, $modificationId] = $this->copyTarget($current);
+            if ($modificationId === null && $this->occupancy !== null
+                && !$this->occupancy->mayHoldItsDates($current, $asset, $now)
+            ) {
+                throw new RentalException(
+                    'Les dates de cette réservation ne sont plus bloquées et sont occupées par ailleurs : '
+                    . 'une copie signée ne peut plus les bloquer. Changez les dates ou refusez la demande.'
+                );
+            }
+
+            $existing = $existingDocumentId !== null ? $this->documentRepository->findById($existingDocumentId) : null;
+            if ($existing !== null) {
+                $this->documentRepository->updateType($existing->id, DocumentType::SIGNED_COPY, $isForRenter);
+                $this->documentRepository->attachToContract($existing->id, $contractId, $modificationId);
+                $documentId = $existing->id;
+            } else {
+                $documentId = $this->documentRepository->create(
+                    $current->id,
+                    (int) $fileId,
+                    DocumentType::SIGNED_COPY,
+                    1,
+                    $isForRenter,
+                    null,
+                    $actorMemberId,
+                    RentalDocument::SOURCE_MANUAL,
+                    $contractId,
+                    $modificationId
+                );
+            }
+
+            $this->bookingAudit->record(
+                $current->id,
+                BookingAudit::STATUS_CHANGED,
+                $existing?->type->label(),
+                DocumentType::SIGNED_COPY->label(),
+                $existing !== null ? 'Document reclassé' : 'Document ajouté',
+                $actorMemberId
             );
 
             return $documentId;
         };
-        $documentId = $this->occupancy !== null ? $this->occupancy->onAsset($asset->id, $file) : $file();
 
-        // After the commit: a notification that fails must not take the
-        // copy back with it.
-        $this->notifyManagers($booking, $asset);
-
-        return $this->documentRepository->findById($documentId)
-            ?? throw new RentalException("Votre copie n'a pas pu être enregistrée.");
+        return $this->occupancy !== null ? $this->occupancy->onAsset($asset->id, $file) : $file();
     }
 
     // ── 3. The manager's answer ─────────────────────────────────────────
@@ -299,7 +430,12 @@ class RentalSignedContractService
                     $actorMemberId
                 );
 
-                $this->holdAfterRefusal($booking, $actorMemberId, $now);
+                // A copy of a replacement contract held nothing of the
+                // booking's: its project holds its own dates, refused copy
+                // or not (chantier §2.3).
+                if ($copy->modificationId === null) {
+                    $this->holdAfterRefusal($booking, $actorMemberId, $now);
+                }
             });
         };
         if ($this->occupancy !== null) {
@@ -339,45 +475,85 @@ class RentalSignedContractService
         // countersignature, or a refusal, of the same copy waits, then finds
         // it answered. Nothing is written before the signed contract itself,
         // so a copy that cannot be assembled is left exactly as it was.
-        $final = $this->documentRepository->withBookingLocked($booking->id, function () use (
-            $booking,
-            $asset,
-            $documentId,
-            $signature,
-            $actorName,
-            $actorMemberId,
-            $now,
-            $fileName
-        ): RentalDocument {
-            $copy = $this->pendingCopyOf($booking, $documentId);
-            $path = $this->documents->absolutePath($copy);
-            if ($path === null) {
-                throw new RentalException(
-                    'Le fichier de cette copie est introuvable. Demandez-en une autre au locataire.'
-                );
-            }
-
-            $pdf = $this->assemble($path, $booking, $asset, $copy, $signature, $actorName, $now);
-            $final = $this->documents->attachPdf(
+        //
+        // Inside the asset's lock (Repository\AssetLock): countersigning a
+        // replacement contract moves the booking's dates (#927, §2.3).
+        $countersign = fn(): RentalDocument => $this->documentRepository->withBookingLocked(
+            $booking->id,
+            function () use (
                 $booking,
-                $pdf,
-                DocumentType::SIGNED_CONTRACT,
-                $fileName,
-                true,
-                $actorMemberId
-            );
+                $asset,
+                $documentId,
+                $signature,
+                $actorName,
+                $actorMemberId,
+                $now,
+                $fileName
+            ): RentalDocument {
+                $copy = $this->pendingCopyOf($booking, $documentId);
+                $path = $this->documents->absolutePath($copy);
+                if ($path === null) {
+                    throw new RentalException(
+                        'Le fichier de cette copie est introuvable. Demandez-en une autre au locataire.'
+                    );
+                }
 
-            $this->bookingAudit->record(
-                $booking->id,
-                BookingAudit::STATUS_CHANGED,
-                DocumentType::SIGNED_COPY->label(),
-                DocumentType::SIGNED_CONTRACT->label(),
-                'Contrat contresigné',
-                $actorMemberId
-            );
+                // A replacement contract signs the project's terms, not the
+                // booking's: its countersignature page says those.
+                $modifications = $this->modifications;
+                $modification = $copy->modificationId !== null
+                    ? $modifications?->find($booking, $copy->modificationId)
+                    : null;
+                $signed = $modification !== null
+                    ? $booking->withTerms(
+                        $modification->arrivalDate,
+                        $modification->departureDate,
+                        $modification->units,
+                        $modification->persons,
+                        $modification->price
+                    )
+                    : $booking;
 
-            return $final;
-        });
+                $pdf = $this->assemble($path, $signed, $asset, $copy, $signature, $actorName, $now);
+                $final = $this->documents->attachPdf(
+                    $booking,
+                    $pdf,
+                    DocumentType::SIGNED_CONTRACT,
+                    $fileName,
+                    true,
+                    $actorMemberId,
+                    $copy->contractDocumentId,
+                    $copy->modificationId
+                );
+
+                $this->bookingAudit->record(
+                    $booking->id,
+                    BookingAudit::STATUS_CHANGED,
+                    DocumentType::SIGNED_COPY->label(),
+                    DocumentType::SIGNED_CONTRACT->label(),
+                    $modification !== null ? 'Contrat de remplacement contresigné' : 'Contrat contresigné',
+                    $actorMemberId
+                );
+
+                // **The countersignature finalises the modification**, in this
+                // very transaction (chantier §2.3): no button of its own, and
+                // nothing half-applied if anything below fails.
+                if ($modification !== null) {
+                    $modifications->applyOnCountersignature(
+                        $modification,
+                        $this->occupancy?->fresh($booking) ?? $booking,
+                        $asset,
+                        $actorMemberId,
+                        $now
+                    );
+                }
+
+                return $final;
+            }
+        );
+        $final = $this->occupancy !== null ? $this->occupancy->onAsset($asset->id, $countersign) : $countersign();
+        // The renter's e-mail says the booking as it now stands.
+        $booking = $this->occupancy?->fresh($booking) ?? $booking;
 
         $finalPath = $this->documents->absolutePath($final);
         if ($finalPath !== null) {
@@ -448,7 +624,21 @@ class RentalSignedContractService
         if ($copy === null || $copy->bookingId !== $booking->id || $copy->type !== DocumentType::SIGNED_COPY) {
             throw new RentalException("Cette copie n'existe pas.");
         }
-        if ($copy->isRefused() || $this->finalContract($booking->id) !== null) {
+        if ($copy->isRefused()) {
+            throw new RentalException('Cette copie a déjà reçu une réponse.');
+        }
+        if ($copy->modificationId !== null) {
+            // A copy of a replacement contract is answered while its
+            // project is out for signature, and only then.
+            $modification = $this->modifications?->find($booking, $copy->modificationId);
+            if ($modification === null || $modification->status !== \Modules\Rental\Booking\ModificationStatus::SENT) {
+                throw new RentalException(
+                    $modification !== null && $modification->status->isApplied()
+                        ? 'Cette copie a déjà reçu une réponse.'
+                        : "Cette modification n'est plus en cours : sa copie ne se contresigne plus."
+                );
+            }
+        } elseif ($this->finalContract($booking->id) !== null) {
             throw new RentalException('Cette copie a déjà reçu une réponse.');
         }
         // Signed from a contract the booking has outgrown (#708, IT-20) —
@@ -570,7 +760,7 @@ class RentalSignedContractService
         return (string) ob_get_clean();
     }
 
-    private function notifyManagers(RentalBooking $booking, RentalAsset $asset): void
+    private function notifyManagers(RentalBooking $booking, RentalAsset $asset, bool $ofReplacement = false): void
     {
         if ($this->notifications === null || $this->recipients === null) {
             return;
@@ -583,15 +773,39 @@ class RentalSignedContractService
             }
 
             // The asset and the reference, never the renter (#708, IT-05).
+            // A replacement contract is countersigned on Documents, beside
+            // the contract in force (#927, chantier §2.4).
             $this->notifications->dispatch(self::NOTIFICATION, $recipients, [
                 'title' => 'Contrat signé reçu — ' . $asset->name,
-                'body' => 'La copie signée de ' . $booking->reference . ' attend votre contresignature.',
-                'url' => '/mes-locations/' . rawurlencode($asset->slug) . '/reservations/' . $booking->id,
+                'body' => $ofReplacement
+                    ? 'La copie signée du contrat de remplacement de ' . $booking->reference
+                        . ' attend votre contresignature.'
+                    : 'La copie signée de ' . $booking->reference . ' attend votre contresignature.',
+                'url' => '/mes-locations/' . rawurlencode($asset->slug) . '/reservations/' . $booking->id
+                    . ($ofReplacement ? '/documents' : ''),
             ]);
         } catch (\Throwable) {
             // The booking's page still shows the copy; a failed
             // notification must not surface to the renter as their problem.
         }
+    }
+
+    /**
+     * The contract a copy filed now answers, and the modification it
+     * belongs to: the replacement contract out for signature, else the
+     * contract in force (null when none was sent — a copy of a contract
+     * signed on paper).
+     *
+     * @return array{0: ?int, 1: ?int}
+     */
+    private function copyTarget(RentalBooking $booking): array
+    {
+        $replacement = $this->replacementOut($booking->id);
+        if ($replacement !== null && $replacement->contract !== null) {
+            return [$replacement->contract->id, $replacement->modification->id];
+        }
+
+        return [$this->sentContract($booking->id)?->id, null];
     }
 
     private function tokenOf(RentalBooking $booking): ?string
@@ -607,8 +821,9 @@ class RentalSignedContractService
         $found = null;
         foreach ($this->documentRepository->findForBooking($bookingId) as $document) {
             // A document the booking has outgrown is on file, and nothing
-            // else (#708, IT-20).
-            if ($document->type === $type && !$document->isSuperseded() && $keep($document)
+            // else (#708, IT-20); one of a modification still out for
+            // signature is its project's, not yet the booking's (#927).
+            if ($document->type === $type && $document->countsForTheBooking() && $keep($document)
                 && ($found === null || $document->id > $found->id)
             ) {
                 $found = $document;

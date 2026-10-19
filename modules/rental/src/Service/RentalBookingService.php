@@ -15,12 +15,11 @@ use Modules\Rental\Availability\Occupancy;
 use Modules\Rental\Availability\OccupancyProvider;
 use Modules\Rental\Booking\BookingReference;
 use Modules\Rental\Booking\BookingStatus;
-use Modules\Rental\Booking\ChangeRequestStatus;
 use Modules\Rental\Booking\HoldOrigin;
 use Modules\Rental\Booking\RentalBooking;
 use Modules\Rental\Pricing\PriceQuote;
 use Modules\Rental\Repository\RentalBookingRepository;
-use Modules\Rental\Repository\RentalChangeRequestRepository;
+use Modules\Rental\Repository\RentalModificationRepository;
 
 /**
  * Creating and moving bookings through their life.
@@ -53,11 +52,11 @@ class RentalBookingService implements OccupancyProvider
         /**
          * Nullable so the OccupancyProvider half of this class — which is
          * all the calendar needs — can still be built with two arguments.
-         * The expiry sweep is the only caller that needs them, and without
-         * them it degrades to the behaviour that made this a bug: the
-         * booking expires and its pending requests stay pending.
+         * The expiry sweep is the only caller that needs it: a booking it
+         * expires takes its modification in progress along (#927, chantier
+         * §2.3).
          */
-        private ?RentalChangeRequestRepository $changeRequestRepository = null,
+        private ?RentalModificationRepository $modificationRepository = null,
         private ?BookingAudit $bookingAudit = null,
         ?BookingReference $references = null,
         /**
@@ -571,9 +570,13 @@ class RentalBookingService implements OccupancyProvider
             }
 
             if ($booking->lapseEndsTheBooking()) {
-                $this->bookingRepository->setStatus($booking->id, BookingStatus::EXPIRED, $now);
-                $this->bookingRepository->clearHold($booking->id);
-                $this->refusePendingChangeRequests($booking->id);
+                // One transaction: the expiry and the end of a modification
+                // in progress land together (#927, chantier §2.3).
+                $this->bookingRepository->withAssetLocked($booking->assetId, function () use ($booking, $now): void {
+                    $this->bookingRepository->setStatus($booking->id, BookingStatus::EXPIRED, $now);
+                    $this->bookingRepository->clearHold($booking->id);
+                    $this->cancelModificationInProgress($booking->id, $now);
+                });
                 // Nothing is owed for an expired option any more; what came
                 // in shows as an overpayment. Never throws.
                 $this->paymentService?->abandonAmount($booking);
@@ -599,41 +602,28 @@ class RentalBookingService implements OccupancyProvider
     }
 
     /**
-     * A booking that has just expired has nothing left to decide, so its
-     * pending change requests are refused with it.
-     *
-     * `RentalOperationsService::applyStatus()` does exactly this whenever a
-     * MANAGER moves a booking to a final status; the expiry sweep reaches
-     * the same final status by another road and was leaving them standing.
-     * The renter then had a tracking page still offering « Accepter » on a
-     * proposal for a booking that no longer existed — refused, but only
-     * after they had been invited to press it.
+     * A booking that has just expired takes its modification in progress
+     * along (#927, chantier §2.3) — `RentalOperationsService::changeStatus()`
+     * does the same whenever a manager ends one; the sweep reaches the same
+     * final status by another road.
      *
      * No actor: nobody decided this, the deadline did. That is what makes
      * the timeline entry read as automatic (§8.66).
      */
-    private function refusePendingChangeRequests(int $bookingId): void
+    private function cancelModificationInProgress(int $bookingId, \DateTimeImmutable $now): void
     {
-        if ($this->changeRequestRepository === null) {
+        $cancelled = $this->modificationRepository?->cancelActiveFor($bookingId, null, $now);
+        if ($cancelled === null) {
             return;
         }
 
-        foreach ($this->changeRequestRepository->findPendingForBooking($bookingId) as $pending) {
-            if (!$this->changeRequestRepository->decide($pending->id, ChangeRequestStatus::REFUSED, null)) {
-                continue;
-            }
-
-            $this->bookingAudit?->record(
-                $bookingId,
-                BookingAudit::CHANGE_DECIDED,
-                // French, like every other line of this history: what
-                // `Core\Audit` stores is what a reader sees, and the
-                // timeline partial never formats a value.
-                $pending->kind->label(),
-                ChangeRequestStatus::REFUSED->label(),
-                $pending->summary(),
-                null
-            );
-        }
+        $this->bookingAudit?->record(
+            $bookingId,
+            BookingAudit::MODIFICATION,
+            null,
+            'Annulée',
+            'Modification annulée avec la réservation : ' . $cancelled->summary(),
+            null
+        );
     }
 }

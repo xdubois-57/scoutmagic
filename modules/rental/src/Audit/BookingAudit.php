@@ -49,8 +49,11 @@ final class BookingAudit
     public const HOLD_EXTENDED = 'hold_extended';
     public const PRICE_CHANGED = 'price_changed';
     public const DATES_CHANGED = 'dates_changed';
-    public const CHANGE_REQUESTED = 'change_requested';
-    public const CHANGE_DECIDED = 'change_decided';
+    /**
+     * A modification created, sent, applied or cancelled (#927, chantier
+     * §2.3): the step in `to`, what it changes in the summary.
+     */
+    public const MODIFICATION = 'modification';
     public const COMMENT_ADDED = 'comment_added';
     public const STEP_MARKED = 'step_marked';
     /**
@@ -75,8 +78,7 @@ final class BookingAudit
         self::HOLD_EXTENDED => 'Blocage prolongé',
         self::PRICE_CHANGED => 'Prix',
         self::DATES_CHANGED => 'Dates',
-        self::CHANGE_REQUESTED => 'Demande de modification',
-        self::CHANGE_DECIDED => 'Décision sur la modification',
+        self::MODIFICATION => 'Modification',
         self::COMMENT_ADDED => 'Commentaire',
         self::STEP_MARKED => 'Étape cochée à la main',
         self::OTHER_EMAIL_CHANGED => 'Autre adresse du locataire',

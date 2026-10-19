@@ -12109,10 +12109,9 @@ if ($isEnabled('rental')) {
     // apart by.
     $rentalBookingRepository = new \Modules\Rental\Repository\RentalBookingRepository($pdo, $encryptionService);
     $rentalAssetReminderRepository = new \Modules\Rental\Repository\RentalAssetReminderRepository($pdo);
-    $rentalChangeRequestRepository = new \Modules\Rental\Repository\RentalChangeRequestRepository(
-        $pdo,
-        $encryptionService
-    );
+    // A booking's modifications (#927, chantier §2.3) — and, while one is
+    // in progress, the third source of occupancies: its new dates.
+    $rentalModificationRepository = new \Modules\Rental\Repository\RentalModificationRepository($pdo);
     // The booking's own change history (§6.15) now goes through Core\Audit
     // (§8.66), like Camps' and every other per-entity timeline: one storage
     // rule (every value encrypted), one partial, one JSON pagination route.
@@ -12130,15 +12129,13 @@ if ($isEnabled('rental')) {
     $rentalBookingService = new \Modules\Rental\Service\RentalBookingService(
         $rentalBookingRepository,
         $journalService,
-        // The expiry sweep refuses a booking's pending change requests
-        // along with it, exactly as a manager moving it to a final status
-        // does — otherwise the renter's tracking page keeps offering
-        // « Accepter » on a proposal for a booking that no longer exists.
-        $rentalChangeRequestRepository,
+        // The expiry sweep cancels a booking's modification in progress
+        // along with it, exactly as a manager ending it does.
+        $rentalModificationRepository,
         $rentalBookingAudit
     );
     $rentalBlockRepository = new \Modules\Rental\Repository\RentalBlockRepository($pdo);
-    $rentalOccupancyProviders = [$rentalBookingService, $rentalBlockRepository];
+    $rentalOccupancyProviders = [$rentalBookingService, $rentalBlockRepository, $rentalModificationRepository];
     $rentalAvailabilityService = new \Modules\Rental\Service\RentalAvailabilityService(
         new \Modules\Rental\Availability\AvailabilityCalculator(),
         new \Modules\Rental\Repository\RentalConstraintsRepository($pdo),
@@ -12298,9 +12295,9 @@ if ($isEnabled('rental')) {
         $rentalMilestoneMarkService,
         $rentalDocumentService,
         $rentalPaymentService,
-        // A proposal of the unit waits on the renter without a status of
-        // its own: their « Et maintenant ? » must say so (#708, IT-15).
-        $rentalChangeRequestRepository
+        // A replacement contract out for signature comes first in the
+        // renter's « Et maintenant ? » (#927, chantier §2.4).
+        $rentalModificationRepository
     );
     $rentalBookingMailService = new \Modules\Rental\Service\RentalBookingMailService(
         $mailService,
@@ -12326,6 +12323,30 @@ if ($isEnabled('rental')) {
         $pdo,
         $encryptionService
     );
+    // The lock and the check every writer of an occupation shares (#927,
+    // chantier §2.1).
+    $rentalOccupancyGuard = new \Modules\Rental\Service\RentalOccupancyGuard(
+        $rentalBookingRepository,
+        $rentalAvailabilityService,
+        $rentalPricingService
+    );
+    // Changing a booking (#927, chantier §2.3): directly before the first
+    // contract is sent, through a modification and its replacement
+    // contract after — countersigned through the service below.
+    $rentalModificationService = new \Modules\Rental\Service\RentalModificationService(
+        $rentalBookingRepository,
+        $rentalModificationRepository,
+        $rentalDocumentRepository,
+        $rentalOccupancyGuard,
+        $rentalAvailabilityService,
+        $rentalPricingService,
+        $rentalBookingAudit,
+        $journalService,
+        $rentalDocumentService,
+        $rentalPaymentService,
+        $rentalBookingMailService,
+        static fn(int $bookingId): ?string => $rentalBookingService->trackingTokenFor($bookingId)
+    );
     $rentalSignedContractService = new \Modules\Rental\Service\RentalSignedContractService(
         $rentalDocumentService,
         $rentalDocumentRepository,
@@ -12339,11 +12360,10 @@ if ($isEnabled('rental')) {
         static fn(int $bookingId): ?string => $rentalBookingService->trackingTokenFor($bookingId),
         // A copy received holds the dates firmly, a copy refused holds them
         // a few days more: both under the asset's lock (#927, chantier §2.1).
-        new \Modules\Rental\Service\RentalOccupancyGuard(
-            $rentalBookingRepository,
-            $rentalAvailabilityService,
-            $rentalPricingService
-        )
+        $rentalOccupancyGuard,
+        // A replacement contract's copy, and its countersignature that
+        // applies the modification (#927, chantier §2.3).
+        $rentalModificationService
     );
     // A contract is void the moment its booking changes (#708, IT-20).
     $rentalContractValidity = new \Modules\Rental\Service\RentalContractValidityService(
@@ -12475,10 +12495,9 @@ if ($isEnabled('rental')) {
         $rentalBookingRepository,
         $rentalBookingAudit,
         $rentalCommentRepository,
-        $rentalChangeRequestRepository,
+        $rentalModificationRepository,
         $rentalAvailabilityService,
         $rentalPricingService,
-        new \Modules\Rental\Pricing\QuoteEditor(),
         $journalService,
         $rentalPaymentService,
         $rentalStayService
@@ -12498,7 +12517,9 @@ if ($isEnabled('rental')) {
             $rentalBookingRepository,
             $auditService,
             $rentalCommentRepository,
-            $rentalChangeRequestRepository,
+            // « Modifications », its page per modification, and the
+            // replacement contract beside the contract in force (#927).
+            $rentalModificationService,
             $rentalOperationsService,
             $rentalBlockService,
             $rentalAvailabilityService,
@@ -12525,10 +12546,7 @@ if ($isEnabled('rental')) {
             // bookings AND the aggregates a purge left behind.
             new \Modules\Rental\Service\RentalStatisticsService(
                 $rentalBookingRepository,
-                new \Modules\Rental\Repository\RentalAggregateRepository($pdo),
-                // « À traiter » counts what waits on somebody, not what a
-                // status happens to say (§22.5).
-                $rentalChangeRequestRepository
+                new \Modules\Rental\Repository\RentalAggregateRepository($pdo)
             ),
             // Only « Régénérer le lien de suivi » reaches it.
             $rentalBookingService,
@@ -12582,7 +12600,6 @@ if ($isEnabled('rental')) {
             $humanCheckService,
             $settingService,
             $rentalOperationsService,
-            $rentalChangeRequestRepository,
             // The form carries the version of the conditions it shows, and a
             // submission is accepted against that version only (issue #494).
             $rentalConditionsService,

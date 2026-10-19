@@ -44,8 +44,8 @@ class BookingAuditTest extends TestCase
     {
         $keys = [
             BookingAudit::STATUS_CHANGED, BookingAudit::HOLD_PLACED, BookingAudit::HOLD_CLEARED,
-            BookingAudit::PRICE_CHANGED, BookingAudit::DATES_CHANGED, BookingAudit::CHANGE_REQUESTED,
-            BookingAudit::CHANGE_DECIDED, BookingAudit::COMMENT_ADDED, BookingAudit::STEP_MARKED,
+            BookingAudit::PRICE_CHANGED, BookingAudit::DATES_CHANGED, BookingAudit::MODIFICATION,
+            BookingAudit::COMMENT_ADDED, BookingAudit::STEP_MARKED,
             BookingAudit::HOLD_EXTENDED,
         ];
 

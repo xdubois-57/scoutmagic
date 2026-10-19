@@ -1,17 +1,140 @@
 {% extends '@rental/management/_booking_frame.html.twig' %}
 {#
-  « Modifications » — the renter's change requests and the unit's
-  proposals on one booking (Booking\BookingPage::CHANGES, #708 IT-20).
-  Right after the dashboard in the rail, with the count of what is pending
-  beside its name: it is the page somebody waiting for an answer sends a
-  manager to.
+  « Modifications » — every change of one booking's dates, participants,
+  units or price (Booking\BookingPage::CHANGES, #927 chantier §2.4). Right
+  after the dashboard in the rail, with « (1) » beside its name while a
+  modification is in progress.
 
-  One refreshable region, `changes`, so an answer re-renders the list.
+  On top, the one thing to do here, in one of three shapes:
+  - before any contract has gone out, « Modifier les dates, les
+    participants ou le prix »: the change applies at once, without an
+    e-mail;
+  - after it, with nothing in progress, « Créer une modification »: a
+    project, signed through a replacement contract;
+  - a modification in progress: where it stands, today against proposed,
+    its next step, and the way to its own page.
+  Below, the history, each line with its status and a link to read it.
+
+  The renter asks for nothing here any more: they contact the unit
+  (chantier §2.2).
+
+  One refreshable region, `changes`.
+
+  Requires `asset`, `booking`, `booking_url`, `modification_available`,
+  `contract_has_gone_out`, `progress` (a Booking\ModificationProgress or
+  null), `modifications` and `modification_authors` (names by id).
 #}
 {% block booking_content %}
-    <div class="card mb-3">
-        <div data-booking-panel="changes">
-            {% include '@rental/management/_changes.html.twig' %}
+    <div data-booking-panel="changes">
+        {% set changes_url = booking_page.url(booking_url) %}
+        {% if progress %}
+            {% set m = progress.modification %}
+            <div class="card mb-3" data-modification-in-progress>
+                <div class="card-body">
+                    <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+                        <h2 class="h5 mb-0">Modification en cours</h2>
+                        {% include 'partials/status_badge.html.twig' with { status: progress.stage.badgeStatus, label: progress.stage.label } only %}
+                    </div>
+                    <div class="row g-3">
+                        <div class="col-12 col-md-6">
+                            <h3 class="h6 text-body-secondary">Aujourd'hui</h3>
+                            <dl class="row mb-0 small">
+                                <dt class="col-5">Dates</dt>
+                                <dd class="col-7">du {{ m.previousArrivalDate|date_fr }} au {{ m.previousDepartureDate|date_fr }}</dd>
+                                <dt class="col-5">Participants</dt>
+                                <dd class="col-7">{{ m.previousPersons ?? '—' }}</dd>
+                                <dt class="col-5">Prix</dt>
+                                <dd class="col-7">{{ m.previousTotalCents is not null ? m.previousTotalCents|money_cents : '—' }}</dd>
+                            </dl>
+                        </div>
+                        <div class="col-12 col-md-6">
+                            <h3 class="h6 text-body-secondary">Après contresignature</h3>
+                            <dl class="row mb-0 small">
+                                <dt class="col-5">Dates</dt>
+                                <dd class="col-7">du {{ m.arrivalDate|date_fr }} au {{ m.departureDate|date_fr }}</dd>
+                                <dt class="col-5">Participants</dt>
+                                <dd class="col-7">{{ m.persons ?? '—' }}</dd>
+                                <dt class="col-5">Prix</dt>
+                                <dd class="col-7">{{ m.totalCents is not null ? m.totalCents|money_cents : '—' }}</dd>
+                            </dl>
+                        </div>
+                    </div>
+                    <p class="small mt-3 mb-3">
+                        <strong>Prochaine étape :</strong> {{ progress.stage.nextStep }}
+                    </p>
+                    <a class="btn btn-primary w-100 w-sm-auto" href="{{ changes_url }}/{{ m.id }}">Ouvrir la modification</a>
+                </div>
+            </div>
+        {% elseif modification_available and not booking.status.isFinal %}
+            <div class="card mb-3">
+                <div class="card-body">
+                    {% if contract_has_gone_out %}
+                        <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+                            <h2 class="h5 mb-0">Modification en cours</h2>
+                            {% include 'partials/status_badge.html.twig' with { status: 'neutral', label: 'Aucune' } only %}
+                        </div>
+                        <p class="text-body-secondary small">
+                            Un contrat a déjà été envoyé : toute modification passe par un contrat de
+                            remplacement, que le locataire signe. La réservation actuelle ne change pas avant votre
+                            contresignature.
+                        </p>
+                        <a class="btn btn-primary w-100 w-sm-auto" href="{{ changes_url }}/nouvelle">Créer une modification</a>
+                    {% else %}
+                        <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+                            <h2 class="h5 mb-0">Modifier la réservation</h2>
+                            {% include 'partials/status_badge.html.twig' with { status: 'neutral', label: 'Aucun contrat envoyé' } only %}
+                        </div>
+                        <p class="text-body-secondary small">
+                            Tant qu'aucun contrat n'a été envoyé, vos changements s'appliquent directement à la
+                            réservation. Ils restent dans l'historique ; le locataire n'est pas prévenu. Un contrat
+                            déjà généré mais pas envoyé est marqué « à régénérer ».
+                        </p>
+                        <a class="btn btn-primary w-100 w-sm-auto" href="{{ changes_url }}/nouvelle">Modifier les dates, les participants ou le prix</a>
+                    {% endif %}
+                </div>
+            </div>
+        {% endif %}
+
+        <div class="card mb-3">
+            <div class="card-body">
+                <h2 class="h5 mb-3">Historique des modifications</h2>
+                {% if modifications is empty %}
+                    {% include 'partials/empty_state.html.twig' with {
+                        message: 'Aucune modification.',
+                        compact: true,
+                    } only %}
+                {% else %}
+                    <div class="table-responsive">
+                        <table class="table table-sm align-middle mb-0">
+                            <caption class="visually-hidden">Historique des modifications de la réservation</caption>
+                            <thead>
+                                <tr>
+                                    <th scope="col">Date</th>
+                                    <th scope="col">Changement</th>
+                                    <th scope="col">Statut</th>
+                                    <th scope="col">Par</th>
+                                    <th scope="col"><span class="visually-hidden">Consulter</span></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for modification in modifications %}
+                                    <tr>
+                                        <td class="small text-nowrap">{{ modification.createdAt|date_fr }}</td>
+                                        <td class="small">{{ modification.summary }}</td>
+                                        <td>
+                                            {% include 'partials/status_badge.html.twig' with { status: modification.status.badgeStatus, label: modification.status.label } only %}
+                                        </td>
+                                        <td class="small">{{ modification_authors[modification.id] ?? '—' }}</td>
+                                        <td class="text-end">
+                                            <a class="btn btn-sm btn-outline-secondary" href="{{ changes_url }}/{{ modification.id }}">Consulter</a>
+                                        </td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% endif %}
+            </div>
         </div>
     </div>
 {% endblock %}

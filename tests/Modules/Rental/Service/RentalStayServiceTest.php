@@ -13,13 +13,12 @@ use Modules\Rental\Payment\PaymentSettings;
 use Modules\Rental\Pricing\BillingUnit;
 use Modules\Rental\Pricing\PriceLine;
 use Modules\Rental\Pricing\PriceQuote;
-use Modules\Rental\Pricing\QuoteEditor;
 use Modules\Rental\Pricing\RentalPricingEngine;
 use Modules\Rental\Repository\RentalAssetRepository;
 use Modules\Rental\Repository\RentalBookingCommentRepository;
 use Modules\Rental\Audit\BookingAudit;
 use Modules\Rental\Repository\RentalBookingRepository;
-use Modules\Rental\Repository\RentalChangeRequestRepository;
+use Modules\Rental\Repository\RentalModificationRepository;
 use Modules\Rental\Repository\RentalConstraintsRepository;
 use Modules\Rental\Repository\RentalPricingRepository;
 use Modules\Rental\Repository\RentalStayRepository;
@@ -98,10 +97,9 @@ class RentalStayServiceTest extends TestCase
             $this->bookingRepository,
             $bookingAudit,
             new RentalBookingCommentRepository($this->pdo, $this->encryption),
-            new RentalChangeRequestRepository($this->pdo, $this->encryption),
+            new RentalModificationRepository($this->pdo),
             $availability,
             $this->pricingService,
-            new QuoteEditor(),
             $journal,
             null,
             $this->service

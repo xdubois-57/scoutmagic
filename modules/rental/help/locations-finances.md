@@ -1,33 +1,25 @@
 ---
 id: locations-finances
 title: Les finances d'une réservation
-summary: La page Finances d'une réservation — le prix, ce qui est reçu et dû, l'acompte et la caution.
+summary: La page Finances d'une réservation — ce qui est attendu, reçu et dû, l'acompte et la caution.
 category: Espace membres
 role_min: identified
 discovery: 3
-question: Où trouver le prix et les paiements d'une réservation ?
-question: Comment accorder une remise sur une location ?
+question: Où trouver les paiements d'une réservation ?
 question: Comment enregistrer la restitution de la caution ?
 paths: /mes-locations/*/reservations/*/finances
-related: locations-reservation, locations-reglages, locations-documents
+related: locations-reservation, locations-modifications, locations-reglages, locations-documents
 ---
 
-La page « Finances » d'une réservation tient en deux boîtes : le
-**prix**, tel qu'il se négocie avec le locataire, et les **paiements**.
+La page « Finances » d'une réservation montre ce qui est attendu, reçu
+et dû, l'acompte et la caution.
 
-## Le prix
-
-Le prix part du tarif du bien, ligne par ligne. Chaque ligne se
-modifie — libellé, quantité, montant — et une ligne corrigée à la main
-porte « Modifiée à la main » : elle ne sera plus recalculée, même si
-les dates changent. Une remise s'ajoute comme sa propre ligne, d'un
-montant négatif, dans « Nouvelle ligne » : le locataire la voit telle
-quelle.
-
-Sur une réservation déjà confirmée, un avertissement rappelle ce que
-le changement entraîne : le contrat est à régénérer, la créance est
-mise à jour et le locataire voit le nouveau prix tout de suite. Les
-paiements déjà reçus ne bougent pas ; seul le solde change.
+Le prix lui-même se change sur la page « Modifications » : les lignes du
+tarif y suivent les dates et les participants, et une remise s'y ajoute
+comme sa propre ligne. Une fois un contrat envoyé, le nouveau prix ne
+s'applique qu'à la contresignature du contrat de remplacement ; la
+créance passe alors au nouveau montant. Les paiements déjà reçus ne
+bougent pas ; seul le solde change.
 
 ## Les paiements
 

@@ -28,7 +28,8 @@
   (#708, IT-18); it is still listed here with every other document.
 
   Requires `asset`, `booking`, `booking_url`, `documents` and
-  `uploadable_types`; optional `landlord`, the resolved Document\Landlord.
+  `uploadable_types`; optional `landlord`, the resolved Document\Landlord,
+  and `cancelled_modification_ids`, the modifications abandoned (#927).
 #}
 <div class="card-body pt-0">
         {#
@@ -116,10 +117,22 @@
                                 <td>
                                     {{ document.label }}
                                     {% if document.isSuperseded %}
-                                        {# Kept on file, never valid again (#708, IT-20). #}
+                                        {# Kept on file, never valid again (#708, IT-20): a
+                                           contract never sent is to generate again after a
+                                           direct change; one sent is replaced at the
+                                           countersignature of a modification, or dropped with
+                                           a modification cancelled (#927, chantier §2.3). #}
                                         <span class="badge bg-warning-subtle text-warning-emphasis ms-1">
-                                            Remplacé — la réservation a changé le {{ document.supersededAt|date_fr }}
+                                            {% if document.modificationId and document.modificationId in (cancelled_modification_ids|default([])) %}
+                                                Modification annulée le {{ document.supersededAt|date_fr }}
+                                            {% elseif document.type.value == 'contract' and not document.hasBeenSent %}
+                                                À régénérer — la réservation a changé le {{ document.supersededAt|date_fr }}
+                                            {% else %}
+                                                Remplacé le {{ document.supersededAt|date_fr }}
+                                            {% endif %}
                                         </span>
+                                    {% elseif document.inActiveModification %}
+                                        <span class="badge bg-info-subtle text-info-emphasis ms-1">Modification en cours</span>
                                     {% endif %}
                                     {% if document.isForRenter %}
                                         <span class="badge bg-body-tertiary border text-body-secondary ms-1"

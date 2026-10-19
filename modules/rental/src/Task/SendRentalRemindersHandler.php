@@ -183,7 +183,10 @@ class SendRentalRemindersHandler implements TaskHandlerInterface
                         $bookingAudit
                     ),
                     $documentService,
-                    $paymentService
+                    $paymentService,
+                    // A replacement contract out for signature comes first
+                    // (#927, chantier §2.4).
+                    new \Modules\Rental\Repository\RentalModificationRepository($pdo)
                 ),
                 // The booking's « Courrier » shows what this pass sent
                 // (#720, step 2).

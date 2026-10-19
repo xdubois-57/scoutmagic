@@ -90,6 +90,56 @@ final class RentalBooking
     }
 
     /**
+     * This booking as a modification would make it (#927, chantier §2.3):
+     * other dates, participants, units and price, everything else its own —
+     * what a replacement contract is generated from, and what its e-mail
+     * says. **Never written anywhere**: the booking itself changes only at
+     * the countersignature. Its hold is dropped, because the new dates are
+     * held by the project, without a deadline, not by the booking's.
+     */
+    public function withTerms(
+        string $arrivalDate,
+        string $departureDate,
+        int $units,
+        ?int $estimatedPersons,
+        ?PriceQuote $price
+    ): self {
+        return new self(
+            id: $this->id,
+            assetId: $this->assetId,
+            reference: $this->reference,
+            arrivalDate: $arrivalDate,
+            departureDate: $departureDate,
+            units: $units,
+            estimatedPersons: $estimatedPersons,
+            renterCategoryId: $this->renterCategoryId,
+            renterName: $this->renterName,
+            renterEmail: $this->renterEmail,
+            renterPhone: $this->renterPhone,
+            renterOrganisation: $this->renterOrganisation,
+            purpose: $this->purpose,
+            renterComment: $this->renterComment,
+            status: $this->status,
+            receivedAt: $this->receivedAt,
+            finalAt: $this->finalAt,
+            holdUntil: null,
+            holdOrigin: null,
+            estimatedPrice: $this->estimatedPrice,
+            estimatedTotalCents: $this->estimatedTotalCents,
+            agreedPrice: $price,
+            agreedTotalCents: $price?->totalCents,
+            conditionsVersion: $this->conditionsVersion,
+            conditionsHash: $this->conditionsHash,
+            conditionsAcceptedAt: $this->conditionsAcceptedAt,
+            privacyVersion: $this->privacyVersion,
+            privacyHash: $this->privacyHash,
+            privacyAcknowledgedAt: $this->privacyAcknowledgedAt,
+            holdLapsedAt: null,
+            signedCopyReceivedAt: $this->signedCopyReceivedAt
+        );
+    }
+
+    /**
      * Whether a temporary hold is still running at $now.
      *
      * A lapsed hold is simply one whose deadline has passed — the expiry

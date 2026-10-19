@@ -165,7 +165,7 @@ class RentalRbacTest extends TestCase
         $bookingRepository = new \Modules\Rental\Repository\RentalBookingRepository($this->pdo, $encryption);
         $bookingAudit = RentalTestHelper::bookingAudit($this->pdo, $this->encryption);
         $commentRepository = new \Modules\Rental\Repository\RentalBookingCommentRepository($this->pdo, $encryption);
-        $changeRequestRepository = new \Modules\Rental\Repository\RentalChangeRequestRepository($this->pdo, $encryption);
+        $modificationRepository = new \Modules\Rental\Repository\RentalModificationRepository($this->pdo);
         $blockRepository = new \Modules\Rental\Repository\RentalBlockRepository($this->pdo);
 
         $this->managementController = new RentalManagementController(
@@ -176,15 +176,29 @@ class RentalRbacTest extends TestCase
             $bookingRepository,
             new \Core\Audit\AuditService(new \Core\Audit\AuditRepository($this->pdo, $encryption)),
             $commentRepository,
-            $changeRequestRepository,
+            // The modifications (#927): their pages and actions are behind
+            // the same authorisation as every other one of the file.
+            new \Modules\Rental\Service\RentalModificationService(
+                $bookingRepository,
+                $modificationRepository,
+                new \Modules\Rental\Repository\RentalDocumentRepository($this->pdo),
+                new \Modules\Rental\Service\RentalOccupancyGuard(
+                    $bookingRepository,
+                    $availabilityService,
+                    $pricingService
+                ),
+                $availabilityService,
+                $pricingService,
+                $bookingAudit,
+                $journalService
+            ),
             new \Modules\Rental\Service\RentalOperationsService(
                 $bookingRepository,
                 $bookingAudit,
                 $commentRepository,
-                $changeRequestRepository,
+                $modificationRepository,
                 $availabilityService,
                 $pricingService,
-                new \Modules\Rental\Pricing\QuoteEditor(),
                 $journalService
             ),
             new \Modules\Rental\Service\RentalBlockService($blockRepository, $journalService),

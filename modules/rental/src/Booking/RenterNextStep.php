@@ -52,11 +52,21 @@ final class RenterNextStep
             return $byStatus;
         }
 
-        // A proposal of the unit is recorded without changing the status:
-        // the renter owes its answer whatever the next step says, exactly
-        // as the manager's « Prochaine action » reads it (IT-19).
-        if ($journey->proposalWaiting()) {
-            return self::answerProposal($booking, $now);
+        // A replacement contract out for signature comes first (#927,
+        // chantier §2.4), exactly as the manager's « Prochaine action »
+        // reads it. A project still in preparation is the unit's business:
+        // the renter has heard nothing of it, and nothing changes for them.
+        $modification = $journey->modification();
+        if ($modification !== null && $modification->awaitsACopy()) {
+            return new self(
+                'À vous : signez le nouveau contrat et déposez votre copie signée sur votre page de suivi.',
+                true
+            );
+        }
+        if ($modification !== null && $modification->stage === ModificationStage::COPY_RECEIVED) {
+            return new self(
+                "Rien à faire de votre côté pour l'instant : nous vérifions votre copie signée du nouveau contrat."
+            );
         }
 
         $next = $journey->next();
@@ -79,14 +89,17 @@ final class RenterNextStep
                 'À vous : répondez à notre question depuis votre page de suivi.' . self::hold($booking, $now),
                 true
             ),
-            BookingStatus::PROPOSED => self::answerProposal($booking, $now),
             BookingStatus::REFUSED => new self("Rien à faire de votre côté : votre demande n'a pas pu être acceptée."),
             BookingStatus::CANCELLED => new self('Rien à faire de votre côté : cette réservation est annulée.'),
             BookingStatus::EXPIRED => new self(
                 "Rien à faire de votre côté : cette demande a expiré. Vous pouvez en faire une nouvelle à tout moment."
             ),
             BookingStatus::CLOSED => new self('Rien à faire de votre côté : votre location est terminée. Merci !'),
-            BookingStatus::RECEIVED, BookingStatus::CONTRACT_SENT, BookingStatus::CONFIRMED => null,
+            // A proposal is not answered from the renter's page any more
+            // (#927, chantier §2.2): a row still `proposed` reads like a
+            // request waiting on the unit.
+            BookingStatus::RECEIVED, BookingStatus::PROPOSED, BookingStatus::CONTRACT_SENT,
+            BookingStatus::CONFIRMED => null,
         };
     }
 
@@ -184,15 +197,6 @@ final class RenterNextStep
 
         return new self(
             'À vous : signez le contrat et déposez votre copie signée sur votre page de suivi.' . $hold,
-            true
-        );
-    }
-
-    /** A proposal of ours waits on the renter's answer, on their tracking page. */
-    private static function answerProposal(RentalBooking $booking, \DateTimeImmutable $now): self
-    {
-        return new self(
-            'À vous : acceptez ou refusez notre proposition depuis votre page de suivi.' . self::hold($booking, $now),
             true
         );
     }

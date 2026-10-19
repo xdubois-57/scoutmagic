@@ -137,9 +137,12 @@ final class MilestoneEvidence
         if ($documents !== null) {
             // A contract the booking has outgrown, and every copy signed
             // from it, counts for nothing (#708, IT-20): the steps reopen.
+            // Nor does the paperwork of a modification still waiting for its
+            // countersignature (#927, chantier §2.3): the booking's steps
+            // are about the contract in force.
             $documents = array_values(array_filter(
                 $documents,
-                static fn(RentalDocument $d): bool => !$d->isSuperseded()
+                static fn(RentalDocument $d): bool => $d->countsForTheBooking()
             ));
             $generated = self::latestOfType($documents, DocumentType::CONTRACT);
             $record(

@@ -19,8 +19,7 @@ confondus.
 ## « À traiter »
 
 Une seule question : **l'unité a-t-elle quelque chose à faire ?** Une
-décision à prendre, une modification demandée par le locataire, votre
-proposition sans réponse, l'étape suivante de la réservation quand elle
+décision à prendre, l'étape suivante de la réservation quand elle
 est la vôtre (« À faire : envoyer le contrat »), ou celle du locataire
 quand il est en retard (« En retard : acompte attendu depuis le … »).
 Une réservation confirmée reste donc là tant qu'il vous reste une étape.

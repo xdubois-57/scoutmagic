@@ -32,11 +32,8 @@ use Modules\Rental\Booking\BookingBox;
 use Modules\Rental\Booking\BookingPage;
 use Modules\Rental\Booking\BookingStatus;
 use Modules\Rental\Booking\HoldOrigin;
-use Modules\Rental\Booking\ChangeRequestKind;
-use Modules\Rental\Booking\ChangeRequestOrigin;
 use Modules\Rental\Booking\RentalBooking;
 use Modules\Rental\Controller\RentalManagementController;
-use Modules\Rental\Pricing\QuoteEditor;
 use Modules\Rental\Pricing\RentalPricingEngine;
 use Modules\Rental\Repository\RentalAsset;
 use Modules\Rental\Repository\RentalAssetManagerRepository;
@@ -46,7 +43,7 @@ use Modules\Rental\Repository\RentalBlockRepository;
 use Modules\Rental\Repository\RentalBookingCommentRepository;
 use Modules\Rental\Audit\BookingAudit;
 use Modules\Rental\Repository\RentalBookingRepository;
-use Modules\Rental\Repository\RentalChangeRequestRepository;
+use Modules\Rental\Repository\RentalModificationRepository;
 use Modules\Rental\Repository\RentalConstraintsRepository;
 use Modules\Rental\Repository\RentalPricingRepository;
 use Modules\Rental\Service\RentalAuthorizationService;
@@ -94,7 +91,8 @@ class RentalManagementControllerTest extends TestCase
     private RentalAssetRepository $assetRepository;
     private RentalAssetManagerRepository $managerRepository;
     private RentalBookingRepository $bookingRepository;
-    private RentalChangeRequestRepository $changeRequestRepository;
+    private RentalModificationRepository $modificationRepository;
+    private \Modules\Rental\Service\RentalModificationService $modificationService;
     private RentalBookingCommentRepository $commentRepository;
     private RentalBlockRepository $blockRepository;
 
@@ -150,7 +148,7 @@ class RentalManagementControllerTest extends TestCase
         $this->assetRepository = new RentalAssetRepository($this->pdo, $this->encryption);
         $this->managerRepository = new RentalAssetManagerRepository($this->pdo);
         $this->bookingRepository = new RentalBookingRepository($this->pdo, $this->encryption);
-        $this->changeRequestRepository = new RentalChangeRequestRepository($this->pdo, $this->encryption);
+        $this->modificationRepository = new RentalModificationRepository($this->pdo);
         $this->commentRepository = new RentalBookingCommentRepository($this->pdo, $this->encryption);
         $this->blockRepository = new RentalBlockRepository($this->pdo);
         $bookingAudit = RentalTestHelper::bookingAudit($this->pdo, $this->encryption);
@@ -168,7 +166,11 @@ class RentalManagementControllerTest extends TestCase
         $availabilityService = new RentalAvailabilityService(
             new AvailabilityCalculator(),
             new RentalConstraintsRepository($this->pdo),
-            [new RentalBookingService($this->bookingRepository, $journal), $this->blockRepository]
+            [
+                new RentalBookingService($this->bookingRepository, $journal),
+                $this->blockRepository,
+                $this->modificationRepository,
+            ]
         );
 
         // Finance, wired exactly as public/index.php does: the payment
@@ -204,10 +206,9 @@ class RentalManagementControllerTest extends TestCase
             $this->bookingRepository,
             $bookingAudit,
             $this->commentRepository,
-            $this->changeRequestRepository,
+            $this->modificationRepository,
             $availabilityService,
             $this->pricingService,
-            new QuoteEditor(),
             $journal,
             $this->paymentService,
             // Wired exactly as public/index.php does, so the inventory
@@ -247,6 +248,26 @@ class RentalManagementControllerTest extends TestCase
             $this->storagePath
         );
 
+        // As public/index.php wires it (#927, chantier §2.3).
+        $occupancyGuard = new \Modules\Rental\Service\RentalOccupancyGuard(
+            $this->bookingRepository,
+            $availabilityService,
+            $this->pricingService
+        );
+        $this->modificationService = new \Modules\Rental\Service\RentalModificationService(
+            $this->bookingRepository,
+            $this->modificationRepository,
+            new \Modules\Rental\Repository\RentalDocumentRepository($this->pdo),
+            $occupancyGuard,
+            $availabilityService,
+            $this->pricingService,
+            $bookingAudit,
+            $journal,
+            $this->documentService,
+            $this->paymentService,
+            $this->recordingMailService()
+        );
+
         $this->controller = new RentalManagementController(
             $this->twig,
             new RentalAuthorizationService($memberService, $this->assetRepository, $this->managerRepository),
@@ -255,7 +276,7 @@ class RentalManagementControllerTest extends TestCase
             $this->bookingRepository,
             new \Core\Audit\AuditService(new \Core\Audit\AuditRepository($this->pdo, $this->encryption)),
             $this->commentRepository,
-            $this->changeRequestRepository,
+            $this->modificationService,
             $this->operationsService,
             new RentalBlockService($this->blockRepository, $journal),
             $availabilityService,
@@ -286,8 +307,7 @@ class RentalManagementControllerTest extends TestCase
             // (§22.5).
             new \Modules\Rental\Service\RentalStatisticsService(
                 $this->bookingRepository,
-                new \Modules\Rental\Repository\RentalAggregateRepository($this->pdo),
-                $this->changeRequestRepository
+                new \Modules\Rental\Repository\RentalAggregateRepository($this->pdo)
             ),
             // Only « Régénérer le lien de suivi » reaches it.
             new RentalBookingService($this->bookingRepository, $journal),
@@ -321,7 +341,12 @@ class RentalManagementControllerTest extends TestCase
                 $bookingAudit,
                 $this->recordingMailService(),
                 new \Core\Pdf\PdfCompressor($this->storagePath . '/temp'),
-                $journal
+                $journal,
+                null,
+                null,
+                null,
+                $occupancyGuard,
+                $this->modificationService
             ),
             $this->signatureRepository,
             // A contract the booking has outgrown is voided (#708, IT-20).
@@ -362,6 +387,7 @@ class RentalManagementControllerTest extends TestCase
         $this->renterEmails = [];
         $this->trackingLinkEmails = [];
         $this->documentEmails = [];
+        $this->cancellationEmails = [];
     }
 
     /**
@@ -374,6 +400,9 @@ class RentalManagementControllerTest extends TestCase
      */
     /** @var list<array{booking_id: int, label: string}> */
     private array $documentEmails = [];
+
+    /** @var list<int> the bookings whose renter was told a modification was cancelled */
+    private array $cancellationEmails = [];
 
     private \Modules\Rental\Service\RentalSignedContractService $signedContractService;
     private \Modules\Rental\Repository\RentalManagerSignatureRepository $signatureRepository;
@@ -429,6 +458,13 @@ class RentalManagementControllerTest extends TestCase
                 string $trackingToken
             ): bool {
                 $this->trackingLinkEmails[] = ['booking_id' => $booking->id, 'token' => $trackingToken];
+
+                return true;
+            }
+        );
+        $mock->method('sendModificationCancelled')->willReturnCallback(
+            function (RentalBooking $booking): bool {
+                $this->cancellationEmails[] = $booking->id;
 
                 return true;
             }
@@ -1427,37 +1463,6 @@ class RentalManagementControllerTest extends TestCase
     // ── « À traiter » is not a filter on the status (§22.5) ─────────────
 
     /**
-     * The defect the iteration closes: a confirmed booking carrying a change
-     * request the renter sent yesterday appeared on no list at all, because
-     * `confirmed` does not need attention and nothing about a status knows
-     * what is pending against it.
-     */
-    public function testAConfirmedBookingCarryingARenterRequestIsOnTheOverviewList(): void
-    {
-        $this->addManager($this->assetId, 'manager@test.be');
-        AuthSession::login(1, 'manager@test.be', 'identified');
-
-        $booking = $this->createBooking();
-        $this->bookingRepository->setStatus($booking->id, BookingStatus::CONFIRMED, new \DateTimeImmutable());
-        $this->changeRequestRepository->create(
-            $booking->id,
-            ChangeRequestOrigin::RENTER,
-            ChangeRequestKind::DATES,
-            '2027-07-08',
-            '2027-07-11',
-            null,
-            null,
-            null,
-            'Nous arriverions plutôt le 8.'
-        );
-
-        $body = (string) $this->overview('local-saint-georges')->getBody();
-
-        $this->assertStringContainsString($booking->reference, $body);
-        $this->assertStringContainsString('Le locataire a demandé une modification', $body);
-    }
-
-    /**
      * A manager recognises a booking by the person, not by its code: the
      * renter's name comes first, with their organisation, and the reference
      * moves to the second line (#708, IT-06).
@@ -1478,34 +1483,6 @@ class RentalManagementControllerTest extends TestCase
     }
 
     /**
-     * A proposal waits on somebody too, and the unit is the one who has to
-     * know it is still waiting.
-     */
-    public function testAnUnansweredProposalPutsABookingOnTheOverviewList(): void
-    {
-        $this->addManager($this->assetId, 'manager@test.be');
-        AuthSession::login(1, 'manager@test.be', 'identified');
-
-        $booking = $this->createBooking();
-        $this->bookingRepository->setStatus($booking->id, BookingStatus::CONFIRMED, new \DateTimeImmutable());
-        $this->changeRequestRepository->create(
-            $booking->id,
-            ChangeRequestOrigin::MANAGER,
-            ChangeRequestKind::DATES,
-            '2027-07-08',
-            '2027-07-11',
-            null,
-            null,
-            null,
-            null
-        );
-
-        $body = (string) $this->overview('local-saint-georges')->getBody();
-
-        $this->assertStringContainsString('Votre proposition attend la réponse du locataire', $body);
-    }
-
-    /**
      * The tile and the list under it cannot disagree: both are counted from
      * Booking\BookingAttention. A « 0 » over a list of one is the failure
      * this pins.
@@ -1516,23 +1493,12 @@ class RentalManagementControllerTest extends TestCase
         AuthSession::login(1, 'manager@test.be', 'identified');
 
         $booking = $this->createBooking();
-        $this->bookingRepository->setStatus($booking->id, BookingStatus::CONFIRMED, new \DateTimeImmutable());
-        $this->changeRequestRepository->create(
-            $booking->id,
-            ChangeRequestOrigin::RENTER,
-            ChangeRequestKind::PERSONS,
-            null,
-            null,
-            null,
-            40,
-            null,
-            'Nous serons quarante.'
-        );
 
         $body = (string) preg_replace('/\s+/', ' ', (string) $this->overview('local-saint-georges')->getBody());
 
         // The list holds exactly one row, and the tile says so.
-        $this->assertSame(1, substr_count($body, 'Le locataire a demandé une modification'));
+        $this->assertStringContainsString($booking->reference, $body);
+        $this->assertSame(1, substr_count($body, 'Une décision est attendue de vous'));
         $this->assertMatchesRegularExpression('/À traiter.*?>1</s', $body);
     }
 
@@ -1613,9 +1579,13 @@ class RentalManagementControllerTest extends TestCase
             ['/mes-locations/statut', 'changeStatus', ['status' => 'info_requested']],
             ['/mes-locations/option', 'placeOption', ['until' => '2027-06-01T18:00']],
             ['/mes-locations/commentaire', 'addComment', ['body' => 'Interne']],
-            ['/mes-locations/ligne', 'priceLine', ['line_action' => 'recalculate']],
-            ['/mes-locations/proposition', 'propose', ['kind' => 'dates']],
-            ['/mes-locations/demande', 'decideChange', ['request_id' => '1', 'decision' => 'accept']],
+            [
+                '/mes-locations/modification',
+                'saveModification',
+                ['arrival' => '2027-07-02', 'departure' => '2027-07-05'],
+            ],
+            ['/mes-locations/modification-envoyer', 'sendModification', ['modification_id' => '1']],
+            ['/mes-locations/modification-annuler', 'cancelModification', ['modification_id' => '1']],
             ['/mes-locations/document-texte', 'saveDocumentText', ['document_type' => 'contract', 'body' => 'x']],
             ['/mes-locations/document-generer', 'generateDocument', ['document_type' => 'contract']],
             ['/mes-locations/document-envoyer', 'sendDocument', ['document_id' => '1']],
@@ -1953,58 +1923,6 @@ class RentalManagementControllerTest extends TestCase
         $this->assertSame([], $this->renterEmails);
     }
 
-    public function testAProposalIsActuallySentRatherThanMerelyClaimed(): void
-    {
-        // The flash used to read « Proposition envoyée » while nothing had
-        // left the building.
-        $this->loginAsManager();
-        $booking = $this->createBooking();
-
-        $this->post('/mes-locations/proposition', 'propose', [
-            'asset_id' => (string) $this->assetId,
-            'booking_id' => (string) $booking->id,
-            'kind' => 'dates',
-            'arrival' => '2027-08-20',
-            'departure' => '2027-08-23',
-            'message' => 'Ces dates-là nous arrangeraient mieux.',
-        ]);
-
-        $this->assertCount(1, $this->renterEmails);
-        $this->assertSame('proposed', $this->renterEmails[0]['decision']);
-        $this->assertSame('Ces dates-là nous arrangeraient mieux.', $this->renterEmails[0]['word']);
-        $this->assertNotNull($this->renterEmails[0]['token']);
-    }
-
-    public function testDecidingARentersChangeRequestTellsThemWhichWay(): void
-    {
-        $this->loginAsManager();
-        $booking = $this->createBooking();
-        $requestId = $this->operationsService->requestChange(
-            $booking,
-            $this->asset(),
-            \Modules\Rental\Booking\ChangeRequestOrigin::RENTER,
-            \Modules\Rental\Booking\ChangeRequestKind::PERSONS,
-            null,
-            null,
-            null,
-            30,
-            null,
-            'Nous serons plus nombreux.'
-        );
-
-        $this->post('/mes-locations/demande', 'decideChange', [
-            'asset_id' => (string) $this->assetId,
-            'booking_id' => (string) $booking->id,
-            'request_id' => (string) $requestId,
-            'decision' => 'refuse',
-            'message' => 'Le local ne peut pas accueillir trente personnes.',
-        ]);
-
-        $this->assertCount(1, $this->renterEmails);
-        $this->assertSame('change_refused', $this->renterEmails[0]['decision']);
-        $this->assertSame('Le local ne peut pas accueillir trente personnes.', $this->renterEmails[0]['word']);
-    }
-
     public function testAnUnknownStatusIsRefused(): void
     {
         $this->loginAsManager();
@@ -2063,8 +1981,12 @@ class RentalManagementControllerTest extends TestCase
         $this->assertSame(HoldOrigin::MANAGER, $this->bookingRepository->findById($booking->id)?->holdOrigin);
     }
 
-    /** A lapsed automatic hold warns, and the field shows no stale deadline. */
-    public function testALapsedAutomaticHoldWarnsOnTheBookingPage(): void
+    /**
+     * A lapsed automatic hold warns, and the field offers the deadline that
+     * lapsed (#927): putting the option back starts from where it stood,
+     * under the same check as any other writer of the dates.
+     */
+    public function testALapsedAutomaticHoldWarnsAndOffersItsDeadlineAgain(): void
     {
         $this->loginAsManager();
         $booking = $this->createBooking();
@@ -2074,7 +1996,7 @@ class RentalManagementControllerTest extends TestCase
         $body = (string) preg_replace('/\s+/', ' ', (string) $this->bookingPage('local-saint-georges', $booking->id)->getBody());
 
         $this->assertStringContainsString('Les dates ne sont plus bloquées depuis le ' . $lapsed->format('d/m/Y'), $body);
-        $this->assertStringNotContainsString('value="' . $lapsed->format('Y-m-d\TH:i') . '"', $body);
+        $this->assertStringContainsString('value="' . $lapsed->format('Y-m-d\TH:i') . '"', $body);
         $this->assertStringNotContainsString("L'option sur les dates est échue", $body);
     }
 
@@ -2096,23 +2018,33 @@ class RentalManagementControllerTest extends TestCase
         $this->assertStringNotContainsString('data-managers-unreachable', (string) $this->overview('local-saint-georges')->getBody());
     }
 
+    /**
+     * Before any contract has gone out, a change applies at once (#927,
+     * chantier §2.3): the tariff's lines for the stay, and one discount —
+     * typed with the French decimal comma an operator actually types.
+     */
     public function testAManagerEditsThePriceAndTheRenterSeesTheNewTotal(): void
     {
         $this->loginAsManager();
         $booking = $this->createBooking();
-
-        $this->post('/mes-locations/ligne', 'priceLine', [
+        $this->post('/mes-locations/modification', 'saveModification', [
             'asset_id' => (string) $this->assetId,
             'booking_id' => (string) $booking->id,
-            'line_action' => 'add',
-            'label' => 'Remise exceptionnelle',
-            'quantity' => '1',
-            'amount' => '-50,00',
+            'arrival' => $booking->arrivalDate,
+            'departure' => $booking->departureDate,
+            'persons' => '20',
+            'discount_label' => 'Remise exceptionnelle',
+            'discount_amount' => '-50,00',
         ]);
-
         $fresh = $this->bookingRepository->findById($booking->id);
-        // The French decimal comma is what an operator actually types.
         $this->assertSame(31000, $fresh?->effectiveTotalCents());
+        $discount = \Modules\Rental\Pricing\QuoteEditor::discountLine($fresh?->effectivePrice());
+        $this->assertSame('Remise exceptionnelle', $discount?->label);
+        // Kept in the history, applied directly, and no e-mail.
+        $history = $this->modificationRepository->findForBooking($booking->id);
+        $this->assertCount(1, $history);
+        $this->assertSame(\Modules\Rental\Booking\ModificationStatus::APPLIED_DIRECTLY, $history[0]->status);
+        $this->assertSame([], $this->renterEmails);
     }
 
     // ── Blocking dates on the calendar (#708, IT-07) ────────────────────
@@ -2517,39 +2449,35 @@ class RentalManagementControllerTest extends TestCase
         $this->assertStringNotContainsString('Local des autres', $body);
     }
 
-    public function testAManagerDecidesARentersChangeRequest(): void
-    {
-        $this->loginAsManager();
-        $booking = $this->createBooking();
-        $requestId = $this->operationsService->requestChange(
-            $booking,
-            $this->asset(),
-            ChangeRequestOrigin::RENTER,
-            ChangeRequestKind::DATES,
-            '2027-07-08',
-            '2027-07-11',
-            null,
-            null,
-            null,
-            null
-        );
-
-        $this->post('/mes-locations/demande', 'decideChange', [
-            'asset_id' => (string) $this->assetId,
-            'booking_id' => (string) $booking->id,
-            'request_id' => (string) $requestId,
-            'decision' => 'accept',
-        ]);
-
-        $this->assertSame('2027-07-08', $this->bookingRepository->findById($booking->id)?->arrivalDate);
-    }
-
     // ── Documents (§6.24, §6.25) ────────────────────────────────────────
 
     private function setContractTemplate(string $body = '<p>Contrat pour {{ locataire_nom }}.</p>'): void
     {
         (new \Core\View\EditableContentService(new \Core\View\EditableContentRepository($this->pdo)))
             ->set(\Modules\Rental\Document\DocumentType::CONTRACT->templateKey($this->assetId), $body, 'rich_text', 1);
+    }
+
+    /**
+     * Generates the booking's contract and sends it, as the dashboard does:
+     * from then on the booking changes only through a modification.
+     */
+    private function sendContractOf(RentalBooking $booking): \Modules\Rental\Document\RentalDocument
+    {
+        $this->post('/mes-locations/document-generer', 'generateDocument', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'document_type' => 'contract',
+        ]);
+        $contract = $this->documentService->latest($booking->id, \Modules\Rental\Document\DocumentType::CONTRACT);
+        $this->assertNotNull($contract);
+        $this->post('/mes-locations/document-envoyer', 'sendDocument', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'document_id' => (string) $contract->id,
+        ]);
+        \Core\Http\FlashMessage::get();
+
+        return $this->documentService->find($contract->id) ?? $contract;
     }
 
     public function testAManagerGeneratesAContractAndItIsListedOnTheBooking(): void
@@ -3088,11 +3016,11 @@ class RentalManagementControllerTest extends TestCase
     }
 
     /**
-     * Accepting a change the contract states voids the contract (#708,
-     * IT-20) — whichever gesture changed the booking — and the manager is
-     * told, in the same breath as their own gesture's answer.
+     * A direct change, before any contract has gone out, leaves a contract
+     * generated and not sent « à régénérer » (#927, chantier §2.3) — and the
+     * manager is told in the same breath as their own gesture's answer.
      */
-    public function testAcceptingAChangeVoidsTheContractAndSaysSo(): void
+    public function testADirectChangeLeavesTheUnsentContractToRegenerate(): void
     {
         $this->loginAsManager();
         $this->setContractTemplate();
@@ -3103,54 +3031,26 @@ class RentalManagementControllerTest extends TestCase
             'document_type' => 'contract',
         ]);
         $contract = $this->documentService->forBooking($booking->id)[0];
-        $this->post('/mes-locations/document-envoyer', 'sendDocument', [
-            'asset_id' => (string) $this->assetId,
-            'booking_id' => (string) $booking->id,
-            'document_id' => (string) $contract->id,
-        ]);
         \Core\Http\FlashMessage::get();
-
-        $requestId = $this->operationsService->requestChange(
-            $this->bookingRepository->findById($booking->id) ?? $booking,
-            $this->asset(),
-            \Modules\Rental\Booking\ChangeRequestOrigin::RENTER,
-            \Modules\Rental\Booking\ChangeRequestKind::PERSONS,
-            null,
-            null,
-            null,
-            30,
-            null,
-            'Nous serons plus nombreux.'
-        );
-        $this->post('/mes-locations/demande', 'decideChange', [
+        $this->post('/mes-locations/modification', 'saveModification', [
             'asset_id' => (string) $this->assetId,
             'booking_id' => (string) $booking->id,
-            'request_id' => (string) $requestId,
-            'decision' => 'accept',
+            'arrival' => $booking->arrivalDate,
+            'departure' => $booking->departureDate,
+            'persons' => '30',
         ]);
-
         $flash = \Core\Http\FlashMessage::get();
         $this->assertSame('warning', $flash['type'] ?? null);
-        $this->assertStringContainsString('un nouveau contrat doit partir', $flash['message'] ?? '');
+        $this->assertStringContainsString('à régénérer', $flash['message'] ?? '');
         $this->assertTrue($this->documentService->find($contract->id)?->isSuperseded());
-        $this->assertSame(BookingStatus::RECEIVED, $this->bookingRepository->findById($booking->id)?->status);
-
+        $this->assertSame(30, $this->bookingRepository->findById($booking->id)?->estimatedPersons);
         // Kept and marked on the Documents page; the steps start over.
         $documents = $this->filePage(BookingPage::DOCUMENTS, 'local-saint-georges', $booking->id)->getBody();
-        $this->assertStringContainsString('Remplacé — la réservation a changé le', $documents);
+        $this->assertStringContainsString('À régénérer — la réservation a changé le', $documents);
         $dashboard = $this->bookingPage('local-saint-georges', $booking->id)->getBody();
         $this->assertStringContainsString('<span class="visually-hidden">À faire :</span>', self::step($dashboard, 'contract_generated'));
-        // The new version is generated from the dashboard again — where the
-        // step reopened, and the only place a contract is generated.
         $this->assertStringContainsString('Générer le contrat', self::panel($dashboard, 'next-step'));
-
-        // A void contract is never sent again: no « Renvoyer » on it, and
-        // the server refuses — the renter would sign the wrong terms, and
-        // the booking would go back to « Contrat envoyé ».
-        $this->assertStringNotContainsString(
-            'Renvoyer « ' . $contract->label() . ' »',
-            html_entity_decode($documents)
-        );
+        // A void contract is never sent.
         $this->post('/mes-locations/document-envoyer', 'sendDocument', [
             'asset_id' => (string) $this->assetId,
             'booking_id' => (string) $booking->id,
@@ -3159,7 +3059,29 @@ class RentalManagementControllerTest extends TestCase
         $refusal = \Core\Http\FlashMessage::get();
         $this->assertSame('error', $refusal['type'] ?? null);
         $this->assertStringContainsString('remplacé', $refusal['message'] ?? '');
-        $this->assertSame(BookingStatus::RECEIVED, $this->bookingRepository->findById($booking->id)?->status);
+    }
+
+    /**
+     * Once a contract has gone out, nothing voids it on its own any more
+     * (#927, chantier §2.3): billing coordinates filled in after the send
+     * leave it in force, and the booking stays « Contrat envoyé ».
+     */
+    public function testAfterTheFirstSendBillingCoordinatesVoidNothing(): void
+    {
+        $this->loginAsManager();
+        $this->setContractTemplate();
+        $booking = $this->createBooking();
+        $contract = $this->sendContractOf($booking);
+
+        $this->post('/mes-locations/facturation', 'saveBillingIdentity', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'billing_name' => 'Patro Sainte-Anne',
+            'billing_address' => "Rue de l'Église 12, 5000 Namur",
+        ]);
+
+        $this->assertFalse($this->documentService->find($contract->id)?->isSuperseded());
+        $this->assertSame(BookingStatus::CONTRACT_SENT, $this->bookingRepository->findById($booking->id)?->status);
     }
 
     /**
@@ -3312,7 +3234,8 @@ class RentalManagementControllerTest extends TestCase
         $expected = [
             'dashboard' => ['milestones', 'next-step', 'history', 'history-figure', 'comments'],
             'changes' => ['changes'],
-            'finances' => ['price', 'price-figure', 'payment', 'payment-figure'],
+            // The price moved to a modification's own page (#927).
+            'finances' => ['payment', 'payment-figure'],
             'documents' => ['documents', 'documents-figure'],
         ];
         foreach ($expected as $page => $panels) {
@@ -3362,42 +3285,40 @@ class RentalManagementControllerTest extends TestCase
     }
 
     /**
-     * « Modifications » (#708, IT-20): its own page, right after the
-     * dashboard, the count of what waits beside its name — on every page
-     * of the file — and no box left on the dashboard.
+     * « Modifications » (#927, chantier §2.4): its own page, right after
+     * the dashboard; before any contract has gone out it offers to change
+     * the booking directly, after it to create a modification — and the
+     * rail counts the one in progress, on every page of the file.
      */
     public function testTheChangesHaveTheirOwnPageAndTheRailCountsWhatWaits(): void
     {
         $this->loginAsManager();
+        $this->setContractTemplate();
         $booking = $this->createBooking();
-
         $empty = (string) $this->filePage(BookingPage::CHANGES, 'local-saint-georges', $booking->id)->getBody();
-        $this->assertStringContainsString('Aucune demande.', self::panel($empty, 'changes'));
+        $this->assertStringContainsString('Aucune modification.', self::panel($empty, 'changes'));
+        $this->assertStringContainsString('Modifier les dates, les participants ou le prix', $empty);
         $this->assertMatchesRegularExpression('#<span>Tableau de bord</span>.*?<span>Modifications</span>.*?<span>Finances</span>#s', $empty);
 
-        $this->operationsService->requestChange(
-            $booking,
-            $this->asset(),
-            \Modules\Rental\Booking\ChangeRequestOrigin::RENTER,
-            \Modules\Rental\Booking\ChangeRequestKind::PERSONS,
-            null,
-            null,
-            null,
-            30,
-            null,
-            'Nous serons plus nombreux.'
-        );
+        $this->sendContractOf($booking);
+        $sent = (string) $this->filePage(BookingPage::CHANGES, 'local-saint-georges', $booking->id)->getBody();
+        $this->assertStringContainsString('Créer une modification', $sent);
 
+        $this->post('/mes-locations/modification', 'saveModification', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'arrival' => $booking->arrivalDate,
+            'departure' => '2027-07-05',
+            'persons' => '20',
+        ]);
         $dashboard = (string) $this->bookingPage('local-saint-georges', $booking->id)->getBody();
         $this->assertStringContainsString('<span>Modifications (1)</span>', $dashboard);
-        $this->assertStringNotContainsString('/mes-locations/demande', $dashboard, 'the box left the dashboard');
-
         $changes = (string) $this->filePage(BookingPage::CHANGES, 'local-saint-georges', $booking->id)->getBody();
-        $this->assertStringContainsString('Nous serons plus nombreux.', $changes);
-        // Answered from this page, and back to it without JavaScript.
-        $this->assertStringContainsString('name="booking_page" value="changes"', $changes);
-        // « Message au locataire » on three lines.
-        $this->assertMatchesRegularExpression('#<textarea[^>]*id="propose-message"[^>]*rows="3"#', $changes);
+        $this->assertStringContainsString('Modification en cours', $changes);
+        $this->assertStringContainsString('En préparation', $changes);
+        $this->assertStringContainsString('Générer puis envoyer le contrat de remplacement', $changes);
+        // The booking itself has not moved.
+        $this->assertSame('2027-07-04', $this->bookingRepository->findById($booking->id)?->departureDate);
     }
 
     /**
@@ -3609,11 +3530,10 @@ class RentalManagementControllerTest extends TestCase
         $this->loginAsManager();
         $booking = $this->createBooking();
 
-        $response = $this->postAsync('/mes-locations/demande', 'decideChange', [
+        $response = $this->postAsync('/mes-locations/modification-annuler', 'cancelModification', [
             'asset_id' => (string) $this->assetId,
             'booking_id' => (string) $booking->id,
-            'request_id' => '999999',
-            'decision' => 'accept',
+            'modification_id' => '999999',
         ]);
 
         $decoded = json_decode($response->getBody(), true);
@@ -4494,7 +4414,9 @@ class RentalManagementControllerTest extends TestCase
             'document_type' => 'contract',
         ]);
 
-        foreach ([BookingPage::FINANCES, BookingPage::DOCUMENTS] as $page) {
+        // Finances lost its forms with the price lines (#927): the price is
+        // set on a modification's own page.
+        foreach ([BookingPage::DOCUMENTS] as $page) {
             $body = (string) $this->filePage($page, 'local-saint-georges', $booking->id)->getBody();
             $main = substr($body, (int) strpos($body, 'data-rental-booking'));
 
@@ -4556,31 +4478,6 @@ class RentalManagementControllerTest extends TestCase
 
         $this->assertStringContainsString('Le contrat attend la signature du locataire', $nextStep);
         $this->assertStringNotContainsString('btn btn-primary', $nextStep);
-    }
-
-    /** A change the renter asked for comes first, with the way to answer it (IT-20). */
-    public function testARenterChangeRequestLeadsTheDashboard(): void
-    {
-        $this->loginAsManager();
-        $booking = $this->createBooking();
-        $this->changeRequestRepository->create(
-            $booking->id,
-            \Modules\Rental\Booking\ChangeRequestOrigin::RENTER,
-            \Modules\Rental\Booking\ChangeRequestKind::PERSONS,
-            null,
-            null,
-            null,
-            25,
-            null,
-            'Nous serons moins.'
-        );
-
-        $nextStep = self::panel((string) $this->bookingPage('local-saint-georges', $booking->id)->getBody(), 'next-step');
-        $base = '/mes-locations/local-saint-georges/reservations/' . $booking->id;
-
-        $this->assertStringContainsString('Le locataire demande une modification : 25 participants.', $nextStep);
-        $this->assertStringContainsString('href="' . $base . '/modifications"', $nextStep);
-        $this->assertStringContainsString('Répondre à la demande', $nextStep);
     }
 
     public function testTheInventoryPageSaysItDoesNotWorkOffline(): void
@@ -5639,34 +5536,6 @@ class RentalManagementControllerTest extends TestCase
         return substr($haystack, $start, $end === false ? null : $end - $start);
     }
 
-    public function testAChangeRequestOfAnotherBookingCannotBeDecidedHere(): void
-    {
-        $this->loginAsManager();
-        $mine = $this->createBooking(null, 'LOC-A2B3C4');
-        $foreign = $this->createBooking($this->otherAssetId, 'LOC-W9Y8X7');
-        $foreignRequestId = $this->operationsService->requestChange(
-            $foreign,
-            $this->asset(),
-            ChangeRequestOrigin::RENTER,
-            ChangeRequestKind::CANCELLATION,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null
-        );
-
-        $this->post('/mes-locations/demande', 'decideChange', [
-            'asset_id' => (string) $this->assetId,
-            'booking_id' => (string) $mine->id,
-            'request_id' => (string) $foreignRequestId,
-            'decision' => 'accept',
-        ]);
-
-        $this->assertSame(BookingStatus::RECEIVED, $this->bookingRepository->findById($foreign->id)?->status);
-    }
-
     // ── Regenerating the tracking link (§8.52) ──────────────────────────
 
     public function testAManagerCanReplaceALostTrackingLink(): void
@@ -6110,5 +5979,327 @@ class RentalManagementControllerTest extends TestCase
         $this->assertStringContainsString('Place du Parc 3<br />', $html);
         $this->assertStringContainsString('Le bailleur propre à ce bien.', $html);
         $this->assertStringContainsString('action="/mes-locations/local-saint-georges/reglages/bailleur"', $html);
+    }
+
+    // ── Modifications through a replacement contract (#927, lot D) ──────
+
+    /** An image a renter could send as their signed copy, filed like an upload. */
+    private function signedCopyFile(): int
+    {
+        $image = imagecreatetruecolor(600, 800);
+        ob_start();
+        imagejpeg($image);
+        $bytes = (string) ob_get_clean();
+        @mkdir($this->storagePath . '/rental/documents', 0755, true);
+        $relative = 'rental/documents/' . bin2hex(random_bytes(8)) . '.jpg';
+        file_put_contents($this->storagePath . '/' . $relative, $bytes);
+
+        return $this->fileRepository->create(
+            $relative,
+            'copie.jpg',
+            'image/jpeg',
+            strlen($bytes),
+            'identified',
+            'rental',
+            null
+        );
+    }
+
+    /**
+     * A booking whose first contract went out, with a project moving it
+     * from 1–4 July to 10–14 July.
+     *
+     * @return array{
+     *     0: RentalBooking,
+     *     1: \Modules\Rental\Document\RentalDocument,
+     *     2: \Modules\Rental\Booking\BookingModification
+     * }
+     */
+    private function bookingWithAProject(): array
+    {
+        $this->loginAsManager();
+        $this->setContractTemplate();
+        $booking = $this->createBooking();
+        $contract = $this->sendContractOf($booking);
+
+        $this->post('/mes-locations/modification', 'saveModification', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'arrival' => '2027-07-10',
+            'departure' => '2027-07-14',
+            'persons' => '20',
+        ]);
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertSame('success', $flash['type'] ?? null, (string) ($flash['message'] ?? ''));
+        $project = $this->modificationRepository->findActiveFor($booking->id);
+        $this->assertNotNull($project);
+
+        return [$booking, $contract, $project];
+    }
+
+    private function sendProject(RentalBooking $booking, int $modificationId): void
+    {
+        $this->post('/mes-locations/modification-envoyer', 'sendModification', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'modification_id' => (string) $modificationId,
+        ]);
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertSame('success', $flash['type'] ?? null, (string) ($flash['message'] ?? ''));
+    }
+
+    private function modificationPage(RentalBooking $booking, string $suffix): Response
+    {
+        $routePath = '/mes-locations/{slug}/reservations/{id}/modifications/'
+            . ($suffix === 'nouvelle' ? 'nouvelle' : '{modificationId}');
+
+        return $this->get(
+            $routePath,
+            '/mes-locations/local-saint-georges/reservations/' . $booking->id . '/modifications/' . $suffix,
+            $suffix === 'nouvelle' ? 'newModification' : 'modification'
+        );
+    }
+
+    /**
+     * After the first send, « Enregistrer » writes a project and nothing
+     * else: the booking keeps its dates until the countersignature, and
+     * the project's new dates are held against everyone else.
+     */
+    public function testAfterTheFirstSendAChangeIsAProjectThatHoldsItsDates(): void
+    {
+        [$booking, , $project] = $this->bookingWithAProject();
+
+        $this->assertSame(\Modules\Rental\Booking\ModificationStatus::DRAFT, $project->status);
+        $current = $this->bookingRepository->findById($booking->id);
+        $this->assertSame('2027-07-01', $current?->arrivalDate);
+        $this->assertSame('2027-07-04', $current?->departureDate);
+
+        $occupancies = $this->modificationRepository->findOccupancies(
+            $this->assetId,
+            new \DateTimeImmutable('2027-07-01'),
+            new \DateTimeImmutable('2027-07-31'),
+            new \DateTimeImmutable()
+        );
+        $this->assertCount(1, $occupancies);
+
+        $page = (string) $this->modificationPage($booking, (string) $project->id)->getBody();
+        $this->assertStringContainsString('Générer et envoyer le contrat de remplacement', $page);
+        $this->assertStringContainsString('Annuler la modification', $page);
+    }
+
+    public function testASecondProjectIsRefusedWhileOneIsInProgress(): void
+    {
+        [$booking] = $this->bookingWithAProject();
+
+        $response = $this->post('/mes-locations/modification', 'saveModification', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'arrival' => '2027-07-20',
+            'departure' => '2027-07-22',
+            'persons' => '20',
+        ]);
+
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertSame('error', $flash['type'] ?? null);
+        $this->assertSame(
+            \Modules\Rental\Service\RentalModificationService::ALREADY_IN_PROGRESS,
+            $flash['message'] ?? null
+        );
+        $this->assertStringEndsWith('/modifications/nouvelle', (string) $response->getHeaders()['Location']);
+        $this->assertCount(1, $this->modificationRepository->findForBooking($booking->id));
+    }
+
+    public function testAProjectOnDatesSomebodyElseHoldsIsRefused(): void
+    {
+        $this->loginAsManager();
+        $this->setContractTemplate();
+        $booking = $this->createBooking();
+        $this->sendContractOf($booking);
+        $this->blockRepository->create($this->assetId, '2027-07-11', '2027-07-12', 'Travaux', null);
+
+        $this->post('/mes-locations/modification', 'saveModification', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'arrival' => '2027-07-10',
+            'departure' => '2027-07-14',
+            'persons' => '20',
+        ]);
+
+        $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
+        $this->assertNull($this->modificationRepository->findActiveFor($booking->id));
+    }
+
+    /**
+     * New dates overlapping the booking's own are no conflict: the
+     * booking does not stand in its own way.
+     */
+    public function testAProjectMayOverlapTheBookingsOwnDates(): void
+    {
+        $this->loginAsManager();
+        $this->setContractTemplate();
+        $booking = $this->createBooking();
+        $this->sendContractOf($booking);
+
+        $this->post('/mes-locations/modification', 'saveModification', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'arrival' => '2027-07-02',
+            'departure' => '2027-07-05',
+            'persons' => '20',
+        ]);
+
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertSame('success', $flash['type'] ?? null, (string) ($flash['message'] ?? ''));
+        $this->assertNotNull($this->modificationRepository->findActiveFor($booking->id));
+    }
+
+    /**
+     * The whole path: the replacement contract goes out, the renter's copy
+     * of it comes back, and the countersignature applies the project — once,
+     * however many times it is pressed — and retires the contract before.
+     */
+    public function testTheCountersignatureOfTheReplacementCopyAppliesTheProjectOnce(): void
+    {
+        [$booking, $contract, $project] = $this->bookingWithAProject();
+        $this->sendProject($booking, $project->id);
+        $sent = $this->modificationRepository->findById($project->id);
+        $this->assertSame(\Modules\Rental\Booking\ModificationStatus::SENT, $sent?->status);
+        $this->assertNotNull($sent->contractDocumentId);
+        // Mailed: the replacement contract carries its send.
+        $this->assertNotNull($this->documentService->find((int) $sent->contractDocumentId)?->sentAt);
+
+        // Documents shows the banner and the contract to come.
+        $documents = (string) $this->filePage(BookingPage::DOCUMENTS, 'local-saint-georges', $booking->id)->getBody();
+        $this->assertStringContainsString('data-modification-banner', $documents);
+        $this->assertStringContainsString('data-replacement-contract', $documents);
+
+        $copy = $this->signedContractService->receiveCopy(
+            $this->bookingRepository->findById($booking->id) ?? $booking,
+            $this->asset(),
+            $this->signedCopyFile()
+        );
+        $this->assertSame($project->id, $copy->modificationId);
+        $this->assertSame($sent->contractDocumentId, $copy->contractDocumentId);
+        // The copy answers the project: the booking's own line still waits.
+        $this->assertTrue($copy->inActiveModification);
+
+        $this->signatureRepository->save(
+            1,
+            base64_decode(substr(self::signatureDataUrl(), 22)),
+            new \DateTimeImmutable()
+        );
+        $countersign = fn() => $this->post('/mes-locations/contrat-contresigner', 'countersignContract', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'document_id' => (string) $copy->id,
+        ]);
+        $countersign();
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertSame('success', $flash['type'] ?? null, (string) ($flash['message'] ?? ''));
+
+        $applied = $this->bookingRepository->findById($booking->id);
+        $this->assertSame('2027-07-10', $applied?->arrivalDate);
+        $this->assertSame('2027-07-14', $applied?->departureDate);
+        $this->assertSame(
+            \Modules\Rental\Booking\ModificationStatus::APPLIED,
+            $this->modificationRepository->findById($project->id)?->status
+        );
+        $this->assertNull($this->modificationRepository->findActiveFor($booking->id));
+        $this->assertTrue($this->documentService->find($contract->id)?->isSuperseded());
+        $final = $this->signedContractService->finalContract($booking->id);
+        $this->assertNotNull($final);
+        $this->assertSame($project->id, $final->modificationId);
+
+        // A second press changes nothing.
+        $countersign();
+        \Core\Http\FlashMessage::get();
+        $this->assertCount(1, array_filter(
+            $this->modificationRepository->findForBooking($booking->id),
+            fn($m) => $m->status === \Modules\Rental\Booking\ModificationStatus::APPLIED
+        ));
+        $this->assertSame('2027-07-10', $this->bookingRepository->findById($booking->id)?->arrivalDate);
+
+        // Read back from the history, closed.
+        $page = $this->modificationPage($booking, (string) $project->id);
+        $this->assertSame(200, $page->getStatusCode());
+        $this->assertStringNotContainsString('Annuler la modification', (string) $page->getBody());
+        $this->assertStringContainsString('Appliquée', (string) $this->filePage(
+            BookingPage::CHANGES,
+            'local-saint-georges',
+            $booking->id
+        )->getBody());
+    }
+
+    /** Before any send, the form applies at once and the page says so. */
+    public function testBeforeTheFirstSendTheNewModificationPageChangesTheBookingDirectly(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+
+        $page = $this->modificationPage($booking, 'nouvelle');
+        $this->assertSame(200, $page->getStatusCode());
+        $this->assertStringContainsString('Nouvelles valeurs', (string) $page->getBody());
+        $this->assertStringContainsString('action="/mes-locations/modification"', (string) $page->getBody());
+    }
+
+    /**
+     * Before its replacement contract goes out, a project is cancelled
+     * without a word to the renter; after, they are told.
+     */
+    public function testCancellingAProjectTellsTheRenterOnlyOnceItsContractWentOut(): void
+    {
+        [$booking, , $draft] = $this->bookingWithAProject();
+        $cancel = fn(int $id) => $this->post('/mes-locations/modification-annuler', 'cancelModification', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'modification_id' => (string) $id,
+        ]);
+
+        $cancel($draft->id);
+        $this->assertSame('success', \Core\Http\FlashMessage::get()['type'] ?? null);
+        $this->assertSame([], $this->cancellationEmails);
+        $this->assertSame(
+            \Modules\Rental\Booking\ModificationStatus::CANCELLED,
+            $this->modificationRepository->findById($draft->id)?->status
+        );
+
+        $this->post('/mes-locations/modification', 'saveModification', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'arrival' => '2027-07-10',
+            'departure' => '2027-07-14',
+            'persons' => '20',
+        ]);
+        \Core\Http\FlashMessage::get();
+        $second = $this->modificationRepository->findActiveFor($booking->id);
+        $this->assertNotNull($second);
+        $this->sendProject($booking, $second->id);
+
+        $cancel($second->id);
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertStringContainsString('prévenu par e-mail', $flash['message'] ?? '');
+        $this->assertSame([$booking->id], $this->cancellationEmails);
+        // The booking is untouched and its replacement contract retired.
+        $this->assertSame('2027-07-01', $this->bookingRepository->findById($booking->id)?->arrivalDate);
+        $sentContract = $this->documentService->find(
+            (int) $this->modificationRepository->findById($second->id)?->contractDocumentId
+        );
+        $this->assertTrue($sentContract?->isSuperseded());
+        $documents = (string) $this->filePage(BookingPage::DOCUMENTS, 'local-saint-georges', $booking->id)->getBody();
+        $this->assertStringContainsString('Modification annulée le', $documents);
+    }
+
+    public function testTheModificationPagesAreAManagersOnly(): void
+    {
+        [$booking, , $project] = $this->bookingWithAProject();
+        $this->assertSame(200, $this->modificationPage($booking, (string) $project->id)->getStatusCode());
+        // With a project in progress, « nouvelle » leads to it.
+        $this->assertSame(302, $this->modificationPage($booking, 'nouvelle')->getStatusCode());
+        $this->assertSame(404, $this->modificationPage($booking, '999')->getStatusCode());
+
+        AuthSession::logout();
+        AuthSession::login(2, 'nobody@test.be', 'identified');
+        $this->assertSame(404, $this->modificationPage($booking, (string) $project->id)->getStatusCode());
+        $this->assertSame(404, $this->modificationPage($booking, 'nouvelle')->getStatusCode());
     }
 }

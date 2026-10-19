@@ -48,8 +48,35 @@ final class RentalDocument
          */
         public readonly ?\DateTimeImmutable $supersededAt = null,
         /** `Document\ContractFingerprint` of what a contract says, at generation. */
-        public readonly ?string $fingerprint = null
+        public readonly ?string $fingerprint = null,
+        /**
+         * The contract a signed copy, or a contract signed by both
+         * parties, answers (#927, chantier §2.3).
+         */
+        public readonly ?int $contractDocumentId = null,
+        /**
+         * The modification project this document belongs to — its
+         * replacement contract and what was signed from it.
+         */
+        public readonly ?int $modificationId = null,
+        /**
+         * Whether that project is still in progress: then the document is
+         * the project's, and the booking's contract in force is still the
+         * one before (chantier §2.3).
+         */
+        public readonly bool $inActiveModification = false
     ) {
+    }
+
+    /**
+     * Whether this document says anything about the booking as it stands:
+     * not outgrown (`isSuperseded()`), and not the paperwork of a
+     * modification still waiting for its countersignature. What the
+     * journey, the reminders and the renter's page read.
+     */
+    public function countsForTheBooking(): bool
+    {
+        return !$this->isSuperseded() && !$this->inActiveModification;
     }
 
     public function isSuperseded(): bool

@@ -3,8 +3,25 @@
   « Documents » — the papers of one booking (Booking\BookingPage::DOCUMENTS):
   the contract, the invoice, what came back signed. The box arrives open:
   this page exists for it.
+
+  While a modification runs (#927, chantier §2.4), and on this page only,
+  a banner says so, and « Contrat » lists its replacement contract beside
+  the contract in force, where its copy is countersigned or refused.
 #}
 {% block booking_content %}
+    <div data-booking-panel="modification-banner">
+        {% if progress %}
+            <output class="alert alert-info d-block" data-modification-banner>
+                <strong>Une modification est en cours</strong> — {{ progress.stage.label }}.
+                Les dates, le nombre de participants, le prix et le contrat affichés ci-dessous restent ceux qui
+                s'appliquent tant que la modification n'est pas contresignée.
+                <a href="{{ booking_url }}/modifications/{{ progress.modification.id }}">Voir la modification</a>
+            </output>
+        {% endif %}
+    </div>
+    <div data-booking-panel="contracts">
+        {% include '@rental/management/_contracts.html.twig' %}
+    </div>
     {% include '@rental/management/_box_documents.html.twig' with { open: true } %}
 {% endblock %}
 

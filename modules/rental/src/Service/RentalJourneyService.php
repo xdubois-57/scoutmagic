@@ -11,15 +11,15 @@ namespace Modules\Rental\Service;
 use Modules\Rental\Booking\BookingJourney;
 use Modules\Rental\Booking\BookingMilestone;
 use Modules\Rental\Booking\BookingMilestones;
-use Modules\Rental\Booking\ChangeRequestOrigin;
 use Modules\Rental\Booking\MilestoneEvidence;
+use Modules\Rental\Booking\ModificationProgress;
 use Modules\Rental\Booking\RentalBooking;
 use Modules\Rental\Booking\RenterNextStep;
 use Modules\Rental\Document\ConditionsVersion;
 use Modules\Rental\Document\RentalDocument;
 use Modules\Rental\Repository\RentalAsset;
 use Modules\Rental\Repository\RentalBookingRepository;
-use Modules\Rental\Repository\RentalChangeRequestRepository;
+use Modules\Rental\Repository\RentalModificationRepository;
 
 /**
  * A booking's checklist, built from its own records (§6.15) — once, for
@@ -44,8 +44,27 @@ class RentalJourneyService
         private ?RentalMilestoneMarkService $marks = null,
         private ?RentalDocumentService $documents = null,
         private ?RentalPaymentService $payments = null,
-        private ?RentalChangeRequestRepository $changeRequests = null
+        /**
+         * A modification in progress comes before every step (#927,
+         * chantier §2.4): its replacement contract is what the renter has
+         * to sign. Null reads the booking without one.
+         */
+        private ?RentalModificationRepository $modifications = null
     ) {
+    }
+
+    /**
+     * The booking's modification in progress, with its paperwork — or
+     * null when it has none.
+     */
+    public function modificationProgress(RentalBooking $booking): ?ModificationProgress
+    {
+        $active = $this->modifications?->findActiveFor($booking->id);
+        if ($active === null) {
+            return null;
+        }
+
+        return ModificationProgress::of($active, $this->documents?->forModification($active->id) ?? []);
     }
 
     /**
@@ -134,26 +153,10 @@ class RentalJourneyService
             BookingJourney::of(
                 $this->milestones($booking, $asset, $now, null, $payment),
                 $booking->status,
-                proposalWaiting: $this->proposalWaiting($booking)
+                $this->modificationProgress($booking)
             ),
             $now,
             $payment
         );
-    }
-
-    /**
-     * Whether a proposal of the unit waits on the renter's answer: it is
-     * recorded as a change request, not as a status, so the journey only
-     * knows of it when told — the manager's dashboard is told the same way.
-     */
-    private function proposalWaiting(RentalBooking $booking): bool
-    {
-        foreach ($this->changeRequests?->findForBooking($booking->id) ?? [] as $change) {
-            if ($change->isDecidableBy(ChangeRequestOrigin::RENTER)) {
-                return true;
-            }
-        }
-
-        return false;
     }
 }

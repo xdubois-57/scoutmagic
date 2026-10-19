@@ -13,25 +13,20 @@ use Core\Service\DateInput;
 use Modules\Rental\Audit\BookingAudit;
 use Modules\Rental\Booking\BookingStatus;
 use Modules\Rental\Booking\BookingTransition;
-use Modules\Rental\Booking\ChangeRequest;
-use Modules\Rental\Booking\ChangeRequestKind;
-use Modules\Rental\Booking\ChangeRequestOrigin;
-use Modules\Rental\Booking\ChangeRequestStatus;
 use Modules\Rental\Booking\HoldOrigin;
 use Modules\Rental\Booking\RentalBooking;
 use Modules\Rental\Pricing\PriceQuote;
 use Modules\Rental\Pricing\PricingRequest;
-use Modules\Rental\Pricing\QuoteEditor;
 use Modules\Rental\Repository\RentalAsset;
 use Modules\Rental\Repository\RentalBookingCommentRepository;
 use Modules\Rental\Repository\RentalBookingRepository;
-use Modules\Rental\Repository\RentalChangeRequestRepository;
+use Modules\Rental\Repository\RentalModificationRepository;
 use Modules\Rental\Support;
 
 /**
- * Operating a booking day to day (§6.12, §6.15–§6.18): moving it through its
- * life, negotiating its price, and deciding the changes either side asks
- * for.
+ * Operating a booking day to day (§6.15–§6.18): moving it through its life,
+ * its hold and its comments. Changing its dates, participants or price is
+ * `RentalModificationService` (#927, chantier §2.3).
  *
  * Separate from `RentalBookingService`, which is about a booking coming into
  * existence and about answering the availability calculator. This one is
@@ -81,15 +76,6 @@ class RentalOperationsService
         'reference' => 'Référence à rappeler',
     ];
 
-    /**
-     * How many requests a renter may have waiting at once (§6.16).
-     *
-     * The renter's form is reached with a tracking token and no login, so
-     * nothing else bounds how often it can be posted — and every post
-     * lands in a manager's queue.
-     */
-    public const MAX_PENDING_RENTER_REQUESTS = 3;
-
     /** The lock and the check every writer of an occupation shares (#927, chantier §2.1). */
     private RentalOccupancyGuard $occupancy;
 
@@ -97,10 +83,13 @@ class RentalOperationsService
         private RentalBookingRepository $bookingRepository,
         private BookingAudit $bookingAudit,
         private RentalBookingCommentRepository $commentRepository,
-        private RentalChangeRequestRepository $changeRequestRepository,
+        /**
+         * A booking's modifications (#927, chantier §2.3): its end cancels
+         * the one in progress, in the same transaction.
+         */
+        private RentalModificationRepository $modificationRepository,
         private RentalAvailabilityService $availabilityService,
         private RentalPricingService $pricingService,
-        private QuoteEditor $quoteEditor,
         private JournalService $journal,
         /**
          * Optional, and null on an installation without the Finance module
@@ -150,24 +139,6 @@ class RentalOperationsService
         ?int $actorMemberId,
         \DateTimeImmutable $now
     ): void {
-        $this->applyStatus($booking, $target, $actorMemberId, $now, null);
-    }
-
-    /**
-     * `changeStatus()`'s body, plus the one thing only an internal caller
-     * knows: which pending change request is being decided right now and
-     * must therefore survive the sweep below (`acceptChange()` applying a
-     * cancellation).
-     *
-     * @throws RentalException
-     */
-    private function applyStatus(
-        RentalBooking $booking,
-        BookingStatus $target,
-        ?int $actorMemberId,
-        \DateTimeImmutable $now,
-        ?int $exceptChangeRequestId
-    ): void {
         if ($target === BookingStatus::CONFIRMED) {
             throw new RentalException(
                 'Une confirmation passe par le contrôle de disponibilité. Utilisez le bouton « Confirmer ».'
@@ -178,31 +149,39 @@ class RentalOperationsService
             throw new RentalException(BookingTransition::refusalReason($booking->status, $target));
         }
 
-        if (!$this->bookingRepository->compareAndSetStatus($booking->id, $booking->status, $target, $now)) {
-            // Somebody else moved it between the page render and this
-            // click. Saying so is far better than silently applying the
-            // second decision on top of the first.
-            throw new RentalException(
-                "Cette réservation a changé entre-temps. Rechargez la page avant d'agir."
-            );
-        }
+        // One transaction under the asset's lock: the status and the end of
+        // a modification in progress land together or not at all (#927,
+        // chantier §2.3) — a project must never outlive its booking.
+        $this->occupancy->onAsset($booking->assetId, function () use (
+            $booking,
+            $target,
+            $actorMemberId,
+            $now
+        ): void {
+            if (!$this->bookingRepository->compareAndSetStatus($booking->id, $booking->status, $target, $now)) {
+                // Somebody else moved it between the page render and this
+                // click. Saying so is far better than silently applying the
+                // second decision on top of the first.
+                throw new RentalException(
+                    "Cette réservation a changé entre-temps. Rechargez la page avant d'agir."
+                );
+            }
 
-        // A booking that no longer holds its dates must not keep a hold
-        // pinning them: the status already released the period, and a stale
-        // deadline would only reappear in the expiry sweep later.
-        if (!$target->occupiesTheAsset()) {
-            $this->bookingRepository->clearHold($booking->id);
-        }
+            // A booking that no longer holds its dates must not keep a hold
+            // pinning them: the status already released the period, and a
+            // stale deadline would only reappear in the expiry sweep later.
+            if (!$target->occupiesTheAsset()) {
+                $this->bookingRepository->clearHold($booking->id);
+            }
 
-        // A file that is closed has nothing left to decide. Leaving the
-        // pending requests standing showed the renter a proposal they could
-        // still press "Accepter" on — refused, but only at the very last
-        // step, after they had been invited to it.
-        if ($target->isFinal()) {
-            $this->refusePendingChangeRequests($booking->id, $actorMemberId, $exceptChangeRequestId);
-        }
+            // Closed, cancelled, refused or expired: its modification in
+            // progress goes with it, and its new dates with it.
+            if ($target->isFinal()) {
+                $this->cancelModificationInProgress($booking, $actorMemberId, $now);
+            }
 
-        $this->recordStatusChange($booking, $target, $actorMemberId);
+            $this->recordStatusChange($booking, $target, $actorMemberId);
+        });
 
         // Refused, cancelled or expired: nothing is owed any more, and what
         // came in is owed back — the receivable goes to 0 and stays, with
@@ -596,9 +575,9 @@ class RentalOperationsService
     // ── Price (§6.12) ───────────────────────────────────────────────────
 
     /**
-     * The quote a manager is editing: the agreed one if it exists, a copy of
-     * the estimate the first time, and a freshly computed quote if the
-     * booking never carried one.
+     * The price in force: the agreed one if it exists, the estimate until
+     * then, and a freshly computed quote if the booking never carried one.
+     * Changing it is a modification (`RentalModificationService`).
      */
     public function workingQuote(RentalBooking $booking, RentalAsset $asset): PriceQuote
     {
@@ -608,82 +587,6 @@ class RentalOperationsService
         }
 
         return $this->quoteFor($booking, $asset);
-    }
-
-    /**
-     * @throws RentalException
-     */
-    public function editPriceLine(
-        RentalBooking $booking,
-        RentalAsset $asset,
-        int $index,
-        ?string $label,
-        ?int $quantity,
-        ?int $amountCents,
-        ?int $actorMemberId
-    ): void {
-        $this->storeQuote(
-            $booking,
-            $this->quoteEditor->editLine(
-                $this->workingQuote($booking, $asset),
-                $index,
-                $label,
-                $quantity,
-                $amountCents
-            ),
-            $actorMemberId
-        );
-    }
-
-    /**
-     * @throws RentalException
-     */
-    public function addPriceLine(
-        RentalBooking $booking,
-        RentalAsset $asset,
-        string $label,
-        int $quantity,
-        int $amountCents,
-        ?int $actorMemberId
-    ): void {
-        $this->storeQuote(
-            $booking,
-            $this->quoteEditor->addLine($this->workingQuote($booking, $asset), $label, $quantity, $amountCents),
-            $actorMemberId
-        );
-    }
-
-    /**
-     * @throws RentalException
-     */
-    public function removePriceLine(
-        RentalBooking $booking,
-        RentalAsset $asset,
-        int $index,
-        ?int $actorMemberId
-    ): void {
-        $this->storeQuote(
-            $booking,
-            $this->quoteEditor->removeLine($this->workingQuote($booking, $asset), $index),
-            $actorMemberId
-        );
-    }
-
-    /**
-     * Recomputes the automatic lines from the live tariff, **keeping every
-     * hand-edited line** (§6.12).
-     *
-     * Never automatic. A re-quote is a decision with a visible consequence —
-     * the renter sees the new total immediately — so it happens because a
-     * manager asked for it, not as a side effect of some other edit.
-     */
-    public function recalculate(RentalBooking $booking, RentalAsset $asset, ?int $actorMemberId): void
-    {
-        $this->storeQuote(
-            $booking,
-            $this->quoteEditor->merge($this->quoteFor($booking, $asset), $this->workingQuote($booking, $asset)),
-            $actorMemberId
-        );
     }
 
     // ── Internal comments (§6.4, §6.6) ──────────────────────────────────
@@ -715,377 +618,6 @@ class RentalOperationsService
         return $id;
     }
 
-    // ── Change requests and proposals (§6.16) ───────────────────────────
-
-    /**
-     * Records a request from either side. **Changes nothing** — that is the
-     * whole rule: a renter's request never modifies the booking silently,
-     * and a manager's proposal is symmetric.
-     *
-     * @throws RentalException
-     */
-    /**
-     * A `Y-m-d` date, or null when there is nothing to check.
-     *
-     * Strict: `checkdate()` on the parsed parts, so "2026-02-30" and
-     * "demain" are both refused rather than silently rolled forward the way
-     * DateTimeImmutable would.
-     *
-     * @throws RentalException
-     */
-    private static function requireDate(?string $value, string $message): ?string
-    {
-        if ($value === null || $value === '') {
-            return null;
-        }
-
-        if (preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $value, $m) !== 1
-            || !checkdate((int) $m[2], (int) $m[3], (int) $m[1])
-        ) {
-            throw new RentalException($message);
-        }
-
-        return $value;
-    }
-
-    /**
-     * The one sentence a final booking is refused with, wherever the
-     * refusal happens.
-     *
-     * Written once because it is read on both sides: a renter meets it on
-     * the tracking page, a manager on the booking page, and two different
-     * wordings for one rule read as two different rules.
-     */
-    private static function finalRefusal(BookingStatus $status): string
-    {
-        return 'Cette réservation est ' . mb_strtolower($status->label())
-            . ' : elle ne peut plus être modifiée.';
-    }
-
-    public function requestChange(
-        RentalBooking $booking,
-        RentalAsset $asset,
-        ChangeRequestOrigin $origin,
-        ChangeRequestKind $kind,
-        ?string $arrivalDate,
-        ?string $departureDate,
-        ?int $units,
-        ?int $persons,
-        ?PriceQuote $price,
-        ?string $message,
-        ?int $actorMemberId = null,
-        ?\DateTimeImmutable $now = null
-    ): int {
-        if ($booking->status->isFinal()) {
-            throw new RentalException(self::finalRefusal($booking->status));
-        }
-
-        // The renter's side of this form is anonymous: it is reached with a
-        // tracking token and nothing else, so a script — or an impatient
-        // person — can post it as often as it likes, and every post lands
-        // in a manager's queue. Three at once is already more than anybody
-        // answers in one go, and a manager can clear them by deciding.
-        // The manager's own proposals are not capped: they are made from
-        // behind a login, and a manager competing with themselves is not a
-        // failure mode.
-        if ($origin === ChangeRequestOrigin::RENTER) {
-            $pending = 0;
-            foreach ($this->changeRequestRepository->findPendingForBooking($booking->id) as $request) {
-                if ($request->origin === ChangeRequestOrigin::RENTER) {
-                    $pending++;
-                }
-            }
-
-            if ($pending >= self::MAX_PENDING_RENTER_REQUESTS) {
-                throw new RentalException(
-                    'Vous avez déjà ' . self::MAX_PENDING_RENTER_REQUESTS
-                    . ' demandes en attente de réponse pour cette réservation. '
-                    . "Attendez notre réponse avant d'en envoyer une autre."
-                );
-            }
-        }
-
-        if ($kind->changesPersons() && $persons === null) {
-            // The mirror of the dates guard below, and missing until a
-            // review found it: without it the capacity check has nothing to
-            // weigh, the request is stored, and `ChangeRequest::summary()`
-            // reads « 0 participants » — while accepting it quietly keeps
-            // the count the booking already had.
-            throw new RentalException(
-                'Une demande de changement du nombre de participants doit préciser ce nombre.'
-            );
-        }
-
-        if ($kind->affectsAvailability() && ($arrivalDate === null || $departureDate === null)) {
-            throw new RentalException('Une demande de changement de dates doit préciser les deux dates.');
-        }
-
-        // Validated HERE rather than in each controller: this is the one
-        // door both the renter's form and a manager's proposal go through,
-        // and what arrives is raw request text. A value that is not a date
-        // used to reach `new \DateTimeImmutable()` at acceptance time and
-        // throw a DateMalformedStringException in the manager's face — a
-        // 500 on their page, caused by something a renter typed weeks
-        // earlier.
-        $arrivalDate = self::requireDate($arrivalDate, "La date d'arrivée demandée n'est pas une date valide.");
-        $departureDate = self::requireDate($departureDate, 'La date de départ demandée n\'est pas une date valide.');
-
-        if ($arrivalDate !== null && $departureDate !== null && $departureDate < $arrivalDate) {
-            throw new RentalException("La date de départ doit suivre la date d'arrivée.");
-        }
-
-        // **The same rules as the public request form, and the same
-        // messages.** Until now this method checked that the dates parsed,
-        // that they were in order, and nothing else: a renter could ask for
-        // a Tuesday on an asset that only starts weekends, for one night
-        // where three are the minimum, or for eighty people in a hall that
-        // holds sixty — and the request was recorded, queued, and only
-        // refused weeks later when a manager pressed « Accepter » and the
-        // acceptance-time check finally spoke. The wrong person found out,
-        // at the wrong moment.
-        //
-        // **That is who this check is for: the renter.** A manager already
-        // sees the calendar, and `acceptChange()` guards the write under
-        // the asset's lock against every occupation. Validating their
-        // proposal here would refuse it over the notice period and arrival
-        // weekdays that shape what a *visitor* may ask — rules that were
-        // never about them.
-        //
-        // The acceptance-time check STAYS either way. Between a request and
-        // an answer the dates can be taken by somebody else, and only the
-        // check inside the lock sees that.
-        //
-        // What binds everybody is physical: a hall that holds sixty holds
-        // sixty. So capacity is asked of both, and asked on its own, since
-        // a request that changes only the head count changes nothing about
-        // the period — re-validating the range would answer « Cette date
-        // est déjà passée » about a stay already under way.
-        $errors = $persons !== null
-            ? $this->availabilityService->validatePersons($asset, $persons)
-            : [];
-
-        if ($errors === [] && $origin === ChangeRequestOrigin::RENTER
-            && $arrivalDate !== null && $departureDate !== null
-        ) {
-            $errors = $this->availabilityService->validateRange(
-                $asset,
-                $this->pricingService->loadSettings($asset->id)->billingUnit,
-                DateInput::requireFromStorage($arrivalDate, 'the requested arrival date'),
-                DateInput::requireFromStorage($departureDate, 'the requested departure date'),
-                $units ?? $booking->units,
-                ($now ?? new \DateTimeImmutable())->setTime(0, 0),
-                // **Never the booking's own figure.** Capacity is asked
-                // above, on its own, and only when the head count is what
-                // changed. Filling it in here put it back into
-                // `validateRange()`, which asks it unconditionally — so a
-                // booking that an asset's *lowered* capacity has left over
-                // the limit was refused « La capacité maximum est de 40
-                // personnes. » for a dates-only request, an answer to a
-                // question the renter never asked, and could not move its
-                // dates at all. Which is the lockout the gate above exists
-                // to lift.
-                $persons,
-                // The booking's own period is not an obstacle to moving it:
-                // without this, asking to shift by one night collides with
-                // the nights it already holds.
-                $booking->reference,
-                // Both dates travel together whenever either moves
-                // (`RentalRequestController::requestChange()`), so "is
-                // there an arrival" does not mean "is it a new one".
-                // Extending a departure must not re-ask whether the stay
-                // may begin on the day it began.
-                $arrivalDate !== $booking->arrivalDate
-            );
-        }
-
-        if ($errors !== []) {
-            throw new RentalException(implode(' ', $errors));
-        }
-
-        $id = $this->changeRequestRepository->create(
-            $booking->id,
-            $origin,
-            $kind,
-            $arrivalDate,
-            $departureDate,
-            $units,
-            $persons,
-            $price,
-            $message
-        );
-
-        $request = $this->changeRequestRepository->findById($id);
-        $this->bookingAudit->record(
-            $booking->id,
-            BookingAudit::CHANGE_REQUESTED,
-            // `label()`, not `value`: `Core\Audit` stores what a reader
-            // sees and `partials/audit_timeline.html.twig` never formats a
-            // value, so a `value` here is « renter » on a French page
-            // forever — the lines already written stay as they are, because
-            // a history somebody rewrites proves nothing.
-            $origin->label(),
-            $kind->label(),
-            $request?->summary(),
-            $actorMemberId
-        );
-
-        return $id;
-    }
-
-    /**
-     * Accepts a pending change request and **applies** it.
-     *
-     * Availability is re-checked for a date change, in the same transaction
-     * as the write and with the booking excluded from its own count. A
-     * cancellation is applied as a status change and follows the same
-     * transition table as any other — §6.17 is explicit that there is no
-     * automatic scale, so nothing here computes a refund.
-     *
-     * @throws RentalException
-     */
-    public function acceptChange(
-        ChangeRequest $request,
-        RentalBooking $booking,
-        RentalAsset $asset,
-        ChangeRequestOrigin $decidingSide,
-        ?int $actorMemberId,
-        \DateTimeImmutable $now
-    ): void {
-        if (!$request->isDecidableBy($decidingSide)) {
-            throw new RentalException(
-                $request->isPending()
-                    ? "Cette demande ne peut être décidée que par l'autre partie."
-                    : 'Cette demande a déjà été traitée.'
-            );
-        }
-
-        if ($request->kind === ChangeRequestKind::CANCELLATION) {
-            // A booking that reached a final state after this request was
-            // loaded is refused in the module's own words rather than by
-            // the transition table's, which would answer "on ne passe pas
-            // de annulé à annulé" — true, and unhelpful.
-            $current = $this->bookingRepository->findById($booking->id);
-            if ($current !== null && $current->status->isFinal()) {
-                throw new RentalException(self::finalRefusal($current->status));
-            }
-
-            // The status change first, deliberately. `decide()` consumes the
-            // request and there is no way to un-decide one: marking it
-            // accepted before a changeStatus() that then refuses the
-            // transition — because a manager cancelled the booking by hand
-            // in the meantime — left the renter's request permanently
-            // accepted with nothing applied and no way back.
-            $this->applyStatus($booking, BookingStatus::CANCELLED, $actorMemberId, $now, $request->id);
-
-            if (!$this->changeRequestRepository->decide($request->id, ChangeRequestStatus::ACCEPTED, $actorMemberId)) {
-                throw new RentalException('Cette demande a déjà été traitée.');
-            }
-
-            $this->recordChangeDecision($request, ChangeRequestStatus::ACCEPTED, $actorMemberId);
-
-            return;
-        }
-
-        $billingUnit = $this->pricingService->loadSettings($asset->id)->billingUnit;
-
-        $this->bookingRepository->withAssetLocked($asset->id, function () use (
-            $request,
-            $booking,
-            $asset,
-            $billingUnit,
-            $actorMemberId,
-            $now
-        ): void {
-            $current = $this->bookingRepository->findById($booking->id);
-            if ($current === null) {
-                throw new RentalException("Cette réservation n'existe plus.");
-            }
-
-            // Re-read INSIDE the lock, and checked on every kind of
-            // request rather than only the ones that touch availability.
-            // The copy the controller loaded is from before the lock was
-            // taken: a booking cancelled between the page render and this
-            // click used to have its dates and its price rewritten anyway,
-            // silently, on a file everybody considers closed. Same refusal
-            // as `requestChange()`, because it is the same rule.
-            if ($current->status->isFinal()) {
-                throw new RentalException(self::finalRefusal($current->status));
-            }
-
-            $arrival = $request->proposedArrivalDate ?? $current->arrivalDate;
-            $departure = $request->proposedDepartureDate ?? $current->departureDate;
-            $units = $request->proposedUnits ?? $current->units;
-            $persons = $request->proposedPersons ?? $current->estimatedPersons;
-
-            if ($request->kind->affectsAvailability()) {
-                // Every occupation counts, as at confirmation (#927,
-                // chantier §2.1): another request's running hold is its own.
-                $free = $this->availabilityService->isRangeFree(
-                    $asset,
-                    $billingUnit,
-                    DateInput::requireFromStorage($arrival, 'the requested arrival date'),
-                    DateInput::requireFromStorage($departure, 'the requested departure date'),
-                    $units,
-                    $now,
-                    $current->reference
-                );
-
-                if (!$free) {
-                    throw new RentalException(
-                        'Ces nouvelles dates ne sont pas disponibles. La demande ne peut pas être acceptée.'
-                    );
-                }
-            }
-
-            if (!$this->changeRequestRepository->decide(
-                $request->id,
-                ChangeRequestStatus::ACCEPTED,
-                $actorMemberId
-            )) {
-                throw new RentalException('Cette demande a déjà été traitée.');
-            }
-
-            $this->bookingRepository->setStay($current->id, $arrival, $departure, $units, $persons);
-
-            if ($request->proposedPrice !== null) {
-                $this->bookingRepository->setAgreedPrice($current->id, $request->proposedPrice);
-            }
-
-            $this->bookingAudit->record(
-                $current->id,
-                BookingAudit::DATES_CHANGED,
-                $current->arrivalDate . ' → ' . $current->departureDate,
-                $arrival . ' → ' . $departure,
-                null,
-                $actorMemberId
-            );
-            $this->recordChangeDecision($request, ChangeRequestStatus::ACCEPTED, $actorMemberId);
-        });
-    }
-
-    /**
-     * @throws RentalException
-     */
-    public function refuseChange(
-        ChangeRequest $request,
-        ChangeRequestOrigin $decidingSide,
-        ?int $actorMemberId
-    ): void {
-        if (!$request->isDecidableBy($decidingSide)) {
-            throw new RentalException(
-                $request->isPending()
-                    ? "Cette demande ne peut être décidée que par l'autre partie."
-                    : 'Cette demande a déjà été traitée.'
-            );
-        }
-
-        if (!$this->changeRequestRepository->decide($request->id, ChangeRequestStatus::REFUSED, $actorMemberId)) {
-            throw new RentalException('Cette demande a déjà été traitée.');
-        }
-
-        $this->recordChangeDecision($request, ChangeRequestStatus::REFUSED, $actorMemberId);
-    }
-
     // ── Internals ───────────────────────────────────────────────────────
 
     /**
@@ -1103,41 +635,6 @@ class RentalOperationsService
                 rooms: 1,
                 renterCategoryId: $booking->renterCategoryId
             )
-        );
-    }
-
-    /**
-     * Persists an edited quote and journals the movement.
-     *
-     * The old and the new total are recorded (§6.12), because "the price
-     * changed" is not what anybody needs six months later — "it went from
-     * 467,50 € to 400,00 €" is.
-     */
-    private function storeQuote(RentalBooking $booking, PriceQuote $quote, ?int $actorMemberId): void
-    {
-        $before = $booking->effectiveTotalCents();
-        $this->bookingRepository->setAgreedPrice($booking->id, $quote);
-        $this->syncReceivableAmount($booking, $quote->totalCents, $actorMemberId);
-
-        $this->bookingAudit->record(
-            $booking->id,
-            BookingAudit::PRICE_CHANGED,
-            $before !== null ? Support::euros($before) : null,
-            Support::euros($quote->totalCents),
-            null,
-            $actorMemberId
-        );
-
-        $this->journal->log(
-            'rental',
-            'rental_booking_price_changed',
-            'info',
-            'Prix modifié pour ' . $booking->reference,
-            [
-                'booking_id' => $booking->id,
-                'from_cents' => $before,
-                'to_cents' => $quote->totalCents,
-            ]
         );
     }
 
@@ -1163,45 +660,30 @@ class RentalOperationsService
         );
     }
 
-    private function recordChangeDecision(
-        ChangeRequest $request,
-        ChangeRequestStatus $status,
-        ?int $actorMemberId
+    /**
+     * Cancels the booking's modification in progress, when its own end
+     * comes (#927, chantier §2.3) — inside the transaction of that end.
+     * Silent towards the renter: the e-mail of the decision that ends the
+     * booking says all there is to say.
+     */
+    private function cancelModificationInProgress(
+        RentalBooking $booking,
+        ?int $actorMemberId,
+        \DateTimeImmutable $now
     ): void {
+        $cancelled = $this->modificationRepository->cancelActiveFor($booking->id, $actorMemberId, $now);
+        if ($cancelled === null) {
+            return;
+        }
+
         $this->bookingAudit->record(
-            $request->bookingId,
-            BookingAudit::CHANGE_DECIDED,
-            $request->kind->label(),
-            $status->label(),
-            $request->summary(),
+            $booking->id,
+            BookingAudit::MODIFICATION,
+            null,
+            'Annulée',
+            'Modification annulée avec la réservation : ' . $cancelled->summary(),
             $actorMemberId
         );
-    }
-
-    /**
-     * Refuses every request still waiting on a booking that has just been
-     * closed, cancelled, refused or expired.
-     *
-     * Each one is recorded in the history like any other decision: a
-     * request that simply vanished would leave the renter's page one item
-     * shorter with nothing saying why.
-     */
-    private function refusePendingChangeRequests(
-        int $bookingId,
-        ?int $actorMemberId,
-        ?int $exceptChangeRequestId
-    ): void {
-        foreach ($this->changeRequestRepository->findPendingForBooking($bookingId) as $pending) {
-            if ($pending->id === $exceptChangeRequestId) {
-                continue;
-            }
-
-            if (!$this->changeRequestRepository->decide($pending->id, ChangeRequestStatus::REFUSED, $actorMemberId)) {
-                continue;
-            }
-
-            $this->recordChangeDecision($pending, ChangeRequestStatus::REFUSED, $actorMemberId);
-        }
     }
 
     /**
@@ -1239,40 +721,6 @@ class RentalOperationsService
                 'warning',
                 'Créance non créée pour ' . $booking->reference . ' : ' . $e->getMessage(),
                 ['booking_id' => $booking->id, 'asset_id' => $booking->assetId]
-            );
-        }
-    }
-
-    /**
-     * Pushes a new rental price onto an existing receivable (§6.12) — the
-     * security deposit it includes is added by the payment service.
-     *
-     * A refusal — "this would drop below what has already come in" — is
-     * journaled rather than thrown: the price change itself is legitimate
-     * and has been recorded, and what is left is a real situation a manager
-     * has to look at, not a reason to reject their edit.
-     */
-    private function syncReceivableAmount(RentalBooking $booking, int $totalCents, ?int $actorMemberId): void
-    {
-        if ($this->paymentService === null) {
-            return;
-        }
-
-        try {
-            $this->paymentService->updateRentalAmount(
-                $booking,
-                $this->paymentService->settingsFor($booking->assetId),
-                $totalCents,
-                false,
-                $actorMemberId
-            );
-        } catch (\Throwable $e) {
-            $this->journal->log(
-                'rental',
-                'rental_receivable_not_updated',
-                'warning',
-                'Créance non mise à jour pour ' . $booking->reference . ' : ' . $e->getMessage(),
-                ['booking_id' => $booking->id, 'to_cents' => $totalCents]
             );
         }
     }

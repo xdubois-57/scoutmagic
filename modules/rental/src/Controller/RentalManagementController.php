@@ -37,8 +37,6 @@ use Modules\Rental\Booking\BookingMilestones;
 use Modules\Rental\Booking\BookingStatus;
 use Modules\Rental\Booking\BookingTransition;
 use Modules\Rental\Booking\BookingAttention;
-use Modules\Rental\Booking\ChangeRequestKind;
-use Modules\Rental\Booking\ChangeRequestOrigin;
 use Modules\Rental\Booking\RentalBooking;
 use Modules\Rental\Booking\RenterDecision;
 use Modules\Rental\Calendar\PublishFrom;
@@ -55,7 +53,6 @@ use Modules\Rental\Repository\RentalAssetRepository;
 use Modules\Rental\Repository\RentalAssetReminderRepository;
 use Modules\Rental\Repository\RentalBookingCommentRepository;
 use Modules\Rental\Repository\RentalBookingRepository;
-use Modules\Rental\Repository\RentalChangeRequestRepository;
 use Modules\Rental\Service\RentalAuthorizationService;
 use Modules\Rental\Service\RentalAvailabilityService;
 use Modules\Rental\Service\RentalBlockService;
@@ -66,6 +63,7 @@ use Modules\Rental\Service\RentalComplianceService;
 use Modules\Rental\Service\RentalDocumentService;
 use Modules\Rental\Service\RentalException;
 use Modules\Rental\Service\RentalMilestoneMarkService;
+use Modules\Rental\Service\RentalModificationService;
 use Modules\Rental\Service\RentalConditionsService;
 use Modules\Rental\Service\RentalOperationsService;
 use Modules\Rental\Service\RentalPaymentService;
@@ -170,7 +168,13 @@ class RentalManagementController extends AbstractController
         private RentalBookingRepository $bookingRepository,
         private AuditService $audit,
         private RentalBookingCommentRepository $commentRepository,
-        private RentalChangeRequestRepository $changeRequestRepository,
+        /**
+         * Changing a booking's dates, participants or price (#927, chantier
+         * §2.3): directly before the first contract is sent, through a
+         * modification and its replacement contract after. Null offers
+         * neither.
+         */
+        private ?RentalModificationService $modificationService,
         private RentalOperationsService $operationsService,
         private RentalBlockService $blockService,
         private RentalAvailabilityService $availabilityService,
@@ -685,17 +689,12 @@ class RentalManagementController extends AbstractController
             $assets
         ));
 
-        // ONE query for every booking's pending change requests, not one
-        // per booking: this page legitimately shows every asset a manager
-        // runs, and « À traiter » now asks a question about each of them
-        // (§22.5).
+        // « À traiter » asks a question about every booking of every asset
+        // a manager runs (§22.5), from the step each booking's page puts
+        // forward.
         $now = new \DateTimeImmutable();
         $attention = BookingAttention::from(
             $bookings,
-            $this->changeRequestRepository->findPendingForBookings(array_map(
-                static fn(RentalBooking $booking) => $booking->id,
-                $bookings
-            )),
             $this->nextSteps($bookings, $assets, $now),
             $now
         );
@@ -728,18 +727,11 @@ class RentalManagementController extends AbstractController
 
         $now = new \DateTimeImmutable();
         $bookings = $this->bookingRepository->findAllForAssets([$asset->id]);
-        // One statement for the whole page (§22.5): everything pending
-        // against any of this asset's bookings, grouped by booking.
-        $pendingChangeRequests = $this->changeRequestRepository->findPendingForBookings(array_map(
-            static fn(RentalBooking $booking) => $booking->id,
-            $bookings
-        ));
 
         // The step each booking's page puts forward (#708, IT-12): « À
         // traiter » and its figure read it, so the list and the page agree.
         $attention = BookingAttention::from(
             $bookings,
-            $pendingChangeRequests,
             $this->nextSteps($bookings, [$asset], $now),
             $now
         );
@@ -825,10 +817,6 @@ class RentalManagementController extends AbstractController
             $now = new \DateTimeImmutable();
             foreach (BookingAttention::from(
                 $all,
-                $this->changeRequestRepository->findPendingForBookings(array_map(
-                    static fn(RentalBooking $b) => $b->id,
-                    $all
-                )),
                 $this->nextSteps($all, [$asset], $now),
                 $now
             ) as $one) {
@@ -1303,14 +1291,10 @@ class RentalManagementController extends AbstractController
             'is_in_progress' => $booking->isInProgress($now),
             'nav_page' => 'bookings',
             'boxes' => $boxes,
-            // « Modifications (1) » in the rail, on every page of the file:
-            // seeing that somebody waits is the reason to go there (#708,
-            // IT-20).
+            // « Modifications (1) » in the rail, on every page of the file,
+            // while a modification is in progress (#927, chantier §2.4).
             'booking_page_counts' => [
-                BookingPage::CHANGES->value => count(array_filter(
-                    $this->changeRequestRepository->findForBooking($booking->id),
-                    static fn($change): bool => $change->isPending()
-                )),
+                BookingPage::CHANGES->value => $this->modificationService?->active($booking->id) !== null ? 1 : 0,
                 // « Courrier (2) »: what was filed since this person last
                 // opened it (#720).
                 BookingPage::MAIL->value => $accountId === null ? 0
@@ -1326,14 +1310,12 @@ class RentalManagementController extends AbstractController
             self::BOOKING_PAGE_TEMPLATES[$page->value],
             $context + match ($page) {
                 BookingPage::DASHBOARD => $this->dashboardContext($booking, $asset, $now),
-                BookingPage::CHANGES => [
-                    'change_requests' => $this->changeRequestRepository->findForBooking($booking->id),
-                ],
+                BookingPage::CHANGES => $this->changesContext($booking),
                 BookingPage::FINANCES => [
                     'quote' => $this->operationsService->workingQuote($booking, $asset),
                     'payment' => $this->paymentStatus($booking, $asset),
                 ],
-                BookingPage::DOCUMENTS => [
+                BookingPage::DOCUMENTS => $this->contractsContext($booking) + [
                     'documents' => $documents = $this->documentService?->forBooking($booking->id) ?? [],
                     // A contract whose stored PDF is gone cannot be sent
                     // again, and the error says « Régénérez-le »: the page
@@ -1618,10 +1600,9 @@ class RentalManagementController extends AbstractController
 
     /**
      * The journey with what only this controller knows (#708, IT-19): a
-     * change the renter asked for, which comes before everything else; a
-     * proposal of the unit awaiting the renter; a step of the renter's now
-     * late (IT-12); dates no longer held on a request still waiting
-     * (IT-01).
+     * modification in progress, which comes before everything else (#927,
+     * chantier §2.4); a step of the renter's now late (IT-12); dates no
+     * longer held on a request still waiting (IT-01), or held firmly.
      *
      * @param list<\Modules\Rental\Booking\BookingMilestone> $milestones
      * @param array<string, mixed> $payment
@@ -1633,19 +1614,6 @@ class RentalManagementController extends AbstractController
         array $payment,
         \DateTimeImmutable $now
     ): BookingJourney {
-        $asked = null;
-        $proposalWaiting = false;
-        foreach ($this->changeRequestRepository->findForBooking($booking->id) as $change) {
-            if (!$change->isPending()) {
-                continue;
-            }
-            if ($change->origin === \Modules\Rental\Booking\ChangeRequestOrigin::RENTER) {
-                $asked ??= $change->summary();
-            } else {
-                $proposalWaiting = true;
-            }
-        }
-
         $next = BookingJourney::firstOutstanding($milestones);
         $lateSince = null;
         if ($next !== null && $next->actor === \Modules\Rental\Booking\StepActor::RENTER) {
@@ -1666,11 +1634,11 @@ class RentalManagementController extends AbstractController
         return BookingJourney::of(
             $milestones,
             $booking->status,
-            $asked,
-            $proposalWaiting,
+            $this->modificationService?->progress($booking->id),
             $booking->holdIsActive($now) ? $booking->holdUntil : null,
             $lateSince,
-            $booking->holdLapsedSince($now)
+            $booking->holdLapsedSince($now),
+            $booking->holdsFirmly() ? $booking->signedCopyReceivedAt : null
         );
     }
 
@@ -1696,7 +1664,9 @@ class RentalManagementController extends AbstractController
 
         $latest = null;
         foreach ($documents as $document) {
-            if ($document->type !== DocumentType::CONTRACT || $document->isSuperseded()) {
+            // The contract in force: a replacement contract out for
+            // signature is answered on Documents (#927, chantier §2.4).
+            if ($document->type !== DocumentType::CONTRACT || !$document->countsForTheBooking()) {
                 continue;
             }
             if ($latest === null || $document->version > $latest->version) {
@@ -1724,11 +1694,11 @@ class RentalManagementController extends AbstractController
     }
 
     /**
-     * After any gesture on a booking, whether its contract still says what
-     * the booking says (#708, IT-20) — one generic question rather than a
-     * list of the gestures that change a date, a price or a name. When it
-     * no longer does, the manager is told in the same breath as their own
-     * gesture's answer.
+     * After any gesture on a booking, whether a contract generated and not
+     * yet sent still says what the booking says (#708, IT-20; #927 — once
+     * one has been sent, only a countersignature replaces it). When it no
+     * longer does, the manager is told in the same breath as their own
+     * gesture's answer: it is to generate again.
      */
     private function recheckContract(int $bookingId, RentalAsset $asset): void
     {
@@ -1747,8 +1717,8 @@ class RentalManagementController extends AbstractController
             'warning',
             trim(
                 ($said['message'] ?? '')
-                . ' La réservation ne correspond plus à son contrat : il est marqué « Remplacé », '
-                . 'et un nouveau contrat doit partir.'
+                . ' Le contrat généré ne correspond plus à la réservation : il est à régénérer avant '
+                . 'd\'être envoyé.'
             )
         );
     }
@@ -1781,13 +1751,18 @@ class RentalManagementController extends AbstractController
 
             // Said as it happened: an e-mail that did not leave is not « il
             // le reçoit », and a manager told so has no reason to resend it.
+            // A replacement contract's countersignature applied its
+            // modification (#927, chantier §2.3): said in the same breath.
+            $applied = $final->modificationId !== null
+                ? 'Contrat de remplacement contresigné : la modification est appliquée à la réservation. '
+                : 'Contrat contresigné. ';
             FlashMessage::set(
                 $final->sentAt !== null ? 'success' : 'warning',
-                $final->sentAt !== null
-                    ? 'Contrat contresigné : le locataire le reçoit par e-mail et peut le télécharger '
-                        . 'depuis sa page de suivi.'
-                    : "Contrat contresigné, mais l'e-mail au locataire n'a pas pu partir. Il peut le "
-                        . 'télécharger depuis sa page de suivi ; renvoyez-le depuis Documents.'
+                $applied . ($final->sentAt !== null
+                    ? 'Le locataire reçoit le contrat signé par e-mail et peut le télécharger depuis sa page '
+                        . 'de suivi.'
+                    : "L'e-mail au locataire n'a pas pu partir. Il peut télécharger le contrat signé depuis sa "
+                        . 'page de suivi ; renvoyez-le depuis Documents.')
             );
         };
 
@@ -2004,7 +1979,9 @@ class RentalManagementController extends AbstractController
      */
     public function reclassifyDocument(Request $request, array $params): Response
     {
-        return $this->bookingAction($request, function (RentalBooking $booking) use ($request): void {
+        return $this->bookingAction($request, function (RentalBooking $booking, RentalAsset $asset) use (
+            $request
+        ): void {
             if ($this->documentService === null) {
                 throw new RentalException('Les documents ne sont pas disponibles.');
             }
@@ -2012,6 +1989,27 @@ class RentalManagementController extends AbstractController
             $type = DocumentType::tryFrom((string) $request->getBody('document_type', ''));
             if ($type === null) {
                 throw new RentalException('Type de document inconnu.');
+            }
+
+            // An e-mail's attachment that is the renter's signed copy holds
+            // the dates firmly once it is one: through the same guard as a
+            // copy the renter sends (#927, chantier §2.1).
+            $document = $this->documentService->find((int) $request->getBody('document_id', 0));
+            if ($type === DocumentType::SIGNED_COPY && $this->signedContractService !== null
+                && $document !== null && $document->bookingId === $booking->id
+                && !$document->type->isGenerated() && $document->type !== DocumentType::SIGNED_COPY
+            ) {
+                $this->signedContractService->fileCopyFromManager(
+                    $booking,
+                    $asset,
+                    null,
+                    $document->id,
+                    $request->getBody('is_for_renter') !== null,
+                    $this->actorMemberId()
+                );
+                FlashMessage::set('success', 'Document reclassé.');
+
+                return;
             }
 
             $this->documentService->reclassify(
@@ -2264,7 +2262,9 @@ class RentalManagementController extends AbstractController
      */
     public function uploadDocument(Request $request, array $params): Response
     {
-        return $this->bookingAction($request, function (RentalBooking $booking) use ($request): void {
+        return $this->bookingAction($request, function (RentalBooking $booking, RentalAsset $asset) use (
+            $request
+        ): void {
             if ($this->documentService === null || $this->uploadHandler === null) {
                 throw new RentalException("L'ajout de documents n'est pas disponible.");
             }
@@ -2307,13 +2307,32 @@ class RentalManagementController extends AbstractController
                 throw new RentalException($e->getMessage(), 0, $e);
             }
 
-            $this->documentService->attachUploaded(
-                $booking,
-                $fileId,
-                $type,
-                $request->getBody('is_for_renter') !== null,
-                $this->actorMemberId()
-            );
+            // A signed copy holds the dates firmly and answers a contract:
+            // filed through the same guard as the renter's own (#927,
+            // chantier §2.1), never around it.
+            if ($type === DocumentType::SIGNED_COPY && $this->signedContractService !== null) {
+                try {
+                    $this->signedContractService->fileCopyFromManager(
+                        $booking,
+                        $asset,
+                        $fileId,
+                        null,
+                        $request->getBody('is_for_renter') !== null,
+                        $this->actorMemberId()
+                    );
+                } catch (RentalException $e) {
+                    $this->documentService->discardUnusedUpload($fileId);
+                    throw $e;
+                }
+            } else {
+                $this->documentService->attachUploaded(
+                    $booking,
+                    $fileId,
+                    $type,
+                    $request->getBody('is_for_renter') !== null,
+                    $this->actorMemberId()
+                );
+            }
 
             FlashMessage::set('success', 'Document ajouté.');
         });
@@ -3529,151 +3548,346 @@ class RentalManagementController extends AbstractController
     }
 
     /**
-     * POST /mes-locations/ligne — edit, add or remove a price line (§6.12).
+     * GET /mes-locations/{slug}/reservations/{id}/modifications/nouvelle —
+     * the form that changes a booking (#927, chantier §2.3): « Modifier la
+     * réservation » while no contract has gone out, a new modification
+     * after.
      *
      * @param array<string, string> $params
      */
-    public function priceLine(Request $request, array $params): Response
+    public function newModification(Request $request, array $params): Response
+    {
+        return $this->modificationPage($params, null);
+    }
+
+    /**
+     * GET /mes-locations/{slug}/reservations/{id}/modifications/{modificationId}
+     * — one modification on its own page (#927, chantier §2.4): its steps,
+     * today against proposed, its price, and the actions of its step. One
+     * no longer in progress is read only.
+     *
+     * @param array<string, string> $params
+     */
+    public function modification(Request $request, array $params): Response
+    {
+        return $this->modificationPage($params, (int) ($params['modificationId'] ?? 0));
+    }
+
+    /**
+     * POST /mes-locations/modification — « Enregistrer »: applied at once
+     * before the first contract is sent, saved as a modification after
+     * (#927, chantier §2.3). Its price is the tariff's for the new terms,
+     * plus one discount.
+     *
+     * @param array<string, string> $params
+     */
+    public function saveModification(Request $request, array $params): Response
     {
         return $this->bookingAction($request, function (
             RentalBooking $booking,
             RentalAsset $asset
-        ) use ($request): void {
-            $action = (string) $request->getBody('line_action', '');
-            $index = (int) $request->getBody('index', -1);
-            $actor = $this->actorMemberId();
+        ) use ($request): string {
+            $service = $this->requireModificationService();
+            $modificationId = self::optionalInt($request->getBody('modification_id'));
+            // Refused, the manager goes back to the form they were on,
+            // with the reason — never to the dashboard.
+            $form = $modificationId !== null
+                ? $this->modificationUrl($asset, $booking, $modificationId)
+                : BookingPage::CHANGES->url($this->bookingUrl($asset, $booking)) . '/nouvelle';
+            try {
+                return $this->saveModificationTerms($service, $booking, $asset, $modificationId, $request);
+            } catch (RentalException $e) {
+                FlashMessage::set('error', $e->getMessage());
 
-            match ($action) {
-                'add' => $this->operationsService->addPriceLine(
-                    $booking,
-                    $asset,
-                    (string) $request->getBody('label', ''),
-                    max(1, (int) $request->getBody('quantity', 1)),
-                    RentalPricingService::parseAmountToCents((string) $request->getBody('amount', '')) ?? 0,
-                    $actor
-                ),
-                'remove' => $this->operationsService->removePriceLine($booking, $asset, $index, $actor),
-                'edit' => $this->operationsService->editPriceLine(
-                    $booking,
-                    $asset,
-                    $index,
-                    Support::optionalString($request->getBody('label')),
-                    $request->getBody('quantity') !== null ? max(1, (int) $request->getBody('quantity')) : null,
-                    Support::optionalString($request->getBody('amount')) !== null
-                        ? RentalPricingService::parseAmountToCents((string) $request->getBody('amount'))
-                        : null,
-                    $actor
-                ),
-                'recalculate' => $this->operationsService->recalculate($booking, $asset, $actor),
-                default => throw new RentalException("Cette action sur une ligne n'existe pas."),
-            };
-
-            FlashMessage::set(
-                'success',
-                $action === 'recalculate'
-                    ? 'Lignes automatiques recalculées. Les lignes modifiées à la main sont conservées.'
-                    : 'Prix mis à jour. Le locataire le voit immédiatement sur sa page de suivi.'
-            );
+                return $form;
+            }
         });
     }
 
     /**
-     * POST /mes-locations/proposition — a manager's proposal (§6.16).
+     * @throws RentalException
+     */
+    private function saveModificationTerms(
+        RentalModificationService $service,
+        RentalBooking $booking,
+        RentalAsset $asset,
+        ?int $modificationId,
+        Request $request
+    ): string {
+        $terms = $service->termsFor(
+            $booking,
+            $asset,
+            Support::optionalString($request->getBody('arrival')),
+            Support::optionalString($request->getBody('departure')),
+            self::optionalInt($request->getBody('persons')),
+            self::optionalInt($request->getBody('units')),
+            Support::optionalString($request->getBody('discount_label')),
+            Support::optionalString($request->getBody('discount_amount'))
+        );
+        $saved = $service->save(
+            $booking,
+            $asset,
+            $modificationId,
+            $terms,
+            $this->actorMemberId(),
+            new \DateTimeImmutable()
+        );
+
+        if ($saved->status->isApplied()) {
+            FlashMessage::set('success', 'Réservation modifiée. Le locataire n\'est pas prévenu.');
+
+            return BookingPage::CHANGES->url($this->bookingUrl($asset, $booking));
+        }
+
+        FlashMessage::set(
+            'success',
+            $modificationId === null
+                ? ($saved->movesTheOccupation()
+                    ? 'Modification enregistrée : ses nouvelles dates sont bloquées tant qu\'elle est en cours.'
+                    : 'Modification enregistrée.')
+                : 'Modification enregistrée.'
+        );
+
+        return $this->modificationUrl($asset, $booking, $saved->id);
+    }
+
+    /**
+     * POST /mes-locations/modification-envoyer — « Générer et envoyer le
+     * contrat de remplacement », or « Renvoyer » it once it has gone
+     * (#927, chantier §2.3).
      *
      * @param array<string, string> $params
      */
-    public function propose(Request $request, array $params): Response
+    public function sendModification(Request $request, array $params): Response
     {
         return $this->bookingAction($request, function (
             RentalBooking $booking,
             RentalAsset $asset
-        ) use ($request): void {
-            $kind = ChangeRequestKind::tryFrom((string) $request->getBody('kind', ''));
-            if ($kind === null) {
-                throw new RentalException("Ce type de proposition n'existe pas.");
+        ) use ($request): string {
+            $service = $this->requireModificationService();
+            $modificationId = (int) $request->getBody('modification_id', 0);
+            $now = new \DateTimeImmutable();
+            $modification = $service->find($booking, $modificationId)
+                ?? throw new RentalException("Cette modification n'existe pas.");
+
+            try {
+                $mailed = $modification->isEditable()
+                    ? $service->sendReplacementContract($booking, $asset, $modificationId, $this->actorMemberId(), $now)
+                    : $service->resendReplacementContract($booking, $asset, $modificationId, $now);
+            } catch (RentalException $e) {
+                FlashMessage::set('error', $e->getMessage());
+
+                return $this->modificationUrl($asset, $booking, $modificationId);
             }
 
-            $this->operationsService->requestChange(
+            FlashMessage::set(
+                $mailed ? 'success' : 'warning',
+                $mailed
+                    ? 'Contrat de remplacement envoyé au locataire par e-mail.'
+                    : "Le contrat de remplacement est prêt, mais l'e-mail au locataire n'a pas pu partir : "
+                        . 'renvoyez-le depuis cette page.'
+            );
+
+            return $this->modificationUrl($asset, $booking, $modificationId);
+        });
+    }
+
+    /**
+     * POST /mes-locations/modification-annuler — abandons a modification
+     * in progress (#927, chantier §2.3): its new dates are released, the
+     * booking is untouched, and the renter is told only when its
+     * replacement contract had gone out.
+     *
+     * @param array<string, string> $params
+     */
+    public function cancelModification(Request $request, array $params): Response
+    {
+        return $this->bookingAction($request, function (
+            RentalBooking $booking,
+            RentalAsset $asset
+        ) use ($request): string {
+            $mailed = $this->requireModificationService()->cancel(
                 $booking,
                 $asset,
-                ChangeRequestOrigin::MANAGER,
-                $kind,
-                Support::optionalString($request->getBody('arrival')),
-                Support::optionalString($request->getBody('departure')),
-                $request->getBody('units') !== null ? max(1, (int) $request->getBody('units')) : null,
-                $request->getBody('persons') !== null ? max(1, (int) $request->getBody('persons')) : null,
-                null,
-                Support::optionalString($request->getBody('message')),
-                $this->actorMemberId()
+                (int) $request->getBody('modification_id', 0),
+                $this->actorMemberId(),
+                new \DateTimeImmutable()
             );
 
-            // The flash used to say « Proposition envoyée » while nothing
-            // had been sent to anyone. It now says what actually left.
             FlashMessage::set(
-                'success',
-                'Proposition enregistrée. Elle ne change rien tant que le locataire ne l\'a pas acceptée.'
-                . $this->tellRenter(
-                    $booking,
-                    $asset,
-                    RenterDecision::PROPOSED,
-                    Support::optionalString($request->getBody('message'))
-                )
+                $mailed === false ? 'warning' : 'success',
+                'Modification annulée : ses nouvelles dates sont libérées.' . match ($mailed) {
+                    true => ' Le locataire a été prévenu par e-mail.',
+                    false => " L'e-mail au locataire n'a pas pu partir : prévenez-le autrement.",
+                    null => '',
+                }
             );
+
+            return BookingPage::CHANGES->url($this->bookingUrl($asset, $booking));
         });
     }
 
     /**
-     * POST /mes-locations/demande — decide a renter's change request (§6.16).
+     * The « Modifications » page and the dedicated page share one shape:
+     * the booking, whether a contract has gone out, and the modification
+     * in progress with its paperwork.
      *
      * @param array<string, string> $params
      */
-    public function decideChange(Request $request, array $params): Response
+    private function modificationPage(array $params, ?int $modificationId): Response
     {
-        return $this->bookingAction($request, function (
-            RentalBooking $booking,
-            RentalAsset $asset
-        ) use ($request): void {
-            $changeRequest = $this->changeRequestRepository->findById((int) $request->getBody('request_id', 0));
-            if ($changeRequest === null || $changeRequest->bookingId !== $booking->id) {
-                throw new RentalException("Cette demande n'existe pas.");
+        $asset = $this->manageableAsset($params);
+        if ($asset === null || $this->modificationService === null) {
+            return $this->notFound();
+        }
+        $booking = $this->bookingOfAsset($asset, (int) ($params['id'] ?? 0));
+        if ($booking === null) {
+            return $this->notFound();
+        }
+
+        $service = $this->modificationService;
+        $modification = null;
+        if ($modificationId !== null) {
+            $modification = $service->find($booking, $modificationId);
+            if ($modification === null) {
+                return $this->notFound();
             }
+        } elseif ($booking->status->isFinal()) {
+            // Nothing changes on a booking that has ended: no form to offer.
+            return $this->notFound();
+        } elseif (($active = $service->active($booking->id)) !== null) {
+            // One project at a time: « Créer une modification » while one
+            // runs lands on that one.
+            return $this->redirect($this->modificationUrl($asset, $booking, $active->id));
+        }
 
-            $word = Support::optionalString($request->getBody('message'));
+        $direct = $modification === null && !$service->contractHasGoneOut($booking->id);
+        $bookingUrl = $this->bookingUrl($asset, $booking);
+        $current = $this->operationsService->workingQuote($booking, $asset);
+        // What the form shows: the project's own terms, or — for a new one
+        // — the booking's, priced as the tariff prices them today.
+        $proposed = $modification->price ?? $this->tariffFor($booking, $asset, $current);
 
-            if ((string) $request->getBody('decision', '') === 'accept') {
-                $this->operationsService->acceptChange(
-                    $changeRequest,
-                    $booking,
-                    $asset,
-                    ChangeRequestOrigin::MANAGER,
-                    $this->actorMemberId(),
-                    new \DateTimeImmutable()
-                );
-                // Re-read: accepting a change rewrites the dates, and the
-                // copy in hand is from before that — the email has to
-                // quote the booking the renter now has, not the one they
-                // asked to leave behind.
-                $updated = $this->bookingRepository->findById($booking->id) ?? $booking;
-                FlashMessage::set(
-                    'success',
-                    'Demande acceptée et appliquée.'
-                    . $this->tellRenter($updated, $asset, RenterDecision::CHANGE_ACCEPTED, $word)
-                );
+        return $this->render('@rental/management/booking_modification.html.twig', [
+            'asset' => $asset,
+            'booking' => $booking,
+            'booking_url' => $bookingUrl,
+            'modification' => $modification,
+            'progress' => $modification !== null ? $service->progressOf($modification) : null,
+            'is_direct' => $direct,
+            'current_quote' => $current,
+            'proposed_quote' => $proposed,
+            'discount' => \Modules\Rental\Pricing\QuoteEditor::discountLine($modification->price ?? $current),
+            'max_discount_label_length' => RentalModificationService::MAX_DISCOUNT_LABEL_LENGTH,
+            'breadcrumb_current' => $modification === null
+                ? ($direct ? 'Modifier la réservation' : 'Nouvelle modification')
+                : 'Modification du ' . $modification->createdAt->format('d/m/Y'),
+            'breadcrumb_trail' => [
+                ...$this->bookingTrail($asset),
+                ['label' => $booking->reference, 'url' => $bookingUrl],
+                ['label' => BookingPage::CHANGES->label(), 'url' => BookingPage::CHANGES->url($bookingUrl)],
+            ],
+            'nav_page' => 'bookings',
+        ]);
+    }
 
-                return;
-            }
+    /**
+     * The booking's own terms as the tariff prices them now, with the
+     * discount its price carries — what a new modification starts from.
+     */
+    private function tariffFor(
+        RentalBooking $booking,
+        RentalAsset $asset,
+        \Modules\Rental\Pricing\PriceQuote $current
+    ): \Modules\Rental\Pricing\PriceQuote {
+        $discount = \Modules\Rental\Pricing\QuoteEditor::discountLine($current);
+        try {
+            return $this->requireModificationService()->termsFor(
+                $booking,
+                $asset,
+                $booking->arrivalDate,
+                $booking->departureDate,
+                $booking->estimatedPersons,
+                $booking->units,
+                $discount?->label,
+                $discount !== null ? number_format($discount->amountCents / 100, 2, ',', '') : null
+            )->price;
+        } catch (RentalException) {
+            return $current;
+        }
+    }
 
-            $this->operationsService->refuseChange(
-                $changeRequest,
-                ChangeRequestOrigin::MANAGER,
-                $this->actorMemberId()
-            );
-            FlashMessage::set(
-                'success',
-                'Demande refusée. La réservation est inchangée.'
-                . $this->tellRenter($booking, $asset, RenterDecision::CHANGE_REFUSED, $word)
-            );
-        });
+    /**
+     * What the « Modifications » page renders (#927, chantier §2.4): the
+     * modification in progress — or the way to create one — and the
+     * history.
+     *
+     * @return array<string, mixed>
+     */
+    private function changesContext(RentalBooking $booking): array
+    {
+        $service = $this->modificationService;
+        $modifications = $service?->history($booking->id) ?? [];
+        // « Par » — who made each one: the member who created it, the one
+        // who applied or cancelled it when somebody did.
+        $authors = [];
+        foreach ($this->decorateWithAuthors(array_map(
+            static fn($m): array => [
+                'id' => $m->id,
+                'author_member_id' => $m->closedByMemberId ?? $m->createdByMemberId,
+            ],
+            $modifications
+        )) as $row) {
+            $authors[$row['id']] = $row['author_name'];
+        }
+
+        return [
+            'modification_available' => $service !== null,
+            'contract_has_gone_out' => $service?->contractHasGoneOut($booking->id) ?? false,
+            'progress' => $service?->progress($booking->id),
+            'modifications' => $modifications,
+            'modification_authors' => $authors,
+        ];
+    }
+
+    /**
+     * The contract in force and, beside it, a modification's replacement
+     * contract (#927, chantier §2.4) — the « Contrat » box of Documents and
+     * its banner.
+     *
+     * @return array<string, mixed>
+     */
+    private function contractsContext(RentalBooking $booking): array
+    {
+        $account = AuthSession::getUserAccountId();
+
+        return [
+            // Their documents read « Modification annulée » in the list.
+            'cancelled_modification_ids' => array_values(array_map(
+                static fn($m): int => $m->id,
+                array_filter(
+                    $this->modificationService?->history($booking->id) ?? [],
+                    static fn($m): bool => $m->status === \Modules\Rental\Booking\ModificationStatus::CANCELLED
+                )
+            )),
+            'contract_in_force' => $this->signedContractService?->sentContract($booking->id),
+            'final_contract' => $this->signedContractService?->finalContract($booking->id),
+            'progress' => $this->modificationService?->progress($booking->id),
+            'has_signature' => $account !== null && ($this->signatureRepository?->has($account) ?? false),
+            'max_refusal_length' => \Modules\Rental\Service\RentalSignedContractService::MAX_REFUSAL_LENGTH,
+        ];
+    }
+
+    private function modificationUrl(RentalAsset $asset, RentalBooking $booking, int $modificationId): string
+    {
+        return BookingPage::CHANGES->url($this->bookingUrl($asset, $booking)) . '/' . $modificationId;
+    }
+
+    /** @throws RentalException */
+    private function requireModificationService(): RentalModificationService
+    {
+        return $this->modificationService
+            ?? throw new RentalException('Les modifications ne sont pas disponibles.');
     }
 
     /**
@@ -3886,7 +4100,11 @@ class RentalManagementController extends AbstractController
      * check would be invisible — an action that forgot the authorisation
      * would work perfectly for the person who wrote it.
      *
-     * @param callable(RentalBooking, RentalAsset): void $work
+     * `$work` may return where to go back to — a URL this controller
+     * built, never one from the request — for a form that does not sit on
+     * one of the booking's pages (a modification's own page).
+     *
+     * @param callable(RentalBooking, RentalAsset): (string|null|void) $work
      */
     private function bookingAction(Request $request, callable $work): Response
     {
@@ -3911,8 +4129,9 @@ class RentalManagementController extends AbstractController
             return $this->notFound();
         }
 
+        $back = null;
         try {
-            $work($booking, $asset);
+            $back = $work($booking, $asset);
             $this->recheckContract($booking->id, $asset);
         } catch (RentalException $e) {
             FlashMessage::set('error', $e->getMessage());
@@ -3920,6 +4139,9 @@ class RentalManagementController extends AbstractController
 
         if (self::wantsJson($request)) {
             return $this->json(self::flashAsJson());
+        }
+        if (is_string($back)) {
+            return $this->redirect($back);
         }
 
         // Back to the page the form was on, when it says which: a manager

@@ -686,6 +686,44 @@ class RentalBookingMailService
     }
 
     /**
+     * A modification abandoned after its replacement contract went out
+     * (#927, chantier §2.3): that contract will not be countersigned, and
+     * the booking stays as it is. Never for a project the renter never
+     * heard of.
+     *
+     * @return bool whether it went out
+     */
+    public function sendModificationCancelled(RentalBooking $booking, RentalAsset $asset, ?string $trackingToken): bool
+    {
+        $email = $this->renderFor($booking, $asset, 'rental.modification_cancelled', [
+            'tracking_url' => $trackingToken !== null ? $this->trackingUrl($booking, $trackingToken) : '',
+        ]);
+
+        try {
+            $this->deliver(
+                $booking,
+                'rental.modification_cancelled',
+                $email,
+                [],
+                $this->messageIdFor($booking),
+                $trackingToken
+            );
+        } catch (\Throwable) {
+            return false;
+        }
+
+        $this->journal->log(
+            'rental',
+            'rental_modification_cancelled_sent',
+            'info',
+            'Abandon de la modification envoyé pour ' . $booking->reference,
+            ['booking_id' => $booking->id]
+        );
+
+        return true;
+    }
+
+    /**
      * The contract signed by both parties (#708, IT-16), attached — and,
      * unlike every other document, also downloadable from the renter's
      * page, which this e-mail says rather than the opposite.
@@ -1010,6 +1048,7 @@ class RentalBookingMailService
         'rental.document',
         'rental.practical_info',
         'rental.copy_refused',
+        'rental.modification_cancelled',
         'rental.signed_contract',
         'rental.contract',
         'rental.signed_copy_reminder',

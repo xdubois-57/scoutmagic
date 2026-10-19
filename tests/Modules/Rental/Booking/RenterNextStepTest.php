@@ -230,33 +230,46 @@ final class RenterNextStepTest extends TestCase
         );
     }
 
-    /** A proposal recorded without a status of its own is the renter's to answer too. */
-    public function testAProposalWaitingWithoutItsStatusIsTheRenters(): void
+    /**
+     * A replacement contract out for signature comes first (#927, chantier
+     * §2.4): the renter signs the new contract, whatever the booking's own
+     * next step says.
+     */
+    public function testAReplacementContractToSignIsTheRenters(): void
     {
-        $booking = $this->booking(BookingStatus::RECEIVED, '2027-02-01');
+        $booking = $this->booking(BookingStatus::CONFIRMED);
+        $modification = new \Modules\Rental\Booking\BookingModification(
+            7, $booking->id, \Modules\Rental\Booking\ModificationStatus::SENT,
+            '2027-07-01', '2027-07-05', 1, 20, null, 48000, null, null,
+            '2027-07-01', '2027-07-04', 1, 20, 36000, 9, null, $this->now()
+        );
         $journey = BookingJourney::of(
             BookingMilestones::for($booking, $this->now(), [], [], [], []),
             $booking->status,
-            proposalWaiting: true
+            \Modules\Rental\Booking\ModificationProgress::of($modification, [])
         );
 
         $step = RenterNextStep::of($booking, $journey, $this->now());
 
         $this->assertSame(
-            'À vous : acceptez ou refusez notre proposition depuis votre page de suivi.'
-            . " Les dates vous sont réservées jusqu'au 01/02/2027.",
+            'À vous : signez le nouveau contrat et déposez votre copie signée sur votre page de suivi.',
             $step->sentence
         );
         $this->assertTrue($step->onTrackingPage);
     }
 
-    public function testAQuestionOrAProposalIsTheRentersWhateverTheNextStep(): void
+    public function testAQuestionIsTheRentersWhateverTheNextStep(): void
     {
         $info = $this->booking(BookingStatus::INFO_REQUESTED);
+        // A past proposal is answered from nowhere any more (#927, chantier
+        // §2.2): it reads like a request waiting on the unit.
         $proposed = $this->booking(BookingStatus::PROPOSED);
 
         $this->assertStringStartsWith('À vous : répondez à notre question', RenterNextStep::of($info, $this->journey($info), $this->now())->sentence);
-        $this->assertStringStartsWith('À vous : acceptez ou refusez', RenterNextStep::of($proposed, $this->journey($proposed), $this->now())->sentence);
+        $this->assertStringStartsWith(
+            'Rien à faire de votre côté',
+            RenterNextStep::of($proposed, $this->journey($proposed), $this->now())->sentence
+        );
     }
 
     /** A step ticked by hand is done (IT-14): the sentence moves on. */

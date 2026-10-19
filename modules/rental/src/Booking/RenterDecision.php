@@ -11,29 +11,27 @@ namespace Modules\Rental\Booking;
 /**
  * A decision a manager has taken that the renter has to be told about.
  *
- * Until this existed, none of them told anybody. A manager confirmed a
- * booking, refused one, proposed other dates or answered a change request,
- * and the only trace of it was on a page the renter had no reason to
- * reload — `propose()` even set a flash saying « Proposition envoyée »
- * while sending nothing at all. A renter here has no account and no
+ * Until this existed, none of them told anybody: a manager confirmed a
+ * booking or refused one, and the only trace of it was on a page the
+ * renter had no reason to reload. A renter here has no account and no
  * notification centre: email is not one channel among several, it is the
  * only one.
  *
  * Deliberately NOT `BookingStatus`. Several statuses are nobody's decision
  * and must stay silent — a hold lapsing into `EXPIRED` by a scheduled
- * sweep, a `CLOSED` at the end of a stay that already happened. And two of the
- * decisions here are not status changes at all: accepting or refusing a
- * change request leaves the status exactly where it was. What is enumerated
- * is what somebody decided, which is what is worth an email.
+ * sweep, a `CLOSED` at the end of a stay that already happened. What is
+ * enumerated is what somebody decided, which is what is worth an email.
+ *
+ * The renter answers nothing from their page any more (#927, chantier
+ * §2.2): no proposal of the unit to accept, no change request of theirs to
+ * decide. A change of the booking reaches them as a replacement contract to
+ * sign, by its own e-mail.
  */
 enum RenterDecision: string
 {
     case CONFIRMED = 'confirmed';
     case REFUSED = 'refused';
-    case PROPOSED = 'proposed';
     case INFO_REQUESTED = 'info_requested';
-    case CHANGE_ACCEPTED = 'change_accepted';
-    case CHANGE_REFUSED = 'change_refused';
     case CANCELLED = 'cancelled';
 
     /**
@@ -50,7 +48,6 @@ enum RenterDecision: string
         return match ($status) {
             BookingStatus::CONFIRMED => self::CONFIRMED,
             BookingStatus::REFUSED => self::REFUSED,
-            BookingStatus::PROPOSED => self::PROPOSED,
             BookingStatus::INFO_REQUESTED => self::INFO_REQUESTED,
             BookingStatus::CANCELLED => self::CANCELLED,
             default => null,
@@ -63,10 +60,7 @@ enum RenterDecision: string
         return match ($this) {
             self::CONFIRMED => 'Votre réservation est confirmée',
             self::REFUSED => 'Votre demande de location',
-            self::PROPOSED => 'Une proposition pour votre demande',
             self::INFO_REQUESTED => 'Nous avons besoin d\'une précision',
-            self::CHANGE_ACCEPTED => 'Votre demande de modification est acceptée',
-            self::CHANGE_REFUSED => 'Votre demande de modification',
             self::CANCELLED => 'Votre réservation a été annulée',
         };
     }
@@ -82,12 +76,7 @@ enum RenterDecision: string
         return match ($this) {
             self::CONFIRMED => 'Votre réservation est confirmée.',
             self::REFUSED => 'Nous ne pouvons malheureusement pas donner suite à votre demande.',
-            self::PROPOSED => 'Nous vous faisons une proposition pour votre demande.',
             self::INFO_REQUESTED => 'Nous avons besoin d\'une précision avant de vous répondre.',
-            self::CHANGE_ACCEPTED => 'Votre demande de modification a été acceptée : votre réservation a été mise à '
-                . 'jour.',
-            self::CHANGE_REFUSED => 'Votre demande de modification n\'a pas pu être acceptée. Votre réservation est '
-                . 'inchangée.',
             self::CANCELLED => 'Votre réservation a été annulée.',
         };
     }
@@ -102,7 +91,6 @@ enum RenterDecision: string
     public function callToAction(): ?string
     {
         return match ($this) {
-            self::PROPOSED => 'Vous pouvez accepter ou refuser cette proposition depuis votre page de suivi.',
             self::INFO_REQUESTED => 'Vous pouvez nous répondre depuis votre page de suivi.',
             // The one place the billing coordinates are ever asked for
             // (§22.6): no dedicated email, and no reminder about them —
@@ -112,7 +100,6 @@ enum RenterDecision: string
             self::CONFIRMED => 'Vous retrouvez le détail de votre réservation sur votre page de suivi — '
                 . 'et si votre facture doit être établie au nom d\'une association ou d\'une société, '
                 . 'vous pouvez y renseigner vos coordonnées de facturation.',
-            self::CHANGE_ACCEPTED => 'Vous retrouvez les nouvelles dates sur votre page de suivi.',
             default => null,
         };
     }
@@ -128,7 +115,7 @@ enum RenterDecision: string
     public function carriesTheTrackingLink(): bool
     {
         return match ($this) {
-            self::REFUSED, self::CANCELLED, self::CHANGE_REFUSED => false,
+            self::REFUSED, self::CANCELLED => false,
             default => true,
         };
     }
@@ -147,12 +134,7 @@ enum RenterDecision: string
             self::CONFIRMED => 'Confirmer cette réservation ? Le locataire recevra la confirmation par email.',
             self::REFUSED => 'Refuser cette demande ? Les dates seront libérées et le locataire en sera informé par '
                 . 'email.',
-            self::PROPOSED => 'Envoyer cette proposition au locataire par email ?',
             self::INFO_REQUESTED => 'Demander une précision au locataire ? Il la recevra par email.',
-            self::CHANGE_ACCEPTED => 'Accepter cette demande ? Elle sera appliquée, et le locataire en sera informé '
-                . 'par email.',
-            self::CHANGE_REFUSED => 'Refuser cette demande ? La réservation reste inchangée, et le locataire en sera '
-                . 'informé par email.',
             self::CANCELLED => 'Annuler cette réservation ? Les dates seront libérées et le locataire en sera informé '
                 . 'par email.',
         };
@@ -171,9 +153,7 @@ enum RenterDecision: string
         return match ($this) {
             self::CONFIRMED => 'Un mot au locataire (facultatif)',
             self::REFUSED => 'Dire pourquoi, si vous le souhaitez (facultatif)',
-            self::PROPOSED => 'Expliquer votre proposition (facultatif)',
             self::INFO_REQUESTED => 'Ce que vous souhaitez savoir',
-            self::CHANGE_ACCEPTED, self::CHANGE_REFUSED => 'Un mot au locataire (facultatif)',
             self::CANCELLED => "Dire pourquoi, si vous le souhaitez (facultatif)",
         };
     }

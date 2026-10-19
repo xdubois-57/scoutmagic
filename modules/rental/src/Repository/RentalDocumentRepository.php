@@ -40,13 +40,16 @@ class RentalDocumentRepository implements AttachedFileRepository
         bool $isForRenter,
         ?string $snapshot,
         ?int $createdByMemberId,
-        string $source = RentalDocument::SOURCE_MANUAL
+        string $source = RentalDocument::SOURCE_MANUAL,
+        ?int $contractDocumentId = null,
+        ?int $modificationId = null
     ): int {
         $stmt = $this->pdo->prepare(
             'INSERT INTO rental_documents
                 (booking_id, file_id, document_type, version, is_for_renter,
-                 generated_snapshot, created_by_member_id, created_at, source)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                 generated_snapshot, created_by_member_id, created_at, source,
+                 contract_document_id, modification_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
             $bookingId,
@@ -60,9 +63,66 @@ class RentalDocumentRepository implements AttachedFileRepository
             $source === RentalDocument::SOURCE_EMAIL
                 ? RentalDocument::SOURCE_EMAIL
                 : RentalDocument::SOURCE_MANUAL,
+            $contractDocumentId,
+            $modificationId,
         ]);
 
         return (int) $this->pdo->lastInsertId();
+    }
+
+    /**
+     * Ties a document to the contract it answers and to the modification
+     * project it belongs to (#927, chantier §2.3) — a signed copy a manager
+     * filed by reclassifying an e-mail's attachment, which existed before
+     * anybody said what it was.
+     */
+    public function attachToContract(int $id, ?int $contractDocumentId, ?int $modificationId): void
+    {
+        $this->pdo->prepare('UPDATE rental_documents SET contract_document_id = ?, modification_id = ? WHERE id = ?')
+            ->execute([$contractDocumentId, $modificationId, $id]);
+    }
+
+    /**
+     * Marks a generated contract as a modification's replacement contract.
+     */
+    public function setModification(int $id, int $modificationId): void
+    {
+        $this->pdo->prepare('UPDATE rental_documents SET modification_id = ? WHERE id = ?')
+            ->execute([$modificationId, $id]);
+    }
+
+    /**
+     * The documents of one modification project — its replacement
+     * contract and what was signed from it — newest first.
+     *
+     * @return RentalDocument[]
+     */
+    public function findForModification(int $modificationId): array
+    {
+        $stmt = $this->pdo->prepare(
+            $this->selectWithFile() . ' WHERE d.modification_id = ? ORDER BY d.created_at DESC, d.id DESC'
+        );
+        $stmt->execute([$modificationId]);
+
+        return array_map(fn(array $row) => $this->hydrate($row), $stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
+    /**
+     * Voids every document of the booking that is not a modification's own
+     * — the contract in force and what was signed from it — at the
+     * countersignature that replaces them (chantier §2.3). Returns how many.
+     */
+    public function supersedeAllButModification(int $bookingId, int $modificationId, \DateTimeImmutable $at): int
+    {
+        $stmt = $this->pdo->prepare(
+            "UPDATE rental_documents SET superseded_at = ?
+             WHERE booking_id = ? AND superseded_at IS NULL
+               AND document_type IN ('contract', 'signed_copy', 'signed_contract')
+               AND (modification_id IS NULL OR modification_id <> ?)"
+        );
+        $stmt->execute([$at->format('Y-m-d H:i:s'), $bookingId, $modificationId]);
+
+        return $stmt->rowCount();
     }
 
     /**
@@ -176,6 +236,22 @@ class RentalDocumentRepository implements AttachedFileRepository
              WHERE booking_id = ? AND document_type = ? AND sent_at IS NOT NULL
                AND superseded_at IS NULL
              LIMIT 1'
+        );
+        $stmt->execute([$bookingId, $type->value]);
+
+        return $stmt->fetchColumn() !== false;
+    }
+
+    /**
+     * Whether a document of this type ever went out to the renter, a
+     * replaced one included — what « before the first contract is sent »
+     * means (#927, chantier §2.3): from that send on, a booking changes
+     * only through a modification and its replacement contract.
+     */
+    public function hasEverSentDocumentOfType(int $bookingId, DocumentType $type): bool
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT 1 FROM rental_documents WHERE booking_id = ? AND document_type = ? AND sent_at IS NOT NULL LIMIT 1'
         );
         $stmt->execute([$bookingId, $type->value]);
 
@@ -517,7 +593,12 @@ class RentalDocumentRepository implements AttachedFileRepository
 
     private function selectWithFile(): string
     {
-        return 'SELECT d.*, f.original_name, f.size_bytes
+        // Whether the document belongs to a modification still in
+        // progress (#927, chantier §2.3): read with it, so no reader has to
+        // ask the project in a second round trip.
+        return 'SELECT d.*, f.original_name, f.size_bytes,
+                    (SELECT COUNT(*) FROM rental_booking_modifications m
+                     WHERE m.id = d.modification_id AND m.active_booking_id IS NOT NULL) AS in_active_modification
                 FROM rental_documents d
                 LEFT JOIN files f ON f.id = d.file_id';
     }
@@ -545,7 +626,10 @@ class RentalDocumentRepository implements AttachedFileRepository
             refusedAt: DateInput::fromStorage(isset($row['refused_at']) ? (string) $row['refused_at'] : null),
             refusalReason: isset($row['refusal_reason']) ? (string) $row['refusal_reason'] : null,
             supersededAt: DateInput::fromStorage(isset($row['superseded_at']) ? (string) $row['superseded_at'] : null),
-            fingerprint: isset($row['fingerprint']) ? (string) $row['fingerprint'] : null
+            fingerprint: isset($row['fingerprint']) ? (string) $row['fingerprint'] : null,
+            contractDocumentId: isset($row['contract_document_id']) ? (int) $row['contract_document_id'] : null,
+            modificationId: isset($row['modification_id']) ? (int) $row['modification_id'] : null,
+            inActiveModification: (int) ($row['in_active_modification'] ?? 0) > 0
         );
     }
 }

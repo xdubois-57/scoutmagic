@@ -9,7 +9,9 @@
   contact details, and the emergency number.
 
   What it must NEVER show: internal comments, or notes on a damage still
-  being assessed. The ONE file it offers is the contract signed by both
+  being assessed. Nor does it let the renter change anything of their
+  booking — dates, participants, a cancellation (#927, chantier §2.2): for
+  that they contact the unit, whose contacts are at the bottom. The ONE file it offers is the contract signed by both
   parties (#708, IT-16), once there is one — served only for this booking,
   behind the same token. Everything else, the contract to sign and the
   invoice included, arrives by email only.
@@ -43,7 +45,7 @@
                             <a href="#contrat">Déposer ma copie signée</a>
                         {% endif %}
                     </p>
-                {% elseif booking.holdUntil %}
+                {% elseif booking.holdUntil and not booking.holdsFirmly %}
                     <p class="mb-0">
                         {{ booking.holdLabel }} jusqu'au
                         <strong>{{ booking.holdUntil|date_fr }}</strong>.
@@ -64,11 +66,41 @@
           types leave HEIC out on purpose — an iPhone then converts its
           photo to JPEG as it sends it.
         #}
-        {% if contract and (contract.sent or contract.final) %}
+        {#
+          While a modification runs and its replacement contract has gone
+          out (#927, chantier §2.4), the copy to send is of THAT contract:
+          it replaces the one before once both parties have signed it. A
+          refused copy says why, and another copy of the same contract is
+          sent from the same form.
+        #}
+        {% set replacement = contract ? contract.replacement|default(null) : null %}
+        {% if contract and (contract.sent or contract.final or replacement) %}
             <div class="card mb-4" id="contrat">
                 <div class="card-body">
                     <h2 class="h5 mb-3">Votre contrat</h2>
-                    {% if contract.final %}
+                    {% if replacement %}
+                        {% if replacement.stage.value == 'copy_received' %}
+                            <p class="mb-0" data-replacement-copy-received>
+                                Copie signée du nouveau contrat reçue le {{ replacement.pendingCopy.createdAt|date_fr }}.
+                                Nous la vérifions.
+                            </p>
+                        {% else %}
+                            {% if replacement.stage.value == 'copy_refused' %}
+                                <output class="alert alert-warning d-block small">
+                                    Votre copie du {{ replacement.refusedCopy.createdAt|date_fr }} n'a pas pu être
+                                    acceptée : « {{ replacement.refusedCopy.refusalReason }} ». Déposez une nouvelle
+                                    copie du même contrat.
+                                </output>
+                            {% else %}
+                                <p data-replacement-sent>
+                                    Un nouveau contrat vous a été envoyé le {{ replacement.contract.sentAt|date_fr }}
+                                    (il remplace le précédent une fois signé par les deux parties). Déposez-en la copie
+                                    signée ci-dessous.
+                                </p>
+                            {% endif %}
+                            {% include '@rental/public/_signed_copy_form.html.twig' %}
+                        {% endif %}
+                    {% elseif contract.final %}
                         <p class="mb-2">
                             Votre contrat est signé par les deux parties. Vous l'avez reçu par e-mail ; vous pouvez
                             aussi le télécharger ici.
@@ -92,26 +124,12 @@
                             Nous vous avons envoyé le contrat par e-mail le {{ contract.sent.sentAt|date_fr }}.
                             Imprimez-le, signez-le, puis déposez ici votre copie signée : un PDF, un scan ou une photo
                             lisible de chaque page.
-                            {% if booking.holdUntil %}
+                            {# Not for dates held firmly: those no longer lapse (#927, chantier §2.1). #}
+                            {% if booking.holdUntil and not booking.holdsFirmly %}
                                 Vos dates restent bloquées jusqu'au <strong>{{ booking.holdUntil|date_fr }}</strong>.
                             {% endif %}
                         </p>
-                        <form method="post" action="/locations/suivi/{{ booking.id }}/{{ tracking_token }}/contrat"
-                              enctype="multipart/form-data" class="row g-2 align-items-end">
-                            {{ csrf_field()|raw }}
-                            <div class="col-12 col-md-8">
-                                <label class="form-label" for="signed-copy">Votre copie signée</label>
-                                <input type="file" class="form-control" id="signed-copy" name="signed_copy" required
-                                       accept="application/pdf,image/jpeg,image/png,image/webp"
-                                       aria-describedby="signed-copy-help">
-                            </div>
-                            <div class="col-12 col-md-4">
-                                <button type="submit" class="btn btn-primary w-100">Envoyer ma copie signée</button>
-                            </div>
-                            <p class="form-text col-12 mb-0" id="signed-copy-help">
-                                PDF, JPEG, PNG ou WebP, 15 Mo au plus.
-                            </p>
-                        </form>
+                        {% include '@rental/public/_signed_copy_form.html.twig' %}
                     {% endif %}
                 </div>
             </div>
@@ -211,187 +229,6 @@
                     <p class="small text-body-secondary mb-0">
                         Ce détail reflète en permanence l'état de votre dossier.
                     </p>
-                </div>
-            </div>
-        {% endif %}
-
-        {#
-          Change requests and the manager's proposals (§6.16).
-
-          Nothing here changes the booking on its own — that is the whole
-          rule. A request the renter sends waits for a manager; a proposal a
-          manager sent waits for the renter, right here.
-        #}
-        {#
-          « Modifier votre demande » ships FOLDED (IT-03). It used to take
-          half the page for something a renter uses about once in ten
-          visits, above the dates and the price they actually came for.
-
-          One exception, and it is the whole point of the page when it
-          happens: a proposal from the unit waiting for an answer opens the
-          box by itself. A fold that hides the one thing somebody has to
-          act on is worse than no fold.
-        #}
-        {# `|filter` rather than a loop with a `set` inside it: Twig scopes a
-           `set` to the loop body, so the flag would always read false out
-           here. #}
-        {% set awaiting_renter = change_requests|filter(c => c.isPending and c.origin.value == 'manager')|length > 0 %}
-        {% if change_requests is not empty or not booking.status.isFinal %}
-            <div class="card mb-4" id="modifier-demande">
-                <h2 class="mb-0">
-                    <button type="button"
-                            class="btn w-100 d-flex align-items-center gap-2 p-3 text-start{{ awaiting_renter ? '' : ' collapsed' }}"
-                            data-bs-toggle="collapse" data-bs-target="#modifier-demande-body"
-                            aria-expanded="{{ awaiting_renter ? 'true' : 'false' }}"
-                            aria-controls="modifier-demande-body">
-                        <span class="h5 mb-0 flex-grow-1">Modifier votre demande</span>
-                        {% if awaiting_renter %}
-                            <span class="badge text-bg-warning">Réponse attendue</span>
-                        {% endif %}
-                        <i class="bi bi-chevron-down text-body-tertiary" aria-hidden="true"></i>
-                    </button>
-                </h2>
-                <div class="collapse{{ awaiting_renter ? ' show' }}" id="modifier-demande-body">
-                <div class="card-body pt-0">
-                    {% if change_requests is not empty %}
-                        <ul class="list-unstyled">
-                            {% for change in change_requests %}
-                                <li class="border-bottom py-2">
-                                    <div class="d-flex justify-content-between align-items-start gap-2">
-                                        <span>
-                                            <span class="fw-semibold">{{ change.kind.label }}</span>
-                                            <span class="text-body-secondary small d-block">{{ change.summary }}</span>
-                                        </span>
-                                        {% include 'partials/status_badge.html.twig' with { status: change.status.value, label: change.status.label } only %}
-                                    </div>
-                                    {% if change.isPending and change.origin.value == 'manager' %}
-                                        <p class="small mb-2">
-                                            L'unité vous propose ces dates. Tant que vous n'avez pas répondu,
-                                            votre réservation reste inchangée.
-                                        </p>
-                                        <div class="d-flex gap-2">
-                                            {# Answering the unit's proposal is the point of this page
-                                               whenever one is waiting, so « Accepter » is its single
-                                               primary. « Refuser » closes the proposal for good and
-                                               therefore asks first (§7.5). #}
-                                            <form method="post" action="/locations/suivi/{{ booking.id }}/{{ tracking_token }}/reponse">
-                                                {{ csrf_field()|raw }}
-                                                <input type="hidden" name="request_id" value="{{ change.id }}">
-                                                <input type="hidden" name="decision" value="accept">
-                                                <button type="submit" class="btn btn-sm btn-primary">Accepter</button>
-                                            </form>
-                                            <form method="post" action="/locations/suivi/{{ booking.id }}/{{ tracking_token }}/reponse"
-                                                  data-confirm="Refuser cette proposition ? Votre réservation reste telle qu'elle est, et l'unité devra vous en proposer une autre."
-                                                  data-confirm-label="Refuser">
-                                                {{ csrf_field()|raw }}
-                                                <input type="hidden" name="request_id" value="{{ change.id }}">
-                                                <input type="hidden" name="decision" value="refuse">
-                                                <button type="submit" class="btn btn-sm btn-outline-secondary">Refuser</button>
-                                            </form>
-                                        </div>
-                                    {% endif %}
-                                </li>
-                            {% endfor %}
-                        </ul>
-                    {% endif %}
-
-
-                    {% if not booking.status.isFinal %}
-                        {#
-                          **The renter no longer picks a type of request.**
-                          The form is their own booking, pre-filled; what
-                          they change is what they are asking for, and
-                          `ChangeRequestKind::forChange()` names it. Asking
-                          for other dates AND a smaller group used to be two
-                          requests, each valid only if the other was
-                          accepted too.
-                        #}
-                        <p class="text-body-secondary small">
-                            Corrigez ce qui doit changer, dites-nous pourquoi, et envoyez. Votre
-                            demande est transmise aux gestionnaires : elle ne change rien tant
-                            qu'ils ne l'ont pas acceptée.
-                        </p>
-                        <form method="post" action="/locations/suivi/{{ booking.id }}/{{ tracking_token }}/demande"
-                              class="row g-2 align-items-end">
-                            {{ csrf_field()|raw }}
-                            <div class="col-6 col-md-3">
-                                {% include 'partials/form_field.html.twig' with {
-                                    field_id: 'change-arrival',
-                                    field_name: 'arrival',
-                                    label: 'Du',
-                                    type: 'date',
-                                    size: 'sm',
-                                    wrapper_class: 'mb-0',
-                                    value: booking.arrivalDate,
-                                } only %}
-                            </div>
-                            <div class="col-6 col-md-3">
-                                {% include 'partials/form_field.html.twig' with {
-                                    field_id: 'change-departure',
-                                    field_name: 'departure',
-                                    label: 'Au',
-                                    type: 'date',
-                                    size: 'sm',
-                                    wrapper_class: 'mb-0',
-                                    value: booking.departureDate,
-                                } only %}
-                            </div>
-                            <div class="col-6 col-md-3">
-                                {% include 'partials/form_field.html.twig' with {
-                                    field_id: 'change-persons',
-                                    field_name: 'persons',
-                                    label: 'Participants',
-                                    type: 'number',
-                                    inputmode: 'numeric',
-                                    min: 1,
-                                    size: 'sm',
-                                    wrapper_class: 'mb-0',
-                                    value: booking.estimatedPersons,
-                                } only %}
-                            </div>
-                            <div class="col-12">
-                                {% include 'partials/form_field.html.twig' with {
-                                    field_id: 'change-message',
-                                    field_name: 'message',
-                                    label: 'Pourquoi ce changement',
-                                    type: 'textarea',
-                                    rows: 3,
-                                    size: 'sm',
-                                    required: true,
-                                    wrapper_class: 'mb-0',
-                                    help: 'Une ligne suffit. Sans explication, un gestionnaire ne peut pas distinguer une demande ferme d\'une question.',
-                                } only %}
-                            </div>
-                            <div class="col-12">
-                                <button type="submit" class="btn btn-sm btn-primary">Envoyer ma demande</button>
-                            </div>
-                        </form>
-
-                        {#
-                          Cancelling is a button of its own, not one line of
-                          a menu among « changer les dates » — which is the
-                          surest way to end a stay by mistake. The word that
-                          travels with it comes from the dialog, and stays
-                          optional: somebody who has decided must not be
-                          held up by a text field.
-                        #}
-                        <hr>
-                        <form method="post" action="/locations/suivi/{{ booking.id }}/{{ tracking_token }}/demande"
-                              data-confirm="Demander l'annulation de cette réservation ? Votre demande est transmise à l'unité ; elle ne libère les dates que lorsqu'un gestionnaire l'accepte."
-                              data-confirm-label="Demander l'annulation"
-                              data-confirm-note="Dire pourquoi, si vous le souhaitez (facultatif)"
-                              data-confirm-note-name="message">
-                            {{ csrf_field()|raw }}
-                            <input type="hidden" name="action" value="cancel">
-                            <button type="submit" class="btn btn-sm btn-outline-danger">
-                                Demander l'annulation
-                            </button>
-                            <span class="form-text d-block">
-                                Vos dates ne se libèrent qu'une fois l'annulation acceptée.
-                            </span>
-                        </form>
-                    {% endif %}
-                </div>
                 </div>
             </div>
         {% endif %}
@@ -582,6 +419,6 @@
 
 {% block scripts %}
     {# Opens the folded box a fragment points at — « #facturation » from an
-       email, « #modifier-demande » from anywhere. #}
+       email. #}
     <script src="{{ asset('/assets/js/collapse-anchor.js') }}" defer></script>
 {% endblock %}

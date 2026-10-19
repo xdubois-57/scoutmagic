@@ -267,12 +267,17 @@ class BookingJourneyTest extends TestCase
         }
     }
 
-    public function testAProposalSentWaitsOnTheRenter(): void
+    /**
+     * A booking a past proposal left « Proposition envoyée » waits on the
+     * renter for nothing any more (#927, chantier §2.2): its heading is its
+     * next step's.
+     */
+    public function testABookingLeftProposedReadsItsNextStep(): void
     {
         $journey = $this->journey(BookingStatus::PROPOSED, [BookingMilestones::CONTRACT_SENT => false]);
 
         $this->assertSame(BookingMilestones::CONTRACT_SENT, $journey->next()?->key);
-        $this->assertSame('Une proposition attend la réponse du locataire.', $journey->headline());
+        $this->assertSame('Le contrat reste à envoyer.', $journey->headline());
     }
 
     public function testOnceDecidedTheNextThingIsTheFirstUntickedLineAfterIt(): void
@@ -523,7 +528,6 @@ class BookingJourneyTest extends TestCase
         return [
             'reçue' => [BookingStatus::RECEIVED, 'La demande attend votre réponse : la réservation peut être confirmée.'],
             'précision demandée' => [BookingStatus::INFO_REQUESTED, 'Une précision a été demandée au locataire : la suite attend sa réponse.'],
-            'proposition' => [BookingStatus::PROPOSED, 'Une proposition attend la réponse du locataire.'],
             'contrat envoyé' => [BookingStatus::CONTRACT_SENT, 'Tout est prêt : la réservation peut être confirmée.'],
             'confirmée' => [BookingStatus::CONFIRMED, 'Tout est réglé : la location peut être clôturée.'],
             'refusée' => [BookingStatus::REFUSED, 'Cette demande a été refusée : elle ne peut plus changer.'],
@@ -542,7 +546,14 @@ class BookingJourneyTest extends TestCase
     public function testEveryStatusHasAHeadlineOfItsOwn(): void
     {
         $statuses = array_map(static fn(array $case): BookingStatus => $case[0], self::headlines());
-        $this->assertEqualsCanonicalizing(BookingStatus::cases(), array_values($statuses), 'a status has no heading test');
+        // « Proposition envoyée » is offered no more (#927, chantier §2.2):
+        // a row left in it reads its next step, like a request
+        // (testABookingLeftProposedReadsItsNextStep).
+        $this->assertEqualsCanonicalizing(
+            array_values(array_filter(BookingStatus::cases(), static fn($s): bool => $s !== BookingStatus::PROPOSED)),
+            array_values($statuses),
+            'a status has no heading test'
+        );
 
         $sentences = array_map(static fn(array $case): string => $case[1], self::headlines());
         $this->assertSame(array_values($sentences), array_values(array_unique($sentences)));
@@ -668,7 +679,6 @@ class BookingJourneyTest extends TestCase
             ]),
             $booking->status,
             null,
-            false,
             $booking->holdUntil
         );
 
@@ -679,32 +689,105 @@ class BookingJourneyTest extends TestCase
     }
 
     /**
-     * A change the renter asked for comes before everything else, with
-     * « Répondre à la demande » to the page it is answered on (IT-20).
+     * A modification in progress comes before everything else (#927,
+     * chantier §2.4): its stage is the heading, two lines say that nothing
+     * on the page changes before the countersignature and how the
+     * booking's own dates are held, and the one action leads to the
+     * modification — or, with a copy to check, to Documents.
      */
-    public function testARenterChangeRequestComesFirst(): void
+    public function testAModificationInProgressComesFirst(): void
     {
-        $journey = BookingJourney::of(
-            $this->milestones(BookingStatus::CONFIRMED, [BookingMilestones::BALANCE_RECEIVED => false]),
-            BookingStatus::CONFIRMED,
-            'du 14/11/2027 au 16/11/2027'
+        $milestones = $this->milestones(BookingStatus::CONTRACT_SENT, [
+            BookingMilestones::CONTRACT_GENERATED => true,
+            BookingMilestones::CONTRACT_SENT => true,
+            BookingMilestones::SIGNED_COPY_RECEIVED => false,
+        ]);
+        $draft = BookingJourney::of(
+            $milestones,
+            BookingStatus::CONTRACT_SENT,
+            $this->modification(\Modules\Rental\Booking\ModificationStatus::DRAFT),
+            new \DateTimeImmutable('2027-03-18 12:00:00')
         );
 
-        $this->assertSame('Le locataire demande une modification : du 14/11/2027 au 16/11/2027.', $journey->headline());
-        $this->assertSame('Répondre à la demande', $journey->primaryAction()?->label);
-        $this->assertSame(\Modules\Rental\Booking\BookingPage::CHANGES, $journey->primaryAction()?->page);
+        $this->assertSame('Modification en cours : envoyer le contrat de remplacement', $draft->headline());
+        $this->assertStringContainsString('restent ceux qui s\'appliquent', (string) $draft->modificationLine());
+        $this->assertSame(
+            "Dates bloquées jusqu'au 18/03/2027 ; sans copie signée, elles se libèrent à cette date.",
+            $draft->datesLine()
+        );
+        $this->assertSame('Ouvrir la modification', $draft->primaryAction()?->label);
+        $this->assertSame(\Modules\Rental\Booking\BookingPage::CHANGES, $draft->primaryAction()?->page);
+        $this->assertSame('/7', $draft->primaryAction()?->pathSuffix);
+        $this->assertNull($draft->lateLine());
+
+        $received = BookingJourney::of(
+            $milestones,
+            BookingStatus::CONFIRMED,
+            $this->modification(\Modules\Rental\Booking\ModificationStatus::SENT, copyPending: true)
+        );
+        $this->assertSame('Modification en cours : vérifier la copie signée et contresigner', $received->headline());
+        $this->assertSame('Vérifier et contresigner', $received->primaryAction()?->label);
+        $this->assertSame(\Modules\Rental\Booking\BookingPage::DOCUMENTS, $received->primaryAction()?->page);
+        $this->assertSame('Dates bloquées fermement : la réservation est confirmée.', $received->datesLine());
+
+        $firm = BookingJourney::of(
+            $milestones,
+            BookingStatus::CONTRACT_SENT,
+            $this->modification(\Modules\Rental\Booking\ModificationStatus::SENT),
+            null,
+            null,
+            null,
+            new \DateTimeImmutable('2027-03-03 09:00:00')
+        );
+        $this->assertSame('Modification en cours : copie signée du nouveau contrat attendue', $firm->headline());
+        $this->assertSame('Dates bloquées fermement : copie signée reçue le 03/03/2027.', $firm->datesLine());
     }
 
-    public function testAnUnansweredProposalOfTheUnitIsSaidWithNothingToPress(): void
-    {
-        $journey = BookingJourney::of(
-            $this->milestones(BookingStatus::CONFIRMED, [BookingMilestones::BALANCE_RECEIVED => false]),
-            BookingStatus::CONFIRMED,
+    private function modification(
+        \Modules\Rental\Booking\ModificationStatus $status,
+        bool $copyPending = false
+    ): \Modules\Rental\Booking\ModificationProgress {
+        $modification = new \Modules\Rental\Booking\BookingModification(
+            7,
+            1,
+            $status,
+            '2027-03-12',
+            '2027-03-15',
+            1,
+            32,
             null,
-            true
+            66800,
+            null,
+            null,
+            '2027-03-12',
+            '2027-03-14',
+            1,
+            25,
+            54000,
+            null,
+            null,
+            new \DateTimeImmutable('2027-03-03 09:00:00')
+        );
+        $copy = new \Modules\Rental\Document\RentalDocument(
+            9,
+            1,
+            1,
+            \Modules\Rental\Document\DocumentType::SIGNED_COPY,
+            1,
+            false,
+            null,
+            null,
+            null,
+            null,
+            new \DateTimeImmutable('2027-03-06 09:00:00'),
+            modificationId: 7,
+            inActiveModification: true
         );
 
-        $this->assertSame('Une proposition attend la réponse du locataire.', $journey->headline());
+        $progress = \Modules\Rental\Booking\ModificationProgress::of($modification, $copyPending ? [$copy] : []);
+        $this->assertNotNull($progress);
+
+        return $progress;
     }
 
     public function testALateRenterAndALapsedHoldEachAddALine(): void
@@ -713,7 +796,6 @@ class BookingJourneyTest extends TestCase
             $this->milestones(BookingStatus::CONFIRMED, [BookingMilestones::DEPOSIT_RECEIVED => false]),
             BookingStatus::CONFIRMED,
             null,
-            false,
             null,
             new \DateTimeImmutable('2027-10-03')
         );
@@ -721,7 +803,6 @@ class BookingJourneyTest extends TestCase
             $this->milestones(BookingStatus::RECEIVED),
             BookingStatus::RECEIVED,
             null,
-            false,
             null,
             null,
             new \DateTimeImmutable('2027-02-01')
@@ -782,9 +863,14 @@ class BookingJourneyTest extends TestCase
             $this->assertNull($journey->primaryAction(), $status->value);
             $this->assertSame([], $journey->otherDecisions(), $status->value);
 
-            // Not even a change request that survived the final sweep.
-            $lingering = BookingJourney::of($this->milestones($status, [], null), $status, 'du 08/07/2027 au 11/07/2027');
+            // Not even a modification that outlived the booking's end.
+            $lingering = BookingJourney::of(
+                $this->milestones($status, [], null),
+                $status,
+                $this->modification(\Modules\Rental\Booking\ModificationStatus::DRAFT)
+            );
             $this->assertNull($lingering->primaryAction(), $status->value);
+            $this->assertNull($lingering->modification(), $status->value);
         }
     }
 

@@ -38,9 +38,12 @@ final class BookingTransition
      * @var array<string, list<BookingStatus>>
      */
     private const ALLOWED = [
+        // « Faire une proposition » is not offered any more (#927, chantier
+        // §2.2): the renter answers nothing from their page, so a proposal
+        // would wait on an answer nobody can give. A row a past proposal
+        // left in `proposed` still moves on, through its own line below.
         BookingStatus::RECEIVED->value => [
             BookingStatus::INFO_REQUESTED,
-            BookingStatus::PROPOSED,
             BookingStatus::CONFIRMED,
             BookingStatus::REFUSED,
             BookingStatus::CANCELLED,
@@ -50,7 +53,6 @@ final class BookingTransition
             // decision, where the « sans réponse » reminder applies again
             // (#708, IT-11 — this used to lead to « En cours d'examen »).
             BookingStatus::RECEIVED,
-            BookingStatus::PROPOSED,
             BookingStatus::CONFIRMED,
             BookingStatus::REFUSED,
             BookingStatus::CANCELLED,

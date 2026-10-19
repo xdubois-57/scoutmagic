@@ -58,13 +58,23 @@ class RentalBookingRepository
      * stored: one correlated subquery on the documents of this same
      * module, so a calendar of a hundred bookings stays one query and the
      * answer cannot drift from the copies (`RentalBooking::holdsFirmly()`).
-     * `superseded_at` is what ties a copy to the contract in force: a
-     * contract voided by a change takes the copies signed from it along
-     * (`RentalContractValidityService`).
+     *
+     * **Only copies of the contract in force** (chantier §2.3). A contract
+     * replaced at the countersignature of a modification takes the copies
+     * signed from it along (`superseded_at`, like a contract voided before
+     * the first send — `RentalContractValidityService`), and a copy of a
+     * replacement contract still waiting for its countersignature belongs
+     * to its project, not yet to the booking: until then the booking's
+     * dates are the old ones, and a copy agreeing to new ones cannot hold
+     * them.
      */
     private const SIGNED_COPY_RECEIVED_AT = "SELECT MIN(d.created_at) FROM rental_documents d
          WHERE d.booking_id = b.id AND d.document_type = 'signed_copy'
-           AND d.refused_at IS NULL AND d.superseded_at IS NULL";
+           AND d.refused_at IS NULL AND d.superseded_at IS NULL
+           AND NOT EXISTS (
+               SELECT 1 FROM rental_booking_modifications m
+               WHERE m.id = d.modification_id AND m.active_booking_id IS NOT NULL
+           )";
 
     /** Every column of a booking, and its derived firm hold — the one way a booking is read. */
     private const SELECT_BOOKINGS = 'SELECT b.*, (' . self::SIGNED_COPY_RECEIVED_AT

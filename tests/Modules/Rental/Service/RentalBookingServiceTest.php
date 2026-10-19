@@ -10,9 +10,6 @@ use Core\Security\EncryptionService;
 use Modules\Rental\Audit\BookingAudit;
 use Modules\Rental\Booking\BookingReference;
 use Modules\Rental\Booking\BookingStatus;
-use Modules\Rental\Booking\ChangeRequestKind;
-use Modules\Rental\Booking\ChangeRequestOrigin;
-use Modules\Rental\Booking\ChangeRequestStatus;
 use Modules\Rental\Booking\HoldOrigin;
 use Modules\Rental\Pricing\BillingUnit;
 use Modules\Rental\Pricing\PriceLine;
@@ -35,7 +32,7 @@ class RentalBookingServiceTest extends TestCase
     private EncryptionService $encryption;
     private RentalBookingRepository $repository;
     private RentalBookingService $service;
-    private \Modules\Rental\Repository\RentalChangeRequestRepository $changeRequests;
+    private \Modules\Rental\Repository\RentalModificationRepository $modifications;
     private int $assetId;
 
     /** @var array<int, array{type: string, description: string, context: ?string}> */
@@ -77,14 +74,11 @@ class RentalBookingServiceTest extends TestCase
             }
         };
 
-        $this->changeRequests = new \Modules\Rental\Repository\RentalChangeRequestRepository(
-            $this->pdo,
-            $this->encryption
-        );
+        $this->modifications = new \Modules\Rental\Repository\RentalModificationRepository($this->pdo);
         $this->service = new RentalBookingService(
             $this->repository,
             new JournalService($journalRepository),
-            $this->changeRequests,
+            $this->modifications,
             RentalTestHelper::bookingAudit($this->pdo, $this->encryption)
         );
     }
@@ -747,100 +741,59 @@ class RentalBookingServiceTest extends TestCase
     }
 
     /**
-     * A booking the sweep expires has nothing left to decide, so its
-     * pending change requests are refused with it — the rule
-     * RentalOperationsService already applies when a MANAGER closes a
-     * booking, reached here by the other road and previously not applied
-     * at all. The renter's tracking page was still offering « Accepter »
-     * on a proposal for a booking that no longer existed.
+     * A booking the sweep expires takes its modification in progress along
+     * (#927, chantier §2.3), in the same transaction — the rule
+     * RentalOperationsService applies when a MANAGER ends a booking,
+     * reached here by the other road. Nobody decided it: the history says
+     * so, as automatic.
      */
-    public function testExpiringABookingRefusesItsPendingChangeRequests(): void
+    public function testExpiringABookingCancelsItsModificationInProgress(): void
     {
         $booking = $this->submit()['booking'];
         $this->repository->setHold($booking->id, $this->now('2027-06-02 18:00:00'), HoldOrigin::MANAGER);
-        $requestId = $this->changeRequests->create(
-            $booking->id,
-            ChangeRequestOrigin::MANAGER,
-            ChangeRequestKind::DATES,
-            '2027-07-18',
-            '2027-07-21',
-            null,
-            null,
-            null,
-            null
-        );
+        $this->openModification($booking);
 
         $this->service->expireLapsedHolds($this->now('2027-06-04 10:00:00'));
 
-        $this->assertSame([], $this->changeRequests->findPendingForBooking($booking->id));
-        $this->assertSame(
-            ChangeRequestStatus::REFUSED,
-            $this->changeRequests->findById($requestId)?->status
-        );
-    }
-
-    /**
-     * Nobody decided this — the deadline did. Core\Audit renders an entry
-     * with no account behind it as automatic (§8.66), which is what the
-     * manager reading the timeline needs to see.
-     */
-    public function testTheAutomaticRefusalIsRecordedAsAutomatic(): void
-    {
-        $booking = $this->submit()['booking'];
-        $this->repository->setHold($booking->id, $this->now('2027-06-02 18:00:00'), HoldOrigin::MANAGER);
-        $this->changeRequests->create(
-            $booking->id,
-            ChangeRequestOrigin::MANAGER,
-            ChangeRequestKind::DATES,
-            '2027-07-18',
-            '2027-07-21',
-            null,
-            null,
-            null,
-            null
-        );
-
-        $this->service->expireLapsedHolds($this->now('2027-06-04 10:00:00'));
-
-        $entries = RentalTestHelper::bookingHistory($this->pdo, $this->encryption, $booking->id);
-        $decisions = array_values(array_filter(
-            $entries,
-            static fn (\Core\Audit\AuditEntry $entry): bool => $entry->fieldKey === BookingAudit::CHANGE_DECIDED
+        $this->assertNull($this->modifications->findActiveFor($booking->id));
+        $entries = array_values(array_filter(
+            RentalTestHelper::bookingHistory($this->pdo, $this->encryption, $booking->id),
+            static fn (\Core\Audit\AuditEntry $entry): bool => $entry->fieldKey === BookingAudit::MODIFICATION
         ));
-
-        $this->assertCount(1, $decisions);
-        // « Refusée », not `refused`: `Core\Audit` stores what a reader
-        // sees, and `partials/audit_timeline.html.twig` never formats a
-        // value — so an enum's `value` here is an English word on a French
-        // page for good (IT-03).
-        $this->assertSame(ChangeRequestStatus::REFUSED->label(), $decisions[0]->toValue);
-        $this->assertSame(ChangeRequestKind::DATES->label(), $decisions[0]->fromValue);
-        $this->assertTrue($decisions[0]->isAutomatic());
+        $this->assertCount(1, $entries);
+        $this->assertSame('Annulée', $entries[0]->toValue);
+        $this->assertTrue($entries[0]->isAutomatic());
     }
 
     /**
-     * A hold that merely lapses releases the dates and decides nothing:
-     * the request is still waiting for a manager, so a pending proposal
-     * must survive it.
+     * A hold that merely lapses releases the booking's dates and decides
+     * nothing: its modification in progress keeps its own, which hold
+     * without a deadline (#927, chantier §2.3).
      */
-    public function testAReleasedAutomaticHoldLeavesPendingRequestsAlone(): void
+    public function testAReleasedAutomaticHoldLeavesTheModificationAlone(): void
     {
         $booking = $this->submit()['booking'];
-        $this->changeRequests->create(
-            $booking->id,
-            ChangeRequestOrigin::MANAGER,
-            ChangeRequestKind::DATES,
-            '2027-07-18',
-            '2027-07-21',
-            null,
-            null,
-            null,
-            null
-        );
+        $this->openModification($booking);
 
         $this->service->expireLapsedHolds($this->now('2027-06-04 10:00:00'));
 
-        $this->assertCount(1, $this->changeRequests->findPendingForBooking($booking->id));
+        $this->assertNotNull($this->modifications->findActiveFor($booking->id));
+    }
+
+    private function openModification(\Modules\Rental\Booking\RentalBooking $booking): int
+    {
+        return $this->modifications->createDraft(
+            $booking,
+            new \Modules\Rental\Booking\ModificationTerms(
+                '2027-07-18',
+                '2027-07-21',
+                1,
+                null,
+                new \Modules\Rental\Pricing\PriceQuote([], 0, 3, 0, 1, \Modules\Rental\Pricing\BillingUnit::PER_NIGHT)
+            ),
+            null,
+            $this->now()
+        );
     }
 
     public function testAHoldThatHasNotLapsedIsLeftAlone(): void

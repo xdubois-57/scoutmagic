@@ -27,7 +27,6 @@ use Core\View\TwigFactory;
 use Modules\Rental\Availability\AvailabilityCalculator;
 use Modules\Rental\Availability\BookingConstraints;
 use Modules\Rental\Booking\BookingStatus;
-use Modules\Rental\Booking\ChangeRequestKind;
 use Modules\Rental\Controller\RentalRequestController;
 use Modules\Rental\Pricing\PriceLine;
 use Modules\Rental\Pricing\PriceQuote;
@@ -76,7 +75,6 @@ class RentalRequestControllerTest extends TestCase
     private RentalAssetRepository $assetRepository;
     private RentalAssetManagerRepository $managerRepository;
     private RentalBookingRepository $bookingRepository;
-    private \Modules\Rental\Repository\RentalChangeRequestRepository $changeRequestRepository;
     private \Modules\Rental\Repository\RentalBookingCommentRepository $commentRepository;
     private \Modules\Rental\Service\RentalOperationsService $operationsService;
     private RentalConstraintsRepository $constraintsRepository;
@@ -99,6 +97,7 @@ class RentalRequestControllerTest extends TestCase
     private string $storagePath;
     private \Modules\Rental\Service\RentalDocumentService $documentService;
     private \Modules\Rental\Service\RentalSignedContractService $signedContractService;
+    private \Modules\Rental\Service\RentalModificationService $modificationService;
 
     protected function setUp(): void
     {
@@ -132,10 +131,6 @@ class RentalRequestControllerTest extends TestCase
         $this->assetRepository = new RentalAssetRepository($this->pdo, $this->encryption);
         $this->managerRepository = new RentalAssetManagerRepository($this->pdo);
         $this->bookingRepository = new RentalBookingRepository($this->pdo, $this->encryption);
-        $this->changeRequestRepository = new \Modules\Rental\Repository\RentalChangeRequestRepository(
-            $this->pdo,
-            $this->encryption
-        );
         $this->constraintsRepository = new RentalConstraintsRepository($this->pdo);
         $this->editableContentService = new EditableContentService(new EditableContentRepository($this->pdo));
         $this->conditionsService = new RentalConditionsService(
@@ -171,10 +166,9 @@ class RentalRequestControllerTest extends TestCase
             $this->bookingRepository,
             RentalTestHelper::bookingAudit($this->pdo, $this->encryption),
             $this->commentRepository,
-            $this->changeRequestRepository,
+            new \Modules\Rental\Repository\RentalModificationRepository($this->pdo),
             $availabilityService,
             $this->pricingService,
-            new \Modules\Rental\Pricing\QuoteEditor(),
             $journalService
         );
 
@@ -221,6 +215,26 @@ class RentalRequestControllerTest extends TestCase
             $journalService,
             $this->storagePath
         );
+        // As public/index.php wires it (#927, chantier §2.3): the tracking
+        // page shows the replacement contract of a modification in progress.
+        $occupancyGuard = new \Modules\Rental\Service\RentalOccupancyGuard(
+            $this->bookingRepository,
+            $availabilityService,
+            $this->pricingService
+        );
+        $this->modificationService = new \Modules\Rental\Service\RentalModificationService(
+            $this->bookingRepository,
+            new \Modules\Rental\Repository\RentalModificationRepository($this->pdo),
+            $documentRepository,
+            $occupancyGuard,
+            $availabilityService,
+            $this->pricingService,
+            RentalTestHelper::bookingAudit($this->pdo, $this->encryption),
+            $journalService,
+            $this->documentService,
+            null,
+            $mailService
+        );
         $this->signedContractService = new \Modules\Rental\Service\RentalSignedContractService(
             $this->documentService,
             $documentRepository,
@@ -228,7 +242,12 @@ class RentalRequestControllerTest extends TestCase
             RentalTestHelper::bookingAudit($this->pdo, $this->encryption),
             $mailService,
             new \Core\Pdf\PdfCompressor($this->storagePath . '/temp'),
-            $journalService
+            $journalService,
+            null,
+            null,
+            null,
+            $occupancyGuard,
+            $this->modificationService
         );
 
         $this->controller = new RentalRequestController(
@@ -249,7 +268,6 @@ class RentalRequestControllerTest extends TestCase
             ),
             $settingService,
             $this->operationsService,
-            $this->changeRequestRepository,
             $this->conditionsService,
             // §6.32: the renter's own ICS feed. Both handles are nullable
             // and null without the `calendar` module — only the generator
@@ -1140,36 +1158,6 @@ class RentalRequestControllerTest extends TestCase
         }
     }
 
-    /**
-     * « Demande de modification reçue » (#708, IT-20): the managers are
-     * told, it leads to the booking's « Modifications » page, and it names
-     * the asset, the reference and what is asked — never the renter.
-     */
-    public function testARentersChangeRequestNotifiesTheManagers(): void
-    {
-        $assetId = $this->createAsset();
-        $manager = $this->addAccount('gestionnaire@test.be');
-        $this->addManager($assetId, 'gestionnaire@test.be');
-        [$bookingId, $token] = $this->submitAndTrack();
-        $this->notifications = [];
-
-        $this->postToTracking('requestChange', $bookingId, $token, [
-            'persons' => '30',
-            'message' => 'Nous serons plus nombreux.',
-        ]);
-
-        $this->assertCount(1, $this->notifications);
-        $this->assertSame('rental.change_request', $this->notifications[0]['typeId']);
-        $this->assertSame([$manager], array_column($this->notifications[0]['recipients'], 'userAccountId'));
-        $payload = $this->notifications[0]['payload'];
-        $this->assertSame('/mes-locations/local-saint-georges/reservations/' . $bookingId . '/modifications', $payload['url'] ?? null);
-        $this->assertStringContainsString('participants', (string) ($payload['body'] ?? ''));
-        $text = (string) json_encode($payload, JSON_UNESCAPED_UNICODE);
-        foreach (['Jeanne Martin', 'jeanne.martin@example.be', 'Nous serons plus nombreux.'] as $secret) {
-            $this->assertStringNotContainsString($secret, $text);
-        }
-    }
-
     /** The direct email is gone: only the renter is mailed. */
     public function testNoManagerIsMailedDirectlyAnyMore(): void
     {
@@ -1303,19 +1291,10 @@ class RentalRequestControllerTest extends TestCase
         $this->assertStringContainsString($arrival->format('d/m/Y'), $body);
         $this->assertStringContainsString($departure->format('d/m/Y'), $body);
 
-        // The stored form may appear ONCE each, and only as the `value` of
-        // the pre-filled date inputs « Modifier votre demande » now carries
-        // (IT-03): `<input type="date">` takes ISO and renders it in the
-        // reader's own locale, so that is not a date shown as a stored row.
-        // Anywhere else it still is, which is what this test was written
-        // for — hence counting rather than dropping the assertion.
+        // The stored form appears nowhere: the renter has no date input to
+        // pre-fill any more (#927, chantier §2.2).
         foreach ([$arrival, $departure] as $date) {
-            $iso = $date->format('Y-m-d');
-            $this->assertSame(
-                substr_count($body, 'value="' . $iso . '"'),
-                substr_count($body, $iso),
-                'the stored form of ' . $iso . ' appears somewhere other than a date input'
-            );
+            $this->assertStringNotContainsString($date->format('Y-m-d'), $body);
         }
     }
 
@@ -1515,9 +1494,8 @@ class RentalRequestControllerTest extends TestCase
         $_POST = $body;
 
         $path = '/locations/suivi/' . $bookingId . '/' . $token . '/' . match ($action) {
-            'requestChange' => 'demande',
             'saveBillingIdentity' => 'facturation',
-            default => 'reponse',
+            default => 'contrat',
         };
 
         return $this->controller->{$action}(
@@ -1526,174 +1504,7 @@ class RentalRequestControllerTest extends TestCase
         );
     }
 
-    public function testARentersChangeRequestIsRecordedAndChangesNothing(): void
-    {
-        $this->createAsset();
-        [$bookingId, $token] = $this->submitAndTrack();
-
-        $response = $this->postToTracking('requestChange', $bookingId, $token, [
-            'kind' => 'dates',
-            'arrival' => $this->arrival(60),
-            'departure' => $this->departure(63),
-            'message' => 'Nous préférons la semaine suivante.',
-        ]);
-
-        $this->assertSame(302, $response->getStatusCode());
-        $requests = $this->changeRequestRepository->findForBooking($bookingId);
-        $this->assertCount(1, $requests);
-        $this->assertTrue($requests[0]->isPending());
-        // The booking itself is untouched: that is the whole rule.
-        $this->assertSame($this->arrival(), $this->bookingRepository->findById($bookingId)?->arrivalDate);
-    }
-
     // ── The type of request is derived, never chosen (IT-03) ────────────
-
-    public function testChangingOnlyTheDatesIsADateRequest(): void
-    {
-        $this->createAsset();
-        [$bookingId, $token] = $this->submitAndTrack();
-
-        $this->postToTracking('requestChange', $bookingId, $token, [
-            'arrival' => $this->arrival(60),
-            'departure' => $this->departure(63),
-            'persons' => (string) $this->bookingRepository->findById($bookingId)?->estimatedPersons,
-            'message' => 'Nous préférons la semaine suivante.',
-        ]);
-
-        $this->assertSame(
-            ChangeRequestKind::DATES,
-            $this->changeRequestRepository->findForBooking($bookingId)[0]->kind
-        );
-    }
-
-    /**
-     * **And it carries no head count at all.**
-     *
-     * The form pre-fills the participants box with the booking's own
-     * figure, so a dates-only request submits it whether or not the renter
-     * touched it. Stored as `proposedPersons`, it comes back out of
-     * `acceptChange()` through `proposedPersons ?? current` and is written
-     * by `setStay()` — so a request made before a head-count change was
-     * accepted would revert it, weeks later, with nothing to warn the
-     * manager: `summary()` renders a DATES request as dates alone.
-     */
-    public function testADatesOnlyRequestCarriesNoHeadCount(): void
-    {
-        $this->createAsset();
-        [$bookingId, $token] = $this->submitAndTrack();
-
-        $this->postToTracking('requestChange', $bookingId, $token, [
-            'arrival' => $this->arrival(60),
-            'departure' => $this->departure(63),
-            // Exactly what the pre-filled box posts back.
-            'persons' => (string) $this->bookingRepository->findById($bookingId)?->estimatedPersons,
-            'message' => 'Nous préférons la semaine suivante.',
-        ]);
-
-        $this->assertNull($this->changeRequestRepository->findForBooking($bookingId)[0]->proposedPersons);
-    }
-
-    public function testChangingOnlyTheHeadCountIsAParticipantsRequest(): void
-    {
-        $this->createAsset();
-        [$bookingId, $token] = $this->submitAndTrack();
-        $booking = $this->bookingRepository->findById($bookingId);
-        $this->assertNotNull($booking);
-
-        $this->postToTracking('requestChange', $bookingId, $token, [
-            'arrival' => $booking->arrivalDate,
-            'departure' => $booking->departureDate,
-            'persons' => (string) (((int) $booking->estimatedPersons) + 4),
-            'message' => 'Nous serons quatre de plus.',
-        ]);
-
-        $this->assertSame(
-            ChangeRequestKind::PERSONS,
-            $this->changeRequestRepository->findForBooking($bookingId)[0]->kind
-        );
-    }
-
-    /**
-     * The case the old form could not express at all: `kind` was a single
-     * choice, so "other dates AND a smaller group" was two requests a
-     * manager had to answer separately, each of them valid only if the
-     * other was accepted too. The row always had room for both.
-     */
-    public function testChangingBothIsOneRequestAndNotTwo(): void
-    {
-        $this->createAsset();
-        [$bookingId, $token] = $this->submitAndTrack();
-
-        $this->postToTracking('requestChange', $bookingId, $token, [
-            'arrival' => $this->arrival(60),
-            'departure' => $this->departure(63),
-            'persons' => '9',
-            'message' => "D'autres dates, et nous serons moins nombreux.",
-        ]);
-
-        $requests = $this->changeRequestRepository->findForBooking($bookingId);
-        $this->assertCount(1, $requests);
-        $this->assertSame(ChangeRequestKind::DATES_AND_PERSONS, $requests[0]->kind);
-        $this->assertSame(9, $requests[0]->proposedPersons);
-        $this->assertNotNull($requests[0]->proposedArrivalDate);
-    }
-
-    /**
-     * A form somebody opened, read and submitted without touching is not a
-     * request. It used to become one, and a manager had to open it to find
-     * that out.
-     */
-    public function testAFormThatChangesNothingIsRefused(): void
-    {
-        $this->createAsset();
-        [$bookingId, $token] = $this->submitAndTrack();
-        $booking = $this->bookingRepository->findById($bookingId);
-        $this->assertNotNull($booking);
-
-        $this->postToTracking('requestChange', $bookingId, $token, [
-            'arrival' => $booking->arrivalDate,
-            'departure' => $booking->departureDate,
-            'persons' => (string) $booking->estimatedPersons,
-            'message' => 'Bonjour !',
-        ]);
-
-        $this->assertSame([], $this->changeRequestRepository->findForBooking($bookingId));
-    }
-
-    public function testAChangeWithoutAWordIsRefused(): void
-    {
-        $this->createAsset();
-        [$bookingId, $token] = $this->submitAndTrack();
-
-        $this->postToTracking('requestChange', $bookingId, $token, [
-            'arrival' => $this->arrival(60),
-            'departure' => $this->departure(63),
-            'message' => '   ',
-        ]);
-
-        $this->assertSame([], $this->changeRequestRepository->findForBooking($bookingId));
-    }
-
-    /**
-     * Cancelling is its own button, and its word is optional: somebody who
-     * has decided must not be held up by a text field.
-     */
-    public function testCancellingIsItsOwnButtonAndNeedsNoMessage(): void
-    {
-        $this->createAsset();
-        [$bookingId, $token] = $this->submitAndTrack();
-
-        $this->postToTracking('requestChange', $bookingId, $token, [
-            'action' => 'cancel',
-        ]);
-
-        $requests = $this->changeRequestRepository->findForBooking($bookingId);
-        $this->assertCount(1, $requests);
-        $this->assertSame(ChangeRequestKind::CANCELLATION, $requests[0]->kind);
-        // And it changes nothing by itself — the dates stay held until a
-        // manager accepts.
-        $this->assertSame($this->arrival(), $this->bookingRepository->findById($bookingId)?->arrivalDate);
-    }
 
     // ── The renter's own billing coordinates (IT-03, §22.6) ─────────────
 
@@ -1724,13 +1535,12 @@ class RentalRequestControllerTest extends TestCase
     }
 
     /**
-     * The address is part of what the contract states (#708, IT-20).
-     * Filled in for the first time once the contract is out — the usual
-     * way, the request form does not ask for it — it voids nothing: the
-     * contract left it blank. Corrected after the contract printed it, it
-     * voids it now, and the renter is told.
+     * Once a contract has gone out, billing coordinates filled in or
+     * corrected after it void nothing (#927, chantier §2.3): only the
+     * countersignature of a modification replaces a contract, and the
+     * renter is told nothing about a contract to come.
      */
-    public function testABillingAddressVoidsTheContractOnlyWhenItCorrectsOneItPrinted(): void
+    public function testBillingCoordinatesAfterTheSendVoidNoContract(): void
     {
         $this->createAsset();
         [$bookingId, $token] = $this->submitAndTrack();
@@ -1743,18 +1553,36 @@ class RentalRequestControllerTest extends TestCase
         ];
 
         $this->postToTracking('saveBillingIdentity', $bookingId, $token, $billing('Rue du Moulin 3, 5000 Namur'));
-        $this->assertStringNotContainsString('ne vaut plus', \Core\Http\FlashMessage::get()['message'] ?? '');
-        $this->assertFalse($this->documentService->forBooking($bookingId)[0]->isSuperseded(), 'a blank filled in');
-
-        // A new contract, printing the address — then corrected.
-        $this->sendTheContract($bookingId);
         $this->postToTracking('saveBillingIdentity', $bookingId, $token, $billing('Place Saint-Aubain 1, 5000 Namur'));
 
-        $this->assertStringContainsString('ne vaut plus', \Core\Http\FlashMessage::get()['message'] ?? '');
-        $versions = $this->documentService->forBooking($bookingId);
-        usort($versions, static fn($a, $b): int => $a->id <=> $b->id);
-        $this->assertTrue($versions[1]->isSuperseded(), 'the version that printed the address');
-        $this->assertFalse($versions[0]->isSuperseded(), 'the first one left it blank, and says nothing wrong');
+        $this->assertSame(
+            'Vos coordonnées de facturation ont été enregistrées.',
+            \Core\Http\FlashMessage::get()['message'] ?? null
+        );
+        foreach ($this->documentService->forBooking($bookingId) as $document) {
+            $this->assertFalse($document->isSuperseded());
+        }
+    }
+
+    /**
+     * The renter changes nothing from their page (#927, chantier §2.2): no
+     * form to ask for other dates or another head count, no answer to a
+     * proposal, no « Annuler ma demande ». They contact the unit, whose
+     * contacts the page lists.
+     */
+    public function testTheTrackingPageOffersNoChangeNorCancellation(): void
+    {
+        $this->createAsset();
+        [$bookingId, $token] = $this->submitAndTrack();
+
+        $body = (string) $this->track($bookingId, $token)->getBody();
+
+        $this->assertStringNotContainsString('Modifier votre demande', $body);
+        $this->assertStringNotContainsString("Demander l'annulation", $body);
+        $this->assertStringNotContainsString('/demande"', $body);
+        $this->assertStringNotContainsString('/reponse"', $body);
+        $this->assertFalse(method_exists($this->controller, 'requestChange'));
+        $this->assertFalse(method_exists($this->controller, 'decideProposal'));
     }
 
     /**
@@ -1837,205 +1665,6 @@ class RentalRequestControllerTest extends TestCase
 
         $this->assertNotSame('', $raw);
         $this->assertStringNotContainsString('Amis du Sart', $raw);
-    }
-
-    public function testARentersChangeRequestNeedsTheRightToken(): void
-    {
-        // A POST is not less of an entry point than a GET.
-        $this->createAsset();
-        [$bookingId] = $this->submitAndTrack();
-
-        $response = $this->postToTracking('requestChange', $bookingId, str_repeat('f', 64), [
-            'kind' => 'cancellation',
-        ]);
-
-        $this->assertSame(404, $response->getStatusCode());
-        $this->assertSame([], $this->changeRequestRepository->findForBooking($bookingId));
-    }
-
-    public function testARentersChangeRequestNeedsAValidCsrfToken(): void
-    {
-        $this->createAsset();
-        [$bookingId, $token] = $this->submitAndTrack();
-
-        $response = $this->postToTracking('requestChange', $bookingId, $token, [
-            '_csrf_token' => 'forged',
-            'kind' => 'cancellation',
-        ]);
-
-        $this->assertSame(302, $response->getStatusCode());
-        $this->assertSame(
-            \Core\Http\Controller\AbstractController::SESSION_EXPIRED_MESSAGE,
-            \Core\Http\FlashMessage::get()['message'] ?? null
-        );
-        $this->assertSame([], $this->changeRequestRepository->findForBooking($bookingId));
-    }
-
-    public function testTheRenterAcceptsAManagersProposalFromTheirOwnPage(): void
-    {
-        $this->createAsset();
-        [$bookingId, $token] = $this->submitAndTrack();
-        $booking = $this->bookingRepository->findById($bookingId);
-        $this->assertNotNull($booking);
-
-        $requestId = $this->operationsService->requestChange(
-            $booking,
-            $this->trackedAsset(),
-            \Modules\Rental\Booking\ChangeRequestOrigin::MANAGER,
-            \Modules\Rental\Booking\ChangeRequestKind::DATES,
-            $this->arrival(90),
-            $this->departure(93),
-            null,
-            null,
-            null,
-            'Ces dates nous arrangeraient mieux.',
-            1
-        );
-
-        $this->postToTracking('decideProposal', $bookingId, $token, [
-            'request_id' => (string) $requestId,
-            'decision' => 'accept',
-        ]);
-
-        $this->assertSame($this->arrival(90), $this->bookingRepository->findById($bookingId)?->arrivalDate);
-    }
-
-    /**
-     * New dates the renter accepts are not what the contract they hold says
-     * (#708, IT-20): it is void the moment they accept, and they read it.
-     */
-    public function testAcceptingAProposalVoidsTheContractAndSaysSo(): void
-    {
-        $this->createAsset();
-        [$bookingId, $token] = $this->submitAndTrack();
-        $this->sendTheContract($bookingId);
-        \Core\Http\FlashMessage::get();
-        $booking = $this->bookingRepository->findById($bookingId);
-        $this->assertNotNull($booking);
-
-        $requestId = $this->operationsService->requestChange(
-            $booking,
-            $this->trackedAsset(),
-            \Modules\Rental\Booking\ChangeRequestOrigin::MANAGER,
-            \Modules\Rental\Booking\ChangeRequestKind::DATES,
-            $this->arrival(90),
-            $this->departure(93),
-            null,
-            null,
-            null,
-            'Ces dates nous arrangeraient mieux.',
-            1
-        );
-        $this->postToTracking('decideProposal', $bookingId, $token, [
-            'request_id' => (string) $requestId,
-            'decision' => 'accept',
-        ]);
-
-        $this->assertStringContainsString('ne vaut plus', \Core\Http\FlashMessage::get()['message'] ?? '');
-        $this->assertTrue($this->documentService->forBooking($bookingId)[0]->isSuperseded());
-    }
-
-    public function testRefusingAProposalAsksFirstAndAcceptingIsThePagesPrimary(): void
-    {
-        // Two identically-weighted small buttons, one of which closes the
-        // unit's proposal for good. §7.5: every POST that refuses asks
-        // first, and the question names the consequence.
-        $this->createAsset();
-        [$bookingId, $token] = $this->submitAndTrack();
-        $booking = $this->bookingRepository->findById($bookingId);
-        $this->assertNotNull($booking);
-
-        $this->operationsService->requestChange(
-            $booking,
-            $this->trackedAsset(),
-            \Modules\Rental\Booking\ChangeRequestOrigin::MANAGER,
-            \Modules\Rental\Booking\ChangeRequestKind::DATES,
-            $this->arrival(90),
-            $this->departure(93),
-            null,
-            null,
-            null,
-            'Ces dates nous arrangeraient mieux.',
-            1
-        );
-
-        $body = (string) $this->track($bookingId, $token)->getBody();
-
-        $this->assertMatchesRegularExpression(
-            '#<form[^>]*data-confirm="Refuser cette proposition \?[^"]+"#s',
-            $body
-        );
-        $this->assertStringContainsString('<button type="submit" class="btn btn-sm btn-primary">Accepter</button>', $body);
-        // And the refusal is not disguised as the neutral one of the pair.
-        $this->assertStringContainsString('<button type="submit" class="btn btn-sm btn-outline-secondary">Refuser</button>', $body);
-    }
-
-    public function testARenterCannotDecideTheirOwnRequest(): void
-    {
-        $this->createAsset();
-        [$bookingId, $token] = $this->submitAndTrack();
-        $booking = $this->bookingRepository->findById($bookingId);
-        $this->assertNotNull($booking);
-
-        $requestId = $this->operationsService->requestChange(
-            $booking,
-            $this->trackedAsset(),
-            \Modules\Rental\Booking\ChangeRequestOrigin::RENTER,
-            \Modules\Rental\Booking\ChangeRequestKind::DATES,
-            $this->arrival(90),
-            $this->departure(93),
-            null,
-            null,
-            null,
-            null
-        );
-
-        $this->postToTracking('decideProposal', $bookingId, $token, [
-            'request_id' => (string) $requestId,
-            'decision' => 'accept',
-        ]);
-
-        $this->assertSame($this->arrival(), $this->bookingRepository->findById($bookingId)?->arrivalDate);
-        $this->assertTrue($this->changeRequestRepository->findById($requestId)?->isPending());
-    }
-
-    public function testARenterCannotDecideAnotherRentersProposal(): void
-    {
-        // The booking check is the guard: a change-request id alone must not
-        // be enough.
-        $this->createAsset();
-        [$firstId, $firstToken] = $this->submitAndTrack();
-
-        $second = $this->submit($this->validBody([
-            'arrival' => $this->arrival(120),
-            'departure' => $this->departure(123),
-            'email' => 'marc@example.be',
-        ]));
-        $this->assertSame(302, $second->getStatusCode(), (string) $second->getBody());
-        $secondBooking = $this->bookingRepository->findById(2);
-        $this->assertNotNull($secondBooking);
-
-        $foreignRequestId = $this->operationsService->requestChange(
-            $secondBooking,
-            $this->trackedAsset(),
-            \Modules\Rental\Booking\ChangeRequestOrigin::MANAGER,
-            \Modules\Rental\Booking\ChangeRequestKind::CANCELLATION,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            1
-        );
-
-        $response = $this->postToTracking('decideProposal', $firstId, $firstToken, [
-            'request_id' => (string) $foreignRequestId,
-            'decision' => 'accept',
-        ]);
-
-        $this->assertSame(404, $response->getStatusCode());
-        $this->assertTrue($this->changeRequestRepository->findById($foreignRequestId)?->isPending());
     }
 
     public function testTheTrackingPageNeverShowsAnInternalComment(): void
@@ -2161,6 +1790,59 @@ class RentalRequestControllerTest extends TestCase
         $this->assertNotNull($pending);
         $this->assertSame(\Modules\Rental\Document\DocumentType::SIGNED_COPY, $pending->type);
         $this->assertStringContainsString('est bien reçue', (string) $this->track($bookingId, $token)->getBody());
+    }
+
+    /**
+     * A modification whose replacement contract went out (#927, chantier
+     * §2.4): the page asks for the copy of THAT contract, takes it, and
+     * says it is being checked — the booking's own dates unchanged.
+     */
+    public function testTheTrackingPageAsksForTheCopyOfTheReplacementContract(): void
+    {
+        $this->createAsset();
+        [$bookingId, $token] = $this->submitAndTrack();
+        $this->sendTheContract($bookingId);
+        $booking = $this->bookingRepository->findById($bookingId);
+        $this->assertNotNull($booking);
+        $asset = $this->trackedAsset();
+        $terms = $this->modificationService->termsFor(
+            $booking,
+            $asset,
+            $booking->arrivalDate,
+            $booking->departureDate,
+            ($booking->estimatedPersons ?? 10) + 2,
+            null,
+            null,
+            null
+        );
+        $project = $this->modificationService
+            ->saveProject($booking, $asset, null, $terms, null, new \DateTimeImmutable());
+
+        // In preparation, the renter sees nothing of it.
+        $this->assertStringNotContainsString(
+            'data-replacement-sent',
+            (string) $this->track($bookingId, $token)->getBody()
+        );
+
+        $this->assertTrue($this->modificationService->sendReplacementContract(
+            $booking,
+            $asset,
+            $project->id,
+            null,
+            new \DateTimeImmutable()
+        ));
+        $body = (string) $this->track($bookingId, $token)->getBody();
+        $this->assertStringContainsString('data-replacement-sent', $body);
+        $this->assertStringContainsString('Envoyer ma copie signée', $body);
+
+        $this->postSignedCopy($bookingId, $token, self::jpeg());
+        $this->assertSame('success', \Core\Http\FlashMessage::get()['type'] ?? null);
+        $body = (string) $this->track($bookingId, $token)->getBody();
+        $this->assertStringContainsString('data-replacement-copy-received', $body);
+        $this->assertSame(
+            $booking->estimatedPersons,
+            $this->bookingRepository->findById($bookingId)?->estimatedPersons
+        );
     }
 
     /** Nothing lands on disk while no contract waits for a signature. */

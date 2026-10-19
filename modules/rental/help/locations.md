@@ -38,8 +38,8 @@ Renseignez les dates, le nombre de participants et votre situation,
 puis « Estimer » : le détail s'affiche ligne par ligne. Certaines
 lignes — l'énergie au compteur, par exemple — se facturent après le
 séjour selon le relevé. Un bien sans tarif affiché répond « Tarif sur
-demande » : introduisez la demande, l'unité vous fera une
-proposition. L'estimation est indicative et sans engagement.
+demande » : introduisez la demande, l'unité vous communiquera un
+prix. L'estimation est indicative et sans engagement.
 
 ## Envoyer la demande
 
@@ -55,7 +55,6 @@ e-mail.
 ## Suivre sa demande
 
 La page de suivi montre l'état de votre demande, le détail du prix,
-et vos contacts dans l'unité. Vous pouvez y demander un changement de
-dates ou de participants, répondre à une proposition de l'unité, ou
-annuler. Les documents — contrat, facture — vous parviennent toujours
+et vos contacts dans l'unité. Pour changer vos dates ou vos
+participants, ou pour annuler, contactez l'unité. Les documents — contrat, facture — vous parviennent toujours
 par e-mail, et un bouton ajoute votre séjour à votre agenda.
