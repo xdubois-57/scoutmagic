@@ -7,8 +7,8 @@
 
   ONE receivable — the rental price plus the security deposit — and one
   structured communication for the deposit, the balance, the security
-  deposit and any complement. Nothing below the « Prix » box edits a
-  price.
+  deposit and any complement. Nothing here edits a price: it changes on
+  « Modifications » (lot D).
 
   The three cards sit under the payment box's anchor
   (Booking\BookingBox::PAYMENT), which is where a journey line about the
@@ -27,8 +27,6 @@
   Requires the context of RentalManagementController::financesContext().
 #}
 {% block booking_content %}
-    {% include '@rental/management/_box_price.html.twig' with { open: true } %}
-
     <div id="{{ boxes.payment.anchor }}">
         {% if payment.tracked|default(false) or (payment.available and payment.enabled) %}
             {% include '@rental/management/_finance_summary.html.twig' %}

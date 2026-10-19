@@ -457,10 +457,10 @@ CREATE TABLE IF NOT EXISTS rental_bookings (
     -- of what the visitor was shown at submission, which is the whole
     -- reason the two are separate columns rather than one.
     --
-    -- Lines a manager edited by hand carry `isManual` inside the snapshot
-    -- and are never recalculated afterwards (§6.12): re-quoting rebuilds
-    -- the automatic lines from the live tariff and carries the manual ones
-    -- across untouched.
+    -- Its lines are the tariff's, recomputed from the dates and the
+    -- participants, plus one « Remise » line at most (#927, chantier
+    -- §2.3): a manager changes the terms through a modification
+    -- (rental_booking_modifications), never one line at a time.
     agreed_price_snapshot MEDIUMTEXT NULL,
     agreed_total_cents INT UNSIGNED NULL,
 
@@ -780,53 +780,89 @@ CREATE TABLE IF NOT EXISTS rental_booking_milestone_marks (
 
 
 -- ─────────────────────────────────────────────────────────────────────
--- Change requests and proposals (§6.16, §6.17)
+-- Modifications of a booking (#927, chantier §2.3)
 -- ─────────────────────────────────────────────────────────────────────
 --
--- **One table for both directions**, because they are the same object seen
--- from two ends: somebody proposes different dates, a different number of
--- people, or an end to the booking, and somebody else decides. Two tables
--- would mean two lifecycles, two expiry rules and two sets of tests for
--- one concept.
+-- Every change a manager makes to a booking's dates, participants, units
+-- or price, one row each — the « Historique des modifications » of the
+-- booking's « Modifications » page. Two kinds, told apart by `status`:
 --
--- The rule the spec is emphatic about: a renter's request **never modifies
--- the booking silently**. It lands here as `pending` and changes nothing
--- until a manager decides. A manager's proposal is symmetric — it changes
--- nothing until the renter accepts it from their tracking page.
-CREATE TABLE IF NOT EXISTS rental_change_requests (
+-- - **before the first contract is sent**, a change is applied straight to
+--   the booking and recorded here as 'applied_directly';
+-- - **after it**, only through a *project*: a snapshot of the new terms
+--   that changes nothing on the booking until its replacement contract is
+--   countersigned — 'draft' (in preparation, editable), 'sent' (the
+--   replacement contract went out, its terms frozen), then 'applied' or
+--   'cancelled'.
+--
+-- The renter never writes here: they contact the unit, and the unit acts
+-- (chantier §2.2).
+--
+-- **One active project per booking, guaranteed by the database.**
+-- `active_booking_id` holds the booking's id while the row is 'draft' or
+-- 'sent' and NULL otherwise, and carries a UNIQUE key: two managers
+-- creating a project for the same booking at once cannot both succeed.
+-- The chantier asks for a GENERATED column here; this schema's migration
+-- tooling (Core\Database\SqlParser, SchemaComparator) has no notion of a
+-- generation expression and would create it as a plain column on a fresh
+-- install, silently. So it IS a plain column, written by every statement
+-- that changes `status` (Repository\RentalModificationRepository) and by
+-- nothing else.
+--
+-- **Its new dates occupy the asset while it is active**, without a
+-- deadline (Availability\OccupancyProvider, carrying the booking's
+-- reference), when they differ from the booking's.
+CREATE TABLE IF NOT EXISTS rental_booking_modifications (
     id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
     booking_id INT UNSIGNED NOT NULL,
 
-    -- 'renter' | 'manager' — who is asking, which is also who may NOT
-    -- decide it.
-    origin VARCHAR(20) NOT NULL,
-    -- 'dates' | 'persons' | 'cancellation'.
-    kind VARCHAR(20) NOT NULL,
-    -- 'pending' | 'accepted' | 'refused' | 'withdrawn'.
-    status VARCHAR(20) NOT NULL DEFAULT 'pending',
+    -- 'draft' | 'sent' | 'applied' | 'applied_directly' | 'cancelled'.
+    status VARCHAR(20) NOT NULL DEFAULT 'draft',
+    -- The booking's id while the project is active, NULL otherwise (above).
+    active_booking_id INT UNSIGNED NULL,
 
-    proposed_arrival_date DATE NULL,
-    proposed_departure_date DATE NULL,
-    proposed_units INT UNSIGNED NULL,
-    proposed_persons INT UNSIGNED NULL,
+    -- ── The new terms, as a snapshot ─────────────────────────────────
+    arrival_date DATE NOT NULL,
+    departure_date DATE NOT NULL,
+    units INT UNSIGNED NOT NULL DEFAULT 1,
+    persons INT UNSIGNED NULL,
+    -- The price: the tariff's lines for these dates and participants, read
+    -- only, and one free « Remise » line at most — a self-contained
+    -- Pricing\PriceQuote, like every other price snapshot of this module.
+    price_snapshot MEDIUMTEXT NULL,
+    total_cents INT UNSIGNED NULL,
+    -- The discount line on its own, so the form shows what was typed.
+    -- Negative or zero; a label without an amount is no discount.
+    discount_label VARCHAR(100) NULL,
+    discount_cents INT NULL,
 
-    -- A manager's proposal may carry a price, so the renter accepts dates
-    -- and amount together rather than agreeing to dates and discovering
-    -- the total afterwards. Self-contained, like every other PriceQuote
-    -- snapshot.
-    proposed_price_snapshot MEDIUMTEXT NULL,
-    proposed_total_cents INT UNSIGNED NULL,
+    -- ── What the booking said when this was saved ────────────────────
+    -- So the history reads « avant → après » long after the booking moved
+    -- on. Plain values: dates, counts and amounts, nothing about a person.
+    previous_arrival_date DATE NOT NULL,
+    previous_departure_date DATE NOT NULL,
+    previous_units INT UNSIGNED NOT NULL DEFAULT 1,
+    previous_persons INT UNSIGNED NULL,
+    previous_total_cents INT UNSIGNED NULL,
 
-    -- Free text from either side. A renter writes it, so it is personal
-    -- data and encrypted like every other renter field.
-    message_encrypted BLOB NULL,
+    -- The replacement contract generated from this snapshot, once sent.
+    -- No foreign key: it points at a row of rental_documents of the same
+    -- booking, which only the booking's purge removes, with this row.
+    contract_document_id INT UNSIGNED NULL,
 
+    created_by_member_id INT UNSIGNED NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    decided_at DATETIME NULL,
-    decided_by_member_id INT UNSIGNED NULL,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    sent_at DATETIME NULL,
+    sent_by_member_id INT UNSIGNED NULL,
+    -- Applied (countersigned, or applied directly) or cancelled: when, and
+    -- by whom. NULL member on a cancellation the booking's own end caused.
+    closed_at DATETIME NULL,
+    closed_by_member_id INT UNSIGNED NULL,
 
-    KEY idx_rental_change_requests_booking (booking_id, status, created_at),
-    CONSTRAINT fk_rental_change_requests_booking
+    UNIQUE KEY uniq_rental_booking_modifications_active (active_booking_id),
+    KEY idx_rental_booking_modifications_booking (booking_id, created_at),
+    CONSTRAINT fk_rental_booking_modifications_booking
         FOREIGN KEY (booking_id) REFERENCES rental_bookings (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -900,6 +936,18 @@ CREATE TABLE IF NOT EXISTS rental_documents (
     -- count for nothing: a new contract must go out.
     fingerprint CHAR(64) NULL,
     superseded_at DATETIME NULL,
+
+    -- The contract a signed copy, or a contract signed by both parties,
+    -- answers (#927, chantier §2.3): copies, refusals and countersignatures
+    -- belong to one contract, so a contract signed earlier never stops the
+    -- copy of a replacement contract from being received.
+    contract_document_id INT UNSIGNED NULL,
+    -- The modification project a document belongs to — its replacement
+    -- contract, the copies signed from it, the countersigned result. While
+    -- the project is active, these count for nothing on the booking: the
+    -- contract in force is still the one before (§2.3). No foreign key, for
+    -- the same reason as rental_booking_modifications.contract_document_id.
+    modification_id INT UNSIGNED NULL,
 
     created_by_member_id INT UNSIGNED NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,

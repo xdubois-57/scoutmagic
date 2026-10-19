@@ -9,146 +9,70 @@ declare(strict_types=1);
 namespace Modules\Rental\Pricing;
 
 /**
- * Hand-editing a quote (§6.12), and — the part that actually matters —
- * re-quoting one without losing those edits.
+ * The one thing a manager adds to a price: a discount (#927, chantier
+ * §2.3).
  *
- * Pure, like the engine: no database, no session, no clock. Every method
- * returns a new `PriceQuote` and touches nothing.
+ * A booking's price is the tariff's answer for its dates and its
+ * participants — every line read only, recomputed whenever those change —
+ * plus **one free « Remise » line at most**, a label and a negative
+ * amount. There is no editing a line, no adding one, and no « recalculer »:
+ * a price that can be hand-edited line by line is one nobody can explain a
+ * month later, and a re-quote that keeps some lines and not others is a
+ * second rule the renter has to trust.
  *
- * **A line a manager touched is never recalculated again.** That is the
- * whole rule, and `merge()` is where it is enforced: re-quoting rebuilds
- * the automatic lines from the live tariff and carries the manual ones
- * across exactly as they were. A manager who negotiated 300 € for a week
- * and then corrects the arrival date must not find their 300 € quietly
- * replaced by the grid's answer.
- *
- * The total is always recomputed from the lines, never carried across.
- * Storing a total that could disagree with the lines under it is how a
- * quote stops being explainable, which §6.10 exists to prevent.
+ * Pure, like the engine: no database, no session, no clock. The total is
+ * always recomputed from the lines, never carried across.
  */
 final class QuoteEditor
 {
+    /** The label a discount is given when the manager types none. */
+    public const DEFAULT_DISCOUNT_LABEL = 'Remise';
+
     /**
-     * Replaces one line, marking it manual.
-     *
-     * A null argument leaves that field as it was, so "the manager only
-     * changed the amount" does not have to re-send the label. The unit
-     * price is dropped whenever an amount is typed directly: keeping
-     * `2 × 60 €` next to an amount of `150 €` would show a line whose own
-     * arithmetic does not work.
+     * `$tariff` — the engine's own quote — with the discount appended as
+     * its own visible line, and any discount it carried dropped. A zero or
+     * missing amount adds nothing; a positive one is not a discount and is
+     * left to the caller to refuse.
      */
-    public function editLine(
-        PriceQuote $quote,
-        int $index,
-        ?string $label = null,
-        ?int $quantity = null,
-        ?int $amountCents = null
-    ): PriceQuote {
-        $lines = $quote->lines;
-        if (!isset($lines[$index])) {
-            return $quote;
+    public function withDiscount(PriceQuote $tariff, ?string $label, ?int $discountCents): PriceQuote
+    {
+        $lines = array_values(array_filter(
+            $tariff->lines,
+            static fn(PriceLine $line): bool => $line->rule !== PriceLine::RULE_DISCOUNT
+        ));
+
+        if ($discountCents !== null && $discountCents < 0) {
+            $label = trim((string) $label);
+            $lines[] = new PriceLine(
+                label: $label !== '' ? $label : self::DEFAULT_DISCOUNT_LABEL,
+                quantity: 1,
+                unitPriceCents: null,
+                amountCents: $discountCents,
+                rule: PriceLine::RULE_DISCOUNT,
+                isInformational: false,
+                isManual: true
+            );
         }
 
-        $existing = $lines[$index];
-        $newAmount = $amountCents ?? $existing->amountCents;
-        $amountWasTyped = $amountCents !== null && $amountCents !== $existing->amountCents;
-
-        $lines[$index] = new PriceLine(
-            label: $label !== null && trim($label) !== '' ? trim($label) : $existing->label,
-            quantity: $quantity ?? $existing->quantity,
-            unitPriceCents: $amountWasTyped ? null : $existing->unitPriceCents,
-            amountCents: $newAmount,
-            rule: $existing->rule,
-            isInformational: $existing->isInformational,
-            isManual: true,
-            meta: $existing->meta
-        );
-
-        return $this->withLines($quote, $lines);
+        return self::withLines($tariff, $lines);
     }
 
-    /**
-     * Adds a free line at the end — a discount as a negative amount, an
-     * extra service, a one-off arrangement.
-     *
-     * Negative amounts are allowed on purpose: "remise exceptionnelle
-     * −50,00 €" as its own visible line is how a discount stays legible,
-     * far better than silently shaving the base line.
-     */
-    public function addLine(PriceQuote $quote, string $label, int $quantity, int $amountCents): PriceQuote
+    /** The discount line of a price, or null. */
+    public static function discountLine(?PriceQuote $quote): ?PriceLine
     {
-        $label = trim($label);
-        if ($label === '') {
-            return $quote;
-        }
-
-        $lines = $quote->lines;
-        $lines[] = new PriceLine(
-            label: $label,
-            quantity: max(1, $quantity),
-            unitPriceCents: null,
-            amountCents: $amountCents,
-            rule: PriceLine::RULE_MANUAL,
-            isInformational: false,
-            isManual: true
-        );
-
-        return $this->withLines($quote, $lines);
-    }
-
-    public function removeLine(PriceQuote $quote, int $index): PriceQuote
-    {
-        $lines = $quote->lines;
-        if (!isset($lines[$index])) {
-            return $quote;
-        }
-
-        unset($lines[$index]);
-
-        return $this->withLines($quote, array_values($lines));
-    }
-
-    /**
-     * Re-quotes without losing hand edits: automatic lines come from
-     * $recomputed, manual lines are carried over from $current.
-     *
-     * Manual lines keep their original order relative to each other and are
-     * appended after the automatic ones. Trying to restore their exact
-     * former positions would mean guessing where a line belongs among a set
-     * of lines that no longer exists, and getting it wrong silently.
-     *
-     * Everything else about the quote — nights, head count, period,
-     * category, warnings — comes from $recomputed: those describe the stay
-     * as it is now, and keeping the old ones is what would make the quote
-     * disagree with the booking.
-     */
-    public function merge(PriceQuote $recomputed, PriceQuote $current): PriceQuote
-    {
-        $manual = array_values(array_filter($current->lines, fn(PriceLine $l) => $l->isManual));
-        $automatic = array_values(array_filter($recomputed->lines, fn(PriceLine $l) => !$l->isManual));
-
-        return $this->withLines($recomputed, array_merge($automatic, $manual));
-    }
-
-    /**
-     * Whether $quote carries any hand-edited line — what the interface uses
-     * to warn that a re-quote will not restore the tariff's own answer.
-     */
-    public function hasManualLines(PriceQuote $quote): bool
-    {
-        foreach ($quote->lines as $line) {
-            if ($line->isManual) {
-                return true;
+        foreach ($quote->lines ?? [] as $line) {
+            if ($line->rule === PriceLine::RULE_DISCOUNT) {
+                return $line;
             }
         }
 
-        return false;
+        return null;
     }
 
     /**
      * @param PriceLine[] $lines
      */
-    private function withLines(PriceQuote $quote, array $lines): PriceQuote
+    private static function withLines(PriceQuote $quote, array $lines): PriceQuote
     {
         $total = 0;
         foreach ($lines as $line) {

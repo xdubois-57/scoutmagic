@@ -7,8 +7,8 @@ role_min: identified
 question: Que montre le tableau de bord d'une réservation ?
 question: Comment bloquer les dates d'une réservation jusqu'à une échéance ?
 question: Comment revenir au bien depuis une réservation ?
-paths: /mes-locations/*/reservations/*, /mes-locations/*/reservations/*/modifications
-related: locations-parcours, locations-etat-des-lieux, locations-facture, locations-finances, gerer-les-locations, locations-documents, locations-courrier, locations-suivi, locations-conformite
+paths: /mes-locations/*/reservations/*
+related: locations-modifications, locations-parcours, locations-etat-des-lieux, locations-facture, locations-finances, gerer-les-locations, locations-documents, locations-courrier, locations-suivi, locations-conformite
 ---
 
 Une réservation tient en plusieurs pages, reliées par les onglets sous
@@ -62,13 +62,12 @@ le nombre de commentaires, de modifications — et s'ouvre d'un clic. Une boîte
 
 ## Les autres pages
 
-« Modifications » réunit les demandes de modification du locataire et
-vos propositions : les accepter, les refuser, proposer d'autres dates.
-Le nombre de celles qui attendent une réponse s'affiche à côté de son
-nom, « Modifications (1) », et une demande du locataire vous est
-notifiée.
+« Modifications » change les dates, les participants, les unités ou le
+prix, et garde l'historique de ces changements. Après l'envoi d'un
+contrat, un changement passe par un contrat de remplacement ; tant
+qu'il est en cours, l'onglet s'affiche « Modifications (1) ».
 
-Le prix et les paiements sont sur « Finances », le contrat et les
+Les paiements sont sur « Finances », le contrat et les
 fichiers sur « Documents », le décompte final et la facture sur
 « Facture », les e-mails sur « Courrier » ;
 chacune a son sujet d'aide. Une étape du parcours qui se règle sur

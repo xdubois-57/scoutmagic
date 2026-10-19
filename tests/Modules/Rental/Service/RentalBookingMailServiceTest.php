@@ -494,7 +494,7 @@ final class RentalBookingMailServiceTest extends TestCase
     public function testAnEmailTheRenterCanActOnCarriesTheirLink(): void
     {
         $token = str_repeat('b', 64);
-        $this->service->sendDecision($this->booking(), $this->asset(), RenterDecision::PROPOSED, $token, null);
+        $this->service->sendDecision($this->booking(), $this->asset(), RenterDecision::INFO_REQUESTED, $token, null);
 
         $expected = 'https://unite.test/locations/suivi/42/' . $token;
         $this->assertStringContainsString($expected, $this->onlyMail()['html']);
@@ -507,7 +507,7 @@ final class RentalBookingMailServiceTest extends TestCase
         // nobody can act on is how a link ends up forwarded (§6.29's
         // reasoning, applied here).
         $token = str_repeat('c', 64);
-        foreach ([RenterDecision::REFUSED, RenterDecision::CANCELLED, RenterDecision::CHANGE_REFUSED] as $decision) {
+        foreach ([RenterDecision::REFUSED, RenterDecision::CANCELLED] as $decision) {
             $this->sent = [];
             $this->service->sendDecision($this->booking(), $this->asset(), $decision, $token, null);
 

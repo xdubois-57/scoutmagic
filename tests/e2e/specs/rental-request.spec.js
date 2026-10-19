@@ -41,11 +41,11 @@
 // controller, and the request that comes back carries a reference the
 // unit can quote.
 //
-// And, in its second half, the one negotiation this module has: a manager
-// proposes other dates, the renter accepts them from a page they reach
-// with no account at all, and the booking MOVES. Every step of that
-// crosses the token boundary in a direction unit tests cannot: the
-// proposal is written by an authenticated manager and answered by an
+// And, in its second half, a change of dates: the renter's page offers
+// none (they contact the unit), a manager moves the booking before any
+// contract has gone out, and the renter's page — reached with no account
+// at all — shows it MOVED. That crosses the token boundary in a direction
+// unit tests cannot: written by an authenticated manager, read by an
 // anonymous browser holding nothing but a link. It is added here rather
 // than as a second spec because it needs the very asset, manager, booking
 // and tracking link this scenario has already built — a second file would
@@ -61,6 +61,7 @@ import { loginAsAdmin } from '../support/admin-login.js';
 import { expectRendersAsACalendar } from '../support/calendar.js';
 import { answerCookieBanner } from '../support/cookie-banner.js';
 import { openCard } from '../support/collapsible-card.js';
+import { openModal } from '../support/modal.js';
 import { openSectionEditor } from '../support/section-editor.js';
 import { waitOutHumanCheckDelay } from '../support/human-check.js';
 
@@ -82,7 +83,6 @@ const DEPARTURE = isoDaysFromNow(62);
 // that cannot have been on the page before.
 const PROPOSED_ARRIVAL = isoDaysFromNow(67);
 const PROPOSED_DEPARTURE = isoDaysFromNow(69);
-const PROPOSAL_MESSAGE = 'Ces dates-là nous arrangeraient mieux, le local est pris la semaine avant.';
 
 test.describe('Rentals', () => {
     test('an admin creates a hall and a visitor asks to rent it', async ({ page, browser }) => {
@@ -293,67 +293,45 @@ test.describe('Rentals', () => {
         await expect(renter.getByRole('heading', { name: new RegExp(reference) })).toBeVisible();
         await expect(renter.locator('body')).not.toContainText(INTERNAL_NOTE);
 
-        // --- The negotiation: the unit proposes, the renter decides. ---
-        // Nothing a manager proposes changes the booking on its own —
-        // that is the whole rule (§6.16), and it is only observable by
-        // crossing the boundary twice: written by an authenticated
-        // manager, answered by an anonymous browser holding a link.
+        // --- A change, made by the unit (#927, chantier §2.2-§2.3). ---
+        // The renter asks for nothing from their page: they contact the
+        // unit, and a manager changes the booking on « Modifications ».
+        // No contract has gone out yet, so the change applies at once —
+        // and it is only observable by crossing the boundary twice: written
+        // by an authenticated manager, read by an anonymous browser holding
+        // a link.
+        await expect(stayDates(renter)).toContainText(frenchDate(DEPARTURE));
+        await expect(renter.getByText('Modifier votre demande')).toHaveCount(0);
+
         await page.goto(`/mes-locations/${ASSET_SLUG}/reservations`);
         await page.getByRole('link', { name: new RegExp(reference) }).first().click();
 
-        // The requests and proposals have a page of their own,
         // « Modifications », right after the dashboard (#708, IT-20).
         await page.locator('#rental-booking-picker').getByRole('link', { name: /^Modifications/ }).click();
         await page.waitForURL(/\/reservations\/\d+\/modifications$/, { waitUntil: 'load' });
+        await page.getByRole('link', { name: 'Modifier les dates, les participants ou le prix' }).click();
+        await page.waitForURL(/\/modifications\/nouvelle$/, { waitUntil: 'load' });
 
-        const proposal = page.locator('form[action="/mes-locations/proposition"]');
-        await proposal.locator('input[name="arrival"]').fill(PROPOSED_ARRIVAL);
-        await proposal.locator('input[name="departure"]').fill(PROPOSED_DEPARTURE);
-        await proposal.locator('textarea[name="message"]').fill(PROPOSAL_MESSAGE);
-        await proposal.getByRole('button', { name: 'Proposer' }).click();
+        const form = page.locator('#modification-form');
+        await form.locator('input[name="arrival"]').fill(PROPOSED_ARRIVAL);
+        await form.locator('input[name="departure"]').fill(PROPOSED_DEPARTURE);
+        // Applied at once, so it asks first — and says no e-mail leaves.
+        // The confirmation submits the form and leaves the page, so the
+        // dialog is never seen closing: the URL below is the end of it.
+        const confirm = await openModal(page, 'sm-confirm-modal', () =>
+            page.locator('[data-modification-actions]').getByRole('button', { name: 'Enregistrer', exact: true }).click());
+        await expect(confirm).toContainText("Aucun e-mail n'est envoyé");
+        await confirm.getByRole('button', { name: 'Appliquer', exact: true }).click();
+        await page.waitForURL(/\/reservations\/\d+\/modifications$/, { waitUntil: 'load' });
+        await expect(page.getByText('Appliquée directement').first()).toBeVisible();
 
-        // The manager's own screen still shows the ORIGINAL dates: a
-        // proposal is a question, and a question that had already moved
-        // the booking would be a decision.
-        await expect(page.getByText(/En attente/).first()).toBeVisible();
-
-        // --- The renter, with no account and no session. ---
+        // --- The renter's page shows the booking, moved. ---
         await renter.context().clearCookies();
         await renter.goto(trackingUrl);
-
-        // The proposal is put to them in words, with what it costs to
-        // ignore it spelled out.
-        await expect(renter.getByText(/L'unité vous propose ces dates/)).toBeVisible();
-        await expect(renter.getByText(/votre réservation reste inchangée/i)).toBeVisible();
-
-        // --- And the booking has NOT moved. ---
-        // Asserted on the « Votre séjour » block rather than on the page
-        // as a whole, precisely because the proposed dates ARE already on
-        // the page — inside the proposal being put to them. What must not
-        // have changed is the booking, and the booking is that <dd>.
-        await expect(stayDates(renter)).toContainText(frenchDate(DEPARTURE));
-        await expect(stayDates(renter)).not.toContainText(frenchDate(PROPOSED_DEPARTURE));
-
-        // `exact` because the cookie banner's « Tout accepter » is a
-        // substring match away, and it stands in front of the page anyway
-        // — answering it first is not housekeeping (see
-        // ../support/cookie-banner.js).
-        await answerCookieBanner(renter);
-        await renter.getByRole('button', { name: 'Accepter', exact: true }).click();
-
-        // --- And now it has. ---
-        // The dates in « Votre séjour » are ones this booking never had,
-        // the proposal is closed, and the button that closed it is gone —
-        // three things that could not have been true a moment ago.
         await expect(stayDates(renter)).toContainText(frenchDate(PROPOSED_DEPARTURE));
         await expect(stayDates(renter)).not.toContainText(frenchDate(DEPARTURE));
-        await expect(renter.getByText('Acceptée').first()).toBeVisible();
-        await expect(renter.getByRole('button', { name: 'Accepter', exact: true })).toHaveCount(0);
 
-        // --- The unit sees the same booking, moved. ---
-        // Which is what says the DECISION reached the database rather
-        // than only the page that rendered it: a different session, a
-        // different template, the same dates.
+        // --- The unit's dashboard and history say the same. ---
         await page.goto(`/mes-locations/${ASSET_SLUG}/reservations`);
         await page.getByRole('link', { name: new RegExp(reference) }).first().click();
 
@@ -367,7 +345,7 @@ test.describe('Rentals', () => {
         // the last box of « Le dossier », folded like the others (IT-05).
         await openCard(page, 'dossier-history');
         await expect(page.locator('.audit-timeline')).toBeVisible();
-        await expect(page.getByText(/Décision sur la modification/).first()).toBeVisible();
+        await expect(page.locator('.audit-timeline').getByText(/Modification/).first()).toBeVisible();
 
         await renterContext.close();
     });
@@ -375,8 +353,7 @@ test.describe('Rentals', () => {
 
 /**
  * The « Votre séjour » block of the renter's page — the booking's OWN
- * dates, as distinct from any dates a pending proposal happens to be
- * showing alongside them.
+ * dates, as distinct from anything else the page happens to show.
  *
  * @param {import('@playwright/test').Page} page
  */

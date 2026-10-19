@@ -16,13 +16,12 @@ use Modules\Rental\Availability\AvailabilityCalculator;
 use Modules\Rental\Booking\BookingStatus;
 use Modules\Rental\Booking\RentalBooking;
 use Modules\Rental\Pricing\BillingUnit;
-use Modules\Rental\Pricing\QuoteEditor;
 use Modules\Rental\Pricing\RentalPricingEngine;
 use Modules\Rental\Repository\RentalAssetRepository;
 use Modules\Rental\Repository\RentalBlockRepository;
 use Modules\Rental\Repository\RentalBookingCommentRepository;
 use Modules\Rental\Repository\RentalBookingRepository;
-use Modules\Rental\Repository\RentalChangeRequestRepository;
+use Modules\Rental\Repository\RentalModificationRepository;
 use Modules\Rental\Repository\RentalConstraintsRepository;
 use Modules\Rental\Repository\RentalPricingRepository;
 use Modules\Rental\Service\RentalAvailabilityService;
@@ -246,10 +245,9 @@ final class ExclusiveDatesOnMysqlTest extends TestCase
                 $bookings,
                 RentalTestHelper::bookingAudit($pdo, self::encryption()),
                 new RentalBookingCommentRepository($pdo, self::encryption()),
-                new RentalChangeRequestRepository($pdo, self::encryption()),
+                new RentalModificationRepository($pdo),
                 $availability,
                 $pricing,
-                new QuoteEditor(),
                 $journal
             ),
             'assets' => new RentalAssetRepository($pdo, self::encryption()),

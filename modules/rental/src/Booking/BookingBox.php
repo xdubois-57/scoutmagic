@@ -11,8 +11,8 @@ namespace Modules\Rental\Booking;
 /**
  * The boxes a booking's file is filed into (§6.15).
  *
- * Price, payments, documents, mail, change requests, the stay, the internal
- * comments and the history used to be eight cards on one page. They are
+ * Payments, documents, mail, the stay, the internal comments and the
+ * history used to be cards on one page. They are
  * spread over the booking's four pages now (`BookingPage`, issue #462), each
  * box on the page that answers the question it would be opened for, and
  * each still carrying the figure that says whether it wants opening —
@@ -28,7 +28,6 @@ namespace Modules\Rental\Booking;
  */
 enum BookingBox: string
 {
-    case PRICE = 'price';
     case PAYMENT = 'payment';
     case DOCUMENTS = 'documents';
     case MAIL = 'mail';
@@ -42,7 +41,6 @@ enum BookingBox: string
     public function label(): string
     {
         return match ($this) {
-            self::PRICE => 'Prix',
             self::PAYMENT => 'Paiements',
             self::DOCUMENTS => 'Documents',
             self::MAIL => 'Courrier',
@@ -74,7 +72,9 @@ enum BookingBox: string
     public function page(): BookingPage
     {
         return match ($this) {
-            self::PRICE, self::PAYMENT => BookingPage::FINANCES,
+            // The price is set on a modification's own page now (#927,
+            // chantier §2.3), never a box of the file.
+            self::PAYMENT => BookingPage::FINANCES,
             self::DOCUMENTS => BookingPage::DOCUMENTS,
             self::MAIL => BookingPage::MAIL,
             self::INVENTORY => BookingPage::INVENTORY,

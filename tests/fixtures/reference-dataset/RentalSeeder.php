@@ -22,14 +22,13 @@ use Modules\Rental\Booking\BookingStatus;
 use Modules\Rental\Booking\RentalBooking;
 use Modules\Rental\Pricing\BillingUnit;
 use Modules\Rental\Pricing\PricingRequest;
-use Modules\Rental\Pricing\QuoteEditor;
 use Modules\Rental\Pricing\RentalPricingEngine;
 use Modules\Rental\Repository\RentalAssetManagerRepository;
 use Modules\Rental\Repository\RentalAssetRepository;
 use Modules\Rental\Repository\RentalBlockRepository;
 use Modules\Rental\Repository\RentalBookingCommentRepository;
 use Modules\Rental\Repository\RentalBookingRepository;
-use Modules\Rental\Repository\RentalChangeRequestRepository;
+use Modules\Rental\Repository\RentalModificationRepository;
 use Modules\Rental\Repository\RentalConstraintsRepository;
 use Modules\Rental\Repository\RentalPaymentRepository;
 use Modules\Rental\Repository\RentalPricingRepository;
@@ -126,20 +125,20 @@ final class RentalSeeder
         $this->constraintsRepository = new RentalConstraintsRepository($pdo);
 
         $this->bookingRepository = new RentalBookingRepository($pdo, $encryption);
-        $changeRequestRepository = new RentalChangeRequestRepository($pdo, $encryption);
+        $modificationRepository = new RentalModificationRepository($pdo);
         $bookingAudit = new BookingAudit(new AuditService(new AuditRepository($pdo, $encryption)));
 
         $this->bookingService = new RentalBookingService(
             $this->bookingRepository,
             $journal,
-            $changeRequestRepository,
+            $modificationRepository,
             $bookingAudit,
         );
 
         $availabilityService = new RentalAvailabilityService(
             new AvailabilityCalculator(),
             $this->constraintsRepository,
-            [$this->bookingService, new RentalBlockRepository($pdo)],
+            [$this->bookingService, new RentalBlockRepository($pdo), $modificationRepository],
             $journal,
         );
 
@@ -147,10 +146,9 @@ final class RentalSeeder
             $this->bookingRepository,
             $bookingAudit,
             new RentalBookingCommentRepository($pdo, $encryption),
-            $changeRequestRepository,
+            $modificationRepository,
             $availabilityService,
             $this->pricingService,
-            new QuoteEditor(),
             $journal,
             new RentalPaymentService(new RentalPaymentRepository($pdo, $encryption), $bookingAudit, $journal),
             // No stay service: the inventory checklist it snapshots on

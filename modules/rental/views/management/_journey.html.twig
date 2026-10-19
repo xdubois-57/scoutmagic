@@ -9,12 +9,14 @@
   is split here is the display, not the calculation: both cards read the
   same Booking\BookingJourney.
 
-  - **Prochaine action** names what holds the booking up — a change the
-    renter asked for first, then a question or a proposal the renter owes
-    an answer to, then the next step — puts forward the one action that
-    moves it on when it is the unit's, never a refusal nor a cancellation
-    (D7), and folds every other decision behind a secondary button. A
-    renter late on their step, and dates no longer held, each add a line.
+  - **Prochaine action** names what holds the booking up — a
+    modification in progress first (#927, chantier §2.4), then a question
+    the renter owes an answer to, then the next step — puts forward the one
+    action that moves it on when it is the unit's, never a refusal nor a
+    cancellation (D7), and folds every other decision behind a secondary
+    button. A renter late on their step, and dates no longer held, each add
+    a line; a modification adds two: that nothing on the page changes
+    before the countersignature, and how the booking's own dates are held.
   - **Cycle de vie** follows the scout-year page's timeline pattern (D4):
     five sections, the current one open, each step numbered, with its
     nature and its control (`_journey_steps.html.twig`). There is no
@@ -35,13 +37,19 @@
             {% set primary = journey.primaryAction %}
             {% set others = journey.otherDecisions %}
             <p class="fw-semibold mb-1">{{ journey.headline }}</p>
+            {% if journey.modificationLine %}
+                <p class="small mb-1" data-modification-line>{{ journey.modificationLine }}</p>
+            {% endif %}
+            {% if journey.datesLine %}
+                <p class="text-body-secondary small mb-1" data-dates-line>{{ journey.datesLine }}</p>
+            {% endif %}
             {% if journey.lateLine %}
                 <p class="text-danger small mb-1" data-late-line>{{ journey.lateLine }}</p>
             {% endif %}
             {% if journey.holdLine %}
                 <p class="text-warning-emphasis small mb-1" data-hold-line>{{ journey.holdLine }}</p>
             {% endif %}
-            {% if journey.next and journey.next.explanation %}
+            {% if journey.next and journey.next.explanation and not journey.modification %}
                 <p class="text-body-secondary small mb-0">{{ journey.next.explanation }}</p>
             {% endif %}
 
@@ -77,8 +85,8 @@
                 {% endif %}
                 <p class="form-text mb-0 mt-2">
                     Une seule action est mise en avant : celle qui fait avancer la réservation. Le locataire est
-                    prévenu par email d'une confirmation, d'un refus, d'une annulation, d'une proposition ou
-                    d'une demande de précision.
+                    prévenu par email d'une confirmation, d'un refus, d'une annulation ou d'une demande de
+                    précision.
                 </p>
             {% endif %}
         </div>
@@ -124,11 +132,14 @@
                         {% if phase.key == 'request' %}
                             {# The option lives with the request it holds the dates for. #}
                             <div data-booking-panel="hold">
-                            {# The running deadline only: a lapsed one is not a deadline in
-                               force (#708, IT-01). Read off the « Dates bloquées » line,
-                               which already knows whether the hold still runs. #}
+                            {# The running deadline, read off the « Dates bloquées » line,
+                               which already knows whether the hold still runs — or, once
+                               it has lapsed, the deadline that lapsed (#927): putting the
+                               option back starts from where it stood, under the same
+                               check as any other writer. #}
                             {% set hold_line = phase.milestones|filter(m => m.key == 'hold')|first %}
                             {% set hold_active = hold_line and hold_line.isDone %}
+                            {% set lapsed_hold = booking.holdUntil ?: booking.holdLapsedAt %}
                             {% if not booking.status.isFinal %}
                                 <form method="post" action="/mes-locations/option" class="row g-2 align-items-end mt-3">
                                     {{ csrf_field()|raw }}
@@ -138,7 +149,9 @@
                                         {% include 'partials/form_field.html.twig' with {
                                             field_id: 'option-until', field_name: 'until', type: 'datetime-local',
                                             label: 'Option jusqu\'au',
-                                            value: hold_active ? booking.holdUntil|iso_datetime_local : '',
+                                            value: hold_active
+                                                ? booking.holdUntil|iso_datetime_local
+                                                : (lapsed_hold ? lapsed_hold|iso_datetime_local : ''),
                                         } only %}
                                     </div>
                                     <div class="col-12 col-sm-5">

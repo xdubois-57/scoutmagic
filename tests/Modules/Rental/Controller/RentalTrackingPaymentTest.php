@@ -34,13 +34,12 @@ use Modules\Rental\Payment\PaymentSettings;
 use Modules\Rental\Pricing\BillingUnit;
 use Modules\Rental\Pricing\PriceLine;
 use Modules\Rental\Pricing\PriceQuote;
-use Modules\Rental\Pricing\QuoteEditor;
 use Modules\Rental\Pricing\RentalPricingEngine;
 use Modules\Rental\Repository\RentalAssetManagerRepository;
 use Modules\Rental\Repository\RentalAssetRepository;
 use Modules\Rental\Repository\RentalBookingCommentRepository;
 use Modules\Rental\Repository\RentalBookingRepository;
-use Modules\Rental\Repository\RentalChangeRequestRepository;
+use Modules\Rental\Repository\RentalModificationRepository;
 use Modules\Rental\Repository\RentalConditionsVersionRepository;
 use Modules\Rental\Repository\RentalConstraintsRepository;
 use Modules\Rental\Repository\RentalPaymentRepository;
@@ -150,7 +149,7 @@ class RentalTrackingPaymentTest extends TestCase
             new RentalConstraintsRepository($this->pdo),
             [$bookingService]
         );
-        $changes = new RentalChangeRequestRepository($this->pdo, $this->encryption);
+        $modifications = new RentalModificationRepository($this->pdo);
 
         $twig = TwigFactory::create(
             dirname(__DIR__, 4) . '/core/View/templates',
@@ -200,13 +199,11 @@ class RentalTrackingPaymentTest extends TestCase
                 $this->bookingRepository,
                 RentalTestHelper::bookingAudit($this->pdo, $this->encryption),
                 new RentalBookingCommentRepository($this->pdo, $this->encryption),
-                $changes,
+                $modifications,
                 $availability,
                 $pricing,
-                new QuoteEditor(),
                 $journal
             ),
-            $changes,
             new RentalConditionsService(new RentalConditionsVersionRepository($this->pdo), $editable),
             paymentService: $payments
         );

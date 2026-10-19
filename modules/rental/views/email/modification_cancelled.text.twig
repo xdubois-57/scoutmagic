@@ -1,0 +1,12 @@
+La modification de votre réservation est abandonnée
+
+Bonjour {{ renter_name }},
+
+Le contrat de remplacement que nous vous avons envoyé pour la location {{ reference }} ({{ asset_name }}) ne sera pas contresigné : la modification qu'il prévoyait est abandonnée.
+
+Votre réservation reste telle qu'elle est, du {{ arrival_date }} au {{ departure_date }}, avec le contrat que vous avez déjà. Vous n'avez rien à renvoyer.
+{% if tracking_url %}
+Ma page de suivi : {{ tracking_url }}
+{% endif %}
+
+{% include 'email/signature.text.twig' %}

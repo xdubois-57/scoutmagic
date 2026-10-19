@@ -22,23 +22,20 @@ use Modules\Rental\Reminder\RenterDeadline;
  * guaranteed it.
  *
  * What it answers: **does the unit have something to do about this
- * booking?** The status asking for a decision, a request or a proposal
- * pending — and, since #708 (IT-12), **the step its page puts forward**:
- * the unit's own, or the renter's once they are late. A confirmed booking
- * used to vanish from the list although it almost always has steps left
- * up to its closing. A confirmed booking
- * carrying a change request the renter sent yesterday appeared on no list at
- * all, because its status is `confirmed` and nothing about a status knows
- * what is pending against it.
+ * booking?** The status asking for a decision — and, since #708 (IT-12),
+ * **the step its page puts forward**: the unit's own, or the renter's once
+ * they are late. A confirmed booking used to vanish from the list although
+ * it almost always has steps left up to its closing.
+ *
+ * The renter's change requests and the unit's proposals were two more
+ * reasons; they are gone with the requests themselves (#927, chantier
+ * §2.2): the renter contacts the unit, and a manager changes the booking.
  *
  * Pure: no database, no clock. The step put forward and the renter's
  * deadline for it are handed in, computed by the caller from the same
  * journey the booking's page shows (`BookingJourney::next()`) and the
  * same rule as the reminders (`ReminderPlanner::renterDeadline()`), so the
- * list and the page can never say two different things. The pending change
- * requests are handed in too, already loaded — see `RentalChangeRequestRepository::findPendingForBookings()`,
- * which exists precisely so that a page showing thirty bookings does not ask
- * thirty questions.
+ * list and the page can never say two different things.
  */
 final class BookingAttention
 {
@@ -74,16 +71,14 @@ final class BookingAttention
     }
 
     /**
-     * Whichever of the three apply, or null when nobody is waiting.
-     *
-     * @param ChangeRequest[] $pending this booking's pending change requests
+     * Whichever apply, or null when nobody is waiting.
      */
     public static function of(
         RentalBooking $booking,
-        array $pending,
         ?BookingMilestone $next = null,
         ?\Modules\Rental\Reminder\RenterDeadline $renterDeadline = null,
-        ?\DateTimeImmutable $today = null
+        ?\DateTimeImmutable $today = null,
+        ?ModificationProgress $modification = null
     ): ?self {
         $reasons = [];
         $stepLines = [];
@@ -92,16 +87,23 @@ final class BookingAttention
             $reasons[] = AttentionReason::STATUS;
         }
 
+        // A modification in progress comes first on the booking's page
+        // (#927, chantier §2.3), and so here: a project to send, or a copy
+        // of its replacement contract to countersign, is the unit's step.
+        if ($modification !== null && !$booking->status->isFinal() && $reasons === []
+            && $modification->stage->waitsOnTheUnit()
+        ) {
+            $stepLines[AttentionReason::UNIT_STEP->value] = 'À faire : '
+                . mb_strtolower(mb_substr($modification->stage->nextStep(), 0, 1))
+                . mb_substr($modification->stage->nextStep(), 1);
+
+            return new self($booking, [AttentionReason::UNIT_STEP], $stepLines);
+        }
+
         // The step the booking's page puts forward (#708, IT-12). Never on
         // a final booking, and not twice for a request whose status already
-        // says a decision is expected. Nor while a proposal waits on the
-        // renter's answer: the page says so (BookingJourney::headline()),
-        // and the unit's next line cannot start before that answer.
-        if ($next !== null
-            && !$booking->status->isFinal()
-            && $booking->status !== BookingStatus::PROPOSED
-            && $reasons === []
-        ) {
+        // says a decision is expected.
+        if ($next !== null && !$booking->status->isFinal() && $reasons === []) {
             if ($next->actor === StepActor::UNIT) {
                 $reasons[] = AttentionReason::UNIT_STEP;
                 $stepLines[AttentionReason::UNIT_STEP->value] = 'À faire : ' . self::unitTask($next);
@@ -113,26 +115,6 @@ final class BookingAttention
                 $reasons[] = AttentionReason::RENTER_LATE;
                 $stepLines[AttentionReason::RENTER_LATE->value] = 'En retard : ' . self::renterWait($next)
                     . ' depuis le ' . $renterDeadline->expected->format('d/m/Y');
-            }
-        }
-
-        // A final booking is nobody's work any more, whatever is still
-        // recorded against it: `RentalBookingService` refuses every request
-        // left pending the moment a booking closes, and a row that survived
-        // that must not resurrect a closed file on somebody's list.
-        if (!$booking->status->isFinal()) {
-            foreach ($pending as $request) {
-                if (!$request->isPending()) {
-                    continue;
-                }
-
-                $reason = $request->origin === ChangeRequestOrigin::RENTER
-                    ? AttentionReason::RENTER_REQUEST
-                    : AttentionReason::UNIT_PROPOSAL;
-
-                if (!in_array($reason, $reasons, true)) {
-                    $reasons[] = $reason;
-                }
             }
         }
 
@@ -173,14 +155,14 @@ final class BookingAttention
 
     /**
      * @param RentalBooking[] $bookings
-     * @param array<int, ChangeRequest[]> $pendingByBooking keyed by booking id
-     * @param array<int, array{next: ?BookingMilestone, deadline: ?RenterDeadline}> $stepsByBooking
-     *   keyed by booking id — the step each booking's page puts forward
+     * @param array<int, array{next: ?BookingMilestone, deadline: ?RenterDeadline,
+     *   modification?: ?ModificationProgress}> $stepsByBooking
+     *   keyed by booking id — the step each booking's page puts forward,
+     *   and its modification in progress
      * @return list<self>
      */
     public static function from(
         array $bookings,
-        array $pendingByBooking,
         array $stepsByBooking = [],
         ?\DateTimeImmutable $today = null
     ): array {
@@ -188,10 +170,10 @@ final class BookingAttention
         foreach ($bookings as $booking) {
             $one = self::of(
                 $booking,
-                $pendingByBooking[$booking->id] ?? [],
                 $stepsByBooking[$booking->id]['next'] ?? null,
                 $stepsByBooking[$booking->id]['deadline'] ?? null,
-                $today
+                $today,
+                $stepsByBooking[$booking->id]['modification'] ?? null
             );
             if ($one !== null) {
                 $attention[] = $one;
@@ -208,15 +190,14 @@ final class BookingAttention
      * and the list cannot be computed from two different sets.
      *
      * @param RentalBooking[] $bookings
-     * @param array<int, ChangeRequest[]> $pendingByBooking
-     * @param array<int, array{next: ?BookingMilestone, deadline: ?RenterDeadline}> $stepsByBooking
+     * @param array<int, array{next: ?BookingMilestone, deadline: ?RenterDeadline,
+     *   modification?: ?ModificationProgress}> $stepsByBooking
      */
     public static function countIn(
         array $bookings,
-        array $pendingByBooking,
         array $stepsByBooking = [],
         ?\DateTimeImmutable $today = null
     ): int {
-        return count(self::from($bookings, $pendingByBooking, $stepsByBooking, $today));
+        return count(self::from($bookings, $stepsByBooking, $today));
     }
 }

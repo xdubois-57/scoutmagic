@@ -17,7 +17,7 @@ use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
 use Modules\Rental\Audit\BookingAudit;
 use Modules\Rental\Repository\RentalBookingRepository;
-use Modules\Rental\Repository\RentalChangeRequestRepository;
+use Modules\Rental\Repository\RentalModificationRepository;
 use Modules\Rental\Repository\RentalPaymentRepository;
 use Modules\Rental\Service\RentalBookingService;
 use Modules\Rental\Service\RentalPaymentService;
@@ -65,14 +65,11 @@ class ExpireRentalHoldsHandler implements TaskHandlerInterface
         $service = new RentalBookingService(
             new RentalBookingRepository($pdo, $context->encryption),
             $journal,
-            // A booking this sweep expires has nothing left to decide, so
-            // its pending change requests are refused with it — the same
-            // rule RentalOperationsService applies when a manager closes a
-            // booking by hand, reached here by the other road. Without
-            // these two the renter's tracking page kept offering
-            // « Accepter » on a proposal for a booking that no longer
-            // existed.
-            new RentalChangeRequestRepository($pdo, $context->encryption),
+            // A booking this sweep expires takes its modification in
+            // progress along (#927, chantier §2.3) — the same rule
+            // RentalOperationsService applies when a manager ends a booking
+            // by hand, reached here by the other road.
+            new RentalModificationRepository($pdo),
             $bookingAudit,
             null,
             // An expired booking's receivable goes to 0 (issue #927). The

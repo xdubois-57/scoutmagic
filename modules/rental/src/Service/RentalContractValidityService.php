@@ -26,7 +26,16 @@ use Modules\Rental\Repository\RentalReminderRepository;
 use Modules\Rental\Reminder\ReminderKind;
 
 /**
- * A contract becomes void the moment the booking changes (#708, IT-20).
+ * A contract becomes void the moment the booking changes (#708, IT-20) —
+ * **until the first one has been sent** (#927, chantier §2.3).
+ *
+ * From that send on, nothing voids a contract automatically any more: the
+ * booking changes only through a modification, and the countersignature
+ * of its replacement contract is what replaces the contract in force
+ * (`RentalModificationService`). In particular billing coordinates filled
+ * in after the send no longer make the contract void. Before it, a direct
+ * change leaves a contract generated and not sent « à régénérer », which is
+ * what this still does.
  *
  * Asked after anything that may have changed a booking — every manager's
  * gesture on it, a proposal the renter accepted — and answering from the
@@ -90,6 +99,11 @@ class RentalContractValidityService
         \DateTimeImmutable $now
     ): bool {
         if ($booking->status->isAbandoned() || $booking->status === BookingStatus::CLOSED) {
+            return false;
+        }
+
+        // Once a contract has gone out, only a countersignature replaces it.
+        if ($this->documentRepository->hasEverSentDocumentOfType($booking->id, DocumentType::CONTRACT)) {
             return false;
         }
 

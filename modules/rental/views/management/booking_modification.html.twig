@@ -1,0 +1,252 @@
+{% extends 'base.html.twig' %}
+{#
+  One modification of a booking, on its own page (#927, chantier §2.4):
+  its steps, today against what is proposed, its price, and the actions of
+  the step it is at. Reached from « Modifications ».
+
+  Three shapes, one template:
+  - **before any contract has gone out** (`is_direct`), « Modifier la
+    réservation »: the new values apply at once on « Enregistrer », with no
+    e-mail;
+  - **a project**, after the first send: « Nouvelle modification », then
+    the modification in preparation — editable, its dates checked and held
+    at every save — then, once its replacement contract has gone out,
+    frozen: correcting means cancelling it and creating another;
+  - **a modification no longer in progress** — applied, applied directly
+    or cancelled — read only, for the history.
+
+  **No view of the documents here.** The replacement contract, the renter's
+  copy, its check and the countersignature are answered on Documents,
+  beside the contract in force, which this page links to.
+
+  Every action that acts at once or writes to the renter asks first, and
+  says whether an e-mail leaves (design.md §7.5).
+
+  Requires `asset`, `booking`, `booking_url`, `modification` (or null for
+  a new one), `progress`, `is_direct`, `current_quote`, `proposed_quote`
+  and `max_discount_label_length`.
+#}
+{% set is_new = modification is null %}
+{% set editable = is_new or modification.isEditable %}
+{% set title = is_new
+    ? (is_direct ? 'Modifier la réservation' : 'Nouvelle modification')
+    : 'Modification du ' ~ modification.createdAt|date_fr %}
+{% block title %}{{ title }} — {{ booking.reference }} — {{ site_name }}{% endblock %}
+{% block content %}
+    <div class="page-medium" data-modification-page>
+        {% include 'partials/page_header.html.twig' with {
+            title: title,
+            subtitle: booking.reference ~ ' · ' ~ asset.name,
+        } only %}
+        <p class="mb-3">
+            {% if progress %}
+                {% include 'partials/status_badge.html.twig' with { status: progress.stage.badgeStatus, label: progress.stage.label } only %}
+            {% elseif modification %}
+                {% include 'partials/status_badge.html.twig' with { status: modification.status.badgeStatus, label: modification.status.label } only %}
+            {% elseif is_direct %}
+                {% include 'partials/status_badge.html.twig' with { status: 'neutral', label: 'Appliquée directement' } only %}
+            {% else %}
+                {% include 'partials/status_badge.html.twig' with { status: 'neutral', label: 'Nouvelle' } only %}
+            {% endif %}
+        </p>
+
+        {# The project's four steps. A copy refused is still the third step:
+           the renter sends another copy of the same contract. #}
+        {% if not is_direct and (is_new or modification.status.value in ['draft', 'sent', 'applied']) %}
+            {% set reached = is_new ? 0 : {
+                'draft': 1,
+                'awaiting_copy': 2, 'copy_refused': 2,
+                'copy_received': 3,
+            }[progress ? progress.stage.value : 'none']|default(4) %}
+            <ol class="list-group list-group-numbered mb-3" data-modification-steps>
+                {% for step in [
+                    'Préparer les nouvelles conditions',
+                    'Envoyer le contrat de remplacement',
+                    'Recevoir la copie signée',
+                    'Contresigner : la modification s\'applique',
+                ] %}
+                    <li class="list-group-item d-flex justify-content-between align-items-center{{ loop.index0 < reached ? ' text-body-secondary' : '' }}"
+                        {% if loop.index0 == reached %}aria-current="step"{% endif %}>
+                        <span class="ms-2 me-auto{{ loop.index0 == reached ? ' fw-semibold' : '' }}">{{ step }}</span>
+                        {% if loop.index0 < reached %}
+                            <i class="bi bi-check-lg text-success" aria-hidden="true"></i>
+                            <span class="visually-hidden">fait</span>
+                        {% elseif loop.index0 == reached %}
+                            <span class="badge text-bg-primary">en cours</span>
+                        {% endif %}
+                    </li>
+                {% endfor %}
+            </ol>
+        {% endif %}
+
+        <form method="post" action="/mes-locations/modification" id="modification-form"
+              {% if is_direct %}
+                  data-confirm="Appliquer ces changements à la réservation ? Les dates, les participants et le prix changent tout de suite. Un contrat déjà généré devra être régénéré. Aucun e-mail n'est envoyé au locataire."
+                  data-confirm-label="Appliquer"
+                  data-confirm-variant="primary"
+              {% elseif is_new %}
+                  data-confirm="Enregistrer cette modification ? Si ses dates changent, les nouvelles sont bloquées dès maintenant, sans échéance, tant que la modification est en cours. La réservation actuelle ne change pas. Aucun e-mail n'est envoyé."
+                  data-confirm-label="Enregistrer"
+                  data-confirm-variant="primary"
+              {% endif %}>
+            {{ csrf_field()|raw }}
+            <input type="hidden" name="asset_id" value="{{ asset.id }}">
+            <input type="hidden" name="booking_id" value="{{ booking.id }}">
+            {% if modification %}
+                <input type="hidden" name="modification_id" value="{{ modification.id }}">
+            {% endif %}
+
+            <div class="card mb-3">
+                <div class="card-body">
+                    <div class="row g-3">
+                        <div class="col-12 col-md-6">
+                            <h2 class="h6 text-body-secondary">
+                                {{ modification and not modification.isActive ? 'Avant' : 'Aujourd\'hui (s\'applique)' }}
+                            </h2>
+                            <dl class="row mb-0 small">
+                                <dt class="col-5">Arrivée</dt>
+                                <dd class="col-7">{{ (modification ? modification.previousArrivalDate : booking.arrivalDate)|date_fr }}</dd>
+                                <dt class="col-5">Départ</dt>
+                                <dd class="col-7">{{ (modification ? modification.previousDepartureDate : booking.departureDate)|date_fr }}</dd>
+                                {% if asset.quantity > 1 %}
+                                    <dt class="col-5">Unités</dt>
+                                    <dd class="col-7">{{ modification ? modification.previousUnits : booking.units }}</dd>
+                                {% endif %}
+                                <dt class="col-5">Participants</dt>
+                                {% set persons_before = modification ? modification.previousPersons : booking.estimatedPersons %}
+                                <dd class="col-7">{{ persons_before is not null ? persons_before : '—' }}</dd>
+                                <dt class="col-5">Prix</dt>
+                                <dd class="col-7">
+                                    {% set before = modification ? modification.previousTotalCents : current_quote.totalCents %}
+                                    {{ before is not null ? before|money_cents : '—' }}
+                                </dd>
+                            </dl>
+                        </div>
+                        <div class="col-12 col-md-6">
+                            <h2 class="h6 text-body-secondary">{{ is_direct ? 'Nouvelles valeurs' : 'Proposé' }}</h2>
+                            {% if editable %}
+                                <div class="row g-2">
+                                    <div class="col-6">
+                                        {% include 'partials/form_field.html.twig' with {
+                                            field_id: 'modification-arrival', field_name: 'arrival', type: 'date',
+                                            label: 'Arrivée', size: 'sm', wrapper_class: 'mb-0', required: true,
+                                            value: modification ? modification.arrivalDate : booking.arrivalDate,
+                                        } only %}
+                                    </div>
+                                    <div class="col-6">
+                                        {% include 'partials/form_field.html.twig' with {
+                                            field_id: 'modification-departure', field_name: 'departure', type: 'date',
+                                            label: 'Départ', size: 'sm', wrapper_class: 'mb-0', required: true,
+                                            value: modification ? modification.departureDate : booking.departureDate,
+                                        } only %}
+                                    </div>
+                                    {% if asset.quantity > 1 %}
+                                        <div class="col-6">
+                                            {% include 'partials/form_field.html.twig' with {
+                                                field_id: 'modification-units', field_name: 'units', type: 'number',
+                                                label: 'Unités', size: 'sm', wrapper_class: 'mb-0', min: 1,
+                                                inputmode: 'numeric',
+                                                value: modification ? modification.units : booking.units,
+                                            } only %}
+                                        </div>
+                                    {% endif %}
+                                    <div class="col-6">
+                                        {% include 'partials/form_field.html.twig' with {
+                                            field_id: 'modification-persons', field_name: 'persons', type: 'number',
+                                            label: 'Participants', size: 'sm', wrapper_class: 'mb-0', min: 1,
+                                            inputmode: 'numeric',
+                                            value: modification ? modification.persons : booking.estimatedPersons,
+                                        } only %}
+                                    </div>
+                                    <p class="form-text col-12 mb-0">
+                                        Les nouvelles dates sont vérifiées à l'enregistrement : refusées si une autre
+                                        location, même non confirmée, ou un blocage les occupe.
+                                    </p>
+                                </div>
+                            {% else %}
+                                <dl class="row mb-0 small">
+                                    <dt class="col-5">Arrivée</dt>
+                                    <dd class="col-7">{{ modification.arrivalDate|date_fr }}</dd>
+                                    <dt class="col-5">Départ</dt>
+                                    <dd class="col-7">{{ modification.departureDate|date_fr }}</dd>
+                                    {% if asset.quantity > 1 %}
+                                        <dt class="col-5">Unités</dt>
+                                        <dd class="col-7">{{ modification.units }}</dd>
+                                    {% endif %}
+                                    <dt class="col-5">Participants</dt>
+                                    <dd class="col-7">{{ modification.persons ?? '—' }}</dd>
+                                    <dt class="col-5">Prix</dt>
+                                    <dd class="col-7">{{ modification.totalCents is not null ? modification.totalCents|money_cents : '—' }}</dd>
+                                </dl>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {% include '@rental/management/_price.html.twig' with {
+                quote: proposed_quote, editable: editable,
+                max_discount_label_length: max_discount_label_length,
+            } only %}
+
+            {% if modification and modification.status.value == 'sent' %}
+                <output class="alert alert-info small d-block">
+                    Le contrat de remplacement est parti : ces conditions ne se modifient plus. Pour corriger,
+                    annulez cette modification et créez-en une nouvelle.
+                </output>
+            {% endif %}
+        </form>
+
+        {% if not booking.status.isFinal and (is_new or modification.isActive) %}
+            <div class="d-flex flex-wrap gap-2 mb-3" data-modification-actions>
+                {% if is_new %}
+                    <button type="submit" form="modification-form" class="btn btn-primary w-100 w-sm-auto">
+                        {{ is_direct ? 'Enregistrer' : 'Enregistrer la modification' }}
+                    </button>
+                {% elseif modification.status.value == 'draft' %}
+                    <form method="post" action="/mes-locations/modification-envoyer" class="d-inline"
+                          data-confirm="Envoyer le contrat de remplacement ? Le locataire reçoit par e-mail le nouveau contrat complet à signer. Ensuite, cette modification ne pourra plus être changée : il faudra l'annuler et en créer une nouvelle."
+                          data-confirm-label="Envoyer au locataire"
+                          data-confirm-variant="primary">
+                        {{ csrf_field()|raw }}
+                        <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                        <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                        <input type="hidden" name="modification_id" value="{{ modification.id }}">
+                        <button type="submit" class="btn btn-primary w-100 w-sm-auto">Générer et envoyer le contrat de remplacement</button>
+                    </form>
+                    <button type="submit" form="modification-form" class="btn btn-outline-secondary w-100 w-sm-auto">Enregistrer</button>
+                {% elseif progress and progress.stage.value == 'copy_received' %}
+                    <a class="btn btn-primary w-100 w-sm-auto" href="{{ booking_url }}/documents#contrat">Vérifier et contresigner</a>
+                {% else %}
+                    <form method="post" action="/mes-locations/modification-envoyer" class="d-inline"
+                          data-confirm="Renvoyer le contrat de remplacement ? Le locataire reçoit à nouveau le même contrat par e-mail."
+                          data-confirm-label="Renvoyer">
+                        {{ csrf_field()|raw }}
+                        <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                        <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                        <input type="hidden" name="modification_id" value="{{ modification.id }}">
+                        <button type="submit" class="btn btn-outline-secondary w-100 w-sm-auto">Renvoyer le contrat de remplacement</button>
+                    </form>
+                {% endif %}
+                {% if not is_new %}
+                    <form method="post" action="/mes-locations/modification-annuler" class="d-inline"
+                          data-confirm="Annuler cette modification ? Ses nouvelles dates sont libérées ; la réservation, le contrat et la créance actuels ne changent pas.{{ modification.status.value == 'sent' ? ' Le locataire reçoit un e-mail l\'informant que la modification est abandonnée.' : ' Aucun e-mail n\'est envoyé : le locataire n\'en a pas été informé.' }}"
+                          data-confirm-label="Annuler la modification">
+                        {{ csrf_field()|raw }}
+                        <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                        <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                        <input type="hidden" name="modification_id" value="{{ modification.id }}">
+                        <button type="submit" class="btn btn-outline-danger w-100 w-sm-auto">Annuler la modification</button>
+                    </form>
+                {% endif %}
+            </div>
+        {% endif %}
+
+        {% if modification and modification.status.value in ['sent', 'applied'] %}
+            <p class="text-body-secondary small">
+                Le contrat de remplacement, la copie signée du locataire, sa vérification et la contresignature se
+                gèrent sur la page <a href="{{ booking_url }}/documents">Documents</a>, à côté du contrat en vigueur.
+            </p>
+        {% endif %}
+    </div>
+{% endblock %}

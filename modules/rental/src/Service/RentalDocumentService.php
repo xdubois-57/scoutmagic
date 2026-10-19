@@ -499,7 +499,9 @@ class RentalDocumentService
         DocumentType $type,
         string $displayName,
         bool $isForRenter,
-        ?int $actorMemberId = null
+        ?int $actorMemberId = null,
+        ?int $contractDocumentId = null,
+        ?int $modificationId = null
     ): RentalDocument {
         $fileId = $this->storePdf($pdf, $displayName, $booking->id);
         $documentId = $this->documentRepository->create(
@@ -509,7 +511,10 @@ class RentalDocumentService
             1,
             $isForRenter,
             null,
-            $actorMemberId
+            $actorMemberId,
+            RentalDocument::SOURCE_MANUAL,
+            $contractDocumentId,
+            $modificationId
         );
 
         return $this->documentRepository->findById($documentId)
@@ -565,6 +570,17 @@ class RentalDocumentService
     public function forBooking(int $bookingId): array
     {
         return $this->documentRepository->findForBooking($bookingId);
+    }
+
+    /**
+     * The documents of one modification project — its replacement
+     * contract and what was signed from it (#927, chantier §2.3).
+     *
+     * @return RentalDocument[]
+     */
+    public function forModification(int $modificationId): array
+    {
+        return $this->documentRepository->findForModification($modificationId);
     }
 
     public function find(int $documentId): ?RentalDocument

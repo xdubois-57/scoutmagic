@@ -11,10 +11,6 @@ namespace Tests\Modules\Rental\Booking;
 use Modules\Rental\Booking\AttentionReason;
 use Modules\Rental\Booking\BookingAttention;
 use Modules\Rental\Booking\BookingStatus;
-use Modules\Rental\Booking\ChangeRequest;
-use Modules\Rental\Booking\ChangeRequestKind;
-use Modules\Rental\Booking\ChangeRequestOrigin;
-use Modules\Rental\Booking\ChangeRequestStatus;
 use Modules\Rental\Booking\BookingJourney;
 use Modules\Rental\Booking\BookingMilestone;
 use Modules\Rental\Booking\BookingMilestones;
@@ -69,35 +65,11 @@ class BookingAttentionTest extends TestCase
         );
     }
 
-    private function request(
-        ChangeRequestOrigin $origin,
-        ChangeRequestStatus $status = ChangeRequestStatus::PENDING,
-        int $bookingId = 1
-    ): ChangeRequest {
-        return new ChangeRequest(
-            id: 100,
-            bookingId: $bookingId,
-            origin: $origin,
-            kind: ChangeRequestKind::DATES,
-            status: $status,
-            proposedArrivalDate: '2027-07-18',
-            proposedDepartureDate: '2027-07-21',
-            proposedUnits: null,
-            proposedPersons: null,
-            proposedPrice: null,
-            proposedTotalCents: null,
-            message: null,
-            createdAt: new \DateTimeImmutable('2027-01-05 09:00:00'),
-            decidedAt: null,
-            decidedByMemberId: null
-        );
-    }
-
     // ── What the status alone used to decide ────────────────────────────
 
     public function testAStatusThatAsksForADecisionPutsABookingOnTheList(): void
     {
-        $attention = BookingAttention::of($this->booking(BookingStatus::RECEIVED), []);
+        $attention = BookingAttention::of($this->booking(BookingStatus::RECEIVED));
 
         $this->assertNotNull($attention);
         $this->assertSame([AttentionReason::STATUS], $attention->reasons);
@@ -105,76 +77,21 @@ class BookingAttentionTest extends TestCase
 
     public function testAConfirmedBookingWithNothingPendingIsNotOnTheList(): void
     {
-        $this->assertNull(BookingAttention::of($this->booking(BookingStatus::CONFIRMED), []));
+        $this->assertNull(BookingAttention::of($this->booking(BookingStatus::CONFIRMED)));
     }
 
     // ── The two cases the status could not see ──────────────────────────
 
-    /**
-     * The whole point of the iteration: this booking appeared nowhere.
-     */
-    public function testAConfirmedBookingCarryingARenterRequestIsOnTheList(): void
-    {
-        $attention = BookingAttention::of(
-            $this->booking(BookingStatus::CONFIRMED),
-            [$this->request(ChangeRequestOrigin::RENTER)]
-        );
-
-        $this->assertNotNull($attention);
-        $this->assertSame([AttentionReason::RENTER_REQUEST], $attention->reasons);
-    }
-
-    /**
-     * A proposal waits on somebody too, and the unit is the one who has to
-     * know it is still waiting.
-     */
-    public function testAConfirmedBookingCarryingAnUnansweredProposalIsOnTheList(): void
-    {
-        $attention = BookingAttention::of(
-            $this->booking(BookingStatus::CONFIRMED),
-            [$this->request(ChangeRequestOrigin::MANAGER)]
-        );
-
-        $this->assertNotNull($attention);
-        $this->assertSame([AttentionReason::UNIT_PROPOSAL], $attention->reasons);
-    }
-
-    public function testEveryReasonThatAppliesIsGivenAndNeverTwice(): void
-    {
-        $attention = BookingAttention::of($this->booking(BookingStatus::RECEIVED), [
-            $this->request(ChangeRequestOrigin::RENTER),
-            $this->request(ChangeRequestOrigin::RENTER),
-            $this->request(ChangeRequestOrigin::MANAGER),
-        ]);
-
-        $this->assertNotNull($attention);
-        $this->assertSame(
-            [AttentionReason::STATUS, AttentionReason::RENTER_REQUEST, AttentionReason::UNIT_PROPOSAL],
-            $attention->reasons
-        );
-    }
-
     // ── What must NOT come back ─────────────────────────────────────────
 
-    public function testADecidedRequestPutsNobodyOnTheList(): void
-    {
-        $this->assertNull(BookingAttention::of(
-            $this->booking(BookingStatus::CONFIRMED),
-            [$this->request(ChangeRequestOrigin::RENTER, ChangeRequestStatus::ACCEPTED)]
-        ));
-    }
-
     /**
-     * A final booking is nobody's work any more. `RentalBookingService`
-     * refuses every request still pending the moment a booking closes, so a
-     * row that survived that must not resurrect a closed file on somebody's
-     * list.
+     * A final booking is nobody's work any more.
      */
-    public function testAFinalBookingStaysOffTheListWhateverIsRecordedAgainstIt(): void
+    public function testAFinalBookingStaysOffTheList(): void
     {
         foreach ([BookingStatus::REFUSED, BookingStatus::CANCELLED, BookingStatus::CLOSED] as $status) {
             $this->assertNull(
-                BookingAttention::of($this->booking($status), [$this->request(ChangeRequestOrigin::RENTER)]),
+                BookingAttention::of($this->booking($status)),
                 $status->value . ' is over.'
             );
         }
@@ -190,7 +107,12 @@ class BookingAttentionTest extends TestCase
             $this->booking(BookingStatus::CONFIRMED, 3),
         ];
 
-        $attention = BookingAttention::from($bookings, [3 => [$this->request(ChangeRequestOrigin::RENTER, bookingId: 3)]]);
+        $attention = BookingAttention::from($bookings, [
+            3 => [
+                'next' => $this->nextOf($bookings[2], [BookingMilestones::CONTRACT_SENT => false]),
+                'deadline' => null,
+            ],
+        ]);
 
         $this->assertSame([1, 3], array_map(static fn($one) => $one->booking->id, $attention));
     }
@@ -206,13 +128,16 @@ class BookingAttentionTest extends TestCase
             $this->booking(BookingStatus::RECEIVED, 1),
             $this->booking(BookingStatus::CONFIRMED, 2),
         ];
-        $pending = [2 => [$this->request(ChangeRequestOrigin::MANAGER, bookingId: 2)]];
+        $steps = [2 => [
+            'next' => $this->nextOf($bookings[1], [BookingMilestones::CONTRACT_SENT => false]),
+            'deadline' => null,
+        ]];
 
         $this->assertSame(
-            count(BookingAttention::from($bookings, $pending)),
-            BookingAttention::countIn($bookings, $pending)
+            count(BookingAttention::from($bookings, $steps)),
+            BookingAttention::countIn($bookings, $steps)
         );
-        $this->assertSame(2, BookingAttention::countIn($bookings, $pending));
+        $this->assertSame(2, BookingAttention::countIn($bookings, $steps));
     }
 
     public function testEveryReasonSaysSomethingAManagerCanRead(): void
@@ -249,7 +174,7 @@ class BookingAttentionTest extends TestCase
         $booking = $this->booking(BookingStatus::CONFIRMED);
         $next = $this->nextOf($booking, [BookingMilestones::CONTRACT_SENT => false]);
 
-        $attention = BookingAttention::of($booking, [], $next);
+        $attention = BookingAttention::of($booking, $next);
 
         $this->assertNotNull($attention);
         $this->assertSame([AttentionReason::UNIT_STEP], $attention->reasons);
@@ -263,7 +188,7 @@ class BookingAttentionTest extends TestCase
         $this->assertSame(BookingMilestones::DEPOSIT_RECEIVED, $next?->key);
         $deadline = ReminderPlanner::renterDeadline($next->key, $booking, self::payment('2027-06-01'), ReminderSchedule::shipped());
 
-        $this->assertNull(BookingAttention::of($booking, [], $next, $deadline, new \DateTimeImmutable('2027-06-01')));
+        $this->assertNull(BookingAttention::of($booking, $next, $deadline, new \DateTimeImmutable('2027-06-01')));
     }
 
     public function testALateRenterIsOnTheListWithTheDateExpected(): void
@@ -273,23 +198,24 @@ class BookingAttentionTest extends TestCase
         $deadline = ReminderPlanner::renterDeadline((string) $next?->key, $booking, self::payment('2027-06-01'), ReminderSchedule::shipped());
 
         // The deposit reminder goes out the day after the due date (0 days by default).
-        $attention = BookingAttention::of($booking, [], $next, $deadline, new \DateTimeImmutable('2027-06-02'));
+        $attention = BookingAttention::of($booking, $next, $deadline, new \DateTimeImmutable('2027-06-02'));
 
         $this->assertSame([AttentionReason::RENTER_LATE], $attention?->reasons);
         $this->assertSame(['En retard : acompte attendu depuis le 01/06/2027'], $attention?->lines());
     }
 
     /**
-     * A proposal waits on the renter: the list must not tell the unit to
-     * send a contract the page itself says is not due yet.
+     * A booking a past proposal left « Proposition envoyée » waits on
+     * nobody but the unit now (#927, chantier §2.2): the renter answers
+     * nothing from their page, so its next step is the unit's.
      */
-    public function testAProposalWaitingOnTheRenterIsNotAUnitStep(): void
+    public function testABookingLeftProposedIsTheUnitsWork(): void
     {
         $booking = $this->booking(BookingStatus::PROPOSED);
         $next = $this->nextOf($booking, [BookingMilestones::CONTRACT_SENT => false]);
         $this->assertSame(StepActor::UNIT, $next?->actor);
 
-        $this->assertNull(BookingAttention::of($booking, [], $next));
+        $this->assertSame([AttentionReason::UNIT_STEP], BookingAttention::of($booking, $next)?->reasons);
     }
 
     /** « Caution » is feminine: the line agrees with it. */
@@ -307,7 +233,7 @@ class BookingAttentionTest extends TestCase
             new \DateTimeImmutable('2027-06-02')
         );
 
-        $attention = BookingAttention::of($booking, [], $next, $deadline, new \DateTimeImmutable('2027-06-03'));
+        $attention = BookingAttention::of($booking, $next, $deadline, new \DateTimeImmutable('2027-06-03'));
 
         $this->assertSame(['En retard : caution attendue depuis le 01/06/2027'], $attention?->lines());
     }
@@ -322,7 +248,7 @@ class BookingAttentionTest extends TestCase
 
         $deadline = ReminderPlanner::renterDeadline((string) $next?->key, $booking, self::payment('2027-06-01'), $muted);
 
-        $this->assertNotNull(BookingAttention::of($booking, [], $next, $deadline, new \DateTimeImmutable('2027-06-10')));
+        $this->assertNotNull(BookingAttention::of($booking, $next, $deadline, new \DateTimeImmutable('2027-06-10')));
     }
 
     public function testARenterStepWithNoDeadlineNeverPutsTheBookingThereAlone(): void
@@ -333,7 +259,7 @@ class BookingAttentionTest extends TestCase
         $deadline = ReminderPlanner::renterDeadline((string) $next?->key, $booking, ['enabled' => false], ReminderSchedule::shipped());
 
         $this->assertNull($deadline);
-        $this->assertNull(BookingAttention::of($booking, [], $next, $deadline, new \DateTimeImmutable('2027-12-31')));
+        $this->assertNull(BookingAttention::of($booking, $next, $deadline, new \DateTimeImmutable('2027-12-31')));
     }
 
     public function testAFinalBookingIsNeverOnTheListWhateverItsStep(): void
@@ -341,7 +267,7 @@ class BookingAttentionTest extends TestCase
         $booking = $this->booking(BookingStatus::CLOSED);
         $next = $this->nextOf($booking, [BookingMilestones::SECURITY_DEPOSIT_RETURNED => false]);
 
-        $this->assertNull(BookingAttention::of($booking, [], $next));
+        $this->assertNull(BookingAttention::of($booking, $next));
     }
 
     /** Every step has its side, explicitly — no default. */
@@ -384,10 +310,74 @@ class BookingAttentionTest extends TestCase
         $deadline = ReminderPlanner::renterDeadline($next->key, $booking, [], ReminderSchedule::shipped());
 
         // Stay on 17 July; the contract is chased 14 days before.
-        $this->assertNull(BookingAttention::of($booking, [], $next, $deadline, new \DateTimeImmutable('2027-07-02')));
+        $this->assertNull(BookingAttention::of($booking, $next, $deadline, new \DateTimeImmutable('2027-07-02')));
         $this->assertSame(
             [AttentionReason::RENTER_LATE],
-            BookingAttention::of($booking, [], $next, $deadline, new \DateTimeImmutable('2027-07-03'))?->reasons
+            BookingAttention::of($booking, $next, $deadline, new \DateTimeImmutable('2027-07-03'))?->reasons
         );
+    }
+
+    // ── A modification in progress (#927, lot D) ────────────────────────
+
+    private static function project(
+        \Modules\Rental\Booking\ModificationStatus $status
+    ): \Modules\Rental\Booking\BookingModification
+    {
+        return new \Modules\Rental\Booking\BookingModification(
+            3,
+            1,
+            $status,
+            '2027-07-24',
+            '2027-07-27',
+            1,
+            30,
+            null,
+            48000,
+            null,
+            null,
+            '2027-07-17',
+            '2027-07-20',
+            1,
+            30,
+            36000,
+            $status === \Modules\Rental\Booking\ModificationStatus::SENT ? 12 : null,
+            null,
+            new \DateTimeImmutable('2027-03-03 09:00:00')
+        );
+    }
+
+    /**
+     * A project never sent waits on the unit: the booking is on the list
+     * with the project's own next step, though its status asks nothing.
+     */
+    public function testAProjectInPreparationPutsTheBookingOnTheList(): void
+    {
+        $progress = \Modules\Rental\Booking\ModificationProgress::of(
+            self::project(\Modules\Rental\Booking\ModificationStatus::DRAFT),
+            []
+        );
+        $this->assertNotNull($progress);
+
+        $attention = BookingAttention::of($this->booking(BookingStatus::CONFIRMED), null, null, null, $progress);
+
+        $this->assertNotNull($attention);
+        $this->assertSame([AttentionReason::UNIT_STEP], $attention->reasons);
+        $this->assertSame(
+            ['À faire : générer puis envoyer le contrat de remplacement'],
+            $attention->lines()
+        );
+    }
+
+    /** Sent and waiting for the renter's copy: nothing for the unit to do. */
+    public function testAProjectWaitingOnTheRenterLeavesTheBookingOff(): void
+    {
+        $progress = \Modules\Rental\Booking\ModificationProgress::of(
+            self::project(\Modules\Rental\Booking\ModificationStatus::SENT),
+            []
+        );
+        $this->assertNotNull($progress);
+        $this->assertFalse($progress->stage->waitsOnTheUnit());
+
+        $this->assertNull(BookingAttention::of($this->booking(BookingStatus::CONFIRMED), null, null, null, $progress));
     }
 }

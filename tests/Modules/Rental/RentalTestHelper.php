@@ -265,6 +265,8 @@ class RentalTestHelper
             refusal_reason TEXT,
             fingerprint TEXT,
             superseded_at TEXT,
+            contract_document_id INTEGER,
+            modification_id INTEGER,
             FOREIGN KEY (booking_id) REFERENCES rental_bookings(id) ON DELETE CASCADE
         )');
 
@@ -386,22 +388,32 @@ class RentalTestHelper
             FOREIGN KEY (booking_id) REFERENCES rental_bookings(id) ON DELETE CASCADE
         )');
 
-        $pdo->exec('CREATE TABLE rental_change_requests (
+        $pdo->exec('CREATE TABLE rental_booking_modifications (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             booking_id INTEGER NOT NULL,
-            origin TEXT NOT NULL,
-            kind TEXT NOT NULL,
-            status TEXT NOT NULL DEFAULT "pending",
-            proposed_arrival_date TEXT,
-            proposed_departure_date TEXT,
-            proposed_units INTEGER,
-            proposed_persons INTEGER,
-            proposed_price_snapshot TEXT,
-            proposed_total_cents INTEGER,
-            message_encrypted BLOB,
+            status TEXT NOT NULL DEFAULT "draft",
+            active_booking_id INTEGER UNIQUE,
+            arrival_date TEXT NOT NULL,
+            departure_date TEXT NOT NULL,
+            units INTEGER NOT NULL DEFAULT 1,
+            persons INTEGER,
+            price_snapshot TEXT,
+            total_cents INTEGER,
+            discount_label TEXT,
+            discount_cents INTEGER,
+            previous_arrival_date TEXT NOT NULL,
+            previous_departure_date TEXT NOT NULL,
+            previous_units INTEGER NOT NULL DEFAULT 1,
+            previous_persons INTEGER,
+            previous_total_cents INTEGER,
+            contract_document_id INTEGER,
+            created_by_member_id INTEGER,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            decided_at TEXT,
-            decided_by_member_id INTEGER,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            sent_at TEXT,
+            sent_by_member_id INTEGER,
+            closed_at TEXT,
+            closed_by_member_id INTEGER,
             FOREIGN KEY (booking_id) REFERENCES rental_bookings(id) ON DELETE CASCADE
         )');
 

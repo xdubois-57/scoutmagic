@@ -21,14 +21,11 @@ use Core\Security\HumanCheck\HumanCheckService;
 use Core\Service\DateInput;
 use Core\View\EditableContentService;
 use Modules\Calendar\Api\IcsFeedBuilderInterface;
-use Modules\Rental\Booking\ChangeRequestKind;
-use Modules\Rental\Booking\ChangeRequestOrigin;
 use Modules\Rental\Booking\RentalBooking;
 use Modules\Rental\Calendar\RenterFeedBuilder;
 use Modules\Rental\Pricing\PricingRequest;
 use Modules\Rental\Repository\RentalAsset;
 use Modules\Rental\Repository\RentalAssetRepository;
-use Modules\Rental\Repository\RentalChangeRequestRepository;
 use Modules\Rental\Service\ManagerRecipientResolver;
 use Modules\Rental\Service\RentalAvailabilityService;
 use Modules\Rental\Service\RentalBookingMailService;
@@ -65,9 +62,6 @@ class RentalRequestController extends AbstractController
     /** The notification a new request raises (#708, IT-05). */
     public const NEW_REQUEST_NOTIFICATION = 'rental.new_request';
 
-    /** The notification a renter's change request raises (#708, IT-20). */
-    public const CHANGE_REQUEST_NOTIFICATION = 'rental.change_request';
-
     public function __construct(
         Environment $twig,
         private RentalAssetRepository $assetRepository,
@@ -81,7 +75,6 @@ class RentalRequestController extends AbstractController
         private HumanCheckService $humanCheckService,
         private SettingService $settingService,
         private RentalOperationsService $operationsService,
-        private RentalChangeRequestRepository $changeRequestRepository,
         /**
          * The conditions as versions (issue #494): the form shows the one
          * in force and carries its version, and a submission is accepted
@@ -513,11 +506,11 @@ class RentalRequestController extends AbstractController
             'renter_contacts' => $this->managerService->listRenterContactsForAsset($asset->id, $scoutYearId),
             // Shown only here, never publicly (§6.6).
             'emergency_phone' => $asset->emergencyPhone,
-            // Change requests and the manager's proposals (§6.16). Internal
-            // comments are deliberately absent — the tracking page does not
-            // even load them, which is a stronger guarantee than a template
-            // remembering to hide them.
-            'change_requests' => $this->changeRequestRepository->findForBooking($booking->id),
+            // Internal comments are deliberately absent — the tracking page
+            // does not even load them, which is a stronger guarantee than a
+            // template remembering to hide them. Nor does it offer the
+            // renter any change of their own (#927, chantier §2.2): they
+            // contact the unit.
             // The renter's own billing coordinates (§22.6), decrypted for
             // the one person entitled to them — a token for THIS booking
             // reaches this page and nothing else. The block presents itself
@@ -544,9 +537,19 @@ class RentalRequestController extends AbstractController
             'contract' => $this->signedContractService !== null ? [
                 'sent' => $this->signedContractService->sentContract($booking->id),
                 'accepts_copy' => $this->signedContractService->acceptsCopy($booking),
+                // A replacement contract whose e-mail failed: no copy is
+                // taken until it reaches the renter, and the page says why.
+                'replacement_not_received' => $this->signedContractService->whyNoCopy($booking)
+                    === \Modules\Rental\Service\RentalSignedContractService::REPLACEMENT_NOT_RECEIVED
+                    ? \Modules\Rental\Service\RentalSignedContractService::REPLACEMENT_NOT_RECEIVED
+                    : null,
                 'pending' => $this->signedContractService->pendingCopy($booking->id),
                 'refused' => $this->signedContractService->lastRefusedCopy($booking->id),
                 'final' => $this->signedContractService->finalContract($booking->id),
+                // A replacement contract out for signature (#927, chantier
+                // §2.4): the copy to send is of that one. Null while none
+                // has gone — a modification in preparation is the unit's.
+                'replacement' => self::sentReplacement($this->signedContractService->replacement($booking->id)),
             ] : null,
         // **Not kept by anything between here and the renter.** This page
         // carries their name, their dates and now their billing
@@ -557,126 +560,6 @@ class RentalRequestController extends AbstractController
         // `SectionRosterController` and `MemberContactController` already
         // set for the same reason.
         ])->setHeader('Cache-Control', 'private, no-store');
-    }
-
-    /**
-     * POST /locations/suivi/{id}/{token}/demande — the renter asks for a
-     * change or an outright cancellation (§6.16, §6.17).
-     *
-     * Records the request and **changes nothing**: that is the rule the spec
-     * is emphatic about. A manager decides, from the booking's own page.
-     *
-     * The token is verified exactly as on the GET, because a POST is not
-     * less of an entry point than a GET.
-     *
-     * @param array<string, string> $params
-     */
-    public function requestChange(Request $request, array $params): Response
-    {
-        if (($guard = $this->guardCsrf(
-            $request,
-            '/locations/suivi/' . (int) ($params['id'] ?? 0) . '/' . (string) ($params['token'] ?? '')
-        )) !== null) {
-            return $guard;
-        }
-
-        $booking = $this->bookingService->findByTrackingToken(
-            (int) ($params['id'] ?? 0),
-            (string) ($params['token'] ?? '')
-        );
-
-        if ($booking === null) {
-            return new Response('Not Found', 404);
-        }
-
-        $asset = $this->assetRepository->findById($booking->assetId);
-        if ($asset === null) {
-            return new Response('Not Found', 404);
-        }
-
-        // Cancelling is its own button, and it says so in the body rather
-        // than by being one option of a menu: « Annuler ma demande » sat
-        // between « Changer les dates » and « Changer le nombre de
-        // participants » in one `<select>`, which is the surest way to
-        // cancel a stay by mistake. The word that travels with it comes
-        // from the confirmation dialog (`data-confirm-note`), and it is
-        // optional — a renter who has decided must not be held up by a
-        // text field.
-        if ($request->getBody('action') === 'cancel') {
-            return $this->recordChange(
-                $booking,
-                $asset,
-                ChangeRequestKind::CANCELLATION,
-                null,
-                null,
-                null,
-                Support::optionalString($request->getBody('message')),
-                $params
-            );
-        }
-
-        $arrival = Support::optionalString($request->getBody('arrival'));
-        $departure = Support::optionalString($request->getBody('departure'));
-        $persons = $request->getBody('persons') !== null && (int) $request->getBody('persons') > 0
-            ? (int) $request->getBody('persons')
-            : null;
-
-        // **The type is derived, never chosen.** The form is the renter's
-        // own booking, pre-filled; what they changed is what they are
-        // asking for. `rental_change_requests` has always carried the dates
-        // and the head count on one row — only `kind` forbade combining
-        // them, which turned "other dates AND a smaller group" into two
-        // requests a manager had to answer separately, each of them valid
-        // only if the other was accepted too.
-        $kind = ChangeRequestKind::forChange(
-            ($arrival !== null && $arrival !== $booking->arrivalDate)
-                || ($departure !== null && $departure !== $booking->departureDate),
-            $persons !== null && $persons !== $booking->estimatedPersons
-        );
-
-        if ($kind === null) {
-            FlashMessage::set(
-                'error',
-                "Votre demande ne change rien à votre réservation. Modifiez les dates ou le nombre "
-                . "de participants avant de l'envoyer."
-            );
-
-            return $this->backToTracking($params);
-        }
-
-        // Mandatory on this form, and only on this one. A manager reading
-        // « du 12/07 au 14/07 » with nothing beside it cannot tell a firm
-        // request from a question, and answers the wrong one.
-        $message = Support::optionalString($request->getBody('message'));
-        if ($message === null) {
-            FlashMessage::set('error', 'Expliquez votre demande en quelques mots avant de l\'envoyer.');
-
-            return $this->backToTracking($params);
-        }
-
-        return $this->recordChange(
-            $booking,
-            $asset,
-            $kind,
-            // The dates always travel together once either moved: a
-            // request carrying only the new arrival would be accepted
-            // against the old departure.
-            $kind->affectsAvailability() ? ($arrival ?? $booking->arrivalDate) : null,
-            $kind->affectsAvailability() ? ($departure ?? $booking->departureDate) : null,
-            // **Gated the same way, and for a sharper reason.** The form
-            // pre-fills the head count with the booking's own, so a
-            // dates-only request carries it silently — and `acceptChange()`
-            // writes `proposedPersons ?? current` back through `setStay()`.
-            // A request made before a head-count change was accepted would
-            // therefore revert it, weeks later, with nothing on the manager's
-            // screen to warn them: `summary()` renders a DATES request as
-            // dates alone. It also put every dates-only request through the
-            // capacity check, so a booking already over the asset's capacity
-            // could no longer move its dates at all.
-            $kind->changesPersons() ? $persons : null,
-            $message,
-            $params
-        );
     }
 
     /**
@@ -753,169 +636,36 @@ class RentalRequestController extends AbstractController
             return $this->backToTracking($params);
         }
 
-        // The address and the VAT number are part of what the contract
-        // states (#708, IT-20): a correction voids it now, attributed to the
-        // edit that caused it, and the renter is told.
+        // The address and the VAT number are part of what a contract
+        // states (#708, IT-20): one generated and not sent yet is to
+        // generate again. Once a contract has gone out, coordinates filled in
+        // after it void nothing (#927, chantier §2.3) — and the renter, who
+        // has no unsent contract to know of, is told nothing about it.
         $asset = $this->assetRepository->findById($booking->assetId);
         $fresh = $this->bookingService->findByTrackingToken(
             (int) ($params['id'] ?? 0),
             (string) ($params['token'] ?? '')
         ) ?? $booking;
-        $voided = $asset !== null
-            && ($this->contractValidity?->recheck($fresh, $asset, null, new \DateTimeImmutable()) ?? false);
+        if ($asset !== null) {
+            $this->contractValidity?->recheck($fresh, $asset, null, new \DateTimeImmutable());
+        }
 
-        FlashMessage::set(
-            'success',
-            'Vos coordonnées de facturation ont été enregistrées.'
-            . ($voided
-                ? ' Le contrat que vous aviez reçu ne vaut plus : un nouveau contrat va vous être envoyé.'
-                : '')
-        );
+        FlashMessage::set('success', 'Vos coordonnées de facturation ont été enregistrées.');
 
         return $this->backToTracking($params);
     }
 
     /**
-     * The one door both buttons of « Modifier votre demande » go through.
-     *
-     * @param array<string, string> $params
+     * A modification's progress, for the renter's page — only once its
+     * replacement contract has gone out to them.
      */
-    private function recordChange(
-        RentalBooking $booking,
-        RentalAsset $asset,
-        ChangeRequestKind $kind,
-        ?string $arrival,
-        ?string $departure,
-        ?int $persons,
-        ?string $message,
-        array $params
-    ): Response {
-        try {
-            $this->operationsService->requestChange(
-                $booking,
-                $asset,
-                ChangeRequestOrigin::RENTER,
-                $kind,
-                $arrival,
-                $departure,
-                null,
-                $persons,
-                null,
-                $message
-            );
-            $this->notifyChangeRequest($booking, $asset, $kind);
-
-            FlashMessage::set(
-                'success',
-                'Votre demande a bien été transmise. Elle ne change rien à votre réservation '
-                . "tant qu'un gestionnaire ne l'a pas acceptée."
-            );
-        } catch (RentalException $e) {
-            FlashMessage::set('error', $e->getMessage());
-        }
-
-        return $this->backToTracking($params);
-    }
-
-    /**
-     * « Demande de modification reçue » (#708, IT-20): the managers learnt
-     * of a request only by opening « À traiter ». The asset, the reference
-     * and what is asked — never the renter's identity — and it leads to the
-     * booking's « Modifications » page.
-     */
-    private function notifyChangeRequest(RentalBooking $booking, RentalAsset $asset, ChangeRequestKind $kind): void
-    {
-        if ($this->notificationService === null || $this->recipientResolver === null) {
-            return;
-        }
-
-        try {
-            $recipients = $this->recipientResolver->recipientsFor($asset->id, 'demande de modification');
-            if ($recipients === []) {
-                return;
-            }
-
-            $this->notificationService->dispatch(self::CHANGE_REQUEST_NOTIFICATION, $recipients, [
-                'title' => 'Demande de modification — ' . $asset->name,
-                'body' => $booking->reference . ' : ' . $kind->label() . '.',
-                'url' => '/mes-locations/' . rawurlencode($asset->slug) . '/reservations/' . $booking->id
-                    . '/modifications',
-            ]);
-        } catch (\Throwable) {
-            // The request is recorded either way, and « À traiter » shows
-            // it; a failed notification is not the renter's problem.
-        }
-    }
-
-    /**
-     * POST /locations/suivi/{id}/{token}/reponse — the renter accepts or
-     * refuses a manager's proposal (§6.16).
-     *
-     * @param array<string, string> $params
-     */
-    public function decideProposal(Request $request, array $params): Response
-    {
-        if (($guard = $this->guardCsrf(
-            $request,
-            '/locations/suivi/' . (int) ($params['id'] ?? 0) . '/' . (string) ($params['token'] ?? '')
-        )) !== null) {
-            return $guard;
-        }
-
-        $booking = $this->bookingService->findByTrackingToken(
-            (int) ($params['id'] ?? 0),
-            (string) ($params['token'] ?? '')
-        );
-
-        if ($booking === null) {
-            return new Response('Not Found', 404);
-        }
-
-        $asset = $this->assetRepository->findById($booking->assetId);
-        if ($asset === null) {
-            return new Response('Not Found', 404);
-        }
-
-        $changeRequest = $this->changeRequestRepository->findById((int) $request->getBody('request_id', 0));
-        // The booking check is the guard that matters: a change-request id
-        // alone must not let one renter decide another's proposal.
-        if ($changeRequest === null || $changeRequest->bookingId !== $booking->id) {
-            return new Response('Not Found', 404);
-        }
-
-        try {
-            if ((string) $request->getBody('decision', '') === 'accept') {
-                $this->operationsService->acceptChange(
-                    $changeRequest,
-                    $booking,
-                    $asset,
-                    ChangeRequestOrigin::RENTER,
-                    null,
-                    new \DateTimeImmutable()
-                );
-                // The booking changed: the contract that described it may
-                // not any more (#708, IT-20), and the renter is told.
-                $fresh = $this->bookingService->findByTrackingToken(
-                    (int) ($params['id'] ?? 0),
-                    (string) ($params['token'] ?? '')
-                ) ?? $booking;
-                $voided = $this->contractValidity?->recheck($fresh, $asset, null, new \DateTimeImmutable()) ?? false;
-                FlashMessage::set(
-                    'success',
-                    'Proposition acceptée. Votre réservation a été mise à jour.'
-                    . ($voided
-                        ? ' Le contrat que vous aviez reçu ne vaut plus : un nouveau contrat va vous être envoyé.'
-                        : '')
-                );
-            } else {
-                $this->operationsService->refuseChange($changeRequest, ChangeRequestOrigin::RENTER, null);
-                FlashMessage::set('success', 'Proposition refusée. Votre réservation est inchangée.');
-            }
-        } catch (RentalException $e) {
-            FlashMessage::set('error', $e->getMessage());
-        }
-
-        return $this->backToTracking($params);
+    private static function sentReplacement(
+        ?\Modules\Rental\Booking\ModificationProgress $progress
+    ): ?\Modules\Rental\Booking\ModificationProgress {
+        return $progress !== null && $progress->stage !== \Modules\Rental\Booking\ModificationStage::DRAFT
+            && $progress->contract !== null && $progress->contract->sentAt !== null
+            ? $progress
+            : null;
     }
 
     /**

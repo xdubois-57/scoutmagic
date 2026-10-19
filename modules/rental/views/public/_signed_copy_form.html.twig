@@ -1,0 +1,27 @@
+{#
+  « Envoyer ma copie signée » on the renter's tracking page (#708, IT-16) —
+  the contract in force, or a replacement contract out for signature
+  (#927): one form, the server knows which contract the copy answers.
+
+  A photo of the printed, signed pages is enough: signing a PDF on a phone
+  is the hardest part of this whole journey. The accepted types leave HEIC
+  out on purpose — an iPhone then converts its photo to JPEG as it sends it.
+
+  Requires `booking` and `tracking_token`.
+#}
+<form method="post" action="/locations/suivi/{{ booking.id }}/{{ tracking_token }}/contrat"
+      enctype="multipart/form-data" class="row g-2 align-items-end">
+    {{ csrf_field()|raw }}
+    <div class="col-12 col-md-8">
+        <label class="form-label" for="signed-copy">Votre copie signée</label>
+        <input type="file" class="form-control" id="signed-copy" name="signed_copy" required
+               accept="application/pdf,image/jpeg,image/png,image/webp"
+               aria-describedby="signed-copy-help">
+    </div>
+    <div class="col-12 col-md-4">
+        <button type="submit" class="btn btn-primary w-100">Envoyer ma copie signée</button>
+    </div>
+    <p class="form-text col-12 mb-0" id="signed-copy-help">
+        PDF, JPEG, PNG ou WebP, 15 Mo au plus.
+    </p>
+</form>

@@ -30,7 +30,8 @@ final class BookingPageTest extends TestCase
         $this->assertSame([BookingBox::COMMENTS, BookingBox::HISTORY], BookingPage::DASHBOARD->boxes());
         // « Modifications » is a page of its own, not a box (#708, IT-20).
         $this->assertSame([], BookingPage::CHANGES->boxes());
-        $this->assertSame([BookingBox::PRICE, BookingBox::PAYMENT], BookingPage::FINANCES->boxes());
+        // The price is set on a modification's own page (#927).
+        $this->assertSame([BookingBox::PAYMENT], BookingPage::FINANCES->boxes());
         $this->assertSame([BookingBox::DOCUMENTS], BookingPage::DOCUMENTS->boxes());
         $this->assertSame([BookingBox::INVENTORY], BookingPage::INVENTORY->boxes());
         $this->assertSame([BookingBox::INVOICE], BookingPage::INVOICE->boxes());

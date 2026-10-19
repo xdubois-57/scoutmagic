@@ -1,12 +1,12 @@
 ---
 id: locations-suivi
 title: Suivre votre demande de location
-summary: La page que votre lien vous ouvre : l'état de votre dossier, son prix, et comment demander un changement.
+summary: La page que votre lien vous ouvre : l'état de votre dossier, son prix, et ce qu'il faut faire pour le changer.
 category: Premiers pas
 role_min: public
 discovery: 3
 question: Où voir l'état de ma réservation de local ?
-question: Comment demander un changement de dates pour ma location ?
+question: Comment changer les dates de ma location ?
 question: J'ai perdu mon lien de suivi de location, que faire ?
 paths: /locations/suivi/*/*
 related: locations
@@ -31,30 +31,20 @@ En bas, les personnes de l'unité qui gèrent votre location, à contacter
 pour toute question sur la réservation, et le numéro d'urgence pour la
 durée du séjour.
 
-## Demander un changement
+## Changer vos dates ou annuler
 
-La boîte « Modifier votre demande » est repliée : ouvrez-la d'un clic.
-Elle s'ouvre toute seule quand l'unité vous a fait une proposition qui
-attend votre réponse.
+La page ne modifie rien elle-même : pour changer vos dates, votre nombre
+de participants, ou pour annuler, contactez les personnes de l'unité qui
+gèrent votre location. Elles font le changement de leur côté.
 
-Elle contient vos dates et votre nombre de participants, déjà remplis.
-Corrigez ce qui doit changer — les deux à la fois si besoin —, dites
-pourquoi en une ligne, et envoyez. Vous n'avez plus à choisir un type de
-demande dans une liste : c'est ce que vous modifiez qui le dit.
-
-**Votre demande ne change rien par elle-même** : elle attend la réponse
-des gestionnaires, et votre réservation reste exactement ce qu'elle
-était. En revanche, ce que vous changez est vérifié tout de suite : de
-nouvelles dates contre les règles du bien et contre les dates déjà
-prises, un nouveau nombre contre la capacité. Mieux vaut le savoir
-maintenant que dans trois semaines.
-
-**L'annulation a son propre bouton**, avec une question de confirmation.
-Elle ne libère vos dates que lorsqu'un gestionnaire l'accepte.
-
-Dans l'autre sens, l'unité peut vous proposer d'autres dates. La
-proposition apparaît ici avec deux boutons : accepter l'applique
-immédiatement, refuser la ferme et laisse votre réservation inchangée.
+Si votre contrat vous a déjà été envoyé, un changement passe par un
+**nouveau contrat**, qui remplace le précédent une fois signé par les
+deux parties. Vous le recevez par e-mail, et la boîte « Votre contrat »
+de cette page vous invite à en déposer la copie signée, comme pour le
+premier. Tant que l'unité n'a pas contresigné ce nouveau contrat, votre
+réservation reste exactement ce qu'elle était. Si l'unité abandonne le
+changement, un e-mail vous le dit, et c'est le contrat précédent qui
+reste valable.
 
 ## Vos coordonnées de facturation
 

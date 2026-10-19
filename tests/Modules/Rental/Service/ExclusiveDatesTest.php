@@ -20,14 +20,13 @@ use Modules\Rental\Booking\HoldOrigin;
 use Modules\Rental\Booking\RentalBooking;
 use Modules\Rental\Calendar\PublishFrom;
 use Modules\Rental\Pricing\BillingUnit;
-use Modules\Rental\Pricing\QuoteEditor;
 use Modules\Rental\Pricing\RentalPricingEngine;
 use Modules\Rental\Repository\RentalAsset;
 use Modules\Rental\Repository\RentalAssetRepository;
 use Modules\Rental\Repository\RentalBlockRepository;
 use Modules\Rental\Repository\RentalBookingCommentRepository;
 use Modules\Rental\Repository\RentalBookingRepository;
-use Modules\Rental\Repository\RentalChangeRequestRepository;
+use Modules\Rental\Repository\RentalModificationRepository;
 use Modules\Rental\Repository\RentalConstraintsRepository;
 use Modules\Rental\Repository\RentalPricingRepository;
 use Modules\Rental\Service\RentalAvailabilityService;
@@ -87,10 +86,9 @@ final class ExclusiveDatesTest extends TestCase
             $this->bookingRepository,
             RentalTestHelper::bookingAudit($this->pdo, $encryption),
             new RentalBookingCommentRepository($this->pdo, $encryption),
-            new RentalChangeRequestRepository($this->pdo, $encryption),
+            new RentalModificationRepository($this->pdo),
             $this->availability,
             $this->pricing,
-            new QuoteEditor(),
             $journal
         );
 

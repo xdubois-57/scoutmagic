@@ -1,0 +1,27 @@
+{#
+  A modification of the booking is abandoned after its replacement contract
+  went out (#927, chantier §2.3): the renter holds a contract that will not
+  be countersigned, and is told their booking stays as it is. Sent only
+  then — a project the renter never heard of is cancelled in silence.
+#}
+{% extends 'email/base.html.twig' %}
+{% block content %}
+    <h2 style="margin:0 0 20px;font-size:20px;line-height:1.3;color:#212529;">La modification de votre réservation est abandonnée</h2>
+    <p style="margin:0 0 16px;">Bonjour {{ renter_name }},</p>
+    <p style="margin:0 0 16px;">
+        Le contrat de remplacement que nous vous avons envoyé pour la location <strong>{{ reference }}</strong>
+        ({{ asset_name }}) ne sera pas contresigné : la modification qu'il prévoyait est abandonnée.
+    </p>
+    <p style="margin:0 0 16px;">
+        Votre réservation reste telle qu'elle est, du {{ arrival_date }} au {{ departure_date }}, avec le contrat
+        que vous avez déjà. Vous n'avez rien à renvoyer.
+    </p>
+    {% if tracking_url %}
+        <p style="margin:24px 0;text-align:center;">
+            <a href="{{ tracking_url }}"
+               style="display:inline-block;padding:12px 28px;background-color:#0d6efd;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:bold;">
+                Ouvrir ma page de suivi
+            </a>
+        </p>
+    {% endif %}
+{% endblock %}

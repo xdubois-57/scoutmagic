@@ -36,9 +36,9 @@ namespace Modules\Rental\Booking;
  * never the calculation: both still read this one object.
  *
  * What only the controller knows comes in through `of()`'s optional
- * arguments — a renter's pending change request, which comes before
- * everything else; an unanswered proposal of the unit; a renter late on
- * their step (IT-12); dates no longer held (IT-01).
+ * arguments — a modification in progress, which comes before everything
+ * else (#927, chantier §2.4); a renter late on their step (IT-12); dates no
+ * longer held (IT-01).
  */
 final class BookingJourney
 {
@@ -49,34 +49,34 @@ final class BookingJourney
         private readonly array $phases,
         private readonly ?BookingMilestone $next,
         private readonly BookingStatus $status,
-        private readonly ?string $changeRequested = null,
-        private readonly bool $proposalWaiting = false,
+        private readonly ?ModificationProgress $modification = null,
         private readonly ?\DateTimeImmutable $holdUntil = null,
         private readonly ?\DateTimeImmutable $lateSince = null,
-        private readonly ?\DateTimeImmutable $holdLapsedSince = null
+        private readonly ?\DateTimeImmutable $holdLapsedSince = null,
+        private readonly ?\DateTimeImmutable $firmlyHeldSince = null
     ) {
     }
 
     /**
      * @param list<BookingMilestone> $milestones from `BookingMilestones::for()`
-     * @param ?string $changeRequested what the renter's pending change
-     *   request asks — « du 14/11/2027 au 16/11/2027 » (#708, IT-20)
-     * @param bool $proposalWaiting a proposal of the unit the renter has
-     *   not answered yet
+     * @param ?ModificationProgress $modification the booking's modification
+     *   in progress (#927, chantier §2.4)
      * @param ?\DateTimeImmutable $holdUntil until when the dates are held
      * @param ?\DateTimeImmutable $lateSince when the renter was expected by,
      *   for a step of theirs now late (IT-12)
      * @param ?\DateTimeImmutable $holdLapsedSince since when the dates are
      *   no longer held, on a request still waiting (IT-01)
+     * @param ?\DateTimeImmutable $firmlyHeldSince since when a signed copy
+     *   holds the dates firmly (#927, chantier §2.1)
      */
     public static function of(
         array $milestones,
         BookingStatus $status,
-        ?string $changeRequested = null,
-        bool $proposalWaiting = false,
+        ?ModificationProgress $modification = null,
         ?\DateTimeImmutable $holdUntil = null,
         ?\DateTimeImmutable $lateSince = null,
-        ?\DateTimeImmutable $holdLapsedSince = null
+        ?\DateTimeImmutable $holdLapsedSince = null,
+        ?\DateTimeImmutable $firmlyHeldSince = null
     ): self {
         /** @var array<string, list<BookingMilestone>> $grouped */
         $grouped = [];
@@ -128,11 +128,11 @@ final class BookingJourney
             $phases,
             $next,
             $status,
-            $changeRequested,
-            $proposalWaiting,
+            $status->isFinal() ? null : $modification,
             $holdUntil,
             $lateSince,
-            $holdLapsedSince
+            $holdLapsedSince,
+            $firmlyHeldSince
         );
     }
 
@@ -172,10 +172,10 @@ final class BookingJourney
         return $this->next;
     }
 
-    /** A proposal of the unit the renter has not answered yet (IT-20). */
-    public function proposalWaiting(): bool
+    /** The booking's modification in progress, or null (#927, chantier §2.4). */
+    public function modification(): ?ModificationProgress
     {
-        return $this->proposalWaiting;
+        return $this->modification;
     }
 
     public function isComplete(): bool
@@ -187,11 +187,11 @@ final class BookingJourney
      * The sentence at the top of « Prochaine action »: what holds the
      * booking up (#708, IT-19).
      *
-     * In this order: a final status, which nothing changes; a change the
-     * renter asked for, which comes before everything else; a question or
-     * a proposal the renter owes an answer to; then the next step, one
-     * sentence each — `BookingJourneyTest` walks every step key and every
-     * status.
+     * In this order: a final status, which nothing changes; a
+     * modification in progress, which comes before everything else (#927,
+     * chantier §2.4); a question the renter owes an answer to; then the
+     * next step, one sentence each — `BookingJourneyTest` walks every step
+     * key and every status.
      */
     public function headline(): string
     {
@@ -203,8 +203,8 @@ final class BookingJourney
             };
         }
 
-        if ($this->changeRequested !== null) {
-            return 'Le locataire demande une modification : ' . $this->changeRequested . '.';
+        if ($this->modification !== null) {
+            return $this->modification->stage->headline();
         }
 
         if ($this->next === null) {
@@ -216,10 +216,6 @@ final class BookingJourney
         if ($this->status === BookingStatus::INFO_REQUESTED) {
             return 'Une précision a été demandée au locataire : la suite attend sa réponse.';
         }
-        if ($this->status === BookingStatus::PROPOSED || $this->proposalWaiting) {
-            return 'Une proposition attend la réponse du locataire.';
-        }
-
         return self::stepSentence($this->next, $this->holdUntil, $this->status);
     }
 
@@ -269,7 +265,7 @@ final class BookingJourney
      */
     public function lateLine(): ?string
     {
-        if ($this->lateSince === null || $this->next === null || $this->changeRequested !== null) {
+        if ($this->lateSince === null || $this->next === null || $this->modification !== null) {
             return null;
         }
 
@@ -282,6 +278,45 @@ final class BookingJourney
         };
 
         return $what === null ? null : 'En retard : ' . $what . ' depuis le ' . $this->lateSince->format('d/m/Y') . '.';
+    }
+
+    /**
+     * While a modification runs, what the page around it still means
+     * (#927, chantier §2.4): nothing on it changes before the
+     * countersignature. Null otherwise.
+     */
+    public function modificationLine(): ?string
+    {
+        return $this->modification === null
+            ? null
+            : "Les dates, les participants, le prix et le contrat de cette page restent ceux qui "
+                . "s'appliquent jusqu'à la contresignature.";
+    }
+
+    /**
+     * While a modification runs, how the booking's own dates are held —
+     * they follow their own deadline, whatever the project's new ones do
+     * (chantier §2.3). Null otherwise, and when nothing holds them: then
+     * `holdLine()` speaks.
+     */
+    public function datesLine(): ?string
+    {
+        if ($this->modification === null) {
+            return null;
+        }
+        if ($this->firmlyHeldSince !== null) {
+            return 'Dates bloquées fermement : copie signée reçue le '
+                . $this->firmlyHeldSince->format('d/m/Y') . '.';
+        }
+        if ($this->status === BookingStatus::CONFIRMED) {
+            return 'Dates bloquées fermement : la réservation est confirmée.';
+        }
+        if ($this->holdUntil !== null) {
+            return "Dates bloquées jusqu'au " . $this->holdUntil->format('d/m/Y')
+                . ' ; sans copie signée, elles se libèrent à cette date.';
+        }
+
+        return null;
     }
 
     /**
@@ -298,8 +333,8 @@ final class BookingJourney
 
     /**
      * The one action put forward (D7), and only when the next move is the
-     * unit's (#708, IT-19): answering a change the renter asked for, else
-     * the step's own action. While the renter is the one expected — a
+     * unit's (#708, IT-19): the modification in progress, else the step's
+     * own action. While the renter is the one expected — a
      * copy to sign, a payment to make — nothing is put forward: the
      * heading says what is awaited, and ticking it by hand stays in the
      * step (IT-14).
@@ -310,15 +345,23 @@ final class BookingJourney
      */
     public function primaryAction(): ?MilestoneAction
     {
-        // A final booking offers nothing, not even a change request that
-        // outlived the sweep of its final transition — the headline already
-        // says it can no longer change (BookingAttention guards the same).
+        // A final booking offers nothing — the headline already says it
+        // can no longer change.
         if ($this->status->isFinal()) {
             return null;
         }
 
-        if ($this->changeRequested !== null) {
-            return MilestoneAction::openPage('Répondre à la demande', BookingPage::CHANGES);
+        // A modification in progress is the one thing to move on (#927,
+        // chantier §2.4): its copy to countersign, on Documents, or the
+        // project itself on its own page.
+        if ($this->modification !== null) {
+            return $this->modification->stage === ModificationStage::COPY_RECEIVED
+                ? MilestoneAction::openPage('Vérifier et contresigner', BookingPage::DOCUMENTS)
+                : MilestoneAction::openPage(
+                    'Ouvrir la modification',
+                    BookingPage::CHANGES,
+                    '/' . $this->modification->modification->id
+                );
         }
 
         if ($this->next === null || $this->next->actor === StepActor::RENTER) {

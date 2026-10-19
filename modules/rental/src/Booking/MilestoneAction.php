@@ -35,7 +35,12 @@ final class MilestoneAction
         public readonly ?BookingBox $box,
         public readonly ?string $command = null,
         /** A page of the booking's file to go to (#708, IT-19). */
-        public readonly ?BookingPage $page = null
+        public readonly ?BookingPage $page = null,
+        /**
+         * What follows the page's URL, for a link deeper than one of the
+         * booking's pages — its modification in progress (#927, §2.4).
+         */
+        public readonly string $pathSuffix = ''
     ) {
     }
 
@@ -58,9 +63,9 @@ final class MilestoneAction
     }
 
     /** The way to a page of the file that holds no box — « Modifications ». */
-    public static function openPage(string $label, BookingPage $page): self
+    public static function openPage(string $label, BookingPage $page, string $pathSuffix = ''): self
     {
-        return new self($label, null, null, null, $page);
+        return new self($label, null, null, null, $page, $pathSuffix);
     }
 
     /**

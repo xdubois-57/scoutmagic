@@ -16,9 +16,10 @@ où en est-elle, et que faut-il faire.
 
 ## Prochaine action
 
-Une phrase nomme ce qui retient la réservation : une demande de
-modification du locataire d'abord, puis une question ou une proposition
-qui attend sa réponse, puis l'étape suivante — un contrat à envoyer, un
+Une phrase nomme ce qui retient la réservation : une modification en
+cours d'abord — son contrat de remplacement à envoyer, la copie signée
+attendue ou à contresigner —, puis une question qui attend la réponse du
+locataire, puis l'étape suivante — un contrat à envoyer, un
 paiement attendu, une confirmation. Un retard du locataire et des dates
 qui ne sont plus bloquées s'ajoutent sur une ligne à part.
 

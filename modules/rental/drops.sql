@@ -98,3 +98,11 @@ ALTER TABLE rental_bookings DROP COLUMN security_deposit_receivable_id;
 ALTER TABLE rental_bookings DROP COLUMN security_deposit_communication;
 ALTER TABLE rental_bookings DROP COLUMN security_deposit_due_date;
 ALTER TABLE rental_bookings DROP COLUMN balance_due_date;
+
+-- The renter's change requests and the unit's proposals (issue #927,
+-- chantier §2.2). The renter changes nothing any more: they contact the
+-- unit, and a manager changes the booking — directly before the first
+-- contract is sent, through a modification project and its replacement
+-- contract after it (rental_booking_modifications). The site is in test:
+-- nothing is carried over.
+DROP TABLE IF EXISTS rental_change_requests;

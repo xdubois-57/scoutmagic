@@ -23,12 +23,11 @@ use Modules\Rental\Payment\PaymentSettings;
 use Modules\Rental\Pricing\BillingUnit;
 use Modules\Rental\Pricing\PriceLine;
 use Modules\Rental\Pricing\PriceQuote;
-use Modules\Rental\Pricing\QuoteEditor;
 use Modules\Rental\Pricing\RentalPricingEngine;
 use Modules\Rental\Repository\RentalAssetRepository;
 use Modules\Rental\Repository\RentalBookingCommentRepository;
 use Modules\Rental\Repository\RentalBookingRepository;
-use Modules\Rental\Repository\RentalChangeRequestRepository;
+use Modules\Rental\Repository\RentalModificationRepository;
 use Modules\Rental\Repository\RentalConstraintsRepository;
 use Modules\Rental\Repository\RentalPaymentRepository;
 use Modules\Rental\Repository\RentalPricingRepository;
@@ -156,7 +155,7 @@ class RentalSingleReceivableTest extends TestCase
         $this->bookings = new RentalBookingService(
             $this->bookingRepository,
             $this->journal,
-            new RentalChangeRequestRepository($this->pdo, $this->encryption),
+            new RentalModificationRepository($this->pdo),
             $this->bookingAudit,
             null,
             $payments
@@ -165,14 +164,13 @@ class RentalSingleReceivableTest extends TestCase
             $this->bookingRepository,
             $this->bookingAudit,
             new RentalBookingCommentRepository($this->pdo, $this->encryption),
-            new RentalChangeRequestRepository($this->pdo, $this->encryption),
+            new RentalModificationRepository($this->pdo),
             new RentalAvailabilityService(
                 new AvailabilityCalculator(),
                 new RentalConstraintsRepository($this->pdo),
                 [$this->bookings]
             ),
             $this->pricingService,
-            new QuoteEditor(),
             $this->journal,
             $payments,
             $this->stay
@@ -294,7 +292,37 @@ class RentalSingleReceivableTest extends TestCase
         $asset = (new RentalAssetRepository($this->pdo, $this->encryption))->findById($this->assetId);
         $this->assertNotNull($asset);
 
-        $this->operations->editPriceLine($this->reload($booking->id), $asset, 0, 'Séjour', 1, 60000, 1);
+        // A direct change before the first send (#927, chantier §2.3): the
+        // tariff's price for the stay, with no discount.
+        $this->pricingService->saveAssetPricing($this->assetId, 'flat_stay', 60000, null, null);
+        $modifications = new \Modules\Rental\Service\RentalModificationService(
+            $this->bookingRepository,
+            new RentalModificationRepository($this->pdo),
+            new \Modules\Rental\Repository\RentalDocumentRepository($this->pdo),
+            new \Modules\Rental\Service\RentalOccupancyGuard(
+                $this->bookingRepository,
+                new RentalAvailabilityService(
+                    new AvailabilityCalculator(),
+                    new RentalConstraintsRepository($this->pdo),
+                    [$this->bookings]
+                ),
+                $this->pricingService
+            ),
+            new RentalAvailabilityService(new AvailabilityCalculator(), new RentalConstraintsRepository($this->pdo)),
+            $this->pricingService,
+            $this->bookingAudit,
+            $this->journal,
+            null,
+            $this->payments
+        );
+        $current = $this->reload($booking->id);
+        $modifications->applyDirectly(
+            $current,
+            $asset,
+            $modifications->termsFor($current, $asset, '2027-03-12', '2027-03-15', 32, 1, null, null),
+            1,
+            new \DateTimeImmutable()
+        );
 
         $status = $this->paymentStatus($booking);
         $this->assertSame(75000, $status['total_cents']);
