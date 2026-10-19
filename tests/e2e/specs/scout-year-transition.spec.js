@@ -415,7 +415,11 @@ test('the whole site transitions to the next scout year through the documented w
     // successful import of the target year.
     // ---------------------------------------------------------------
     await expect(step(page, 'preview').getByRole('button', { name: `Prévisualiser ${targetYear}` })).toBeEnabled();
-    await expect(step(page, 'departures').getByRole('link', { name: 'Voir les départs' })).toBeVisible();
+    // Step 1's one action follows the campaign (the harness's campaign is
+    // not finished, so it is the campaign itself); the departures page is
+    // among every action of the step, in its Détails dialog.
+    await expect(details(page, 'departures').getByRole('link', { name: 'Voir les départs', includeHidden: true }))
+        .toHaveCount(1);
 
     // Hard block: no staff year without a successful import of it. The
     // page says so in words, the step's one action is the import that
