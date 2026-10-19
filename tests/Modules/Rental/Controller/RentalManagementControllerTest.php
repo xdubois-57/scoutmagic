@@ -2050,6 +2050,82 @@ class RentalManagementControllerTest extends TestCase
         $this->assertSame([], $this->renterEmails);
     }
 
+    /**
+     * The discount is the amount deducted, typed without a sign: a phone's
+     * decimal keypad has no minus key, so « 50,00 » and « -50,00 » are the
+     * same fifty euros off, stored as a negative line either way.
+     *
+     * @return array<string, array{string}>
+     */
+    public static function typedDiscounts(): array
+    {
+        return ['without its sign' => ['50,00'], 'with a minus' => ['-50,00']];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('typedDiscounts')]
+    public function testADiscountTypedWithOrWithoutItsSignIsTheSameAmountDeducted(string $typed): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+        $this->post('/mes-locations/modification', 'saveModification', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'arrival' => $booking->arrivalDate,
+            'departure' => $booking->departureDate,
+            'persons' => '20',
+            'discount_label' => 'Remise fidélité',
+            'discount_amount' => $typed,
+        ]);
+        $fresh = $this->bookingRepository->findById($booking->id);
+        $discount = \Modules\Rental\Pricing\QuoteEditor::discountLine($fresh?->effectivePrice());
+        $this->assertSame(-5000, $discount?->amountCents);
+        $this->assertSame(31000, $fresh?->effectiveTotalCents());
+    }
+
+    /** The form shows the discount in force as the amount deducted, without its sign. */
+    public function testTheModificationFormShowsTheDiscountInForceWithoutItsSign(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+        $this->post('/mes-locations/modification', 'saveModification', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'arrival' => $booking->arrivalDate,
+            'departure' => $booking->departureDate,
+            'persons' => '20',
+            'discount_label' => 'Remise fidélité',
+            'discount_amount' => '-50,00',
+        ]);
+
+        $fresh = $this->bookingRepository->findById($booking->id);
+        $this->assertNotNull($fresh);
+        $page = (string) $this->modificationPage($fresh, 'nouvelle')->getBody();
+        $this->assertStringContainsString('Montant déduit (€)', $page);
+        $this->assertMatchesRegularExpression(
+            '/name="discount_amount"[^>]*value="50,00"|value="50,00"[^>]*name="discount_amount"/',
+            $page
+        );
+        $this->assertStringNotContainsString('value="-50,00"', $page);
+    }
+
+    /** Garbage is still refused, with its reason; nothing changes. */
+    public function testADiscountThatIsNotAnAmountIsRefused(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+        $before = $booking->effectiveTotalCents();
+        $this->post('/mes-locations/modification', 'saveModification', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'arrival' => $booking->arrivalDate,
+            'departure' => $booking->departureDate,
+            'persons' => '20',
+            'discount_amount' => 'cinquante',
+        ]);
+        $this->assertSame($before, $this->bookingRepository->findById($booking->id)?->effectiveTotalCents());
+        $this->assertSame([], $this->modificationRepository->findForBooking($booking->id));
+    }
+
     // ── Blocking dates on the calendar (#708, IT-07) ────────────────────
 
     public function testDaysBlockedOnTheCalendarBecomeOnePeriodWithoutAReason(): void

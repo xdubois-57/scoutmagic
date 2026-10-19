@@ -5,7 +5,9 @@
   **The tariff's lines are read only**: they are recomputed from the dates
   and the participants at every save, so what a renter is asked to pay can
   always be explained line by line. The one thing typed by hand is a single
-  « Remise » — a label and a negative amount. No line is edited, none is
+  « Remise » — a label and the amount deducted, typed without a sign (a
+  phone's decimal keypad has none) and stored as a negative line, like the
+  settlement's « Geste commercial ». No line is edited, none is
   added, nothing is « recalculé » by hand. A discount granted after the stay
   is a « Geste commercial » of the final settlement instead, with no new
   contract.
@@ -60,9 +62,9 @@
                             <td>
                                 {% include 'partials/form_field.html.twig' with {
                                     field_id: 'discount-amount', field_name: 'discount_amount',
-                                    label: 'Montant', size: 'sm', wrapper_class: 'mb-0',
-                                    value: discount_line ? (discount_line.amountCents / 100)|number_format(2, ',', '') : '',
-                                    inputmode: 'decimal', placeholder: '-50,00',
+                                    label: 'Montant déduit (€)', size: 'sm', wrapper_class: 'mb-0',
+                                    value: discount_line ? (discount_line.amountCents|abs / 100)|number_format(2, ',', '') : '',
+                                    inputmode: 'decimal', placeholder: '50,00',
                                 } only %}
                             </td>
                         </tr>

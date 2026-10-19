@@ -1155,7 +1155,7 @@ Money is integers in cents, everywhere. A quote is built from the asset's own ta
 
 **An estimate still missing something is presented as « dès X € », never as a total.** No head count yet, no renter category chosen: what can be computed is a floor, and saying so is what keeps the site from quoting a figure it would have to walk back once the missing piece arrives. A complete estimate says « Total estimé ».
 
-**A price is the tariff's lines and at most one discount.** Neither the renter nor a manager types a price line: the lines follow the dates, the units and the head count, and the one thing a manager adds is a discount — a label and a negative amount — on the booking's « Modifications » page (§22.5). When the head count falls below the billable minimum the line says so out loud — « 25 pers. (minimum) » — rather than quietly quoting for more people than are coming.
+**A price is the tariff's lines and at most one discount.** Neither the renter nor a manager types a price line: the lines follow the dates, the units and the head count, and the one thing a manager adds is a discount — a label and the amount deducted, typed without a sign (a phone's decimal keypad has none) and always stored as a negative line — on the booking's « Modifications » page (§22.5). When the head count falls below the billable minimum the line says so out loud — « 25 pers. (minimum) » — rather than quietly quoting for more people than are coming.
 
 **No VAT is ever computed.** Prices are what the renter pays, with a per-asset exemption note.
 

@@ -59,7 +59,7 @@ la fois par réservation.
 
 Les lignes du tarif se lisent sans se modifier : elles suivent les dates,
 les unités et les participants. Pour un geste commercial, remplissez la
-ligne « Remise — libellé » et son « Montant » ; elle s'affiche telle
+ligne « Remise — libellé » et son « Montant déduit (€) », sans signe ; elle s'affiche telle
 quelle au locataire. Un prix devenu inférieur à ce qui est déjà payé
 laisse un trop-perçu à rembourser.
 
