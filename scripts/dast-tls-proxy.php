@@ -67,6 +67,17 @@ declare(strict_types=1);
 const DAST_TLS_READ_CHUNK = 65536;
 const DAST_TLS_HEAD_LIMIT = 262144;
 const DAST_TLS_BACKEND_TIMEOUT = 120;
+// How long a kept-alive connection may sit idle between two requests, and
+// the shorter delay the client is TOLD (`Keep-Alive: timeout=`). The gap is
+// the fix for a race (issue #912): this terminator used to close an idle
+// connection after DAST_TLS_BACKEND_TIMEOUT without ever saying so, and a
+// client that reused it at that moment lost its request. A browser or a
+// proxy retries a lost GET but not a lost POST, which surfaced as
+// `chrome-error://chromewebdata/` after « Créer le bien ». With the hint
+// below the idle limit, the client always gives a connection up before
+// this side does.
+const DAST_TLS_IDLE_TIMEOUT = 15;
+const DAST_TLS_KEEPALIVE_HINT = 5;
 // A ceiling, not a target: a client that keeps one connection for ever
 // would pin a forked child for ever with it.
 const DAST_TLS_MAX_REQUESTS = 200;
@@ -292,15 +303,29 @@ function dastTlsExchange(string $backend, string $head, string $body): ?array
  * Measuring the body and declaring it fixes both: the connection can be
  * reused, and a download has a length to complete against.
  */
-function dastTlsReframe(string $head, int $length, bool $keepAlive, bool $omitBody): string
+function dastTlsReframe(string $head, int $length, bool $keepAlive, bool $omitBody, int $remaining = 0): string
 {
     $head = dastTlsStripHeaders($head, ['Content-Length', 'Transfer-Encoding', 'Connection', 'Keep-Alive']);
     $head .= "\r\nConnection: " . ($keepAlive ? 'keep-alive' : 'close');
+    if ($keepAlive) {
+        $head .= "\r\nKeep-Alive: timeout=" . DAST_TLS_KEEPALIVE_HINT . ', max=' . max(1, $remaining);
+    }
     if (!$omitBody) {
         $head .= "\r\nContent-Length: {$length}";
     }
 
     return $head . "\r\n\r\n";
+}
+
+/**
+ * One line per request on stderr (scripts/dast.sh sends it to tls-proxy.log
+ * and prints its tail when the browser suite fails), so a scenario that
+ * waited for ever says which request did. The query string is dropped: it
+ * carries tokens (a magic link, a tracking page).
+ */
+function dastTlsLog(string $line): void
+{
+    fwrite(STDERR, date('H:i:s') . ' dast-tls-proxy: ' . $line . "\n");
 }
 
 /**
@@ -311,14 +336,18 @@ function dastTlsReframe(string $head, int $length, bool $keepAlive, bool $omitBo
  */
 function dastTlsHandleConnection($client, string $backend): void
 {
-    stream_set_timeout($client, DAST_TLS_BACKEND_TIMEOUT);
     $buffer = '';
 
     for ($served = 0; $served < DAST_TLS_MAX_REQUESTS; $served++) {
+        // Waiting for the NEXT request is bounded by the idle limit; once a
+        // head has arrived, the request gets the backend's.
+        stream_set_timeout($client, DAST_TLS_IDLE_TIMEOUT);
         $head = dastTlsReadHead($buffer, $client);
         if ($head === null) {
             return;
         }
+        stream_set_timeout($client, DAST_TLS_BACKEND_TIMEOUT);
+        $startedAt = hrtime(true);
 
         $requestLine = strtok($head, "\r\n");
         $method = strtoupper((string) strtok($requestLine === false ? '' : $requestLine, ' '));
@@ -337,7 +366,10 @@ function dastTlsHandleConnection($client, string $backend): void
             . "\r\nX-Forwarded-Proto: https\r\n\r\n";
 
         $response = dastTlsExchange($backend, $forwarded, $body);
+        $target = $requestLine === false ? '' : (string) (explode(' ', $requestLine)[1] ?? '');
+        $path = (string) strtok($target, '?');
         if ($response === null) {
+            dastTlsLog(sprintf('%s %s -> backend failed after %d ms', $method, $path, intdiv(hrtime(true) - $startedAt, 1_000_000)));
             // The application server is gone (teardown, a crash). Answer
             // something well-formed rather than a bare connection reset,
             // so the scanner records a 502 instead of an unexplained
@@ -355,6 +387,7 @@ function dastTlsHandleConnection($client, string $backend): void
             $status = (int) $matches[1];
         }
         $omitBody = $method === 'HEAD' || $status === 204 || $status === 304;
+        dastTlsLog(sprintf('%s %s -> %d in %d ms', $method, $path, $status, intdiv(hrtime(true) - $startedAt, 1_000_000)));
 
         $clientConnection = (string) (dastTlsHeader($head, 'Connection') ?? '');
         $keepAlive = stripos($clientConnection, 'close') === false
@@ -367,7 +400,7 @@ function dastTlsHandleConnection($client, string $backend): void
             // request that simply never gets an answer.
             && $served < DAST_TLS_MAX_REQUESTS - 1;
 
-        $out = dastTlsReframe($responseHead, strlen($responseBody), $keepAlive, $omitBody);
+        $out = dastTlsReframe($responseHead, strlen($responseBody), $keepAlive, $omitBody, DAST_TLS_MAX_REQUESTS - 1 - $served);
         if (@fwrite($client, $out) === false) {
             return;
         }

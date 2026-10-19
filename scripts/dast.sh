@@ -778,6 +778,15 @@ set -e
 # ---------------------------------------------------------------
 if [[ "${PLAYWRIGHT_EXIT}" -ne 0 ]]; then
     echo "DAST: the browser suite exited ${PLAYWRIGHT_EXIT} — scanning the traffic it did produce." >&2
+    # What the harness saw while the scenario waited (issue #912): the
+    # failure itself only says « timeout » or « chrome-error », and these
+    # logs live in a directory deleted at teardown.
+    echo "--- TLS terminator, last 80 lines ---" >&2
+    tail -80 "${TLS_LOG}" >&2 || true
+    echo "--- php -S output, last 40 lines ---" >&2
+    tail -40 "${SERVER_LOG}" >&2 || true
+    echo "--- PHP error log, last 40 lines ---" >&2
+    tail -40 "${INSTANCE_DIR}/php-error.log" >&2 || true
 fi
 
 touch "${RELEASE_FILE_HOST}"
