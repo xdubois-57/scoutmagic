@@ -131,8 +131,9 @@
             <div class="col-6 col-md-2">
                 <label class="form-label" for="gesture-amount">Montant déduit (€)</label>
                 <input type="text" class="form-control form-control-sm" id="gesture-amount" name="gesture_amount"
-                       inputmode="decimal"
+                       inputmode="decimal" aria-describedby="gesture-amount-help"
                        value="{{ gesture ? (gesture.amountCents|abs / 100)|number_format(2, ',', '') : '' }}">
+                <div class="form-text" id="gesture-amount-help">Au plus le total du décompte.</div>
             </div>
             <div class="col-12 col-md-3">
                 <button type="submit" class="btn btn-sm btn-outline-secondary w-100">

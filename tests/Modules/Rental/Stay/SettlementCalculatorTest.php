@@ -539,6 +539,33 @@ class SettlementCalculatorTest extends TestCase
         $this->assertSame(SettlementLine::ORIGIN_GESTURE, $result['lines'][2]->origin);
     }
 
+    public function testAGestureLargerThanTheStayIsCappedAtTheTotal(): void
+    {
+        // A 500 € gesture on a 380 € stay cannot make the unit owe more than
+        // everything back: the total stops at 0, and what the screen shows
+        // is what the receivable is brought to.
+        $gesture = SettlementLine::gesture(null, 50000);
+        $this->assertNotNull($gesture);
+
+        $result = $this->calculator->compute($this->agreedQuote(20), null, [], [], [$gesture], 53000, 15000, true);
+
+        $this->assertSame(0, $result['total_cents']);
+        $this->assertSame(0, $result['kept_cents']);
+        $this->assertSame(-53000, $result['balance_cents']);
+        $this->assertSame(-38000, $result['lines'][2]->amountCents);
+    }
+
+    public function testAGestureOnAStayAlreadyAtNothingLeavesNoLine(): void
+    {
+        $gesture = SettlementLine::gesture(null, 5000);
+        $this->assertNotNull($gesture);
+
+        $result = $this->calculator->compute(null, null, [], [], [$gesture], 0, null);
+
+        $this->assertSame([], $result['lines']);
+        $this->assertSame(0, $result['total_cents']);
+    }
+
     public function testAGestureIsAlwaysADiscountAndNoneWithoutAnAmount(): void
     {
         $this->assertSame(-2500, SettlementLine::gesture('Remise fidélité', 2500)?->amountCents);

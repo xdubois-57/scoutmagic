@@ -137,10 +137,12 @@ final class RenterNextStep
                 $payment['balance_due_date'] ?? null,
                 $payment
             ),
+            // The booking's one communication: the security deposit is part
+            // of the same receivable and has none of its own (issue #927).
             BookingMilestones::SECURITY_DEPOSIT_RECEIVED => self::pay(
                 'la caution',
                 $securityDeposit['due_date'] ?? null,
-                $securityDeposit
+                $payment
             ),
             BookingMilestones::ARRIVAL_INVENTORY => new self(
                 "Rien à faire de votre côté avant votre arrivée : "

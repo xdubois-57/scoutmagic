@@ -2631,7 +2631,7 @@ class RentalManagementControllerTest extends TestCase
     public function testAGoodwillGestureIsRecordedAsALineOfTheSettlement(): void
     {
         $this->loginAsManager();
-        $booking = $this->createBooking();
+        $booking = $this->bookingOwedFor();
 
         $this->post('/mes-locations/decompte', 'recordSettlement', [
             'asset_id' => (string) $this->assetId,

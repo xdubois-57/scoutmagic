@@ -78,6 +78,7 @@ final class SettlementCalculator
             $this->incidentLines($incidents),
             array_values($manualLines)
         );
+        $lines = self::capGestures($lines);
 
         $total = 0;
         foreach ($lines as $line) {
@@ -116,6 +117,42 @@ final class SettlementCalculator
             // negative balance IS everything owed back, deposit included.
             'paid_includes_security_deposit' => $paidIncludesSecurityDeposit,
         ];
+    }
+
+    /**
+     * A « Geste commercial » never takes the stay below nothing (issue
+     * #927): each one is capped at what the other lines still come to, so
+     * the total — and the amount the receivable is brought to on
+     * validation — stays at 0 at worst, and the refund the screen shows is
+     * the one Finance records.
+     *
+     * @param SettlementLine[] $lines
+     * @return SettlementLine[]
+     */
+    private static function capGestures(array $lines): array
+    {
+        $available = 0;
+        foreach ($lines as $line) {
+            if ($line->origin !== SettlementLine::ORIGIN_GESTURE) {
+                $available += $line->amountCents;
+            }
+        }
+
+        $capped = [];
+        foreach ($lines as $line) {
+            if ($line->origin === SettlementLine::ORIGIN_GESTURE) {
+                $discount = min(abs($line->amountCents), max(0, $available));
+                if ($discount === 0) {
+                    // Nothing left to take off: a 0,00 € line says nothing.
+                    continue;
+                }
+                $available -= $discount;
+                $line = new SettlementLine($line->label, -$discount, $line->origin, $line->detail);
+            }
+            $capped[] = $line;
+        }
+
+        return $capped;
     }
 
     /**
