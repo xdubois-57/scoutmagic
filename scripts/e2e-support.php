@@ -39,7 +39,10 @@ declare(strict_types=1);
  *                              (created if missing) and print its id —
  *                              the one state no page can move backwards;
  *                              see e2eSetPublicYear().
- *   teardown-db                Drop every table of the E2E database and
+ *   raise-human-check-limit    Lift the public-form rate limit on the
+ *                              instance — scripts/dast.sh, active
+ *                              profiles only; see e2eRaiseHumanCheckLimit().
+ *   teardown-db               Drop every table of the E2E database and
  *                              the database itself.
  *   merge-coverage <dir> <out> Fold every per-request coverage fragment
  *                              scripts/e2e-coverage-prepend.php wrote into
@@ -136,6 +139,12 @@ function e2eSupportMain(array $argv): void
             require_once $repoRoot . '/vendor/autoload.php';
             e2eApplyApplicationClock();
             echo e2eSetPublicYear($label), "\n";
+            exit(0);
+
+        case 'raise-human-check-limit':
+            require_once $repoRoot . '/vendor/autoload.php';
+            e2eApplyApplicationClock();
+            e2eRaiseHumanCheckLimit();
             exit(0);
 
         case 'teardown-db':
@@ -2041,6 +2050,35 @@ function e2eHumanCheckMinDelaySeconds(string $instanceDir): int
     return is_string($stored) && trim($stored) !== '' && ctype_digit(trim($stored))
         ? max(0, (int) trim($stored))
         : 3;
+}
+
+/**
+ * Lift HumanCheck's per-address limit on public forms
+ * (`human_check_rate_limit_max_attempts`, 5 per window by default) on the
+ * throwaway instance, so that an ACTIVE DAST profile's replays reach the
+ * handler behind a public form instead of all stopping at « rate_limited »
+ * after the fifth: the scanner replays every recorded request hundreds of
+ * times from one address, and a scan that only ever meets the limiter has
+ * scanned the limiter.
+ *
+ * Only scripts/dast.sh calls it, and only for `deep` and `audit`. Never the
+ * E2E harness — a scenario must keep meeting the limit production enforces —
+ * and never production: the setting's default is untouched. The row exists
+ * once the instance has booted (public/index.php registers it), which is why
+ * the caller runs this after the server first answers.
+ */
+function e2eRaiseHumanCheckLimit(): void
+{
+    $config = e2eDatabaseConfig();
+    $pdo = new PDO(
+        sprintf('mysql:host=%s;port=%d;dbname=%s;charset=utf8mb4', $config['host'], $config['port'], $config['name']),
+        $config['user'],
+        $config['password'],
+        [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]
+    );
+
+    (new Core\Config\SettingService(new Core\Config\SettingRepository($pdo)))
+        ->setInternal('human_check_rate_limit_max_attempts', '100000');
 }
 
 /**

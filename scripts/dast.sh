@@ -563,6 +563,17 @@ if ! php "${DAST_SUPPORT}" wait-url "${BASE_URL}/api/version" "${DAST_SERVER_TIM
     exit 1
 fi
 
+# An active profile replays every recorded request hundreds of times from
+# one address. HumanCheck lets a public form through 5 times per address per
+# window, so every replay after the fifth would meet « rate_limited » and the
+# scan would test the limiter instead of the handler behind it. Lift the limit
+# on this throwaway instance only — the passive profile replays nothing, and
+# scripts/e2e.sh keeps the production limit so the scenarios still meet it.
+if [[ "${PROFILE}" == "deep" || "${PROFILE}" == "audit" ]]; then
+    echo "DAST: lifting the public-form rate limit on the throwaway instance (active profile)."
+    php "${SUPPORT}" raise-human-check-limit
+fi
+
 # The whole reason IT-01 exists: prove, before spending an hour scanning,
 # that the instance really believes it is on HTTPS. If this header is
 # missing the scan would spend its time rediscovering a broken harness

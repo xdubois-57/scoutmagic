@@ -304,6 +304,12 @@ Two profiles run in CI:
   over-permissive route fails the commit that introduced it.
 - `--profile=passive` → ZAP's passive rules over the browser suite.
 
+The active profiles, `deep` and `audit`, lift the public-form rate limit
+(`human_check_rate_limit_max_attempts`) on their throwaway instance before
+scanning: they replay every recorded request hundreds of times from one
+address, and past the fifth each replay would only meet the limiter. The
+passive profile and `scripts/e2e.sh` keep the production limit.
+
 Both need Docker and a pulled `ghcr.io/zaproxy/zaproxy:stable`;
 `scripts/dast.sh` refuses to download a missing image and exits before
 scanning, so a missing prerequisite looks nothing like the failure you came
