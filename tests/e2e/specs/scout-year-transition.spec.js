@@ -565,7 +565,7 @@ test('the whole site transitions to the next scout year through the documented w
 
     // Now that the year has sections, the photo step can measure itself —
     // and the missing photos are a point to check, never the step done.
-    await expect(details(page, 'staff_photos')).toContainText('ont une photo de groupe de');
+    await expect(details(page, 'staff_photos')).toContainText(/\d+ sections? sur\s+\d+ (a|ont) une photo de groupe de/);
     await expect(step(page, 'staff_photos')).toContainText('à vérifier');
     await expect(step(page, 'staff_photos').locator('.step-circle--done')).toHaveCount(0);
 

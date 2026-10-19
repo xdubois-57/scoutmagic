@@ -14,11 +14,11 @@
 {% if step.details.households_checked is defined %}
 {% set d = step.details %}
 <p class="small mb-2">
-    {{ d.households_checked }} {{ d.households_checked == 1 ? 'foyer contrôlé' : 'foyers contrôlés' }} à partir de
+    {{ d.households_checked }} {{ d.households_checked <= 1 ? 'foyer contrôlé' : 'foyers contrôlés' }} à partir de
     l'import du {{ d.imported_at|date_fr }} :
     {{ d.households_to_correct }} à corriger,
     {{ d.households_set_aside }} mis de côté,
-    {{ d.members_without_address }} {{ d.members_without_address == 1 ? 'membre' : 'membres' }} sans adresse exploitable.
+    {{ d.members_without_address }} {{ d.members_without_address <= 1 ? 'membre' : 'membres' }} sans adresse exploitable.
 </p>
 {% endif %}
 <p class="text-body-secondary small mb-2">

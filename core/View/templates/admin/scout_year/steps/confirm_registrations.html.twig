@@ -11,7 +11,7 @@
 {% if step.details.pending is defined %}
 <p class="small mb-2">
     {{ step.details.pending }} en attente ·
-    {{ step.details.accepted }} {{ step.details.accepted == 1 ? 'acceptée' : 'acceptées' }}
+    {{ step.details.accepted }} {{ step.details.accepted <= 1 ? 'acceptée' : 'acceptées' }}
     {%- if step.details.accepted_without_section > 0 %} (dont {{ step.details.accepted_without_section }} sans section prévue){% endif %}.
 </p>
 {% endif %}
@@ -19,6 +19,6 @@
 <div class="alert alert-warning small py-2 px-3 mb-2" role="note">
     Indépendamment de cette étape, la bascule publique reste refusée tant que
     {{ step.details.blocking_request_count }}
-    {{ step.details.blocking_request_count == 1 ? "demande d'inscription n'est pas clôturée" : "demandes d'inscription ne sont pas clôturées" }}.
+    {{ step.details.blocking_request_count <= 1 ? "demande d'inscription n'est pas clôturée" : "demandes d'inscription ne sont pas clôturées" }}.
 </div>
 {% endif %}

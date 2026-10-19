@@ -14,7 +14,7 @@
     {% else %}
     {% set assigned = step.details.passage_count - step.details.unassigned_count %}
     <p class="small mb-2">
-        {{ step.details.passage_count }} {{ step.details.passage_count == 1 ? 'passage attendu' : 'passages attendus' }} ·
+        {{ step.details.passage_count }} {{ step.details.passage_count <= 1 ? 'passage attendu' : 'passages attendus' }} ·
         {{ assigned }} avec une section d'arrivée.
     </p>
     {% if step.details.unassigned is not empty %}

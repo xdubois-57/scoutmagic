@@ -13,8 +13,8 @@
 {% endif %}
 {% if step.details.section_count is defined %}
 <p class="small mb-2">
-    {{ step.details.with_photo_count }} {{ step.details.with_photo_count == 1 ? 'section' : 'sections' }} sur
-    {{ step.details.section_count }} ont une photo de groupe de l'année.
+    {{ step.details.with_photo_count }} {{ step.details.with_photo_count <= 1 ? 'section' : 'sections' }} sur
+    {{ step.details.section_count }} {{ step.details.with_photo_count <= 1 ? 'a' : 'ont' }} une photo de groupe de l'année.
     {%- if step.details.missing is not empty %} Manquantes : {{ step.details.missing|join(', ') }}{% endif %}.
     La photo de l'an dernier, qui s'affiche encore, ne compte pas.
 </p>

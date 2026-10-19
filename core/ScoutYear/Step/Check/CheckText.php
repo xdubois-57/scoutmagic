@@ -23,10 +23,10 @@ final class CheckText
     {
     }
 
-    /** « 1 foyer à corriger », « 3 foyers à corriger ». */
+    /** « 0 foyer à corriger », « 1 foyer à corriger », « 3 foyers à corriger »: French keeps 0 singular. */
     public static function count(int $count, string $singular, string $plural): string
     {
-        return $count . ' ' . ($count === 1 ? $singular : $plural);
+        return $count . ' ' . ($count <= 1 ? $singular : $plural);
     }
 
     /** « 15/08/2027 » from a 'Y-m-d' date; null stays null, anything else is shown as stored. */

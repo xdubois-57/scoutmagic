@@ -32,7 +32,7 @@
     <p class="small mb-2">Aucun animé annoncé partant.</p>
     {% else %}
     <p class="small mb-1">
-        {{ leavers|length }} {{ leavers|length == 1 ? 'animé annoncé partant' : 'animés annoncés partants' }} :
+        {{ leavers|length }} {{ leavers|length <= 1 ? 'animé annoncé partant' : 'animés annoncés partants' }} :
     </p>
     <ul class="small mb-2">
         {% for leaver in leavers %}

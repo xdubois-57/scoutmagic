@@ -177,4 +177,16 @@ class StepDetailTemplatesTest extends TestCase
         $this->assertStringContainsString('ont une photo de groupe de', $html);
         $this->assertStringContainsString('Manquantes : Éclaireurs, Pionniers.', $html);
     }
+
+    /** French keeps 0 and 1 in the singular, the verb included. */
+    public function testStaffPhotosAgreeWithTheirCount(): void
+    {
+        foreach ([0, 1] as $count) {
+            $details = ['section_count' => 5, 'with_photo_count' => $count, 'missing' => []];
+            $html = $this->render('staff_photos', $details);
+            $this->assertMatchesRegularExpression('/' . $count . ' section sur\s+5 a une photo de groupe/', $html);
+        }
+        $html = $this->render('staff_photos', ['section_count' => 5, 'with_photo_count' => 2, 'missing' => []]);
+        $this->assertMatchesRegularExpression('/2 sections sur\s+5 ont une photo de groupe/', $html);
+    }
 }

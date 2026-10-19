@@ -28,7 +28,7 @@
 {% endif %}
 {% if step.details.event_count is defined %}
 <p class="text-body-secondary small mb-2">
-    {{ step.details.event_count }} {{ step.details.event_count == 1 ? 'événement encodé' : 'événements encodés' }}
+    {{ step.details.event_count }} {{ step.details.event_count <= 1 ? 'événement encodé' : 'événements encodés' }}
     pour l'année, tous calendriers confondus. Seule une section sans aucun événement est signalée. Le nombre ne dit
     pas si l'année est complète : à vous de juger.
 </p>
