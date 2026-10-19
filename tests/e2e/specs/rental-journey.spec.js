@@ -73,11 +73,15 @@ function isoDaysFromNow(days) {
 const ASSET_NAME = 'Refuge du Val';
 const ASSET_SLUG = 'refuge-du-val';
 
-// Its own IBAN, not one another spec gives its account: the import sends a
-// statement to the account carrying its IBAN, and two active accounts
-// sharing one are ambiguous.
+// Its own IBAN, used by no other spec: the import sends a statement to the
+// account carrying its IBAN, and when two active accounts share one it is
+// ambiguous and every line is set aside (« Lignes ignorées »). The whole
+// suite runs on one database, so an IBAN another spec already gave its
+// account — this one first borrowed public-home-page.spec.js's
+// BE68 5390 0754 7034 — passes alone and fails in the full run. The other
+// specs use BE21 0012 3456 7803 and BE71 0961 2345 6769.
 const ACCOUNT_NAME = 'Compte des locations E2E';
-const ACCOUNT_IBAN = 'BE68 5390 0754 7034';
+const ACCOUNT_IBAN = 'BE15 0019 2703 4130';
 
 // Far from the ranges the other rental specs use (60–69, 120, 200–203,
 // 300–303), so a failure here can never be one of their bookings.
@@ -136,7 +140,8 @@ test.describe('Rentals — one booking from the request to the deposit back', ()
         await page.getByLabel('IBAN').fill(ACCOUNT_IBAN);
         await page.getByLabel('Nom du titulaire').fill('Unité de test E2E');
         await page.getByRole('button', { name: 'Enregistrer' }).click();
-        await expect(page.getByRole('row', { name: new RegExp(ACCOUNT_NAME) })).toBeVisible();
+        // Active, or Finance would offer it to nothing: an IBAN and a holder.
+        await expect(page.getByRole('row', { name: new RegExp(ACCOUNT_NAME) }).getByText('Actif')).toBeVisible();
         await page.goto('/config/finance/categories', { waitUntil: 'load' });
 
         // The asset, its manager, and the account it is paid on.
@@ -582,8 +587,18 @@ async function importStatement(page, lines, closingBalance) {
         await page.getByLabel('Solde après ce relevé').fill(closingBalance);
     }
     await page.getByRole('button', { name: 'Importer' }).click();
-    await expect(page.getByText(`${lines.length} ligne(s) lue(s), ${lines.length} nouvelle(s)`, { exact: false }))
+
+    // The report names the account each part of the file went to: ours, and
+    // only ours, with every line new — nothing set aside as ambiguous or
+    // unknown, nothing read as already imported.
+    await expect(page.getByRole('heading', { name: "Résultat de l'import" }))
         .toBeVisible({ timeout: scaled(15_000) });
+    await expect(page.getByRole('heading', { name: 'Lignes ignorées' })).toHaveCount(0);
+    const report = page.locator('section', {
+        has: page.getByRole('heading', { name: ACCOUNT_NAME, exact: true }),
+    });
+    await expect(report)
+        .toContainText(`${lines.length} ligne(s) lue(s), ${lines.length} nouvelle(s), 0 déjà présente(s)`);
 }
 
 /**
