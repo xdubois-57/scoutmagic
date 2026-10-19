@@ -583,4 +583,46 @@ class SectionServiceTest extends TestCase
             array_map(fn($p) => $p->memberYearId, $staff[$sectionA])
         );
     }
+
+    /**
+     * The "Année scoute" workflow's sections: visible, with somebody in the
+     * year asked, counted by that year's functions — a section hidden by
+     * the admin or empty that year is not there, and another year's
+     * members never count.
+     */
+    public function testHeadcountsForYearCountTheYearsAnimateursAndAnimes(): void
+    {
+        $balId = (int) $this->pdo->query("SELECT id FROM age_branches WHERE desk_code = 'BAL'")->fetchColumn();
+        $louId = (int) $this->pdo->query("SELECT id FROM age_branches WHERE desk_code = 'LOU'")->fetchColumn();
+        $baladins = $this->createSection('BAL01', $balId, 'Baladins A');
+        $louveteaux = $this->createSection('LOU01', $louId);
+        $hidden = $this->createSection('LOU02', $louId, 'Cachée');
+        $this->pdo->exec("UPDATE sections SET is_visible = 0 WHERE id = {$hidden}");
+        $this->createSection('LOU03', $louId, 'Vide');
+
+        $this->createMemberInSection($baladins, 'Chef', 'chief');
+        $this->createMemberInSection($baladins, 'Anime1');
+        $this->createMemberInSection($baladins, 'Anime2');
+        $this->createMemberInSection($baladins, 'Intendant', 'intendant');
+        $this->createMemberInSection($louveteaux, 'Anime3');
+        $this->createMemberInSection($hidden, 'Anime4');
+        $inactive = $this->createMemberInSection($louveteaux, 'Parti');
+        $this->pdo->exec("UPDATE member_years SET is_active = 0 WHERE id = {$inactive}");
+
+        $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('2026-2027', '2026-09-01', '2027-08-31', 0)");
+        $otherYearId = (int) $this->pdo->lastInsertId();
+
+        $headcounts = $this->service->getSectionHeadcountsForYear($this->scoutYearId);
+
+        $this->assertSame([$baladins, $louveteaux], array_map(static fn($h) => $h->sectionId, $headcounts));
+        $this->assertSame('Baladins A', $headcounts[0]->label);
+        $this->assertSame(1, $headcounts[0]->chiefCount);
+        $this->assertSame(2, $headcounts[0]->animeCount);
+        $this->assertFalse($headcounts[0]->isUnitStaff);
+        $this->assertSame('LOU01', $headcounts[1]->label, 'A section without a name reads as its Desk code.');
+        $this->assertSame(0, $headcounts[1]->chiefCount);
+        $this->assertSame(1, $headcounts[1]->animeCount);
+
+        $this->assertSame([], $this->service->getSectionHeadcountsForYear($otherYearId));
+    }
 }

@@ -306,6 +306,35 @@ class SectionService
     }
 
     /**
+     * The sections that have someone in $scoutYearId — visible ones with at
+     * least one active member that year — with their animateur and animé
+     * counts: what the "Année scoute" workflow checks section by section
+     * (chantier « Année scoute » §2.2). A section hidden by the admin, or
+     * empty that year, is not there; the Staff d'U is, flagged, for the
+     * caller to keep or leave out. In the unit's own order.
+     *
+     * Who the animateurs are is getStaffForSections() for the same year
+     * (role chief/admin, active) — the trombinoscope's rule too.
+     *
+     * @return list<SectionYearHeadcount>
+     */
+    public function getSectionHeadcountsForYear(int $scoutYearId): array
+    {
+        return array_map(
+            static fn(array $row): SectionYearHeadcount => new SectionYearHeadcount(
+                $row['id'],
+                $row['desk_code'],
+                $row['name'] ?? $row['desk_code'],
+                $row['branch_sort_order'],
+                $row['desk_code'] === UnitStaffSectionService::DESK_CODE,
+                $row['chiefs'],
+                $row['animes']
+            ),
+            $this->sections->headcountsForYear($scoutYearId)
+        );
+    }
+
+    /**
      * The member_year ids behind getSectionAnimes() — THE definition of
      * "animé of this section" (see getSectionAnimes()'s own doc comment
      * for the role-filter history), selectable without paying the full

@@ -118,6 +118,42 @@ class MemberBadgeRepository
         );
     }
 
+    /**
+     * findHoldingsForScoutYear() with the section each holder belongs to
+     * that year: the section of their main function, then of the lowest
+     * `mf.id` — among the functions that have one; null when none does.
+     * One row per holding, in the same order.
+     *
+     * @return list<array{badge_id: int, member_year_id: int, section_id: ?int}>
+     */
+    public function findHoldingsWithSectionForScoutYear(int $scoutYearId): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT mb.badge_id, mb.member_year_id, mf.section_id
+             FROM member_badges mb
+             JOIN member_years my ON my.id = mb.member_year_id
+             LEFT JOIN member_functions mf ON mf.member_year_id = mb.member_year_id AND mf.section_id IS NOT NULL
+             WHERE my.scout_year_id = ?
+             ORDER BY mb.badge_id, mb.member_year_id, mf.is_main_function DESC, mf.id ASC'
+        );
+        $stmt->execute([$scoutYearId]);
+
+        $holdings = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $key = $row['badge_id'] . ':' . $row['member_year_id'];
+            if (isset($holdings[$key])) {
+                continue;
+            }
+            $holdings[$key] = [
+                'badge_id' => (int) $row['badge_id'],
+                'member_year_id' => (int) $row['member_year_id'],
+                'section_id' => $row['section_id'] !== null ? (int) $row['section_id'] : null,
+            ];
+        }
+
+        return array_values($holdings);
+    }
+
     public function isAssigned(int $memberYearId, int $badgeId): bool
     {
         $stmt = $this->pdo->prepare(
