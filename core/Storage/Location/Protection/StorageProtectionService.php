@@ -20,9 +20,10 @@ use Core\Storage\Location\StorageLocationType;
  * Choosing a location's safety copy, and everything that has to be true
  * before the choice is saved.
  *
- * **Three refusals and two warnings, and the split is the design.** A
- * refusal is for a relation that cannot work or that would expose
- * somebody's files; a warning is for one that will work and that an
+ * **Four refusals and two warnings, and the split is the design.** A
+ * refusal is for a relation that cannot work, that protects nothing (two
+ * locations on the site's own server), or that would expose somebody's
+ * files; a warning is for one that will work and that an
  * administrator should know the price of. Turning a warning into a refusal
  * would make the feature unusable for the units that need it most — a unit
  * whose photographs already live off-site has nowhere else to put them —

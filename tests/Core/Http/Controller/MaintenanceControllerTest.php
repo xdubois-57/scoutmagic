@@ -535,6 +535,9 @@ class MaintenanceControllerTest extends TestCase
 
         $this->assertMatchesRegularExpression('~<option value="' . $local . '" selected>\s*Ancien dossier — sur ce serveur, pas hors site~', $body);
         $this->assertStringContainsString("Cette destination n'est pas hors site.", $body);
+        // No external candidate on this site: the warning says to declare one, not to pick « below ».
+        $this->assertStringNotContainsString('Choisissez un emplacement externe ci-dessous.', $body);
+        $this->assertStringContainsString('Déclarez un emplacement externe', $body);
     }
 
     /**

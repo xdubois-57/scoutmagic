@@ -113,7 +113,13 @@
                                 <div class="alert alert-warning small" role="alert">
                                     <strong>Cette destination n'est pas hors site.</strong>
                                     C'est un dossier du serveur du site : si l'hébergement est perdu, les sauvegardes
-                                    le sont avec lui. Choisissez un emplacement externe ci-dessous.
+                                    le sont avec lui.
+                                    {% if remote_backup_locations is not empty %}
+                                        Choisissez un emplacement externe ci-dessous.
+                                    {% else %}
+                                        <a href="/config/stockage/emplacements/nouveau">Déclarez un emplacement externe</a>
+                                        — un compte Google Drive, par exemple — puis choisissez-le ici.
+                                    {% endif %}
                                 </div>
                             {% endif %}
                             {% if remote_backup_location.lastCheckOk is same as(false) %}
