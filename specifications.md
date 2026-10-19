@@ -3925,6 +3925,18 @@ Les lignes d'un même fichier gardent le lien entre elles : une ligne de suivi p
 
 Le CODA la livre dans son propre champ ; elle est rangée à part (chiffrée, comme le libellé) et c'est elle que le rapprochement des paiements attendus lit en premier. Le CSV BNP la noie dans du texte libre, où elle est toujours cherchée.
 
-### 48.7 Hors périmètre
+### 48.7 Le remboursement rapproché par sa communication
+
+Chantier : `docs/chantiers/CHANTIER-locations-modifications.md`, §2.6 (issue #927). Vaut pour **toutes** les créances, quel que soit le module qui les a créées.
+
+- **Un débit dont la communication porte celle d'une créance est son remboursement.** À l'import, il est rapproché tout seul de cette créance, **dans la limite du trop-perçu** : ce qui est arrivé pour elle, moins ce qu'elle vaut, moins ce qui a déjà été remboursé. Le reste d'un débit plus grand reste non rapproché ; un débit qui désigne une créance sans trop-perçu n'est rapproché de rien. Réimporter le même extrait ne rapproche rien deux fois.
+- **Un remboursement rapproché ne recule jamais.** Si le montant de la créance change ensuite, l'argent rendu reste rendu ; un remboursement plafonné peut seulement grandir, jusqu'au montant du débit, si le trop-perçu grandit.
+- **Sans la communication**, le module qui a créé la créance peut proposer les **débits candidats** — non rapprochés, sur le compte de la créance, d'au plus le trop-perçu, depuis une date — en ne montrant que leur date, leur montant et le nom de la contrepartie, puis en rapprocher un : tout est revérifié au moment de le faire, et deux gestes simultanés ne remboursent jamais plus que le trop-perçu.
+- **Un crédit qui cite les communications de plusieurs créances du même compte** ne crée de trop-perçu pour aucune (un autre numéro dans le libellé — référence SEPA, créance d'un autre compte — ne compte pas) : ce qui en reste après les créances n'appartient à aucune en particulier, n'est jamais compté deux fois ni remboursé automatiquement, et attend la décision d'un trésorier.
+- Une décision humaine sur un mouvement (rattachement, retrait) n'est jamais défaite par le rapprochement automatique.
+- Un remboursement automatique et un remboursement rapproché à la main en même temps ne rendent jamais, ensemble, plus que le trop-perçu.
+- Le site ne déplace pas d'argent : le virement se fait à la banque.
+
+### 48.8 Hors périmètre
 
 **Ponto** (téléchargement automatique des extraits via l'API d'Isabel) : tarif non publié, liaison DSP2 à refaire tous les 90 jours, et surtout le certificat client Ibanity, incompatible avec un logiciel libre auto-hébergé. Il fait l'objet d'une issue distincte. Écartés aussi : créer une année scoute ou un compte depuis un relevé, un récapitulatif à valider avant écriture, et un choix de compte ou de format toujours affiché.

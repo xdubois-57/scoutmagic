@@ -71,6 +71,46 @@ class TransactionRepository
     }
 
     /**
+     * The debits of an account booked on or after $sinceDate (`Y-m-d`),
+     * oldest first — what a refund made without its communication is
+     * looked for among (Service\ReceivableAllocationService::
+     * refundCandidatesFor()). Filtered in SQL on the three columns kept in
+     * the clear, so only those debits are decrypted, never the account's
+     * whole history.
+     *
+     * @return Transaction[]
+     */
+    public function findDebitsSince(int $accountId, string $sinceDate): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT * FROM finance_transactions WHERE account_id = ? AND amount < 0 AND transaction_date >= ? '
+                . 'ORDER BY transaction_date ASC, id ASC'
+        );
+        $stmt->execute([$accountId, $sinceDate]);
+        return array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
+    /**
+     * Holds one movement's row until the transaction open on this
+     * connection ends (`SELECT … FOR UPDATE`), so two decisions about the
+     * same movement — a refund for two different receivables — are taken
+     * one after the other, the second seeing what the first wrote. Only
+     * meaningful inside a transaction, which is why its one caller runs
+     * under ExpectedReceivableRepository::withReceivableLocked(). SQLite
+     * serialises writers on its own and has no `FOR UPDATE`.
+     */
+    public function lockForUpdate(int $id): void
+    {
+        if ($this->pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) === 'sqlite') {
+            return;
+        }
+
+        $lock = $this->pdo->prepare('SELECT id FROM finance_transactions WHERE id = ? FOR UPDATE');
+        $lock->execute([$id]);
+        $lock->fetchAll();
+    }
+
+    /**
      * @return Transaction[]
      */
     public function findAll(): array

@@ -103,4 +103,85 @@ interface ExpectedReceivableInterface
      * the news module deleting an article's form and all its responses).
      */
     public function deleteReceivablesForSource(string $sourceModule, int $sourceReferenceId): void;
+
+    // ── the refund side (chantier #927, §2.6) ───────────────────────────
+
+    /**
+     * Where one receivable stands, refunds included: due, received,
+     * refunded, still owed back (trop-perçu), still expected.
+     *
+     * **Every method from here on names its source module**, and finance
+     * answers only for a receivable that module raised: an id that is
+     * unknown, or that belongs to another module, is answered exactly as
+     * absent — null here, an empty list from the two readings, a refusal
+     * from reconcileRefund(). A consuming module reads what it raised and
+     * nothing else, whatever id reaches it.
+     *
+     * Brings the automatic matching up to date before answering, like
+     * getReceivableStatus(): a payment or a refund imported a minute ago
+     * is counted.
+     */
+    public function getReceivableStanding(string $sourceModule, int $receivableId): ?ReceivableStanding;
+
+    /**
+     * The movements reconciled with one receivable — the payments it
+     * absorbed and the refunds of its surplus — oldest first. Read-only:
+     * nothing is matched or written by asking, so a caller wanting the
+     * latest import reflected asks getReceivableStanding() first.
+     *
+     * **Only this receivable's share of each movement**, and only the
+     * movements that pay or refund it: a transfer shared with another
+     * receivable shows this one's part, and nothing of any other
+     * receivable or of the rest of the account is ever handed out
+     * (ReceivableMovement).
+     *
+     * @return list<ReceivableMovement>
+     */
+    public function getReceivableMovements(string $sourceModule, int $receivableId): array;
+
+    /**
+     * Debits that could be the refund of this receivable's surplus, for
+     * the person who made the transfer without its communication to point
+     * at it: debits on the receivable's own account, reconciled with
+     * nothing, booked on or after $since, and of at most the surplus
+     * still owed back — oldest first. Empty when nothing is owed back.
+     *
+     * A debit carrying the communication needs none of this: the import
+     * reconciles it on its own, up to the surplus.
+     *
+     * Each candidate says when, how much and to whom, and nothing else
+     * (RefundCandidate): these are movements of the unit's account that
+     * belong to nobody yet.
+     *
+     * @return list<RefundCandidate>
+     */
+    public function findRefundCandidates(string $sourceModule, int $receivableId, \DateTimeImmutable $since): array;
+
+    /**
+     * Records one candidate debit as the refund of this receivable's
+     * surplus — its whole amount, as a person's decision that the
+     * automatic matching never undoes.
+     *
+     * **Everything findRefundCandidates() filters on is checked again**,
+     * under a lock on the receivable and on the movement: a list shown a
+     * minute ago is not a promise. The debit must still be on the
+     * receivable's account, booked on or after $since, reconciled with
+     * nothing, and no larger than what is still owed back; two people
+     * pointing at two debits at once cannot together refund more than the
+     * surplus, and one debit cannot become the refund of two receivables.
+     *
+     * $actorUserAccountId is who decided (`user_accounts.id`), kept on the
+     * allocation like any manual one.
+     *
+     * @throws \Modules\Finance\Api\FinanceException with a French sentence
+     *         when the receivable is not this module's, or when the debit
+     *         is no longer a candidate.
+     */
+    public function reconcileRefund(
+        string $sourceModule,
+        int $receivableId,
+        int $transactionId,
+        \DateTimeImmutable $since,
+        ?int $actorUserAccountId
+    ): void;
 }

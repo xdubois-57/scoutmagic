@@ -156,6 +156,74 @@ class ExpectedReceivableRepository
         $stmt->execute([$amountDueCents, $id]);
     }
 
+    /**
+     * Runs $work in a database transaction holding this receivable's row
+     * (`SELECT … FOR UPDATE`), and commits what it wrote — or rolls all of
+     * it back when it throws.
+     *
+     * What a person's refund decision reads and writes under
+     * (Service\ReceivableAllocationService::refundFromCandidate()): the
+     * surplus it checks against cannot shrink between the check and the
+     * write, because a second decision on the same receivable waits for
+     * the first one to commit. Joins a transaction already open on the
+     * connection rather than nesting one. SQLite, the ordinary test
+     * engine, serialises writers on its own and has no `FOR UPDATE`.
+     *
+     * @template T
+     * @param callable(): T $work
+     * @return T
+     */
+    public function withReceivableLocked(int $id, callable $work): mixed
+    {
+        $ownTransaction = !$this->pdo->inTransaction();
+        if ($ownTransaction) {
+            $this->pdo->beginTransaction();
+        }
+
+        try {
+            if ($this->pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) !== 'sqlite') {
+                $lock = $this->pdo->prepare('SELECT id FROM finance_expected_receivables WHERE id = ? FOR UPDATE');
+                $lock->execute([$id]);
+                $lock->fetchAll();
+            }
+
+            $result = $work();
+            if ($ownTransaction) {
+                $this->pdo->commit();
+            }
+
+            return $result;
+        } catch (\Throwable $e) {
+            if ($ownTransaction) {
+                $this->pdo->rollBack();
+            }
+            throw $e;
+        }
+    }
+
+    /**
+     * The twelve digits of every receivable's communication on one
+     * account, as a set — what tells a communication that names one of
+     * this account's receivables from any other twelve-digit run a bank
+     * text happens to carry (a SEPA reference, an invoice number, the
+     * communication of a receivable on another account). Reads the one
+     * column, decrypts nothing.
+     *
+     * @return array<string, true>
+     */
+    public function findCommunicationDigitsByAccountId(int $accountId): array
+    {
+        $stmt = $this->pdo->prepare('SELECT communication FROM finance_expected_receivables WHERE account_id = ?');
+        $stmt->execute([$accountId]);
+
+        $digits = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_COLUMN) as $communication) {
+            $digits[preg_replace('/\D+/', '', (string) $communication) ?? ''] = true;
+        }
+
+        return $digits;
+    }
+
     public function findById(int $id): ?ExpectedReceivable
     {
         $stmt = $this->pdo->prepare('SELECT * FROM finance_expected_receivables WHERE id = ?');
