@@ -43,7 +43,10 @@ interface ScoutYearRegistrationReviewProvider
      * year after the public year): for any other year it is not read, and
      * that year's state follows its dates alone.
      */
-    public function reenrollmentCampaign(int $targetYearId, ?\DateTimeImmutable $now = null): ?ReenrollmentCampaignState;
+    public function reenrollmentCampaign(
+        int $targetYearId,
+        ?\DateTimeImmutable $now = null
+    ): ?ReenrollmentCampaignState;
 
     /**
      * The requests for $targetYearId still waiting on the staff.

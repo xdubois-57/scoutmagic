@@ -13,28 +13,35 @@
 // and the service carry a matching reminder comment pointing back here, so
 // whoever edits one is told about the other.
 //
-// The workflow, as the page words it — three phases, fourteen steps:
+// The workflow, as the page words it — three phases, fourteen steps, and
+// only three of them observed by the site (import, activate_staff,
+// activate_public); every other one is a human decision, marked by hand:
 //
 //   Préparation — avant la date d'encodage Desk
-//     1. departures             "…animés qui se désinscrivent en <cible>"
-//     2. passage                "…section des animés qui changent de branche"
-//     3. confirm_registrations  "Confirmer les inscriptions…"
-//   Encodage dans Desk — à partir de cette date
+//     1. departures             "Départs de l'unité"
+//     2. passage                "Passages de branche"
+//     3. confirm_registrations  "Nouvelles inscriptions"
+//   Encodage et contrôles Desk — à partir de cette date
 //     4. desk_staff             "Encoder les nouveaux staffs dans Desk"
-//     5. desk_members           "Encoder les animés dans Desk…"
-//     6. fees                   "Mettre à jour les cotisations"
-//     7. preview                "Prévisualiser le site de l'année prochaine"
-//     8. import                 "Importer les données Desk"
-//   Mise à jour du site — "au tour des staffs d'agir"
-//     9. activate_staff         "Activer l'année <cible> pour les staffs"
-//    10. ephemerides            "Encoder les éphémérides de l'année sur le site"
-//    11. badges                 "Encoder les badges…"
-//    12. trombinoscope          "Mettre à jour le trombinoscope"
-//    13. staff_photos           "Mettre à jour les photos de staff"
-//    14. activate_public        "Activer pour tout le monde"
+//     5. desk_members           "Encoder les animés dans Desk"
+//     6. import                 "Importer les données Desk pour <cible>"  (observed)
+//     7. fees                   "Vérifier les cotisations de <cible>"
+//     8. preview                "Prévisualiser le site de <cible>"
+//   Mise à jour du site et publication — "au tour des staffs d'agir"
+//     9. activate_staff         "Activer <cible> pour les staffs"         (observed)
+//    10. ephemerides            "Éphémérides de l'année"
+//    11. badges                 "Attribuer les badges"
+//    12. trombinoscope          "Photos individuelles des animateurs"
+//    13. staff_photos           "Photos de groupe des staffs"
+//    14. activate_public        "Activer <cible> pour tout le monde"      (observed)
 //
-// Steps 1–3 belong to the Inscriptions module, 10 to Calendrier, 12 to
-// Trombinoscope; a step whose module is off is not in the workflow at all.
+// Steps 1–3 belong to the Inscriptions module, 7 to Cotisations, 10 to
+// Calendrier, 12 to Trombinoscope; a step whose module is off is not in the
+// workflow at all.
+//
+// The blocks that are real, all refused by the server: the staff year
+// needs a successful import of the target; the switch for everyone needs
+// the staff year on the target, that import, and no open registration.
 // ============================================================================
 //
 // Why this is worth an end-to-end test rather than more unit tests: the
@@ -60,7 +67,7 @@
 // No year label is ever hardcoded: ScoutYearService derives them from the
 // calendar, so a hardcoded "2025-2026" would start failing on its own in
 // September. Every label is read from the page and then asserted
-// *relationally* (the public year becomes the year step 7 previewed, and so
+// *relationally* (the public year becomes the year step 8 previewed, and so
 // on), which is what the workflow actually promises.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -89,7 +96,7 @@ const DESK_FIXTURE = path.join(
  *
  * WHY THE EXTRA ROW EXISTS. A Desk import replaces a roster:
  * DeskImportService calls deactivateAllForYear() before writing, so after
- * step 8 the only members of the target year are the ones this file names.
+ * step 6 the only members of the target year are the ones this file names.
  * The shared sample names six children and no unit chief, so the account
  * every later scenario signs in as stopped being Staff d'U the moment this
  * spec moved the public year forward — and pages gated on « chef d'unité »
@@ -355,9 +362,9 @@ test('the whole site transitions to the next scout year through the documented w
         'confirm_registrations',
         'desk_staff',
         'desk_members',
+        'import',
         'fees',
         'preview',
-        'import',
         'activate_staff',
         'ephemerides',
         'badges',
@@ -386,17 +393,26 @@ test('the whole site transitions to the next scout year through the documented w
 
     // ---------------------------------------------------------------
     // The order is advice, not a gate. Nothing has been done yet, and
-    // every control except one is already usable — including step 9's,
-    // eight steps ahead of where the page says the chief currently is.
+    // every control is already usable except the ones the server would
+    // refuse anyway — the staff year and the switch, both waiting for a
+    // successful import of the target year.
     // ---------------------------------------------------------------
     await expect(previewForm.getByRole('button', { name: 'Prévisualiser' })).toBeEnabled();
-    await expect(staffForm.getByRole('button', { name: 'Activer pour le staff' })).toBeEnabled();
     await expect(step(page, 'departures').getByRole('link', { name: "Aller aux départs de l'unité" })).toBeVisible();
 
-    // The one real gate: the public year cannot move before a staff year
-    // exists. The page says so in words as well as through the control.
+    // Hard block: no staff year without a successful import of it. The
+    // page says so in words as well as through the control, and the step's
+    // own primary action is the import that unblocks it.
+    await expect(step(page, 'activate_staff')).toHaveAttribute('data-state', 'blocked');
+    await expect(staffForm.getByRole('button', { name: 'Activer pour le staff' })).toBeDisabled();
+    await expect(step(page, 'activate_staff')).toContainText(`Aucun import Desk réussi pour ${targetYear}.`);
+    await expect(step(page, 'activate_staff').getByRole('link', { name: `Importer ${targetYear}` })).toBeVisible();
+
+    // Hard block: the switch needs the staff year on the target, that
+    // import, and no open registration — every reason said at once.
+    await expect(step(page, 'activate_public')).toHaveAttribute('data-state', 'blocked');
     await expect(publicForm.getByRole('button', { name: 'Activer pour tout le monde' })).toBeDisabled();
-    await expect(page.getByText("Activez d'abord une année pour le staff.")).toBeVisible();
+    await expect(step(page, 'activate_public')).toContainText(`${targetYear} n'est pas activée pour les staffs`);
     await expect(yearCard(page, 'Année du staff')).toHaveCount(0);
 
     // The Desk-encoding date is a signpost: it labels the phases and says
@@ -407,9 +423,9 @@ test('the whole site transitions to the next scout year through the documented w
     await expect(page.getByText('elles ne déclenchent et ne bloquent jamais rien')).toBeVisible();
 
     // ---------------------------------------------------------------
-    // Steps 1–6: the work that happens somewhere the site cannot see —
-    // in Desk, or in a staff meeting. Nothing observable marks them done,
-    // so someone says so, and the site remembers who and when.
+    // Steps 4, 5 and 7: the work that happens somewhere the site cannot
+    // see — in Desk, or in a staff meeting. Nothing observable marks them
+    // done, so someone says so, and the site remembers who and when.
     // ---------------------------------------------------------------
     const deskStaff = step(page, 'desk_staff');
     await expect(deskStaff.getByRole('checkbox')).not.toBeChecked();
@@ -438,16 +454,20 @@ test('the whole site transitions to the next scout year through the documented w
         await expect(step(page, key).getByRole('checkbox')).toBeChecked();
     }
 
-    // The steps the site works out for itself have no checkbox at all —
+    // The three steps the site observes have no checkbox at all —
     // ticking "activer pour tout le monde" by hand would be a plain lie.
-    for (const key of ['preview', 'import', 'activate_staff', 'activate_public']) {
+    for (const key of ['import', 'activate_staff', 'activate_public']) {
         await expect(step(page, key).getByRole('checkbox')).toHaveCount(0);
+        await expect(step(page, key)).toHaveAttribute('data-nature', 'observed');
     }
+    // Previewing, on the other hand, is a human step: the preview is not a
+    // review, so whoever reviewed it says so.
+    await expect(step(page, 'preview')).toHaveAttribute('data-nature', 'human');
+    await expect(step(page, 'preview').getByRole('checkbox')).toHaveCount(1);
 
     // ---------------------------------------------------------------
-    // Step 7 — "Prévisualiser le site de l'année prochaine".
-    // The page promises this "ne concerne que votre session et n'affecte
-    // aucun autre utilisateur", so both halves are asserted: the visitor
+    // Step 8 — "Prévisualiser le site de <cible>". The preview only
+    // concerns this session, so both halves are asserted: the visitor
     // does move, and the year everyone else sees does not.
     // ---------------------------------------------------------------
     await chooseYear(previewForm, targetYear);
@@ -460,14 +480,19 @@ test('the whole site transitions to the next scout year through the documented w
     await expect(page.getByRole('alert').filter({ hasText: `Vous visualisez le site en ${targetYear} (session uniquement).` }))
         .toBeVisible();
     await expect(publicYearCard).toContainText(outgoingYear);
+    // The preview marks nothing on its own…
+    await expect(step(page, 'preview').locator('.step-circle--done')).toHaveCount(0);
+    await expect(step(page, 'preview')).toContainText('Prévisualisation active dans votre session.');
+    // …so the chief who reviewed it marks the step.
+    await toggleStep(page, 'preview');
     await expect(step(page, 'preview').locator('.step-circle--done')).toBeVisible();
 
     // ---------------------------------------------------------------
-    // Step 8 — "Importer les données Desk". Followed through the page's
-    // own link, and done with a real multipart upload of a real Desk
-    // export: the step is complete only once the target year genuinely
-    // has members (ScoutYearResolver::countMembers() > 0), which no
-    // amount of clicking can fake.
+    // Step 6 — "Importer les données Desk pour <cible>". Followed through
+    // the page's own link, and done with a real multipart upload of a real
+    // Desk export: the step is complete only once import_journal holds a
+    // successful import of the target year, which no amount of clicking
+    // can fake.
     // ---------------------------------------------------------------
     //
     // The import accepts the target year only from the opening date
@@ -479,7 +504,7 @@ test('the whole site transitions to the next scout year through the documented w
     // ---------------------------------------------------------------
     await setConfigurationMode(page, true);
     await page.goto('/admin/scout-year', { waitUntil: 'domcontentloaded' });
-    await step(page, 'import').getByRole('link', { name: "Aller à l'import Desk" }).click();
+    await step(page, 'import').getByRole('link', { name: `Aller à l'import Desk (${targetYear})` }).click();
     await expect(page.getByRole('heading', { level: 1, name: 'Import Desk' })).toBeVisible();
 
     const importForm = page.locator('form[action="/admin/import"]');
@@ -503,15 +528,21 @@ test('the whole site transitions to the next scout year through the documented w
 
     await page.goto('/admin/scout-year', { waitUntil: 'domcontentloaded' });
     await expect(step(page, 'import').locator('.step-circle--done')).toBeVisible();
-    await expect(step(page, 'import')).toContainText(`membre(s) importé(s) pour ${targetYear}`);
+    await expect(step(page, 'import')).toContainText('Dernier import réussi :');
+    await expect(step(page, 'import').getByRole('link', { name: 'Voir le rapport' })).toBeVisible();
 
     // Now that the year has sections, the photo step can measure itself —
-    // and says none of them has this year's photo yet.
-    await expect(step(page, 'staff_photos')).toContainText('section(s) photographiée(s)');
+    // and the missing photos are a point to check, never the step done.
+    await expect(step(page, 'staff_photos')).toContainText('ont une photo de groupe de');
+    await expect(step(page, 'staff_photos')).toContainText('à vérifier');
     await expect(step(page, 'staff_photos').locator('.step-circle--done')).toHaveCount(0);
 
+    // The import is what unblocks the staff year.
+    await expect(step(page, 'activate_staff')).toHaveAttribute('data-state', 'todo');
+    await expect(staffForm.getByRole('button', { name: 'Activer pour le staff' })).toBeEnabled();
+
     // ---------------------------------------------------------------
-    // Step 9 — "Activer l'année <cible> pour les staffs". The page's own
+    // Step 9 — "Activer <cible> pour les staffs". The page's own
     // wording is the assertion: chiefs move, "les animés et les visiteurs
     // restent sur l'année courante".
     // ---------------------------------------------------------------
@@ -541,9 +572,9 @@ test('the whole site transitions to the next scout year through the documented w
     await expect(publicYearCard).toContainText(outgoingYear);
 
     // ---------------------------------------------------------------
-    // Steps 10–13 — the site's own content for the new year. Ticked by
-    // hand here: this instance keeps no calendar and takes no photos, and
-    // a signal that will never fire must not leave a step unfinishable.
+    // Steps 10–13 — the site's own content for the new year. Human
+    // decisions, all four: whatever the site counts (events, photos) is a
+    // point to check, never the step done.
     // ---------------------------------------------------------------
     await expect(step(page, 'ephemerides').getByRole('link', { name: 'Aller au calendrier' })).toBeVisible();
     await expect(step(page, 'badges').getByRole('link', { name: 'Aller aux staffs et badges' })).toBeVisible();
@@ -561,8 +592,8 @@ test('the whole site transitions to the next scout year through the documented w
     // so this session's own preview is still what it sees. Dropping it
     // through the page's own "Revenir à l'année courante" control is what
     // reveals the staff year underneath — and it also demonstrates,
-    // deliberately, that the preview step tracks live session state:
-    // with the preview gone it stops reading as done.
+    // deliberately, that the preview step is a human decision: with the
+    // preview gone, the mark the chief made stays.
     // ---------------------------------------------------------------
     // Two controls carry this name — the site-wide banner's close button
     // and the preview step's own — so this is scoped to the banner, which
@@ -576,15 +607,19 @@ test('the whole site transitions to the next scout year through the documented w
     await expect(page.getByRole('alert').filter({ hasText: `Le staff voit actuellement l'année ${targetYear}.` }))
         .toBeVisible();
     await expect(publicYearCard).toContainText(outgoingYear);
-    await expect(step(page, 'preview').locator('.step-circle--done')).toHaveCount(0);
+    await expect(step(page, 'preview').locator('.step-circle--done')).toBeVisible();
+    await expect(step(page, 'preview')).toContainText('Prévisualisation inactive dans votre session.');
 
-    // Unlike before, losing the preview does not lock the final step: the
-    // only thing that ever gated it is the staff year, and that is set.
+    // The preview never gated the final step either: what does — the
+    // staff year on the target, its import, no open registration — is
+    // all in place.
+    await expect(step(page, 'activate_public')).toHaveAttribute('data-state', 'todo');
     await expect(publicForm.getByRole('button', { name: 'Activer pour tout le monde' })).toBeEnabled();
 
     // ---------------------------------------------------------------
-    // Step 14 — "Activer pour tout le monde": the whole site moves, "de
-    // façon permanente", and the staff year is cleared automatically.
+    // Step 14 — "Activer <cible> pour tout le monde": the whole site
+    // moves, "de façon permanente", and the staff year is cleared
+    // automatically.
     // ---------------------------------------------------------------
     await chooseYear(publicForm, targetYear);
     await publicForm.getByRole('button', { name: 'Activer pour tout le monde' }).click();
@@ -601,13 +636,15 @@ test('the whole site transitions to the next scout year through the documented w
     // to be the target, the page describes the transition to the year
     // after it, from the top. That is the clearest single proof the
     // transition actually committed rather than merely flashing a message.
-    await expect(page.getByText(`Prévisualiser le site de l'année prochaine (${targetYear})`)).toHaveCount(0);
+    await expect(page.getByText(`Prévisualiser le site de ${targetYear}`)).toHaveCount(0);
     await expect(publicForm.getByRole('button', { name: 'Activer pour tout le monde' })).toBeDisabled();
+    // The page reads the switch back from the journal.
+    await expect(page.locator('[data-last-switch]')).toContainText(`Dernière bascule : ${outgoingYear} → ${targetYear}`);
 
     // Every manual tick above belonged to the transition that just
     // finished. The next one starts blank on its own — no reset step, and
     // nothing for anyone to clear by hand.
-    for (const key of ['desk_staff', 'desk_members', 'fees', 'ephemerides', 'badges', 'trombinoscope', 'staff_photos']) {
+    for (const key of ['desk_staff', 'desk_members', 'fees', 'preview', 'ephemerides', 'badges', 'trombinoscope', 'staff_photos']) {
         await expect(step(page, key).getByRole('checkbox')).not.toBeChecked();
     }
 

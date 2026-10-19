@@ -121,6 +121,28 @@ class JournalRepository
         return (int) $stmt->fetchColumn();
     }
 
+    /**
+     * The most recent occurrence of one specific event, or null when the
+     * journal holds none (never logged, or purged by the retention).
+     * Keyed on `event_type`, the stable identifier, for the same reason as
+     * countEventsSince().
+     *
+     * Read by `Core\ScoutYear\ScoutYearTransitionService` for the
+     * « Dernière bascule » line of the Année scoute page.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function findLatestEvent(string $category, string $eventType): ?array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT * FROM event_log WHERE category = ? AND event_type = ? ORDER BY logged_at DESC, id DESC LIMIT 1'
+        );
+        $stmt->execute([$category, $eventType]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+        return $row === false ? null : $row;
+    }
+
     public function deleteOlderThan(int $days): int
     {
         $cutoff = (new \DateTimeImmutable("-{$days} days"))->format('Y-m-d H:i:s');

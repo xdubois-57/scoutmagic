@@ -625,58 +625,61 @@ Point 2 is what gives the outgoing and incoming staff opposite answers on the sa
 
 ### 16.3 Transition workflow (Espace chefs d'U > Année scoute)
 
-The page walks a chef d'unité through the whole season, not only the four moments where the site itself changes year. Fourteen steps, grouped into the three phases the season actually has, in this order:
+The page walks a chef d'unité through the whole season, not only the moments where the site itself changes year. Fourteen steps, grouped into the three phases the season actually has, in this advised order. Every step is one of two **natures**, shown as a tag (never a module tag): **« Décision humaine »** — done when someone marks it, and only then — or **« Constaté par le site »** — done when the site sees it, never marked by hand.
 
 **Phase 1 — Préparation** (*« Idéalement avant le {date d'encodage Desk} »*)
 
-| # | Step | Where it happens |
-|---|---|---|
-| 1 | Indiquer les animés qui se désinscrivent en {cible} | Départs (§18.1) |
-| 2 | Indiquer la section des animés qui changent de branche | Passage (§18.2) |
-| 3 | Confirmer les inscriptions et indiquer la branche cible | Inscriptions (§17.6) + « section prévue » |
+| # | Step | Nature | Present if | Where it happens |
+|---|---|---|---|---|
+| 1 | Départs de l'unité | human | Inscriptions | Départs (§18.1) |
+| 2 | Passages de branche | human | Inscriptions | Passage (§18.2) |
+| 3 | Nouvelles inscriptions | human | Inscriptions | Inscriptions (§17.6) + « section prévue » |
 
-**Phase 2 — Encodage dans Desk** (*« Plutôt à partir du {date} »*)
+**Phase 2 — Encodage et contrôles Desk** (*« Plutôt à partir du {date} »*)
 
-| # | Step | Where it happens |
-|---|---|---|
-| 4 | Encoder les nouveaux staffs dans Desk | Desk (outside the site) |
-| 5 | Encoder les animés dans Desk (nouveaux inscrits, passages, sortants) | Desk (outside the site) |
-| 6 | Mettre à jour les cotisations | Desk (outside the site) |
-| 7 | Prévisualiser le site de l'année prochaine ({cible}) | This page — session-only |
-| 8 | Importer les données Desk | Import Desk |
+| # | Step | Nature | Present if | Where it happens |
+|---|---|---|---|---|
+| 4 | Encoder les nouveaux staffs dans Desk | human | always | Desk (outside the site) |
+| 5 | Encoder les animés dans Desk | human | always | Desk (outside the site) |
+| 6 | Importer les données Desk pour {cible} | observed | always | Import Desk |
+| 7 | Vérifier les cotisations de {cible} | human | Cotisations | Desk, checked against the import |
+| 8 | Prévisualiser le site de {cible} | human | always | This page — session-only |
 
-Step 5 carries a note: once the import is done, animateurs can rely on the preview of the target year and download the member list for that year from « Membres par section » — a list that already lets them write to the families by email.
+**Phase 3 — Mise à jour du site et publication** (*« Le site est à jour pour {cible} : c'est typiquement au tour des staffs d'agir. »*)
 
-**Phase 3 — Mise à jour du site** (*« Le site est à jour pour {cible} : c'est typiquement au tour des staffs d'agir. »*)
+| # | Step | Nature | Present if | Where it happens |
+|---|---|---|---|---|
+| 9 | Activer {cible} pour les staffs | observed | always | This page |
+| 10 | Éphémérides de l'année | human | Calendrier | Calendrier |
+| 11 | Attribuer les badges | human | always | Staffs |
+| 12 | Photos individuelles des animateurs | human | Trombinoscope | Trombinoscope |
+| 13 | Photos de groupe des staffs | human | always | Staffs |
+| 14 | Activer {cible} pour tout le monde | observed | always | This page, after a review |
 
-| # | Step | Where it happens |
-|---|---|---|
-| 9 | Activer l'année {cible} pour les staffs | This page |
-| 10 | Encoder les éphémérides de l'année sur le site | Calendrier |
-| 11 | Encoder les badges (trésorier·e, infirmier·e, référent·e·s…) | Staffs |
-| 12 | Mettre à jour le trombinoscope | Trombinoscope |
-| 13 | Mettre à jour les photos de staff | Staffs |
-| 14 | Activer pour tout le monde | This page |
+**Steps of a disabled module are absent, not greyed out**, and the remaining steps renumber accordingly. A phase left with no step at all disappears with them. The step keys stored with each mark (`departures`, `passage`, `confirm_registrations`, `desk_staff`, `desk_members`, `import`, `fees`, `preview`, `activate_staff`, `ephemerides`, `badges`, `trombinoscope`, `staff_photos`, `activate_public`) never change, so no mark is lost when the order does.
 
-**The order is advice, not a gate.** The page highlights the first step still to do, but every control stays usable at all times. Exactly two conditions actually block anything, and both are real:
-- **Step 14** requires a staff year to exist first (step 9).
-- **Step 14** is refused, server-side, while the Inscriptions module reports any pending/accepted registration request (any target year) — §19.2. Step 9 shows the same count as a plain, non-blocking warning.
+**How a step becomes done.** One source per step, never two:
+- **Observed** (6, 9, 14): a successful Desk import of the target year is on record — the latest row of the import journal, which only a successful import writes (6); the staff year is the target (9); the public year is the target (14). The server refuses to mark these steps by hand.
+- **Human** (every other step, the preview, the passages, the éphémérides and the staff photos included): someone marked it. What the site can check about such a step is shown as **points to check** (« à vérifier »), never as the step being done — an animé without a destination section, a section without its group photo of the target year (last year's photo, which the site keeps showing, does not count). A human step **may be marked done with points still to check**: they stay shown next to « Étape faite », and the chief keeps their judgement. The preview, in particular, marks nothing: being in the preview is not having reviewed it.
 
-Step 9 also warns — without blocking — when nothing has been imported for the target year yet, since the staff would otherwise be shown an empty year.
+States shown: **À faire**, **Étape faite**, **Bloquée** (an observed step whose action the server refuses), and the « n à vérifier » count, which stacks on the first two. A check that needs the target year's data says « Le contrôle sera disponible après un import réussi de {cible} » until that import exists, and produces neither a point to check nor a « ✓ ».
 
-**How a step becomes done.** Two sources, never a third:
-- **Observed by the site**: the preview is active for the target year (7); the target year has members (8); the staff year is the target (9); at least one calendar event falls inside the target year (10); every section of the target year has its own photo for that year, last year's fallback photo not counting (13); the public year is the target (14); no passage is left without a destination section (2).
-- **Ticked by a human**: everything else — the work inside Desk, and the judgement calls. A step that also has an observed signal keeps its checkbox as an override, so a unit whose signal will never fire (no passage this year, a calendar kept elsewhere) is never left with a step it cannot finish.
+**The order is advice, not a gate.** The page highlights the first step still to do, and every control stays usable at all times — except the three **hard blocks**, each refused by the server whatever the page shows, a forged or replayed request included:
+1. **Marking step 1** while the re-enrolment campaign of the target year is not finished — finished meaning started and no longer open, never inferred from a count (§18.5). A step already marked is not unmarked if the campaign is reopened afterwards; unmarking is never refused.
+2. **Step 9** without a successful Desk import of the target year — the staff would otherwise be shown an empty year. The step's main action is then the import itself.
+3. **Step 14** while the staff year is not the target, while the target has no successful import, or while the Inscriptions module reports open requests (§19.2). Every reason is shown at once, with where to resolve it, and the switch is refused with all of them.
 
-The four steps the site decides for itself (7, 8, 9, 14) have no checkbox at all, and the server refuses to accept a manual tick for them. Ticks are recorded per target year with who ticked and when, they can be un-ticked, and next year's run therefore starts blank on its own — there is no reset step.
+A refused activation is journalled (`scout_year_staff_activation_blocked`, `scout_year_public_activation_blocked`, level `security`) with its reasons. Open registration requests are only a reminder on steps 3 and 9, never a block there.
 
-**Steps of a disabled module are absent, not greyed out**, and the remaining steps renumber accordingly: steps 1–3 need the Inscriptions module, step 10 the Calendrier module, step 12 the Trombinoscope module. A phase left with no step at all disappears with them.
+**Marks** are recorded per target year with who marked and when; they can be taken back, and next year's run therefore starts blank on its own — there is no reset step.
+
+**Dernière bascule.** The page reads the latest switch for everyone back from the journal (`scout_year_public_activated`): « Dernière bascule : {ancienne} → {nouvelle}, le … par … ». Nothing new is stored for it; once the journal retention has purged that entry, the line is simply absent.
 
 **The date separates the phases, and closes the public year to the import.** One admin-configurable parameter (day and month, 15 August by default, « Date d'encodage Desk ») separates the preparation phase from the Desk-encoding phase and marks which of the two the calendar is currently in. On this page it enables, disables or triggers nothing — see §16.4. It is also, with its companion « Ouverture de l'import pour l'année suivante », what decides which years the Desk import accepts (§7.1.2): from that date on, only the target year can be imported.
 
 ### 16.4 Manual transition only
 
-The transition to a new public year is exclusively manual — step 14 is available year-round, and nothing switches the public year automatically. There is no switch window and no date-based fallback transition.
+The transition to a new public year is exclusively manual — step 14 is available year-round, and nothing switches the public year automatically. There is no switch window, no scheduled switch and no date-based fallback transition. What step 14 does require is a state, never a date: the staff year on the target, a successful import of the target, and no open registration request (§16.3).
 
 This is deliberate: the "inscriptions" module vetoes step 14 while registration requests are still open (§19.2), and a date-driven automatic transition would have bypassed that veto — a calculated date can't be told "not yet". Manual and automatic are incompatible, so manual wins.
 
@@ -923,10 +926,10 @@ This page's charts are its own — it does not depend on, and works identically 
 ### 19.2 Veto on the year transition (Espace chefs d'U > Année scoute, §16.3)
 
 While the Inscriptions module is active:
-- **Step 14** (activate the public year for everyone) is **refused** — checked on the server, not just by disabling the button — as long as any registration request is still `pending` or `accepted`, whichever scout year it originally targeted. The error message states how many requests are blocking and links to the registration management page, which is where they're resolved individually or in bulk ("tout refuser"/"tout retirer", §17).
-- **Step 9** (activate the staff year) shows the same count as a plain, non-blocking warning — it happens much earlier in the season and staff need time to work through the backlog, so it never stops anything.
+- **Step 14** (activate the public year for everyone) is **refused** — checked on the server, not just by disabling the button — as long as any registration request is still `pending` or `accepted`, whichever scout year it originally targeted. The refusal states how many requests are blocking and links to the registration management page, which is where they're resolved individually or in bulk ("tout refuser"/"tout retirer", §17). The veto is one of step 14's three hard blocks (§16.3), and the review before the switch lists it with the others.
+- **Step 9** (activate the staff year) shows the same count as a plain, non-blocking reminder — it happens much earlier in the season and staff need time to work through the backlog, so the veto never stops it. Step 3 recalls it too, separately from its own checks.
 
-If the Inscriptions module is disabled or not installed, both steps behave exactly as they did before this module existed — nothing is blocked, no warning appears.
+If the Inscriptions module is disabled or not installed, the veto does not exist: no request count is shown and none blocks anything. Steps 9 and 14 keep their other hard blocks (§16.3).
 
 
 ## 20. Groups module — private discussion groups (module groups)

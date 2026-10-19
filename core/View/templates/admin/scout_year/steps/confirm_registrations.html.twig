@@ -1,0 +1,14 @@
+{#
+ Detail of the « confirm_registrations » step of the Année scoute workflow (chantier #930).
+ Receives `step` (Core\ScoutYear\Step\TransitionStep) and reads only
+ `step.details`, `step.pendingMessage` and the step itself — the points to
+ check, the actions and who marked the step are rendered by the page
+ around this file, never here. Owned by the step checks (lot E); the page
+ and the Détails dialog that include it are not.
+#}
+{% if step.details.blocking_request_count|default(0) > 0 %}
+<p class="text-body-secondary small mb-2">
+    Indépendamment de cette étape, la bascule publique reste refusée tant que
+    {{ step.details.blocking_request_count }} demande(s) d'inscription ne sont pas clôturées.
+</p>
+{% endif %}

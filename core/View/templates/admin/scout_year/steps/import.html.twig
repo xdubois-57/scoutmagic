@@ -1,0 +1,21 @@
+{#
+ Detail of the « import » step of the Année scoute workflow (chantier #930).
+ Receives `step` (Core\ScoutYear\Step\TransitionStep) and reads only
+ `step.details`, `step.pendingMessage` and the step itself — the points to
+ check, the actions and who marked the step are rendered by the page
+ around this file, never here. Owned by the step checks (lot E); the page
+ and the Détails dialog that include it are not.
+#}
+{% if step.details.imported_at is defined %}
+<p class="text-body-secondary small mb-2">
+    Dernier import réussi : {{ step.details.imported_at|datetime_fr }}
+    {%- if step.details.imported_by %} par {{ step.details.imported_by }}{% endif %}
+    · {{ step.details.member_count }} membre(s).
+</p>
+<p class="text-body-secondary small mb-2">
+    Le site ne voit pas les changements faits dans Desk depuis cet export : après une correction, refaites un export
+    et un import.
+</p>
+{% else %}
+<p class="text-body-secondary small mb-2">Aucun import réussi pour cette année.</p>
+{% endif %}

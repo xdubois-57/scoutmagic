@@ -50,6 +50,29 @@ class JournalRepositoryTest extends TestCase
         $this->assertSame('{"key":"value"}', $row['context']);
     }
 
+    /**
+     * The latest entry of one event type — what the « Dernière bascule »
+     * line of the Année scoute page reads — newest by date, the id
+     * breaking a tie within the same second, other types ignored.
+     */
+    public function testFindLatestEventReturnsTheNewestOfThatTypeOnly(): void
+    {
+        $this->assertNull($this->repo->findLatestEvent('core', 'scout_year_public_activated'));
+
+        $stmt = $this->pdo->prepare(
+            "INSERT INTO event_log (logged_at, category, event_type, level, description) VALUES (?, ?, ?, 'security', ?)"
+        );
+        $stmt->execute(['2025-08-20 10:00:00', 'core', 'scout_year_public_activated', 'first']);
+        $stmt->execute(['2026-08-20 10:00:00', 'core', 'scout_year_public_activated', 'second']);
+        $stmt->execute(['2026-08-20 10:00:00', 'core', 'scout_year_public_activated', 'third, same second']);
+        $stmt->execute(['2026-09-01 10:00:00', 'core', 'scout_year_staff_activated', 'other type']);
+        $stmt->execute(['2026-09-01 10:00:00', 'rental', 'scout_year_public_activated', 'other category']);
+
+        $row = $this->repo->findLatestEvent('core', 'scout_year_public_activated');
+
+        $this->assertSame('third, same second', $row['description'] ?? null);
+    }
+
     public function testDeleteOlderThan(): void
     {
         // Seeded from PHP, not SQLite's datetime('now'): deleteOlderThan()

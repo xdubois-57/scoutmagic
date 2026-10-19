@@ -1,0 +1,14 @@
+{#
+ Detail of the « ephemerides » step of the Année scoute workflow (chantier #930).
+ Receives `step` (Core\ScoutYear\Step\TransitionStep) and reads only
+ `step.details`, `step.pendingMessage` and the step itself — the points to
+ check, the actions and who marked the step are rendered by the page
+ around this file, never here. Owned by the step checks (lot E); the page
+ and the Détails dialog that include it are not.
+#}
+{% if step.details.event_count is defined %}
+<p class="text-body-secondary small mb-2">
+    {{ step.details.event_count }} événement(s) encodé(s) pour l'année.
+    Le nombre ne dit pas si l'année est complète : à vous de juger.
+</p>
+{% endif %}

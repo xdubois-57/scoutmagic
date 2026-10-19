@@ -1,0 +1,16 @@
+{#
+ Detail of the « desk_members » step of the Année scoute workflow (chantier #930).
+ Receives `step` (Core\ScoutYear\Step\TransitionStep) and reads only
+ `step.details`, `step.pendingMessage` and the step itself — the points to
+ check, the actions and who marked the step are rendered by the page
+ around this file, never here. Owned by the step checks (lot E); the page
+ and the Détails dialog that include it are not.
+#}
+{% if step.pendingMessage %}
+<p class="text-body-secondary small mb-2">{{ step.pendingMessage }}</p>
+{% endif %}
+<p class="text-body-secondary small mb-2">
+    Une fois l'import fait, les animateurs peuvent se fier à la prévisualisation et télécharger la liste des membres
+    depuis <a href="/chefs/membres">Animés de la section</a> : elle permet déjà de communiquer avec les familles par
+    e-mail.
+</p>

@@ -1,0 +1,17 @@
+{#
+ Detail of the « staff_photos » step of the Année scoute workflow (chantier #930).
+ Receives `step` (Core\ScoutYear\Step\TransitionStep) and reads only
+ `step.details`, `step.pendingMessage` and the step itself — the points to
+ check, the actions and who marked the step are rendered by the page
+ around this file, never here. Owned by the step checks (lot E); the page
+ and the Détails dialog that include it are not.
+#}
+{% if step.pendingMessage %}
+<p class="text-body-secondary small mb-2">{{ step.pendingMessage }}</p>
+{% endif %}
+{% if step.details.section_count is defined %}
+<p class="text-body-secondary small mb-2">
+    {{ step.details.with_photo_count }} section(s) sur {{ step.details.section_count }} ont une photo de groupe de
+    l'année. La photo de l'an dernier, qui s'affiche encore, ne compte pas.
+</p>
+{% endif %}
