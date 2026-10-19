@@ -111,7 +111,16 @@ jobs:
           case "${OPERATION}" in
             queue)
               out="$(mktemp)"
-              bash "${scripts}/backlog-ready-queue.sh" > "${out}"
+              err="$(mktemp)"
+              status=0
+              bash "${scripts}/backlog-ready-queue.sh" > "${out}" 2> "${err}" || status=$?
+              cat "${err}" >&2
+              if [ "${status}" -ne 0 ]; then
+                # An unreadable Project is an UNKNOWN queue, never an empty
+                # one: say so where the API can read it, then fail.
+                annotate "Ready queue unreadable (exit ${status})" < "${err}"
+                exit "${status}"
+              fi
               echo 'QUEUE-JSON-BEGIN'
               cat "${out}"
               echo 'QUEUE-JSON-END'
