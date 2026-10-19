@@ -12619,7 +12619,9 @@ if ($isEnabled('rental')) {
             $rentalSignedContractService,
             $rentalDocumentService,
             $uploadHandler,
-            $rentalContractValidity
+            $rentalContractValidity,
+            // How to pay, with the SEPA QR, on the renter's page (#927).
+            paymentService: $rentalPaymentService
         )
     );
 

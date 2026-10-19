@@ -1,0 +1,163 @@
+{#
+  « Informations de paiement » — the third card of « Finances » (chantier
+  #927, §2.4 and §2.6).
+
+  While money is due: the beneficiary, the IBAN, the one communication,
+  the amount to pay at this stage and the SEPA QR of that transfer — the
+  same block the renter reads on their tracking page, enlargeable to be
+  scanned from the screen. Without an IBAN on the account there is no QR
+  and the page says why; with nothing due it says that too.
+
+  Once something is owed back — a validated settlement leaving the
+  security deposit to give back, an abandoned booking that had been paid
+  — « À rembourser »: the transfer is made from the bank, with the
+  booking's communication, and the import reconciles it on its own.
+  « Rapprocher le remboursement » is the way back for a transfer that
+  left without it: the debits Finance offers as candidates — when, how
+  much, to whom, nothing else — and the one picked becomes the refund.
+  Its form posts without JavaScript's help (`data-async="off"`): the
+  page comes back whole, the dialog closed.
+
+  Requires `booking`, `asset`, `booking_page`, `payment`, `instructions`
+  (RentalPaymentService::paymentInstructions(), or null),
+  `refund_candidates` and `refund_since`.
+#}
+{% set overpaid = payment.overpaid_cents|default(0) %}
+<div class="card mb-3">
+    <div class="card-body">
+        <h2 class="h5 mb-3">Informations de paiement</h2>
+        <div data-booking-panel="payment-instructions">
+            {% if overpaid > 0 %}
+                <div class="alert alert-warning small" data-finance-refund>
+                    <strong>À rembourser au locataire : {{ overpaid|money_cents }}</strong> — faites le virement
+                    depuis la banque vers le compte d'où le locataire a payé, en indiquant la communication
+                    <span class="font-monospace text-nowrap">{{ payment.communication }}</span> : il sera rapproché
+                    automatiquement à l'import de l'extrait.
+                </div>
+                <button type="button" class="btn btn-primary w-100 w-sm-auto"
+                        data-bs-toggle="modal" data-bs-target="#rapprocher-remboursement">
+                    Rapprocher le remboursement
+                </button>
+                <p class="small text-body-secondary mt-2 mb-0">
+                    « Rapprocher » sert si le virement est parti sans la communication : le site propose les
+                    débits non rapprochés de ce compte, d'au plus {{ overpaid|money_cents }}, depuis le
+                    {{ refund_since|date_fr }}.
+                </p>
+            {% elseif instructions is null and payment.tracked|default(false) %}
+                {# Payments switched off on the asset after the receivable
+                   was raised: nothing more is asked of the renter — no QR,
+                   no amount, here or on their page — but Finance still
+                   reconciles the communication, and a surplus still reads
+                   « À rembourser » above. #}
+                <p class="small text-body-secondary mb-0" data-finance-payments-off>
+                    Les paiements de ce bien sont désactivés : rien n'est demandé au locataire, ni QR code ni
+                    montant à verser. Les virements portant la communication
+                    <span class="font-monospace text-nowrap">{{ payment.communication }}</span> restent rapprochés
+                    de cette réservation.
+                </p>
+            {% elseif instructions is null %}
+                <p class="small text-body-secondary mb-0" data-finance-no-receivable>
+                    La communication structurée est créée avec le premier contrat, qui l'imprime : les
+                    informations de paiement s'affichent ici dès qu'il est généré.
+                </p>
+            {% elseif instructions.amount_cents <= 0 %}
+                <p class="mb-2" data-finance-nothing-due>Rien n'est à verser pour l'instant.</p>
+                <dl class="row small mb-0">
+                    <dt class="col-sm-5">Communication</dt>
+                    <dd class="col-sm-7 font-monospace text-break mb-0">{{ instructions.communication }}</dd>
+                </dl>
+            {% else %}
+                {% include '@rental/_payment_details.html.twig' with {
+                    instructions: instructions, qr_dialog_id: 'qr-paiement',
+                } only %}
+                {% if instructions.iban is null %}
+                    <p class="alert alert-secondary small mt-3 mb-0" data-finance-no-iban>
+                        Le compte associé à ce bien n'a pas d'IBAN dans les Finances : ni QR code ni compte à
+                        indiquer au locataire. Un chef d'unité le complète depuis les Finances.
+                    </p>
+                {% endif %}
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+{# The dialogs sit outside the card: a modal nested in one inherits its
+   stacking context. Each in a panel of its own, so its amounts follow
+   the page's refresh. #}
+<div data-booking-panel="payment-dialogs">
+    {% if overpaid <= 0 and instructions and instructions.qr_data_uri %}
+        {% include '@rental/_payment_qr_dialog.html.twig' with {
+            instructions: instructions, qr_dialog_id: 'qr-paiement',
+        } only %}
+    {% endif %}
+
+    {% if overpaid > 0 %}
+        {% embed 'partials/modal.html.twig' with {
+            id: 'rapprocher-remboursement',
+            title: 'Rapprocher le remboursement',
+            asset: asset, booking: booking, booking_page: booking_page,
+            overpaid: overpaid, refund_since: refund_since, refund_candidates: refund_candidates,
+        } only %}
+            {% block body %}
+                {% if refund_candidates is empty %}
+                    <p class="mb-0" data-refund-candidates-empty>
+                        Aucun débit non rapproché de ce compte, d'au plus {{ overpaid|money_cents }}, depuis le
+                        {{ refund_since|date_fr }}. Un virement fait aujourd'hui apparaît après l'import de
+                        l'extrait qui le contient.
+                    </p>
+                {% else %}
+                    <form method="post" action="/mes-locations/remboursement-rapprocher" id="refund-form"
+                          data-async="off">
+                        {{ csrf_field()|raw }}
+                        <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                        <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                        <input type="hidden" name="booking_page" value="{{ booking_page.value }}">
+                        <p class="small">
+                            Débits non rapprochés du compte, d'au plus {{ overpaid|money_cents }}, depuis le
+                            {{ refund_since|date_fr }}. Celui que vous choisissez est enregistré dans les Finances
+                            comme le remboursement de cette réservation. Aucun e-mail n'est envoyé.
+                        </p>
+                        <div class="table-responsive">
+                            <table class="table table-sm align-middle mb-0" data-refund-candidates>
+                                <caption class="visually-hidden">Débits candidats au remboursement</caption>
+                                <thead>
+                                    <tr>
+                                        <th scope="col"><span class="visually-hidden">Choix</span></th>
+                                        <th scope="col">Date</th>
+                                        <th scope="col">Contrepartie</th>
+                                        <th scope="col" class="text-end">Montant</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for candidate in refund_candidates %}
+                                        <tr>
+                                            <td>
+                                                <input class="form-check-input" type="radio" name="transaction_id"
+                                                       id="refund-candidate-{{ candidate.transactionId }}"
+                                                       value="{{ candidate.transactionId }}" required
+                                                       {{ loop.first ? 'checked' : '' }}>
+                                            </td>
+                                            <td class="text-nowrap">
+                                                <label for="refund-candidate-{{ candidate.transactionId }}">
+                                                    {{ candidate.date|date_fr }}
+                                                </label>
+                                            </td>
+                                            <td class="text-break">{{ candidate.counterpartyName ?? '—' }}</td>
+                                            <td class="text-end text-nowrap">-{{ candidate.amountCents|money_cents }}</td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </form>
+                {% endif %}
+            {% endblock %}
+            {% block footer %}
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Annuler</button>
+                {% if refund_candidates is not empty %}
+                    <button type="submit" form="refund-form" class="btn btn-primary">Rapprocher</button>
+                {% endif %}
+            {% endblock %}
+        {% endembed %}
+    {% endif %}
+</div>

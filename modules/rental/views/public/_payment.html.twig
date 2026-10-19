@@ -1,0 +1,50 @@
+{#
+  « Paiement » on the renter's tracking page (chantier #927, §2.4): from
+  the moment the booking has a receivable, how to pay it — beneficiary,
+  IBAN, the one communication, the amount due now and its deadline, and
+  the SEPA QR of that transfer, enlargeable. The same block the manager
+  reads on « Finances » (`@rental/_payment_details`), from the same
+  service, so the two never disagree.
+
+  Nothing here identifies anybody but the unit: the IBAN is the unit's
+  own account, the one every renter is asked to pay into.
+
+  Included from tracking.html.twig with one line, so the page around it
+  stays whose it is. Requires `renter_payment`
+  (RentalPaymentService::paymentInstructions(), or null).
+#}
+{% if renter_payment %}
+    <div class="card mb-4" id="paiement">
+        <div class="card-body">
+            <h2 class="h5 mb-3">Paiement</h2>
+            {% if renter_payment.overpaid_cents > 0 %}
+                <p class="mb-2" data-renter-payment-overpaid>
+                    Vous avez versé {{ renter_payment.overpaid_cents|money_cents }} de plus que le montant
+                    attendu : l'unité vous les rembourse par virement.
+                </p>
+            {% elseif renter_payment.amount_cents <= 0 %}
+                <p class="mb-2" data-renter-payment-nothing-due>Aucun paiement n'est attendu pour l'instant.</p>
+            {% else %}
+                {% include '@rental/_payment_details.html.twig' with {
+                    instructions: renter_payment, qr_dialog_id: 'qr-paiement', amount_label: 'À verser',
+                } only %}
+            {% endif %}
+            {# Not to a renter who is owed money: there is nothing for them
+               to pay, and a footnote on how to pay would say otherwise. #}
+            {% if renter_payment.overpaid_cents <= 0 %}
+                <p class="small text-body-secondary mt-3 mb-0" data-renter-payment-communication>
+                    Utilisez toujours la communication
+                    <span class="font-monospace text-nowrap">{{ renter_payment.communication }}</span>, pour
+                    l'acompte, le solde et la caution.
+                </p>
+            {% endif %}
+        </div>
+    </div>
+    {% if renter_payment.overpaid_cents <= 0 and renter_payment.qr_data_uri %}
+        {% include '@rental/_payment_qr_dialog.html.twig' with {
+            instructions: renter_payment, qr_dialog_id: 'qr-paiement',
+        } only %}
+        {# Keeps the screen awake while the enlarged QR is on it. #}
+        <script src="{{ asset('/assets/js/payment-qr.js') }}" defer></script>
+    {% endif %}
+{% endif %}

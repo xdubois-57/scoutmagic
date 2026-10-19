@@ -63,6 +63,12 @@ final class BookingAudit
      * here — the message on the Courrier page is its record.
      */
     public const OTHER_EMAIL_CHANGED = 'other_email_changed';
+    /**
+     * Money moved on the booking's receivable by a person: a refund
+     * reconciled from « Finances » (chantier #927, §2.6). Not « Prix »:
+     * nothing about what the booking costs changed.
+     */
+    public const PAYMENT_RECORDED = 'payment_recorded';
 
     /**
      * What a reader sees instead of the raw key. A key with no entry falls
@@ -82,6 +88,7 @@ final class BookingAudit
         self::COMMENT_ADDED => 'Commentaire',
         self::STEP_MARKED => 'Étape cochée à la main',
         self::OTHER_EMAIL_CHANGED => 'Autre adresse du locataire',
+        self::PAYMENT_RECORDED => 'Paiement',
     ];
 
     public function __construct(

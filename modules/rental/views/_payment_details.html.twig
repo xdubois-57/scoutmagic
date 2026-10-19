@@ -1,0 +1,51 @@
+{#
+  How to pay one booking (chantier #927, §2.4), the same block for the
+  manager on « Finances » and for the renter on their tracking page: the
+  SEPA QR of the transfer due now beside the beneficiary, the IBAN, the
+  one communication and the amount — repeated in text, because a QR that
+  will not scan must never leave somebody without a way to pay.
+
+  The QR is a button: it opens the enlarged code (`_payment_qr_dialog`),
+  the one a phone's banking app reads best from a screen. The image is a
+  PNG Finance generated, as a data URI — never a URL taken from anywhere.
+
+  Requires `instructions` (RentalPaymentService::paymentInstructions())
+  and `qr_dialog_id`; optional `amount_label` (« À verser maintenant »).
+#}
+<div class="d-flex flex-wrap gap-3 align-items-start">
+    {% if instructions.qr_data_uri %}
+        <button type="button" class="btn p-2 border rounded-3 bg-white flex-shrink-0"
+                data-bs-toggle="modal" data-bs-target="#{{ qr_dialog_id }}"
+                aria-label="Agrandir le QR code" data-qr-thumbnail>
+            <img src="{{ instructions.qr_data_uri }}" alt="QR code de paiement SEPA" width="150" height="150"
+                 class="d-block">
+        </button>
+    {% endif %}
+    <dl class="row mb-0 flex-grow-1">
+        {% if instructions.beneficiary %}
+            <dt class="col-sm-5">Bénéficiaire</dt>
+            <dd class="col-sm-7">{{ instructions.beneficiary }}</dd>
+        {% endif %}
+        {% if instructions.iban %}
+            <dt class="col-sm-5">IBAN</dt>
+            <dd class="col-sm-7 font-monospace text-break">{{ instructions.iban }}</dd>
+        {% endif %}
+        <dt class="col-sm-5">Communication</dt>
+        <dd class="col-sm-7 font-monospace text-break">{{ instructions.communication }}</dd>
+        <dt class="col-sm-5">{{ amount_label|default('À verser maintenant') }}</dt>
+        <dd class="col-sm-7 mb-0">
+            <strong>{{ instructions.amount_cents|money_cents }}</strong>
+            {% if instructions.due_date %}avant le {{ instructions.due_date|date_fr }}{% endif %}
+            <span class="small text-body-secondary d-block">
+                {{- instructions.stage == 'deposit' ? 'acompte'
+                    : 'solde' ~ (instructions.includes_security_deposit|default(false) ? ', caution comprise' : '') -}}
+            </span>
+        </dd>
+    </dl>
+</div>
+{% if instructions.qr_data_uri %}
+    <button type="button" class="btn btn-outline-secondary btn-sm mt-3"
+            data-bs-toggle="modal" data-bs-target="#{{ qr_dialog_id }}">
+        <i class="bi bi-arrows-fullscreen" aria-hidden="true"></i> Agrandir le QR code
+    </button>
+{% endif %}

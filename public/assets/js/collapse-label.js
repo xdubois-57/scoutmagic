@@ -21,27 +21,75 @@
 // precached, therefore never stale — swaps its text. Degradation is the
 // point: if this script never runs, the button still reads correctly in
 // its collapsed state, it just stops changing.
+//
+// **Delegated on the document**, not bound to the triggers found at load.
+// A rental booking's page re-renders its panels in place after every
+// action (rental-booking.js), and a trigger it puts back is a new element
+// that a load-time binding never saw: the label froze on it. Bootstrap's
+// collapse events reach a capturing listener on the document whatever the
+// element, so a trigger rendered at any time swaps like the first.
+//
+// The collapsed label is the markup's own text, read the first time the
+// trigger is seen — or `data-collapse-label-collapsed`, which a trigger
+// rendered OPEN must carry, its markup then holding the expanded label
+// (the billing details of « Facture », open while they are incomplete).
 (function () {
-    document.querySelectorAll('[data-collapse-label-expanded]').forEach(function (node) {
-        var trigger = /** @type {HTMLElement} */ (node);
-        var selector = trigger.dataset.bsTarget || '';
-        var target = selector ? document.querySelector(selector) : null;
-        var label = trigger.querySelector('[data-collapse-label]');
-        if (!target || !label) {
-            return;
+    /**
+     * The label element of a trigger, its collapsed wording remembered on
+     * the trigger itself so a later read never takes the expanded one.
+     *
+     * @param {HTMLElement} trigger
+     * @returns {HTMLElement|null}
+     */
+    function labelOf(trigger) {
+        var label = /** @type {HTMLElement|null} */ (trigger.querySelector('[data-collapse-label]'));
+        if (label && trigger.dataset.collapseLabelCollapsed === undefined) {
+            trigger.dataset.collapseLabelCollapsed = label.textContent || '';
         }
 
-        var whenCollapsed = label.textContent || '';
-        var whenExpanded = trigger.dataset.collapseLabelExpanded || whenCollapsed;
+        return label;
+    }
 
-        // `show`/`hide` rather than `shown`/`hidden`: the label belongs to
-        // the click that was just made, not to the end of a 350 ms
-        // animation the reader is already looking past.
-        target.addEventListener('show.bs.collapse', function () {
-            label.textContent = whenExpanded;
+    /**
+     * @param {Event} event a Bootstrap collapse event, on the collapse itself
+     * @param {boolean} expanded
+     * @returns {void}
+     */
+    function swap(event, expanded) {
+        var target = event.target;
+        if (!(target instanceof HTMLElement) || !target.id) {
+            return;
+        }
+        var selector = '#' + target.id;
+
+        document.querySelectorAll('[data-collapse-label-expanded]').forEach(function (node) {
+            var trigger = /** @type {HTMLElement} */ (node);
+            if ((trigger.dataset.bsTarget || '') !== selector) {
+                return;
+            }
+            var label = labelOf(trigger);
+            if (!label) {
+                return;
+            }
+            var whenCollapsed = trigger.dataset.collapseLabelCollapsed || '';
+            label.textContent = expanded ? (trigger.dataset.collapseLabelExpanded || whenCollapsed) : whenCollapsed;
         });
-        target.addEventListener('hide.bs.collapse', function () {
-            label.textContent = whenCollapsed;
-        });
+    }
+
+    // Remembered now for the triggers already there, before any click can
+    // change what their label reads.
+    document.querySelectorAll('[data-collapse-label-expanded]').forEach(function (node) {
+        labelOf(/** @type {HTMLElement} */ (node));
     });
+
+    // `show`/`hide` rather than `shown`/`hidden`: the label belongs to
+    // the click that was just made, not to the end of a 350 ms
+    // animation the reader is already looking past. Capturing, so an
+    // event that does not bubble reaches it too.
+    document.addEventListener('show.bs.collapse', function (event) {
+        swap(event, true);
+    }, true);
+    document.addEventListener('hide.bs.collapse', function (event) {
+        swap(event, false);
+    }, true);
 })();

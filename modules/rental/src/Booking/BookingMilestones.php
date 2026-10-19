@@ -380,8 +380,13 @@ final class BookingMilestones
                 break;
             case self::SECURITY_DEPOSIT_RETURNED:
                 $kind = MilestoneKind::HERE;
-                $explanation = "La restitution s'enregistre dans les paiements de la réservation.";
-                $action = MilestoneAction::openBox('Enregistrer la restitution', BookingBox::PAYMENT);
+                // With Finances the refund is a bank transfer carrying the
+                // booking's communication, and the step ticks when the
+                // account shows nothing owed back any more (#927, §2.6).
+                $explanation = 'Avec Finances, faites le virement depuis la banque avec la communication de la '
+                    . "réservation : l'étape se coche quand il est rapproché. Sans Finances, la restitution "
+                    . "s'enregistre à la main sur la page Finances.";
+                $action = MilestoneAction::openBox('Rendre la caution', BookingBox::PAYMENT);
                 break;
             case 'closed':
                 $kind = MilestoneKind::HERE;
