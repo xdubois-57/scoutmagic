@@ -31,6 +31,17 @@ use Modules\Rental\Service\RentalBookingMailService;
 use Modules\Rental\Service\RentalDocumentService;
 use Modules\Rental\Service\RentalException;
 use Modules\Rental\Service\RentalSignedContractService;
+use Modules\Rental\Availability\AvailabilityCalculator;
+use Modules\Rental\Booking\BookingStatus;
+use Modules\Rental\Booking\HoldOrigin;
+use Modules\Rental\Pricing\RentalPricingEngine;
+use Modules\Rental\Repository\RentalBlockRepository;
+use Modules\Rental\Repository\RentalConstraintsRepository;
+use Modules\Rental\Repository\RentalPricingRepository;
+use Modules\Rental\Service\RentalAvailabilityService;
+use Modules\Rental\Service\RentalBookingService;
+use Modules\Rental\Service\RentalOccupancyGuard;
+use Modules\Rental\Service\RentalPricingService;
 use PHPUnit\Framework\TestCase;
 use setasign\Fpdi\Fpdi;
 use Tests\DatabaseTestHelper;
@@ -52,6 +63,7 @@ class RentalSignedContractServiceTest extends TestCase
     private RentalAssetRepository $assetRepository;
     private FileRepository $fileRepository;
     private RentalSignedContractService $service;
+    private RentalBookingService $bookingService;
     private int $assetId;
 
     /** @var list<array{kind: string, booking_id: int, reason?: string, path?: string}> */
@@ -111,6 +123,8 @@ class RentalSignedContractServiceTest extends TestCase
             }
         );
 
+        $this->bookingService = new RentalBookingService($this->bookingRepository, $journal);
+        $pricing = new RentalPricingService(new RentalPricingRepository($this->pdo), new RentalPricingEngine(), $journal);
         $this->service = new RentalSignedContractService(
             $this->documents,
             $this->documentRepository,
@@ -118,7 +132,21 @@ class RentalSignedContractServiceTest extends TestCase
             RentalTestHelper::bookingAudit($this->pdo, $encryption),
             $mail,
             new PdfCompressor($this->storagePath . '/temp'),
-            $journal
+            $journal,
+            null,
+            null,
+            null,
+            // As public/index.php wires it: a copy received or refused is a
+            // write of an occupation (#927, chantier §2.1).
+            new RentalOccupancyGuard(
+                $this->bookingRepository,
+                new RentalAvailabilityService(
+                    new AvailabilityCalculator(),
+                    new RentalConstraintsRepository($this->pdo),
+                    [$this->bookingService, new RentalBlockRepository($this->pdo)]
+                ),
+                $pricing
+            )
         );
 
         $this->assetId = $this->assetRepository->create(
@@ -506,5 +534,168 @@ class RentalSignedContractServiceTest extends TestCase
         $this->assertTrue($this->signatures->delete($owner));
         $this->assertNull($this->signatures->findPng($owner));
         $this->assertFalse($this->signatures->has($owner));
+    }
+
+    // ── Firm hold (#927, chantier §2.1) ─────────────────────────────────
+
+    private function reload(RentalBooking $booking): RentalBooking
+    {
+        $fresh = $this->bookingRepository->findById($booking->id);
+        $this->assertNotNull($fresh);
+
+        return $fresh;
+    }
+
+    /** A competing request on the same week, created straight in the table. */
+    private function competitor(?\DateTimeImmutable $holdUntil): RentalBooking
+    {
+        $created = $this->bookingRepository->create(
+            $this->assetId,
+            'LOC-Q8R9S2',
+            '2027-07-02',
+            '2027-07-05',
+            1,
+            10,
+            null,
+            [
+                'name' => 'Paul Durand',
+                'email' => 'paul@example.be',
+                'phone' => null,
+                'organisation' => null,
+                'purpose' => null,
+                'comment' => null,
+            ],
+            null,
+            $holdUntil,
+            $holdUntil !== null ? HoldOrigin::AUTOMATIC : null,
+            'v1',
+            str_repeat('0', 64),
+            'v1',
+            str_repeat('0', 64),
+            new \DateTimeImmutable('2027-01-20 10:00:00')
+        );
+
+        return $this->reload($this->bookingRepository->findById($created['id']) ?? self::fail('no booking'));
+    }
+
+    /**
+     * Copy received, before any countersignature or confirmation: the dates
+     * are held firmly — past their deadline, by no task released — and the
+     * status has not moved.
+     */
+    public function testACopyReceivedHoldsTheDatesFirmlyAndNoTaskFreesThem(): void
+    {
+        $booking = $this->booking();
+        $this->bookingRepository->setHold($booking->id, new \DateTimeImmutable('2027-01-25 10:00:00'), HoldOrigin::AUTOMATIC);
+        $this->service->receiveCopy(
+            $this->reload($booking),
+            $this->asset(),
+            $this->storedFile(self::photo(), 'jpg', 'image/jpeg'),
+            new \DateTimeImmutable('2027-01-20 10:00:00')
+        );
+
+        $after = new \DateTimeImmutable('2027-02-10 10:00:00');
+        $signed = $this->reload($booking);
+        $this->assertNotNull($signed->signedCopyReceivedAt);
+        $this->assertTrue($signed->holdsFirmly());
+        $this->assertTrue($signed->occupiesTheAsset($after), 'the lapsed deadline frees nothing');
+        $this->assertSame(BookingStatus::RECEIVED, $signed->status, 'a copy confirms nothing');
+
+        $swept = $this->bookingService->expireLapsedHolds($after);
+        $this->assertSame(['released' => 0, 'expired' => 0], $swept);
+        $this->assertSame('2027-01-25 10:00:00', $this->reload($booking)->holdUntil?->format('Y-m-d H:i:s'));
+        $this->assertCount(1, $this->bookingService->findOccupancies(
+            $this->assetId,
+            new \DateTimeImmutable('2027-06-01'),
+            new \DateTimeImmutable('2027-08-01'),
+            $after
+        ));
+    }
+
+    /**
+     * Refused: the dates fall back to a provisional hold lasting at least
+     * three days from the refusal.
+     */
+    public function testARefusedCopyHoldsTheDatesThreeDaysMore(): void
+    {
+        $booking = $this->booking();
+        $copy = $this->service->receiveCopy($booking, $this->asset(), $this->storedFile(self::photo(), 'jpg', 'image/jpeg'));
+
+        $refusedAt = new \DateTimeImmutable('2027-02-10 15:00:00');
+        $this->service->refuseCopy($booking, $this->asset(), $copy->id, 'Illisible.', null, $refusedAt);
+
+        $refused = $this->reload($booking);
+        $this->assertFalse($refused->holdsFirmly());
+        $this->assertSame('2027-02-13 15:00:00', $refused->holdUntil?->format('Y-m-d H:i:s'));
+        $this->assertSame(HoldOrigin::AUTOMATIC, $refused->holdOrigin);
+        $this->assertTrue($refused->occupiesTheAsset(new \DateTimeImmutable('2027-02-13 14:59:00')));
+        $this->assertFalse($refused->occupiesTheAsset(new \DateTimeImmutable('2027-02-13 15:01:00')));
+    }
+
+    /** Never past the start of the stay, and never shorter than a hold still running. */
+    public function testTheRefusalHoldIsCappedAtTheStayAndNeverShortened(): void
+    {
+        $booking = $this->booking();
+        $this->bookingRepository->setHold($booking->id, new \DateTimeImmutable('2027-06-20 10:00:00'), HoldOrigin::MANAGER);
+        $copy = $this->service->receiveCopy($this->reload($booking), $this->asset(), $this->storedFile(self::photo(), 'jpg', 'image/jpeg'));
+        $this->service->refuseCopy($booking, $this->asset(), $copy->id, 'Illisible.', null, new \DateTimeImmutable('2027-02-10 15:00:00'));
+        $kept = $this->reload($booking);
+        $this->assertSame('2027-06-20 10:00:00', $kept->holdUntil?->format('Y-m-d H:i:s'), 'never shortened');
+        $this->assertSame(HoldOrigin::MANAGER, $kept->holdOrigin, 'an option stays an option');
+
+        // The stay starts on 1 July: refused on 29 June with no hold
+        // running, the dates are held until the midnight it starts.
+        $unheld = new RentalBooking(...array_merge(get_object_vars($kept), ['holdUntil' => null]));
+        $this->assertEquals(
+            new \DateTimeImmutable('2027-07-01 00:00:00'),
+            RentalOccupancyGuard::holdAfterRefusal($unheld, new \DateTimeImmutable('2027-06-29 09:00:00'))
+        );
+        $this->assertNull(
+            RentalOccupancyGuard::holdAfterRefusal($unheld, new \DateTimeImmutable('2027-07-01 09:00:00')),
+            'nothing to hold once the stay has begun'
+        );
+        $confirmed = new RentalBooking(...array_merge(get_object_vars($unheld), ['status' => BookingStatus::CONFIRMED]));
+        $this->assertNull(RentalOccupancyGuard::holdAfterRefusal($confirmed, new \DateTimeImmutable('2027-02-10')));
+    }
+
+    /**
+     * A renter whose hold lapsed while somebody else took the week cannot
+     * make it theirs again by sending a copy: two renters would hold the
+     * same dates. Refused before the file is stored, and again under the
+     * lock.
+     */
+    public function testACopyIsRefusedWhenItsDatesWentToSomebodyElse(): void
+    {
+        $booking = $this->booking();
+        $this->bookingRepository->setHold($booking->id, new \DateTimeImmutable('2027-01-15 10:00:00'), HoldOrigin::AUTOMATIC);
+        $this->competitor(new \DateTimeImmutable('2027-03-01 10:00:00'));
+        $now = new \DateTimeImmutable('2027-01-20 10:00:00');
+
+        $this->assertSame(
+            RentalSignedContractService::DATES_NO_LONGER_HELD,
+            $this->service->whyNoCopy($this->reload($booking), $this->asset(), $now)
+        );
+
+        $this->expectException(RentalException::class);
+        $this->expectExceptionMessage(RentalSignedContractService::DATES_NO_LONGER_HELD);
+        $this->service->receiveCopy(
+            $this->reload($booking),
+            $this->asset(),
+            $this->storedFile(self::photo(), 'jpg', 'image/jpeg'),
+            $now
+        );
+    }
+
+    /** Its own hold still running, nobody can have taken the dates: the copy is welcome. */
+    public function testACopyWithinItsOwnHoldIsWelcome(): void
+    {
+        $booking = $this->booking();
+        $this->bookingRepository->setHold($booking->id, new \DateTimeImmutable('2027-03-15 10:00:00'), HoldOrigin::AUTOMATIC);
+
+        $this->assertNull($this->service->whyNoCopy(
+            $this->reload($booking),
+            $this->asset(),
+            new \DateTimeImmutable('2027-01-20 10:00:00')
+        ));
     }
 }

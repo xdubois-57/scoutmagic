@@ -90,6 +90,9 @@ class RentalOperationsService
      */
     public const MAX_PENDING_RENTER_REQUESTS = 3;
 
+    /** The lock and the check every writer of an occupation shares (#927, chantier §2.1). */
+    private RentalOccupancyGuard $occupancy;
+
     public function __construct(
         private RentalBookingRepository $bookingRepository,
         private BookingAudit $bookingAudit,
@@ -112,12 +115,13 @@ class RentalOperationsService
          */
         private ?RentalStayService $stayService = null
     ) {
+        $this->occupancy = new RentalOccupancyGuard($bookingRepository, $availabilityService, $pricingService);
     }
 
     // ── Lifecycle (§6.15) ───────────────────────────────────────────────
 
     /**
-     * Runs `$work` as one transaction holding `$assetId`'s bookings — for a
+     * Runs `$work` as one transaction under the asset's lock — for a
      * caller whose gesture writes through more than this service, such as
      * « Contrat envoyé » ticked or reopened by hand (#708, IT-14): the mark
      * and the status it carries land together or not at all.
@@ -128,7 +132,7 @@ class RentalOperationsService
      */
     public function atomicallyOnAsset(int $assetId, callable $work): mixed
     {
-        return $this->bookingRepository->withAssetLocked($assetId, $work);
+        return $this->occupancy->onAsset($assetId, $work);
     }
 
     /**
@@ -213,31 +217,115 @@ class RentalOperationsService
      *   lengthened to last at least `$minHoldDays` from now, capped at the
      *   start of the stay. A longer hold is left alone; its origin does not
      *   change, and a new one, when none ran, is automatic.
+     *
+     * **Lengthening a hold is taking the dates again**, so it happens under
+     * the asset's lock, after the same check as any other writer (#927,
+     * chantier §2.1): a hold that lapsed may have let somebody else in.
+     * The contract has already gone by then — `assertContractMayHold()` is
+     * what the screens ask before sending — so the race this closes is the
+     * last few milliseconds: the status still moves, the dates are not
+     * taken over anybody, and the answer says so. Returns whether the dates
+     * are held as the contract announced.
      */
     public function contractSent(
         RentalBooking $booking,
+        RentalAsset $asset,
         ?int $actorMemberId,
         \DateTimeImmutable $now,
         int $minHoldDays = self::DEFAULT_CONTRACT_HOLD_MIN_DAYS
+    ): bool {
+        return $this->bookingRepository->withAssetLocked($asset->id, function () use (
+            $booking,
+            $asset,
+            $actorMemberId,
+            $now,
+            $minHoldDays
+        ): bool {
+            $current = $this->bookingRepository->findById($booking->id) ?? $booking;
+            if ($current->status->isFinal() || $current->status->firmlyOccupiesTheAsset()) {
+                return true;
+            }
+
+            $answering = [BookingStatus::RECEIVED, BookingStatus::INFO_REQUESTED, BookingStatus::PROPOSED];
+            if (in_array($current->status, $answering, true)
+                && $this->bookingRepository->compareAndSetStatus(
+                    $current->id,
+                    $current->status,
+                    BookingStatus::CONTRACT_SENT,
+                    $now
+                )
+            ) {
+                $this->recordStatusChange($current, BookingStatus::CONTRACT_SENT, $actorMemberId);
+            }
+
+            $until = $this->contractHoldUntil($current, $now, $minHoldDays);
+            if (self::lengthens($current, $until, $now) && !$this->datesAreFree($current, $asset, $now)) {
+                $this->journal->log(
+                    'rental',
+                    'rental_contract_hold_refused',
+                    'warning',
+                    'Dates non bloquées à l\'envoi du contrat, déjà prises : ' . $current->reference,
+                    ['booking_id' => $current->id, 'asset_id' => $asset->id]
+                );
+
+                return false;
+            }
+
+            $this->holdUntil($current, $until, $now, $actorMemberId);
+
+            return true;
+        });
+    }
+
+    /**
+     * Refuses to send the contract when sending it would take dates that
+     * are no longer this booking's (#927, chantier §2.1) — asked by every
+     * screen before the e-mail leaves, so the renter is never handed a
+     * contract for a week somebody else holds.
+     *
+     * Only when sending lengthens the hold: a hold still running is this
+     * booking's own, and a firm one needs nothing.
+     *
+     * @throws RentalException
+     */
+    public function assertContractMayHold(
+        RentalBooking $booking,
+        RentalAsset $asset,
+        \DateTimeImmutable $now,
+        int $minHoldDays = self::DEFAULT_CONTRACT_HOLD_MIN_DAYS
     ): void {
-        $current = $this->bookingRepository->findById($booking->id) ?? $booking;
-        if ($current->status->isFinal() || $current->status->firmlyOccupiesTheAsset()) {
-            return;
+        $until = $this->contractHoldUntil($booking, $now, $minHoldDays);
+        if (self::lengthens($booking, $until, $now) && !$this->datesAreFree($booking, $asset, $now)) {
+            throw new RentalException(self::DATES_TAKEN_FOR_CONTRACT);
+        }
+    }
+
+    /** What a manager is told when the contract would hold dates already taken. */
+    public const DATES_TAKEN_FOR_CONTRACT = 'Les dates de cette réservation ne sont plus bloquées et sont '
+        . 'occupées par ailleurs : le contrat n\'est pas envoyé. Changez les dates ou refusez la demande.';
+
+    /**
+     * Whether `$until` would hold this booking's dates longer than they are
+     * held now — from a lapsed hold, or past a running one.
+     */
+    private static function lengthens(RentalBooking $booking, ?\DateTimeImmutable $until, \DateTimeImmutable $now): bool
+    {
+        if ($until === null || $booking->holdsFirmly()) {
+            return false;
         }
 
-        $answering = [BookingStatus::RECEIVED, BookingStatus::INFO_REQUESTED, BookingStatus::PROPOSED];
-        if (in_array($current->status, $answering, true)
-            && $this->bookingRepository->compareAndSetStatus(
-                $current->id,
-                $current->status,
-                BookingStatus::CONTRACT_SENT,
-                $now
-            )
-        ) {
-            $this->recordStatusChange($current, BookingStatus::CONTRACT_SENT, $actorMemberId);
-        }
+        return !$booking->holdIsActive($now) || ($booking->holdUntil !== null && $booking->holdUntil < $until);
+    }
 
-        $this->holdUntil($current, $this->contractHoldUntil($current, $now, $minHoldDays), $now, $actorMemberId);
+    /**
+     * Whether this booking's own dates are free of every occupation but its
+     * own at `$now` — the check every writer makes under the asset's lock
+     * before it takes or keeps them (#927, chantier §2.1). No exception for
+     * anybody: a competing request's running hold counts.
+     */
+    public function datesAreFree(RentalBooking $booking, RentalAsset $asset, \DateTimeImmutable $now): bool
+    {
+        return $this->occupancy->datesAreFree($booking, $asset, $now);
     }
 
     /**
@@ -245,16 +333,16 @@ class RentalOperationsService
      * rule `contractSent()` applies, also read by the confirmation that
      * announces it before anything leaves: `$minHoldDays` from now at
      * least, capped at the start of the stay, a longer running hold kept
-     * as it is. Null when sending holds nothing: a final booking, one that
-     * firmly occupies the asset, or a stay starting too soon with no hold
-     * running.
+     * as it is. Null when sending holds nothing: a final booking, one held
+     * firmly (confirmed, or a signed copy not refused), or a stay starting
+     * too soon with no hold running.
      */
     public function contractHoldUntil(
         RentalBooking $booking,
         \DateTimeImmutable $now,
         int $minHoldDays = self::DEFAULT_CONTRACT_HOLD_MIN_DAYS
     ): ?\DateTimeImmutable {
-        if ($booking->status->isFinal() || $booking->status->firmlyOccupiesTheAsset()) {
+        if ($booking->status->isFinal() || $booking->holdsFirmly()) {
             return null;
         }
 
@@ -307,9 +395,11 @@ class RentalOperationsService
      * exotic on a shared hall:
      *
      * - **Double confirmation.** Two managers with the page open both
-     *   confirm two different requests for the same week. The row lock plus
-     *   the compare-and-set means the second one is told the dates went,
-     *   rather than both landing and nobody noticing until August.
+     *   confirm two different requests for the same week. The asset's lock
+     *   plus the compare-and-set means the second one is told the dates
+     *   went, rather than both landing and nobody noticing until August —
+     *   and a competing request still holding its dates stops it the same
+     *   way (#927, chantier §2.1).
      * - **Stock overrun.** Twelve tents, three bookings of five. The third
      *   is refused at the moment of confirmation, on the real remaining
      *   count, not on what the calendar said when the page was rendered.
@@ -347,12 +437,9 @@ class RentalOperationsService
             );
         }
 
-        $billingUnit = $this->pricingService->loadSettings($asset->id)->billingUnit;
-
         $this->bookingRepository->withAssetLocked($asset->id, function () use (
             $booking,
             $asset,
-            $billingUnit,
             $actorMemberId,
             $now
         ): void {
@@ -369,21 +456,11 @@ class RentalOperationsService
                 );
             }
 
-            // Firm occupation only: a competing request's temporary hold is
-            // not a commitment, and arbitrating between two requests for the
-            // same week is exactly what confirming one IS.
-            $free = $this->availabilityService->isRangeFree(
-                $asset,
-                $billingUnit,
-                DateInput::requireFromStorage($current->arrivalDate, 'rental_bookings.arrival_date'),
-                DateInput::requireFromStorage($current->departureDate, 'rental_bookings.departure_date'),
-                $current->units,
-                $now,
-                $current->reference,
-                firmOnly: true
-            );
-
-            if (!$free) {
+            // Every occupation counts, a competing request's running hold
+            // included (#927, chantier §2.1): it was let in because these
+            // dates were free when it asked, so they are its own until it
+            // lapses. No manager passes over it.
+            if (!$this->datesAreFree($current, $asset, $now)) {
                 throw new RentalException(
                     'Ces dates ne sont plus disponibles en quantité suffisante. '
                     . 'La réservation ne peut pas être confirmée.'
@@ -430,34 +507,55 @@ class RentalOperationsService
      * origin differs, and with it what happens when it lapses: an option is
      * a promise, so letting it run out makes the booking expired.
      *
+     * **An option takes the dates, so it is checked like any other writer**
+     * (#927, chantier §2.1): under the asset's lock, against every
+     * occupation but the booking's own. A request whose hold lapsed while
+     * another one took its week cannot be put back on top of it.
+     *
      * @throws RentalException
      */
     public function placeOption(
         RentalBooking $booking,
+        RentalAsset $asset,
         \DateTimeImmutable $until,
         ?int $actorMemberId,
         \DateTimeImmutable $now
     ): void {
-        if ($booking->status->isFinal()) {
-            throw new RentalException(
-                'Cette réservation est ' . mb_strtolower($booking->status->label())
-                . ' : poser une option n\'aurait aucun effet.'
-            );
-        }
-
         if ($until <= $now) {
             throw new RentalException("L'échéance de l'option doit être dans le futur.");
         }
 
-        $this->bookingRepository->setHold($booking->id, $until, HoldOrigin::MANAGER);
-        $this->bookingAudit->record(
-            $booking->id,
-            BookingAudit::HOLD_PLACED,
-            null,
-            $until->format('d/m/Y H:i'),
-            'Option posée',
-            $actorMemberId
-        );
+        $this->bookingRepository->withAssetLocked($asset->id, function () use (
+            $booking,
+            $asset,
+            $until,
+            $actorMemberId,
+            $now
+        ): void {
+            $current = $this->bookingRepository->findById($booking->id) ?? $booking;
+            if ($current->status->isFinal()) {
+                throw new RentalException(
+                    'Cette réservation est ' . mb_strtolower($current->status->label())
+                    . ' : poser une option n\'aurait aucun effet.'
+                );
+            }
+
+            if (!$this->datesAreFree($current, $asset, $now)) {
+                throw new RentalException(
+                    'Ces dates sont occupées par ailleurs : l\'option ne peut pas être posée.'
+                );
+            }
+
+            $this->bookingRepository->setHold($current->id, $until, HoldOrigin::MANAGER);
+            $this->bookingAudit->record(
+                $current->id,
+                BookingAudit::HOLD_PLACED,
+                null,
+                $until->format('d/m/Y H:i'),
+                'Option posée',
+                $actorMemberId
+            );
+        });
     }
 
     public function clearHold(RentalBooking $booking, ?int $actorMemberId): void
@@ -729,13 +827,11 @@ class RentalOperationsService
         // at the wrong moment.
         //
         // **That is who this check is for: the renter.** A manager already
-        // sees the calendar, and `acceptChange()` guards the write with
-        // `firmOnly: true` — deliberately, because a competing request's
-        // soft hold is exactly what a manager is there to arbitrate
-        // (`isRangeFree()` says so). Validating their proposal here would
-        // refuse it over another renter's unconfirmed request, and over the
-        // notice period and arrival weekdays that shape what a *visitor*
-        // may ask. None of those were ever about them.
+        // sees the calendar, and `acceptChange()` guards the write under
+        // the asset's lock against every occupation. Validating their
+        // proposal here would refuse it over the notice period and arrival
+        // weekdays that shape what a *visitor* may ask — rules that were
+        // never about them.
         //
         // The acceptance-time check STAYS either way. Between a request and
         // an answer the dates can be taken by somebody else, and only the
@@ -904,6 +1000,8 @@ class RentalOperationsService
             $persons = $request->proposedPersons ?? $current->estimatedPersons;
 
             if ($request->kind->affectsAvailability()) {
+                // Every occupation counts, as at confirmation (#927,
+                // chantier §2.1): another request's running hold is its own.
                 $free = $this->availabilityService->isRangeFree(
                     $asset,
                     $billingUnit,
@@ -911,11 +1009,7 @@ class RentalOperationsService
                     DateInput::requireFromStorage($departure, 'the requested departure date'),
                     $units,
                     $now,
-                    $current->reference,
-                    // Same reasoning as confirmation: moving a booking onto
-                    // dates another *request* is merely holding is a
-                    // decision a manager is entitled to make.
-                    firmOnly: true
+                    $current->reference
                 );
 
                 if (!$free) {

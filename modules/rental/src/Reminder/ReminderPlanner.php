@@ -90,8 +90,10 @@ class ReminderPlanner
 
         // A hold about to lapse: the dates are about to become free again
         // for everybody, which is a decision the unit should make rather
-        // than discover.
+        // than discover. Not on dates held firmly by a signed copy: those
+        // do not lapse, whatever the deadline says (#927, chantier §2.1).
         if ($booking->holdIsActive($today)
+            && !$booking->holdsFirmly()
             && $schedule->isActive(ReminderKind::HOLD_EXPIRING)
             && $booking->holdUntil !== null
             && $booking->holdUntil <= $today->modify(

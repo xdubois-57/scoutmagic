@@ -24,15 +24,20 @@ namespace Modules\Rental\Availability;
  * billing unit, and resolving that is AvailabilityCalculator's job, never
  * the caller's.
  *
- * **`$isFirm` is the one distinction that survives**, and it is not a public
- * one: it never changes what a visitor sees, because to a visitor the dates
- * are taken either way. It exists for a single question only — "may a
- * manager confirm this?" — where a temporary hold on somebody else's pending
- * request must NOT stand in the way. Two requests for the same week are
- * exactly the situation a manager is there to arbitrate; if a soft hold
- * blocked the confirmation, neither could ever be accepted. A confirmed
- * booking or a manual block is a different matter: those are commitments,
- * and they do stop a confirmation.
+ * **Nothing distinguishes a firm hold from a provisional one here**, and
+ * that is the rule rather than an omission (#927, chantier §2.1). A
+ * `$isFirm` flag used to let a confirmation look past a competing request's
+ * hold, so two requests for the same week could both end up confirmed by
+ * two managers who each thought they were arbitrating. Whatever occupies the
+ * asset now stops everybody else, managers included: whether a booking
+ * holds its dates at all is decided before it becomes an `Occupancy`
+ * (`RentalBooking::occupiesTheAsset()`), and once it does, it is taken.
+ *
+ * **`$reference` is also who it belongs to.** Every occupancy of one
+ * booking carries that booking's reference — its own dates, and the dates
+ * of its active modification project once that exists (chantier §2.3) — so
+ * excluding a reference leaves a booking out of its own conflicts, and its
+ * project out of its own, and never out of anybody else's.
  *
  * **`$endDateIsHeld` is not a second billing unit.** A *stay* is half-open
  * under the nights model — the departure day frees up for the next arrival,
@@ -48,9 +53,8 @@ final class Occupancy
      * @param string $arrivalDate `Y-m-d`.
      * @param string $departureDate `Y-m-d`.
      * @param int $units How much of a countable stock this takes. 1 for an exclusive asset.
-     * @param string|null $reference An internal identifier for the manager-facing calendar. NEVER rendered publicly —
-     *     see the class docblock.
-     * @param bool $isFirm Whether this is a commitment or merely a temporary hold. See the note below.
+     * @param string|null $reference An internal identifier for the manager-facing calendar, and the key a booking is
+     *     left out of its own conflicts by. NEVER rendered publicly — see the class docblock.
      * @param bool $endDateIsHeld Whether `$departureDate` is itself taken, whatever the billing unit. See the note
      *     below.
      * @param bool $wholeAsset Whether it takes every unit of the asset, however many there are — a period the unit
@@ -62,7 +66,6 @@ final class Occupancy
         public readonly string $departureDate,
         public readonly int $units = 1,
         public readonly ?string $reference = null,
-        public readonly bool $isFirm = true,
         public readonly bool $endDateIsHeld = false,
         public readonly bool $wholeAsset = false
     ) {

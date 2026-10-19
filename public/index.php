@@ -12336,7 +12336,14 @@ if ($isEnabled('rental')) {
         $journalService,
         $notificationService,
         $rentalManagerRecipients,
-        static fn(int $bookingId): ?string => $rentalBookingService->trackingTokenFor($bookingId)
+        static fn(int $bookingId): ?string => $rentalBookingService->trackingTokenFor($bookingId),
+        // A copy received holds the dates firmly, a copy refused holds them
+        // a few days more: both under the asset's lock (#927, chantier §2.1).
+        new \Modules\Rental\Service\RentalOccupancyGuard(
+            $rentalBookingRepository,
+            $rentalAvailabilityService,
+            $rentalPricingService
+        )
     );
     // A contract is void the moment its booking changes (#708, IT-20).
     $rentalContractValidity = new \Modules\Rental\Service\RentalContractValidityService(

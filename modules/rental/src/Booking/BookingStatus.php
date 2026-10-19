@@ -77,14 +77,14 @@ enum BookingStatus: string
     }
 
     /**
-     * Whether this booking is a **commitment** rather than a request still
-     * being weighed.
+     * Whether the **status alone** makes this booking a commitment —
+     * confirmed or closed.
      *
-     * The distinction only ever matters at confirmation (see
-     * Availability\Occupancy): a pending request holds the dates against
-     * the public, but must not stop a manager confirming a competing one —
-     * arbitrating between two requests for the same week is the manager's
-     * whole job there.
+     * Only half of a firm hold (#927, chantier §2.1): a signed copy of the
+     * contract not refused holds the dates as firmly, and that is read off
+     * the booking's documents, not its status —
+     * `RentalBooking::holdsFirmly()` asks both. No caller decides
+     * availability from this alone.
      */
     public function firmlyOccupiesTheAsset(): bool
     {
