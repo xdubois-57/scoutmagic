@@ -101,7 +101,7 @@
             <p class="text-body-secondary small mb-4" data-last-switch>
                 Dernière bascule :
                 {% if last_switch.fromLabel %}{{ last_switch.fromLabel }} → {% endif %}{{ last_switch.toLabel }},
-                le {{ last_switch.switchedAt|date('d/m/Y') }}{% if last_switch.switchedBy %} par {{ last_switch.switchedBy }}{% endif %}.
+                le {{ last_switch.switchedAt|date_fr }}{% if last_switch.switchedBy %} par {{ last_switch.switchedBy }}{% endif %}.
             </p>
             {% else %}
             <div class="mb-4"></div>
@@ -285,7 +285,7 @@
                                     <label class="form-check-label small" for="step-check-{{ step.key }}">
                                         {% if step.done %}
                                             Fait{% if step.mark and step.mark.doneBy %} par {{ step.mark.doneBy }}{% endif %}
-                                            {%- if step.mark %} le {{ step.mark.doneAt|date('d/m/Y') }}{% endif %}
+                                            {%- if step.mark %} le {{ step.mark.doneAt|date_fr }}{% endif %}
                                         {% else %}
                                             Marquer cette étape comme faite
                                         {% endif %}
