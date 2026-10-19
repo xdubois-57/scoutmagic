@@ -87,4 +87,50 @@ class ScoutYearEventCountServiceTest extends TestCase
         $this->assertSame(1, $this->service->countEventsBetween('2026-09-01', '2027-08-31'));
         $this->assertSame(0, $this->service->countEventsBetween('2027-09-01', '2028-08-31'));
     }
+
+    /**
+     * The per-section split counts section calendars only, by the section
+     * the calendar belongs to; a supplementary calendar's evening belongs
+     * to nobody, and a section without an event is absent, not zero.
+     */
+    public function testCountsBySectionOnSectionCalendarsOnly(): void
+    {
+        $this->pdo->exec("INSERT INTO age_branches (id, desk_code, label, sort_order) VALUES (1, 'LOUV', 'Louveteaux', 20)");
+        $this->pdo->exec("INSERT INTO sections (id, age_branch_id, desk_code, name) VALUES (10, 1, 'LOUV1', 'Meute A')");
+        $this->pdo->exec("INSERT INTO sections (id, age_branch_id, desk_code, name) VALUES (11, 1, 'LOUV2', 'Meute B')");
+        $this->pdo->exec("INSERT INTO sections (id, age_branch_id, desk_code, name) VALUES (12, 1, 'LOUV3', 'Meute C')");
+        $this->pdo->exec("INSERT INTO calendar_calendars (id, section_id, visibility) VALUES (3, 10, 'public')");
+        $this->pdo->exec("INSERT INTO calendar_calendars (id, section_id, visibility) VALUES (4, 11, 'chief')");
+        $this->pdo->exec("INSERT INTO calendar_calendars (id, section_id, visibility) VALUES (5, 12, 'public')");
+
+        $this->givenEvent(3, '2026-09-12');
+        $this->givenEvent(3, '2027-08-31');
+        $this->givenEvent(4, '2026-10-03');
+        // Outside the range, on a section that therefore has none.
+        $this->givenEvent(5, '2026-08-31');
+        // A supplementary calendar's event: counted overall, by nobody.
+        $this->givenEvent(1, '2026-11-08');
+
+        $this->assertSame(
+            [10 => 2, 11 => 1],
+            $this->sortedByKey($this->service->countEventsBySectionBetween('2026-09-01', '2027-08-31'))
+        );
+        $this->assertSame(4, $this->service->countEventsBetween('2026-09-01', '2027-08-31'));
+    }
+
+    public function testCountsBySectionNothingOnAnEmptyCalendar(): void
+    {
+        $this->assertSame([], $this->service->countEventsBySectionBetween('2026-09-01', '2027-08-31'));
+    }
+
+    /**
+     * @param array<int, int> $counts
+     * @return array<int, int>
+     */
+    private function sortedByKey(array $counts): array
+    {
+        ksort($counts);
+
+        return $counts;
+    }
 }
