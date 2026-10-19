@@ -1142,8 +1142,9 @@ or a console that died says nothing about the code, but a release is when a
 shipped default holding that address reaches every installed site. The
 same script runs weekly (below, `external-sources-check.yml`), so a
 divergence this gate meets should already have its issue. It has no
-exemption for an unreachable network: no answer is a dead link, the same
-as a 404.
+exemption for an unreachable network: a source that stays silent through
+its second try (`--retry-unreachable`, issue #760) is a dead link, the same
+as a 404. A status — a 404 included — is never retried and counts at once.
 
 **None of them runs a test**, and that is the design rather than a gap.
 PHPStan, both PHPUnit engines, the JavaScript analysis and tests, the
