@@ -776,6 +776,9 @@ set -e
 # still produced traffic worth scanning, and the browser's exit code is
 # reported separately below rather than swallowing the findings.
 # ---------------------------------------------------------------
+dast_redact() {
+    sed -E 's#\?[^ "]*##g; s#/[A-Za-z0-9_-]{20,}#/…#g'
+}
 if [[ "${PLAYWRIGHT_EXIT}" -ne 0 ]]; then
     echo "DAST: the browser suite exited ${PLAYWRIGHT_EXIT} — scanning the traffic it did produce." >&2
     # What the harness saw while the scenario waited (issue #912): the
@@ -789,10 +792,14 @@ if [[ "${PLAYWRIGHT_EXIT}" -ne 0 ]]; then
     grep -F ' dast-tls-proxy: ' "${TLS_LOG}" | grep -v -F 'listening on' >&2 || true
     echo "--- TLS terminator: anything else, last 20 lines ---" >&2
     grep -v -F ' dast-tls-proxy: ' "${TLS_LOG}" | tail -20 >&2 || true
+    # php -S logs every request line whole, query string included, and
+    # some of them carry a live token (/auth/verify?token=…). Same
+    # redaction as scripts/dast-tls-proxy.php: no query string, no long
+    # opaque path segment.
     echo "--- php -S output, last 40 lines ---" >&2
-    tail -40 "${SERVER_LOG}" >&2 || true
+    tail -40 "${SERVER_LOG}" | dast_redact >&2 || true
     echo "--- PHP error log, last 40 lines ---" >&2
-    tail -40 "${INSTANCE_DIR}/php-error.log" >&2 || true
+    tail -40 "${INSTANCE_DIR}/php-error.log" | dast_redact >&2 || true
 fi
 
 touch "${RELEASE_FILE_HOST}"
