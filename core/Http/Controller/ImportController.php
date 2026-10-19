@@ -128,7 +128,8 @@ class ImportController extends AbstractController
 
         return [
             'current_year' => $window->publicYear,
-            'next_year_label' => $window->nextYear['label'] ?? ScoutYearService::nextLabel($window->publicYear['label']),
+            'next_year_label' => $window->nextYear['label']
+                ?? ScoutYearService::nextLabel($window->publicYear['label']),
             'import_window' => $window,
             'import_years' => $years,
             'selected_year_id' => $selectedId,

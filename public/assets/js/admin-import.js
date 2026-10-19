@@ -39,11 +39,11 @@
      * @returns {ImportYear|null}
      */
     function yearFor(data, yearId) {
-        var years = data && Array.isArray(data.years) ? data.years : [];
+        var years = Array.isArray(data?.years) ? data.years : [];
         var id = Number(yearId);
-        for (var i = 0; i < years.length; i++) {
-            if (years[i] && years[i].id === id) {
-                return years[i];
+        for (var year of years) {
+            if (year?.id === id) {
+                return year;
             }
         }
         return null;
@@ -59,7 +59,7 @@
      */
     function confirmationFor(data, yearId) {
         var year = yearFor(data, yearId);
-        return year && year.confirm ? year.confirm : null;
+        return year?.confirm ?? null;
     }
 
     /**
@@ -95,7 +95,7 @@
      */
     function renderLastImport(container, year) {
         while (container.firstChild) {
-            container.removeChild(container.firstChild);
+            container.firstChild.remove();
         }
         if (!year || !isId(year.id)) {
             return;

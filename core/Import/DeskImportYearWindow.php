@@ -33,7 +33,8 @@ final class DeskImportYearWindow
     /**
      * @param list<DeskImportYearOption> $options newest first
      * @param array{id: int, label: string, start_date: string, end_date: string} $publicYear
-     * @param array{id: int, label: string, start_date: string, end_date: string}|null $nextYear null when it does not exist yet
+     * @param array{id: int, label: string, start_date: string, end_date: string}|null $nextYear
+     *        null when it does not exist yet
      */
     public function __construct(
         public readonly array $options,
