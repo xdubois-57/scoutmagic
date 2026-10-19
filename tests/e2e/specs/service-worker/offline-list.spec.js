@@ -49,14 +49,31 @@ async function fakeTheInstalledApp(context) {
  * Starts a fresh launch and waits for the service worker to say its pass
  * finished — offline-prefetch.js remembers a launch only then.
  *
+ * The wait is sized from the list the pass downloads, never a fixed
+ * number: the admin's list holds every help page, two at a time, and it
+ * grows with the help. A fixed 60 s held while it was short, then cut a
+ * pass off half way through the help on a CI runner measuring coverage
+ * (about 230 pages at half a second each). One second a page is four
+ * times what that runner took; the test's own ceiling grows by the same
+ * amount, so the steps after the pass keep theirs.
+ *
  * @param {import('@playwright/test').Page} page
  */
 async function runAPass(page) {
+    const pages = await page.evaluate(async () => {
+        const response = await fetch('/api/offline/manifest', { headers: { Accept: 'application/json' }, cache: 'no-store' });
+        const data = await response.json();
+        return (data.pages?.length ?? 0) + (data.last?.length ?? 0);
+    });
+    expect(pages, 'the list to hold offline is empty').toBeGreaterThan(0);
+    const budget = scaled(30_000 + pages * 1_000);
+    test.setTimeout(test.info().timeout + budget);
+
     await page.evaluate((key) => sessionStorage.removeItem(key), PASS_DONE_KEY);
     await page.goto('/', { waitUntil: 'load' });
     await expect.poll(
         () => page.evaluate((key) => sessionStorage.getItem(key), PASS_DONE_KEY),
-        { message: 'the refresh pass never finished', timeout: 60_000 },
+        { message: `the refresh pass of ${pages} pages never finished`, timeout: budget },
     ).not.toBeNull();
 }
 
