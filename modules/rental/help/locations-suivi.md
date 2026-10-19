@@ -29,8 +29,9 @@ sur demande ».
 Le contrat vous arrive par e-mail. Imprimez-le, signez-le, puis déposez
 votre copie signée dans « Votre contrat » : un PDF, un scan ou une photo
 lisible de chaque page, avec « Envoyer ma copie signée ». Dès qu'elle est
-reçue, vos dates ne se libèrent plus. Si l'unité ne peut pas l'accepter,
-la page dit pourquoi : déposez-en une autre. Une fois le contrat signé
+reçue, et tant que l'unité ne la refuse pas, vos dates ne se libèrent
+plus. Si elle la refuse, la page dit pourquoi et vos dates restent
+bloquées quelques jours : déposez-en une autre. Une fois le contrat signé
 par les deux parties, « Télécharger le contrat signé » le met à votre
 disposition.
 
@@ -49,8 +50,8 @@ La page ne modifie rien : pour changer vos dates, votre nombre de
 participants, ou pour annuler, contactez l'unité. Une fois votre contrat
 envoyé, un changement passe par un **nouveau contrat**, à signer et
 déposer comme le premier. Votre réservation reste ce qu'elle était tant
-que l'unité ne l'a pas contresigné ; si elle abandonne le changement, un
-e-mail vous le dit.
+que l'unité ne l'a pas contresigné ; si elle abandonne le changement
+après vous avoir envoyé ce contrat, un e-mail vous le dit.
 
 ## Vos coordonnées de facturation
 
