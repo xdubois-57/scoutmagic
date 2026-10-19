@@ -135,6 +135,38 @@ class ScoutYearControllerTest extends TestCase
         $this->assertNull(ScoutYearSession::getPreviewId());
     }
 
+    /**
+     * The banner's « Revenir » goes back where it came from — but the
+     * Referer is a header anybody can set, so only its path is kept and a
+     * foreign host never becomes the redirect target.
+     */
+    public function testClearPreviewNeverRedirectsOffTheSite(): void
+    {
+        ScoutYearSession::setPreview($this->yearB);
+
+        $request = new Request(
+            'POST',
+            '/admin/scout-year/clear-preview',
+            [],
+            ['_csrf_token' => $this->token],
+            [],
+            ['HTTP_REFERER' => 'https://evil.example/phish?x=1']
+        );
+        $response = $this->controller->clearPreview($request, []);
+
+        $this->assertSame('/phish?x=1', $response->getHeaders()['Location'] ?? null);
+
+        $local = new Request(
+            'POST',
+            '/admin/scout-year/clear-preview',
+            [],
+            ['_csrf_token' => $this->token],
+            [],
+            ['HTTP_REFERER' => 'https://site.example/chefs/membres?section=2']
+        );
+        $this->assertSame('/chefs/membres?section=2', $this->controller->clearPreview($local, [])->getHeaders()['Location'] ?? null);
+    }
+
     public function testActivateStaffSetsSettingAndJournals(): void
     {
         $this->givenImport($this->yearB);
