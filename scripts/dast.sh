@@ -781,8 +781,11 @@ if [[ "${PLAYWRIGHT_EXIT}" -ne 0 ]]; then
     # What the harness saw while the scenario waited (issue #912): the
     # failure itself only says « timeout » or « chrome-error », and these
     # logs live in a directory deleted at teardown.
-    echo "--- TLS terminator, last 80 lines ---" >&2
-    tail -80 "${TLS_LOG}" >&2 || true
+    # The terminator logs only slow requests, 5xx and backend failures
+    # (scripts/dast-tls-proxy.php), so the whole file stays short and the
+    # request that hung is in it, whatever ran after it.
+    echo "--- TLS terminator: slow or failed requests ---" >&2
+    cat "${TLS_LOG}" >&2 || true
     echo "--- php -S output, last 40 lines ---" >&2
     tail -40 "${SERVER_LOG}" >&2 || true
     echo "--- PHP error log, last 40 lines ---" >&2

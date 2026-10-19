@@ -67,17 +67,25 @@ declare(strict_types=1);
 const DAST_TLS_READ_CHUNK = 65536;
 const DAST_TLS_HEAD_LIMIT = 262144;
 const DAST_TLS_BACKEND_TIMEOUT = 120;
-// How long a kept-alive connection may sit idle between two requests, and
-// the shorter delay the client is TOLD (`Keep-Alive: timeout=`). The gap is
-// the fix for a race (issue #912): this terminator used to close an idle
-// connection after DAST_TLS_BACKEND_TIMEOUT without ever saying so, and a
-// client that reused it at that moment lost its request. A browser or a
-// proxy retries a lost GET but not a lost POST, which surfaced as
-// `chrome-error://chromewebdata/` after « Créer le bien ». With the hint
-// below the idle limit, the client always gives a connection up before
-// this side does.
-const DAST_TLS_IDLE_TIMEOUT = 15;
+// The race this closes (issue #912): the terminator used to close an idle
+// kept-alive connection after DAST_TLS_BACKEND_TIMEOUT without saying so,
+// and a client that reused it at that moment lost its request. A browser
+// or a proxy retries a lost GET but not a lost POST, which surfaced as
+// `chrome-error://chromewebdata/` after « Créer le bien ».
+//
+// Two halves, because not every client listens. The hint
+// (`Keep-Alive: timeout=`) is honoured by ZAP's HTTP client, the one that
+// actually connects here. Chromium ignores it and keeps an idle socket up
+// to five minutes, so the guarantee is the other half: this side waits
+// LONGER than any client keeps a connection, and therefore never closes
+// one first. A child pinned ten minutes by an abandoned connection is
+// nothing on a throwaway run.
+const DAST_TLS_IDLE_TIMEOUT = 600;
 const DAST_TLS_KEEPALIVE_HINT = 5;
+// Only what explains a wait is logged: a request this slow, a 5xx, or a
+// backend that did not answer. Logging every asset buried the one request
+// that hung under the traffic of every scenario run after it.
+const DAST_TLS_SLOW_MS = 2000;
 // A ceiling, not a target: a client that keeps one connection for ever
 // would pin a forked child for ever with it.
 const DAST_TLS_MAX_REQUESTS = 200;
@@ -318,9 +326,9 @@ function dastTlsReframe(string $head, int $length, bool $keepAlive, bool $omitBo
 }
 
 /**
- * One line per request on stderr (scripts/dast.sh sends it to tls-proxy.log
- * and prints its tail when the browser suite fails), so a scenario that
- * waited for ever says which request did. The query string is dropped: it
+ * One line per slow or failed request on stderr (scripts/dast.sh sends it to
+ * tls-proxy.log and prints it whole when the browser suite fails), so a
+ * scenario that waited says which request did. The query string is dropped: it
  * carries tokens (a magic link, a tracking page).
  */
 function dastTlsLog(string $line): void
@@ -387,7 +395,10 @@ function dastTlsHandleConnection($client, string $backend): void
             $status = (int) $matches[1];
         }
         $omitBody = $method === 'HEAD' || $status === 204 || $status === 304;
-        dastTlsLog(sprintf('%s %s -> %d in %d ms', $method, $path, $status, intdiv(hrtime(true) - $startedAt, 1_000_000)));
+        $elapsedMs = intdiv(hrtime(true) - $startedAt, 1_000_000);
+        if ($elapsedMs >= DAST_TLS_SLOW_MS || $status >= 500) {
+            dastTlsLog(sprintf('%s %s -> %d in %d ms', $method, $path, $status, $elapsedMs));
+        }
 
         $clientConnection = (string) (dastTlsHeader($head, 'Connection') ?? '');
         $keepAlive = stripos($clientConnection, 'close') === false
