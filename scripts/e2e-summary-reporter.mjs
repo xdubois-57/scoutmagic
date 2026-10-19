@@ -73,6 +73,12 @@ export default class SummaryReporter {
         this.append = options.append ?? ((path, s) => appendFileSync(path, s));
         /** @type {Map<object, { status: string, errors?: Array<{ message?: string, value?: string }> }>} */
         this.lastResults = new Map();
+        /** @type {string[]} errors outside any test: an import error, a stray .only, global setup */
+        this.runErrors = [];
+    }
+
+    onError(error) {
+        this.runErrors.push(firstErrorLine({ errors: [error] }));
     }
 
     onTestEnd(test, result) {
@@ -102,18 +108,35 @@ export default class SummaryReporter {
         return failures;
     }
 
-    onEnd() {
-        const failures = this.env.GITHUB_ACTIONS === 'true' ? this.failures() : [];
-        if (failures.length === 0) {
+    /** @param {{ status?: string }} [result] */
+    onEnd(result = {}) {
+        if (this.env.GITHUB_ACTIONS !== 'true') {
+            return;
+        }
+        const failures = this.failures();
+        // A run can be red with no failed test at all: a spec that throws
+        // at import, a `.only` refused by forbidOnly, a global-setup error.
+        // Without this line such a run said « exit code 1 » and nothing else.
+        const runFailed = result.status !== undefined && result.status !== 'passed';
+        const runLevel = failures.length === 0 && (runFailed || this.runErrors.length > 0)
+            ? (this.runErrors.length > 0 ? this.runErrors : [`the run ended « ${result.status} » with no failed test`])
+            : [];
+        if (failures.length === 0 && runLevel.length === 0) {
             return;
         }
         for (const f of failures) {
             this.write(`::error file=${escapeCommand(f.file, true)},line=${f.line},title=${escapeCommand('E2E scenario failed', true)}::${escapeCommand(`${f.title} — ${f.error}`)}\n`);
         }
+        for (const message of runLevel) {
+            this.write(`::error title=${escapeCommand('E2E run failed', true)}::${escapeCommand(message)}\n`);
+        }
         const summaryPath = this.env.GITHUB_STEP_SUMMARY;
         if (summaryPath) {
             const job = this.env.GITHUB_JOB ? ` (${this.env.GITHUB_JOB})` : '';
-            const lines = failures.map((f) => `- \`${f.file}:${f.line}\` — ${markdownCell(f.title)}\n  - ${markdownCell(f.error)}`);
+            const lines = [
+                ...failures.map((f) => `- \`${f.file}:${f.line}\` — ${markdownCell(f.title)}\n  - ${markdownCell(f.error)}`),
+                ...runLevel.map((m) => `- Run: ${markdownCell(m)}`),
+            ];
             this.append(summaryPath, `### Failed E2E scenarios${job}\n\n${lines.join('\n')}\n\n`);
         }
     }

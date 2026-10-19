@@ -13,7 +13,7 @@ function fakeTest(file, line, titles, outcome = undefined) {
     return test;
 }
 
-function run(env, results) {
+function run(env, results, { errors = [], status } = {}) {
     const out = [];
     const appended = [];
     const reporter = new SummaryReporter({
@@ -25,7 +25,10 @@ function run(env, results) {
     for (const [test, result] of results) {
         reporter.onTestEnd(test, result);
     }
-    reporter.onEnd();
+    for (const error of errors) {
+        reporter.onError(error);
+    }
+    reporter.onEnd(status === undefined ? undefined : { status });
     return { out, appended };
 }
 
@@ -53,6 +56,27 @@ describe('SummaryReporter', () => {
         const odd = fakeTest('/repo/tests/e2e/specs/y.spec.js', 9, ['', 'chromium', 'y.spec.js', 'a `code` and *stars*']);
         const { appended } = run({ GITHUB_ACTIONS: 'true', GITHUB_STEP_SUMMARY: '/tmp/summary' }, [[odd, failed]]);
         expect(appended[0][1]).toContain('a \\`code\\` and \\*stars\\*');
+    });
+
+        it('reports a run that failed with no failed test (import error, stray .only)', () => {
+        const { out, appended } = run(
+            { GITHUB_ACTIONS: 'true', GITHUB_STEP_SUMMARY: '/tmp/summary' },
+            [],
+            { errors: [{ message: 'Error: focused item found in the --forbid-only mode' }], status: 'failed' },
+        );
+        expect(out).toHaveLength(1);
+        expect(out[0]).toContain('::error title=E2E run failed::Error: focused item found');
+        expect(appended[0][1]).toContain('- Run: Error: focused item found');
+    });
+
+    it('still says something when a run failed with neither a test nor an error', () => {
+        const { out } = run({ GITHUB_ACTIONS: 'true' }, [], { status: 'timedout' });
+        expect(out[0]).toContain('the run ended « timedout » with no failed test');
+    });
+
+    it('stays silent on a passed run', () => {
+        const { out } = run({ GITHUB_ACTIONS: 'true' }, [[green, { status: 'passed', errors: [] }]], { status: 'passed' });
+        expect(out).toEqual([]);
     });
 
         it('counts a timeout as a failure', () => {
