@@ -77,13 +77,27 @@ final class BookingAttention
         RentalBooking $booking,
         ?BookingMilestone $next = null,
         ?\Modules\Rental\Reminder\RenterDeadline $renterDeadline = null,
-        ?\DateTimeImmutable $today = null
+        ?\DateTimeImmutable $today = null,
+        ?ModificationProgress $modification = null
     ): ?self {
         $reasons = [];
         $stepLines = [];
 
         if ($booking->status->needsAttention()) {
             $reasons[] = AttentionReason::STATUS;
+        }
+
+        // A modification in progress comes first on the booking's page
+        // (#927, chantier §2.3), and so here: a project to send, or a copy
+        // of its replacement contract to countersign, is the unit's step.
+        if ($modification !== null && !$booking->status->isFinal() && $reasons === []
+            && $modification->stage->waitsOnTheUnit()
+        ) {
+            $stepLines[AttentionReason::UNIT_STEP->value] = 'À faire : '
+                . mb_strtolower(mb_substr($modification->stage->nextStep(), 0, 1))
+                . mb_substr($modification->stage->nextStep(), 1);
+
+            return new self($booking, [AttentionReason::UNIT_STEP], $stepLines);
         }
 
         // The step the booking's page puts forward (#708, IT-12). Never on
@@ -141,8 +155,10 @@ final class BookingAttention
 
     /**
      * @param RentalBooking[] $bookings
-     * @param array<int, array{next: ?BookingMilestone, deadline: ?RenterDeadline}> $stepsByBooking
-     *   keyed by booking id — the step each booking's page puts forward
+     * @param array<int, array{next: ?BookingMilestone, deadline: ?RenterDeadline,
+     *   modification?: ?ModificationProgress}> $stepsByBooking
+     *   keyed by booking id — the step each booking's page puts forward,
+     *   and its modification in progress
      * @return list<self>
      */
     public static function from(
@@ -156,7 +172,8 @@ final class BookingAttention
                 $booking,
                 $stepsByBooking[$booking->id]['next'] ?? null,
                 $stepsByBooking[$booking->id]['deadline'] ?? null,
-                $today
+                $today,
+                $stepsByBooking[$booking->id]['modification'] ?? null
             );
             if ($one !== null) {
                 $attention[] = $one;
@@ -173,7 +190,8 @@ final class BookingAttention
      * and the list cannot be computed from two different sets.
      *
      * @param RentalBooking[] $bookings
-     * @param array<int, array{next: ?BookingMilestone, deadline: ?RenterDeadline}> $stepsByBooking
+     * @param array<int, array{next: ?BookingMilestone, deadline: ?RenterDeadline,
+     *   modification?: ?ModificationProgress}> $stepsByBooking
      */
     public static function countIn(
         array $bookings,

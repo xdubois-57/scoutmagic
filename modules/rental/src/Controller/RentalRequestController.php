@@ -537,6 +537,12 @@ class RentalRequestController extends AbstractController
             'contract' => $this->signedContractService !== null ? [
                 'sent' => $this->signedContractService->sentContract($booking->id),
                 'accepts_copy' => $this->signedContractService->acceptsCopy($booking),
+                // A replacement contract whose e-mail failed: no copy is
+                // taken until it reaches the renter, and the page says why.
+                'replacement_not_received' => $this->signedContractService->whyNoCopy($booking)
+                    === \Modules\Rental\Service\RentalSignedContractService::REPLACEMENT_NOT_RECEIVED
+                    ? \Modules\Rental\Service\RentalSignedContractService::REPLACEMENT_NOT_RECEIVED
+                    : null,
                 'pending' => $this->signedContractService->pendingCopy($booking->id),
                 'refused' => $this->signedContractService->lastRefusedCopy($booking->id),
                 'final' => $this->signedContractService->finalContract($booking->id),

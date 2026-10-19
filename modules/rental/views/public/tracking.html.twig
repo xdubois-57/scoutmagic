@@ -75,6 +75,20 @@
         #}
         {% set replacement = contract ? contract.replacement|default(null) : null %}
         {% if contract and (contract.sent or contract.final or replacement) %}
+            {# While a replacement is on its way, the contract in force stays
+               the renter's to download until the replacement is
+               countersigned (#927). #}
+            {% set final_in_force %}
+                {% if contract.final %}
+                    <p class="mt-3 mb-2" data-final-contract-in-force>
+                        Votre contrat actuel, signé par les deux parties, reste valable jusqu'à la signature du
+                        nouveau par les deux parties.
+                    </p>
+                    <a class="btn btn-outline-secondary" href="/locations/suivi/{{ booking.id }}/{{ tracking_token }}/contrat-signe.pdf">
+                        <i class="bi bi-download me-1" aria-hidden="true"></i>Télécharger le contrat signé
+                    </a>
+                {% endif %}
+            {% endset %}
             <div class="card mb-4" id="contrat">
                 <div class="card-body">
                     <h2 class="h5 mb-3">Votre contrat</h2>
@@ -100,6 +114,10 @@
                             {% endif %}
                             {% include '@rental/public/_signed_copy_form.html.twig' %}
                         {% endif %}
+                        {{ final_in_force }}
+                    {% elseif contract.replacement_not_received|default(false) %}
+                        <p class="mb-0" data-replacement-not-received>{{ contract.replacement_not_received }}</p>
+                        {{ final_in_force }}
                     {% elseif contract.final %}
                         <p class="mb-2">
                             Votre contrat est signé par les deux parties. Vous l'avez reçu par e-mail ; vous pouvez

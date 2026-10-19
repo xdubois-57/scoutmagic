@@ -119,6 +119,27 @@ class RentalModificationService
         return $active === null ? null : $this->progressOf($active);
     }
 
+    /**
+     * The projects in progress of several bookings with their paperwork,
+     * keyed by booking id — one query for the projects, then one per
+     * project found, for « À traiter » (§8.54ter).
+     *
+     * @param int[] $bookingIds
+     * @return array<int, ModificationProgress>
+     */
+    public function progressForBookings(array $bookingIds): array
+    {
+        $progress = [];
+        foreach ($this->modifications->findActiveForBookings($bookingIds) as $bookingId => $modification) {
+            $one = $this->progressOf($modification);
+            if ($one !== null) {
+                $progress[$bookingId] = $one;
+            }
+        }
+
+        return $progress;
+    }
+
     public function progressOf(BookingModification $modification): ?ModificationProgress
     {
         return ModificationProgress::of(
@@ -214,14 +235,17 @@ class RentalModificationService
             $discount = $discount === 0 ? null : $discount;
         }
 
-        $tariff = $this->pricing->quoteForAsset($asset->id, new PricingRequest(
-            arrivalDate: $arrival->format('Y-m-d'),
-            departureDate: $departure->format('Y-m-d'),
-            persons: $persons ?? 0,
-            units: $units,
-            rooms: 1,
-            renterCategoryId: $booking->renterCategoryId
-        ));
+        $tariff = $this->pricing->quoteForAsset(
+            $asset->id,
+            new PricingRequest(
+                arrivalDate: $arrival->format('Y-m-d'),
+                departureDate: $departure->format('Y-m-d'),
+                persons: $persons ?? 0,
+                units: $units,
+                rooms: 1,
+                renterCategoryId: $booking->renterCategoryId
+            )
+        );
         $price = $this->quoteEditor->withDiscount($tariff, $label, $discount);
         if ($price->totalCents < 0) {
             throw new RentalException('La remise dépasse le prix de la location.');

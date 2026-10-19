@@ -212,6 +212,79 @@ final class RentalModificationRepositoryTest extends TestCase
         );
     }
 
+    /**
+     * On a stock asset, more units on the SAME dates hold only the extra
+     * ones: the booking still counts its own until the countersignature,
+     * and the two added up must not take what nobody asked for. Eleven
+     * tents, a booking of five raised to six: five are still free.
+     */
+    public function testMoreUnitsOnTheSameDatesHoldOnlyTheIncrease(): void
+    {
+        $this->pdo->exec('UPDATE rental_assets SET quantity = 11 WHERE id = ' . $this->assetId);
+        $booking = $this->booking();
+        $this->pdo->exec("UPDATE rental_bookings SET status = 'confirmed', units = 5 WHERE id = " . $booking->id);
+        $booking = $this->bookings->findById($booking->id) ?? self::fail('no booking');
+        $this->repository->createDraft($booking, new ModificationTerms(
+            '2027-07-01',
+            '2027-07-04',
+            6,
+            20,
+            new PriceQuote([], 48000, 3, 20, 6, BillingUnit::PER_NIGHT)
+        ), null, $this->now);
+
+        $occupancies = $this->repository->findOccupancies(
+            $this->assetId,
+            new \DateTimeImmutable('2027-07-01'),
+            new \DateTimeImmutable('2027-07-31'),
+            $this->now
+        );
+        $this->assertCount(1, $occupancies);
+        $this->assertSame(1, $occupancies[0]->units);
+
+        $journal = new \Core\Journal\JournalService(new \Core\Journal\JournalRepository($this->pdo));
+        $availability = new \Modules\Rental\Service\RentalAvailabilityService(
+            new \Modules\Rental\Availability\AvailabilityCalculator(),
+            new \Modules\Rental\Repository\RentalConstraintsRepository($this->pdo),
+            [new \Modules\Rental\Service\RentalBookingService($this->bookings, $journal), $this->repository]
+        );
+        $asset = (new \Modules\Rental\Repository\RentalAssetRepository(
+            $this->pdo,
+            new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
+        ))->findById($this->assetId) ?? self::fail('no asset');
+        $free = fn(int $units): bool => $availability->isRangeFree(
+            $asset,
+            BillingUnit::PER_NIGHT,
+            new \DateTimeImmutable('2027-07-01'),
+            new \DateTimeImmutable('2027-07-04'),
+            $units,
+            $this->now
+        );
+        $this->assertTrue($free(5));
+        $this->assertFalse($free(6));
+    }
+
+    /** Fewer units on the same dates hold nothing more. */
+    public function testFewerUnitsOnTheSameDatesHoldNothing(): void
+    {
+        $booking = $this->booking();
+        $this->pdo->exec('UPDATE rental_bookings SET units = 5 WHERE id = ' . $booking->id);
+        $booking = $this->bookings->findById($booking->id) ?? self::fail('no booking');
+        $this->repository->createDraft($booking, new ModificationTerms(
+            '2027-07-01',
+            '2027-07-04',
+            4,
+            20,
+            new PriceQuote([], 48000, 3, 20, 4, BillingUnit::PER_NIGHT)
+        ), null, $this->now);
+
+        $this->assertSame([], $this->repository->findOccupancies(
+            $this->assetId,
+            new \DateTimeImmutable('2027-07-01'),
+            new \DateTimeImmutable('2027-07-31'),
+            $this->now
+        ));
+    }
+
     public function testTheProjectsOfSeveralBookingsComeInOneQuery(): void
     {
         $one = $this->booking('LOC-AAAAAA');

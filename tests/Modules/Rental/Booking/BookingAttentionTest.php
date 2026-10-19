@@ -316,4 +316,68 @@ class BookingAttentionTest extends TestCase
             BookingAttention::of($booking, $next, $deadline, new \DateTimeImmutable('2027-07-03'))?->reasons
         );
     }
+
+    // ── A modification in progress (#927, lot D) ────────────────────────
+
+    private static function project(
+        \Modules\Rental\Booking\ModificationStatus $status
+    ): \Modules\Rental\Booking\BookingModification
+    {
+        return new \Modules\Rental\Booking\BookingModification(
+            3,
+            1,
+            $status,
+            '2027-07-24',
+            '2027-07-27',
+            1,
+            30,
+            null,
+            48000,
+            null,
+            null,
+            '2027-07-17',
+            '2027-07-20',
+            1,
+            30,
+            36000,
+            $status === \Modules\Rental\Booking\ModificationStatus::SENT ? 12 : null,
+            null,
+            new \DateTimeImmutable('2027-03-03 09:00:00')
+        );
+    }
+
+    /**
+     * A project never sent waits on the unit: the booking is on the list
+     * with the project's own next step, though its status asks nothing.
+     */
+    public function testAProjectInPreparationPutsTheBookingOnTheList(): void
+    {
+        $progress = \Modules\Rental\Booking\ModificationProgress::of(
+            self::project(\Modules\Rental\Booking\ModificationStatus::DRAFT),
+            []
+        );
+        $this->assertNotNull($progress);
+
+        $attention = BookingAttention::of($this->booking(BookingStatus::CONFIRMED), null, null, null, $progress);
+
+        $this->assertNotNull($attention);
+        $this->assertSame([AttentionReason::UNIT_STEP], $attention->reasons);
+        $this->assertSame(
+            ['À faire : générer puis envoyer le contrat de remplacement'],
+            $attention->lines()
+        );
+    }
+
+    /** Sent and waiting for the renter's copy: nothing for the unit to do. */
+    public function testAProjectWaitingOnTheRenterLeavesTheBookingOff(): void
+    {
+        $progress = \Modules\Rental\Booking\ModificationProgress::of(
+            self::project(\Modules\Rental\Booking\ModificationStatus::SENT),
+            []
+        );
+        $this->assertNotNull($progress);
+        $this->assertFalse($progress->stage->waitsOnTheUnit());
+
+        $this->assertNull(BookingAttention::of($this->booking(BookingStatus::CONFIRMED), null, null, null, $progress));
+    }
 }

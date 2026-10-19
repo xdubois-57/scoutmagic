@@ -76,10 +76,21 @@ final class BookingModification
     }
 
     /**
-     * Its new dates as an occupancy of the asset, carrying the booking's
-     * reference so the booking — and this project — are left out of their
-     * own conflicts and of nobody else's — or null when it holds nothing:
-     * not active, or nothing moved (chantier §2.3).
+     * What it holds of the asset beyond the booking itself, as an
+     * occupancy carrying the booking's reference — so the booking and this
+     * project are left out of their own conflicts and of nobody else's —
+     * or null when it holds nothing: not active, or nothing moved
+     * (chantier §2.3).
+     *
+     * The booking keeps yielding its own occupancy until the
+     * countersignature, and other renters see the two added up. So on the
+     * SAME dates only the increase is yielded — five tents raised to six
+     * holds one more, never six more. On other dates the project yields
+     * its whole stock: where the new range overlaps the old one, the
+     * booking's units are then counted twice. That is deliberate and
+     * conservative — the project may still be cancelled, and the old
+     * dates stay the booking's until it is not — and it never lets two
+     * renters be promised the same unit.
      */
     public function toOccupancy(string $bookingReference): ?Occupancy
     {
@@ -87,10 +98,17 @@ final class BookingModification
             return null;
         }
 
+        $sameDates = $this->arrivalDate === $this->previousArrivalDate
+            && $this->departureDate === $this->previousDepartureDate;
+        $units = $sameDates ? $this->units - $this->previousUnits : $this->units;
+        if ($units <= 0) {
+            return null;
+        }
+
         return new Occupancy(
             arrivalDate: $this->arrivalDate,
             departureDate: $this->departureDate,
-            units: max(1, $this->units),
+            units: $units,
             reference: $bookingReference
         );
     }

@@ -30,11 +30,8 @@ générez-en un qui correspond à la réservation avant de l'envoyer.
 
 ## Après le premier envoi : le contrat de remplacement
 
-Dès qu'un contrat est parti, la réservation ne change plus sans l'accord
-écrit du locataire. « Créer une modification » prépare un **projet** :
-les nouvelles valeurs, et le prix qui en découle. Tant que vous ne l'avez
-pas contresigné, la réservation garde exactement ses dates, ses
-participants et son prix.
+« Créer une modification » prépare un **projet** : les nouvelles
+valeurs, et le prix qui en découle.
 
 Le projet bloque aussi ses nouvelles dates, en plus des anciennes ; si
 elles sont déjà occupées par une autre réservation, l'enregistrement est
@@ -50,13 +47,11 @@ Le projet suit quatre étapes, visibles en haut de sa page :
 3. « Recevoir la copie signée » — il dépose sa copie, ou vous la déposez
    vous-même dans « Documents » si elle arrive autrement ;
 4. « Contresigner : la modification s'applique » — après « Vérifier et
-   contresigner », à ce moment seulement, la réservation
-   prend les nouvelles valeurs, l'ancien contrat et ses copies sont
+   contresigner », la réservation prend les nouvelles valeurs, l'ancien contrat et ses copies sont
    marqués « Remplacé le », et la créance passe au nouveau montant.
 
-Une copie refusée laisse le projet en cours : le locataire dépose une
-nouvelle copie du même contrat. Il n'y a qu'un projet à la fois par
-réservation.
+Une copie refusée laisse le projet en cours. Il n'y a qu'un projet à
+la fois par réservation.
 
 ## Le prix
 
@@ -75,6 +70,10 @@ ses documents restent visibles, marqués « Modification annulée le ».
 Un projet se ferme aussi tout seul quand la réservation est annulée,
 refusée ou expire.
 
-> L'historique, en bas de la page « Modifications », garde chaque
-> changement avec son statut et son auteur ; « Consulter » ouvre le
-> détail, même pour un projet annulé.
+L'historique, en bas de la page « Modifications », garde chaque
+changement avec son statut et son auteur ; « Consulter » ouvre le
+détail, même pour un projet annulé.
+
+> Dès qu'un contrat est parti, la réservation ne change plus que par la
+> contresignature d'un contrat de remplacement. Et annuler un projet dont
+> le contrat a été envoyé prévient le locataire par e-mail.

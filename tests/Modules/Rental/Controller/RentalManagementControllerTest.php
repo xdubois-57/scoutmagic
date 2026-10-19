@@ -6657,6 +6657,154 @@ class RentalManagementControllerTest extends TestCase
         $this->assertStringContainsString('Modification annulée le', $documents);
     }
 
+    /**
+     * « À traiter » reads the project too (§8.54ter): one never sent waits
+     * on the unit, and so does a copy of its replacement contract to
+     * countersign; one waiting for the renter's copy does not.
+     */
+    public function testAProjectWaitingOnTheUnitPutsTheBookingOnTheList(): void
+    {
+        [$booking, , $project] = $this->bookingWithAProject();
+
+        $overview = (string) $this->overview('local-saint-georges')->getBody();
+        $this->assertStringContainsString('À faire : générer puis envoyer le contrat de remplacement', $overview);
+
+        $this->sendProject($booking, $project->id);
+        $this->assertStringNotContainsString(
+            'contrat de remplacement',
+            (string) $this->overview('local-saint-georges')->getBody()
+        );
+
+        $this->signedContractService->receiveCopy(
+            $this->bookingRepository->findById($booking->id) ?? $booking,
+            $this->asset(),
+            $this->signedCopyFile()
+        );
+        $this->assertStringContainsString(
+            'À faire : vérifier la copie, puis contresigner',
+            (string) $this->overview('local-saint-georges')->getBody()
+        );
+    }
+
+    /**
+     * A replacement contract whose e-mail failed is generated and frozen,
+     * but never reached the renter. No copy may land on the contract it
+     * replaces — that would hold the booking's dates firmly, and a refusal
+     * of it would lengthen the booking's hold. The renter is told to wait
+     * for it; a copy the unit files answers the replacement.
+     */
+    public function testACopyNeverAnswersTheContractAReplacementIsReplacing(): void
+    {
+        [$booking, $contract, $project] = $this->bookingWithAProject();
+        $this->sendProject($booking, $project->id);
+        $replacementId = (int) $this->modificationRepository->findById($project->id)?->contractDocumentId;
+        // As if the e-mail had failed: frozen, never received.
+        $this->pdo->prepare('UPDATE rental_documents SET sent_at = NULL WHERE id = ?')->execute([$replacementId]);
+        $fresh = $this->bookingRepository->findById($booking->id) ?? $booking;
+
+        try {
+            $this->signedContractService->receiveCopy($fresh, $this->asset(), $this->signedCopyFile());
+            $this->fail('the renter filed a copy of a contract they never received');
+        } catch (\Modules\Rental\Service\RentalException $e) {
+            $this->assertSame(
+                \Modules\Rental\Service\RentalSignedContractService::REPLACEMENT_NOT_RECEIVED,
+                $e->getMessage()
+            );
+        }
+
+        $copyId = $this->signedContractService->fileCopyFromManager(
+            $fresh,
+            $this->asset(),
+            $this->signedCopyFile(),
+            null,
+            false,
+            null
+        );
+        $copy = $this->documentService->find($copyId);
+        $this->assertSame($project->id, $copy?->modificationId);
+        $this->assertSame($replacementId, $copy->contractDocumentId);
+        $this->assertNotSame($contract->id, $copy->contractDocumentId);
+        // The booking's own line is untouched: no firm hold from it.
+        $this->assertNull($this->bookingRepository->findById($booking->id)?->signedCopyReceivedAt);
+    }
+
+    /** @return array<string, array{string, string}> */
+    public static function modificationRoutes(): array
+    {
+        return [
+            'the page' => ['GET', '/mes-locations/{slug}/reservations/{id}/modifications/{modificationId}'],
+            'nouvelle' => ['GET', '/mes-locations/{slug}/reservations/{id}/modifications/nouvelle'],
+            'save' => ['POST', '/mes-locations/modification'],
+            'send' => ['POST', '/mes-locations/modification-envoyer'],
+            'cancel' => ['POST', '/mes-locations/modification-annuler'],
+        ];
+    }
+
+    /**
+     * An anonymous visitor is refused every modification route, with the
+     * floor module.json declares — not the `identified` the helpers above
+     * register for themselves — so a route declared `public` by mistake
+     * fails here. Nothing is written for them.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('modificationRoutes')]
+    public function testAnAnonymousVisitorIsRefusedEveryModificationRoute(string $method, string $path): void
+    {
+        [$booking, , $project] = $this->bookingWithAProject();
+        AuthSession::logout();
+        $_SESSION = [];
+
+        $manifest = json_decode(
+            (string) file_get_contents(dirname(__DIR__, 4) . '/modules/rental/module.json'),
+            true
+        );
+        $declared = null;
+        foreach ($manifest['routes'] as $route) {
+            if ($route['path'] === $path && $route['method'] === $method) {
+                $declared = $route;
+            }
+        }
+        $this->assertNotNull($declared, "module.json declares no {$method} {$path}");
+        $this->assertNotSame('public', $declared['role_min']);
+
+        $router = new Router();
+        $router->addRoute(
+            $method,
+            $path,
+            RentalManagementController::class,
+            (string) $declared['action'],
+            (string) $declared['role_min']
+        );
+        $requestPath = str_replace(
+            ['{slug}', '{id}', '{modificationId}'],
+            ['local-saint-georges', (string) $booking->id, (string) $project->id],
+            $path
+        );
+        $body = [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'modification_id' => (string) $project->id,
+            'arrival' => '2027-07-20',
+            'departure' => '2027-07-22',
+            '_csrf_token' => CsrfGuard::generateToken(),
+        ];
+        $_POST = $method === 'POST' ? $body : [];
+        $response = $this->dispatch(
+            $router,
+            new Request($method, $requestPath, [], $method === 'POST' ? $body : [], [], [])
+        );
+
+        $this->assertContains($response->getStatusCode(), [302, 401, 403]);
+        $this->assertStringNotContainsString(
+            '/mes-locations/local-saint-georges/reservations',
+            (string) ($response->getHeaders()['Location'] ?? '')
+        );
+        $this->assertSame(
+            \Modules\Rental\Booking\ModificationStatus::DRAFT,
+            $this->modificationRepository->findById($project->id)?->status
+        );
+        $this->assertSame('2027-07-10', $this->modificationRepository->findById($project->id)?->arrivalDate);
+    }
+
     public function testTheModificationPagesAreAManagersOnly(): void
     {
         [$booking, , $project] = $this->bookingWithAProject();

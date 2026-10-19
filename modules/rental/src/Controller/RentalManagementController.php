@@ -1039,7 +1039,8 @@ class RentalManagementController extends AbstractController
      * @param RentalAsset[] $assets the assets they belong to
      * @return array<int, array{
      *     next: ?\Modules\Rental\Booking\BookingMilestone,
-     *     deadline: ?\Modules\Rental\Reminder\RenterDeadline
+     *     deadline: ?\Modules\Rental\Reminder\RenterDeadline,
+     *     modification: ?\Modules\Rental\Booking\ModificationProgress
      * }>
      */
     private function nextSteps(array $bookings, array $assets, \DateTimeImmutable $now): array
@@ -1051,6 +1052,11 @@ class RentalManagementController extends AbstractController
 
         $schedules = [];
         $steps = [];
+        // The projects in progress, in one query (#927): one that waits on
+        // the unit puts its booking on « À traiter » (§8.54ter).
+        $modifications = $this->modificationService?->progressForBookings(
+            array_map(static fn(RentalBooking $b): int => $b->id, $bookings)
+        ) ?? [];
         foreach ($bookings as $booking) {
             $asset = $assetsById[$booking->assetId] ?? null;
             if ($asset === null || $booking->status->isFinal()) {
@@ -1083,7 +1089,11 @@ class RentalManagementController extends AbstractController
                 );
             }
 
-            $steps[$booking->id] = ['next' => $next, 'deadline' => $deadline];
+            $steps[$booking->id] = [
+                'next' => $next,
+                'deadline' => $deadline,
+                'modification' => $modifications[$booking->id] ?? null,
+            ];
         }
 
         return $steps;

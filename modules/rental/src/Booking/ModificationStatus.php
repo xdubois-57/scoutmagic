@@ -39,6 +39,21 @@ enum ModificationStatus: string
     }
 
     /**
+     * Its tone, as a key `partials/status_badge.html.twig` knows: a project
+     * in preparation is a draft, one sent waits on the renter, an applied
+     * one is done, a cancelled one is set aside.
+     */
+    public function badgeStatus(): string
+    {
+        return match ($this) {
+            self::DRAFT => 'draft',
+            self::SENT => 'pending',
+            self::APPLIED, self::APPLIED_DIRECTLY => 'done',
+            self::CANCELLED => 'cancelled',
+        };
+    }
+
+    /**
      * Whether this is the booking's project in progress — the one row the
      * database lets a booking hold at a time.
      */

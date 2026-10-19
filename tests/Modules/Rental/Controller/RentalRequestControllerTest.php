@@ -1845,6 +1845,74 @@ class RentalRequestControllerTest extends TestCase
         );
     }
 
+    /**
+     * A booking whose contract was signed by both parties, then modified:
+     * while the replacement is out, the contract in force stays the
+     * renter's to download — it is the one that binds until the new one is
+     * countersigned. And a replacement whose e-mail failed asks for no copy
+     * at all: the page says it has not reached them yet.
+     */
+    public function testWhileAReplacementIsOutTheSignedContractStaysDownloadable(): void
+    {
+        $this->createAsset();
+        [$bookingId, $token] = $this->submitAndTrack();
+        $this->sendTheContract($bookingId);
+        $fileId = (new \Core\File\FileRepository($this->pdo))
+            ->create(
+                'rental/documents/signe.pdf',
+                'contrat-signe.pdf',
+                'application/pdf',
+                10,
+                'identified',
+                'rental',
+                null
+            );
+        (new \Modules\Rental\Repository\RentalDocumentRepository($this->pdo))->create(
+            $bookingId,
+            $fileId,
+            \Modules\Rental\Document\DocumentType::SIGNED_CONTRACT,
+            1,
+            true,
+            null,
+            null
+        );
+        $booking = $this->bookingRepository->findById($bookingId);
+        $this->assertNotNull($booking);
+        $asset = $this->trackedAsset();
+        $terms = $this->modificationService->termsFor(
+            $booking,
+            $asset,
+            $booking->arrivalDate,
+            $booking->departureDate,
+            ($booking->estimatedPersons ?? 10) + 2,
+            null,
+            null,
+            null
+        );
+        $project = $this->modificationService
+            ->saveProject($booking, $asset, null, $terms, null, new \DateTimeImmutable());
+        $this->assertTrue($this->modificationService->sendReplacementContract(
+            $booking,
+            $asset,
+            $project->id,
+            null,
+            new \DateTimeImmutable()
+        ));
+
+        $body = (string) $this->track($bookingId, $token)->getBody();
+        $this->assertStringContainsString('data-replacement-sent', $body);
+        $this->assertStringContainsString('data-final-contract-in-force', $body);
+        $this->assertStringContainsString('/' . $token . '/contrat-signe.pdf', $body);
+
+        // The e-mail failed: frozen, never received.
+        $this->pdo->prepare('UPDATE rental_documents SET sent_at = NULL WHERE modification_id = ?')
+            ->execute([$project->id]);
+        $body = (string) $this->track($bookingId, $token)->getBody();
+        $this->assertStringContainsString('data-replacement-not-received', $body);
+        $this->assertStringNotContainsString('Envoyer ma copie signée', $body);
+        $this->assertStringContainsString('data-final-contract-in-force', $body);
+    }
+
     /** Nothing lands on disk while no contract waits for a signature. */
     public function testACopyBeforeAnyContractIsRefusedAndNotStored(): void
     {

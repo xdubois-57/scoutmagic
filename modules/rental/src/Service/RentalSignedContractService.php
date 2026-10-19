@@ -163,15 +163,28 @@ class RentalSignedContractService
         return $this->modifications?->progress($bookingId);
     }
 
+    /** What a renter is told while a replacement contract has not reached them. */
+    public const REPLACEMENT_NOT_RECEIVED = 'Un nouveau contrat vous est destiné et ne vous est pas encore parvenu : '
+        . "il vous sera envoyé par e-mail. Déposez ici la copie signée de ce nouveau contrat dès sa réception.";
+
     /**
-     * The same, only once its replacement contract has reached the renter:
-     * until then the copy a renter sends answers the contract in force.
+     * The same, once its replacement contract is generated and the project
+     * frozen (`sent`) — **whether or not the e-mail left**. From then on
+     * every copy answers that contract and never the one in force: a copy
+     * filed against the old contract would hold the booking's dates
+     * firmly, and a refusal of it would lengthen the booking's hold, for a
+     * contract about to be replaced (CodeRabbit on #976). The renter, who
+     * may not have received it, is kept from filing anything until they
+     * have (`whyNoCopy()`).
      */
     private function replacementOut(int $bookingId): ?\Modules\Rental\Booking\ModificationProgress
     {
         $replacement = $this->replacement($bookingId);
 
-        return $replacement !== null && $replacement->contract?->sentAt !== null ? $replacement : null;
+        return $replacement !== null && $replacement->contract !== null
+            && $replacement->modification->status === \Modules\Rental\Booking\ModificationStatus::SENT
+            ? $replacement
+            : null;
     }
 
     /**
@@ -206,6 +219,12 @@ class RentalSignedContractService
         if ($replacement !== null && $replacement->contract !== null) {
             if ($booking->status->isAbandoned()) {
                 return "Aucun contrat n'attend votre signature pour le moment.";
+            }
+            // Its e-mail failed: the renter holds only the contract in
+            // force, and a copy of THAT one must not land on the
+            // replacement, nor on the contract being replaced.
+            if ($replacement->contract->sentAt === null) {
+                return self::REPLACEMENT_NOT_RECEIVED;
             }
 
             return $replacement->pendingCopy !== null
