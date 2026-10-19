@@ -88,7 +88,11 @@ final class DeskMembersStepCheck implements StepCheckProvider
         }
 
         return new StepCheck(
-            pointsToCheck: $this->points($gaps->leaversStillActive, $gaps->passagesElsewhere, $gaps->acceptedRequestsMissing),
+            pointsToCheck: $this->points(
+                $gaps->leaversStillActive,
+                $gaps->passagesElsewhere,
+                $gaps->acceptedRequestsMissing
+            ),
             details: ['gaps' => $rows, 'imported_at' => $context->latestTargetImport?->importedAt]
         );
     }
@@ -98,7 +102,12 @@ final class DeskMembersStepCheck implements StepCheckProvider
      */
     private function row(string $kind, string $label, ScoutYearMember $member): array
     {
-        return ['kind' => $kind, 'label' => $label, 'name' => $member->name, 'url' => CheckText::memberUrl($member->memberYearId)];
+        return [
+            'kind' => $kind,
+            'label' => $label,
+            'name' => $member->name,
+            'url' => CheckText::memberUrl($member->memberYearId),
+        ];
     }
 
     /**
@@ -111,10 +120,18 @@ final class DeskMembersStepCheck implements StepCheckProvider
     {
         $points = [];
         if ($leavers !== []) {
-            $points[] = CheckText::count(count($leavers), "partant présent dans l'import", "partants présents dans l'import");
+            $points[] = CheckText::count(
+                count($leavers),
+                "partant présent dans l'import",
+                "partants présents dans l'import"
+            );
         }
         if ($passages !== []) {
-            $points[] = CheckText::count(count($passages), 'passage dans une autre section', 'passages dans une autre section');
+            $points[] = CheckText::count(
+                count($passages),
+                'passage dans une autre section',
+                'passages dans une autre section'
+            );
         }
         if ($requests !== []) {
             $points[] = CheckText::count(
