@@ -8,12 +8,24 @@ declare(strict_types=1);
 
 namespace Core\ScoutYear;
 
+use Core\Config\AppClock;
+use Core\Config\ScoutYearService;
 use Core\Config\SettingService;
-use Core\Photo\SectionPhotoRepository;
+use Core\Import\ImportJournalRepository;
+use Core\Journal\JournalRepository;
+use Core\ScoutYear\Step\PublicYearSwitch;
+use Core\ScoutYear\Step\StepCheck;
+use Core\ScoutYear\Step\StepCheckProvider;
+use Core\ScoutYear\Step\StepContext;
+use Core\ScoutYear\Step\StepMark;
+use Core\ScoutYear\Step\StepMarkResult;
+use Core\ScoutYear\Step\StepNature;
+use Core\ScoutYear\Step\StepState;
+use Core\ScoutYear\Step\TransitionPhase;
+use Core\ScoutYear\Step\TransitionStep;
+use Core\ScoutYear\Step\TransitionWorkflow;
 use Core\Security\UserAccountRepository;
 use Core\Service\DateInput;
-use Modules\Calendar\Api\ScoutYearEventCountProvider;
-use Modules\Registration\Api\ScoutYearPreparationProvider;
 
 /**
  * The "Année scoute" workflow: everything a chef d'unité has to do to move
@@ -26,11 +38,11 @@ use Modules\Registration\Api\ScoutYearPreparationProvider;
  * ----------------------------------------------------------------------------
  * That test replays the whole workflow in a real browser: the three phases,
  * every step in order, which steps disappear when a module is off, which
- * ones tick themselves and which ones a human ticks, the fact that the
- * order is advisory rather than enforced, and the two blocks that are
- * real. **Adding, removing or reordering a step, changing what marks one
- * done, changing a step's key, or rewording a title the test matches on
- * means updating that test in the same change.** The rendered page
+ * ones the site observes and which ones a human marks, the fact that the
+ * order is advisory rather than enforced, and the blocks that are real.
+ * **Adding, removing or reordering a step, changing what marks one done,
+ * changing a step's key, or rewording a title the test matches on means
+ * updating that test in the same change.** The rendered page
  * (core/View/templates/admin/scout_year.html.twig) carries the same
  * reminder, as does the test itself.
  *
@@ -39,39 +51,47 @@ use Modules\Registration\Api\ScoutYearPreparationProvider;
  * § Tests de bout en bout.
  * ============================================================================
  *
- * Three things are worth knowing before changing anything here.
+ * This class is the ENGINE (specifications.md §16.3): it owns which steps
+ * exist (STEP_KEYS, minus those of a disabled module), their order, phase,
+ * nature and title, and it turns them into immutable TransitionStep values.
+ * Everything a step says that depends on data — points to check, actions,
+ * observed « done », blocks, refusal to mark — comes from that step's
+ * Core\ScoutYear\Step\StepCheckProvider, one per key, so a check can be
+ * filled without touching the engine.
  *
- * **The order is advice, not a gate.** Only two conditions actually stop
- * anything, and both are real: a public year cannot be activated without a
- * staff year first, and the registration module vetoes that activation
- * while requests are open (§19.2). Everything else stays clickable at all
- * times. A fourteen-step workflow that locked each step behind the
- * previous one would be unusable the first time a unit did something in a
- * different order — which is most years.
+ * Four things are worth knowing before changing anything here.
  *
- * **"Done" comes from two places, never three.** A step is done when the
- * site can *see* it is done (members imported, staff year set, every
- * section photographed for the year) or when someone said so
- * (ScoutYearTransitionStepRepository). Steps whose work happens inside
- * Desk, or whose completion is a judgement call, only ever have the second
- * — the site has no way to observe them and must not pretend otherwise.
- * A step with a signal keeps its manual tick as an override, so a chief is
- * never stuck behind a signal that will not fire for their unit.
+ * **The order is advice, not a gate.** Only three things are refused, all
+ * on the server: marking step 1 while the re-enrolment campaign is not
+ * finished (its check's markRefusal), activating the target for the staff
+ * without a successful import, and the switch for everyone without the
+ * staff year on the target, without a successful import, or against the
+ * registration veto (ScoutYearAdminService, the only write path). Every
+ * other control stays usable at all times.
+ *
+ * **"Done" has one source per step, never two.** A HUMAN step is done when
+ * someone marked it (ScoutYearTransitionStepRepository) — whatever its
+ * checks say, which only ever produce points to check. An OBSERVED step
+ * (import, activate_staff, activate_public) is done when the site sees it,
+ * and can never be marked: markStep() refuses its key.
+ *
+ * **A check without data is not a success.** Before the target year's
+ * import, a check that reads it says so (StepContext::
+ * waitingForImportMessage()) and produces neither a point nor a « ✓ ».
  *
  * **The date is a signpost.** The "encodage dans Desk" date
  * (SETTING_DESK_ENCODING_DATE, 15 August by default) labels the phases and
- * says which one the calendar is currently in. It disables nothing,
- * activates nothing and triggers nothing — specifications.md §16.4 removed
+ * says which one the calendar is currently in. It activates nothing and
+ * triggers nothing on this page — specifications.md §16.4 removed
  * date-driven transitions on purpose, because a computed date cannot be
- * told "not yet" by the registration veto. Reintroducing one here would
- * walk straight back into that.
+ * told "not yet" by the registration veto.
  */
 class ScoutYearTransitionService
 {
     /**
      * Day and month (MM-JJ) from which the workflow presents the Desk
-     * encoding phase as the current one. Indicative only — see the class
-     * comment.
+     * encoding phase as the current one. Indicative only on this page —
+     * see the class comment.
      */
     public const SETTING_DESK_ENCODING_DATE = 'scout_year_desk_encoding_date';
 
@@ -80,22 +100,27 @@ class ScoutYearTransitionService
     public const PHASE_SITE = 'site';
 
     /**
-     * Steps a human ticks off. Every other step is derived from a signal
-     * and has no checkbox at all: ticking "activer pour tout le monde" by
-     * hand would be a plain lie, since the site knows perfectly well
-     * whether it happened.
+     * Every step, in the advised order (specifications.md §16.3), with
+     * its phase and nature.
+     * The keys are the `step_key` values stored in
+     * scout_year_transition_steps and must never be renamed: a rename
+     * would silently forget every mark already made.
      */
-    private const MANUAL_STEPS = [
-        'departures',
-        'passage',
-        'confirm_registrations',
-        'desk_staff',
-        'desk_members',
-        'fees',
-        'ephemerides',
-        'badges',
-        'trombinoscope',
-        'staff_photos',
+    public const STEP_KEYS = [
+        'departures' => [self::PHASE_PREPARATION, StepNature::HUMAN],
+        'passage' => [self::PHASE_PREPARATION, StepNature::HUMAN],
+        'confirm_registrations' => [self::PHASE_PREPARATION, StepNature::HUMAN],
+        'desk_staff' => [self::PHASE_DESK, StepNature::HUMAN],
+        'desk_members' => [self::PHASE_DESK, StepNature::HUMAN],
+        'import' => [self::PHASE_DESK, StepNature::OBSERVED],
+        'fees' => [self::PHASE_DESK, StepNature::HUMAN],
+        'preview' => [self::PHASE_DESK, StepNature::HUMAN],
+        'activate_staff' => [self::PHASE_SITE, StepNature::OBSERVED],
+        'ephemerides' => [self::PHASE_SITE, StepNature::HUMAN],
+        'badges' => [self::PHASE_SITE, StepNature::HUMAN],
+        'trombinoscope' => [self::PHASE_SITE, StepNature::HUMAN],
+        'staff_photos' => [self::PHASE_SITE, StepNature::HUMAN],
+        'activate_public' => [self::PHASE_SITE, StepNature::OBSERVED],
     ];
 
     /**
@@ -109,161 +134,398 @@ class ScoutYearTransitionService
         'departures' => 'registration',
         'passage' => 'registration',
         'confirm_registrations' => 'registration',
+        'fees' => 'fees',
         'ephemerides' => 'calendar',
         'trombinoscope' => 'trombinoscope',
     ];
 
-    /** Memoised answer of the calendar module, asked twice per build. */
-    private ?int $eventCountCache = null;
+    /** The journal entry ScoutYearController writes on a successful switch for everyone. */
+    public const JOURNAL_PUBLIC_ACTIVATED = 'scout_year_public_activated';
+
+    /** @var array<string, StepCheckProvider> */
+    private array $checks = [];
 
     /**
+     * @param iterable<StepCheckProvider> $checkProviders one per key of STEP_KEYS; a step that is
+     *        on the page without its provider is a wiring error and throws
      * @param array<int, string> $enabledModuleIds ModuleManager::getEnabledModuleIds(),
      *        passed as plain data rather than as the manager itself — this
      *        service only ever asks "is X on", and a list of ids is what a
      *        test can hand it without booting the module system.
      */
     public function __construct(
-        private ScoutYearResolver $resolver,
         private ScoutYearTransitionStepRepository $stepRepository,
-        private SectionPhotoRepository $sectionPhotoRepository,
+        private ImportJournalRepository $importJournal,
+        private JournalRepository $journal,
+        private ScoutYearService $scoutYearService,
         private UserAccountRepository $userAccountRepository,
         private SettingService $settingService,
-        private array $enabledModuleIds = [],
-        private ?ScoutYearPreparationProvider $preparation = null,
-        private ?ScoutYearEventCountProvider $eventCount = null
+        iterable $checkProviders,
+        private array $enabledModuleIds = []
     ) {
+        foreach ($checkProviders as $provider) {
+            $key = $provider->stepKey();
+            if (!array_key_exists($key, self::STEP_KEYS)) {
+                throw new \LogicException("Step check provider for unknown step '{$key}'.");
+            }
+            if (isset($this->checks[$key])) {
+                throw new \LogicException("Two step check providers for step '{$key}'.");
+            }
+            $this->checks[$key] = $provider;
+        }
+    }
+
+    /**
+     * The context every check of one request reads — built from server
+     * state only. $targetYear is the year following the public one, as
+     * ScoutYearController computes it.
+     *
+     * @param array{id: int, label: string, start_date: string, end_date: string} $targetYear
+     * @param array{id: int, label: string, start_date: string, end_date: string} $publicYear
+     */
+    public function contextFor(
+        array $targetYear,
+        array $publicYear,
+        ?int $sessionPreviewId,
+        ?int $staffYearId,
+        \DateTimeImmutable $now
+    ): StepContext {
+        $imports = $this->importJournal->findRecordsByYear((int) $targetYear['id']);
+
+        return new StepContext($targetYear, $publicYear, $staffYearId, $sessionPreviewId, $now, $imports[0] ?? null);
     }
 
     /**
      * Build the whole workflow for one transition, recomputed on every
      * request and never cached.
-     *
-     * @param array{id: int, label: string, start_date: string, end_date: string} $targetYear
-     * @param array{id: int, label: string, start_date: string, end_date: string} $publicYear
-     * @return array{
-     *   phases: array<
-     *       int,
-     *       array{
-     *           key: string,
-     *           title: string,
-     *           subtitle: ?string,
-     *           note: ?string,
-     *           current: bool,
-     *           steps: array<int, array<string, mixed>>
-     *       }
-     *   >,
-     *   current_step: int,
-     *   step_count: int,
-     *   desk_encoding_date: string
-     * }
      */
-    public function buildWorkflow(
-        array $targetYear,
-        array $publicYear,
-        ?int $sessionPreviewId,
-        ?int $staffYearId,
-        int $publicYearId,
-        \DateTimeImmutable $now
-    ): array {
-        $target = (int) $targetYear['id'];
+    public function buildWorkflow(StepContext $context): TransitionWorkflow
+    {
+        $target = $context->targetId();
         $marks = $this->stepRepository->findByYear($target);
-        $deskDate = $this->deskEncodingDate($targetYear);
-        $deskPhaseReached = $now->format('Y-m-d') >= $deskDate;
+        $names = $this->userAccountRepository->findNamesByIds(array_values(array_filter(
+            array_map(static fn(array $mark): ?int => $mark['done_by'], $marks),
+            static fn(?int $id): bool => $id !== null
+        )));
 
-        $steps = $this->stepDefinitions(
-            $targetYear,
-            $publicYear,
-            $sessionPreviewId,
-            $staffYearId,
-            $publicYearId,
-            $target
+        $steps = [];
+        foreach ($this->presentKeys() as $index => $key) {
+            [$phase, $nature] = self::STEP_KEYS[$key];
+            $text = $this->text($key, $context);
+            $check = $this->provider($key)->check($context);
+            $markRow = $nature === StepNature::HUMAN ? ($marks[$key] ?? null) : null;
+
+            $steps[] = new TransitionStep(
+                key: $key,
+                number: $index + 1,
+                phase: $phase,
+                nature: $nature,
+                state: $this->state($nature, $check, $markRow !== null),
+                title: $text['title'],
+                description: $text['description'],
+                pointsToCheck: $check->pointsToCheck,
+                primaryAction: $check->primaryAction,
+                actions: $this->actions($check),
+                markRefusal: $nature === StepNature::HUMAN ? $check->markRefusal : null,
+                blockReason: $nature === StepNature::OBSERVED ? $check->blockReason : null,
+                pendingMessage: $check->pendingMessage,
+                mark: $markRow !== null ? $this->mark($markRow, $names) : null,
+                details: $check->details,
+                targetYearId: $target
+            );
+        }
+
+        $deskDate = $this->deskEncodingDate($context->targetYear);
+
+        return new TransitionWorkflow(
+            $this->phases($steps, $context, $deskDate),
+            $steps,
+            $deskDate,
+            $this->lastPublicSwitch()
         );
-
-        $steps = $this->decorate($steps, $marks, $target);
-
-        $phases = [
-            [
-                'key' => self::PHASE_PREPARATION,
-                'title' => 'Préparation',
-                'subtitle' => 'Idéalement avant le ' . $this->frenchDate($deskDate),
-                'note' => null,
-                'current' => !$deskPhaseReached,
-                'steps' => [],
-            ],
-            [
-                'key' => self::PHASE_DESK,
-                'title' => 'Encodage dans Desk',
-                'subtitle' => 'Plutôt à partir du ' . $this->frenchDate($deskDate),
-                'note' => null,
-                'current' => $deskPhaseReached,
-                'steps' => [],
-            ],
-            [
-                'key' => self::PHASE_SITE,
-                'title' => 'Mise à jour du site',
-                'subtitle' => null,
-                'note' => "Le site est à jour pour {$targetYear['label']} : c'est typiquement au tour des staffs "
-                    . "d'agir.",
-                'current' => false,
-                'steps' => [],
-            ],
-        ];
-
-        $byKey = [];
-        foreach ($phases as $index => $phase) {
-            $byKey[$phase['key']] = $index;
-        }
-        foreach ($steps as $step) {
-            $phases[$byKey[$step['phase']]]['steps'][] = $step;
-        }
-
-        // A phase whose every step belonged to a disabled module has
-        // nothing left to show; rendering its heading over an empty list
-        // would suggest the workflow lost a step rather than never had one.
-        $phases = array_values(array_filter($phases, static fn(array $p): bool => $p['steps'] !== []));
-
-        return [
-            'phases' => $phases,
-            'current_step' => $this->firstUndoneNumber($steps),
-            'step_count' => count($steps),
-            'desk_encoding_date' => $deskDate,
-        ];
     }
 
     /**
-     * Mark or unmark one manual step for a target year. Returns false when
-     * $stepKey is not a manual step — an auto-derived step's state is not
-     * a chief's to set, and a step of a disabled module is not theirs to
-     * set either.
+     * Mark or unmark one human step for the context's target year.
+     *
+     * NOT_MARKABLE for an observed step, an unknown key or a step of a
+     * disabled module — never a human's to set. REFUSED when the step's
+     * check refuses the mark right now (StepCheck::$markRefusal), asked
+     * again here rather than trusted from the page the request came from.
+     * Unmarking is never refused: it does not assert anything.
      */
-    public function setManualStep(int $targetYearId, string $stepKey, bool $done, ?int $userAccountId): bool
+    public function markStep(StepContext $context, string $stepKey, bool $done, ?int $userAccountId): StepMarkResult
     {
         if (!$this->isManualStep($stepKey)) {
-            return false;
+            return StepMarkResult::notMarkable();
         }
 
-        if ($done) {
-            $this->stepRepository->mark($targetYearId, $stepKey, $userAccountId);
-        } else {
-            $this->stepRepository->unmark($targetYearId, $stepKey);
+        if (!$done) {
+            $this->stepRepository->unmark($context->targetId(), $stepKey);
+
+            return StepMarkResult::unmarked();
         }
 
-        return true;
+        $refusal = $this->provider($stepKey)->check($context)->markRefusal;
+        if ($refusal !== null) {
+            return StepMarkResult::refused($refusal);
+        }
+
+        $this->stepRepository->mark($context->targetId(), $stepKey, $userAccountId);
+
+        return StepMarkResult::marked();
     }
 
     /**
-     * Whether a step key may be ticked by hand right now: it must be one of
-     * the manual steps, and its module (if it has one) must be enabled.
+     * Whether a step key may be marked by hand at all: it must be a human
+     * step, and its module (if it has one) must be enabled.
      */
     public function isManualStep(string $stepKey): bool
     {
-        if (!in_array($stepKey, self::MANUAL_STEPS, true)) {
-            return false;
-        }
+        $definition = self::STEP_KEYS[$stepKey] ?? null;
 
+        return $definition !== null && $definition[1] === StepNature::HUMAN && $this->isPresent($stepKey);
+    }
+
+    /**
+     * The present step keys, in order. Steps of a disabled module are
+     * filtered out here, before numbering, so the numbers a chief reads
+     * are always 1..n over the steps their site actually has.
+     *
+     * @return list<string>
+     */
+    private function presentKeys(): array
+    {
+        return array_values(array_filter(array_keys(self::STEP_KEYS), fn(string $key): bool => $this->isPresent($key)));
+    }
+
+    private function isPresent(string $stepKey): bool
+    {
         $module = self::STEP_MODULES[$stepKey] ?? null;
 
         return $module === null || in_array($module, $this->enabledModuleIds, true);
+    }
+
+    private function provider(string $stepKey): StepCheckProvider
+    {
+        return $this->checks[$stepKey]
+            ?? throw new \LogicException("No step check provider wired for step '{$stepKey}'.");
+    }
+
+    private function state(StepNature $nature, StepCheck $check, bool $marked): StepState
+    {
+        if ($nature === StepNature::HUMAN) {
+            return $marked ? StepState::DONE : StepState::TODO;
+        }
+
+        if ($check->observedDone === true) {
+            return StepState::DONE;
+        }
+
+        return $check->blockReason !== null ? StepState::BLOCKED : StepState::TODO;
+    }
+
+    /**
+     * Every action of the step, the primary one first and only once.
+     *
+     * @return list<\Core\ScoutYear\Step\StepAction>
+     */
+    private function actions(StepCheck $check): array
+    {
+        $actions = $check->actions;
+        if ($check->primaryAction !== null && !in_array($check->primaryAction, $actions, true)) {
+            array_unshift($actions, $check->primaryAction);
+        }
+
+        return $actions;
+    }
+
+    /**
+     * @param array{done_at: string, done_by: ?int} $row
+     * @param array<int, array{first_name: ?string, last_name: ?string}> $names
+     */
+    private function mark(array $row, array $names): StepMark
+    {
+        return new StepMark(
+            DateInput::requireFromStorage($row['done_at'], 'scout_year_transition_steps.done_at', AppClock::zone()),
+            $row['done_by'] !== null ? $this->formatName($names[$row['done_by']] ?? null) : null
+        );
+    }
+
+    /**
+     * The titles and descriptions of the steps — French, the page's own
+     * words (mock-up of chantier #930).
+     *
+     * @return array{title: string, description: string}
+     */
+    private function text(string $key, StepContext $context): array
+    {
+        $target = $context->targetLabel();
+        $public = $context->publicLabel();
+
+        return match ($key) {
+            'departures' => [
+                'title' => "Départs de l'unité",
+                'description' => "Chaque staff indique, sur la page Départs de l'unité, les animés de sa section qui ne "
+                    . "reviendront pas en {$target}. Le repérage se remet à zéro tout seul au prochain import Desk.",
+            ],
+            'passage' => [
+                'title' => 'Passages de branche',
+                'description' => "Sur la page Passages de branche, choisissez la section d'arrivée de chaque animé qui "
+                    . "quitte sa branche en {$target}.",
+            ],
+            'confirm_registrations' => [
+                'title' => 'Nouvelles inscriptions',
+                'description' => "Acceptez ou refusez les demandes d'inscription pour {$target}, puis renseignez la "
+                    . "« section prévue » de chaque demande acceptée.",
+            ],
+            'desk_staff' => [
+                'title' => 'Encoder les nouveaux staffs dans Desk',
+                'description' => "Dans Desk, encodez les animateurs et animatrices qui rejoignent l'unité en {$target}, "
+                    . 'ainsi que les changements de staff. Cette étape se passe hors du site.',
+            ],
+            'desk_members' => [
+                'title' => 'Encoder les animés dans Desk',
+                'description' => 'Dans Desk, reportez les décisions de la préparation : les nouvelles inscriptions, '
+                    . 'les passages et les départs. Cette étape se passe hors du site.',
+            ],
+            'import' => [
+                'title' => "Importer les données Desk pour {$target}",
+                'description' => "Importez le fichier CSV Desk de {$target} depuis la page « Import Desk ». Les membres "
+                    . "de {$target} deviennent alors disponibles.",
+            ],
+            'fees' => [
+                'title' => "Vérifier les cotisations de {$target}",
+                'description' => "Vérifiez les catégories de cotisation encodées dans Desk pour {$target}.",
+            ],
+            'preview' => [
+                'title' => "Prévisualiser le site de {$target}",
+                'description' => "Voyez le site tel qu'il apparaîtra en {$target}. La prévisualisation ne concerne que "
+                    . "votre session ; elle ne vaut pas vérification : marquez l'étape quand vous avez relu.",
+            ],
+            'activate_staff' => [
+                'title' => "Activer {$target} pour les staffs",
+                'description' => "Les animateurs et intendants verront {$target} dès leur prochaine connexion, tandis que "
+                    . "les animés et les visiteurs restent sur l'année courante ({$public}).",
+            ],
+            'ephemerides' => [
+                'title' => "Éphémérides de l'année",
+                'description' => "Encodez dans le calendrier les dates de {$target} : réunions, week-ends, camps, "
+                    . 'réunions de staff.',
+            ],
+            'badges' => [
+                'title' => 'Attribuer les badges',
+                'description' => "Attribuez les badges de {$target} (trésorier·e, infirmier·e, référent·e·s…) depuis la "
+                    . 'page Staffs et badges.',
+            ],
+            'trombinoscope' => [
+                'title' => 'Photos individuelles des animateurs',
+                'description' => "La page « Les animateurs » se reconstruit toute seule à partir de l'import Desk : "
+                    . "vérifiez les photos et les responsables de section pour {$target}.",
+            ],
+            'staff_photos' => [
+                'title' => 'Photos de groupe des staffs',
+                'description' => "Chaque section a une photo de staff par année scoute. Tant que celle de {$target} "
+                    . "n'est pas prise, le site continue d'afficher celle de l'année précédente.",
+            ],
+            'activate_public' => [
+                'title' => "Activer {$target} pour tout le monde",
+                'description' => "Bascule l'ensemble du site (visiteurs inclus) sur {$target} de façon permanente et "
+                    . "désactive l'année du staff.",
+            ],
+            default => throw new \LogicException("No text for step '{$key}'."),
+        };
+    }
+
+    /**
+     * @param list<TransitionStep> $steps
+     * @return list<TransitionPhase>
+     */
+    private function phases(array $steps, StepContext $context, string $deskDate): array
+    {
+        $deskPhaseReached = $context->now->format('Y-m-d') >= $deskDate;
+        $definitions = [
+            self::PHASE_PREPARATION => [
+                'Préparation',
+                'Idéalement avant le ' . $this->frenchDate($deskDate),
+                null,
+                !$deskPhaseReached,
+            ],
+            self::PHASE_DESK => [
+                'Encodage et contrôles Desk',
+                'Plutôt à partir du ' . $this->frenchDate($deskDate),
+                null,
+                $deskPhaseReached,
+            ],
+            self::PHASE_SITE => [
+                'Mise à jour du site et publication',
+                null,
+                "Le site est à jour pour {$context->targetLabel()} : c'est typiquement au tour des staffs d'agir.",
+                false,
+            ],
+        ];
+
+        $phases = [];
+        foreach ($definitions as $key => [$title, $subtitle, $note, $current]) {
+            $phaseSteps = array_values(array_filter($steps, static fn(TransitionStep $s): bool => $s->phase === $key));
+            // A phase whose every step belonged to a disabled module has
+            // nothing left to show; rendering its heading over an empty
+            // list would suggest the workflow lost a step rather than never
+            // had one.
+            if ($phaseSteps !== []) {
+                $phases[] = new TransitionPhase($key, $title, $subtitle, $note, $current, $phaseSteps);
+            }
+        }
+
+        return $phases;
+    }
+
+    /**
+     * The latest switch for everyone, read from the journal entry the
+     * controller writes — no new table. Its context carries the two
+     * year ids, and their labels for an entry written since this read
+     * exists; the ids are looked up when the labels are absent.
+     */
+    private function lastPublicSwitch(): ?PublicYearSwitch
+    {
+        $row = $this->journal->findLatestEvent('core', self::JOURNAL_PUBLIC_ACTIVATED);
+        if ($row === null) {
+            return null;
+        }
+
+        $context = is_string($row['context'] ?? null) ? json_decode($row['context'], true) : null;
+        $context = is_array($context) ? $context : [];
+
+        $toLabel = $this->yearLabel($context['new_year_label'] ?? null, $context['new_year_id'] ?? null);
+        $switchedAt = DateInput::fromStorage(is_string($row['logged_at'] ?? null) ? $row['logged_at'] : null, AppClock::zone());
+        if ($toLabel === null || $switchedAt === null) {
+            return null;
+        }
+
+        $userId = isset($row['user_account_id']) ? (int) $row['user_account_id'] : null;
+        $name = $userId !== null ? ($this->userAccountRepository->findNamesByIds([$userId])[$userId] ?? null) : null;
+
+        return new PublicYearSwitch(
+            $this->yearLabel($context['old_year_label'] ?? null, $context['old_year_id'] ?? null),
+            $toLabel,
+            $switchedAt,
+            $this->formatName($name)
+        );
+    }
+
+    private function yearLabel(mixed $label, mixed $id): ?string
+    {
+        if (is_string($label) && $label !== '') {
+            return $label;
+        }
+
+        if (!is_int($id) && !(is_string($id) && ctype_digit($id))) {
+            return null;
+        }
+
+        $year = (int) $id > 0 ? $this->scoutYearService->findById((int) $id) : null;
+
+        return $year !== null ? (string) $year['label'] : null;
     }
 
     /**
@@ -271,9 +533,8 @@ class ScoutYearTransitionService
      * the configured MM-JJ placed in the calendar year the target scout
      * year starts in (15 August 2026 for the 2026-2027 transition). An
      * unparseable setting falls back to 15 August rather than throwing —
-     * this date decorates a page, it never gates anything, and a page that
-     * refuses to render because a signpost is malformed would be a far
-     * worse failure than a signpost pointing at the default.
+     * a page that refuses to render because a signpost is malformed would
+     * be a far worse failure than a signpost pointing at the default.
      *
      * @param array{id: int, label: string, start_date: string, end_date: string} $targetYear
      */
@@ -290,257 +551,6 @@ class ScoutYearTransitionService
     }
 
     /**
-     * The ordered step catalogue. Steps of a disabled module are filtered
-     * out here, before numbering, so the numbers a chief reads are always
-     * 1..n over the steps their site actually has.
-     *
-     * @param array{id: int, label: string, start_date: string, end_date: string} $targetYear
-     * @param array{id: int, label: string, start_date: string, end_date: string} $publicYear
-     * @return array<int, array<string, mixed>>
-     */
-    private function stepDefinitions(
-        array $targetYear,
-        array $publicYear,
-        ?int $sessionPreviewId,
-        ?int $staffYearId,
-        int $publicYearId,
-        int $target
-    ): array {
-        $targetLabel = $targetYear['label'];
-        $publicLabel = $publicYear['label'];
-        $memberCount = $this->resolver->countMembers($target);
-
-        $definitions = [
-            [
-                'key' => 'departures',
-                'phase' => self::PHASE_PREPARATION,
-                'title' => "Indiquer les animés qui se désinscrivent en {$targetLabel}",
-                'description' => "Chaque staff coche, sur la page Départs de l'unité, les animés de sa section qui ne "
-                    . "reviendront pas en {$targetLabel}. Le repérage se remet à zéro tout seul au prochain import "
-                    . "Desk — il n'y a jamais rien à effacer d'une année à l'autre.",
-                'auto_done' => null,
-                'action_url' => '/departs',
-                'action_label' => "Aller aux départs de l'unité",
-            ],
-            [
-                'key' => 'passage',
-                'phase' => self::PHASE_PREPARATION,
-                'title' => 'Indiquer la section des animés qui changent de branche',
-                'description' => "Sur la page Passages de branche, choisissez la section d'arrivée "
-                    . "de chaque animé qui quitte sa branche en {$targetLabel}.",
-                'auto_done' => $this->passageDone(),
-                'progress' => $this->passageProgress(),
-                'action_url' => '/passage',
-                'action_label' => 'Aller aux passages de branche',
-            ],
-            [
-                'key' => 'confirm_registrations',
-                'phase' => self::PHASE_PREPARATION,
-                'title' => 'Confirmer les inscriptions et indiquer la branche cible',
-                'description' => "Acceptez ou refusez les demandes d'inscription pour {$targetLabel}, puis "
-                    . "renseignez la « section prévue » de chaque demande acceptée — c'est elle qui alimente le bloc "
-                    . "« nouvelles inscriptions » de la page Passages de branche.",
-                'auto_done' => null,
-                'action_url' => '/config/inscriptions/demandes',
-                'action_label' => 'Aller aux inscriptions',
-            ],
-            [
-                'key' => 'desk_staff',
-                'phase' => self::PHASE_DESK,
-                'title' => 'Encoder les nouveaux staffs dans Desk',
-                'description' => "Dans Desk, encodez les animateurs et animatrices qui rejoignent l'unité en "
-                    . "{$targetLabel}, ainsi que les changements de staff. Cette étape se passe hors du site : "
-                    . "cochez-la vous-même une fois faite.",
-                'auto_done' => null,
-            ],
-            [
-                'key' => 'desk_members',
-                'phase' => self::PHASE_DESK,
-                'title' => 'Encoder les animés dans Desk (nouveaux inscrits, passages, sortants)',
-                'description' => "Dans Desk, reportez les décisions de la phase de préparation : les nouvelles "
-                    . "inscriptions, les passages d'une section à l'autre, et les départs. Cette étape se passe hors "
-                    . "du "
-                    . "site : cochez-la vous-même une fois faite.",
-                'note' => "Une fois l'import fait (étape suivante), les animateurs peuvent se fier à la "
-                    . "prévisualisation de {$targetLabel} et télécharger la liste des membres {$targetLabel} depuis "
-                    . "« Animés de la section ». Cette liste permet déjà de communiquer avec les familles par email.",
-                'note_url' => '/chefs/membres',
-                'note_label' => 'Aller aux animés de la section',
-                'auto_done' => null,
-            ],
-            [
-                'key' => 'fees',
-                'phase' => self::PHASE_DESK,
-                'title' => 'Mettre à jour les cotisations',
-                'description' => "Dans Desk, mettez à jour les cotisations pour {$targetLabel}. Cette étape se passe "
-                    . "hors du site : cochez-la vous-même une fois faite.",
-                'auto_done' => null,
-            ],
-            [
-                'key' => 'preview',
-                'phase' => self::PHASE_DESK,
-                'title' => "Prévisualiser le site de l'année prochaine ({$targetLabel})",
-                'description' => "Choisissez {$targetLabel} ci-dessous pour voir le site tel qu'il apparaîtra. Cette "
-                    . "prévisualisation ne concerne que votre session et n'affecte aucun autre utilisateur.",
-                'auto_done' => $sessionPreviewId === $target,
-                'action' => 'preview',
-            ],
-            [
-                'key' => 'import',
-                'phase' => self::PHASE_DESK,
-                'title' => 'Importer les données Desk',
-                'description' => "Importez le fichier CSV Desk pour l'année {$targetLabel} depuis la page « Import "
-                    . "Desk ». Les membres de la nouvelle année deviennent alors disponibles.",
-                'auto_done' => $memberCount > 0,
-                'progress' => $memberCount > 0 ? "{$memberCount} membre(s) importé(s) pour {$targetLabel}" : null,
-                'action_url' => '/admin/import',
-                'action_label' => "Aller à l'import Desk",
-            ],
-            [
-                'key' => 'activate_staff',
-                'phase' => self::PHASE_SITE,
-                'title' => "Activer l'année {$targetLabel} pour les staffs",
-                'description' => "Les animateurs et intendants verront {$targetLabel} dès leur prochaine connexion, "
-                    . "tandis que les animés et les visiteurs restent sur l'année courante ({$publicLabel}).",
-                'auto_done' => $staffYearId === $target,
-                'warning' => $memberCount === 0
-                    ? "Aucun membre n'a encore été importé pour {$targetLabel} : les staffs verraient une année "
-                        . "vide. Rien ne vous empêche d'activer quand même, mais l'import est normalement fait d'abord."
-                    : null,
-                'action' => 'activate-staff',
-            ],
-            [
-                'key' => 'ephemerides',
-                'phase' => self::PHASE_SITE,
-                'title' => "Encoder les éphémérides de l'année sur le site",
-                'description' => "Encodez dans le calendrier les dates de {$targetLabel} : réunions, week-ends, "
-                    . "camps, réunions de staff.",
-                'auto_done' => $this->ephemeridesDone($targetYear),
-                'progress' => $this->ephemeridesProgress($targetYear),
-                'action_url' => '/chefs/calendar',
-                'action_label' => 'Aller au calendrier',
-            ],
-            [
-                'key' => 'badges',
-                'phase' => self::PHASE_SITE,
-                'title' => 'Encoder les badges (trésorier·e, infirmier·e, référent·e·s…)',
-                'description' => "Attribuez les badges transversaux de {$targetLabel} aux membres du staff, depuis "
-                    . "la page Staffs et badges.",
-                'auto_done' => null,
-                'action_url' => '/chefs/staffs',
-                'action_label' => 'Aller aux staffs et badges',
-            ],
-            [
-                'key' => 'trombinoscope',
-                'phase' => self::PHASE_SITE,
-                'title' => 'Mettre à jour le trombinoscope',
-                'description' => "La page « Les animateurs » se reconstruit toute seule à partir de l'import Desk : "
-                    . "vérifiez les photos et les responsables de section pour {$targetLabel}.",
-                'auto_done' => null,
-                'action_url' => '/trombinoscope',
-                'action_label' => 'Aller aux animateurs',
-            ],
-            [
-                'key' => 'staff_photos',
-                'phase' => self::PHASE_SITE,
-                'title' => 'Mettre à jour les photos de staff',
-                'description' => "Chaque section a une photo de staff par année scoute. Tant que celle de "
-                    . "{$targetLabel} n'est pas prise, le site continue d'afficher celle de l'année précédente.",
-                'auto_done' => $this->staffPhotosDone($target),
-                'progress' => $this->staffPhotosProgress($target),
-                'action_url' => '/chefs/staffs',
-                'action_label' => 'Aller aux staffs et badges',
-            ],
-            [
-                'key' => 'activate_public',
-                'phase' => self::PHASE_SITE,
-                'title' => 'Activer pour tout le monde',
-                'description' => "Bascule l'ensemble du site (visiteurs inclus) sur {$targetLabel} de façon "
-                    . "permanente et désactive l'année du staff.",
-                'auto_done' => $publicYearId === $target,
-                'action' => 'activate-public',
-            ],
-        ];
-
-        return array_values(array_filter($definitions, function (array $definition): bool {
-            $module = self::STEP_MODULES[$definition['key']] ?? null;
-
-            return $module === null || in_array($module, $this->enabledModuleIds, true);
-        }));
-    }
-
-    /**
-     * Number the surviving steps and fold in their manual state.
-     *
-     * @param array<int, array<string, mixed>> $definitions
-     * @param array<string, array{done_at: string, done_by: ?int}> $marks
-     * @return array<int, array<string, mixed>>
-     */
-    private function decorate(array $definitions, array $marks, int $target): array
-    {
-        $names = $this->userAccountRepository->findNamesByIds(array_values(array_filter(
-            array_map(static fn(array $mark): ?int => $mark['done_by'], $marks),
-            static fn(?int $id): bool => $id !== null
-        )));
-
-        $steps = [];
-        foreach ($definitions as $index => $definition) {
-            $key = (string) $definition['key'];
-            $mark = $marks[$key] ?? null;
-            $manual = in_array($key, self::MANUAL_STEPS, true);
-            $autoDone = $definition['auto_done'] ?? null;
-            $manualDone = $manual && $mark !== null;
-
-            $steps[] = [
-                'key' => $key,
-                'number' => $index + 1,
-                'phase' => $definition['phase'],
-                'title' => $definition['title'],
-                'description' => $definition['description'],
-                // A signal that fires and a human tick are both enough on
-                // their own: the signal so the page keeps up with reality
-                // without anyone clicking, the tick so a unit whose signal
-                // will never fire (no passage this year, a calendar kept
-                // elsewhere) is not left with a step it cannot finish.
-                'done' => ($autoDone === true) || $manualDone,
-                'auto_done' => $autoDone,
-                'manual' => $manual,
-                'manual_done' => $manualDone,
-                'done_at' => $mark['done_at'] ?? null,
-                'done_by' => $mark !== null ? $this->formatName($names[$mark['done_by']] ?? null) : null,
-                'action' => $definition['action'] ?? null,
-                'action_url' => $definition['action_url'] ?? null,
-                'action_label' => $definition['action_label'] ?? null,
-                'progress' => $definition['progress'] ?? null,
-                'warning' => $definition['warning'] ?? null,
-                'note' => $definition['note'] ?? null,
-                'note_url' => $definition['note_url'] ?? null,
-                'note_label' => $definition['note_label'] ?? null,
-                'target_year_id' => $target,
-            ];
-        }
-
-        return $steps;
-    }
-
-    /**
-     * The step the page highlights: the first one not yet done. 0 when
-     * everything is done — the workflow is over and nothing is current.
-     *
-     * @param array<int, array<string, mixed>> $steps
-     */
-    private function firstUndoneNumber(array $steps): int
-    {
-        foreach ($steps as $step) {
-            if ($step['done'] !== true) {
-                return (int) $step['number'];
-            }
-        }
-
-        return 0;
-    }
-
-    /**
      * @param array{first_name: ?string, last_name: ?string}|null $name
      */
     private function formatName(?array $name): ?string
@@ -552,73 +562,6 @@ class ScoutYearTransitionService
         $full = trim(($name['first_name'] ?? '') . ' ' . ($name['last_name'] ?? ''));
 
         return $full !== '' ? $full : null;
-    }
-
-    /**
-     * Null (no signal) when the registration module is off — the step is
-     * gone in that case anyway, but the catalogue is built before the
-     * filtering and must not call a provider that isn't there.
-     */
-    private function passageDone(): ?bool
-    {
-        return $this->preparation !== null ? $this->preparation->countUnassignedPassages() === 0 : null;
-    }
-
-    private function passageProgress(): ?string
-    {
-        if ($this->preparation === null) {
-            return null;
-        }
-
-        $total = $this->preparation->countPassages();
-        if ($total === 0) {
-            return 'Aucun animé ne change de branche cette année.';
-        }
-
-        $unassigned = $this->preparation->countUnassignedPassages();
-
-        return $unassigned === 0
-            ? "{$total} passage(s), tous avec une section d'arrivée."
-            : "{$unassigned} passage(s) sur {$total} sans section d'arrivée.";
-    }
-
-    /**
-     * @param array{id: int, label: string, start_date: string, end_date: string} $targetYear
-     */
-    private function ephemeridesDone(array $targetYear): ?bool
-    {
-        $count = $this->countEvents($targetYear);
-
-        return $count !== null ? $count > 0 : null;
-    }
-
-    /**
-     * @param array{id: int, label: string, start_date: string, end_date: string} $targetYear
-     */
-    private function ephemeridesProgress(array $targetYear): ?string
-    {
-        $count = $this->countEvents($targetYear);
-
-        return $count !== null && $count > 0
-            ? "{$count} événement(s) encodé(s) pour {$targetYear['label']}"
-            : null;
-    }
-
-    /**
-     * @param array{id: int, label: string, start_date: string, end_date: string} $targetYear
-     */
-    private function countEvents(array $targetYear): ?int
-    {
-        if ($this->eventCount === null) {
-            return null;
-        }
-
-        // Asked twice per build (once for "done", once for the progress
-        // line) and answered by a query, so it is answered once.
-        return $this->eventCountCache ??= $this->eventCount->countEventsBetween(
-            (string) $targetYear['start_date'],
-            (string) $targetYear['end_date']
-        );
     }
 
     /**
@@ -642,33 +585,5 @@ class ScoutYearTransitionService
         }
 
         return (int) $parsed->format('j') . ' ' . $months[(int) $parsed->format('n')] . ' ' . $parsed->format('Y');
-    }
-
-    /**
-     * Done once every section the target year actually has is photographed
-     * for that year. Undecidable — and therefore no signal at all — before
-     * the import, when the year has no sections yet: "0 of 0 sections
-     * photographed" is not an achievement.
-     */
-    private function staffPhotosDone(int $target): ?bool
-    {
-        $sections = $this->resolver->countSections($target);
-        if ($sections === 0) {
-            return null;
-        }
-
-        return $this->sectionPhotoRepository->countSectionsWithPhotoForYear($target) >= $sections;
-    }
-
-    private function staffPhotosProgress(int $target): ?string
-    {
-        $sections = $this->resolver->countSections($target);
-        if ($sections === 0) {
-            return null;
-        }
-
-        $withPhoto = $this->sectionPhotoRepository->countSectionsWithPhotoForYear($target);
-
-        return "{$withPhoto}/{$sections} section(s) photographiée(s)";
     }
 }

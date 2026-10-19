@@ -1,0 +1,18 @@
+{#
+ Detail of the « passage » step of the Année scoute workflow (chantier #930).
+ Receives `step` (Core\ScoutYear\Step\TransitionStep) and reads only
+ `step.details`, `step.pendingMessage` and the step itself — the points to
+ check, the actions and who marked the step are rendered by the page
+ around this file, never here. Owned by the step checks (lot E); the page
+ and the Détails dialog that include it are not.
+#}
+{% if step.details.passage_count is defined %}
+    {% if step.details.passage_count == 0 %}
+    <p class="text-body-secondary small mb-2">Aucun passage à effectuer.</p>
+    {% else %}
+    <p class="text-body-secondary small mb-2">
+        {{ step.details.passage_count }} passage(s) attendu(s) ·
+        {{ step.details.passage_count - step.details.unassigned_count }} avec une section d'arrivée.
+    </p>
+    {% endif %}
+{% endif %}

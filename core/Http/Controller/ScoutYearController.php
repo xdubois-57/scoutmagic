@@ -13,11 +13,15 @@ use Core\Http\FlashMessage;
 use Core\Http\Request;
 use Core\Http\Response;
 use Core\Journal\JournalService;
+use Core\ScoutYear\ActivationBlocker;
+use Core\ScoutYear\PublicYearActivationBlockedException;
 use Core\ScoutYear\ScoutYearAdminService;
 use Core\ScoutYear\ScoutYearResolver;
 use Core\ScoutYear\ScoutYearSession;
 use Core\ScoutYear\ScoutYearTransitionService;
-use Core\ScoutYear\ScoutYearTransitionVetoedException;
+use Core\ScoutYear\StaffYearActivationBlockedException;
+use Core\ScoutYear\Step\StepContext;
+use Core\ScoutYear\Step\StepMarkResult;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Security\Role;
@@ -28,13 +32,16 @@ use Twig\Environment;
  *
  * Lets a chief preview any year (session-only), activate a staff year for
  * chiefs/intendants, transition the whole site to a new public year, and
- * tick off the workflow steps the site cannot observe by itself.
+ * mark the human steps of the workflow.
  *
  * The workflow itself — which steps exist, in which phase, in which order,
  * and what marks each one done — lives in Core\ScoutYear\
  * ScoutYearTransitionService, which is also the specification for
  * tests/e2e/specs/scout-year-transition.spec.js. This controller only
- * routes to it.
+ * routes to it. The hard blocks live in ScoutYearAdminService and the
+ * step checks, never here: every POST below is refused by them however it
+ * was sent (a forged or replayed request included), and this controller
+ * only turns the refusal into a message and a journal entry.
  */
 class ScoutYearController extends AbstractController
 {
@@ -58,30 +65,11 @@ class ScoutYearController extends AbstractController
         $role = Role::fromString(AuthSession::getRole());
         $effective = $this->resolver->getEffectiveYear(ScoutYearSession::getPreviewId(), $role);
 
-        $publicYear = $this->resolver->getCurrentPublicYear();
+        $context = $this->context();
+        $publicYear = $context->publicYear;
+        $staffYear = $context->staffYearId !== null ? $this->scoutYearService->findById($context->staffYearId) : null;
 
-        $staffYearId = $this->resolver->getStaffYearId();
-        $staffYear = $staffYearId !== null ? $this->scoutYearService->findById($staffYearId) : null;
-
-        // The transition targets the year following the public year.
-        $targetId = $this->scoutYearService->ensureYear(ScoutYearService::nextLabel($publicYear['label']));
-        $targetYear = $this->scoutYearService->findById($targetId);
-
-        // Registration module veto (§8.38) — 0 when the module is absent,
-        // disabled, or has nothing open. The staff-year step shows this as a
-        // non-blocking warning; the public-activation step hard-blocks on it
-        // (enforced again, server-side, in activatePublic() below — this is
-        // only for the page's own display).
-        $blockingRequestCount = $this->adminService->countBlockingRegistrationRequests();
-
-        $workflow = $this->transitionService->buildWorkflow(
-            $targetYear,
-            $publicYear,
-            ScoutYearSession::getPreviewId(),
-            $staffYearId,
-            (int) $publicYear['id'],
-            $this->now()
-        );
+        $workflow = $this->transitionService->buildWorkflow($context);
 
         return $this->render('admin/scout_year.html.twig', [
             'public_year' => $publicYear,
@@ -94,13 +82,13 @@ class ScoutYearController extends AbstractController
             'years' => $this->resolver->listYears(),
             'member_count' => $this->resolver->countMembers($effective->id),
             'section_count' => $this->resolver->countSections($effective->id),
-            'can_activate_public' => $staffYear !== null && $blockingRequestCount === 0,
-            'target_year' => $targetYear,
-            'phases' => $workflow['phases'],
-            'current_step' => $workflow['current_step'],
-            'step_count' => $workflow['step_count'],
-            'desk_encoding_date' => $workflow['desk_encoding_date'],
-            'blocking_request_count' => $blockingRequestCount,
+            'target_year' => $context->targetYear,
+            'workflow' => $workflow,
+            // Registration module veto (§8.38) — 0 when the module is
+            // absent, disabled, or has nothing open. Shown as a reminder on
+            // the staff-year step; the switch's own block is part of the
+            // workflow (enforced again in ScoutYearAdminService).
+            'blocking_request_count' => $this->adminService->countBlockingRegistrationRequests(),
             // Non-blocking signal only (§8.26) — the transition itself is no
             // longer gated by any date, this just flags that nobody has run
             // it yet even though the calendar has moved past this year.
@@ -166,7 +154,25 @@ class ScoutYearController extends AbstractController
             return $this->redirect('/admin/scout-year');
         }
 
-        $this->adminService->activateStaffYear($yearId);
+        try {
+            $this->adminService->activateStaffYear($yearId);
+        } catch (StaffYearActivationBlockedException $e) {
+            $this->journalService->log(
+                'core',
+                'scout_year_staff_activation_blocked',
+                'security',
+                "Activation de {$year['label']} pour le staff refusée : aucun import Desk réussi",
+                ['year_id' => $yearId, 'blockers' => $e->getBlockerCodes()],
+                AuthSession::getUserAccountId()
+            );
+            FlashMessage::set('error', $this->refusalMessage(
+                "Impossible d'activer {$year['label']} pour les staffs.",
+                $e->getBlockers(),
+                (string) $year['label']
+            ));
+            return $this->redirect('/admin/scout-year');
+        }
+
         $this->journalService->log(
             'core',
             'scout_year_staff_activated',
@@ -227,35 +233,41 @@ class ScoutYearController extends AbstractController
 
         try {
             $this->adminService->activatePublicYear($yearId);
-        } catch (ScoutYearTransitionVetoedException $e) {
-            $count = $e->getBlockingRequestCount();
+        } catch (PublicYearActivationBlockedException $e) {
             $this->journalService->log(
                 'core',
                 'scout_year_public_activation_blocked',
                 'security',
-                "Bascule vers {$year['label']} refusée : {$count} demande(s) d'inscription non clôturée(s)",
-                ['blocking_request_count' => $count],
+                "Bascule vers {$year['label']} refusée : " . implode(', ', $e->getBlockerCodes()),
+                [
+                    'year_id' => $yearId,
+                    'blockers' => $e->getBlockerCodes(),
+                    'blocking_request_count' => $e->getBlockingRequestCount(),
+                ],
                 AuthSession::getUserAccountId()
             );
-            FlashMessage::set(
-                'error',
-                sprintf(
-                    "Impossible de basculer : %d demande(s) d'inscription ne sont pas encore clôturées, toutes "
-                    . "années confondues. "
-                    . 'Traitez-les depuis la page de gestion des inscriptions avant de poursuivre — le traitement '
-                    . "en masse (« tout refuser », « tout retirer ») y est disponible.",
-                    $count
-                )
-            );
+            FlashMessage::set('error', $this->refusalMessage(
+                "Impossible de basculer sur {$year['label']}.",
+                $e->getBlockers(),
+                (string) $year['label']
+            ));
             return $this->redirect('/admin/scout-year');
         }
 
+        $oldYear = $oldYearId !== null ? $this->scoutYearService->findById($oldYearId) : null;
         $this->journalService->log(
             'core',
-            'scout_year_public_activated',
+            ScoutYearTransitionService::JOURNAL_PUBLIC_ACTIVATED,
             'security',
             "Année scoute publique activée : {$year['label']}",
-            ['old_year_id' => $oldYearId, 'new_year_id' => $yearId],
+            [
+                'old_year_id' => $oldYearId,
+                'new_year_id' => $yearId,
+                // Read back by the « Dernière bascule » line, so that line
+                // still names the years once one of them is gone.
+                'old_year_label' => $oldYear['label'] ?? null,
+                'new_year_label' => $year['label'],
+            ],
             AuthSession::getUserAccountId()
         );
         FlashMessage::set('success', "Année {$year['label']} activée pour tout le monde.");
@@ -264,13 +276,16 @@ class ScoutYearController extends AbstractController
     }
 
     /**
-     * POST /admin/scout-year/step — tick or untick one manual step.
+     * POST /admin/scout-year/step — mark or unmark one human step.
      *
-     * Only the steps the site cannot observe on its own are settable here
-     * (Core\ScoutYear\ScoutYearTransitionService::isManualStep()); an
-     * auto-derived step's key is refused rather than quietly ignored, so a
-     * replayed or hand-crafted request can never make the page claim the
-     * public year was activated when it was not.
+     * `done` is explicit (1 or 0), never « toggle », so a replay or a
+     * second tab can only ever restate a state. Only human steps are
+     * settable (ScoutYearTransitionService::markStep()): an observed
+     * step's key, an unknown one or a disabled module's is refused rather
+     * than quietly ignored, so a replayed or hand-crafted request can never
+     * make the page claim the public year was activated when it was not;
+     * and a human step whose check refuses the mark right now (step 1
+     * during the re-enrolment campaign) is refused with its reason.
      *
      * @param array<string, string> $params
      */
@@ -286,12 +301,17 @@ class ScoutYearController extends AbstractController
         // The same target the page itself computes: the year following the
         // public one. Never the previewed or staff year — a mark belongs to
         // the transition being prepared, not to whatever year the person
-        // ticking it happens to be looking at.
-        $publicYear = $this->resolver->getCurrentPublicYear();
-        $targetId = $this->scoutYearService->ensureYear(ScoutYearService::nextLabel($publicYear['label']));
+        // marking it happens to be looking at.
+        $context = $this->context();
+        $targetId = $context->targetId();
 
-        if (!$this->transitionService->setManualStep($targetId, $stepKey, $done, AuthSession::getUserAccountId())) {
-            FlashMessage::set('error', 'Cette étape ne peut pas être cochée manuellement.');
+        $result = $this->transitionService->markStep($context, $stepKey, $done, AuthSession::getUserAccountId());
+        if ($result->outcome === StepMarkResult::NOT_MARKABLE) {
+            FlashMessage::set('error', 'Cette étape ne peut pas être marquée à la main.');
+            return $this->redirect('/admin/scout-year');
+        }
+        if ($result->outcome === StepMarkResult::REFUSED) {
+            FlashMessage::set('error', (string) $result->reason);
             return $this->redirect('/admin/scout-year');
         }
 
@@ -309,6 +329,39 @@ class ScoutYearController extends AbstractController
         FlashMessage::set('success', $done ? 'Étape marquée comme faite.' : 'Étape remise à faire.');
 
         return $this->redirect('/admin/scout-year');
+    }
+
+    /**
+     * The workflow context of this request: the target is the year
+     * following the public one, the preview is this session's own, the
+     * staff year is the setting — all server state, never a value the
+     * browser sent.
+     */
+    private function context(): StepContext
+    {
+        $publicYear = $this->resolver->getCurrentPublicYear();
+        $targetId = $this->scoutYearService->ensureYear(ScoutYearService::nextLabel($publicYear['label']));
+        $targetYear = $this->scoutYearService->findById($targetId)
+            ?? throw new \LogicException("Scout year {$targetId} vanished right after ensureYear().");
+
+        return $this->transitionService->contextFor(
+            $targetYear,
+            $publicYear,
+            ScoutYearSession::getPreviewId(),
+            $this->resolver->getStaffYearId(),
+            $this->now()
+        );
+    }
+
+    /**
+     * @param list<ActivationBlocker> $blockers
+     */
+    private function refusalMessage(string $lead, array $blockers, string $yearLabel): string
+    {
+        return $lead . ' ' . implode(' ', array_map(
+            static fn(ActivationBlocker $b): string => $b->message($yearLabel),
+            $blockers
+        ));
     }
 
     /**

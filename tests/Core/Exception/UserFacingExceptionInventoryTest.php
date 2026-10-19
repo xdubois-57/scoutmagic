@@ -115,7 +115,9 @@ final class UserFacingExceptionInventoryTest extends TestCase
         \Core\Security\DecryptionException::class => 'English, and describes the shape of the ciphertext',
         \Core\Statistics\StatisticsException::class => 'English, names an unregistered setting key',
         // Carries structured data instead: the catcher composes the French.
-        \Core\ScoutYear\ScoutYearTransitionVetoedException::class => 'by design — the catcher reads getBlockingRequestCount() and writes its own sentence',
+        \Core\ScoutYear\ScoutYearActivationBlockedException::class => 'by design — English, names a year id; the catcher reads getBlockers() and writes its own sentence',
+        \Core\ScoutYear\StaffYearActivationBlockedException::class => 'by design — English, names a year id; the catcher reads getBlockers() and writes its own sentence',
+        \Core\ScoutYear\PublicYearActivationBlockedException::class => 'by design — English, names a year id; the catcher reads getBlockers() and writes its own sentence',
     ];
 
     /**

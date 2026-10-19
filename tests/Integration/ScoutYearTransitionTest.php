@@ -7,6 +7,7 @@ namespace Tests\Integration;
 use Core\Config\ScoutYearService;
 use Core\Config\SettingRepository;
 use Core\Config\SettingService;
+use Core\Import\ImportJournalRepository;
 use Core\Import\MemberYearRepository;
 use Core\ScoutYear\ScoutYearAdminService;
 use Core\ScoutYear\ScoutYearResolver;
@@ -61,13 +62,20 @@ class ScoutYearTransitionTest extends TestCase
         // rather than about role resolution — Tests\Integration\
         // ScoutYearTransitionAccessTest resolves it for real.
         $this->staffOfTheYearBeingPrepared(true);
-        $this->admin = new ScoutYearAdminService($this->settingService);
+        $importJournal = new ImportJournalRepository($this->pdo);
+        $this->admin = new ScoutYearAdminService($this->settingService, $importJournal);
 
         $this->current = $scoutYearService->ensureYear('2024-2025');
         $this->next = $scoutYearService->ensureYear('2025-2026');
 
-        // Public site currently shows the current year.
-        $this->admin->activatePublicYear($this->current);
+        // Public site currently shows the current year — the starting state
+        // of an installed site, written as the setting itself rather than
+        // through a transition that has nothing before it to come from.
+        $this->settingService->setInternal(ScoutYearResolver::SETTING_PUBLIC_YEAR, (string) $this->current);
+
+        // Next year's Desk import has been taken: without it neither the
+        // staff year nor the switch would be allowed (ScoutYearAdminService).
+        $importJournal->create($this->next, 1, 1, 1, 0);
 
         $this->seedMemberYearData();
     }

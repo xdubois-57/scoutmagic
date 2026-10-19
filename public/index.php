@@ -2751,7 +2751,7 @@ $memberEmailService = new \Core\Member\MemberEmailService(
 $scoutYearResolver = new ScoutYearResolver($scoutYearService, $settingService, $memberYearRepo);
 
 
-$scoutYearAdminService = new ScoutYearAdminService($settingService);
+$scoutYearAdminService = new ScoutYearAdminService($settingService, $importJournalRepo);
 
 // "Membres par section" (core, role_min intendant) — read-only roster of
 // every section's animateurs/intendants/animés, with a generic
@@ -11557,7 +11557,11 @@ if ($isEnabled('registration')) {
     $registrationScoutYearVeto = new \Modules\Registration\Service\ScoutYearTransitionVetoService(
         $registrationRequestRepo
     );
-    $scoutYearAdminService = new ScoutYearAdminService($settingService, $registrationScoutYearVeto);
+    $scoutYearAdminService = new ScoutYearAdminService(
+        $settingService,
+        $importJournalRepo,
+        $registrationScoutYearVeto
+    );
 
     // Api\ScoutYearPreparationProvider (ARCHITECTURE.md §7.5) — the second
     // half of what the "Année scoute" workflow asks this module: how much
@@ -13057,18 +13061,35 @@ if (isset(
 // re-registering it inside each module block would have made the page's
 // contents depend on which module happened to be enabled last.
 //
-// Every provider below is null when its module is off (ARCHITECTURE.md
-// §7.5); Core\ScoutYear\ScoutYearTransitionService then simply drops the
-// steps that module owns.
+// Every module provider below is null when its module is off
+// (ARCHITECTURE.md §7.5); Core\ScoutYear\ScoutYearTransitionService then
+// drops the steps that module owns and never asks their check. One check
+// per step key (Core\ScoutYear\Step\Check) — the engine refuses to render
+// a step whose check is not wired here.
 $scoutYearTransitionService = new \Core\ScoutYear\ScoutYearTransitionService(
-    $scoutYearResolver,
     new \Core\ScoutYear\ScoutYearTransitionStepRepository($pdo),
-    $sectionPhotoRepository,
+    $importJournalRepo,
+    $journalRepo,
+    $scoutYearService,
     $userAccountRepo,
     $settingService,
-    $moduleManager->getEnabledModuleIds(),
-    $registrationScoutYearPreparation ?? null,
-    $calendarScoutYearEventCount ?? null
+    [
+        new \Core\ScoutYear\Step\Check\DeparturesStepCheck(),
+        new \Core\ScoutYear\Step\Check\PassageStepCheck($registrationScoutYearPreparation ?? null),
+        new \Core\ScoutYear\Step\Check\ConfirmRegistrationsStepCheck($scoutYearAdminService),
+        new \Core\ScoutYear\Step\Check\DeskStaffStepCheck(),
+        new \Core\ScoutYear\Step\Check\DeskMembersStepCheck(),
+        new \Core\ScoutYear\Step\Check\ImportStepCheck($userAccountRepo),
+        new \Core\ScoutYear\Step\Check\FeesStepCheck(),
+        new \Core\ScoutYear\Step\Check\PreviewStepCheck(),
+        new \Core\ScoutYear\Step\Check\ActivateStaffStepCheck($scoutYearAdminService),
+        new \Core\ScoutYear\Step\Check\EphemeridesStepCheck($calendarScoutYearEventCount ?? null),
+        new \Core\ScoutYear\Step\Check\BadgesStepCheck(),
+        new \Core\ScoutYear\Step\Check\TrombinoscopeStepCheck(),
+        new \Core\ScoutYear\Step\Check\StaffPhotosStepCheck($scoutYearResolver, $sectionPhotoRepository),
+        new \Core\ScoutYear\Step\Check\ActivatePublicStepCheck($scoutYearAdminService),
+    ],
+    $moduleManager->getEnabledModuleIds()
 );
 $frontController->registerController(
     ScoutYearController::class,

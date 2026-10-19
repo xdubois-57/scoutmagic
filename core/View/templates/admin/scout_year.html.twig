@@ -5,10 +5,11 @@
 
  That test replays, in a real browser, exactly the workflow described
  below — the three phases, every step in order, the steps that vanish
- when their module is off, the ones a human ticks off versus the ones the
- site works out for itself, the fact that the order is advice rather than
- a gate, the two blocks that are real (a staff year before the public
- one, and the registration veto), the preview that is scoped to one
+ when their module is off, the ones a human marks versus the ones the
+ site observes, the fact that the order is advice rather than a gate,
+ the blocks that are real (an import before the staff year; the staff
+ year, the import and the registration veto before the public one), the
+ preview that is scoped to one
  session, the staff year that the public must not see, and the final
  switch that clears the staff year. It reads the labels off this page
  rather than copying them, but it cannot guess a change of plan.
@@ -80,17 +81,33 @@
         columns: 2,
     } only %}
 
-    {# Transition workflow — phased, stepped guide toward the next year #}
+    {# Transition workflow — phased, stepped guide toward the next year.
+       Every value below comes from Core\ScoutYear\Step\TransitionWorkflow
+       (ScoutYearTransitionService::buildWorkflow()); the step's own check
+       content lives in admin/scout_year/steps/{key}.html.twig. #}
     <div class="card mb-3">
         <div class="card-body">
             <h2 class="h5 mb-1">Changer d'année</h2>
-            <p class="text-body-secondary small mb-4">
-                {{ step_count }} étapes, en trois temps. L'ordre est un conseil, pas un verrou : vous pouvez agir
-                à tout moment sur n'importe quelle étape. Les dates ci-dessous sont de simples repères, configurables
-                dans les paramètres — elles ne déclenchent et ne bloquent jamais rien.
+            <p class="text-body-secondary small mb-2">
+                {{ workflow.stepCount }} étapes, en trois temps. L'ordre est un conseil, pas un verrou : vous pouvez agir
+                à tout moment sur n'importe quelle étape. Seuls trois points bloquent réellement, et le serveur les
+                vérifie : le marquage de l'étape des départs tant que la campagne de réinscription n'est pas terminée,
+                l'activation pour les staffs sans import réussi, et la bascule publique. Les dates des phases sont de
+                simples repères, configurables dans les paramètres : sur cette page, elles ne déclenchent et ne bloquent
+                jamais rien.
             </p>
+            {% if workflow.lastPublicSwitch %}
+            {% set last_switch = workflow.lastPublicSwitch %}
+            <p class="text-body-secondary small mb-4" data-last-switch>
+                Dernière bascule :
+                {% if last_switch.fromLabel %}{{ last_switch.fromLabel }} → {% endif %}{{ last_switch.toLabel }},
+                le {{ last_switch.switchedAt|date('d/m/Y') }}{% if last_switch.switchedBy %} par {{ last_switch.switchedBy }}{% endif %}.
+            </p>
+            {% else %}
+            <div class="mb-4"></div>
+            {% endif %}
 
-            {% for phase in phases %}
+            {% for phase in workflow.phases %}
             <section class="mb-4" data-phase="{{ phase.key }}">
                 <div class="d-flex align-items-center gap-2 flex-wrap mb-1">
                     <h3 class="h6 mb-0">{{ phase.title }}</h3>
@@ -110,9 +127,9 @@
 
                 <ol class="list-unstyled step-list mb-0">
                     {% for step in phase.steps %}
-                    {% set is_current = step.number == current_step %}
+                    {% set is_current = step.number == workflow.currentStepNumber %}
                     <li class="step-item d-flex gap-3 {% if not loop.last %}pb-4{% endif %} {{ step.done ? 'step-item--done' : (is_current ? 'step-item--current' : 'step-item--upcoming') }}"
-                        data-step="{{ step.key }}">
+                        data-step="{{ step.key }}" data-state="{{ step.state.value }}" data-nature="{{ step.nature.value }}">
                         <div class="step-item__marker flex-shrink-0">
                             <span class="step-circle {{ step.done ? 'step-circle--done' : 'step-circle--pending' }}"
                                   aria-hidden="true">
@@ -120,35 +137,38 @@
                             </span>
                         </div>
                         <div class="flex-grow-1 pt-1">
-                            <div class="fw-semibold {{ step.done ? 'text-success-emphasis' : '' }}">{{ step.title }}</div>
+                            <div class="d-flex flex-wrap align-items-center gap-2">
+                                <span class="fw-semibold {{ step.done ? 'text-success-emphasis' : '' }}">{{ step.title }}</span>
+                                <span class="badge text-bg-light border">{{ step.nature.label }}</span>
+                                {% if step.blocked %}<span class="badge text-bg-danger">{{ step.state.label }}</span>{% endif %}
+                                {% if step.pointsToCheckCount > 0 %}
+                                    <span class="badge text-bg-warning">{{ step.pointsToCheckCount }} à vérifier</span>
+                                {% endif %}
+                            </div>
                             <p class="text-body-secondary small mb-2">{{ step.description }}</p>
 
-                            {% if step.progress %}
-                            <p class="text-body-secondary small mb-2">
-                                <i class="bi bi-clipboard-data me-1" aria-hidden="true"></i>{{ step.progress }}
-                            </p>
+                            {% include step.detailTemplate with { step: step } only %}
+
+                            {% if step.pointsToCheck is not empty %}
+                            <ul class="small mb-2">
+                                {% for point in step.pointsToCheck %}<li>{{ point }}</li>{% endfor %}
+                            </ul>
                             {% endif %}
 
-                            {% if step.warning %}
-                            <div class="alert alert-warning d-flex align-items-start gap-2 py-2 px-3 mb-2" role="alert">
-                                <i class="bi bi-exclamation-triangle-fill mt-1" aria-hidden="true"></i>
-                                <div class="small">{{ step.warning }}</div>
+                            {% if step.blockReason %}
+                            <div class="alert alert-danger d-flex align-items-start gap-2 py-2 px-3 mb-2" role="alert">
+                                <i class="bi bi-x-octagon-fill mt-1" aria-hidden="true"></i>
+                                <div class="small">{{ step.blockReason }}</div>
+                            </div>
+                            {% endif %}
+                            {% if step.markRefusal and not step.done %}
+                            <div class="alert alert-danger d-flex align-items-start gap-2 py-2 px-3 mb-2" role="alert">
+                                <i class="bi bi-x-octagon-fill mt-1" aria-hidden="true"></i>
+                                <div class="small">{{ step.markRefusal }}</div>
                             </div>
                             {% endif %}
 
-                            {% if step.note %}
-                            <div class="alert alert-info d-flex align-items-start gap-2 py-2 px-3 mb-2" role="note">
-                                <i class="bi bi-info-circle-fill mt-1" aria-hidden="true"></i>
-                                <div class="small">
-                                    {{ step.note }}
-                                    {% if step.note_url %}
-                                        <a href="{{ step.note_url }}">{{ step.note_label }}</a>.
-                                    {% endif %}
-                                </div>
-                            </div>
-                            {% endif %}
-
-                            {% if step.key == 'activate_staff' and blocking_request_count > 0 %}
+                            {% if step.key == 'activate_staff' and blocking_request_count > 0 and not step.done %}
                             <div class="alert alert-warning d-flex align-items-start gap-2 py-2 px-3 mb-2" role="alert">
                                 <i class="bi bi-exclamation-triangle-fill mt-1" aria-hidden="true"></i>
                                 <div class="small">
@@ -159,20 +179,8 @@
                                 </div>
                             </div>
                             {% endif %}
-                            {% if step.key == 'activate_public' and blocking_request_count > 0 %}
-                            <div class="alert alert-danger d-flex align-items-start gap-2 py-2 px-3 mb-2" role="alert">
-                                <i class="bi bi-x-octagon-fill mt-1" aria-hidden="true"></i>
-                                <div class="small">
-                                    Activation bloquée : {{ blocking_request_count }} demande(s) d'inscription ne sont pas
-                                    encore clôturées (toutes années confondues). Traitez-les — individuellement ou en
-                                    masse (« tout refuser », « tout retirer ») — depuis la
-                                    <a href="/config/inscriptions/demandes">page de gestion des inscriptions</a> avant de pouvoir
-                                    basculer tout le monde vers la nouvelle année.
-                                </div>
-                            </div>
-                            {% endif %}
 
-                            {% if step.action == 'preview' %}
+                            {% if step.key == 'preview' %}
                                 <form method="post" action="/admin/scout-year/preview"
                                       class="d-flex flex-wrap gap-2 align-items-end">
                                     {{ csrf_field()|raw }}
@@ -197,7 +205,13 @@
                                 </form>
                                 {% endif %}
 
-                            {% elseif step.action == 'activate-staff' %}
+                            {% elseif step.key == 'activate_staff' %}
+                                {% for action in step.actions|filter(a => a.link) %}
+                                    <a href="{{ action.url }}" class="btn btn-sm btn-primary mb-2">{{ action.label }}</a>
+                                {% endfor %}
+                                {# Refused server-side without a successful import of the
+                                   year (Core\ScoutYear\ScoutYearAdminService::activateStaffYear());
+                                   the disabled button only shows that answer. #}
                                 <form method="post" action="/admin/scout-year/activate-staff"
                                       class="d-flex flex-wrap gap-2 align-items-end">
                                     {{ csrf_field()|raw }}
@@ -205,36 +219,37 @@
                                         {% include 'partials/form_field.html.twig' with {
                                             field_id: 'staff-year', field_name: 'scout_year_id',
                                             label: 'Année', type: 'select', size: 'sm', wrapper_class: '',
+                                            disabled: step.blocked,
                                             options: years|default([])|map(y => {
                                                 value: y.id, label: y.label, selected: y.id == target_year.id,
                                             }),
                                         } only %}
                                     </div>
                                     <button type="submit"
-                                            class="btn btn-sm {{ is_current ? 'btn-primary' : 'btn-outline-secondary' }}">
+                                            class="btn btn-sm {{ is_current ? 'btn-primary' : 'btn-outline-secondary' }}"
+                                            {{ step.blocked ? 'disabled' : '' }}>
                                         Activer pour le staff
                                     </button>
                                 </form>
 
-                            {% elseif step.action == 'activate-public' %}
-                                {# The one hard gate left in the workflow, and the only disabled
-                                   control on this page: activating the public year needs a staff
-                                   year first, and the registration module vetoes it while requests
-                                   are open (specifications.md §19.2). Re-checked server-side in
-                                   Core\ScoutYear\ScoutYearAdminService::activatePublicYear(). #}
-                                {# The confirmation is `data-confirm` on the FORM (design.md
+                            {% elseif step.key == 'activate_public' %}
+                                {# Refused server-side while the staff year is not the
+                                   target, the target has no successful import, or the
+                                   registration module vetoes (specifications.md §19.2) —
+                                   Core\ScoutYear\ScoutYearAdminService::activatePublicYear().
+                                   The confirmation is `data-confirm` on the FORM (design.md
                                    §7.5): confirm.js stops the submission, asks, and replays it
                                    with its original submitter. #}
                                 <form method="post" action="/admin/scout-year/activate-public" id="activate-public-form"
                                       class="d-flex flex-wrap gap-2 align-items-end"
-                                      data-confirm="Activer cette année pour tout le monde ? Le public verra immédiatement cette année."
+                                      data-confirm="Activer cette année pour tout le monde ? Le public verra immédiatement cette année. Aucun e-mail n'est envoyé."
                                       data-confirm-label="Activer">
                                     {{ csrf_field()|raw }}
                                     <div>
                                         {% include 'partials/form_field.html.twig' with {
                                             field_id: 'public-year', field_name: 'scout_year_id',
                                             label: 'Année', type: 'select', size: 'sm', wrapper_class: '',
-                                            disabled: not can_activate_public,
+                                            disabled: step.blocked,
                                             options: years|default([])|map(y => {
                                                 value: y.id, label: y.label, selected: y.id == target_year.id,
                                             }),
@@ -242,41 +257,35 @@
                                     </div>
                                     <button type="submit"
                                             class="btn btn-sm {{ is_current ? 'btn-danger' : 'btn-outline-secondary' }}"
-                                            {{ can_activate_public ? '' : 'disabled' }}>
+                                            {{ step.blocked ? 'disabled' : '' }}>
                                         Activer pour tout le monde
                                     </button>
                                 </form>
-                                {% if not staff_year %}
-                                <p class="text-body-secondary small mb-0 mt-2">
-                                    Activez d'abord une année pour le staff.
-                                </p>
-                                {% endif %}
 
-                            {% elseif step.action_url %}
-                                <a href="{{ step.action_url }}"
-                                   class="btn btn-sm {{ is_current ? 'btn-primary' : 'btn-outline-secondary' }}">
-                                    {{ step.action_label }}
-                                </a>
+                            {% else %}
+                                {% for action in step.actions|filter(a => a.link) %}
+                                    <a href="{{ action.url }}"
+                                       class="btn btn-sm {{ is_current and loop.first ? 'btn-primary' : 'btn-outline-secondary' }}">
+                                        {{ action.label }}
+                                    </a>
+                                {% endfor %}
                             {% endif %}
 
-                            {% if step.manual %}
-                            {# Steps the site cannot observe (encoding in Desk, fees) or whose
-                               completion is a judgement call (badges, trombinoscope) are ticked
-                               by hand. A step that also has a signal keeps its checkbox as an
-                               override, so nobody is stuck behind a signal that will not fire
-                               for their unit. #}
+                            {% if step.human %}
+                            {# A human step is done when someone marks it — never by a
+                               check, whose findings stay points to check. `done` is explicit, never a toggle. #}
                             <form method="post" action="/admin/scout-year/step" class="mt-2 js-step-form">
                                 {{ csrf_field()|raw }}
                                 <input type="hidden" name="step_key" value="{{ step.key }}">
-                                <input type="hidden" name="done" value="{{ step.manual_done ? '0' : '1' }}">
+                                <input type="hidden" name="done" value="{{ step.done ? '0' : '1' }}">
                                 <div class="form-check">
                                     <input class="form-check-input js-step-checkbox" type="checkbox"
                                            id="step-check-{{ step.key }}"
-                                           {{ step.manual_done ? 'checked' : '' }}>
+                                           {{ step.done ? 'checked' : '' }}>
                                     <label class="form-check-label small" for="step-check-{{ step.key }}">
-                                        {% if step.manual_done %}
-                                            Fait{% if step.done_by %} par {{ step.done_by }}{% endif %}
-                                            {%- if step.done_at %} le {{ step.done_at|slice(8, 2) }}/{{ step.done_at|slice(5, 2) }}/{{ step.done_at|slice(0, 4) }}{% endif %}
+                                        {% if step.done %}
+                                            Fait{% if step.mark and step.mark.doneBy %} par {{ step.mark.doneBy }}{% endif %}
+                                            {%- if step.mark %} le {{ step.mark.doneAt|date('d/m/Y') }}{% endif %}
                                         {% else %}
                                             Marquer cette étape comme faite
                                         {% endif %}
@@ -284,7 +293,7 @@
                                 </div>
                                 <noscript>
                                     <button type="submit" class="btn btn-sm btn-outline-secondary mt-1">
-                                        {{ step.manual_done ? 'Remettre à faire' : 'Marquer comme fait' }}
+                                        {{ step.done ? 'Remettre à faire' : 'Marquer comme fait' }}
                                     </button>
                                 </noscript>
                             </form>
