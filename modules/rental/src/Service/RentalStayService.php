@@ -613,7 +613,8 @@ class RentalStayService
      *     balance_cents: int,
      *     security_deposit_withheld_cents: int,
      *     security_deposit_return_cents: int,
-     *     paid_includes_security_deposit: bool
+     *     paid_includes_security_deposit: bool,
+     *     security_deposit_held_cents: ?int
      * }
      */
     public function previewSettlement(
@@ -627,7 +628,7 @@ class RentalStayService
         $paymentStatus = $this->paymentService?->statusFor($booking, $paymentSettings);
         $onReceivable = ($paymentStatus['communication'] ?? null) !== null;
 
-        return $this->calculator->compute(
+        $computed = $this->calculator->compute(
             $booking->effectivePrice(),
             $finalPersons,
             $this->consumptionsFor($booking, $assetId),
@@ -639,6 +640,15 @@ class RentalStayService
                 : $paymentSettings->securityDepositAmount(),
             $onReceivable
         );
+
+        // What of the security deposit the unit actually holds — all of it
+        // once the agreed total came in, nothing before — so a refund of
+        // overpaid rent is never called the deposit on screen.
+        $computed['security_deposit_held_cents'] = $onReceivable
+            ? (int) ($paymentStatus['security_deposit']['received_cents'] ?? 0)
+            : null;
+
+        return $computed;
     }
 
     /**
@@ -731,6 +741,27 @@ class RentalStayService
         $settlement = $this->stayRepository->findSettlement($settlementId);
         if ($settlement === null || $settlement->bookingId !== $booking->id) {
             throw new RentalException("Ce décompte n'existe pas.");
+        }
+
+        // Refused, cancelled or expired since: its receivable is at 0, and
+        // validating would bring it back up for a stay that is over.
+        if ($booking->status->isAbandoned()) {
+            throw new RentalException(
+                'Cette réservation est ' . mb_strtolower($booking->status->label())
+                . ' : son décompte ne se valide plus, et rien ne lui est plus demandé.'
+            );
+        }
+
+        // A newer version already validated is the one that holds: an
+        // older one validated afterwards would push its obsolete figure
+        // onto the receivable.
+        foreach ($this->stayRepository->findSettlements($booking->id) as $other) {
+            if ($other->isValidated && $other->version > $settlement->version) {
+                throw new RentalException(
+                    'Le décompte v' . $other->version . ' est déjà validé : la v' . $settlement->version
+                    . ' est dépassée et ne se valide plus.'
+                );
+            }
         }
 
         if (!$this->stayRepository->validateSettlement($settlementId, $actorMemberId)) {

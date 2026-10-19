@@ -1791,9 +1791,10 @@ class RentalManagementControllerTest extends TestCase
         $flash = (string) (\Core\Http\FlashMessage::get()['message'] ?? '');
         $this->assertStringContainsString('ramenée à 0', $flash);
         $this->assertStringContainsString('trop-perçu', $flash);
-        $this->assertSame(0, (int) $this->pdo->query(
-            "SELECT amount_due_cents FROM finance_expected_receivables WHERE source_module = 'rental'"
-        )->fetchColumn());
+        $this->assertSame(0, (int) $this->fetchScalar(
+            'SELECT amount_due_cents FROM finance_expected_receivables WHERE source_module = ?',
+            ['rental']
+        ));
     }
 
     public function testAnOrdinaryTransitionSaysNothingAboutMoney(): void
@@ -2577,8 +2578,11 @@ class RentalManagementControllerTest extends TestCase
         $this->loginAsManager();
         $this->setContractTemplate('<p>Virement : {{ communication }}</p>');
         $booking = $this->bookingOwedFor();
-        $this->pdo->exec('DELETE FROM finance_expected_receivables');
-        $this->pdo->exec('UPDATE rental_bookings SET rental_receivable_id = NULL, rental_communication = NULL');
+        $this->runStatement('DELETE FROM finance_expected_receivables WHERE source_reference_id = ?', [$booking->id]);
+        $this->runStatement(
+            'UPDATE rental_bookings SET rental_receivable_id = NULL, rental_communication = NULL WHERE id = ?',
+            [$booking->id]
+        );
 
         foreach ([1, 2] as $ignored) {
             $this->post('/mes-locations/document-generer', 'generateDocument', [
@@ -2588,13 +2592,18 @@ class RentalManagementControllerTest extends TestCase
             ]);
         }
 
-        $communication = $this->pdo->query('SELECT communication FROM finance_expected_receivables')->fetchColumn();
+        $communication = $this->fetchScalar(
+            'SELECT communication FROM finance_expected_receivables WHERE source_reference_id = ?',
+            [$booking->id]
+        );
         $this->assertIsString($communication);
-        $this->assertSame(1, (int) $this->pdo->query(
-            'SELECT COUNT(*) FROM finance_expected_receivables'
-        )->fetchColumn());
-        $snapshots = $this->pdo->query(
-            "SELECT generated_snapshot FROM rental_documents WHERE document_type = 'contract'"
+        $this->assertSame(1, (int) $this->fetchScalar(
+            'SELECT COUNT(*) FROM finance_expected_receivables WHERE source_reference_id = ?',
+            [$booking->id]
+        ));
+        $snapshots = $this->runStatement(
+            'SELECT generated_snapshot FROM rental_documents WHERE booking_id = ? AND document_type = ?',
+            [$booking->id, 'contract']
         )->fetchAll(\PDO::FETCH_COLUMN);
         $this->assertCount(2, $snapshots);
         foreach ($snapshots as $snapshot) {
@@ -2613,7 +2622,7 @@ class RentalManagementControllerTest extends TestCase
             financeAccountId: $this->financeAccountId,
             financeCategoryId: $this->financeCategoryId
         ));
-        $this->pdo->exec('UPDATE rental_assets SET finance_category_id = NULL');
+        $this->runStatement('UPDATE rental_assets SET finance_category_id = NULL WHERE id = ?', [$this->assetId]);
         $booking = $this->createBooking();
 
         $this->post('/mes-locations/document-generer', 'generateDocument', [
@@ -5352,13 +5361,43 @@ class RentalManagementControllerTest extends TestCase
         return (string) preg_replace('/\s+/', ' ', (string) $response->getBody());
     }
 
-    public function testTheSettlementShowsTheSecurityDepositReturnOnceWithinTheRefund(): void
+    public function testAnOverpaidRentIsNeverLabelledAsTheSecurityDeposit(): void
     {
-        // 467,50 € rental and a 150 € deposit, all paid on the booking's one
-        // receivable: 150 € is owed back, and the screen must say 150 €
-        // once — never a balance and a deposit return that add up to 300 €.
+        // 500 € in on 467,50 € rent + 150 € deposit: the deposit was never
+        // received, so the 32,50 € owed back are not « la caution ».
         $this->loginAsManager();
         $booking = $this->bookingOwedFor(46750, 15000);
+        $this->payOnReceivable($booking, 500.00);
+
+        $body = $this->invoicePage($booking);
+
+        $this->assertMatchesRegularExpression('/Solde à rembourser\s*<\/td>\s*<td[^>]*>\s*32,50/u', $body);
+        $this->assertStringNotContainsString('dont la caution', $body);
+        $this->assertStringNotContainsString('Caution à restituer', $body);
+    }
+
+    /**
+     * @param list<int|string> $params
+     */
+    private function runStatement(string $sql, array $params): \PDOStatement
+    {
+        $statement = $this->pdo->prepare($sql);
+        $statement->execute($params);
+
+        return $statement;
+    }
+
+    /**
+     * @param list<int|string> $params
+     */
+    private function fetchScalar(string $sql, array $params): mixed
+    {
+        return $this->runStatement($sql, $params)->fetchColumn();
+    }
+
+    /** A transfer carrying the booking's communication, as a bank import brings it. */
+    private function payOnReceivable(RentalBooking $booking, float $amount): void
+    {
         $communication = (string) $this->paymentService->statusFor(
             $booking,
             $this->paymentService->settingsFor($this->assetId)
@@ -5369,12 +5408,22 @@ class RentalManagementControllerTest extends TestCase
             null,
             '2030-10-01',
             'Virement ' . $communication,
-            617.50,
+            $amount,
             null,
             null,
             'import',
             null
         );
+    }
+
+    public function testTheSettlementShowsTheSecurityDepositReturnOnceWithinTheRefund(): void
+    {
+        // 467,50 € rental and a 150 € deposit, all paid on the booking's one
+        // receivable: 150 € is owed back, and the screen must say 150 €
+        // once — never a balance and a deposit return that add up to 300 €.
+        $this->loginAsManager();
+        $booking = $this->bookingOwedFor(46750, 15000);
+        $this->payOnReceivable($booking, 617.50);
 
         $body = $this->invoicePage($booking);
 

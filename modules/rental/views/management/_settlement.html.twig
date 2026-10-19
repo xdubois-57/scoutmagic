@@ -57,12 +57,16 @@
                       beside the balance, and keeps its own row.
                     #}
                     {% if preview.paid_includes_security_deposit|default(false) %}
+                        {# Only a deposit actually held is named: overpaid rent
+                           given back is not « la caution ». #}
                         {% if preview.balance_cents < 0
-                            and (preview.security_deposit_return_cents or preview.security_deposit_withheld_cents) %}
+                            and preview.security_deposit_held_cents|default(0) > 0
+                            and preview.security_deposit_return_cents > 0 %}
                             <tr>
                                 <td colspan="2" class="text-body-secondary small">
                                     dont la caution à rendre :
-                                    {{ min(preview.security_deposit_return_cents, -preview.balance_cents)|money_cents }}
+                                    {{ min(preview.security_deposit_return_cents, preview.security_deposit_held_cents,
+                                        -preview.balance_cents)|money_cents }}
                                     {%- if preview.security_deposit_withheld_cents %}
                                         ({{ preview.security_deposit_withheld_cents|money_cents }} retenus)
                                     {%- endif %}
@@ -133,13 +137,16 @@
                 <input type="text" class="form-control form-control-sm" id="gesture-amount" name="gesture_amount"
                        inputmode="decimal" aria-describedby="gesture-amount-help"
                        value="{{ gesture ? (gesture.amountCents|abs / 100)|number_format(2, ',', '') : '' }}">
-                <div class="form-text" id="gesture-amount-help">Au plus le total du décompte.</div>
             </div>
             <div class="col-12 col-md-3">
                 <button type="submit" class="btn btn-sm btn-outline-secondary w-100">
                     Enregistrer un décompte
                 </button>
             </div>
+            {# Below the row, never under one control of a horizontal form. #}
+            <p class="col-12 form-text mb-0" id="gesture-amount-help">
+                Le geste commercial est déduit du décompte, au plus de son total.
+            </p>
         </form>
 
         {% if settlements is not empty %}

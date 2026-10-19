@@ -570,6 +570,23 @@ class RentalPaymentServiceTest extends TestCase
         )->fetchColumn());
     }
 
+    public function testARegeneratedContractKeepsItsCommunicationAfterTheAccountWasUnpinned(): void
+    {
+        // The communication exists and the renter may have paid against
+        // it: losing the account or category since does not refuse the
+        // next version.
+        $booking = $this->createBooking(46750);
+        $first = $this->service->communicationForContract($booking, $this->settings());
+
+        $again = $this->service->communicationForContract(
+            $this->reload($booking),
+            new PaymentSettings(enabled: true, balanceDueDays: 14)
+        );
+
+        $this->assertNotNull($first);
+        $this->assertSame($first, $again);
+    }
+
     public function testAContractIsRefusedWhenPaymentsAreOnButNoReceivableCanBeRaised(): void
     {
         // Never a contract without a communication: switched on with no

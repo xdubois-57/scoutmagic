@@ -227,6 +227,25 @@ class RentalPaymentService
             return null;
         }
 
+        // Under the asset's lock, re-reading the link inside it: two
+        // managers generating the first contract together would otherwise
+        // both read « none yet », both raise one, and the link would keep
+        // only the last — one contract printing the communication of a
+        // receivable the booking no longer points at. Re-entrant, so a
+        // caller already holding the lock (confirmation) simply runs.
+        return $this->paymentRepository->withAssetLocked(
+            $booking->assetId,
+            fn(): ?int => $this->raiseOrReuse($booking, $settings)
+        );
+    }
+
+    /**
+     * `ensureReceivable()`'s body, run under the asset's lock.
+     *
+     * @throws RentalException
+     */
+    private function raiseOrReuse(RentalBooking $booking, PaymentSettings $settings): ?int
+    {
         $existing = $this->paymentRepository->loadBookingPayment($booking->id) ?? [];
         $receivableId = $existing['rental_receivable_id'] ?? null;
         if (is_int($receivableId)) {
@@ -323,6 +342,17 @@ class RentalPaymentService
     ): ?string {
         if (!$this->isAvailable() || !$settings->enabled) {
             return null;
+        }
+
+        // A communication already linked is the one every later version
+        // prints, whatever has happened to the asset's account or category
+        // since: the renter may already have paid against it.
+        $linked = $this->paymentRepository->loadBookingPayment($booking->id);
+        if (($linked['rental_receivable_id'] ?? null) !== null
+            && is_string($linked['rental_communication'] ?? null)
+            && $linked['rental_communication'] !== ''
+        ) {
+            return $linked['rental_communication'];
         }
 
         $refusal = 'Le contrat n\'a pas été généré : un contrat ne part jamais sans la communication '

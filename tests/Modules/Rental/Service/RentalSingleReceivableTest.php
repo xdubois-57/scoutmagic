@@ -35,6 +35,7 @@ use Modules\Rental\Repository\RentalPricingRepository;
 use Modules\Rental\Repository\RentalStayRepository;
 use Modules\Rental\Service\RentalAvailabilityService;
 use Modules\Rental\Service\RentalBookingService;
+use Modules\Rental\Service\RentalException;
 use Modules\Rental\Service\RentalOperationsService;
 use Modules\Rental\Service\RentalPaymentService;
 use Modules\Rental\Service\RentalPricingService;
@@ -477,6 +478,68 @@ class RentalSingleReceivableTest extends TestCase
         $this->assertSame(19600, $status['overpaid_cents']);
         // The agreed price stays the witness of what was negotiated.
         $this->assertSame(66800, $this->reload($booking->id)->effectiveTotalCents());
+    }
+
+    public function testASettlementIsNotValidatedOnABookingAbandonedSince(): void
+    {
+        // The receivable went to 0 with the cancellation; validating a
+        // settlement recorded before it would raise it back.
+        $booking = $this->createBooking();
+        $this->pay($this->firstContract($booking), 818.00);
+        $settlement = $this->stay->recordSettlement($this->reload($booking->id), $this->assetId, null, [], 1);
+        $this->operations->changeStatus(
+            $this->reload($booking->id),
+            BookingStatus::CANCELLED,
+            1,
+            new \DateTimeImmutable('2027-01-25')
+        );
+
+        try {
+            $this->stay->validateSettlement($this->reload($booking->id), $settlement->id, 1);
+            $this->fail('a settlement was validated on a cancelled booking');
+        } catch (RentalException $e) {
+            $this->assertStringContainsString('annulée', $e->getMessage());
+        }
+
+        $this->assertSame(0, $this->paymentStatus($booking)['total_cents']);
+        $this->assertNull($this->stay->latestSettlement($booking->id)?->validatedAt);
+    }
+
+    public function testAnOlderSettlementIsNotValidatedOnceANewerOneIs(): void
+    {
+        // v2 validated: v1's figure is obsolete and must never overwrite
+        // the receivable.
+        $booking = $this->createBooking();
+        $this->pay($this->firstContract($booking), 818.00);
+        $v1 = $this->stay->recordSettlement($this->reload($booking->id), $this->assetId, null, [], 1);
+        $gesture = SettlementLine::gesture(null, 8000);
+        $this->assertNotNull($gesture);
+        $v2 = $this->stay->recordSettlement($this->reload($booking->id), $this->assetId, null, [$gesture], 1);
+        $this->stay->validateSettlement($this->reload($booking->id), $v2->id, 1);
+
+        try {
+            $this->stay->validateSettlement($this->reload($booking->id), $v1->id, 1);
+            $this->fail('an obsolete settlement was validated after a newer one');
+        } catch (RentalException $e) {
+            $this->assertStringContainsString('v2', $e->getMessage());
+        }
+
+        $this->assertSame(58800, $this->paymentStatus($booking)['total_cents']);
+    }
+
+    public function testANewerSettlementIsStillValidatedAfterAnOlderOne(): void
+    {
+        $booking = $this->createBooking();
+        $this->pay($this->firstContract($booking), 818.00);
+        $v1 = $this->stay->recordSettlement($this->reload($booking->id), $this->assetId, null, [], 1);
+        $this->stay->validateSettlement($this->reload($booking->id), $v1->id, 1);
+        $gesture = SettlementLine::gesture(null, 8000);
+        $this->assertNotNull($gesture);
+        $v2 = $this->stay->recordSettlement($this->reload($booking->id), $this->assetId, null, [$gesture], 1);
+
+        $this->stay->validateSettlement($this->reload($booking->id), $v2->id, 1);
+
+        $this->assertSame(58800, $this->paymentStatus($booking)['total_cents']);
     }
 
     public function testRecordingASettlementWithoutValidatingItMovesNothing(): void

@@ -102,6 +102,20 @@ class RentalPaymentRepository
         ]);
     }
 
+    /**
+     * Runs $work holding `$assetId`'s row — the asset lock every writer of
+     * a booking takes (`AssetLock`) — so two requests raising a booking's
+     * receivable at once cannot both read « none yet ».
+     *
+     * @template T
+     * @param callable(): T $work
+     * @return T
+     */
+    public function withAssetLocked(int $assetId, callable $work): mixed
+    {
+        return AssetLock::run($this->pdo, $assetId, $work);
+    }
+
     // ── The booking's single receivable ─────────────────────────────────
 
     /**
