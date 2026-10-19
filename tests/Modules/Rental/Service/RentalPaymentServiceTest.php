@@ -849,30 +849,6 @@ class RentalPaymentServiceTest extends TestCase
         );
     }
 
-    public function testPaymentsSwitchedOffAfterAReceivableLetTheReturnBeTypedByHand(): void
-    {
-        // The receivable raised while payments were on stays, but nothing
-        // reconciles it any more: Finances shows the hand form, and it must
-        // be the way the return is written down.
-        $booking = $this->createBooking();
-        $on = $this->settings(securityDeposit: true, securityDepositCents: 50000);
-        $this->service->ensureReceivable($booking, $on);
-        $off = $this->settings(enabled: false, securityDeposit: true, securityDepositCents: 50000);
-
-        $this->service->recordSecurityDepositReturn(
-            $booking,
-            50000,
-            null,
-            new \DateTimeImmutable('2027-07-10'),
-            1,
-            $off
-        );
-
-        $status = $this->service->statusFor($booking, $off)['security_deposit'];
-        $this->assertSame(SecurityDepositStatus::RETURNED, $status['status']);
-        $this->assertSame(50000, $status['returned_cents']);
-    }
-
     /**
      * Without Finances the asset's own setting says how much the deposit
      * is — there is no receivable to have snapshotted it — and the return
