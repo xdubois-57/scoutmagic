@@ -518,7 +518,7 @@
 
         repaintCells(date, memberId, state);
         refreshDayRow(date);
-        saveOnCall();
+        void saveOnCall();
     }
 
     // Desktop grid: one cell, three states, cycled by clicking.
@@ -670,7 +670,7 @@
             if (!Number.isFinite(page) || page < 1) {
                 return;
             }
-            loadTransitionsPage(page);
+            void loadTransitionsPage(page);
         });
     }
 

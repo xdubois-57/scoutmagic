@@ -67,7 +67,8 @@ describe('calendar-public.js', () => {
         // bootstrap.Modal(...)`, and since Vitest 4 a mock built from an
         // arrow implementation is not constructible.
         window.bootstrap = { Modal: vi.fn(function () { return modalInstance; }) };
-        writeText = vi.fn();
+        // A promise, as the real API always returns: a refusal rejects it.
+        writeText = vi.fn(() => Promise.resolve());
         Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
         Object.defineProperty(window, 'location', {
             configurable: true,
@@ -210,6 +211,18 @@ describe('calendar-public.js', () => {
             const input = document.getElementById('personal-ics-link');
             expect(input.select).toHaveBeenCalled();
             expect(writeText).toHaveBeenCalledWith('https://scoutmagic.be/calendar/feed/personal/abc.ics');
+        });
+
+        it('says so when the browser refuses the copy, pointing at the selected link', async () => {
+            writeText.mockImplementation(() => Promise.reject(new Error('NotAllowedError')));
+            await boot();
+            document.getElementById('copy-personal-link').click();
+            await new Promise((resolve) => setTimeout(resolve, 0));
+
+            expect(window.ScoutMagicToast.show).toHaveBeenCalledWith(
+                'Copie impossible : le lien est sélectionné, copiez-le à la main.',
+                { variant: 'error' }
+            );
         });
 
         it('still selects the field on a browser with no clipboard API', async () => {

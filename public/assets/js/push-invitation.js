@@ -129,9 +129,9 @@
         enableButton.addEventListener('click', function () {
             var api = window.ScoutMagicApi;
             if (api) {
-                api.withDisabled(enableButton, answerByEnabling);
+                void api.withDisabled(enableButton, answerByEnabling);
             } else {
-                answerByEnabling();
+                void answerByEnabling();
             }
         });
     }
@@ -139,7 +139,7 @@
     // « Plus tard », the close cross, Escape and a click on the backdrop
     // all arrive here, and all mean the same thing.
     modal.addEventListener('hidden.bs.modal', function () {
-        settle('later');
+        void settle('later');
     });
 
     if (window.bootstrap) {

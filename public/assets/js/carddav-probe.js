@@ -62,7 +62,7 @@
         button.disabled = true;
         show('text-body-secondary', 'Vérification en cours…');
 
-        Promise.all(METHODS.map(reaches)).then(function (outcomes) {
+        void Promise.all(METHODS.map(reaches)).then(function (outcomes) {
             button.disabled = false;
 
             var blocked = METHODS.filter(function (_method, index) { return !outcomes[index]; });
