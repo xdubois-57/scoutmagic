@@ -49,16 +49,16 @@ final class ShippedFederalScaleTest extends TestCase
     }
 
     /**
-     * The script's own wiring: it must pass the shipped scale, not null —
-     * the comparison is off otherwise and the report only says « not
-     * compared » in a note nobody reads on a green run.
+     * The script's own wiring: it must hand the command the shipped scale,
+     * not nothing — the comparison is off otherwise and the report only says
+     * « not compared » in a note nobody reads on a green run. What the
+     * command then does with it is tested in ExternalSourcesCommandTest.
      */
     public function testTheCheckScriptPassesTheShippedScaleAsItsReference(): void
     {
         $script = (string) file_get_contents(dirname(__DIR__, 4) . '/scripts/check-external-sources.php');
 
         $this->assertStringContainsString('ShippedFederalScale::load()->toFederalScale()', $script);
-        $this->assertStringContainsString('referenceScale: $referenceScale', $script);
         $this->assertStringNotContainsString('referenceScale: null', $script);
     }
 

@@ -137,7 +137,9 @@ enum ReminderKind: string
     {
         return match ($this) {
             self::UNANSWERED_REQUEST => 3,
-            self::HOLD_EXPIRING => 1,
+            // A week (#927, chantier §2.1): a day was too short for a volunteer
+            // team to decide before the dates went back to everybody.
+            self::HOLD_EXPIRING => 7,
             self::DEPOSIT_MISSING, self::BALANCE_MISSING, self::SECURITY_DEPOSIT_MISSING => 0,
             self::CONTRACT_MISSING => 14,
             self::ARRIVAL_INVENTORY, self::DEPARTURE_INVENTORY => 0,

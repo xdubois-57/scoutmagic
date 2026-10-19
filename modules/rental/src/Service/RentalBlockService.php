@@ -26,6 +26,10 @@ use Modules\Rental\Support;
  * the private calendar shows both. What the manager gets instead of a
  * refusal is a **warning naming the bookings involved**, so an accidental
  * overlap is visible rather than hidden.
+ *
+ * **It takes the same lock as every booking writer** (`Repository\AssetLock`,
+ * #927, chantier §2.1), and every booking writer counts the blocks: a
+ * request, an option, a contract or a confirmation never lands on one.
  */
 class RentalBlockService
 {
@@ -60,13 +64,16 @@ class RentalBlockService
             throw new RentalException('La date de fin ne peut pas précéder la date de début.');
         }
 
-        $id = $this->blockRepository->create(
+        // Under the one lock every writer of the asset's occupations takes
+        // (#927, chantier §2.1): a confirmation checking these dates waits
+        // for the block, or the block for it — never both on one snapshot.
+        $id = $this->blockRepository->withAssetLocked($assetId, fn(): int => $this->blockRepository->create(
             $assetId,
             $startDate,
             $endDate,
             self::cleanReason($reason),
             $createdByMemberId
-        );
+        ));
 
         // The reason is written by managers about the asset, never about a
         // person, so it is safe in the journal — which is exactly why the

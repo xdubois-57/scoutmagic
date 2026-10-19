@@ -50,11 +50,17 @@ Dispatch it (GitHub MCP `actions_run_trigger`, or `gh workflow run backlog-proje
 
 | `action`  | Inputs         | Does                                                                           |
 | --------- | -------------- | ------------------------------------------------------------------------------ |
-| `queue`   | —              | Prints the Ready queue between `QUEUE-JSON-BEGIN` and `QUEUE-JSON-END` in the log (and the run summary). |
+| `queue`   | —              | Prints the Ready queue between `QUEUE-JSON-BEGIN` and `QUEUE-JSON-END` in the log (and the run summary), and as the `Ready queue` notice annotation of the job. |
 | `status`  | `issue`        | Prints the Project's view of one issue — how an agent sees a Canceled before arming an auto-merge. |
 | `claim`   | `issue`, `agent` | Ready → In Progress and `Agent`, **only if** the branch `claude/issue-<n>` exists and nobody else is recorded. |
 | `done`    | `issue`, `agent` | → Done, `Agent` cleared, **only if** the issue closed as completed.            |
 | `release` | `issue`, `agent` | An `In Progress` issue goes back to Ready; any other status (Todo, Canceled…) is left as it is — Ready is never written on the maintainer's behalf. `Agent` cleared, only for the holder. |
+
+**Every operation also answers as a `::notice` annotation** of the job's check
+run (`GET /repos/{owner}/{repo}/check-runs/{job_id}/annotations`): the log and
+the run summary are served from a storage host a session without `gh` may not
+reach, and the annotation is the one output the API returns inline (issue
+#912).
 
 None of these is the lock. The lock is the branch `claude/issue-<n>`, created
 atomically through the API; the Project only reports it, and the scripts refuse

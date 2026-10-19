@@ -68,9 +68,21 @@ class RentalSignedContractService
          *
          * @var (\Closure(int): ?string)|null
          */
-        private ?\Closure $trackingToken = null
+        private ?\Closure $trackingToken = null,
+        /**
+         * The asset's lock and its availability check (#927, chantier
+         * §2.1): a copy received holds the dates firmly, a copy refused
+         * holds them a few days more, and both are writes of an occupation.
+         * Null leaves both unguarded — a fixture's shortcut, never a
+         * screen's.
+         */
+        private ?RentalOccupancyGuard $occupancy = null
     ) {
     }
+
+    /** What a renter is told when their dates went to somebody else before their copy arrived. */
+    public const DATES_NO_LONGER_HELD = "Vos dates ne sont plus bloquées pour vous et ne sont plus libres : "
+        . "contactez l'unité avant d'envoyer votre copie signée.";
 
     // ── Where the contract stands ───────────────────────────────────────
 
@@ -143,9 +155,18 @@ class RentalSignedContractService
     /**
      * Why the renter may not send a copy now, in words for them — null
      * when they may.
+     *
+     * Given the asset, it also asks whether the copy could hold the dates
+     * (#927, chantier §2.1): a signed copy holds them firmly, so one sent
+     * after the hold lapsed and somebody else took the week is refused
+     * before its file is stored, rather than handing the same dates to two
+     * renters.
      */
-    public function whyNoCopy(RentalBooking $booking): ?string
-    {
+    public function whyNoCopy(
+        RentalBooking $booking,
+        ?RentalAsset $asset = null,
+        ?\DateTimeImmutable $now = null
+    ): ?string {
         if ($this->finalContract($booking->id) !== null) {
             return 'Votre contrat est déjà signé par les deux parties.';
         }
@@ -154,6 +175,11 @@ class RentalSignedContractService
         }
         if ($booking->status->isAbandoned() || $this->sentContract($booking->id) === null) {
             return "Aucun contrat n'attend votre signature pour le moment.";
+        }
+        if ($asset !== null && $this->occupancy !== null
+            && !$this->occupancy->mayHoldItsDates($booking, $asset, $now ?? new \DateTimeImmutable())
+        ) {
+            return self::DATES_NO_LONGER_HELD;
         }
 
         return null;
@@ -164,34 +190,55 @@ class RentalSignedContractService
     /**
      * Files the copy a renter sent from their page, and tells the managers.
      *
+     * **From this moment the dates are held firmly** (#927, chantier §2.1):
+     * a signed copy not refused is the renter's commitment, and their dates
+     * no longer lapse while the unit checks it. Taking them for good is a
+     * write of an occupation, so it is decided under the asset's lock — the
+     * booking read again, and its dates free of everybody else when its own
+     * hold has lapsed. Nothing changes the status: confirming stays the
+     * unit's decision.
+     *
      * @throws RentalException when no copy is expected now
      */
-    public function receiveCopy(RentalBooking $booking, RentalAsset $asset, int $fileId): RentalDocument
-    {
-        $refusal = $this->whyNoCopy($booking);
-        if ($refusal !== null) {
-            throw new RentalException($refusal);
-        }
+    public function receiveCopy(
+        RentalBooking $booking,
+        RentalAsset $asset,
+        int $fileId,
+        ?\DateTimeImmutable $now = null
+    ): RentalDocument {
+        $now ??= new \DateTimeImmutable();
+        $file = function () use ($booking, $asset, $fileId, $now): int {
+            $current = $this->occupancy?->fresh($booking) ?? $booking;
+            $refusal = $this->whyNoCopy($current, $asset, $now);
+            if ($refusal !== null) {
+                throw new RentalException($refusal);
+            }
 
-        $documentId = $this->documentRepository->create(
-            $booking->id,
-            $fileId,
-            DocumentType::SIGNED_COPY,
-            1,
-            false,
-            null,
-            null
-        );
+            $documentId = $this->documentRepository->create(
+                $current->id,
+                $fileId,
+                DocumentType::SIGNED_COPY,
+                1,
+                false,
+                null,
+                null
+            );
 
-        $this->bookingAudit->record(
-            $booking->id,
-            BookingAudit::STATUS_CHANGED,
-            null,
-            DocumentType::SIGNED_COPY->label(),
-            'Copie signée déposée par le locataire',
-            null
-        );
+            $this->bookingAudit->record(
+                $current->id,
+                BookingAudit::STATUS_CHANGED,
+                null,
+                DocumentType::SIGNED_COPY->label(),
+                'Copie signée déposée par le locataire',
+                null
+            );
 
+            return $documentId;
+        };
+        $documentId = $this->occupancy !== null ? $this->occupancy->onAsset($asset->id, $file) : $file();
+
+        // After the commit: a notification that fails must not take the
+        // copy back with it.
         $this->notifyManagers($booking, $asset);
 
         return $this->documentRepository->findById($documentId)
@@ -226,28 +273,40 @@ class RentalSignedContractService
 
         // Decided and written under the booking's lock: a countersignature
         // of the same copy cannot slip in between the check and the write.
-        $this->documentRepository->withBookingLocked($booking->id, function () use (
-            $booking,
-            $documentId,
-            $reason,
-            $actorMemberId,
-            $now
-        ): void {
-            $copy = $this->pendingCopyOf($booking, $documentId);
-            if (!$this->documentRepository->markRefused($copy->id, $reason, $now)) {
-                // Another manager answered first: one refusal, one e-mail.
-                throw new RentalException('Cette copie a déjà reçu une réponse.');
-            }
+        // Inside the asset's lock, and never around it (Repository\AssetLock):
+        // the refusal ends the firm hold the copy gave and lengthens the
+        // provisional one, which is a write of an occupation (#927, §2.1).
+        $refuse = function () use ($booking, $documentId, $reason, $actorMemberId, $now): void {
+            $this->documentRepository->withBookingLocked($booking->id, function () use (
+                $booking,
+                $documentId,
+                $reason,
+                $actorMemberId,
+                $now
+            ): void {
+                $copy = $this->pendingCopyOf($booking, $documentId);
+                if (!$this->documentRepository->markRefused($copy->id, $reason, $now)) {
+                    // Another manager answered first: one refusal, one e-mail.
+                    throw new RentalException('Cette copie a déjà reçu une réponse.');
+                }
 
-            $this->bookingAudit->record(
-                $booking->id,
-                BookingAudit::STATUS_CHANGED,
-                DocumentType::SIGNED_COPY->label(),
-                'Refusée',
-                'Copie signée refusée',
-                $actorMemberId
-            );
-        });
+                $this->bookingAudit->record(
+                    $booking->id,
+                    BookingAudit::STATUS_CHANGED,
+                    DocumentType::SIGNED_COPY->label(),
+                    'Refusée',
+                    'Copie signée refusée',
+                    $actorMemberId
+                );
+
+                $this->holdAfterRefusal($booking, $actorMemberId, $now);
+            });
+        };
+        if ($this->occupancy !== null) {
+            $this->occupancy->onAsset($asset->id, $refuse);
+        } else {
+            $refuse();
+        }
 
         return $this->mail->sendCopyRefused($booking, $asset, $reason, $this->tokenOf($booking));
     }
@@ -350,6 +409,35 @@ class RentalSignedContractService
     }
 
     // ── Internals ───────────────────────────────────────────────────────
+
+    /**
+     * The renter's copy refused, the dates fall back to a provisional hold
+     * — lasting at least `RentalOccupancyGuard::REFUSED_COPY_GRACE_DAYS`
+     * more, capped at the start of the stay, never shortened (chantier
+     * §2.1): time to send a correct copy, which holds them firmly again.
+     */
+    private function holdAfterRefusal(RentalBooking $booking, ?int $actorMemberId, \DateTimeImmutable $now): void
+    {
+        if ($this->occupancy === null) {
+            return;
+        }
+
+        $current = $this->occupancy->fresh($booking);
+        $before = $current->holdIsActive($now) ? $current->holdUntil : null;
+        $until = $this->occupancy->holdAfterRefusedCopy($current, $now);
+        if ($until === null) {
+            return;
+        }
+
+        $this->bookingAudit->record(
+            $current->id,
+            BookingAudit::HOLD_EXTENDED,
+            $before?->format('d/m/Y H:i'),
+            $until->format('d/m/Y H:i'),
+            'Blocage prolongé après le refus de la copie signée',
+            $actorMemberId
+        );
+    }
 
     /**
      * @throws RentalException

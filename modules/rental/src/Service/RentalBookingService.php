@@ -71,6 +71,15 @@ class RentalBookingService implements OccupancyProvider
      * The caller has already validated the range and verified `HumanCheck` —
      * this method is about persisting a decision, not about deciding.
      *
+     * **Except availability, which is decided again here, under the
+     * asset's lock** (#927, chantier §2.1). The caller's check ran on the
+     * state as it was a moment ago; two visitors sending the same week at
+     * the same second both passed it. `$availableUnderLock` is that check
+     * once more, run inside the transaction that writes, after every other
+     * writer of the asset has let go — the second visitor is told the
+     * dates went, in the calculator's own words. The public form always
+     * passes it; only fixtures building data omit it.
+     *
      * @param array{
      *     name: string,
      *     email: string,
@@ -86,6 +95,8 @@ class RentalBookingService implements OccupancyProvider
      *     privacy_version: ?string,
      *     privacy_text: ?string
      * } $acceptances
+     * @param (callable(): string[])|null $availableUnderLock The French reasons the range cannot be had, asked
+     *     under the asset's lock; empty means free.
      * @return array{booking: RentalBooking, tracking_token: string}
      * @throws RentalException
      */
@@ -100,7 +111,8 @@ class RentalBookingService implements OccupancyProvider
         ?PriceQuote $estimatedPrice,
         array $acceptances,
         \DateTimeImmutable $now,
-        int $automaticHoldDays = self::DEFAULT_AUTOMATIC_HOLD_DAYS
+        int $automaticHoldDays = self::DEFAULT_AUTOMATIC_HOLD_DAYS,
+        ?callable $availableUnderLock = null
     ): array {
         $name = trim($renter['name']);
         $email = trim($renter['email']);
@@ -175,7 +187,25 @@ class RentalBookingService implements OccupancyProvider
             $now
         );
 
-        $created = $this->writeWithFreshReference($write);
+        // Checked and written as one: no other request, option or
+        // confirmation of this asset can land between the two. The lock
+        // itself failing is the driver's business, never the visitor's —
+        // the same sentence as a write that failed.
+        try {
+            $created = $this->bookingRepository->withAssetLocked(
+                $assetId,
+                function () use ($availableUnderLock, $write): array {
+                    $reasons = $availableUnderLock !== null ? $availableUnderLock() : [];
+                    if ($reasons !== []) {
+                        throw new RentalException(implode(' ', $reasons));
+                    }
+
+                    return $this->writeWithFreshReference($write);
+                }
+            );
+        } catch (\PDOException $e) {
+            throw new RentalException(self::SUBMISSION_FAILED, 0, $e);
+        }
 
         $booking = $this->bookingRepository->findById($created['id']);
         if ($booking === null) {
@@ -510,6 +540,7 @@ class RentalBookingService implements OccupancyProvider
      *
      * A booking already confirmed keeps its dates whatever its hold said: it
      * is held by its status now, and clearing the hold is just tidying up.
+     * A booking held firmly by a signed copy is not touched at all.
      *
      * @return array{released: int, expired: int}
      */
@@ -522,6 +553,14 @@ class RentalBookingService implements OccupancyProvider
             if ($booking->status->isFinal() || $booking->status === BookingStatus::CONFIRMED) {
                 // Nothing to decide: just drop the stale deadline.
                 $this->bookingRepository->clearHold($booking->id);
+                continue;
+            }
+
+            // Held firmly by a signed copy (#927, chantier §2.1): never
+            // touched — not released, not expired, its deadline kept for a
+            // refused copy to fall back on. The query already leaves these
+            // out; this is the rule said where it applies.
+            if ($booking->holdsFirmly()) {
                 continue;
             }
 

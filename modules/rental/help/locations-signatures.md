@@ -36,7 +36,8 @@ copie reçue, puis choisissez :
   e-mail, et peut le télécharger depuis sa page de suivi : c'est le seul
   document téléchargeable depuis cette page.
 - **« Refuser la copie »** : écrivez un court motif, 300 caractères au
-  plus. Le locataire le reçoit par e-mail et peut déposer une autre copie.
+  plus. Le locataire le reçoit par e-mail et peut déposer une autre copie ;
+  ses dates restent bloquées au moins trois jours.
 
 Une page ajoutée plutôt qu'une signature posée sur le contrat : sur un
 scan ou une photo, le site ne peut pas savoir où se trouve l'emplacement.

@@ -154,8 +154,9 @@ class RentalRequestController extends AbstractController
 
         try {
             // Said before the file is even stored: a copy nobody expects
-            // must not land on disk first.
-            $refusal = $this->signedContractService->whyNoCopy($booking);
+            // must not land on disk first — nor one whose dates went to
+            // somebody else since the hold lapsed (#927, chantier §2.1).
+            $refusal = $this->signedContractService->whyNoCopy($booking, $asset);
             if ($refusal !== null) {
                 throw new \Modules\Rental\Service\RentalException($refusal);
             }
@@ -350,16 +351,21 @@ class RentalRequestController extends AbstractController
         // Availability and the booking rules are re-checked SERVER-SIDE, on
         // the real current state — never trusted from the form. The calendar
         // the visitor saw may be minutes old, and another request may have
-        // taken the dates since.
-        $errors = $this->availabilityService->validateRange(
+        // taken the dates since. Asked twice: here, so every reason is
+        // listed beside the others, and once more under the asset's lock by
+        // the write itself (#927, chantier §2.1) — two visitors sending the
+        // same week at the same second both pass this one.
+        $validate = fn(): array => $this->availabilityService->validateRange(
             $asset,
             $pricing->billingUnit,
             DateInput::requireFromStorage($arrival, 'the submitted arrival date'),
             DateInput::requireFromStorage($departure, 'the submitted departure date'),
             $units,
             $today,
-            $persons > 0 ? $persons : null
+            $persons > 0 ? $persons : null,
+            now: $now
         );
+        $errors = $validate();
 
         if (!$this->acceptedBox($request, 'accept_conditions')) {
             $errors[] = 'Vous devez accepter les conditions de location.';
@@ -439,7 +445,8 @@ class RentalRequestController extends AbstractController
                     'privacy_text' => $this->privacyText(),
                 ],
                 $now,
-                $this->automaticHoldDays()
+                $this->automaticHoldDays(),
+                $validate
             );
         } catch (RentalException $e) {
             return $this->renderForm($asset, $request, [$e->getMessage()]);

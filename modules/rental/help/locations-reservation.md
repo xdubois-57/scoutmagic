@@ -39,6 +39,12 @@ la demande reste en attente et « Dates bloquées » vous en avertit.
 Poser une **option** bloque les dates jusqu'à une échéance : dépassée,
 la réservation expire. Le formulaire est dans la phase « La demande ».
 
+Une copie signée du contrat que vous n'avez pas refusée bloque les dates
+**fermement** : plus d'échéance, rien ne les libère, sans pour autant
+confirmer la réservation. Refusée, elle les rebloque au moins trois
+jours. Des dates qu'une autre demande bloque encore ne se prennent
+jamais, pas même en confirmant : ni option, ni contrat, ni confirmation.
+
 ### 2. Les détails de la réservation
 
 Qui loue, pour quoi, quand, combien.

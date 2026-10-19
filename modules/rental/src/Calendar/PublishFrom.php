@@ -46,7 +46,11 @@ enum PublishFrom: string
      * Whether this booking is far enough along to be published.
      *
      * A confirmed booking always is, whatever the setting: it is the case
-     * both options agree on.
+     * both options agree on. From the hold, it is published exactly while
+     * it occupies the asset — `RentalBooking::occupiesTheAsset()`, the one
+     * predicate the availability check and the public calendar read too
+     * (#927, chantier §2.1): a running hold, or dates held firmly by a
+     * signed copy.
      */
     public function covers(RentalBooking $booking, \DateTimeImmutable $now): bool
     {
@@ -54,7 +58,7 @@ enum PublishFrom: string
             return true;
         }
 
-        return $this === self::HOLD && $booking->holdIsActive($now);
+        return $this === self::HOLD && $booking->occupiesTheAsset($now);
     }
 
     /** @return self[] */
