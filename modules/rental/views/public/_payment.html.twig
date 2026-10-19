@@ -29,11 +29,15 @@
                     instructions: renter_payment, qr_dialog_id: 'qr-paiement', amount_label: 'À verser',
                 } only %}
             {% endif %}
-            <p class="small text-body-secondary mt-3 mb-0">
-                Utilisez toujours la communication
-                <span class="font-monospace text-nowrap">{{ renter_payment.communication }}</span>, pour
-                l'acompte, le solde et la caution.
-            </p>
+            {# Not to a renter who is owed money: there is nothing for them
+               to pay, and a footnote on how to pay would say otherwise. #}
+            {% if renter_payment.overpaid_cents <= 0 %}
+                <p class="small text-body-secondary mt-3 mb-0" data-renter-payment-communication>
+                    Utilisez toujours la communication
+                    <span class="font-monospace text-nowrap">{{ renter_payment.communication }}</span>, pour
+                    l'acompte, le solde et la caution.
+                </p>
+            {% endif %}
         </div>
     </div>
     {% if renter_payment.overpaid_cents <= 0 and renter_payment.qr_data_uri %}

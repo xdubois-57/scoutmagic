@@ -43,6 +43,18 @@
                     débits non rapprochés de ce compte, d'au plus {{ overpaid|money_cents }}, depuis le
                     {{ refund_since|date_fr }}.
                 </p>
+            {% elseif instructions is null and payment.tracked|default(false) %}
+                {# Payments switched off on the asset after the receivable
+                   was raised: nothing more is asked of the renter — no QR,
+                   no amount, here or on their page — but Finance still
+                   reconciles the communication, and a surplus still reads
+                   « À rembourser » above. #}
+                <p class="small text-body-secondary mb-0" data-finance-payments-off>
+                    Les paiements de ce bien sont désactivés : rien n'est demandé au locataire, ni QR code ni
+                    montant à verser. Les virements portant la communication
+                    <span class="font-monospace text-nowrap">{{ payment.communication }}</span> restent rapprochés
+                    de cette réservation.
+                </p>
             {% elseif instructions is null %}
                 <p class="small text-body-secondary mb-0" data-finance-no-receivable>
                     La communication structurée est créée avec le premier contrat, qui l'imprime : les

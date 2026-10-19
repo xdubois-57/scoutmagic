@@ -15,10 +15,14 @@
   money lands. Each region an action can change is its own
   `data-booking-panel`, refreshed in place by rental-booking.js.
 
-  Without Finances — the module off, or payments off on the asset — the
-  page says the payments are followed outside the site, and the security
-  deposit's return is recorded here by hand: the one case the manual form
-  is still offered (§2.6).
+  A booking Finances follows (`payment.tracked`: a receivable exists and
+  Finance answers for it) always gets the three cards, even with payments
+  switched off on the asset since: Finance still reconciles its
+  communication, so the account — never a hand-typed return — says where
+  the deposit went. Only an untracked booking — the module off, or
+  payments off before any receivable — shows that the payments are
+  followed outside the site, with the deposit's return recorded here by
+  hand (§2.6).
 
   Requires the context of RentalManagementController::financesContext().
 #}
@@ -26,7 +30,7 @@
     {% include '@rental/management/_box_price.html.twig' with { open: true } %}
 
     <div id="{{ boxes.payment.anchor }}">
-        {% if payment.available and payment.enabled %}
+        {% if payment.tracked|default(false) or (payment.available and payment.enabled) %}
             {% include '@rental/management/_finance_summary.html.twig' %}
             {% include '@rental/management/_finance_movements.html.twig' %}
             {% include '@rental/management/_finance_instructions.html.twig' %}

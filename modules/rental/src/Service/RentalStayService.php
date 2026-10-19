@@ -779,7 +779,12 @@ class RentalStayService
             $actorMemberId
         );
 
-        $this->paymentService?->settleAmount($booking, $settlement->keptCents(), $actorMemberId);
+        $this->paymentService?->settleAmount(
+            $booking,
+            $settlement->keptCents(),
+            $actorMemberId,
+            $settlement->securityDepositWithheldCents ?? 0
+        );
     }
 
     /**

@@ -5602,6 +5602,12 @@ class RentalManagementControllerTest extends TestCase
         $this->assertMatchesRegularExpression('/Remboursé\s*<\/dt>\s*<dd[^>]*>\s*250,00/u', $after);
         $this->assertStringContainsString('-250,00 €', $after);
         $this->assertStringContainsString('Manuelle', $after);
+        // In the booking's history as a payment, never as « Prix ».
+        $this->assertSame(1, (int) $this->fetchScalar(
+            'SELECT COUNT(*) FROM entity_changes WHERE entity_type = ? AND entity_id = ? AND field_key = ?',
+            [\Modules\Rental\Audit\BookingAudit::ENTITY_TYPE, $booking->id, \Modules\Rental\Audit\BookingAudit::PAYMENT_RECORDED]
+        ));
+        $this->assertSame('Paiement', \Modules\Rental\Audit\BookingAudit::FIELD_LABELS['payment_recorded']);
         $this->assertSame(0, (int) $this->paymentService->statusFor(
             $booking,
             $this->paymentService->settingsFor($this->assetId)
@@ -5679,6 +5685,53 @@ class RentalManagementControllerTest extends TestCase
         ]);
         $this->assertSame('Restitution de la caution enregistrée.', \Core\Http\FlashMessage::get()['message'] ?? null);
         $this->assertStringNotContainsString('action="/mes-locations/caution"', $this->financesPage($booking));
+    }
+
+    public function testATrackedBookingWithPaymentsSwitchedOffKeepsTheFinancesCards(): void
+    {
+        // Payments switched off on the asset after the receivable was
+        // raised: Finance still reconciles its communication, so the page
+        // stays Finance's — and asks the renter for nothing any more.
+        $this->loginAsManager();
+        $booking = $this->bookingOwedFor(46750, 15000);
+        $this->payOnReceivable($booking, 250.00);
+        $this->paymentService->saveSettings($this->assetId, new \Modules\Rental\Payment\PaymentSettings(
+            enabled: false,
+            financeAccountId: $this->financeAccountId,
+            securityDepositEnabled: true,
+            securityDepositAmountCents: 15000,
+            financeCategoryId: $this->financeCategoryId
+        ));
+
+        $body = $this->financesPage($booking);
+
+        $this->assertStringContainsString('>Résumé<', $body);
+        $this->assertStringContainsString('>Mouvements du compte<', $body);
+        $this->assertStringContainsString('+250,00 €', $body);
+        $this->assertStringContainsString('data-finance-payments-off', $body);
+        $this->assertStringNotContainsString('data-finance-off', $body);
+        $this->assertStringNotContainsString('action="/mes-locations/caution"', $body);
+        $this->assertStringNotContainsString('data:image/png;base64,', $body);
+    }
+
+    public function testAnAssetWithoutADepositAsksForTheBalanceAlone(): void
+    {
+        $this->loginAsManager();
+        $body = $this->financesPage($this->bookingOwedFor(46750));
+
+        $this->assertStringContainsString('<span class="small text-body-secondary d-block">solde</span>', $body);
+        $this->assertStringNotContainsString('caution comprise', $body);
+    }
+
+    public function testABalanceCarryingTheDepositSaysSo(): void
+    {
+        $this->loginAsManager();
+        $body = $this->financesPage($this->bookingOwedFor(46750, 15000));
+
+        $this->assertStringContainsString(
+            '<span class="small text-body-secondary d-block">solde, caution comprise</span>',
+            $body
+        );
     }
 
     public function testTheManualReturnIsRefusedWhileFinancesFollowsTheBooking(): void

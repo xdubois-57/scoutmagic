@@ -293,6 +293,7 @@ class RentalTrackingPaymentTest extends TestCase
         $this->assertStringContainsString('id="qr-paiement"', $body);
         $this->assertStringContainsString('payment-qr.js', $body);
         $this->assertStringContainsString('pour l\'acompte, le solde et la caution', $body);
+        $this->assertStringContainsString('data-renter-payment-communication', $body);
     }
 
     public function testThePaymentBlockWaitsForTheReceivable(): void
@@ -341,5 +342,8 @@ class RentalTrackingPaymentTest extends TestCase
 
         $this->assertStringContainsString('Vous avez versé 250,00 € de plus que le montant attendu', $body);
         $this->assertStringNotContainsString('data:image/png', $body);
+        // Owed money, never told how to pay.
+        $this->assertStringNotContainsString('data-renter-payment-communication', $body);
+        $this->assertStringNotContainsString('Utilisez toujours la communication', $body);
     }
 }

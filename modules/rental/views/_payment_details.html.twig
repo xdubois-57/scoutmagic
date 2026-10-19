@@ -37,7 +37,8 @@
             <strong>{{ instructions.amount_cents|money_cents }}</strong>
             {% if instructions.due_date %}avant le {{ instructions.due_date|date_fr }}{% endif %}
             <span class="small text-body-secondary d-block">
-                {{ instructions.stage == 'deposit' ? 'acompte' : 'solde, caution comprise' }}
+                {{- instructions.stage == 'deposit' ? 'acompte'
+                    : 'solde' ~ (instructions.includes_security_deposit|default(false) ? ', caution comprise' : '') -}}
             </span>
         </dd>
     </dl>

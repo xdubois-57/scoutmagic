@@ -454,10 +454,24 @@ class RentalPaymentService
      * shows as an overpayment. The booking's agreed price is not touched:
      * the settlement sits beside it.
      *
+     * $withheldCents is what that settlement keeps of the security deposit.
+     * Stored on the booking, it is how statusFor() knows the settlement
+     * was validated and what the deposit's end is once nothing is owed
+     * back: kept whole, kept in part, or given back (chantier #927, §2.6).
+     * Null — a caller that does not say — stores nothing.
+     *
      * Never throws, for the reason `abandonAmount()` gives.
      */
-    public function settleAmount(RentalBooking $booking, int $keptCents, ?int $actorMemberId = null): void
-    {
+    public function settleAmount(
+        RentalBooking $booking,
+        int $keptCents,
+        ?int $actorMemberId = null,
+        ?int $withheldCents = null
+    ): void {
+        if ($withheldCents !== null && $this->receivableIdOf($booking) !== null) {
+            $this->paymentRepository->recordSettledWithholding($booking->id, max(0, $withheldCents));
+        }
+
         $this->bringTo(
             $booking,
             max(0, $keptCents),
@@ -571,18 +585,32 @@ class RentalPaymentService
             ? $standing->amountOverpaidCents
             : ($totalCents !== null ? max(0, $receivedCents - $totalCents) : 0);
 
-        // « Restituée » is DERIVED from the account as well (§2.6): the
-        // deposit was held, the receivable no longer asks for it (a
-        // validated settlement, an abandoned booking), a refund went out
-        // and nothing is owed back any more. Never before that — a renter
-        // who paid ten euros too much and got them back has not been given
-        // their deposit back.
-        if ($standing !== null && $depositStatus->isHeld()
-            && $refundedCents > 0 && $overpaidCents === 0
-            && $rentalCents !== null && $securityAmountCents !== null
-            && $standing->amountDueCents < $rentalCents + $securityAmountCents
+        // The deposit's end is DERIVED from the account as well (§2.6),
+        // once it was held and nothing is owed back any more. After a
+        // validated settlement — whose withholding settleAmount() stored —
+        // it is what that settlement kept: the whole deposit (no refund is
+        // due at all), part of it with the rest refunded, or none with all
+        // of it refunded. Without a settlement — an abandoned booking — a
+        // refund on a receivable that no longer asks for the deposit gives
+        // it back. Never before either: a renter who paid ten euros too
+        // much and got them back has not been given their deposit back.
+        $derivedReturnedCents = null;
+        $settledWithheld = $payment['security_deposit_withheld_cents'] ?? null;
+        if ($standing !== null && $depositStatus->isHeld() && $overpaidCents === 0
+            && $securityAmountCents !== null && $securityAmountCents > 0
         ) {
-            $depositStatus = SecurityDepositStatus::RETURNED;
+            if (is_int($settledWithheld)) {
+                $withheld = min($settledWithheld, $securityAmountCents);
+                if ($withheld >= $securityAmountCents || $refundedCents > 0) {
+                    $derivedReturnedCents = $securityAmountCents - $withheld;
+                    $depositStatus = SecurityDepositStatus::afterReturn($securityAmountCents, $derivedReturnedCents);
+                }
+            } elseif ($refundedCents > 0 && $rentalCents !== null
+                && $standing->amountDueCents < $rentalCents + $securityAmountCents
+            ) {
+                $derivedReturnedCents = $securityAmountCents;
+                $depositStatus = SecurityDepositStatus::RETURNED;
+            }
         }
         $depositHeld = $depositStatus->isHeld() || $depositStatus->isSettled();
 
@@ -622,7 +650,7 @@ class RentalPaymentService
                 // never an allocation of the receipts between two debts.
                 'received_cents' => $depositHeld ? (int) ($securityAmountCents ?? 0) : 0,
                 'due_date' => $securityAmountCents !== null ? $balanceDueDate : null,
-                'returned_cents' => $payment['security_deposit_returned_cents'] ?? null,
+                'returned_cents' => $derivedReturnedCents ?? ($payment['security_deposit_returned_cents'] ?? null),
                 'withheld_cents' => $payment['security_deposit_withheld_cents'] ?? null,
                 'returned_at' => $payment['security_deposit_returned_at'] ?? null,
                 'note' => $payment['security_deposit_note'] ?? null,
@@ -665,7 +693,8 @@ class RentalPaymentService
      *   the caller already has it
      * @return array{
      *   communication: string, beneficiary: ?string, iban: ?string,
-     *   amount_cents: int, stage: ?string, due_date: ?string, qr_data_uri: ?string, overpaid_cents: int
+     *   amount_cents: int, stage: ?string, due_date: ?string, qr_data_uri: ?string, overpaid_cents: int,
+     *   includes_security_deposit: bool
      * }|null
      */
     public function paymentInstructions(
@@ -784,7 +813,7 @@ class RentalPaymentService
 
         $this->bookingAudit->record(
             $booking->id,
-            BookingAudit::PRICE_CHANGED,
+            BookingAudit::PAYMENT_RECORDED,
             null,
             null,
             'Remboursement rapproché dans les Finances',
@@ -1032,7 +1061,8 @@ class RentalPaymentService
      * @param array<string, mixed> $status
      * @return array{
      *   communication: string, beneficiary: ?string, iban: ?string,
-     *   amount_cents: int, stage: ?string, due_date: ?string, qr_png: ?string, overpaid_cents: int
+     *   amount_cents: int, stage: ?string, due_date: ?string, qr_png: ?string, overpaid_cents: int,
+     *   includes_security_deposit: bool
      * }|null
      */
     private function instructionsFrom(RentalBooking $booking, PaymentSettings $settings, array $status): ?array
@@ -1086,6 +1116,10 @@ class RentalPaymentService
             'due_date' => is_string($dueDate) ? $dueDate : null,
             'qr_png' => $png,
             'overpaid_cents' => (int) ($status['overpaid_cents'] ?? 0),
+            // Whether the amount asked for carries a security deposit, so
+            // « caution comprise » is said only where it is true.
+            'includes_security_deposit' => is_int($status['security_deposit']['amount_cents'] ?? null)
+                && $status['security_deposit']['amount_cents'] > 0,
         ];
     }
 

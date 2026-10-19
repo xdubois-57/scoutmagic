@@ -849,6 +849,38 @@ class RentalPaymentServiceTest extends TestCase
         );
     }
 
+    public function testPaymentsSwitchedOffAfterAReceivableStillRefuseTheReturnTypedByHand(): void
+    {
+        // The receivable raised while payments were on stays, and Finance
+        // still reconciles its communication whatever the asset's setting:
+        // the booking is still followed, and the account — not a typed
+        // return — says where the deposit went.
+        $booking = $this->createBooking();
+        $on = $this->settings(securityDeposit: true, securityDepositCents: 50000);
+        $this->service->ensureReceivable($booking, $on);
+        $off = $this->settings(enabled: false, securityDeposit: true, securityDepositCents: 50000);
+
+        try {
+            $this->service->recordSecurityDepositReturn(
+                $booking,
+                50000,
+                null,
+                new \DateTimeImmutable('2027-07-10'),
+                1,
+                $off
+            );
+            $this->fail('A return was typed by hand on a booking Finances still follows.');
+        } catch (RentalException $e) {
+            $this->assertStringContainsString('virement', $e->getMessage());
+        }
+
+        $status = $this->service->statusFor($booking, $off);
+        $this->assertTrue($status['tracked']);
+        $this->assertNull($status['security_deposit']['returned_cents']);
+        // Nothing more is asked of the renter: no amount, no QR.
+        $this->assertNull($this->service->paymentInstructions($booking, $off));
+    }
+
     /**
      * Without Finances the asset's own setting says how much the deposit
      * is — there is no receivable to have snapshotted it — and the return

@@ -198,6 +198,24 @@ class RentalPaymentRepository
     }
 
     /**
+     * What a validated final settlement keeps of the security deposit, on
+     * a booking whose receivable Finances follows (chantier #927, §2.6) —
+     * the status is left alone: the deposit's end is derived from the
+     * account once nothing is owed back (RentalPaymentService::statusFor()).
+     */
+    public function recordSettledWithholding(int $bookingId, int $withheldCents): void
+    {
+        $stmt = $this->pdo->prepare(
+            'UPDATE rental_bookings SET security_deposit_withheld_cents = ?, updated_at = ? WHERE id = ?'
+        );
+        $stmt->execute([
+            $withheldCents,
+            (new \DateTimeImmutable())->format('Y-m-d H:i:s'),
+            $bookingId,
+        ]);
+    }
+
+    /**
      * Records a return, by hand — Finance reconciles incoming transfers,
      * not outgoing ones, so nothing can detect this from a bank statement
      * (§6.20).

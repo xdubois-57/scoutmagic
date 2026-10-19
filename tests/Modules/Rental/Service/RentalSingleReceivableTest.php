@@ -613,6 +613,8 @@ class RentalSingleReceivableTest extends TestCase
             $status['security_deposit']['status']
         );
         $this->assertTrue($this->depositReturnedLine($booking));
+        $this->assertSame(15000, $status['security_deposit']['returned_cents']);
+        $this->assertSame(0, $status['security_deposit']['withheld_cents']);
 
         $movements = $this->payments->movementsFor($this->reload($booking->id));
         $this->assertCount(2, $movements);
@@ -621,6 +623,71 @@ class RentalSingleReceivableTest extends TestCase
         $this->assertSame(66800, $movements[0]->amountCents);
         $this->assertSame(-15000, $movements[1]->amountCents);
         $this->assertTrue($movements[1]->isRefund());
+    }
+
+    /** The settlement validated on the booking, withholding $withheldCents of the deposit. */
+    private function settleWithholding(RentalBooking $booking, int $withheldCents): void
+    {
+        $incident = $this->stay->reportIncident($this->reload($booking->id), 'Dégâts', $withheldCents, null, 1);
+        $this->stay->decideIncident(
+            $this->reload($booking->id),
+            $incident,
+            IncidentDecision::WITHHOLD,
+            $withheldCents,
+            1
+        );
+        $settlement = $this->stay->recordSettlement($this->reload($booking->id), $this->assetId, null, [], 1);
+        $this->stay->validateSettlement($this->reload($booking->id), $settlement->id, 1);
+    }
+
+    public function testADepositKeptWholeIsSettledWithoutAnyRefund(): void
+    {
+        // 150 € withheld out of 150 €: the settlement keeps 818 €, nothing
+        // is owed back, and no refund will ever come to tick the step.
+        $booking = $this->createBooking();
+        $this->pay($this->firstContract($booking), 818.00);
+        $this->settleWithholding($booking, 15000);
+
+        $status = $this->paymentStatus($booking);
+        $this->assertSame(0, $status['overpaid_cents']);
+        $this->assertSame(0, $status['refunded_cents']);
+        $this->assertSame(
+            \Modules\Rental\Payment\SecurityDepositStatus::FULLY_WITHHELD,
+            $status['security_deposit']['status']
+        );
+        $this->assertSame(15000, $status['security_deposit']['withheld_cents']);
+        $this->assertSame(0, $status['security_deposit']['returned_cents']);
+        $this->assertTrue($this->depositReturnedLine($booking));
+    }
+
+    public function testADepositKeptInPartIsPartlyWithheldOnceTheRestIsRefunded(): void
+    {
+        // 34 € withheld: 116 € owed back, and only once they went back is
+        // the deposit's life over — partly withheld, not « restituée ».
+        $booking = $this->createBooking();
+        $communication = $this->firstContract($booking);
+        $this->pay($communication, 818.00);
+        $this->settleWithholding($booking, 3400);
+
+        $before = $this->paymentStatus($booking);
+        $this->assertSame(11600, $before['overpaid_cents']);
+        $this->assertSame(
+            \Modules\Rental\Payment\SecurityDepositStatus::RECEIVED,
+            $before['security_deposit']['status']
+        );
+        $this->assertFalse($this->depositReturnedLine($booking));
+
+        $this->refund(116.00, 'Remboursement caution ' . $communication);
+
+        $status = $this->paymentStatus($booking);
+        $this->assertSame(0, $status['overpaid_cents']);
+        $this->assertSame(
+            \Modules\Rental\Payment\SecurityDepositStatus::PARTIALLY_WITHHELD,
+            $status['security_deposit']['status']
+        );
+        $this->assertSame(3400, $status['security_deposit']['withheld_cents']);
+        $this->assertSame(11600, $status['security_deposit']['returned_cents']);
+        $this->assertTrue($this->depositReturnedLine($booking));
     }
 
     public function testTenEurosPaidTooMuchAndGivenBackAreNotTheDepositGoingBack(): void
@@ -730,6 +797,7 @@ class RentalSingleReceivableTest extends TestCase
         $this->assertNotNull($balance);
         $this->assertSame(56800, $balance['amount_cents']);
         $this->assertSame('balance', $balance['stage']);
+        $this->assertTrue($balance['includes_security_deposit']);
         // 14 days before the arrival, the security deposit with it.
         $this->assertSame('2027-02-26', $balance['due_date']);
 
