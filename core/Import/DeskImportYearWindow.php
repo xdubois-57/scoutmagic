@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Core\Import;
 
+use Core\Service\DateInput;
+
 /**
  * What {@see DeskImportYearPolicy} allows today: the years a Desk import
  * may target, newest first, and the one the import page proposes.
@@ -91,8 +93,11 @@ final class DeskImportYearWindow
      */
     public function eveOfEncodingDayMonth(): string
     {
-        $encoding = \DateTimeImmutable::createFromFormat('!Y-m-d', $this->encodingDate);
-        if ($encoding === false) {
+        // Not exact: a 02-29 in a year without one is the 1 March, whose
+        // eve is the 28th — the last day before the string comparison of
+        // DeskImportYearPolicy closes the window.
+        $encoding = DateInput::parse('Y-m-d', $this->encodingDate, false);
+        if ($encoding === null) {
             return '';
         }
 
