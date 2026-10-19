@@ -542,6 +542,13 @@ helpers; a page-level primary action that happens to call an AI
   - An action driven from JavaScript cannot use the attribute — the
     handler delegates from a `<form>` — so it asks with
     `window.ScoutMagicConfirm.ask()` instead. Same rule, same wording.
+  - One deliberate exception to « leaving a preview or a mode » above:
+    the step buttons of « Année scoute » that act at once — preview,
+    leave the preview, activate or deactivate the target year for the
+    staffs — ask with `window.ScoutMagicConfirm.ask()`, saying the
+    consequence and that no e-mail is sent
+    (`docs/chantiers/CHANTIER-annee-scoute.md` §2.8). The step's disc
+    keeps the no-dialog rule (§7.15).
   - Held by `UxConventionsTest::testEveryDestructivePostFormAsksFirst()`
     for the first list and `testNoUndoAsksForConfirmation()` for the
     second. Its allowlist is NOT the exceptions above — those never match
@@ -1313,3 +1320,32 @@ du navigateur n'est pas une erreur : la fenêtre reste ouverte sur son
 explication, en avertissement et non en rouge, parce que rien n'est cassé
 et qu'il n'y a rien à réessayer — seuls les réglages du navigateur
 peuvent revenir dessus.
+
+### 7.15 A step marked by clicking its disc
+
+A workflow step that only a person can declare done (the human steps of
+« Année scoute », `admin/scout_year/_step.html.twig`) is marked by its
+**numbered disc and nothing else**: no checkbox beside it, no « Marquer
+comme faite » / « Remettre à faire » button. One click marks the step,
+one click on the green disc puts it back.
+
+- The disc is a `<button type="submit">` (`.step-disc-button` around the
+  `.step-circle`) in a form of its own, so it works without JavaScript.
+  It carries `aria-pressed` (the step's state) and an `aria-label` /
+  `title` naming the **effect** of the click — « Cliquer pour marquer comme
+  faite », « Étape faite — cliquer pour la remettre à faire » — never just
+  the number it shows.
+- **No confirmation.** The gesture is undone by the same gesture
+  (§7.5, « What does not »); a dialog on it would teach the reader to
+  dismiss the ones that matter.
+- The request states the wanted state (`done: true|false`), never
+  « toggle », so a double click or a second tab can only restate it.
+  While it runs the disc is disabled and marked busy; on failure a toast
+  `error` says nothing changed and the disc keeps its state.
+- A disc the site decides (an observed step) is a picture, not a button:
+  drawn with a dotted ring (`.step-circle--observed`), with no control.
+
+The rental journey's discs (`modules/rental/views/management/
+_journey_steps.html.twig`) predate this rule and ask first, because there
+a tick stops the site from checking the step ever again; that is the
+exception, and the reason is written there.

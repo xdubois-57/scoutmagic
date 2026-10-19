@@ -1,0 +1,86 @@
+{#
+ One step of the Année scoute workflow on the page (CHANTIER-annee-scoute.md §2.8):
+ the disc, the title, its state, the real blocks, ONE action — the most
+ relevant one for the step's state, chosen by its check — and « Détails »,
+ which opens the dialog holding everything else
+ (admin/scout_year/_step_details.html.twig).
+
+ The disc of a HUMAN step is the only control that marks it: a submit
+ button of its own form, whose `done` field is explicit (never « toggle »),
+ with aria-pressed and a name saying what a click does. No dialog — a
+ click on the green disc undoes it (design.md §7.15). An OBSERVED step's
+ disc is a picture: the site decides, nobody marks it.
+
+ The <li> holding it is written by _state.html.twig, around the include, so
+ the list item never sits outside its <ol>.
+
+ Context: step (Core\ScoutYear\Step\TransitionStep), is_current (its one
+ action is then the page's primary button).
+#}
+{% set disc_label = step.done
+    ? 'Étape faite — cliquer pour la remettre à faire'
+    : 'Cliquer pour marquer comme faite' %}
+    <div class="step-item__marker flex-shrink-0">
+        {% if step.human %}
+        <form method="post" action="/admin/scout-year/step" class="js-step-mark">
+            {{ csrf_field()|raw }}
+            <input type="hidden" name="step_key" value="{{ step.key }}">
+            <input type="hidden" name="done" value="{{ step.done ? '0' : '1' }}">
+            <button type="submit" class="step-disc-button" aria-pressed="{{ step.done ? 'true' : 'false' }}"
+                    aria-label="Étape {{ step.number }} : {{ disc_label }}" title="{{ disc_label }}"
+                    data-focus-key="mark:{{ step.key }}">
+                <span class="step-circle {{ step.done ? 'step-circle--done' : 'step-circle--pending' }}" aria-hidden="true">
+                    {% if step.done %}<i class="bi bi-check-lg"></i>{% else %}{{ step.number }}{% endif %}
+                </span>
+            </button>
+        </form>
+        {% else %}
+        <span class="step-circle step-circle--observed {{ step.done ? 'step-circle--done' : 'step-circle--pending' }}"
+              title="Constaté par le site" aria-hidden="true">
+            {% if step.done %}<i class="bi bi-check-lg"></i>{% else %}{{ step.number }}{% endif %}
+        </span>
+        {% endif %}
+    </div>
+    <div class="flex-grow-1 pt-1" style="min-width: 0;">
+        <div class="d-flex flex-wrap align-items-center gap-2">
+            <span class="fw-semibold {{ step.done ? 'text-success-emphasis' : '' }}">{{ step.number }}. {{ step.title }}</span>
+            {% include 'partials/status_badge.html.twig' with {
+                status: step.done ? 'done' : (step.blocked ? 'blocked' : 'neutral'),
+                label: step.state.label,
+            } only %}
+            {% if step.pointsToCheckCount > 0 %}
+                {% include 'partials/status_badge.html.twig' with {
+                    status: 'pending',
+                    label: step.pointsToCheckCount ~ ' à vérifier',
+                } only %}
+            {% endif %}
+            <span class="badge bg-body-tertiary text-body-secondary border fw-normal">{{ step.nature.label }}</span>
+        </div>
+
+        {% if step.blockReason %}
+        <div class="alert alert-danger d-flex align-items-start gap-2 py-2 px-3 mt-2 mb-0" role="alert">
+            <i class="bi bi-x-octagon-fill mt-1" aria-hidden="true"></i>
+            <div class="small">{{ step.blockReason }}</div>
+        </div>
+        {% endif %}
+        {% if step.markRefusal and not step.done %}
+        <div class="alert alert-danger d-flex align-items-start gap-2 py-2 px-3 mt-2 mb-0" role="alert">
+            <i class="bi bi-x-octagon-fill mt-1" aria-hidden="true"></i>
+            <div class="small">{{ step.markRefusal }}</div>
+        </div>
+        {% endif %}
+
+        <div class="d-flex flex-wrap align-items-center gap-2 mt-2">
+            {% if step.primaryAction %}
+                {% include 'admin/scout_year/_action.html.twig' with {
+                    action: step.primaryAction,
+                    place: 'page',
+                    variant: is_current ? 'btn-primary' : 'btn-outline-secondary',
+                } only %}
+            {% endif %}
+            <button type="button" class="btn btn-link btn-sm px-1" data-bs-toggle="modal"
+                    data-bs-target="#step-details-{{ step.key }}" data-focus-key="details:{{ step.key }}">
+                Détails<span class="visually-hidden"> de l'étape {{ step.number }}</span>
+            </button>
+        </div>
+    </div>

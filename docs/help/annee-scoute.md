@@ -21,9 +21,9 @@ bouton vers la bonne page.
 Vous pouvez agir à tout moment sur n'importe quelle étape ; les dates
 affichées sont des repères pour les étapes. La date d'encodage Desk
 décide en plus des années importables (voir « Quelle année scoute
-importer, et quand »). Certaines étapes se cochent à la
-main (« Marquer cette étape comme faite » — la page retient qui et
-quand) ; d'autres, le site les constate lui-même : un import réalisé,
+importer, et quand »). Certaines étapes se marquent à la
+main, d'un clic sur leur rond numéroté (« Cliquer pour marquer comme
+faite » — la page retient qui et quand) ; d'autres, le site les constate lui-même : un import réalisé,
 une année activée, des photos de staff complètes. Les étapes d'une
 fonction désactivée disparaissent simplement de la liste.
 

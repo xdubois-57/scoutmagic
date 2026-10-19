@@ -1,0 +1,103 @@
+{#
+ The review before the switch for everyone (CHANTIER-annee-scoute.md §2.9): « {public}
+ → {cible} » in large, the real blockers with the link that resolves each
+ one, the points to check (which never stop the switch), the steps not
+ done, and the steps done, folded away.
+
+ Only a display: the confirmation posts to /admin/scout-year/activate-public,
+ where ScoutYearAdminService::activatePublicYear() checks everything again.
+ Its button is disabled while a blocker is listed — the same list the
+ server refuses on (ActivatePublicStepCheck reads publicActivationBlockers()).
+
+ Context: workflow, step (the « activate_public » TransitionStep, not done),
+ public_year, target_year.
+#}
+{% set switch = step.actions|filter(a => a.post)|first %}
+{% set blockers = step.details.blockers|default([]) %}
+{% set others = workflow.steps|filter(s => s.key != step.key) %}
+{% set not_done = others|filter(s => not s.done) %}
+{% set done = others|filter(s => s.done) %}
+{% embed 'partials/modal.html.twig' with {
+    id: 'scout-year-review',
+    title: switch ? switch.confirmTitle : step.title,
+    scrollable: true,
+    switch: switch,
+    blockers: blockers,
+    workflow: workflow,
+    not_done: not_done,
+    done: done,
+    step: step,
+    public_year: public_year,
+    target_year: target_year,
+} only %}
+    {% block body %}
+        <div class="d-flex flex-wrap align-items-center justify-content-center gap-3 fs-4 fw-bold border border-2 border-primary rounded p-2 mb-1" data-review-switch>
+            <span>{{ public_year.label }}</span>
+            <span class="text-primary" aria-hidden="true">→</span>
+            <span class="visually-hidden">vers</span>
+            <span>{{ target_year.label }}</span>
+        </div>
+        <p class="small text-body-secondary text-center">
+            Année publique actuelle → année cible.
+            {% if switch %}{{ switch.confirmMessage }}{% endif %}
+        </p>
+
+        {% if blockers is not empty %}
+        <div class="alert alert-danger" role="alert" data-review-blockers>
+            <p class="fw-semibold mb-1">Bascule impossible pour l'instant</p>
+            <ul class="mb-0">
+                {% for blocker in blockers %}
+                {% set resolution_url = blocker.resolutionUrl(step.targetYearId) %}
+                <li>
+                    {{ blocker.message(target_year.label) }}
+                    {% if resolution_url %}<a href="{{ resolution_url }}">{{ blocker.resolutionLabel(target_year.label) }}</a>{% endif %}
+                </li>
+                {% endfor %}
+            </ul>
+        </div>
+        {% endif %}
+
+        {% set checks = [] %}
+        {% for s in workflow.steps %}
+            {% for point in s.pointsToCheck %}
+                {% set checks = checks|merge([s.number ~ '. ' ~ point]) %}
+            {% endfor %}
+        {% endfor %}
+        <div class="mb-3">
+            <p class="fw-semibold mb-1">
+                À vérifier ({{ checks|length }})
+                <span class="small fw-normal text-body-secondary">— n'empêche pas la bascule</span>
+            </p>
+            <ul class="small mb-0">
+                {% for check in checks %}<li>{{ check }}</li>{% else %}<li>Rien</li>{% endfor %}
+            </ul>
+        </div>
+
+        <div class="mb-3">
+            <p class="fw-semibold mb-1">Étapes non faites ({{ not_done|length }})</p>
+            <ul class="small mb-0">
+                {% for s in not_done %}<li>{{ s.number }}. {{ s.title }}</li>{% else %}<li>Aucune</li>{% endfor %}
+            </ul>
+        </div>
+
+        <details>
+            <summary class="text-primary">Étapes faites ({{ done|length }})</summary>
+            <ul class="small mb-0 mt-1">
+                {% for s in done %}<li>{{ s.number }}. {{ s.title }}</li>{% else %}<li>Aucune</li>{% endfor %}
+            </ul>
+        </details>
+    {% endblock %}
+    {% block footer %}
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Annuler</button>
+        {% if switch %}
+        <form method="post" action="{{ switch.url }}" class="js-step-action">
+            {{ csrf_field()|raw }}
+            {% for name, value in switch.fields %}
+                <input type="hidden" name="{{ name }}" value="{{ value }}">
+            {% endfor %}
+            <button type="submit" class="btn btn-primary" data-focus-key="review:{{ switch.id }}"
+                    {{ blockers is not empty or switch.disabled ? 'disabled' : '' }}>{{ switch.label }}</button>
+        </form>
+        {% endif %}
+    {% endblock %}
+{% endembed %}

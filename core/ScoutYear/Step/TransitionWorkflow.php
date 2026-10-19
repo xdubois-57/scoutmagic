@@ -24,7 +24,13 @@ final class TransitionWorkflow
         public readonly array $phases,
         public readonly array $steps,
         public readonly string $deskEncodingDate,
-        public readonly ?PublicYearSwitch $lastPublicSwitch
+        public readonly ?PublicYearSwitch $lastPublicSwitch,
+        /**
+         * The two stored Desk dates did not hold together and both
+         * defaults apply (DeskImportYearDates::fromSettings()) — said on
+         * the page, as on the import page, never applied in silence.
+         */
+        public readonly bool $deskDatesFellBack = false
     ) {
     }
 

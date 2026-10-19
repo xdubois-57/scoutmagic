@@ -245,7 +245,8 @@ class ScoutYearTransitionService
             $this->phases($steps, $context, $deskDate),
             $steps,
             $deskDate,
-            $this->lastPublicSwitch()
+            $this->lastPublicSwitch(),
+            DeskImportYearDates::fromSettings($this->settingService)->fellBack
         );
     }
 
@@ -370,7 +371,8 @@ class ScoutYearTransitionService
         return match ($key) {
             'departures' => [
                 'title' => "Départs de l'unité",
-                'description' => "Chaque staff indique, sur la page Départs de l'unité, les animés de sa section qui ne "
+                'description' => "Chaque staff indique, sur la page Départs de l'unité, les animés de sa "
+                    . "section qui ne "
                     . "reviendront pas en {$target}. Le repérage se remet à zéro tout seul au prochain import Desk.",
             ],
             'passage' => [
@@ -385,7 +387,8 @@ class ScoutYearTransitionService
             ],
             'desk_staff' => [
                 'title' => 'Encoder les nouveaux staffs dans Desk',
-                'description' => "Dans Desk, encodez les animateurs et animatrices qui rejoignent l'unité en {$target}, "
+                'description' => "Dans Desk, encodez les animateurs et animatrices qui rejoignent l'unité en "
+                    . "{$target}, "
                     . 'ainsi que les changements de staff. Cette étape se passe hors du site.',
             ],
             'desk_members' => [
@@ -395,8 +398,8 @@ class ScoutYearTransitionService
             ],
             'import' => [
                 'title' => "Importer les données Desk pour {$target}",
-                'description' => "Importez le fichier CSV Desk de {$target} depuis la page « Import Desk ». Les membres "
-                    . "de {$target} deviennent alors disponibles.",
+                'description' => "Importez le fichier CSV Desk de {$target} depuis la page « Import Desk ». "
+                    . "Les membres de {$target} deviennent alors disponibles.",
             ],
             'fees' => [
                 'title' => "Vérifier les cotisations de {$target}",
@@ -409,8 +412,8 @@ class ScoutYearTransitionService
             ],
             'activate_staff' => [
                 'title' => "Activer {$target} pour les staffs",
-                'description' => "Les animateurs et intendants verront {$target} dès leur prochaine connexion, tandis que "
-                    . "les animés et les visiteurs restent sur l'année courante ({$public}).",
+                'description' => "Les animateurs et intendants verront {$target} dès leur prochaine "
+                    . "connexion, tandis que les animés et les visiteurs restent sur l'année courante ({$public}).",
             ],
             'ephemerides' => [
                 'title' => "Éphémérides de l'année",
@@ -419,7 +422,8 @@ class ScoutYearTransitionService
             ],
             'badges' => [
                 'title' => 'Attribuer les badges',
-                'description' => "Attribuez les badges de {$target} (trésorier·e, infirmier·e, référent·e·s…) depuis la "
+                'description' => "Attribuez les badges de {$target} (trésorier·e, infirmier·e, "
+                    . "référent·e·s…) depuis la "
                     . 'page Staffs et badges.',
             ],
             'trombinoscope' => [
@@ -501,7 +505,8 @@ class ScoutYearTransitionService
         $context = is_array($context) ? $context : [];
 
         $toLabel = $this->yearLabel($context['new_year_label'] ?? null, $context['new_year_id'] ?? null);
-        $switchedAt = DateInput::fromStorage(is_string($row['logged_at'] ?? null) ? $row['logged_at'] : null, AppClock::zone());
+        $loggedAt = is_string($row['logged_at'] ?? null) ? $row['logged_at'] : null;
+        $switchedAt = DateInput::fromStorage($loggedAt, AppClock::zone());
         if ($toLabel === null || $switchedAt === null) {
             return null;
         }

@@ -7,6 +7,7 @@ namespace Tests\Core\Http\Controller;
 use Core\Config\ScoutYearService;
 use Core\Config\SettingRepository;
 use Core\Config\SettingService;
+use Core\Import\DeskImportYearDates;
 use Core\Http\Controller\ScoutYearController;
 use Core\Http\Request;
 use Core\Import\ImportJournalRepository;
@@ -23,6 +24,7 @@ use Modules\Registration\Api\ScoutYearTransitionVetoProvider;
 use PHPUnit\Framework\TestCase;
 use Tests\Core\ScoutYear\TransitionServiceFactory;
 use Tests\DatabaseTestHelper;
+use Tests\RequestWithInput;
 use Tests\TestTwig;
 
 /**
@@ -133,6 +135,38 @@ class ScoutYearControllerTest extends TestCase
         $this->assertNull(ScoutYearSession::getPreviewId());
     }
 
+    /**
+     * The banner's « Revenir » goes back where it came from — but the
+     * Referer is a header anybody can set, so only its path is kept and a
+     * foreign host never becomes the redirect target.
+     */
+    public function testClearPreviewNeverRedirectsOffTheSite(): void
+    {
+        ScoutYearSession::setPreview($this->yearB);
+
+        $request = new Request(
+            'POST',
+            '/admin/scout-year/clear-preview',
+            [],
+            ['_csrf_token' => $this->token],
+            [],
+            ['HTTP_REFERER' => 'https://evil.example/phish?x=1']
+        );
+        $response = $this->controller->clearPreview($request, []);
+
+        $this->assertSame('/phish?x=1', $response->getHeaders()['Location'] ?? null);
+
+        $local = new Request(
+            'POST',
+            '/admin/scout-year/clear-preview',
+            [],
+            ['_csrf_token' => $this->token],
+            [],
+            ['HTTP_REFERER' => 'https://site.example/chefs/membres?section=2']
+        );
+        $this->assertSame('/chefs/membres?section=2', $this->controller->clearPreview($local, [])->getHeaders()['Location'] ?? null);
+    }
+
     public function testActivateStaffSetsSettingAndJournals(): void
     {
         $this->givenImport($this->yearB);
@@ -198,12 +232,37 @@ class ScoutYearControllerTest extends TestCase
         $body = $this->controller->index(new Request('GET', '/admin/scout-year', [], [], [], []), [])->getBody();
 
         $this->assertStringContainsString('Importer les données Desk pour 2026-2027', $body);
-        $this->assertStringContainsString('Activer pour le staff', $body);
+        // Blocked without an import: the step's one action is the import,
+        // and the activation itself waits, disabled, in its Détails dialog.
+        $this->assertStringContainsString('Importer 2026-2027', $body);
+        $this->assertMatchesRegularExpression('/data-focus-key="details:activate_staff"\s+disabled>Activer pour les staffs</', $body);
         // Step labels are data now (ScoutYearTransitionService), so Twig
         // escapes their apostrophes — decode before matching on French text.
         $this->assertStringContainsString("Aller à l'import Desk (2026-2027)", html_entity_decode($body, ENT_QUOTES, 'UTF-8'));
         $this->assertStringContainsString('2026-2027', $body); // dynamic target label
         $this->assertStringNotContainsString('bi-check-lg', $body); // nothing completed yet
+    }
+
+    public function testOnlyTheCurrentStepsActionIsThePrimaryButton(): void
+    {
+        $this->settingService->setInternal(ScoutYearResolver::SETTING_PUBLIC_YEAR, (string) $this->yearB);
+        // Every step before the import done: the import, whose one action is
+        // « Importer 2026-2027 », becomes the current step.
+        foreach (['departures', 'passage', 'confirm_registrations', 'desk_staff', 'desk_members'] as $key) {
+            $this->controller->toggleStep(
+                $this->post('/admin/scout-year/step', ['_csrf_token' => $this->token, 'step_key' => $key, 'done' => '1']),
+                [],
+            );
+        }
+
+        $body = $this->controller->index(new Request('GET', '/admin/scout-year', [], [], [], []), [])->getBody();
+
+        // The <li> is written around the step's include: the include must
+        // still be handed is_current, or no action is ever primary.
+        $this->assertSame(1, preg_match('/<li class="step-item[^"]*step-item--current".*?<\/li>/s', $body, $current));
+        $this->assertStringContainsString('data-step="import"', $current[0]);
+        $this->assertStringContainsString('btn-sm btn-primary', $current[0]);
+        $this->assertSame(1, substr_count($body, 'btn-sm btn-primary'));
     }
 
     public function testStaffStepShowsCompletedWhenStaffYearIsTarget(): void
@@ -561,11 +620,379 @@ class ScoutYearControllerTest extends TestCase
         $this->assertStringContainsString('2024-2025 → 2025-2026', $body);
     }
 
+    /**
+     * An encoding date set back when it was only a label (06-15 here) no
+     * longer holds with the opening date: both defaults apply, and this
+     * page says so, as the import page does.
+     */
+    public function testAnIncoherentPairOfDeskDatesIsAnnounced(): void
+    {
+        $this->settingService->setInternal(ScoutYearResolver::SETTING_PUBLIC_YEAR, (string) $this->yearA);
+        $this->assertStringNotContainsString('data-desk-dates-fell-back', $this->index($this->controller));
+
+        $this->settingService->register(DeskImportYearDates::SETTING_NEXT_START, '07-01', 'text', 'L', 'D');
+        $this->settingService->register(DeskImportYearDates::SETTING_ENCODING, '08-15', 'text', 'L', 'D');
+        $this->settingService->setInternal(DeskImportYearDates::SETTING_ENCODING, '06-15');
+
+        $body = html_entity_decode($this->index($this->controller), ENT_QUOTES, 'UTF-8');
+        $this->assertStringContainsString('data-desk-dates-fell-back', $body);
+        $this->assertStringContainsString("s'appliquent donc, ici comme sur la page Import Desk", $body);
+    }
+
+    // ---------------------------------------------------------------
+    // The page itself (CHANTIER-annee-scoute.md §2.8, the mock-up): the disc is the
+    // only marking control, one action per step, Détails in a dialog,
+    // the review before the switch.
+    // ---------------------------------------------------------------
+
+    public function testTheDiscIsTheOnlyMarkingControlAndSaysWhatAClickDoes(): void
+    {
+        $this->settingService->setInternal(ScoutYearResolver::SETTING_PUBLIC_YEAR, (string) $this->yearB);
+        $this->controller->toggleStep($this->post('/admin/scout-year/step', ['_csrf_token' => $this->token, 'step_key' => 'badges', 'done' => '1']), []);
+
+        $body = html_entity_decode($this->index($this->controller), ENT_QUOTES, 'UTF-8');
+
+        $badges = $this->stepMarkup($body, 'badges');
+        $this->assertStringContainsString('aria-pressed="true"', $badges);
+        $this->assertStringContainsString('aria-label="Étape 6 : Étape faite — cliquer pour la remettre à faire"', $badges);
+        $this->assertStringContainsString('name="done" value="0"', $badges);
+
+        $desk = $this->stepMarkup($body, 'desk_staff');
+        $this->assertStringContainsString('aria-pressed="false"', $desk);
+        $this->assertStringContainsString('title="Cliquer pour marquer comme faite"', $desk);
+        $this->assertStringContainsString('name="done" value="1"', $desk);
+
+        // No checkbox, no « Marquer comme faite » button any more.
+        $this->assertStringNotContainsString('type="checkbox"', $body);
+        $this->assertStringNotContainsString('Remettre à faire', $body);
+        // An observed step's disc is a picture, never a button.
+        $this->assertStringNotContainsString('aria-pressed', $this->stepMarkup($body, 'import'));
+    }
+
+    public function testEachStepOpensItsDetailsInADialogThatSaysWhoMarkedIt(): void
+    {
+        $this->settingService->setInternal(ScoutYearResolver::SETTING_PUBLIC_YEAR, (string) $this->yearB);
+        $this->controller->toggleStep($this->post('/admin/scout-year/step', ['_csrf_token' => $this->token, 'step_key' => 'badges', 'done' => '1']), []);
+
+        $body = $this->index($this->controller);
+
+        foreach (['desk_staff', 'import', 'preview', 'activate_staff', 'badges', 'activate_public'] as $key) {
+            $this->assertStringContainsString('data-bs-target="#step-details-' . $key . '"', $body);
+            $this->assertStringContainsString('id="step-details-' . $key . '"', $body);
+        }
+        $this->assertMatchesRegularExpression('/Marquée comme faite le \d{2}\/\d{2}\/\d{4}\./', $body);
+    }
+
+    public function testTheSummaryCountsDoneStepsPointsAndBlocks(): void
+    {
+        $this->settingService->setInternal(ScoutYearResolver::SETTING_PUBLIC_YEAR, (string) $this->yearB);
+
+        $body = $this->index($this->controller);
+
+        // Eight steps without the optional modules; activate_staff and
+        // activate_public both blocked before the import.
+        $this->assertStringContainsString('0 étape faite sur 8', $body);
+        $this->assertStringContainsString('2 blocages', $body);
+        $this->assertStringContainsString('à vérifier', $body);
+    }
+
+    public function testTheReviewListsTheBlockersAndDisablesTheSwitch(): void
+    {
+        $this->settingService->setInternal(ScoutYearResolver::SETTING_PUBLIC_YEAR, (string) $this->yearB);
+
+        $body = html_entity_decode($this->index($this->controller), ENT_QUOTES, 'UTF-8');
+
+        $review = $this->dialogMarkup($body, 'scout-year-review');
+        $this->assertStringContainsString('Activer 2026-2027 pour tout le monde ?', $review);
+        $this->assertStringContainsString('2025-2026', $review);
+        $this->assertStringContainsString('Bascule impossible pour l\'instant', $review);
+        $this->assertStringContainsString("2026-2027 n'est pas activée pour les staffs.", $review);
+        $this->assertStringContainsString('href="/admin/import?annee=', $review);
+        $this->assertStringContainsString("n'empêche pas la bascule", $review);
+        $this->assertMatchesRegularExpression('/data-focus-key="review:activate_public"\s+disabled>Basculer sur 2026-2027</', $review);
+        // The switch is confirmed in the review only — not from Détails.
+        $this->assertStringNotContainsString('action="/admin/scout-year/activate-public"', $this->dialogMarkup($body, 'step-details-activate_public'));
+    }
+
+    public function testTheReviewLetsTheSwitchThroughOnceNothingBlocks(): void
+    {
+        $this->settingService->setInternal(ScoutYearResolver::SETTING_PUBLIC_YEAR, (string) $this->yearB);
+        $targetId = (new ScoutYearService($this->pdo))->ensureYear('2026-2027');
+        $this->givenReadyForTheSwitch($targetId);
+
+        $review = $this->dialogMarkup(html_entity_decode($this->index($this->controller), ENT_QUOTES, 'UTF-8'), 'scout-year-review');
+
+        $this->assertStringNotContainsString('Bascule impossible', $review);
+        $this->assertMatchesRegularExpression('/data-focus-key="review:activate_public"\s+>Basculer sur 2026-2027</', $review);
+    }
+
+    public function testStepButtonsThatActAtOnceCarryTheirQuestion(): void
+    {
+        $this->settingService->setInternal(ScoutYearResolver::SETTING_PUBLIC_YEAR, (string) $this->yearB);
+        $targetId = (new ScoutYearService($this->pdo))->ensureYear('2026-2027');
+        $this->givenImport($targetId);
+
+        $body = html_entity_decode($this->index($this->controller), ENT_QUOTES, 'UTF-8');
+
+        foreach (['/admin/scout-year/preview', '/admin/scout-year/activate-staff'] as $route) {
+            $this->assertMatchesRegularExpression(
+                '#action="' . preg_quote($route, '#') . '" class="d-inline js-step-action"\s+data-ask-title="[^"]+\?" data-ask-message="[^"]*Aucun e-mail n\'est envoyé\."#',
+                $body
+            );
+        }
+        // Never `data-confirm`: confirm.js would answer the submit itself.
+        $this->assertStringNotContainsString('data-confirm', $body);
+    }
+
+    // ---------------------------------------------------------------
+    // The JSON variant of every action: same routes, same guards, the
+    // recomputed state in the answer.
+    // ---------------------------------------------------------------
+
+    public function testJsonMarkAnswersWithTheRecomputedState(): void
+    {
+        $this->settingService->setInternal(ScoutYearResolver::SETTING_PUBLIC_YEAR, (string) $this->yearB);
+        $targetId = (new ScoutYearService($this->pdo))->ensureYear('2026-2027');
+
+        $response = $this->controller->toggleStep($this->jsonPost('/admin/scout-year/step', ['step_key' => 'badges', 'done' => true]), []);
+        $data = $this->decode($response, 200);
+
+        $this->assertTrue($data['success']);
+        $this->assertSame('Étape marquée comme faite.', $data['message']);
+        $this->assertSame([$targetId, 'badges'], $this->firstStepMark());
+        $this->assertJournalHas('scout_year_step_marked', 'info');
+        $this->assertStringContainsString('aria-pressed="true"', $this->stepMarkup($data['html']['state'], 'badges'));
+        $this->assertStringContainsString('1 étape faite sur 8', $data['html']['state']);
+        // No flash: the page never reloads to show one.
+        $this->assertNull(\Core\Http\FlashMessage::get());
+    }
+
+    public function testJsonUnmarkAndRepeatedCommandsOnlyRestateAState(): void
+    {
+        $this->settingService->setInternal(ScoutYearResolver::SETTING_PUBLIC_YEAR, (string) $this->yearB);
+
+        foreach ([true, true] as $done) {
+            $this->decode($this->controller->toggleStep($this->jsonPost('/admin/scout-year/step', ['step_key' => 'badges', 'done' => $done]), []), 200);
+        }
+        $this->assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM scout_year_transition_steps')->fetchColumn());
+
+        foreach ([false, false] as $done) {
+            $data = $this->decode($this->controller->toggleStep($this->jsonPost('/admin/scout-year/step', ['step_key' => 'badges', 'done' => $done]), []), 200);
+            $this->assertSame('Étape remise à faire.', $data['message']);
+        }
+        $this->assertNull($this->firstStepMark());
+        $this->assertStringContainsString('aria-pressed="false"', $this->stepMarkup($data['html']['state'], 'badges'));
+    }
+
+    public function testJsonMarkWantsAnExplicitBoolean(): void
+    {
+        foreach (['1', 1, 'toggle', null] as $done) {
+            $response = $this->controller->toggleStep($this->jsonPost('/admin/scout-year/step', ['step_key' => 'badges', 'done' => $done]), []);
+            $data = $this->decode($response, 400);
+            $this->assertFalse($data['success']);
+        }
+        $this->assertNull($this->firstStepMark());
+    }
+
+    public function testJsonActionsRejectAnInvalidCsrfToken(): void
+    {
+        $calls = [
+            ['toggleStep', '/admin/scout-year/step', ['step_key' => 'badges', 'done' => true]],
+            ['preview', '/admin/scout-year/preview', ['scout_year_id' => $this->yearB]],
+            ['clearPreview', '/admin/scout-year/clear-preview', []],
+            ['activateStaff', '/admin/scout-year/activate-staff', ['scout_year_id' => $this->yearB]],
+            ['deactivateStaff', '/admin/scout-year/deactivate-staff', []],
+            ['activatePublic', '/admin/scout-year/activate-public', ['scout_year_id' => $this->yearB]],
+        ];
+        $this->givenReadyForTheSwitch($this->yearB);
+        ScoutYearSession::setPreview($this->yearA);
+
+        foreach ($calls as [$method, $path, $body]) {
+            $response = $this->controller->{$method}($this->jsonPost($path, $body, 'wrong'), []);
+            $data = $this->decode($response, 403);
+            $this->assertSame(\Core\Http\Controller\AbstractController::SESSION_EXPIRED_MESSAGE, $data['error'], $path);
+            $this->assertArrayNotHasKey('html', $data, $path);
+        }
+
+        $this->assertNull($this->firstStepMark());
+        $this->assertSame($this->yearA, ScoutYearSession::getPreviewId());
+        $this->assertSame((string) $this->yearB, $this->settingService->get(ScoutYearResolver::SETTING_STAFF_YEAR));
+        $this->assertSame('0', $this->settingService->get(ScoutYearResolver::SETTING_PUBLIC_YEAR));
+    }
+
+    public function testJsonMarkRefusalsComeBackAsJsonErrorsWithTheState(): void
+    {
+        $response = $this->controller->toggleStep($this->jsonPost('/admin/scout-year/step', ['step_key' => 'activate_public', 'done' => true]), []);
+        $data = $this->decode($response, 422);
+        $this->assertSame('Cette étape ne peut pas être marquée à la main.', $data['error']);
+        $this->assertStringContainsString('data-step="activate_public"', $data['html']['state']);
+
+        $refusing = new class () implements StepCheckProvider {
+            public function stepKey(): string
+            {
+                return 'departures';
+            }
+
+            public function check(StepContext $context): StepCheck
+            {
+                return new StepCheck(markRefusal: 'La campagne de réinscription est en cours.');
+            }
+        };
+        $controller = $this->controllerWith(['registration'], [$refusing]);
+        $data = $this->decode($controller->toggleStep($this->jsonPost('/admin/scout-year/step', ['step_key' => 'departures', 'done' => true]), []), 422);
+
+        $this->assertSame('La campagne de réinscription est en cours.', $data['error']);
+        $this->assertNull($this->firstStepMark());
+        $this->assertJournalLacks('scout_year_step_marked');
+    }
+
+    public function testJsonActivateStaffIsRefusedWithoutAnImport(): void
+    {
+        $data = $this->decode($this->controller->activateStaff($this->jsonPost('/admin/scout-year/activate-staff', ['scout_year_id' => $this->yearB]), []), 422);
+
+        $this->assertStringContainsString('Aucun import Desk réussi pour 2025-2026', $data['error']);
+        $this->assertSame('0', $this->settingService->get(ScoutYearResolver::SETTING_STAFF_YEAR));
+        $this->assertJournalHas('scout_year_staff_activation_blocked', 'security');
+        $this->assertArrayHasKey('state', $data['html']);
+    }
+
+    public function testJsonActivateAndDeactivateStaffFollowTheYearCardsAndTheBanner(): void
+    {
+        $this->settingService->setInternal(ScoutYearResolver::SETTING_PUBLIC_YEAR, (string) $this->yearA);
+        $this->givenImport($this->yearB);
+
+        $data = $this->decode($this->controller->activateStaff($this->jsonPost('/admin/scout-year/activate-staff', ['scout_year_id' => $this->yearB]), []), 200);
+        $this->assertSame('Année 2025-2026 activée pour le staff.', $data['message']);
+        $this->assertStringContainsString('Activée pour les staffs', $data['html']['state']);
+        $this->assertSame('done', $this->stepState($data['html']['state'], 'activate_staff'));
+        // The band follows too — empty here: this chief is no member of
+        // the staff year, so StaffYearEligibility keeps them on the public one.
+        $this->assertArrayHasKey('banner', $data['html']);
+
+        $data = $this->decode($this->controller->deactivateStaff($this->jsonPost('/admin/scout-year/deactivate-staff', []), []), 200);
+        $this->assertSame('0', $this->settingService->get(ScoutYearResolver::SETTING_STAFF_YEAR));
+        $this->assertStringContainsString('Pas encore activée', $data['html']['state']);
+        $this->assertSame('', trim($data['html']['banner']));
+        $this->assertJournalHas('scout_year_staff_deactivated', 'security');
+    }
+
+    public function testJsonPreviewAndLeavingItFollowTheCardAndTheBanner(): void
+    {
+        $this->settingService->setInternal(ScoutYearResolver::SETTING_PUBLIC_YEAR, (string) $this->yearA);
+
+        $data = $this->decode($this->controller->preview($this->jsonPost('/admin/scout-year/preview', ['scout_year_id' => (string) $this->yearB]), []), 200);
+        $this->assertSame($this->yearB, ScoutYearSession::getPreviewId());
+        $this->assertStringContainsString('Vous visualisez le site en 2025-2026 (session uniquement).', $data['html']['banner']);
+        $this->assertStringContainsString('Prévisualisation active dans votre session.', $data['html']['state']);
+        $this->assertStringContainsString('Quitter la prévisualisation', $data['html']['state']);
+
+        $data = $this->decode($this->controller->clearPreview($this->jsonPost('/admin/scout-year/clear-preview', []), []), 200);
+        $this->assertNull(ScoutYearSession::getPreviewId());
+        $this->assertSame('', trim($data['html']['banner']));
+        $this->assertStringContainsString('Prévisualiser 2025-2026', $data['html']['state']);
+
+        $data = $this->decode($this->controller->preview($this->jsonPost('/admin/scout-year/preview', ['scout_year_id' => 99999]), []), 422);
+        $this->assertSame('Année scoute invalide.', $data['error']);
+        $this->assertNull(ScoutYearSession::getPreviewId());
+    }
+
+    public function testJsonSwitchIsRefusedByTheVetoAndGoesThroughOnceNothingBlocks(): void
+    {
+        $this->givenReadyForTheSwitch($this->yearB);
+
+        $data = $this->decode($this->buildControllerWithVeto(2)->activatePublic($this->jsonPost('/admin/scout-year/activate-public', ['scout_year_id' => $this->yearB]), []), 422);
+        $this->assertStringContainsString("2 demande(s) d'inscription ne sont pas clôturées", $data['error']);
+        $this->assertSame('0', $this->settingService->get(ScoutYearResolver::SETTING_PUBLIC_YEAR));
+        $this->assertJournalHas('scout_year_public_activation_blocked', 'security');
+
+        $data = $this->decode($this->controller->activatePublic($this->jsonPost('/admin/scout-year/activate-public', ['scout_year_id' => $this->yearB]), []), 200);
+        $this->assertSame('Année 2025-2026 activée pour tout le monde.', $data['message']);
+        $this->assertSame((string) $this->yearB, $this->settingService->get(ScoutYearResolver::SETTING_PUBLIC_YEAR));
+        // The page now prepares the transition after it.
+        $this->assertStringContainsString('Cible : 2026-2027', $data['html']['state']);
+        $this->assertStringContainsString('Dernière bascule :', $data['html']['state']);
+    }
+
+    /**
+     * One rendering: the fragment the script swaps in is, byte for byte,
+     * what the page itself shows for the same state.
+     */
+    public function testTheJsonFragmentIsWhatThePageRenders(): void
+    {
+        $this->settingService->setInternal(ScoutYearResolver::SETTING_PUBLIC_YEAR, (string) $this->yearB);
+
+        $data = $this->decode($this->controller->toggleStep($this->jsonPost('/admin/scout-year/step', ['step_key' => 'desk_staff', 'done' => true]), []), 200);
+
+        $this->assertStringContainsString($data['html']['state'], $this->index($this->controller));
+    }
+
     private function assertJournalLacks(string $eventType): void
     {
         $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM event_log WHERE event_type = ?');
         $stmt->execute([$eventType]);
         $this->assertSame(0, (int) $stmt->fetchColumn(), "Expected no journal entry for {$eventType}");
+    }
+
+    /**
+     * A POST the way the page's script sends it: a JSON body, the token
+     * inside it (ScoutMagicApi.postJson()).
+     *
+     * @param array<string, mixed> $body
+     */
+    private function jsonPost(string $path, array $body, ?string $token = null): Request
+    {
+        return new RequestWithInput(
+            'POST',
+            $path,
+            [],
+            [],
+            [],
+            ['CONTENT_TYPE' => 'application/json'],
+            json_encode($body + ['_csrf_token' => $token ?? $this->token])
+        );
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function decode(\Core\Http\Response $response, int $status): array
+    {
+        $this->assertSame($status, $response->getStatusCode(), $response->getBody());
+        $this->assertSame('application/json', $response->getHeaders()['Content-Type'] ?? null);
+        $data = json_decode($response->getBody(), true);
+        $this->assertIsArray($data);
+
+        return $data;
+    }
+
+    private function index(ScoutYearController $controller): string
+    {
+        return $controller->index(new Request('GET', '/admin/scout-year', [], [], [], []), [])->getBody();
+    }
+
+    /** The markup of one step's <li>, on the page or in a fragment. */
+    private function stepMarkup(string $html, string $key): string
+    {
+        $this->assertSame(1, preg_match('#<li [^>]*data-step="' . preg_quote($key, '#') . '".*?</li>#s', $html, $m), "no step {$key}");
+
+        return $m[0];
+    }
+
+    private function stepState(string $html, string $key): string
+    {
+        $this->assertSame(1, preg_match('#data-step="' . preg_quote($key, '#') . '" data-state="(\w+)"#', $html, $m));
+
+        return $m[1];
+    }
+
+    /** One dialog's markup, from its opening tag to the next dialog's. */
+    private function dialogMarkup(string $html, string $id): string
+    {
+        $start = strpos($html, '<div class="modal fade" id="' . $id . '"');
+        $this->assertNotFalse($start, "no dialog {$id}");
+        $next = strpos($html, '<div class="modal fade"', $start + 1);
+
+        return substr($html, $start, $next === false ? null : $next - $start);
     }
 
     /**
