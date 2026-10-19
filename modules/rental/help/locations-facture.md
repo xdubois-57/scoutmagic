@@ -1,7 +1,7 @@
 ---
 id: locations-facture
 title: La facture d'une réservation
-summary: La page Facture d'une réservation — les coordonnées de facturation, le décompte final, générer et envoyer la facture.
+summary: La page Facture d'une réservation — le décompte final, les coordonnées de facturation, générer et envoyer la facture.
 category: Espace membres
 role_min: identified
 question: Comment établir le décompte final d'une location ?
@@ -11,14 +11,9 @@ paths: /mes-locations/*/reservations/*/facture
 related: locations-etat-des-lieux, locations-documents, locations-finances, gerer-les-locations
 ---
 
-La page « Facture » d'une réservation réunit, dans l'ordre où elles
-servent, les trois choses dont la facture est faite.
-
-## Les coordonnées de facturation
-
-Raison sociale, e-mail, adresse, numéros de TVA et d'entreprise,
-référence de commande. Le locataire les remplit depuis sa page de suivi ;
-vous pouvez les compléter ici. Tout est chiffré au repos.
+La page « Facture » d'une réservation réunit, dans cet ordre, les trois
+choses dont la facture est faite : le décompte final, les coordonnées de
+facturation, puis la facture.
 
 ## Le décompte final
 
@@ -36,6 +31,14 @@ la caution à rendre d'abord, apparaît en trop-perçu.
 
 Les incidents tranchés s'affichent avec leur montant, en lecture seule.
 Une décision se change sur la page « État des lieux ».
+
+## Les coordonnées de facturation
+
+Raison sociale, e-mail, adresse, numéros de TVA et d'entreprise,
+référence de commande. Le locataire les remplit depuis sa page de suivi ;
+vous pouvez les compléter ici. Tout est chiffré au repos. Dès que le nom
+et l'adresse sont connus, le bloc se replie et les résume : « Modifier »
+le rouvre.
 
 ## La facture
 

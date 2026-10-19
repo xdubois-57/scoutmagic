@@ -346,6 +346,10 @@ class RentalSingleReceivableTest extends TestCase
         $status = $this->paymentStatus($booking);
         $this->assertSame(0, $status['total_cents']);
         $this->assertSame(0, $status['remaining_cents']);
+        // What came in is owed back, and Finance says so (chantier #927,
+        // lot B): never « 0,00 € reçu » on a receivable brought to 0.
+        $this->assertSame(25000, $status['received_cents']);
+        $this->assertSame(25000, $status['overpaid_cents']);
         $this->assertSame($communication, $status['communication']);
         $this->assertSame(1, $this->receivableCount());
         $this->assertSame(0, (int) $this->pdo->query(
@@ -550,6 +554,205 @@ class RentalSingleReceivableTest extends TestCase
         $this->stay->recordSettlement($this->reload($booking->id), $this->assetId, null, [], 1);
 
         $this->assertSame(81800, $this->paymentStatus($booking)['total_cents']);
+    }
+
+    // ── The refund side (chantier #927, §2.6) ──────────────────────────
+
+    /** A debit of the unit's account, as a bank import brings it. */
+    private function refund(float $amount, string $label, string $date = '2027-03-20'): int
+    {
+        return $this->transactionRepository->create(
+            $this->accountId,
+            $this->fiscalYearId,
+            null,
+            $date,
+            $label,
+            -$amount,
+            null,
+            null,
+            'import',
+            null,
+            'Jeanne Martin'
+        );
+    }
+
+    /** The booking's journey, as the dashboard reads it from this status. */
+    private function depositReturnedLine(RentalBooking $booking): bool
+    {
+        $evidence = \Modules\Rental\Booking\MilestoneEvidence::collect(
+            $this->reload($booking->id),
+            null,
+            $this->paymentStatus($booking),
+            null,
+            null
+        );
+
+        return $evidence->done[\Modules\Rental\Booking\BookingMilestones::SECURITY_DEPOSIT_RETURNED] ?? false;
+    }
+
+    public function testADepositRefundedWithTheCommunicationReadsReturned(): void
+    {
+        // 818 € in, settlement validated without withholding: 150 € owed
+        // back. The manager transfers them from the bank with the booking's
+        // communication; the import reconciles it, nothing is typed.
+        $booking = $this->createBooking();
+        $communication = $this->firstContract($booking);
+        $this->pay($communication, 818.00);
+        $settlement = $this->stay->recordSettlement($this->reload($booking->id), $this->assetId, null, [], 1);
+        $this->stay->validateSettlement($this->reload($booking->id), $settlement->id, 1);
+        $this->assertSame(15000, $this->paymentStatus($booking)['overpaid_cents']);
+        $this->assertFalse($this->depositReturnedLine($booking));
+
+        $this->refund(150.00, 'Remboursement caution ' . $communication);
+
+        $status = $this->paymentStatus($booking);
+        $this->assertSame(0, $status['overpaid_cents']);
+        $this->assertSame(15000, $status['refunded_cents']);
+        $this->assertSame(
+            \Modules\Rental\Payment\SecurityDepositStatus::RETURNED,
+            $status['security_deposit']['status']
+        );
+        $this->assertTrue($this->depositReturnedLine($booking));
+
+        $movements = $this->payments->movementsFor($this->reload($booking->id));
+        $this->assertCount(2, $movements);
+        // The receivable's SHARE of the payment (Finance\Api\ReceivableMovement):
+        // what it absorbs at its kept amount, the surplus being the rest.
+        $this->assertSame(66800, $movements[0]->amountCents);
+        $this->assertSame(-15000, $movements[1]->amountCents);
+        $this->assertTrue($movements[1]->isRefund());
+    }
+
+    public function testTenEurosPaidTooMuchAndGivenBackAreNotTheDepositGoingBack(): void
+    {
+        // The receivable still asks for the deposit: a refund of a small
+        // surplus, while the stay has not even happened, returns nothing of
+        // the security deposit.
+        $booking = $this->createBooking();
+        $communication = $this->firstContract($booking);
+        $this->pay($communication, 828.00);
+        $this->assertSame(1000, $this->paymentStatus($booking)['overpaid_cents']);
+
+        $this->refund(10.00, 'Trop payé ' . $communication);
+
+        $status = $this->paymentStatus($booking);
+        $this->assertSame(0, $status['overpaid_cents']);
+        $this->assertSame(1000, $status['refunded_cents']);
+        $this->assertSame(
+            \Modules\Rental\Payment\SecurityDepositStatus::RECEIVED,
+            $status['security_deposit']['status']
+        );
+        $this->assertFalse($this->depositReturnedLine($booking));
+    }
+
+    public function testARefundMadeWithoutTheCommunicationIsReconciledByHand(): void
+    {
+        $booking = $this->createBooking();
+        $this->pay($this->firstContract($booking), 818.00);
+        $settlement = $this->stay->recordSettlement($this->reload($booking->id), $this->assetId, null, [], 1);
+        $this->stay->validateSettlement($this->reload($booking->id), $settlement->id, 1);
+        $debitId = $this->refund(150.00, 'Virement européen');
+        $this->refund(42.10, 'Brico Namur');
+        $since = RentalPaymentService::refundSince(
+            $this->reload($booking->id),
+            new \DateTimeImmutable('2027-03-18 15:00')
+        );
+        $this->assertSame('2027-03-18 00:00', $since->format('Y-m-d H:i'));
+
+        $candidates = $this->payments->refundCandidates($this->reload($booking->id), $since);
+        $this->assertSame(
+            [$debitId, 15000],
+            [$candidates[0]->transactionId, $candidates[0]->amountCents]
+        );
+
+        $this->payments->reconcileRefund($this->reload($booking->id), $debitId, $since, null, 1);
+
+        $this->assertSame(0, $this->paymentStatus($booking)['overpaid_cents']);
+        $this->assertTrue($this->depositReturnedLine($booking));
+        $this->assertSame([], $this->payments->refundCandidates($this->reload($booking->id), $since));
+    }
+
+    public function testADebitBeforeTheSurplusAroseIsNoRefundOfIt(): void
+    {
+        $booking = $this->createBooking();
+        $this->pay($this->firstContract($booking), 818.00);
+        $settlement = $this->stay->recordSettlement($this->reload($booking->id), $this->assetId, null, [], 1);
+        $this->stay->validateSettlement($this->reload($booking->id), $settlement->id, 1);
+        $early = $this->refund(150.00, 'Virement européen', '2027-03-01');
+        $since = new \DateTimeImmutable('2027-03-18');
+
+        $this->assertSame([], $this->payments->refundCandidates($this->reload($booking->id), $since));
+        $this->expectException(RentalException::class);
+        $this->payments->reconcileRefund($this->reload($booking->id), $early, $since, null, 1);
+    }
+
+    public function testTheSurplusDatesFromTheSettlementTheEndOrTheRequest(): void
+    {
+        $booking = $this->createBooking();
+        $this->assertSame(
+            '2027-01-10',
+            RentalPaymentService::refundSince($booking, null)->format('Y-m-d')
+        );
+        $this->assertSame(
+            '2027-03-18',
+            RentalPaymentService::refundSince($booking, new \DateTimeImmutable('2027-03-18 09:30'))->format('Y-m-d')
+        );
+
+        $this->operations->changeStatus($booking, BookingStatus::CANCELLED, 1, new \DateTimeImmutable('2027-01-25'));
+        $finalAt = $this->reload($booking->id)->finalAt;
+        $this->assertNotNull($finalAt);
+        $this->assertSame(
+            $finalAt->format('Y-m-d'),
+            RentalPaymentService::refundSince($this->reload($booking->id), null)->format('Y-m-d')
+        );
+    }
+
+    // ── How to pay (chantier #927, §2.4) ───────────────────────────────
+
+    public function testTheInstructionsAskForTheDepositThenTheRest(): void
+    {
+        $booking = $this->createBooking();
+        $communication = $this->firstContract($booking);
+        $this->payments->contractSent($this->reload($booking->id), $this->settings(), new \DateTimeImmutable('2027-01-15'));
+
+        $deposit = $this->payments->paymentInstructions($this->reload($booking->id), $this->settings());
+        $this->assertNotNull($deposit);
+        $this->assertSame($communication, $deposit['communication']);
+        $this->assertSame('Unité Saint-Georges', $deposit['beneficiary']);
+        $this->assertSame('BE68 5390 0754 7034', $deposit['iban']);
+        $this->assertSame(25000, $deposit['amount_cents']);
+        $this->assertSame('deposit', $deposit['stage']);
+        $this->assertSame('2027-01-30', $deposit['due_date']);
+        $this->assertStringStartsWith('data:image/png;base64,', (string) $deposit['qr_data_uri']);
+
+        $this->pay($communication, 250.00);
+        $balance = $this->payments->paymentInstructions($this->reload($booking->id), $this->settings());
+        $this->assertNotNull($balance);
+        $this->assertSame(56800, $balance['amount_cents']);
+        $this->assertSame('balance', $balance['stage']);
+        // 14 days before the arrival, the security deposit with it.
+        $this->assertSame('2027-02-26', $balance['due_date']);
+
+        $this->pay($communication, 568.00);
+        $paid = $this->payments->paymentInstructions($this->reload($booking->id), $this->settings());
+        $this->assertNotNull($paid);
+        $this->assertSame(0, $paid['amount_cents']);
+        $this->assertNull($paid['qr_data_uri']);
+    }
+
+    public function testThereAreNoInstructionsBeforeTheReceivableNorWithoutFinance(): void
+    {
+        $booking = $this->createBooking();
+        $this->assertNull($this->payments->paymentInstructions($booking, $this->settings()));
+
+        $this->firstContract($booking);
+        $withoutFinance = new RentalPaymentService(
+            new RentalPaymentRepository($this->pdo, $this->encryption),
+            $this->bookingAudit,
+            $this->journal
+        );
+        $this->assertNull($withoutFinance->paymentInstructions($this->reload($booking->id), $this->settings()));
+        $this->assertSame([], $withoutFinance->movementsFor($this->reload($booking->id)));
     }
 
     // ── Without Finance ─────────────────────────────────────────────────

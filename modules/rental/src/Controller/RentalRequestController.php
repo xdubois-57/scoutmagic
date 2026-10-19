@@ -117,7 +117,12 @@ class RentalRequestController extends AbstractController
         private ?\Modules\Rental\Service\RentalDocumentService $documentService = null,
         private ?\Core\File\UploadHandler $uploadHandler = null,
         /** Whether a contract still says what its booking says (#708, IT-20). */
-        private ?\Modules\Rental\Service\RentalContractValidityService $contractValidity = null
+        private ?\Modules\Rental\Service\RentalContractValidityService $contractValidity = null,
+        /**
+         * How to pay, with the SEPA QR (chantier #927, §2.4), once the
+         * booking has a receivable. Null shows no payment block.
+         */
+        private ?\Modules\Rental\Service\RentalPaymentService $paymentService = null
     ) {
         parent::__construct($twig);
     }
@@ -518,6 +523,13 @@ class RentalRequestController extends AbstractController
             // reaches this page and nothing else. The block presents itself
             // as a task while every field is empty.
             'billing' => $this->operationsService->billingIdentity($booking->id),
+            // How to pay: beneficiary, IBAN, the one communication, what is
+            // due now and the QR of that transfer (chantier #927, §2.4) —
+            // null until a receivable exists.
+            'renter_payment' => $this->paymentService?->paymentInstructions(
+                $booking,
+                $this->paymentService->settingsFor($asset->id)
+            ),
             // Echoed back so this page's own forms post to a URL that still
             // carries the capability. It is already in the address bar; it
             // is never journaled and never leaves this page.

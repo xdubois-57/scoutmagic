@@ -4,58 +4,87 @@
   invoice they go on — nothing is paid from here, and the page a manager
   opens to make an invoice is the one that should hold what it says.
 
+  **Folded once the name and the address are known** (chantier #927,
+  §2.4), with both as its summary: an open form over data somebody
+  already gave reads as data that was not saved. The VAT and enterprise
+  numbers are optional and keep nothing open. While either is missing the
+  box arrives open, as the task it is. collapse-label.js swaps « Modifier »
+  and « Replier » with the fold, from the two attributes on the trigger.
+
   Requires `asset`, `booking`, `booking_page` and `billing`.
 #}
-<div class="card mb-3">
-    <div class="card-body">
-        <h2 class="h5 mb-2">Coordonnées de facturation</h2>
-        <p class="text-body-secondary small">
-            Demandées au moment utile, pas au formulaire public : un visiteur qui se renseigne sur un
-            week-end n'a aucune raison de taper un numéro de TVA. Tout est chiffré au repos.
-        </p>
-        <form method="post" action="/mes-locations/facturation" class="row g-2">
-            {{ csrf_field()|raw }}
-            <input type="hidden" name="asset_id" value="{{ asset.id }}">
-            <input type="hidden" name="booking_id" value="{{ booking.id }}">
-            <input type="hidden" name="booking_page" value="{{ booking_page.value }}">
-            <div class="col-12 col-md-6">
-                <label class="form-label" for="billing-name">Raison sociale</label>
-                <input type="text" class="form-control form-control-sm" id="billing-name" name="billing_name"
-                       value="{{ billing.name }}">
-            </div>
-            <div class="col-12 col-md-6">
-                <label class="form-label" for="billing-email">Email de facturation</label>
-                <input type="email" class="form-control form-control-sm" id="billing-email" name="billing_email"
-                       value="{{ billing.email }}">
-            </div>
-            <div class="col-12">
-                <label class="form-label" for="billing-address">Adresse</label>
-                <input type="text" class="form-control form-control-sm" id="billing-address" name="billing_address"
-                       value="{{ billing.address }}">
-            </div>
-            <div class="col-4 col-md-2">
-                <label class="form-label" for="billing-country">Pays</label>
-                <input type="text" class="form-control form-control-sm" id="billing-country" name="billing_country"
-                       maxlength="2" placeholder="BE" value="{{ billing.country }}">
-            </div>
-            <div class="col-8 col-md-3">
-                <label class="form-label" for="billing-vat">N° de TVA</label>
-                <input type="text" class="form-control form-control-sm" id="billing-vat" name="billing_vat_number"
-                       value="{{ billing.vat_number }}">
-            </div>
-            <div class="col-6 col-md-3">
-                <label class="form-label" for="billing-enterprise">N° BCE</label>
-                <input type="text" class="form-control form-control-sm" id="billing-enterprise"
-                       name="billing_enterprise_number" value="{{ billing.enterprise_number }}">
-            </div>
-            <div class="col-6 col-md-4">
-                <label class="form-label" for="billing-reference">Référence / bon de commande</label>
-                <input type="text" class="form-control form-control-sm" id="billing-reference"
-                       name="billing_reference" value="{{ billing.reference }}">
-            </div>
-            <div class="col-12">
-                <button type="submit" class="btn btn-sm btn-outline-secondary">Enregistrer</button>
-            </div>
-        </form>
+{% set billing_known = billing.name and billing.address %}
+<div class="card mb-3" id="coordonnees-facturation">
+    <h2 class="mb-0">
+        <button type="button"
+                class="btn w-100 d-flex align-items-center gap-2 p-3 text-start{{ billing_known ? ' collapsed' }}"
+                data-bs-toggle="collapse" data-bs-target="#coordonnees-facturation-body"
+                aria-expanded="{{ billing_known ? 'false' : 'true' }}" aria-controls="coordonnees-facturation-body"
+                data-collapse-label-collapsed="Modifier" data-collapse-label-expanded="Replier">
+            <span class="flex-grow-1 min-w-0">
+                <span class="h5 d-block mb-0">Coordonnées de facturation</span>
+                {% if billing_known %}
+                    <span class="small text-body-secondary d-block text-truncate" data-billing-summary>
+                        {{ billing.name }} · {{ billing.address }}
+                    </span>
+                {% endif %}
+            </span>
+            <span class="small text-body-secondary" data-collapse-label>
+                {{- billing_known ? 'Modifier' : 'Replier' -}}
+            </span>
+            <i class="bi bi-chevron-down text-body-tertiary" aria-hidden="true"></i>
+        </button>
+    </h2>
+    <div class="collapse{{ billing_known ? '' : ' show' }}" id="coordonnees-facturation-body">
+        <div class="card-body pt-0">
+            <p class="text-body-secondary small">
+                Demandées au moment utile, pas au formulaire public : un visiteur qui se renseigne sur un
+                week-end n'a aucune raison de taper un numéro de TVA. Tout est chiffré au repos.
+            </p>
+            <form method="post" action="/mes-locations/facturation" class="row g-2">
+                {{ csrf_field()|raw }}
+                <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                <input type="hidden" name="booking_page" value="{{ booking_page.value }}">
+                <div class="col-12 col-md-6">
+                    <label class="form-label" for="billing-name">Raison sociale</label>
+                    <input type="text" class="form-control form-control-sm" id="billing-name" name="billing_name"
+                           value="{{ billing.name }}">
+                </div>
+                <div class="col-12 col-md-6">
+                    <label class="form-label" for="billing-email">Email de facturation</label>
+                    <input type="email" class="form-control form-control-sm" id="billing-email" name="billing_email"
+                           value="{{ billing.email }}">
+                </div>
+                <div class="col-12">
+                    <label class="form-label" for="billing-address">Adresse</label>
+                    <input type="text" class="form-control form-control-sm" id="billing-address" name="billing_address"
+                           value="{{ billing.address }}">
+                </div>
+                <div class="col-4 col-md-2">
+                    <label class="form-label" for="billing-country">Pays</label>
+                    <input type="text" class="form-control form-control-sm" id="billing-country" name="billing_country"
+                           maxlength="2" placeholder="BE" value="{{ billing.country }}">
+                </div>
+                <div class="col-8 col-md-3">
+                    <label class="form-label" for="billing-vat">N° de TVA</label>
+                    <input type="text" class="form-control form-control-sm" id="billing-vat" name="billing_vat_number"
+                           value="{{ billing.vat_number }}">
+                </div>
+                <div class="col-6 col-md-3">
+                    <label class="form-label" for="billing-enterprise">N° BCE</label>
+                    <input type="text" class="form-control form-control-sm" id="billing-enterprise"
+                           name="billing_enterprise_number" value="{{ billing.enterprise_number }}">
+                </div>
+                <div class="col-6 col-md-4">
+                    <label class="form-label" for="billing-reference">Référence / bon de commande</label>
+                    <input type="text" class="form-control form-control-sm" id="billing-reference"
+                           name="billing_reference" value="{{ billing.reference }}">
+                </div>
+                <div class="col-12">
+                    <button type="submit" class="btn btn-sm btn-outline-secondary">Enregistrer</button>
+                </div>
+            </form>
+        </div>
     </div>
 </div>

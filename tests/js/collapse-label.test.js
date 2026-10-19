@@ -95,4 +95,53 @@ describe('collapse-label.js', () => {
 
         await expect(load(noLabel)).resolves.toBeDefined();
     });
+
+    it('swaps on a trigger rendered after the script loaded', async () => {
+        // A rental booking's page re-renders its panels in place after each
+        // action (rental-booking.js): the trigger it puts back is a new
+        // element, and a binding made at load would never see it.
+        await load('<p>vide</p>');
+        document.body.innerHTML = MARKUP;
+        const target = /** @type {HTMLElement} */ (document.getElementById('more'));
+        const label = /** @type {HTMLElement} */ (document.querySelector('[data-collapse-label]'));
+
+        fire(target, 'show.bs.collapse');
+        expect(label.textContent).toBe('Afficher moins');
+
+        fire(target, 'hide.bs.collapse');
+        expect(label.textContent).toBe('Afficher les 15 précédentes');
+    });
+
+    it('folds the billing details back to « Modifier » when they were rendered open', async () => {
+        // « Facture » opens the billing details while their name or address
+        // is missing, so the markup then carries the EXPANDED label and the
+        // collapsed one comes from its own attribute.
+        const { target, label } = await load(`
+            <button type="button" data-bs-toggle="collapse" data-bs-target="#coordonnees-facturation-body"
+                    aria-expanded="true"
+                    data-collapse-label-collapsed="Modifier" data-collapse-label-expanded="Replier">
+                <span data-collapse-label>Replier</span>
+            </button>
+            <div class="collapse show" id="coordonnees-facturation-body"></div>`)
+            .then(() => ({
+                target: /** @type {HTMLElement} */ (document.getElementById('coordonnees-facturation-body')),
+                label: /** @type {HTMLElement} */ (document.querySelector('[data-collapse-label]')),
+            }));
+
+        expect(label.textContent).toBe('Replier');
+
+        fire(target, 'hide.bs.collapse');
+        expect(label.textContent).toBe('Modifier');
+
+        fire(target, 'show.bs.collapse');
+        expect(label.textContent).toBe('Replier');
+    });
+
+    it('leaves a trigger aimed at another collapse alone', async () => {
+        const { label } = await load(MARKUP + '<div id="other" class="collapse"></div>');
+
+        fire(/** @type {HTMLElement} */ (document.getElementById('other')), 'show.bs.collapse');
+
+        expect(label.textContent).toBe('Afficher les 15 précédentes');
+    });
 });

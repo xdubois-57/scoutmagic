@@ -14,6 +14,8 @@ use Modules\Rental\Support;
 use Core\Journal\JournalService;
 use Modules\Finance\Api\ExpectedReceivableInterface;
 use Modules\Finance\Api\FinanceAccountInterface;
+use Modules\Finance\Api\ReceivableMovement;
+use Modules\Finance\Api\RefundCandidate;
 use Modules\Finance\Api\SepaQrCodeInterface;
 use Modules\Finance\Api\StructuredCommunicationInterface;
 use Modules\Rental\Booking\RentalBooking;
@@ -497,11 +499,14 @@ class RentalPaymentService
      *
      * `total_cents` is what the receivable expects — rental plus security
      * deposit, 0 once the booking was abandoned, the kept amount after a
-     * validated settlement — and `overpaid_cents` what came in beyond it.
+     * validated settlement — and `overpaid_cents` what came in beyond it
+     * and has not gone back yet: the refunds Finance reconciled are
+     * deducted (`refunded_cents`), so a deposit given back reads 0 there.
      *
      * @return array{
      *   available: bool, enabled: bool,
      *   total_cents: ?int, rental_cents: ?int, received_cents: int, remaining_cents: int, overpaid_cents: int,
+     *   refunded_cents: int, tracked: bool,
      *   deposit_cents: ?int, deposit_received: bool, fully_paid: bool,
      *   communication: ?string, deposit_due_date: ?string, balance_due_date: ?string,
      *   security_deposit: array{
@@ -524,10 +529,22 @@ class RentalPaymentService
             ? ($payment['security_deposit_amount_cents'] ?? null)
             : $settings->securityDepositAmount();
 
+        $refundedCents = 0;
+        $standing = null;
         if ($receivableId !== null) {
-            $amounts = $this->receivableAmounts($receivableId);
-            $totalCents = $amounts['amount_due'];
-            $receivedCents = $amounts['amount_received'];
+            // The refund side too (chantier #927, §2.6): what went back is
+            // no longer owed back, and what is still owed back is what the
+            // Finances page offers to refund.
+            $standing = $this->receivables?->getReceivableStanding(self::SOURCE_MODULE, $receivableId);
+            if ($standing !== null) {
+                $totalCents = $standing->amountDueCents;
+                $receivedCents = $standing->amountReceivedCents;
+                $refundedCents = $standing->amountRefundedCents;
+            } else {
+                $amounts = $this->receivableAmounts($receivableId);
+                $totalCents = $amounts['amount_due'];
+                $receivedCents = $amounts['amount_received'];
+            }
         } else {
             $totalCents = $rentalCents !== null ? $rentalCents + ($securityAmountCents ?? 0) : null;
             $receivedCents = 0;
@@ -550,6 +567,23 @@ class RentalPaymentService
         ) {
             $depositStatus = SecurityDepositStatus::RECEIVED;
         }
+        $overpaidCents = $standing !== null
+            ? $standing->amountOverpaidCents
+            : ($totalCents !== null ? max(0, $receivedCents - $totalCents) : 0);
+
+        // « Restituée » is DERIVED from the account as well (§2.6): the
+        // deposit was held, the receivable no longer asks for it (a
+        // validated settlement, an abandoned booking), a refund went out
+        // and nothing is owed back any more. Never before that — a renter
+        // who paid ten euros too much and got them back has not been given
+        // their deposit back.
+        if ($standing !== null && $depositStatus->isHeld()
+            && $refundedCents > 0 && $overpaidCents === 0
+            && $rentalCents !== null && $securityAmountCents !== null
+            && $standing->amountDueCents < $rentalCents + $securityAmountCents
+        ) {
+            $depositStatus = SecurityDepositStatus::RETURNED;
+        }
         $depositHeld = $depositStatus->isHeld() || $depositStatus->isSettled();
 
         $balanceDueDate = $settings->balanceDueDate($booking->arrivalDate);
@@ -560,8 +594,18 @@ class RentalPaymentService
             'total_cents' => $totalCents,
             'rental_cents' => $rentalCents,
             'received_cents' => $receivedCents,
-            'remaining_cents' => max(0, ($totalCents ?? 0) - $receivedCents),
-            'overpaid_cents' => $totalCents !== null ? max(0, $receivedCents - $totalCents) : 0,
+            'remaining_cents' => $standing !== null
+                ? $standing->amountRemainingCents
+                : max(0, ($totalCents ?? 0) - $receivedCents),
+            'overpaid_cents' => $overpaidCents,
+            // What has already gone back to the renter: debits carrying the
+            // communication, or reconciled from the booking (§2.6).
+            'refunded_cents' => $refundedCents,
+            // Whether Finances follows this booking's money: a receivable
+            // exists and Finance answers for it. The security deposit's
+            // return is then a bank transfer the account shows, and the
+            // manual form is not offered.
+            'tracked' => $receivableId !== null && $this->receivables !== null,
             'deposit_cents' => $depositCents,
             // The threshold, compared live. Never a stored "deposit paid"
             // flag: that would spend part of its life disagreeing with the
@@ -597,35 +641,164 @@ class RentalPaymentService
      */
     public function sepaQrPng(RentalBooking $booking, PaymentSettings $settings): ?string
     {
-        if ($this->sepaQr === null || !$settings->canRaiseReceivables()) {
+        $instructions = $this->instructionsFrom($booking, $settings, $this->statusFor($booking, $settings));
+
+        return $instructions['qr_png'] ?? null;
+    }
+
+    /**
+     * How to pay, as the renter and the manager read it (chantier #927,
+     * §2.4): beneficiary, IBAN, the one communication, the amount due at
+     * this stage with its deadline, and the SEPA QR of that transfer.
+     *
+     * Null until there is something to pay against — Finance unavailable,
+     * payments off, or no receivable raised yet (it is raised with the
+     * first contract). Present otherwise even with nothing due: the page
+     * then says so, and still shows the communication a later complement
+     * would carry. `iban` and `qr_data_uri` are null when the account has
+     * no IBAN, `qr_data_uri` too when nothing is due now.
+     *
+     * The account is the one pinned on the asset; nothing else of Finance's
+     * account list is handed to a template.
+     *
+     * @param array<string, mixed>|null $status statusFor()'s answer, when
+     *   the caller already has it
+     * @return array{
+     *   communication: string, beneficiary: ?string, iban: ?string,
+     *   amount_cents: int, stage: ?string, due_date: ?string, qr_data_uri: ?string, overpaid_cents: int
+     * }|null
+     */
+    public function paymentInstructions(
+        RentalBooking $booking,
+        PaymentSettings $settings,
+        ?array $status = null
+    ): ?array {
+        $instructions = $this->instructionsFrom($booking, $settings, $status ?? $this->statusFor($booking, $settings));
+        if ($instructions === null) {
             return null;
         }
 
-        $status = $this->statusFor($booking, $settings);
-        $communication = $status['communication'];
-        if ($communication === null) {
-            return null;
+        $png = $instructions['qr_png'];
+        unset($instructions['qr_png']);
+        $instructions['qr_data_uri'] = $png !== null ? 'data:image/png;base64,' . base64_encode($png) : null;
+
+        return $instructions;
+    }
+
+    /**
+     * The movements reconciled with this booking's receivable — the
+     * renter's payments and the refunds of their surplus — oldest first.
+     * Only this booking's share of each movement, never anything else of
+     * the account (Finance\Api\ReceivableMovement). Empty without a
+     * receivable or without Finance.
+     *
+     * @return list<ReceivableMovement>
+     */
+    public function movementsFor(RentalBooking $booking): array
+    {
+        $receivableId = $this->receivableIdOf($booking);
+        if ($receivableId === null || $this->receivables === null) {
+            return [];
         }
 
-        $amount = $status['deposit_cents'] !== null && !$status['deposit_received']
-            ? $status['deposit_cents'] - $status['received_cents']
-            : $status['remaining_cents'];
+        return $this->receivables->getReceivableMovements(self::SOURCE_MODULE, $receivableId);
+    }
 
-        if ($amount <= 0) {
-            return null;
+    /**
+     * Since when a debit can be the refund of this booking's surplus: the
+     * day the surplus arose — the validated settlement that brought the
+     * receivable to the kept amount, or the day the booking ended — and,
+     * for a surplus that arose while the booking was still running, the
+     * day the request came in. A refund never predates its reason; a later
+     * date only narrows the debits a manager has to read through.
+     */
+    public static function refundSince(
+        RentalBooking $booking,
+        ?\DateTimeImmutable $settlementValidatedAt
+    ): \DateTimeImmutable {
+        $since = $settlementValidatedAt ?? $booking->finalAt ?? $booking->receivedAt;
+
+        return $since->setTime(0, 0);
+    }
+
+    /**
+     * The debits of the receivable's own account that could be the refund
+     * a manager made without the communication: reconciled with nothing,
+     * booked on or after $since, of at most what is still owed back —
+     * when, how much and to whom, nothing else (Finance\Api\RefundCandidate).
+     *
+     * @return list<RefundCandidate>
+     */
+    public function refundCandidates(RentalBooking $booking, \DateTimeImmutable $since): array
+    {
+        $receivableId = $this->receivableIdOf($booking);
+        if ($receivableId === null || $this->receivables === null) {
+            return [];
         }
 
-        $account = $this->accountById($settings->financeAccountId);
-        if ($account === null || ($account['iban'] ?? null) === null) {
-            return null;
+        return $this->receivables->findRefundCandidates(self::SOURCE_MODULE, $receivableId, $since);
+    }
+
+    /**
+     * « Rapprocher le remboursement »: records one candidate debit as the
+     * refund of this booking's surplus. Finance checks everything again
+     * under its locks — a list shown a minute ago is not a promise — and
+     * its refusal, written for the person in front of the booking, is
+     * passed on as it is.
+     *
+     * No e-mail: the money left from the bank, and the renter sees it
+     * there.
+     *
+     * @throws RentalException
+     */
+    public function reconcileRefund(
+        RentalBooking $booking,
+        int $transactionId,
+        \DateTimeImmutable $since,
+        ?int $actorUserAccountId,
+        ?int $actorMemberId = null
+    ): void {
+        $receivableId = $this->receivableIdOf($booking);
+        if ($receivableId === null || $this->receivables === null) {
+            throw new RentalException("Les paiements de cette réservation ne sont pas suivis dans les Finances.");
         }
 
-        return $this->sepaQr->generatePng(
-            (string) ($account['holder_name'] ?? $account['name']),
-            (string) $account['iban'],
+        try {
+            $this->receivables->reconcileRefund(
+                self::SOURCE_MODULE,
+                $receivableId,
+                $transactionId,
+                $since,
+                $actorUserAccountId
+            );
+        } catch (\Throwable $e) {
+            throw new RentalException(
+                UserFacingMessage::from(
+                    $e,
+                    "Ce débit n'a pas pu être rapproché comme remboursement — rechargez la page et réessayez."
+                ),
+                0,
+                $e
+            );
+        }
+
+        $this->bookingAudit->record(
+            $booking->id,
+            BookingAudit::PRICE_CHANGED,
             null,
-            $amount,
-            $communication
+            null,
+            'Remboursement rapproché dans les Finances',
+            $actorMemberId
+        );
+
+        // Ids only (SECURITY.md §5): the debit's amount and counterparty
+        // stay in Finance.
+        $this->journal->log(
+            'rental',
+            'rental_refund_reconciled',
+            'info',
+            'Remboursement rapproché pour ' . $booking->reference,
+            ['booking_id' => $booking->id, 'transaction_id' => $transactionId]
         );
     }
 
@@ -649,12 +822,17 @@ class RentalPaymentService
     }
 
     /**
-     * Records what was actually given back.
+     * Records what was actually given back — **only where Finances does not
+     * follow the booking's money** (chantier #927, §2.6).
      *
-     * **By hand, and that is the design** (§6.20): Finance reconciles money
-     * coming in, not money going out, so no bank statement can confirm this.
-     * The limitation is documented rather than papered over with a feature
-     * that would only look like it worked.
+     * With a receivable, the deposit goes back by bank transfer carrying the
+     * booking's communication, the import reconciles it, and « Restituée »
+     * is read from the account (statusFor()); a hand-typed return beside it
+     * would be a second answer that could disagree with the bank. Without
+     * Finances — the module off, or payments off on the asset — nothing can
+     * see the money, and this is how the return is written down. The amount
+     * is then the asset's own setting ($settings), there being no receivable
+     * to have snapshotted it.
      *
      * The resulting status is derived from the amounts rather than picked
      * from a dropdown — a manager who typed them has already said what
@@ -668,10 +846,18 @@ class RentalPaymentService
         int $returnedCents,
         ?string $note,
         \DateTimeImmutable $returnedAt,
-        ?int $actorMemberId = null
+        ?int $actorMemberId = null,
+        ?PaymentSettings $settings = null
     ): void {
         $payment = $this->paymentRepository->loadBookingPayment($booking->id);
-        $amount = $payment['security_deposit_amount_cents'] ?? null;
+        if (($payment['rental_receivable_id'] ?? null) !== null && $this->receivables !== null) {
+            throw new RentalException(
+                'Les paiements de cette réservation sont suivis dans les Finances : la caution se rend par '
+                . 'virement avec la communication de la réservation, et se rapproche depuis la page Finances.'
+            );
+        }
+
+        $amount = $payment['security_deposit_amount_cents'] ?? $settings?->securityDepositAmount();
 
         if ($amount === null || $amount <= 0) {
             throw new RentalException("Cette réservation n'a pas de caution à restituer.");
@@ -838,6 +1024,76 @@ class RentalPaymentService
         }
 
         return $receivedCents >= $rentalCents + $securityCents;
+    }
+
+    /**
+     * paymentInstructions()'s body, with the QR as raw PNG bytes.
+     *
+     * @param array<string, mixed> $status
+     * @return array{
+     *   communication: string, beneficiary: ?string, iban: ?string,
+     *   amount_cents: int, stage: ?string, due_date: ?string, qr_png: ?string, overpaid_cents: int
+     * }|null
+     */
+    private function instructionsFrom(RentalBooking $booking, PaymentSettings $settings, array $status): ?array
+    {
+        $communication = $status['communication'] ?? null;
+        if (!$this->isAvailable() || !$settings->enabled || ($status['tracked'] ?? false) !== true
+            || !is_string($communication) || $communication === ''
+        ) {
+            return null;
+        }
+
+        // The deposit while it is outstanding, the rest afterwards — the
+        // same thresholds the journey ticks, so the amount asked for and
+        // the step waiting for it never disagree.
+        $receivedCents = (int) $status['received_cents'];
+        $depositCents = $status['deposit_cents'] ?? null;
+        $remainingCents = (int) $status['remaining_cents'];
+        if (is_int($depositCents) && !$status['deposit_received'] && $depositCents - $receivedCents > 0) {
+            $amountCents = min($depositCents - $receivedCents, $remainingCents);
+            $stage = 'deposit';
+            $dueDate = $status['deposit_due_date'] ?? null;
+        } else {
+            $amountCents = $remainingCents;
+            $stage = $amountCents > 0 ? 'balance' : null;
+            $dueDate = $amountCents > 0 ? ($status['balance_due_date'] ?? null) : null;
+        }
+
+        // The account pinned on the asset, and nothing else of Finance's
+        // list: its holder is who the renter pays, its IBAN where.
+        $account = $this->accountById($settings->financeAccountId);
+        $beneficiary = null;
+        $iban = null;
+        $png = null;
+        if ($account !== null) {
+            $beneficiary = $account['holder_name'] ?? $account['name'];
+            $rawIban = $account['iban'];
+            if ($rawIban !== null && trim($rawIban) !== '') {
+                $iban = (string) preg_replace('/\s+/', '', strtoupper($rawIban));
+                if ($this->sepaQr !== null && $amountCents > 0) {
+                    $png = $this->sepaQr->generatePng($beneficiary, $iban, null, $amountCents, $communication);
+                }
+            }
+        }
+
+        return [
+            'communication' => $communication,
+            'beneficiary' => $beneficiary,
+            'iban' => $iban !== null ? trim(chunk_split($iban, 4, ' ')) : null,
+            'amount_cents' => max(0, $amountCents),
+            'stage' => $stage,
+            'due_date' => is_string($dueDate) ? $dueDate : null,
+            'qr_png' => $png,
+            'overpaid_cents' => (int) ($status['overpaid_cents'] ?? 0),
+        ];
+    }
+
+    private function receivableIdOf(RentalBooking $booking): ?int
+    {
+        $receivableId = $this->paymentRepository->loadBookingPayment($booking->id)['rental_receivable_id'] ?? null;
+
+        return is_int($receivableId) ? $receivableId : null;
     }
 
     /**

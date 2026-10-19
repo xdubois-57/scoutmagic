@@ -177,6 +177,7 @@ class ModuleManifestTest extends TestCase
             '/mes-locations/{slug}/calendrier/jours',
             '/mes-locations/blocage-supprimer',
             '/mes-locations/caution',
+            '/mes-locations/remboursement-rapprocher',
             '/mes-locations/gabarit',
             '/mes-locations/document-texte',
             '/mes-locations/document-generer',

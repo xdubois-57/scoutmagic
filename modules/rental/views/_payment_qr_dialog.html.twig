@@ -1,0 +1,30 @@
+{#
+  The enlarged SEPA QR (chantier #927, §2.4): the code at the size a
+  banking app reads from a screen, the communication under it. Opened by
+  the thumbnail and by « Agrandir le QR code » (`_payment_details`);
+  `payment-qr.js` keeps the screen awake while it is open, so it does not
+  dim halfway through a scan.
+
+  Rendered outside any card — a modal nested in one inherits its stacking
+  context.
+
+  Requires `instructions` and `qr_dialog_id`.
+#}
+{% embed 'partials/modal.html.twig' with {
+    id: qr_dialog_id,
+    title: 'Payer ' ~ instructions.amount_cents|money_cents,
+    instructions: instructions,
+} only %}
+    {% block body %}
+        <div class="text-center mb-3">
+            <div class="d-inline-block bg-white p-3 rounded-3">
+                <img src="{{ instructions.qr_data_uri }}" alt="QR code de paiement SEPA, agrandi" width="320"
+                     height="320" class="img-fluid d-block" data-qr-enlarged>
+            </div>
+        </div>
+        <p class="font-monospace text-center text-break mb-0">{{ instructions.communication }}</p>
+    {% endblock %}
+    {% block footer %}
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Fermer</button>
+    {% endblock %}
+{% endembed %}
