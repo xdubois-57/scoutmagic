@@ -38,7 +38,7 @@ fonction désactivée disparaissent simplement de la liste.
 - **Activer pour tout le monde** bascule le site entier. L'année du
   staff s'efface alors d'elle-même : tout le monde est réaligné.
 
-## Les deux seuls vrais blocages
+## Les vrais blocages
 
 « Activer pour tout le monde » refuse de s'exécuter tant que :
 
@@ -47,7 +47,9 @@ fonction désactivée disparaissent simplement de la liste.
    combien et renvoie vers leur gestion, où un traitement en masse
    (« tout refuser », « tout retirer ») existe.
 
-Tout le reste est permis à tout moment, y compris dans le désordre.
+L'étape des départs, elle, ne peut pas être marquée faite tant que la
+campagne de réinscription de l'année préparée n'est pas terminée. Tout
+le reste est permis à tout moment, y compris dans le désordre.
 
 > La bascule publique est immédiate et visible par toutes les
 > familles. Assurez-vous d'avoir importé l'année cible : sinon le

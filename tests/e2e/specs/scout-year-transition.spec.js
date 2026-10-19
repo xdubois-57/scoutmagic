@@ -398,7 +398,7 @@ test('the whole site transitions to the next scout year through the documented w
     // successful import of the target year.
     // ---------------------------------------------------------------
     await expect(previewForm.getByRole('button', { name: 'Prévisualiser' })).toBeEnabled();
-    await expect(step(page, 'departures').getByRole('link', { name: "Aller aux départs de l'unité" })).toBeVisible();
+    await expect(step(page, 'departures').getByRole('link', { name: 'Voir les départs' })).toBeVisible();
 
     // Hard block: no staff year without a successful import of it. The
     // page says so in words as well as through the control, and the step's
@@ -572,8 +572,8 @@ test('the whole site transitions to the next scout year through the documented w
     // decisions, all four: whatever the site counts (events, photos) is a
     // point to check, never the step done.
     // ---------------------------------------------------------------
-    await expect(step(page, 'ephemerides').getByRole('link', { name: 'Aller au calendrier' })).toBeVisible();
-    await expect(step(page, 'badges').getByRole('link', { name: 'Aller aux staffs et badges' })).toBeVisible();
+    await expect(step(page, 'ephemerides').getByRole('link', { name: 'Ouvrir le calendrier' })).toBeVisible();
+    await expect(step(page, 'badges').getByRole('link', { name: 'Ouvrir Staffs' })).toBeVisible();
     await expect(step(page, 'trombinoscope').getByRole('link', { name: 'Aller aux animateurs' })).toBeVisible();
 
     for (const key of ['ephemerides', 'badges', 'trombinoscope', 'staff_photos']) {

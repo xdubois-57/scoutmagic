@@ -11,6 +11,7 @@ namespace Core\ScoutYear;
 use Core\Config\AppClock;
 use Core\Config\ScoutYearService;
 use Core\Config\SettingService;
+use Core\Import\DeskImportYearDates;
 use Core\Import\ImportJournalRepository;
 use Core\Journal\JournalRepository;
 use Core\ScoutYear\Step\PublicYearSwitch;
@@ -534,19 +535,18 @@ class ScoutYearTransitionService
     /**
      * The indicative Desk-encoding date for one transition, as 'Y-m-d':
      * the configured MM-JJ placed in the calendar year the target scout
-     * year starts in (15 August 2026 for the 2026-2027 transition). An
-     * unparseable setting falls back to 15 August rather than throwing —
-     * a page that refuses to render because a signpost is malformed would
-     * be a far worse failure than a signpost pointing at the default.
+     * year starts in (15 August 2026 for the 2026-2027 transition). The
+     * day is read by DeskImportYearDates, the Desk import's own reading of
+     * it, so the page and the import never disagree on it: a stored pair
+     * that does not hold together falls back to the defaults there, and
+     * so here — never an exception, because a page that refuses to render
+     * over a malformed signpost would be a far worse failure.
      *
      * @param array{id: int, label: string, start_date: string, end_date: string} $targetYear
      */
     private function deskEncodingDate(array $targetYear): string
     {
-        $configured = trim((string) $this->settingService->get(self::SETTING_DESK_ENCODING_DATE, null, '08-15'));
-        if (preg_match('/^(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$/', $configured) !== 1) {
-            $configured = '08-15';
-        }
+        $configured = DeskImportYearDates::fromSettings($this->settingService)->encoding;
 
         $startYear = substr((string) $targetYear['start_date'], 0, 4);
 

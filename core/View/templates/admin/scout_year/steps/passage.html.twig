@@ -1,18 +1,40 @@
 {#
- Detail of the « passage » step of the Année scoute workflow (chantier #930).
- Receives `step` (Core\ScoutYear\Step\TransitionStep) and reads only
- `step.details`, `step.pendingMessage` and the step itself — the points to
+ Detail of the « passage » step of the Année scoute workflow (chantier #930),
+ written as the content of the step's Détails dialog. Receives `step`
+ (Core\ScoutYear\Step\TransitionStep) and reads only `step.details`,
+ `step.pendingMessage` and the step itself; the keys of `step.details` are
+ documented on Core\ScoutYear\Step\Check\PassageStepCheck. The points to
  check, the actions and who marked the step are rendered by the page
  around this file, never here. Owned by the step checks (lot E); the page
  and the Détails dialog that include it are not.
 #}
 {% if step.details.passage_count is defined %}
     {% if step.details.passage_count == 0 %}
-    <p class="text-body-secondary small mb-2">Aucun passage à effectuer.</p>
+    <p class="small mb-2">Aucun passage à effectuer.</p>
     {% else %}
-    <p class="text-body-secondary small mb-2">
-        {{ step.details.passage_count }} passage(s) attendu(s) ·
-        {{ step.details.passage_count - step.details.unassigned_count }} avec une section d'arrivée.
+    {% set assigned = step.details.passage_count - step.details.unassigned_count %}
+    <p class="small mb-2">
+        {{ step.details.passage_count }} {{ step.details.passage_count == 1 ? 'passage attendu' : 'passages attendus' }} ·
+        {{ assigned }} avec une section d'arrivée.
     </p>
+    {% if step.details.unassigned is not empty %}
+    <div class="table-responsive mb-2">
+        <table class="table table-sm small mb-0">
+            <thead><tr><th scope="col">Animé</th><th scope="col">Quitte</th><th scope="col">Arrive</th></tr></thead>
+            <tbody>
+                {% for person in step.details.unassigned %}
+                <tr>
+                    <td>{{ person.name }}</td>
+                    <td>{{ person.section|default(person.branch_year) }}</td>
+                    <td class="text-warning-emphasis">Non choisie</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
     {% endif %}
+    {% endif %}
+    <p class="text-body-secondary small mb-2">
+        Sans aucun passage attendu, l'étape se marque comme faite de la même façon.
+    </p>
 {% endif %}

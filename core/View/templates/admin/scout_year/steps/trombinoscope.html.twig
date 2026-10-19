@@ -1,11 +1,50 @@
 {#
- Detail of the « trombinoscope » step of the Année scoute workflow (chantier #930).
- Receives `step` (Core\ScoutYear\Step\TransitionStep) and reads only
- `step.details`, `step.pendingMessage` and the step itself — the points to
+ Detail of the « trombinoscope » step of the Année scoute workflow (chantier #930),
+ written as the content of the step's Détails dialog. Receives `step`
+ (Core\ScoutYear\Step\TransitionStep) and reads only `step.details`,
+ `step.pendingMessage` and the step itself; the keys of `step.details` are
+ documented on Core\ScoutYear\Step\Check\TrombinoscopeStepCheck. The points to
  check, the actions and who marked the step are rendered by the page
  around this file, never here. Owned by the step checks (lot E); the page
  and the Détails dialog that include it are not.
 #}
 {% if step.pendingMessage %}
-<p class="text-body-secondary small mb-2">{{ step.pendingMessage }}</p>
+<div class="alert alert-info small py-2 px-3 mb-2" role="note">{{ step.pendingMessage }}</div>
+{% endif %}
+{% if step.details.sections is defined %}
+<div class="table-responsive mb-2">
+    <table class="table table-sm small mb-0">
+        <thead>
+            <tr>
+                <th scope="col">Section</th><th scope="col">Animateurs</th><th scope="col">Photo de l'année</th>
+                <th scope="col">Héritée</th><th scope="col">Aucune</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for section in step.details.sections %}
+            <tr>
+                <td>{{ section.label }}</td>
+                <td>{{ section.total }}</td>
+                <td>{{ section.exact }}</td>
+                <td{% if section.earlier > 0 %} class="text-warning-emphasis"{% endif %}>{{ section.earlier }}</td>
+                <td{% if section.none > 0 %} class="text-danger-emphasis"{% endif %}>{{ section.none }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% if step.details.people is not empty %}
+<p class="small fw-semibold mb-1">Personnes à corriger</p>
+<ul class="small mb-2">
+    {% for person in step.details.people %}
+    <li>
+        <a href="{{ person.url }}">{{ person.name }}</a> ({{ person.section }}) —
+        {% if person.origin == 'none' %}aucune photo{% else %}photo de {{ person.photo_year|default('une année antérieure') }}{% endif %}
+    </li>
+    {% endfor %}
+</ul>
+{% endif %}
+<p class="text-body-secondary small mb-2">
+    Sans photo = à vérifier ; photo héritée = à vérifier. Rien n'empêche de marquer l'étape.
+</p>
 {% endif %}

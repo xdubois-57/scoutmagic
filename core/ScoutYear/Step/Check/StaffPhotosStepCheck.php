@@ -8,27 +8,31 @@ declare(strict_types=1);
 
 namespace Core\ScoutYear\Step\Check;
 
+use Core\Member\SectionService;
 use Core\Photo\SectionPhotoRepository;
-use Core\ScoutYear\ScoutYearResolver;
 use Core\ScoutYear\Step\StepAction;
 use Core\ScoutYear\Step\StepCheck;
 use Core\ScoutYear\Step\StepCheckProvider;
 use Core\ScoutYear\Step\StepContext;
 
 /**
- * Step « staff_photos », human: how many sections of the target year have
- * a group photo OF THAT YEAR — last year's, which the Staffs page keeps
- * showing, does not count. Missing photos are a point to check, never
- * a block, and every section photographed is not the step done.
+ * Step « staff_photos », human: which sections checked in the target year
+ * (chantier « Année scoute » §2.2, the Staff d'U included) have no group
+ * photo OF THAT YEAR — last year's, which the Staffs page keeps showing,
+ * does not count (SectionPhotoRepository::findSectionIdsWithoutPhotoForYear()).
+ * Missing photos are one point to check naming the sections, never a
+ * block, and every section photographed is not the step done.
  *
- * Before the target year's import there is nothing to count: no point,
- * no figure, the waiting message. The list of the sections still
- * missing comes with the core's read contract.
+ * Before the target year's import there are no sections to look at: no
+ * point, no figure, the waiting message.
+ *
+ * $details: section_count, with_photo_count, missing (list of section
+ * labels); absent before the import.
  */
 final class StaffPhotosStepCheck implements StepCheckProvider
 {
     public function __construct(
-        private ScoutYearResolver $resolver,
+        private SectionService $sections,
         private SectionPhotoRepository $sectionPhotoRepository
     ) {
     }
@@ -40,10 +44,8 @@ final class StaffPhotosStepCheck implements StepCheckProvider
 
     public function check(StepContext $context): StepCheck
     {
-        $action = StepAction::linkTo('staffs', 'Aller aux staffs et badges', '/chefs/staffs');
-        $sections = $context->hasSuccessfulImport() ? $this->resolver->countSections($context->targetId()) : 0;
-
-        if ($sections === 0) {
+        $action = StepAction::linkTo('staffs', 'Ouvrir Staffs', '/chefs/staffs');
+        if (!$context->hasSuccessfulImport()) {
             return new StepCheck(
                 primaryAction: $action,
                 actions: [$action],
@@ -51,18 +53,26 @@ final class StaffPhotosStepCheck implements StepCheckProvider
             );
         }
 
-        $withPhoto = min($sections, $this->sectionPhotoRepository->countSectionsWithPhotoForYear($context->targetId()));
-        $missing = $sections - $withPhoto;
+        $labels = [];
+        foreach (CheckText::checkedSections($this->sections, $context->targetId(), withUnitStaff: true) as $section) {
+            $labels[$section->sectionId] = $section->label;
+        }
+        $missing = array_map(
+            static fn(int $id): string => $labels[$id],
+            $this->sectionPhotoRepository->findSectionIdsWithoutPhotoForYear(array_keys($labels), $context->targetId())
+        );
 
         return new StepCheck(
-            pointsToCheck: $missing > 0
-                ? [$missing === 1
-                    ? "1 section sans photo de groupe de {$context->targetLabel()}"
-                    : "{$missing} sections sans photo de groupe de {$context->targetLabel()}"]
+            pointsToCheck: $missing !== []
+                ? [implode(', ', $missing) . " : pas de photo {$context->targetLabel()}"]
                 : [],
             primaryAction: $action,
             actions: [$action],
-            details: ['section_count' => $sections, 'with_photo_count' => $withPhoto]
+            details: [
+                'section_count' => count($labels),
+                'with_photo_count' => count($labels) - count($missing),
+                'missing' => $missing,
+            ]
         );
     }
 }

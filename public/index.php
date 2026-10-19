@@ -13121,27 +13121,53 @@ if (isset(
 // drops the steps that module owns and never asks their check. One check
 // per step key (Core\ScoutYear\Step\Check) — the engine refuses to render
 // a step whose check is not wired here.
+$scoutYearTransitionStepRepository = new \Core\ScoutYear\ScoutYearTransitionStepRepository($pdo);
 $scoutYearTransitionService = new \Core\ScoutYear\ScoutYearTransitionService(
-    new \Core\ScoutYear\ScoutYearTransitionStepRepository($pdo),
+    $scoutYearTransitionStepRepository,
     $importJournalRepo,
     $journalRepo,
     $scoutYearService,
     $userAccountRepo,
     $settingService,
     [
-        new \Core\ScoutYear\Step\Check\DeparturesStepCheck(),
-        new \Core\ScoutYear\Step\Check\PassageStepCheck($registrationScoutYearPreparation ?? null),
-        new \Core\ScoutYear\Step\Check\ConfirmRegistrationsStepCheck($scoutYearAdminService),
-        new \Core\ScoutYear\Step\Check\DeskStaffStepCheck(),
-        new \Core\ScoutYear\Step\Check\DeskMembersStepCheck(),
+        new \Core\ScoutYear\Step\Check\DeparturesStepCheck(
+            $registrationScoutYearReview ?? null,
+            $scoutYearTransitionStepRepository,
+            $sectionService
+        ),
+        new \Core\ScoutYear\Step\Check\PassageStepCheck(
+            $registrationScoutYearPreparation ?? null,
+            $registrationScoutYearReview ?? null,
+            $sectionService
+        ),
+        new \Core\ScoutYear\Step\Check\ConfirmRegistrationsStepCheck(
+            $scoutYearAdminService,
+            $registrationScoutYearReview ?? null
+        ),
+        // The responsable hook is the trombinoscope module's (§7.4),
+        // registered in its block above; null without it, and the step
+        // then says the responsable cannot be verified.
+        new \Core\ScoutYear\Step\Check\DeskStaffStepCheck(
+            $sectionService,
+            $moduleHooks->getOptional(\Core\Module\SectionResponsableProvider::class)
+        ),
+        new \Core\ScoutYear\Step\Check\DeskMembersStepCheck($registrationScoutYearReview ?? null, $sectionService),
         new \Core\ScoutYear\Step\Check\ImportStepCheck($userAccountRepo),
-        new \Core\ScoutYear\Step\Check\FeesStepCheck(),
+        new \Core\ScoutYear\Step\Check\FeesStepCheck($feesAccuracySummary ?? null),
         new \Core\ScoutYear\Step\Check\PreviewStepCheck(),
         new \Core\ScoutYear\Step\Check\ActivateStaffStepCheck($scoutYearAdminService),
-        new \Core\ScoutYear\Step\Check\EphemeridesStepCheck($calendarScoutYearEventCount ?? null),
-        new \Core\ScoutYear\Step\Check\BadgesStepCheck(),
-        new \Core\ScoutYear\Step\Check\TrombinoscopeStepCheck(),
-        new \Core\ScoutYear\Step\Check\StaffPhotosStepCheck($scoutYearResolver, $sectionPhotoRepository),
+        new \Core\ScoutYear\Step\Check\EphemeridesStepCheck($calendarScoutYearEventCount ?? null, $sectionService),
+        new \Core\ScoutYear\Step\Check\BadgesStepCheck(
+            $sectionService,
+            new \Core\Badge\BadgeHolderService($badgeRepository, $memberBadgeRepository, $sectionService),
+            $badgeRepository
+        ),
+        new \Core\ScoutYear\Step\Check\TrombinoscopeStepCheck(
+            $sectionService,
+            new MemberPhotoRepository($pdo),
+            $scoutYearService
+        ),
+        new \Core\ScoutYear\Step\Check\StaffPhotosStepCheck($sectionService, $sectionPhotoRepository),
         new \Core\ScoutYear\Step\Check\ActivatePublicStepCheck($scoutYearAdminService),
     ],
     $moduleManager->getEnabledModuleIds()

@@ -7,11 +7,17 @@ namespace Tests\Core\ScoutYear;
 use Core\Config\ScoutYearService;
 use Core\Config\SettingService;
 use Core\Import\ImportJournalRepository;
-use Core\Import\MemberYearRepository;
 use Core\Journal\JournalRepository;
+use Core\Badge\BadgeHolderService;
+use Core\Badge\BadgeRepository;
+use Core\Badge\MemberBadgeRepository;
+use Core\Database\Connection;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
+use Core\Member\SectionService;
+use Core\Photo\MemberPhotoRepository;
 use Core\Photo\SectionPhotoRepository;
 use Core\ScoutYear\ScoutYearAdminService;
-use Core\ScoutYear\ScoutYearResolver;
 use Core\ScoutYear\ScoutYearTransitionService;
 use Core\ScoutYear\ScoutYearTransitionStepRepository;
 use Core\ScoutYear\Step\Check\ActivatePublicStepCheck;
@@ -33,12 +39,15 @@ use Core\Security\EncryptionService;
 use Core\Security\UserAccountRepository;
 use Modules\Calendar\Api\ScoutYearEventCountProvider;
 use Modules\Registration\Api\ScoutYearPreparationProvider;
+use Modules\Registration\Api\ScoutYearRegistrationReviewProvider;
 
 /**
  * Builds the « Année scoute » engine with its fourteen step checks the way
  * public/index.php wires them, so the service test and the controller test
  * exercise the same assembly. $overrides replaces the check of one key —
- * how a test gives a step a refusal to mark before lot E writes one.
+ * how a test gives a step a check of its own. The module contracts are
+ * null unless a test hands one, as on a site without those modules; the
+ * Trombinoscope responsable hook is never wired here.
  */
 final class TransitionServiceFactory
 {
@@ -53,27 +62,30 @@ final class TransitionServiceFactory
         array $enabledModuleIds = [],
         ?ScoutYearPreparationProvider $preparation = null,
         ?ScoutYearEventCountProvider $eventCount = null,
-        array $overrides = []
+        array $overrides = [],
+        ?ScoutYearRegistrationReviewProvider $review = null
     ): ScoutYearTransitionService {
         $scoutYearService = new ScoutYearService($pdo);
         $users = self::users($pdo);
-        $resolver = new ScoutYearResolver($scoutYearService, $settingService, new MemberYearRepository($pdo));
+        $stepRepository = new ScoutYearTransitionStepRepository($pdo);
+        $sections = self::sections($pdo);
+        $badges = new BadgeRepository($pdo);
 
         $checks = [];
         foreach ([
-            new DeparturesStepCheck(),
-            new PassageStepCheck($preparation),
-            new ConfirmRegistrationsStepCheck($adminService),
-            new DeskStaffStepCheck(),
-            new DeskMembersStepCheck(),
+            new DeparturesStepCheck($review, $stepRepository, $sections),
+            new PassageStepCheck($preparation, $review, $sections),
+            new ConfirmRegistrationsStepCheck($adminService, $review),
+            new DeskStaffStepCheck($sections, null),
+            new DeskMembersStepCheck($review, $sections),
             new ImportStepCheck($users),
-            new FeesStepCheck(),
+            new FeesStepCheck(null),
             new PreviewStepCheck(),
             new ActivateStaffStepCheck($adminService),
-            new EphemeridesStepCheck($eventCount),
-            new BadgesStepCheck(),
-            new TrombinoscopeStepCheck(),
-            new StaffPhotosStepCheck($resolver, new SectionPhotoRepository($pdo)),
+            new EphemeridesStepCheck($eventCount, $sections),
+            new BadgesStepCheck($sections, new BadgeHolderService($badges, new MemberBadgeRepository($pdo), $sections), $badges),
+            new TrombinoscopeStepCheck($sections, new MemberPhotoRepository($pdo), $scoutYearService),
+            new StaffPhotosStepCheck($sections, new SectionPhotoRepository($pdo)),
             new ActivatePublicStepCheck($adminService),
             ...$overrides,
         ] as $check) {
@@ -81,7 +93,7 @@ final class TransitionServiceFactory
         }
 
         return new ScoutYearTransitionService(
-            new ScoutYearTransitionStepRepository($pdo),
+            $stepRepository,
             new ImportJournalRepository($pdo),
             new JournalRepository($pdo),
             $scoutYearService,
@@ -94,6 +106,21 @@ final class TransitionServiceFactory
 
     public static function users(\PDO $pdo): UserAccountRepository
     {
-        return new UserAccountRepository($pdo, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)));
+        return new UserAccountRepository($pdo, self::encryption());
+    }
+
+    public static function sections(\PDO $pdo): SectionService
+    {
+        $connection = Connection::withPdo($pdo);
+
+        return new SectionService(
+            new SectionRepository($connection),
+            new MemberProfileRepository($connection, self::encryption(), new MemberBadgeRepository($pdo))
+        );
+    }
+
+    private static function encryption(): EncryptionService
+    {
+        return new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
     }
 }

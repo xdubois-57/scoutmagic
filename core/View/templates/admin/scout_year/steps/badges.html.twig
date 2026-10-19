@@ -1,11 +1,46 @@
 {#
- Detail of the « badges » step of the Année scoute workflow (chantier #930).
- Receives `step` (Core\ScoutYear\Step\TransitionStep) and reads only
- `step.details`, `step.pendingMessage` and the step itself — the points to
+ Detail of the « badges » step of the Année scoute workflow (chantier #930),
+ written as the content of the step's Détails dialog. Receives `step`
+ (Core\ScoutYear\Step\TransitionStep) and reads only `step.details`,
+ `step.pendingMessage` and the step itself; the keys of `step.details` are
+ documented on Core\ScoutYear\Step\Check\BadgesStepCheck. The points to
  check, the actions and who marked the step are rendered by the page
  around this file, never here. Owned by the step checks (lot E); the page
  and the Détails dialog that include it are not.
 #}
 {% if step.pendingMessage %}
-<p class="text-body-secondary small mb-2">{{ step.pendingMessage }}</p>
+<div class="alert alert-info small py-2 px-3 mb-2" role="note">{{ step.pendingMessage }}</div>
 {% endif %}
+{% if step.details.sections is defined %}
+<div class="table-responsive mb-2">
+    <table class="table table-sm small mb-0">
+        <thead><tr><th scope="col">Section</th><th scope="col">Badges attribués</th></tr></thead>
+        <tbody>
+            {% for section in step.details.sections %}
+            <tr>
+                <td>{{ section.label }}</td>
+                <td>
+                    {% for badge in section.badges %}
+                        {{ badge.name }}
+                        ({% for holder in badge.holders %}<a href="{{ holder.url }}">{{ holder.name }}</a>{% if not loop.last %}, {% endif %}{% endfor %})
+                        {%- if not loop.last %} · {% endif %}
+                    {% else %}
+                        <span class="text-body-secondary">Aucun</span>
+                    {% endfor %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+<p class="small mb-2">
+    <strong>Badges par défaut attribués nulle part :</strong>
+    {{ step.details.unworn is empty ? 'aucun' : step.details.unworn|join(', ') }}.<br>
+    <strong>Transversaux présents dans certaines sections seulement :</strong>
+    {% for gap in step.details.gaps %}{{ gap.badge }} (absent en {{ gap.without|join(', ') }}){% if not loop.last %}, {% endif %}{% else %}aucun{% endfor %}.
+</p>
+{% endif %}
+<p class="text-body-secondary small mb-2">
+    Aucun badge n'est obligatoire. Les référents s'attribuent au Staff d'U, jamais comptés comme un manque d'une
+    section.
+</p>
