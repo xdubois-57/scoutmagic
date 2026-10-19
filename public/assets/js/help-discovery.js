@@ -142,11 +142,11 @@
     });
 
     on(snoozeButton, function () {
-        settle('snooze').then(hide);
+        void settle('snooze').then(hide);
     });
 
     on(neverButton, function () {
-        settle('never').then(hide);
+        void settle('never').then(hide);
     });
 
     on(moreButton, function () {
@@ -154,7 +154,7 @@
         // template — never assembled here from a JSON payload, which
         // would be a second implementation of the card and a DOM sink
         // fed by server strings.
-        settle('more').then(function () {
+        void settle('more').then(function () {
             window.location.reload();
         });
     });
@@ -162,7 +162,7 @@
     // « Terminé », the close cross, Escape and a click on the backdrop
     // all arrive here, and all mean the same thing.
     modal.addEventListener('hidden.bs.modal', function () {
-        settle('close');
+        void settle('close');
     });
 
     show(0);

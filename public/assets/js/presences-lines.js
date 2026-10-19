@@ -264,7 +264,7 @@
             paintLine(line, chosen);
             applyFilter();
 
-            save(line, { status: chosen }).then(function (recorded) {
+            void save(line, { status: chosen }).then(function (recorded) {
                 if (!recorded) {
                     paintLine(line, previous);
                     applyFilter();
@@ -383,7 +383,7 @@
         clearTimeout(pendingComments[key]);
         pendingComments[key] = setTimeout(function () {
             delete pendingComments[key];
-            saveComment(field);
+            void saveComment(field);
         }, COMMENT_DEBOUNCE_MS);
     }
 
@@ -414,7 +414,7 @@
         var key = debounceKeyOf(field);
         clearTimeout(pendingComments[key]);
         delete pendingComments[key];
-        saveComment(field);
+        void saveComment(field);
     }, true);
 
     counters.forEach(function (element) {

@@ -323,7 +323,7 @@
                 var action = spec.action;
                 button.addEventListener('click', function () {
                     button.disabled = true;
-                    Promise.resolve(action.run(control))
+                    void Promise.resolve(action.run(control))
                         .catch(function () {
                             // An action that failed leaves its field as it
                             // was; the button just comes back.
@@ -751,7 +751,7 @@
 
             var note = host.dataset.confirmNote || '';
             if (note === '') {
-                api.ask({
+                void api.ask({
                     message: host.dataset.confirm || '',
                     title: host.dataset.confirmTitle || undefined,
                     variant: host.dataset.confirmVariant === 'primary' ? 'primary' : 'danger',
@@ -768,7 +768,7 @@
             // an empty answer is a real answer — only a dismissal (null)
             // cancels. Danger styling because what is behind it is a
             // refusal or a cancellation, not a form to fill in.
-            api.prompt({
+            void api.prompt({
                 message: host.dataset.confirm || '',
                 label: note,
                 multiline: true,

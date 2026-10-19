@@ -70,7 +70,7 @@
         clearError();
         addButton.disabled = true;
 
-        api.postJson('/api/account/devices', { label: labelInput ? labelInput.value : '' })
+        void api.postJson('/api/account/devices', { label: labelInput ? labelInput.value : '' })
             .then(function (res) {
                 if (!res.data?.success || typeof res.data.secret !== 'string') {
                     showError(failureMessage(res));

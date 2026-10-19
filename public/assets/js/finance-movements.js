@@ -295,7 +295,7 @@
                 await api.postJson('/finance/receipts/' + btn.dataset.attachmentId + '/dissociate', {
                     transaction_id: currentMovementId
                 });
-                loadAttachments(currentMovementId);
+                void loadAttachments(currentMovementId);
                 window.location.reload();
             });
         });
@@ -303,7 +303,7 @@
 
     /** @type {NodeListOf<HTMLElement>} */ (document.querySelectorAll('.attachment-btn')).forEach(btn => {
         btn.addEventListener('click', () => {
-            loadAttachments(btn.dataset.id);
+            void loadAttachments(btn.dataset.id);
             attachmentsModal ? attachmentsModal.show() : attachmentsModalEl.classList.add('show');
         });
     });

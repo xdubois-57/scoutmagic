@@ -173,7 +173,12 @@
     function copyLink(input) {
         if (!input) return;
         input.select();
-        navigator.clipboard?.writeText(input.value);
+        navigator.clipboard?.writeText(input.value).catch(function () {
+            window.ScoutMagicToast.show(
+                'Copie impossible : le lien est sélectionné, copiez-le à la main.',
+                { variant: 'error' }
+            );
+        });
     }
 
     /** @type {NodeListOf<HTMLButtonElement>} */ (document.querySelectorAll('.copy-link-btn')).forEach(function (btn) {

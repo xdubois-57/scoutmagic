@@ -66,7 +66,7 @@
         control.addEventListener('change', function () {
             var wanted = control.checked;
 
-            api.withDisabled(control, function () {
+            void api.withDisabled(control, function () {
                 return api.postJson('/config/superadmins/toggle-active', {
                     user_account_id: control.dataset.accountId,
                     is_active: wanted

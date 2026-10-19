@@ -113,7 +113,8 @@
                             config = null;
                         }
                     }
-                    navigator.serviceWorker.ready.then(function (registration) {
+                    // `ready` never rejects: it waits until a worker is active.
+                    void navigator.serviceWorker.ready.then(function (registration) {
                         if (registration.active) {
                             registration.active.postMessage({
                                 type: 'offline-config',
