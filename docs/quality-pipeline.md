@@ -653,7 +653,11 @@ refuses the `steps` context outside a step in every workflow here.
 this site that it depends on (issue #355). Every Monday at 05:41 UTC it
 checks the repository out and runs `scripts/check-external-sources.php` —
 the script the sixth release gate runs, over the register
-`Core\ExternalSource\ExternalSources`. When every source conforms the job
+`Core\ExternalSource\ExternalSources`. The weekly run asks each source once;
+the release gate passes `--retry-unreachable`, which asks a second time a
+source that did not answer at all (issue #760: a host answering one request
+in three made the gate a coin toss) — never one that answered with a
+status. When every source conforms the job
 ends there, green, having opened nothing. On a divergence, Claude reads the
 changed pages by `.claude/skills/external-sources/SKILL.md` — what moved,
 the new address, the new fees amounts — and returns one title and body per
@@ -1148,8 +1152,9 @@ or a console that died says nothing about the code, but a release is when a
 shipped default holding that address reaches every installed site. The
 same script runs weekly (below, `external-sources-check.yml`), so a
 divergence this gate meets should already have its issue. It has no
-exemption for an unreachable network: no answer is a dead link, the same
-as a 404.
+exemption for an unreachable network: a source that stays silent through
+its second try (`--retry-unreachable`, issue #760) is a dead link, the same
+as a 404. A status — a 404 included — is never retried and counts at once.
 
 **None of them runs a test**, and that is the design rather than a gap.
 PHPStan, both PHPUnit engines, the JavaScript analysis and tests, the

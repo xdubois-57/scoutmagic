@@ -10,6 +10,7 @@ namespace Modules\Finance\Service;
 
 use Core\Security\Role;
 use Modules\Finance\Api\FinanceException;
+use Modules\Finance\Api\ReceivableMovement;
 use Modules\Finance\Repository\AccountRepository;
 use Modules\Finance\Repository\ExpectedReceivable;
 use Modules\Finance\Repository\ExpectedReceivableRepository;
@@ -200,10 +201,15 @@ class ReceivableAllocationService
 
         $transactionIds = array_map(static fn(Transaction $transaction): int => $transaction->id, $transactions);
         $usedByTransaction = array_fill_keys($transactionIds, 0);
+        // What each debit already gives back, to any receivable — so a
+        // refund never hands out more than the debit carries.
+        $refundedByTransaction = array_fill_keys($transactionIds, 0);
         foreach ($this->allocationRepository->findByTransactionIds($transactionIds) as $transactionId => $allocations) {
             foreach ($allocations as $allocation) {
                 if ($allocation->amountCents > 0) {
                     $usedByTransaction[$transactionId] += $allocation->amountCents;
+                } elseif ($allocation->amountCents < 0) {
+                    $refundedByTransaction[$transactionId] -= $allocation->amountCents;
                 }
             }
         }
@@ -276,9 +282,308 @@ class ReceivableAllocationService
             }
         }
 
+        $refunds = $this->reconcileRefunds(
+            $byCommunication,
+            $this->receivableRepository->findCommunicationDigitsByAccountId($receivables[0]->accountId),
+            $transactions,
+            $existingByPair,
+            $allocatedByReceivable,
+            $usedByTransaction,
+            $refundedByTransaction
+        );
+        foreach ($refunds as $transactionId => $count) {
+            $changed += $count;
+            $touched[$transactionId] = true;
+        }
+
         $this->recategorize(array_keys($touched));
 
         return $changed;
+    }
+
+    /**
+     * The second half of the automatic pass: a DEBIT whose text carries a
+     * receivable's communication is the refund of that receivable's
+     * surplus (chantier #927, §2.6) — the transfer a manager makes from
+     * the bank, with the communication the payer used, to give back a
+     * security deposit or an overpayment.
+     *
+     * **Never beyond the surplus.** What a debit gives back is capped at
+     * what the receivable still owes back at that point — the money that
+     * arrived designating it, less what it was worth, less what earlier
+     * refunds already returned. The rest of the debit stays unreconciled:
+     * a refund of 200 € against a surplus of 196 € is 196 € of refund and
+     * 4 € of something a treasurer has to look at, never a receivable
+     * reading "refunded" for more than it was owed. A debit that names a
+     * receivable carrying no surplus at all writes nothing — that is
+     * also why a debit never settles anything (rule 1 of this class).
+     *
+     * Runs after the credits so the surplus it reads is the one this very
+     * pass just left. The unique pair makes a re-run (and a re-import)
+     * write nothing, and a human's row on the pair is never touched, as
+     * for the credits. One difference, deliberate: **an automatic refund
+     * only ever grows** (a surplus that grows later, up to what the debit
+     * carries), it is never reduced. A credit's allocation says how much
+     * of it a receivable absorbs, which moves with the amount due; a
+     * refund says the money went back to the payer, which a price
+     * changing afterwards does not undo.
+     *
+     * **Each write is re-validated under the receivable's lock**
+     * (ExpectedReceivableRepository::withReceivableLocked(), then the
+     * debit's row, the same order as refundFromCandidate()). The figures
+     * above come from a snapshot read without any lock — this pass runs
+     * after an import and on ordinary page reads — so a refund a person
+     * committed in between would otherwise go uncounted, and the two
+     * together would give back more than the surplus. Under the lock, the
+     * refunds already on the receivable and on the debit, and the amount
+     * due, are read again from the database, and only what still fits is
+     * written.
+     *
+     * @param array<string, ExpectedReceivable[]> $byCommunication
+     * @param array<string, true> $accountCommunications the communications (digits) of the account's receivables
+     * @param Transaction[] $transactions
+     * @param array<int, array<int, ReceivableAllocation>> $existingByPair
+     * @param array<int, int> $allocatedByReceivable
+     * @param array<int, int> $usedByTransaction positive allocations per movement
+     * @param array<int, int> $refundedByDebit what each debit already gives back, as a positive number
+     * @return array<int, int> rows changed, per debit
+     */
+    private function reconcileRefunds(
+        array $byCommunication,
+        array $accountCommunications,
+        array $transactions,
+        array $existingByPair,
+        array $allocatedByReceivable,
+        array $usedByTransaction,
+        array $refundedByDebit
+    ): array {
+        $debits = [];
+        foreach ($transactions as $transaction) {
+            if ($transaction->amount >= 0) {
+                continue;
+            }
+            foreach ($this->communicationsOf($transaction) as $communication) {
+                if (isset($byCommunication[$communication])) {
+                    $debits[] = $transaction;
+                    break;
+                }
+            }
+        }
+        if ($debits === []) {
+            return [];
+        }
+
+        // What each receivable has received designating it — absorbed or
+        // not — computed the way settlementsFor() computes it, from the
+        // state this pass has just left in memory, and what was already
+        // refunded on it, per debit, so a refund can be revised without
+        // counting itself.
+        $receivablesById = [];
+        foreach ($byCommunication as $receivables) {
+            foreach ($receivables as $receivable) {
+                $receivablesById[$receivable->id] = $receivable;
+            }
+        }
+        $designated = [];
+        foreach ($receivablesById as $receivableId => $receivable) {
+            $designated[$receivableId] = $allocatedByReceivable[$receivableId] ?? 0;
+        }
+        $refunded = array_fill_keys(array_keys($receivablesById), 0);
+        foreach ($transactions as $transaction) {
+            foreach ($existingByPair[$transaction->id] ?? [] as $receivableId => $allocation) {
+                if ($allocation->amountCents < 0 && isset($refunded[$receivableId])) {
+                    $refunded[$receivableId] -= $allocation->amountCents;
+                }
+            }
+            if ($transaction->amount <= 0) {
+                continue;
+            }
+            // The rest of a credit naming SEVERAL receivables of the account
+            // is nobody's surplus in particular, so it is nobody's: counting
+            // it for each would let two refunds hand the same money back
+            // twice. A treasurer decides whose it is. Only communications
+            // that name a receivable count — any other digit run the bank
+            // text carries is not a second claimant.
+            $communications = $this->communicationsOf($transaction);
+            $left = self::countNamed($communications, $accountCommunications) > 1
+                ? 0
+                : self::toCents($transaction->amount) - ($usedByTransaction[$transaction->id] ?? 0);
+            foreach ($communications as $communication) {
+                foreach ($byCommunication[$communication] ?? [] as $receivable) {
+                    $pair = $existingByPair[$transaction->id][$receivable->id] ?? null;
+                    // A person's « pays nothing here » rules the movement out;
+                    // the pass's own share brought to 0 (a receivable lowered
+                    // to 0) does not — what arrived is still the surplus.
+                    if ($pair !== null && $pair->isManual() && $pair->amountCents <= 0) {
+                        continue;
+                    }
+                    $designated[$receivable->id] += $left;
+                }
+            }
+        }
+
+        $changed = [];
+        foreach ($debits as $debit) {
+            foreach ($this->communicationsOf($debit) as $communication) {
+                foreach ($byCommunication[$communication] ?? [] as $receivable) {
+                    $existing = $existingByPair[$debit->id][$receivable->id] ?? null;
+                    if ($existing !== null && $existing->isManual()) {
+                        continue;
+                    }
+
+                    $ownShare = $existing !== null ? max(0, -$existing->amountCents) : 0;
+                    $snapshot = self::refundToWrite(
+                        $designated[$receivable->id],
+                        $receivable->amountDueCents,
+                        $refunded[$receivable->id],
+                        self::toCents(-$debit->amount),
+                        $refundedByDebit[$debit->id] ?? 0,
+                        $ownShare
+                    );
+                    // Nothing to write even on the snapshot: no lock taken.
+                    // A concurrent refund only ever lowers what fits.
+                    if ($snapshot === $ownShare) {
+                        continue;
+                    }
+
+                    $written = $this->receivableRepository->withReceivableLocked(
+                        $receivable->id,
+                        fn (): ?array => $this->writeAutomaticRefund(
+                            $receivable->id,
+                            $debit,
+                            $designated[$receivable->id]
+                        )
+                    );
+                    if ($written === null) {
+                        continue;
+                    }
+
+                    $changed[$debit->id] = ($changed[$debit->id] ?? 0) + 1;
+                    $refunded[$receivable->id] = $written['refundedOnReceivable'];
+                    $refundedByDebit[$debit->id] = $written['refundedOnDebit'];
+                    $existingByPair[$debit->id][$receivable->id] = $written['allocation'];
+                }
+            }
+        }
+
+        return $changed;
+    }
+
+    /**
+     * One automatic refund, decided again from the database while the
+     * caller holds the receivable's lock: the debit's row is taken next,
+     * then the receivable, the pair and every refund on either side are
+     * read as committed. Null when nothing (any more) fits, or when a
+     * person has spoken about the pair in the meantime.
+     *
+     * @return array{allocation: ReceivableAllocation, refundedOnReceivable: int, refundedOnDebit: int}|null
+     */
+    private function writeAutomaticRefund(int $receivableId, Transaction $debit, int $designatedCents): ?array
+    {
+        $this->transactionRepository->lockForUpdate($debit->id);
+
+        $receivable = $this->receivableRepository->findById($receivableId);
+        if ($receivable === null) {
+            return null;
+        }
+
+        $existing = null;
+        $refundedOnDebit = 0;
+        foreach ($this->allocationRepository->findByTransactionId($debit->id) as $allocation) {
+            if ($allocation->receivableId === $receivableId) {
+                $existing = $allocation;
+            }
+            if ($allocation->amountCents < 0) {
+                $refundedOnDebit -= $allocation->amountCents;
+            }
+        }
+        if ($existing !== null && $existing->isManual()) {
+            return null;
+        }
+        $refundedOnReceivable = 0;
+        foreach ($this->allocationRepository->findByReceivableId($receivableId) as $allocation) {
+            if ($allocation->amountCents < 0) {
+                $refundedOnReceivable -= $allocation->amountCents;
+            }
+        }
+
+        $ownShare = $existing !== null ? max(0, -$existing->amountCents) : 0;
+        $amount = self::refundToWrite(
+            $designatedCents,
+            $receivable->amountDueCents,
+            $refundedOnReceivable,
+            self::toCents(-$debit->amount),
+            $refundedOnDebit,
+            $ownShare
+        );
+        if ($amount === $ownShare) {
+            return null;
+        }
+
+        if ($existing === null) {
+            $allocationId = $this->allocationRepository->create(
+                $debit->id,
+                $receivableId,
+                -$amount,
+                ReceivableAllocation::SOURCE_AUTO,
+                null
+            );
+        } else {
+            $this->allocationRepository->update($existing->id, -$amount, ReceivableAllocation::SOURCE_AUTO, null);
+            $allocationId = $existing->id;
+        }
+
+        return [
+            'allocation' => new ReceivableAllocation(
+                id: $allocationId,
+                transactionId: $debit->id,
+                receivableId: $receivableId,
+                amountCents: -$amount,
+                source: ReceivableAllocation::SOURCE_AUTO,
+                createdBy: null,
+                createdAt: date('Y-m-d H:i:s')
+            ),
+            'refundedOnReceivable' => $refundedOnReceivable + $amount - $ownShare,
+            'refundedOnDebit' => $refundedOnDebit + $amount - $ownShare,
+        ];
+    }
+
+    /**
+     * What one debit gives back to one receivable: the surplus (what
+     * arrived, less what is due, less the OTHER refunds on it), within what
+     * the debit still carries after its other refunds — and never below
+     * what it already gave: the money left, and a surplus shrinking
+     * afterwards does not bring it back onto the account.
+     */
+    private static function refundToWrite(
+        int $designatedCents,
+        int $dueCents,
+        int $refundedOnReceivableCents,
+        int $debitCents,
+        int $refundedOnDebitCents,
+        int $ownShareCents
+    ): int {
+        $surplus = $designatedCents - $dueCents - ($refundedOnReceivableCents - $ownShareCents);
+        $leftOnDebit = $debitCents - ($refundedOnDebitCents - $ownShareCents);
+
+        return max($ownShareCents, min($surplus, $leftOnDebit));
+    }
+
+    /**
+     * How many of a movement's communications name a receivable of the
+     * account — the claimants of what is left on it. Any other digit run
+     * the bank text carries (a SEPA reference, a stray number, another
+     * account's receivable) names nobody here.
+     *
+     * @param list<string> $communications
+     * @param array<string, true> $accountCommunications
+     */
+    private static function countNamed(array $communications, array $accountCommunications): int
+    {
+        return count(array_filter(
+            $communications,
+            static fn (string $communication): bool => isset($accountCommunications[$communication])
+        ));
     }
 
     /**
@@ -532,6 +837,142 @@ class ReceivableAllocationService
 
         // The money going back is booked where it came in.
         $this->recategorize([$transactionId]);
+    }
+
+    /**
+     * The debits that could be the refund of this receivable's surplus:
+     * on its own account, booked on or after $sinceDate, reconciled with
+     * nothing, and no larger than what is still owed back. Empty when
+     * nothing is owed back.
+     *
+     * Reconciles first, so a debit the communication already matched is
+     * not offered again, and the surplus is the current one.
+     *
+     * Reached through Api\ExpectedReceivableInterface, by the module that
+     * raised the receivable: there is no finance viewer to check an
+     * account partition against, and the caller's own rules decided who
+     * stands in front of the list — which is why a candidate carries so
+     * little (Api\RefundCandidate).
+     *
+     * @return list<Transaction>
+     */
+    public function refundCandidatesFor(ExpectedReceivable $receivable, string $sinceDate): array
+    {
+        $surplus = $this->refreshAndSettle([$receivable])[$receivable->id]->amountOverpaidCents;
+        if ($surplus <= 0) {
+            return [];
+        }
+
+        $debits = $this->transactionRepository->findDebitsSince($receivable->accountId, $sinceDate);
+        $allocations = $this->allocationRepository->findByTransactionIds(
+            array_map(static fn(Transaction $debit): int => $debit->id, $debits)
+        );
+
+        $candidates = [];
+        foreach ($debits as $debit) {
+            if (self::toCents(-$debit->amount) <= $surplus
+                && self::isUnreconciledFor($allocations[$debit->id] ?? [], $receivable->id)
+            ) {
+                $candidates[] = $debit;
+            }
+        }
+
+        return $candidates;
+    }
+
+    /**
+     * Records a candidate debit as the refund of this receivable's
+     * surplus — its whole amount, written as a person's decision so the
+     * automatic pass never revises it.
+     *
+     * **Everything refundCandidatesFor() filtered on is checked again,
+     * under a lock**: the receivable's row first, then the movement's, in
+     * that order everywhere. The first stops two decisions on the same
+     * receivable from each fitting under a surplus they then exceed
+     * together; the second stops one debit from becoming the refund of two
+     * receivables at once. The matching runs inside the lock before the
+     * checks, so a debit the communication matched in the meantime is
+     * seen as reconciled rather than claimed twice.
+     *
+     * @return int the cents refunded
+     * @throws FinanceException
+     */
+    public function refundFromCandidate(
+        ExpectedReceivable $receivable,
+        int $transactionId,
+        string $sinceDate,
+        ?int $actorUserAccountId
+    ): int {
+        return $this->receivableRepository->withReceivableLocked(
+            $receivable->id,
+            function () use ($receivable, $transactionId, $sinceDate, $actorUserAccountId): int {
+                $this->transactionRepository->lockForUpdate($transactionId);
+
+                $current = $this->receivableRepository->findById($receivable->id);
+                if ($current === null) {
+                    throw new FinanceException("Cette créance n'existe pas.");
+                }
+                $surplus = $this->refreshAndSettle([$current])[$current->id]->amountOverpaidCents;
+
+                $debit = $this->transactionRepository->findById($transactionId);
+                if ($debit === null || $debit->accountId !== $current->accountId) {
+                    throw new FinanceException("Ce débit n'est pas un mouvement du compte de cette créance.");
+                }
+                if ($debit->amount >= 0) {
+                    throw new FinanceException("Un remboursement est un débit : ce mouvement n'en est pas un.");
+                }
+                if ($debit->transactionDate < $sinceDate) {
+                    throw new FinanceException('Ce débit est antérieur à la date à partir de laquelle un '
+                        . 'remboursement est cherché.');
+                }
+                $onDebit = $this->allocationRepository->findByTransactionId($debit->id);
+                if (!self::isUnreconciledFor($onDebit, $current->id)) {
+                    throw new FinanceException('Ce débit est déjà rapproché.');
+                }
+                $amountCents = self::toCents(-$debit->amount);
+                if ($amountCents > $surplus) {
+                    throw new FinanceException($surplus > 0
+                        ? sprintf(
+                            'Ce débit (%s €) dépasse le trop-perçu de cette créance (%s €).',
+                            self::euros($amountCents),
+                            self::euros($surplus)
+                        )
+                        : 'Cette créance ne porte aucun trop-perçu à rembourser.');
+                }
+
+                $this->allocationRepository->create(
+                    $debit->id,
+                    $current->id,
+                    -$amountCents,
+                    ReceivableAllocation::SOURCE_MANUAL,
+                    $actorUserAccountId
+                );
+                $this->recategorize([$debit->id]);
+
+                return $amountCents;
+            }
+        );
+    }
+
+    /**
+     * Whether a debit is free to become this receivable's refund: nothing
+     * allocated on it to any receivable, and no person having already
+     * said, for this very pair, that it is no refund of this one.
+     *
+     * @param ReceivableAllocation[] $allocations the debit's
+     */
+    private static function isUnreconciledFor(array $allocations, int $receivableId): bool
+    {
+        foreach ($allocations as $allocation) {
+            if ($allocation->amountCents !== 0) {
+                return false;
+            }
+            if ($allocation->receivableId === $receivableId && $allocation->isManual()) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**
@@ -807,10 +1248,15 @@ class ReceivableAllocationService
         // already given away — the basis for "what arrived designating
         // this receivable that it could not absorb".
         $transactionsByAccount = [];
+        // Which digit runs name a receivable on each account: only those
+        // make a movement "several receivables'" (countNamed()).
+        $accountCommunications = [];
         foreach ($receivables as $receivable) {
             if (!isset($transactionsByAccount[$receivable->accountId])) {
                 $transactionsByAccount[$receivable->accountId] =
                     $this->transactionRepository->findByAccountId($receivable->accountId);
+                $accountCommunications[$receivable->accountId] =
+                    $this->receivableRepository->findCommunicationDigitsByAccountId($receivable->accountId);
             }
         }
 
@@ -865,8 +1311,20 @@ class ReceivableAllocationService
                 // attaching a share of it, or by saying it pays nothing
                 // here — has had its say. Only the part still lying
                 // unattached on a movement that names this receivable
-                // counts as arrived-and-unabsorbed.
-                if (isset($byTransaction[$transaction->id]) && $byTransaction[$transaction->id]->amountCents <= 0) {
+                // counts as arrived-and-unabsorbed. The pass's own share
+                // brought to 0 is not a treasurer speaking: a receivable
+                // lowered to 0 after a payment keeps it all as surplus.
+                $pair = $byTransaction[$transaction->id] ?? null;
+                if ($pair !== null && $pair->isManual() && $pair->amountCents <= 0) {
+                    continue;
+                }
+                // The rest of a movement naming several receivables of its account is
+                // nobody's in particular: it stays out of every surplus
+                // (and so out of every automatic or proposed refund).
+                if (self::countNamed(
+                    $communicationsByTransaction[$transaction->id],
+                    $accountCommunications[$receivable->accountId]
+                ) > 1) {
                     continue;
                 }
                 $designated += self::toCents($transaction->amount) - ($usedByTransaction[$transaction->id] ?? 0);
@@ -900,6 +1358,56 @@ class ReceivableAllocationService
     public function allocationsFor(int $receivableId): array
     {
         return $this->allocationRepository->findByReceivableId($receivableId);
+    }
+
+    /**
+     * The movements that pay or refund one receivable, oldest first, each
+     * with this receivable's share only — what the module that raised it
+     * shows its payer (Api\ExpectedReceivableInterface::
+     * getReceivableMovements()). A zero-amount allocation is a person
+     * saying the movement pays nothing here, so it is not one of them.
+     *
+     * Reads what is written and writes nothing.
+     *
+     * @return list<ReceivableMovement>
+     */
+    public function movementsFor(ExpectedReceivable $receivable): array
+    {
+        $allocations = array_filter(
+            $this->allocationRepository->findByReceivableId($receivable->id),
+            static fn(ReceivableAllocation $allocation): bool => $allocation->amountCents !== 0
+        );
+        $byTransaction = [];
+        foreach ($allocations as $allocation) {
+            $byTransaction[$allocation->transactionId] = $allocation;
+        }
+
+        $transactions = $this->transactionRepository->findByIds(array_keys($byTransaction));
+        usort(
+            $transactions,
+            static fn(Transaction $a, Transaction $b): int
+                => [$a->transactionDate, $a->id] <=> [$b->transactionDate, $b->id]
+        );
+
+        $movements = [];
+        foreach ($transactions as $transaction) {
+            // Never across two accounts (an allocation cannot be written
+            // so), and checked rather than assumed: this list is handed to
+            // another module.
+            if ($transaction->accountId !== $receivable->accountId) {
+                continue;
+            }
+            $allocation = $byTransaction[$transaction->id];
+            $movements[] = new ReceivableMovement(
+                date: $transaction->transactionDate,
+                label: $transaction->label,
+                counterpartyName: $transaction->counterpartyName,
+                amountCents: $allocation->amountCents,
+                automatic: !$allocation->isManual()
+            );
+        }
+
+        return $movements;
     }
 
     /**
