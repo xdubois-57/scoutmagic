@@ -13,6 +13,7 @@
 interface BootstrapComponentInstance {
     show(): void;
     hide(): void;
+    dispose(): void;
 }
 
 declare const bootstrap: {

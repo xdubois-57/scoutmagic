@@ -1,0 +1,34 @@
+{#
+ One Core\ScoutYear\Step\StepAction, as a control.
+
+ - link: a plain link to another page, never confirmed.
+ - post: a form posting to one of the /admin/scout-year/* routes — the
+   no-JavaScript fallback. admin-scout-year.js sends the same fields as
+   JSON instead, after asking ScoutMagicConfirm.ask() with the wording the
+   step's check wrote (data-ask-*: the consequence, and that no e-mail is
+   sent). Not `data-confirm`: confirm.js would then answer the submit
+   itself, and this page's script must own it to stay on the page.
+ - review: opens the review before the switch (_review.html.twig).
+
+ `disabled` is display only — the server refuses the POST regardless.
+
+ Context: action, place ('page' | 'details', keeps focus keys unique),
+ variant (the button class).
+#}
+{% if action.link %}
+    <a href="{{ action.url }}" class="btn btn-sm {{ variant }}">{{ action.label }}</a>
+{% elseif action.post %}
+    <form method="post" action="{{ action.url }}" class="d-inline js-step-action"
+          data-ask-title="{{ action.confirmTitle }}" data-ask-message="{{ action.confirmMessage }}"
+          data-ask-label="{{ action.confirmLabel }}">
+        {{ csrf_field()|raw }}
+        {% for name, value in action.fields %}
+            <input type="hidden" name="{{ name }}" value="{{ value }}">
+        {% endfor %}
+        <button type="submit" class="btn btn-sm {{ variant }}" data-focus-key="{{ place }}:{{ action.id }}"
+                {{ action.disabled ? 'disabled' : '' }}>{{ action.label }}</button>
+    </form>
+{% elseif action.review %}
+    <button type="button" class="btn btn-sm {{ variant }}" data-bs-toggle="modal" data-bs-target="#scout-year-review"
+            data-focus-key="{{ place }}:{{ action.id }}">{{ action.label }}</button>
+{% endif %}

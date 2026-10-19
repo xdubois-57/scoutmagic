@@ -1,0 +1,154 @@
+{#
+ The part of the Année scoute page that follows the server's state: the
+ header and its target year, the year cards, the summary, the phases and
+ their steps, each step's Détails dialog and the review before the switch.
+
+ Rendered by ScoutYearController for the page AND for the JSON answer of
+ every action on it, with the same context (stateContext()), so what the
+ script swaps in is exactly what a reload would show (CHANTIER-annee-scoute.md §2.8).
+ Every value comes from Core\ScoutYear\Step\TransitionWorkflow; nothing
+ here decides what a step says, only how it is laid out.
+
+ Context: public_year, staff_year (or null), target_year, preview_year
+ (this session's own, or null), public_year_ended, workflow.
+#}
+{% include 'partials/page_header.html.twig' with {
+    title: 'Année scoute',
+    subtitle: "Préparez l'année suivante avec les staffs, encodez-la dans Desk, importez-la, puis basculez tout le monde le moment venu.",
+    badge: 'Cible : ' ~ target_year.label,
+} only %}
+
+{% if public_year_ended %}
+<div class="alert alert-warning d-flex align-items-center gap-2" role="alert">
+    <i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i>
+    <div>
+        L'année publique ({{ public_year.label }}) est terminée depuis le {{ public_year.end_date|date_fr }}.
+        Le site continue à l'afficher tant que personne n'a suivi les étapes ci-dessous pour basculer vers
+        l'année suivante.
+    </div>
+</div>
+{% endif %}
+
+{# The four years at play. Each card is anchored on its own heading —
+   tests/e2e/specs/scout-year-transition.spec.js reads a card by it. #}
+<div class="row g-2 mb-2" data-year-cards>
+    <div class="col-6 col-lg-3">
+        <div class="card h-100" data-year-card="public">
+            <div class="card-body p-2 px-3">
+                <h2 class="small text-uppercase text-body-secondary fw-normal mb-0">Année publique</h2>
+                <p class="fs-5 fw-bold mb-0">{{ public_year.label }}</p>
+                <p class="small text-body-secondary mb-0">Visible par tous</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-lg-3">
+        <div class="card h-100" data-year-card="staff">
+            <div class="card-body p-2 px-3">
+                <h2 class="small text-uppercase text-body-secondary fw-normal mb-0">Année du staff</h2>
+                <p class="fs-5 fw-bold mb-0">{{ staff_year ? staff_year.label : '—' }}</p>
+                <p class="small text-body-secondary mb-0">{{ staff_year ? 'Activée pour les staffs' : 'Pas encore activée' }}</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-lg-3">
+        <div class="card h-100 border-primary" data-year-card="target">
+            <div class="card-body p-2 px-3">
+                <h2 class="small text-uppercase text-body-secondary fw-normal mb-0">Année cible</h2>
+                <p class="fs-5 fw-bold mb-0">{{ target_year.label }}</p>
+                <p class="small text-body-secondary mb-0">Celle que vous préparez</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-lg-3">
+        <div class="card h-100" data-year-card="preview">
+            <div class="card-body p-2 px-3">
+                <h2 class="small text-uppercase text-body-secondary fw-normal mb-0">Prévisualisation</h2>
+                <p class="fs-5 fw-bold mb-0">{{ preview_year ? preview_year.label : '—' }}</p>
+                <p class="small text-body-secondary mb-0">Votre session seulement</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% if workflow.lastPublicSwitch %}
+{% set last_switch = workflow.lastPublicSwitch %}
+<p class="text-body-secondary small mb-3" data-last-switch>
+    Dernière bascule :
+    {% if last_switch.fromLabel %}{{ last_switch.fromLabel }} → {% endif %}{{ last_switch.toLabel }},
+    le {{ last_switch.switchedAt|date_fr }}{% if last_switch.switchedBy %} par {{ last_switch.switchedBy }}{% endif %}.
+</p>
+{% else %}
+<div class="mb-3"></div>
+{% endif %}
+
+{# Summary: what is done, what to check, what really blocks. #}
+{% set done_count = workflow.doneCount %}
+{% set step_count = workflow.stepCount %}
+{% set check_count = workflow.pointsToCheckCount %}
+{% set blocking_count = workflow.blockingCount %}
+<div class="card mb-3">
+    <div class="card-body">
+        <div class="d-flex flex-wrap align-items-center gap-2 column-gap-3" aria-live="polite" data-summary>
+            <strong data-summary-done>{{ done_count }} étape{{ done_count > 1 ? 's' }} {{ done_count > 1 ? 'faites' : 'faite' }} sur {{ step_count }}</strong>
+            <div class="progress flex-grow-1" aria-hidden="true" style="height: .5rem; min-width: 6rem;">
+                <div class="progress-bar bg-success" style="width: {{ step_count > 0 ? (done_count * 100 / step_count)|round : 0 }}%;"></div>
+            </div>
+            {% include 'partials/status_badge.html.twig' with {
+                status: check_count > 0 ? 'pending' : 'neutral',
+                label: check_count ~ ' point' ~ (check_count > 1 ? 's' : '') ~ ' à vérifier',
+            } only %}
+            {% if blocking_count > 0 %}
+                {% include 'partials/status_badge.html.twig' with {
+                    status: 'blocked',
+                    label: blocking_count ~ ' blocage' ~ (blocking_count > 1 ? 's' : ''),
+                } only %}
+            {% endif %}
+        </div>
+        <p class="text-body-secondary small mb-0 mt-2">
+            Chaque étape montre une seule action, la plus utile ; « Détails » les montre toutes. Les ronds des étapes
+            humaines se cliquent : un clic marque l'étape faite, un clic sur le rond vert la remet à faire. L'ordre est
+            un conseil. Seuls trois points bloquent réellement, et le serveur les vérifie : le marquage de l'étape des
+            départs tant que la campagne de réinscription n'est pas terminée, l'activation pour les staffs sans import
+            réussi, et la bascule publique. Les dates des phases sont de simples repères : elles ne déclenchent et ne
+            bloquent jamais rien.
+        </p>
+    </div>
+</div>
+
+{% for phase in workflow.phases %}
+<section class="mb-4" data-phase="{{ phase.key }}">
+    <div class="d-flex align-items-baseline gap-2 flex-wrap mb-1">
+        <h2 class="h5 mb-0">{{ phase.title }}</h2>
+        {% if phase.subtitle %}<span class="small text-body-secondary">{{ phase.subtitle }}</span>{% endif %}
+        {% if phase.current %}<span class="badge text-bg-primary">Période en cours</span>{% endif %}
+    </div>
+    {% if phase.note %}
+    <div class="alert alert-info d-flex align-items-start gap-2 py-2 px-3 mb-2" role="note">
+        <i class="bi bi-info-circle-fill mt-1" aria-hidden="true"></i>
+        <div class="small">{{ phase.note }}</div>
+    </div>
+    {% endif %}
+    <ol class="list-unstyled step-list mb-0">
+        {% for step in phase.steps %}
+            {% include 'admin/scout_year/_step.html.twig' with {
+                step: step,
+                is_current: step.number == workflow.currentStepNumber,
+                is_last: loop.last,
+            } only %}
+        {% endfor %}
+    </ol>
+</section>
+{% endfor %}
+
+{% for step in workflow.steps %}
+    {% include 'admin/scout_year/_step_details.html.twig' with { step: step } only %}
+{% endfor %}
+
+{% set switch_step = workflow.step('activate_public') %}
+{% if switch_step and not switch_step.done %}
+    {% include 'admin/scout_year/_review.html.twig' with {
+        workflow: workflow,
+        step: switch_step,
+        public_year: public_year,
+        target_year: target_year,
+    } only %}
+{% endif %}
