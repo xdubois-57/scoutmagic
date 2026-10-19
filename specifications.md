@@ -439,8 +439,12 @@ suivante », `07-01` par défaut) et `scout_year_desk_encoding_date`
   s'appliquent.
 - Année refusée : message clair, rien n'est lu ni écrit, journal
   `desk_import_year_refused` (identifiants et raison seulement).
+- La page montre toujours les trois périodes avec leurs dates, celle du
+  jour mise en évidence (aucune en mode configuration), et ne propose
+  que les années permises.
 - `/admin/import?annee={id}` présélectionne cette année si elle est
-  permise, et l'ignore sinon. Le bloc « Dernier import » suit l'année
+  permise, et l'ignore sinon — c'est le lien de l'étape d'import de la
+  page Année scoute (§16.3). Le bloc « Dernier import » suit l'année
   sélectionnée ; son lien d'historique porte `?annee=`.
 - À l'enregistrement, les deux dates doivent être au format MM-JJ,
   tomber avant le `09-01`, et l'ouverture précéder strictement la date
@@ -686,6 +690,10 @@ States shown: **À faire**, **Étape faite**, **Bloquée** (an observed step who
 A refused activation is journalled (`scout_year_staff_activation_blocked`, `scout_year_public_activation_blocked`, level `security`) with its reasons. Open registration requests are only a reminder on steps 3 and 9, never a block there.
 
 **Marks** are recorded per target year with who marked and when; they can be taken back, and next year's run therefore starts blank on its own — there is no reset step.
+
+**How the page behaves.** A summary heads it: « n étapes faites sur N », a bar, « n points à vérifier », « n blocages ». Each step shows **one action only** — the most relevant for its state, chosen by its check (step 9 without an import: « Importer {cible} »; with one: « Activer pour les staffs ») — and « Détails », a dialog holding its checks, the people to correct, who marked it and when, and **every** action of the step. The numbered disc of a human step is its **only** marking control: one click marks it « Étape faite », a click on the green disc takes it back; it carries `aria-pressed` and a name saying what a click does, and asks nothing (it is reversible). Every button that acts at once (preview, leave the preview, activate or deactivate for the staff) asks first through the site's confirmation dialog, saying the consequence and that no e-mail is sent; links to another page ask nothing. **Nothing reloads the page**: every action is a JSON call to the same route as its no-JavaScript form, with an explicit `done: true|false` (never « toggle »), answered with the state recomputed on the server — the same Twig fragment as the page, cards, summary and steps — which the page swaps in; a refusal answers 422 with that recomputed state too, so two open tabs never contradict each other. While a call runs the control is disabled and the page marked busy; a network or server error changes nothing and says so in a toast.
+
+**The review before the switch.** Step 14's action opens a dialog — even while blocked: « {publique} → {cible} » in large, the real blockers with the link that resolves each one (its confirmation, « Basculer sur {cible} », is disabled while one remains), the points to check (« n'empêche pas la bascule »), the steps not done, and the steps done, folded. It is only a display: the server checks everything again on confirmation. The switch is always manual (§16.4).
 
 **Dernière bascule.** The page reads the latest switch for everyone back from the journal (`scout_year_public_activated`): « Dernière bascule : {ancienne} → {nouvelle}, le … par … ». Nothing new is stored for it; once the journal retention has purged that entry, the line is simply absent.
 
