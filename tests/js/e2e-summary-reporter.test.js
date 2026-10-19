@@ -44,7 +44,7 @@ describe('SummaryReporter', () => {
         expect(out[0]).toContain('Rentals — the park › a chief adds an asset — Error: expect(page).toHaveURL(expected) failed');
         expect(appended).toHaveLength(1);
         expect(appended[0][0]).toBe('/tmp/summary');
-        expect(appended[0][1]).toContain('### Scénarios E2E en échec (dast-passive)');
+        expect(appended[0][1]).toContain('### Failed E2E scenarios (dast-passive)');
         expect(appended[0][1]).toContain('`tests/e2e/specs/rental-management.spec.js:84`');
         expect(appended[0][1]).not.toContain('login-page');
     });

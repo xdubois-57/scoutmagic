@@ -108,13 +108,13 @@ export default class SummaryReporter {
             return;
         }
         for (const f of failures) {
-            this.write(`::error file=${escapeCommand(f.file, true)},line=${f.line},title=${escapeCommand('Scénario E2E en échec', true)}::${escapeCommand(`${f.title} — ${f.error}`)}\n`);
+            this.write(`::error file=${escapeCommand(f.file, true)},line=${f.line},title=${escapeCommand('E2E scenario failed', true)}::${escapeCommand(`${f.title} — ${f.error}`)}\n`);
         }
         const summaryPath = this.env.GITHUB_STEP_SUMMARY;
         if (summaryPath) {
             const job = this.env.GITHUB_JOB ? ` (${this.env.GITHUB_JOB})` : '';
             const lines = failures.map((f) => `- \`${f.file}:${f.line}\` — ${f.title}\n  - ${markdownCell(f.error)}`);
-            this.append(summaryPath, `### Scénarios E2E en échec${job}\n\n${lines.join('\n')}\n\n`);
+            this.append(summaryPath, `### Failed E2E scenarios${job}\n\n${lines.join('\n')}\n\n`);
         }
     }
 
