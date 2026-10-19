@@ -63,6 +63,29 @@ class SectionTransferRepository
     }
 
     /**
+     * Every destination recorded for $targetScoutYearId, whoever it is for
+     * — what the "Année scoute" workflow compares with the target year's
+     * import (Service\ScoutYearRegistrationReviewService).
+     *
+     * @return array<int, int> member_id => destination_section_id
+     */
+    public function findAllForYear(int $targetScoutYearId): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT member_id, destination_section_id FROM registration_section_transfers
+             WHERE target_scout_year_id = ? ORDER BY member_id'
+        );
+        $stmt->execute([$targetScoutYearId]);
+
+        $result = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $result[(int) $row['member_id']] = (int) $row['destination_section_id'];
+        }
+
+        return $result;
+    }
+
+    /**
      * Removes the destination a chief had picked, back to "not decided
      * yet" — the counterpart of setDestination(), reached from the
      * Passage page's own "— Non défini —" option (value 0, exactly like
