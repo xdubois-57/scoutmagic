@@ -636,7 +636,7 @@ class ScoutYearTransitionServiceTest extends TestCase
     {
         $this->assertSame(
             '/admin/import?annee=' . $this->targetYear['id'],
-            $this->step($this->build(), 'import')['action_url']
+            $this->step($this->build(), 'import')->primaryAction?->url
         );
     }
 
