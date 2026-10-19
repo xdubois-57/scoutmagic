@@ -540,6 +540,10 @@ test('the whole site transitions to the next scout year through the documented w
     });
     // exact: Chromium exposes <input type="file"> as a button too, so a
     // loose « Importer » could match more than the submit button.
+    // A rendered form is not yet a form that asks: clicked before
+    // admin-import.js has wired its submit handler, « Importer » posts
+    // natively without the year confirmation, and the server refuses it.
+    await expect(importForm).toHaveAttribute('data-year-confirm-ready', '1');
     await importForm.getByRole('button', { name: 'Importer', exact: true }).click();
 
     await expect(page.getByText(/membres importés/)).toBeVisible();

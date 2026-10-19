@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Core\Import;
 
+use Core\Service\DateInput;
+
 /**
  * What {@see DeskImportYearPolicy} allows today: the years a Desk import
  * may target, newest first, and the one the import page proposes.
@@ -31,7 +33,8 @@ final class DeskImportYearWindow
     /**
      * @param list<DeskImportYearOption> $options newest first
      * @param array{id: int, label: string, start_date: string, end_date: string} $publicYear
-     * @param array{id: int, label: string, start_date: string, end_date: string}|null $nextYear null when it does not exist yet
+     * @param array{id: int, label: string, start_date: string, end_date: string}|null $nextYear
+     *        null when it does not exist yet
      */
     public function __construct(
         public readonly array $options,
@@ -43,7 +46,14 @@ final class DeskImportYearWindow
         /** 'Y-m-d' — the first day the next year may be imported. */
         public readonly string $nextStartDate,
         /** 'Y-m-d' — the first day the public year may no longer be imported. */
-        public readonly string $encodingDate
+        public readonly string $encodingDate,
+        /**
+         * The two stored dates did not hold together, so both defaults
+         * apply — said on the page, never applied in silence: a unit that
+         * set the encoding date when it was only a label must learn that
+         * its value is no longer the one in force.
+         */
+        public readonly bool $datesFellBack = false
     ) {
     }
 
@@ -91,8 +101,11 @@ final class DeskImportYearWindow
      */
     public function eveOfEncodingDayMonth(): string
     {
-        $encoding = \DateTimeImmutable::createFromFormat('!Y-m-d', $this->encodingDate);
-        if ($encoding === false) {
+        // Not exact: a 02-29 in a year without one is the 1 March, whose
+        // eve is the 28th — the last day before the string comparison of
+        // DeskImportYearPolicy closes the window.
+        $encoding = DateInput::parse('Y-m-d', $this->encodingDate, false);
+        if ($encoding === null) {
             return '';
         }
 

@@ -23,6 +23,18 @@ class SettingService
      */
     private ?array $defaults = null;
 
+    /**
+     * Declared label, description and sort order per setting, loaded with
+     * $cache — the same zero-SQL decision as $defaults, for the words the
+     * Réglages page shows. Those belong to the register() call site, like
+     * the default: a reworded setting must reach a site that already has
+     * the row, or its page goes on describing what the setting no longer
+     * does.
+     *
+     * @var array<string, array{0: string, 1: string, 2: int}>|null
+     */
+    private ?array $presentation = null;
+
     public function __construct(private SettingRepository $repository)
     {
     }
@@ -248,6 +260,11 @@ class SettingService
         $cacheKey = ($moduleId ?? '_core_') . '::' . $key;
 
         if ($this->defaults !== null && array_key_exists($cacheKey, $this->defaults)) {
+            $declared = [$label, $description, $sortOrder];
+            if (($this->presentation[$cacheKey] ?? null) !== $declared) {
+                $this->repository->updatePresentation($moduleId, $key, $label, $description, $sortOrder);
+                $this->presentation[$cacheKey] = $declared;
+            }
             if ($this->defaults[$cacheKey] !== $defaultValue) {
                 // May move the value too, when it was never customised
                 // (SettingRepository::updateDefaultValue()) — which the
@@ -298,6 +315,7 @@ class SettingService
 
         $this->cache[$cacheKey] = $defaultValue;
         $this->defaults[$cacheKey] = $defaultValue;
+        $this->presentation[$cacheKey] = [$label, $description, $sortOrder];
     }
 
     /**
@@ -350,6 +368,7 @@ class SettingService
     {
         $this->cache = null;
         $this->defaults = null;
+        $this->presentation = null;
     }
 
     /**
@@ -370,11 +389,17 @@ class SettingService
 
         $this->cache = [];
         $this->defaults = [];
+        $this->presentation = [];
         $all = $this->repository->findAll();
         foreach ($all as $row) {
             $cacheKey = ($row['module_id'] ?? '_core_') . '::' . $row['setting_key'];
             $this->cache[$cacheKey] = $row['setting_value'];
             $this->defaults[$cacheKey] = $row['default_value'] ?? null;
+            $this->presentation[$cacheKey] = [
+                (string) $row['label'],
+                (string) $row['description'],
+                (int) $row['sort_order'],
+            ];
         }
     }
 

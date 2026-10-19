@@ -150,12 +150,11 @@ class BadgeHolderService
                 usort($holders, static fn(BadgeHolder $a, BadgeHolder $b): int => $compare($a->name, $b->name));
                 $groups[] = new BadgeHolders($badges[$badgeId], $holders);
             }
-            usort($groups, static fn(BadgeHolders $a, BadgeHolders $b): int => self::compareBadges(
-                $a->badge,
-                $b->badge,
-                $sectionRank,
-                $compare
-            ));
+            usort(
+                $groups,
+                static fn(BadgeHolders $a, BadgeHolders $b): int
+                    => self::compareBadges($a->badge, $b->badge, $sectionRank, $compare)
+            );
 
             return $groups;
         };

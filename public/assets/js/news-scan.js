@@ -304,7 +304,7 @@
     }
 
     queryInput.addEventListener('input', api.debounce(function () {
-        lookup(queryInput.value);
+        void lookup(queryInput.value);
     }, 250));
 
     // A hardware scanner and the on-screen keyboard both end on Enter, and
@@ -312,7 +312,7 @@
     queryInput.addEventListener('keydown', function (event) {
         if (event.key !== 'Enter') return;
         event.preventDefault();
-        lookup(queryInput.value);
+        void lookup(queryInput.value);
     });
 
     verdictEl.addEventListener('click', function (event) {
@@ -322,7 +322,7 @@
         if (!button) return;
 
         const responseId = Number.parseInt(button.dataset.responseId || '0', 10);
-        api.withDisabled(/** @type {HTMLButtonElement} */ (button), function () {
+        void api.withDisabled(/** @type {HTMLButtonElement} */ (button), function () {
             return validate(responseId, button.dataset.scanValidate === '1');
         });
     });

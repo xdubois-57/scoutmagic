@@ -282,6 +282,11 @@
                     }
                     document.execCommand('insertImage', false, data.url);
                     if (onChange) onChange(sanitizeHtml(editable.innerHTML));
+                })
+                .catch(function () {
+                    // Network failure or a non-JSON answer (an expired session's HTML page).
+                    imageInput.value = '';
+                    window.ScoutMagicToast.show("Erreur lors de l'envoi de l'image.", { variant: 'error' });
                 });
         });
 
@@ -533,7 +538,7 @@
             var bodyHtml = collectFieldsContentText();
             setAiButtonBusy(aiSummaryBtn, true);
 
-            window.ScoutMagicApi.postJson('/news/seo/generate-summary', { title: title, body_html: bodyHtml })
+            void window.ScoutMagicApi.postJson('/news/seo/generate-summary', { title: title, body_html: bodyHtml })
                 .then(function (res) {
                     var data = res.data || {};
                     setAiButtonBusy(aiSummaryBtn, false);
@@ -554,7 +559,7 @@
             var bodyHtml = collectFieldsContentText();
             setAiButtonBusy(aiKeywordsBtn, true);
 
-            window.ScoutMagicApi.postJson('/news/seo/generate-keywords', { title: title, body_html: bodyHtml })
+            void window.ScoutMagicApi.postJson('/news/seo/generate-keywords', { title: title, body_html: bodyHtml })
                 .then(function (res) {
                     var data = res.data || {};
                     setAiButtonBusy(aiKeywordsBtn, false);
@@ -754,7 +759,7 @@
             var articleId = NEWS_EDITOR_DATA.articleId;
             var ids = fieldState.filter(function (f) { return f.id; }).map(function (f) { return f.id; });
             if (!articleId || ids.length !== fieldState.length) return;
-            window.ScoutMagicApi.postJson('/news/' + articleId + '/form/fields/reorder', { ids: ids });
+            void window.ScoutMagicApi.postJson('/news/' + articleId + '/form/fields/reorder', { ids: ids });
         }
 
         function fieldIcon(type) {
@@ -1299,7 +1304,7 @@
     if (deleteConfirmBtn) {
         deleteConfirmBtn.addEventListener('click', function () {
             var id = deleteConfirmBtn.dataset.id;
-            window.ScoutMagicApi.postJson('/news/' + id, {}, { method: 'DELETE' }).then(function (res) {
+            void window.ScoutMagicApi.postJson('/news/' + id, {}, { method: 'DELETE' }).then(function (res) {
                 var data = res.data || {};
                 if (data.success) {
                     window.location.href = '/news/manage';

@@ -100,7 +100,7 @@
         // Raw, not parsed: a bare reference and a transfer payload are
         // told apart on the server, in the one place that knows the
         // format.
-        scan.setQuery(decoded);
+        void scan.setQuery(decoded);
     }
 
     /** @param {string} message */
@@ -169,18 +169,18 @@
     // somebody answers a phone call.
     document.addEventListener('visibilitychange', function () {
         if (document.visibilityState === 'visible') {
-            requestWakeLock();
+            void requestWakeLock();
         }
     });
 
     // Released on leaving, or the battery of somebody who forgot the tab
     // is what pays for it.
     window.addEventListener('pagehide', function () {
-        releaseWakeLock();
-        closeCamera();
+        void releaseWakeLock();
+        void closeCamera();
     });
 
-    requestWakeLock();
+    void requestWakeLock();
 
     window.ScoutMagicNewsScanReader = {
         openCamera: openCamera,

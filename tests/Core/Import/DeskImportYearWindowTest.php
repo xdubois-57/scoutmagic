@@ -35,4 +35,12 @@ class DeskImportYearWindowTest extends TestCase
 
         return new DeskImportYearWindow([], 1, DeskImportYearWindow::PERIOD_BEFORE, false, $public, null, $nextStart, $encoding);
     }
+
+    public function testTheEveOfA29FebruaryInAYearWithoutOneIsThe28th(): void
+    {
+        $window = $this->window('2027-02-01', '2027-02-29');
+
+        self::assertSame('29/02', $window->encodingDayMonth());
+        self::assertSame('28/02', $window->eveOfEncodingDayMonth());
+    }
 }

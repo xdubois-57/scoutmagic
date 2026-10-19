@@ -565,6 +565,19 @@ describe('mass-mail-compose.js: importing the audience file', () => {
         expect(document.getElementById('mm-audience-id').value).toBe('');
     });
 
+    it('says the file never reached the server rather than calling it refused', async () => {
+        await boot({ listType: 'mail_merge' });
+        global.fetch = vi.fn(() => Promise.reject(new TypeError('Failed to fetch')));
+
+        chooseFile('camp.xlsx');
+        await settle();
+
+        expect(document.getElementById('mm-merge-chosen').textContent)
+            .toBe('Erreur réseau : « camp.xlsx » n\'a pas été importé.');
+        expect(document.getElementById('mm-merge-error').classList.contains('d-none')).toBe(true);
+        expect(document.getElementById('mm-audience-id').value).toBe('');
+    });
+
     it('escapes a column name that would otherwise open markup of its own', async () => {
         await boot({ listType: 'mail_merge' });
         global.fetch = vi.fn(() => jsonResponse({

@@ -142,6 +142,30 @@ class SettingRepository
     }
 
     /**
+     * Rewrite the words of an existing row — label, description, sort
+     * order — to what its register() call site now declares. Never the
+     * value, the type or the validation: only what the Réglages page reads
+     * to describe the setting.
+     */
+    public function updatePresentation(
+        ?string $moduleId,
+        string $key,
+        string $label,
+        string $description,
+        int $sortOrder
+    ): void {
+        $sql = 'UPDATE settings SET label = ?, description = ?, sort_order = ? WHERE setting_key = ? AND '
+            . ($moduleId === null ? 'module_id IS NULL' : 'module_id = ?');
+
+        $parameters = [$label, $description, $sortOrder, $key];
+        if ($moduleId !== null) {
+            $parameters[] = $moduleId;
+        }
+
+        $this->pdo->prepare($sql)->execute($parameters);
+    }
+
+    /**
      * Resets every setting's value back to its declared default — module
      * spec "Paramètres par défaut" (Core\Maintenance\Task\
      * ResetSettingsHandler). A single UPDATE covering every row (core and

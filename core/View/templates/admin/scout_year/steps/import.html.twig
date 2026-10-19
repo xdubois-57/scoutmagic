@@ -8,7 +8,7 @@
 #}
 {% if step.details.imported_at is defined %}
 <p class="text-body-secondary small mb-2">
-    Dernier import réussi : {{ step.details.imported_at|date('d/m/Y à H:i') }}
+    Dernier import réussi : {{ step.details.imported_at|datetime_fr }}
     {%- if step.details.imported_by %} par {{ step.details.imported_by }}{% endif %}
     · {{ step.details.member_count }} membre(s).
 </p>

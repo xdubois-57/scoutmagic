@@ -11,6 +11,7 @@ namespace Core\ScoutYear;
 use Core\Config\AppClock;
 use Core\Config\ScoutYearService;
 use Core\Config\SettingService;
+use Core\Import\DeskImportYearDates;
 use Core\Import\ImportJournalRepository;
 use Core\Journal\JournalRepository;
 use Core\ScoutYear\Step\PublicYearSwitch;
@@ -543,10 +544,7 @@ class ScoutYearTransitionService
      */
     private function deskEncodingDate(array $targetYear): string
     {
-        $configured = trim((string) $this->settingService->get(self::SETTING_DESK_ENCODING_DATE, null, '08-15'));
-        if (preg_match('/^(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$/', $configured) !== 1) {
-            $configured = '08-15';
-        }
+        $configured = DeskImportYearDates::fromSettings($this->settingService)->encoding;
 
         $startYear = substr((string) $targetYear['start_date'], 0, 4);
 

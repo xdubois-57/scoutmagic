@@ -212,6 +212,28 @@ class SettingServiceTest extends TestCase
         $this->assertSame(0, (int) $stmt->fetchColumn());
     }
 
+    /**
+     * A setting reworded in code reaches a site that already has its row:
+     * the Réglages page reads label and description from the row, so an
+     * insert-only register() left an upgraded site describing what the
+     * setting no longer does. Its value stays the site's own.
+     */
+    public function testRegisterRewritesTheWordsOfAnExistingRowButNotItsValue(): void
+    {
+        $this->service->register('worded', 'default_val', 'text', 'Old label', 'Old description', sortOrder: 250);
+        $this->repo->updateValue(null, 'worded', 'chosen');
+        $this->service->clearCache();
+
+        $this->service->register('worded', 'default_val', 'text', 'New label', 'New description', sortOrder: 251);
+
+        $row = $this->repo->findByModuleAndKey(null, 'worded');
+        $this->assertNotNull($row);
+        $this->assertSame('New label', $row['label']);
+        $this->assertSame('New description', $row['description']);
+        $this->assertSame(251, (int) $row['sort_order']);
+        $this->assertSame('chosen', $row['setting_value']);
+    }
+
     public function testRegisterHealsADefaultValueLeftNullByAnOlderRow(): void
     {
         $this->service->register('legacy', 'declared', 'text', 'Label', 'Desc');

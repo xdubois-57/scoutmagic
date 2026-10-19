@@ -1815,7 +1815,7 @@
                 }
 
                 if (command === 'createLink') {
-                    insertLink(surface).then(function () {
+                    void insertLink(surface).then(function () {
                         if (afterCommand) afterCommand();
                     });
                     return;

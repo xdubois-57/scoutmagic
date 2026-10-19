@@ -156,7 +156,11 @@ final class DeskImportYearPolicy
             $confirmation = null;
             if (!isset($usual[$year['id']])) {
                 $confirmation = DeskImportYearOption::CONFIRM_CONFIGURATION_MODE;
-            } elseif ($isPublic && $period === DeskImportYearWindow::PERIOD_BETWEEN && isset($usual[$next['id'] ?? 0])) {
+            } elseif (
+                $isPublic
+                && $period === DeskImportYearWindow::PERIOD_BETWEEN
+                && isset($usual[$next['id'] ?? 0])
+            ) {
                 $confirmation = DeskImportYearOption::CONFIRM_PUBLIC_DURING_WINDOW;
             }
 
@@ -164,7 +168,10 @@ final class DeskImportYearPolicy
         }
 
         // Newest first, the way every year picker of the site lists them.
-        usort($options, static fn(DeskImportYearOption $a, DeskImportYearOption $b): int => strcmp($b->label, $a->label));
+        usort(
+            $options,
+            static fn(DeskImportYearOption $a, DeskImportYearOption $b): int => strcmp($b->label, $a->label)
+        );
 
         $preselected = $period === DeskImportYearWindow::PERIOD_BEFORE || $next === null ? $public['id'] : $next['id'];
         if (!isset($usual[$preselected])) {
@@ -179,7 +186,8 @@ final class DeskImportYearPolicy
             $public,
             $next,
             $nextStart,
-            $encoding
+            $encoding,
+            $dates->fellBack
         );
     }
 

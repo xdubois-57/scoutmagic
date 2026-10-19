@@ -85,7 +85,7 @@
                 return;
             }
 
-            window.ScoutMagicConfirm.ask({
+            void window.ScoutMagicConfirm.ask({
                 title: 'Modifier la date ou le lieu ?',
                 message: 'Les personnes déjà inscrites ont reçu un fichier d’agenda portant '
                     + 'l’ancienne date et l’ancien lieu. Il ne sera pas corrigé : il faudra '

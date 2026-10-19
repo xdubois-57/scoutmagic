@@ -33,7 +33,7 @@
         toggle.addEventListener('change', function () {
             var enabled = toggle.checked;
 
-            api.withDisabled(toggle, function () {
+            void api.withDisabled(toggle, function () {
                 return api.postJson('/config/modules/toggle', {
                     module_id: toggle.dataset.module,
                     enabled: enabled

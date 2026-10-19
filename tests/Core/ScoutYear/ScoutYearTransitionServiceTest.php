@@ -746,8 +746,8 @@ class ScoutYearTransitionServiceTest extends TestCase
     {
         $this->assertSame('2026-08-15', $this->build()->deskEncodingDate);
 
-        $this->settingService->setInternal(ScoutYearTransitionService::SETTING_DESK_ENCODING_DATE, '07-01');
-        $this->assertSame('2026-07-01', $this->build()->deskEncodingDate);
+        $this->settingService->setInternal(ScoutYearTransitionService::SETTING_DESK_ENCODING_DATE, '07-20');
+        $this->assertSame('2026-07-20', $this->build()->deskEncodingDate);
     }
 
     /**
