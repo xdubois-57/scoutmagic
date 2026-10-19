@@ -105,7 +105,9 @@ class ScoutYearAdminService
      */
     public function staffActivationBlockers(int $yearId): array
     {
-        return $this->hasSuccessfulImport($yearId) ? [] : [new ActivationBlocker(ActivationBlocker::NO_SUCCESSFUL_IMPORT)];
+        return $this->hasSuccessfulImport($yearId)
+            ? []
+            : [new ActivationBlocker(ActivationBlocker::NO_SUCCESSFUL_IMPORT)];
     }
 
     /**

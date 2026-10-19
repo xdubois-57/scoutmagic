@@ -35,7 +35,11 @@ final class ImportStepCheck implements StepCheckProvider
     {
         $import = $context->latestTargetImport;
         if ($import === null) {
-            $action = StepAction::linkTo('import', "Aller à l'import Desk ({$context->targetLabel()})", $context->importUrl());
+            $action = StepAction::linkTo(
+                'import',
+                "Aller à l'import Desk ({$context->targetLabel()})",
+                $context->importUrl()
+            );
 
             return new StepCheck(observedDone: false, primaryAction: $action, actions: [$action]);
         }

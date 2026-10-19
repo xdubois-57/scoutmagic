@@ -327,7 +327,9 @@ class ScoutYearController extends AbstractController
 
         return [
             'public_year' => $publicYear,
-            'staff_year' => $context->staffYearId !== null ? $this->scoutYearService->findById($context->staffYearId) : null,
+            'staff_year' => $context->staffYearId !== null
+                ? $this->scoutYearService->findById($context->staffYearId)
+                : null,
             'target_year' => $context->targetYear,
             'preview_year' => $context->sessionPreviewId !== null
                 ? $this->scoutYearService->findById($context->sessionPreviewId)

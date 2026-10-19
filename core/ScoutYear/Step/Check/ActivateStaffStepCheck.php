@@ -49,7 +49,12 @@ final class ActivateStaffStepCheck implements StepCheckProvider
                 "Les staffs reviennent sur {$public}. Aucun e-mail n'est envoyé."
             );
 
-            return new StepCheck(observedDone: true, primaryAction: $deactivate, actions: [$deactivate], details: $details);
+            return new StepCheck(
+                observedDone: true,
+                primaryAction: $deactivate,
+                actions: [$deactivate],
+                details: $details
+            );
         }
 
         $blockers = $this->adminService->staffActivationBlockers($context->targetId());
@@ -65,7 +70,12 @@ final class ActivateStaffStepCheck implements StepCheckProvider
         );
 
         if ($blockers === []) {
-            return new StepCheck(observedDone: false, primaryAction: $activate, actions: [$activate], details: $details);
+            return new StepCheck(
+            observedDone: false,
+            primaryAction: $activate,
+            actions: [$activate],
+            details: $details
+        );
         }
 
         $import = StepAction::linkTo('import', "Importer {$target}", $context->importUrl());
