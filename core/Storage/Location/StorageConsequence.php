@@ -128,11 +128,23 @@ final class StorageConsequence
      * the contradiction four types wide.
      *
      * A verdict that promises what the next screen refuses is worse than
-     * a blunt one, so it now says the same thing the refusal does.
+     * a blunt one, so it now says the same thing the refusal does — read
+     * from the same rule ({@see StorageLocationType::canReceiveOffSiteBackups()}),
+     * which also refuses the site's own server (#718 § C point 11).
      */
     private static function backups(StorageLocationType $type): self
     {
-        return $type->supports(StorageCapability::ResumableUpload)
+        if ($type === StorageLocationType::Local) {
+            return new self(
+                self::AREA_BACKUPS,
+                'Sauvegardes',
+                'non',
+                'Un dossier du serveur du site n\'est pas hors site : si l\'hébergement est perdu, les '
+                . 'sauvegardes le sont avec lui.'
+            );
+        }
+
+        return $type->canReceiveOffSiteBackups()
             ? new self(
                 self::AREA_BACKUPS,
                 'Sauvegardes',

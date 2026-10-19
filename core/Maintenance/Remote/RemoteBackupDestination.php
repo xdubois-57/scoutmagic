@@ -33,15 +33,17 @@ use Core\Storage\Location\StorageLocationRepository;
  * So one setting remains, holding one identifier, and this class is the
  * one place that reads it.
  *
- * **Any location may be chosen, and the screen rather than this class is
- * where that is narrowed.** A location that cannot resume an interrupted
- * upload is refused ({@see backend()}), because an archive measured in
- * gibibytes over a domestic upstream link does not finish in one run on
- * any hosting this application exists for. Beyond that, whether a
- * destination is genuinely off-site is a judgement about the operator's
- * infrastructure — a local location pointing at a network mount in another
- * building is off-site; a Drive folder in the same account as their photos
- * is arguably less so — and this class is not in a position to make it.
+ * **What may be chosen is {@see canReceive()}**, and two rules make it.
+ * A location that cannot resume an interrupted upload is refused (here in
+ * {@see backend()} as well), because an archive measured in gibibytes over
+ * a domestic upstream link does not finish in one run on any hosting this
+ * application exists for. And a « Disque du serveur » location is never
+ * off-site, by the maintainer's decision (#718 § C point 11): whether a
+ * local path is a mount from another building is not something a page can
+ * tell, and every attempt to guess — a path under `storage/`, a filesystem
+ * device — was wrong one way or the other. A local destination chosen
+ * before that rule keeps receiving archives, and the attention page says
+ * it is not off-site.
  */
 final class RemoteBackupDestination
 {
@@ -76,6 +78,17 @@ final class RemoteBackupDestination
             false,
             300
         );
+    }
+
+    /**
+     * Whether a location may be chosen as the off-site destination: an
+     * external location that can resume an interrupted upload. The screen
+     * that lists the candidates and the action that records the choice
+     * both ask this, so they cannot disagree.
+     */
+    public static function canReceive(StorageLocation $location): bool
+    {
+        return $location->type->canReceiveOffSiteBackups();
     }
 
     public function locationId(): int

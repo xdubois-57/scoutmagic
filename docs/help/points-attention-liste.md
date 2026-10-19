@@ -37,7 +37,8 @@ Quatre réglages laissés de côté, avant que quoi que ce soit n'échoue :
 - **la sauvegarde automatique désactivée** ;
 - **aucune sauvegarde hors site** : les sauvegardes restent sur le
   serveur, et partiraient avec lui. Ce point s'affiche dès l'installation,
-  et aussi quand la destination choisie est un dossier du disque du site ;
+  et aussi quand la destination choisie est un dossier du serveur du site,
+  ce que le site ne propose plus ;
 - **les mises à jour automatiques désactivées**, avec la version
   disponible quand le site en connaît une ;
 - **une version qui ne s'installera pas d'elle-même**, parce qu'elle

@@ -116,43 +116,27 @@ class MaintenanceAttentionProviderTest extends TestCase
     }
 
     /**
-     * A « Disque du serveur » location can be chosen as the off-site
-     * destination; under storage/ it is the site's own disk, and losing the
-     * server loses the backups with it.
+     * A « Disque du serveur » location chosen before it stopped being
+     * offered is never off-site, whatever its path (#718 § C point 11):
+     * losing the server loses the backups with it.
      */
-    public function testADestinationOnTheSitesOwnDiskIsNotOffSite(): void
+    public function testADestinationOnTheSitesOwnServerIsNotOffSite(): void
     {
         $this->destination->choose($this->localLocation('Dossier du site', 'backups-copie'));
 
         $points = $this->points();
 
         $this->assertCount(1, $points);
-        $this->assertSame('Les sauvegardes « hors site » restent sur le disque du site', $points[0]->title);
+        $this->assertSame('Les sauvegardes « hors site » restent sur le serveur du site', $points[0]->title);
         $this->assertStringContainsString('« Dossier du site »', $points[0]->why);
     }
 
-    public function testAnAbsolutePathOnTheSameDeviceIsNotOffSiteEither(): void
+    /** Whatever the path: a mount cannot be told from a disk, so none is guessed at. */
+    public function testAnAbsolutePathIsNotOffSiteEither(): void
     {
-        mkdir($this->basePath . '/storage');
-        mkdir($this->basePath . '/ailleurs');
-        $this->destination->choose($this->localLocation('Autre dossier', $this->basePath . '/ailleurs'));
+        $this->destination->choose($this->localLocation('Disque monté', '/proc'));
 
-        $this->assertSame(['Les sauvegardes « hors site » restent sur le disque du site'], $this->titles());
-    }
-
-    /** A disk mounted from elsewhere is a real off-site copy: another device. */
-    public function testAnAbsolutePathOnAnotherDeviceCountsAsOffSite(): void
-    {
-        mkdir($this->basePath . '/storage');
-        $other = '/proc';
-        $here = @stat($this->basePath . '/storage');
-        $there = @stat($other);
-        if ($here === false || $there === false || $here['dev'] === $there['dev']) {
-            $this->markTestSkipped('needs a second filesystem to point at');
-        }
-        $this->destination->choose($this->localLocation('Disque monté', $other));
-
-        $this->assertSame([], $this->points());
+        $this->assertSame(['Les sauvegardes « hors site » restent sur le serveur du site'], $this->titles());
     }
 
     private function localLocation(string $label, string $path): int

@@ -106,6 +106,22 @@
                                 <strong>{{ remote_backup_location.label }}</strong>
                                 <span class="text-body-secondary">— {{ remote_backup_location.describe }}</span>
                             </p>
+                            {% if remote_backup_location.type.value == 'local' %}
+                                {# Chosen before the site's own server stopped being
+                                   offered (#718 § C point 11): it keeps receiving the
+                                   archives, and is not off-site. #}
+                                <div class="alert alert-warning small" role="alert">
+                                    <strong>Cette destination n'est pas hors site.</strong>
+                                    C'est un dossier du serveur du site : si l'hébergement est perdu, les sauvegardes
+                                    le sont avec lui.
+                                    {% if remote_backup_locations is not empty %}
+                                        Choisissez un emplacement externe ci-dessous.
+                                    {% else %}
+                                        <a href="/config/stockage/emplacements/nouveau">Déclarez un emplacement externe</a>
+                                        — un compte Google Drive, par exemple — puis choisissez-le ici.
+                                    {% endif %}
+                                </div>
+                            {% endif %}
                             {% if remote_backup_location.lastCheckOk is same as(false) %}
                                 <div class="alert alert-danger small" role="alert">
                                     <strong>Ce site n'arrive plus à écrire sur cette destination.</strong>
@@ -145,6 +161,15 @@
                                 <label class="form-label small" for="remote-backup-location">Emplacement de destination</label>
                                 <select class="form-select form-select-sm" id="remote-backup-location" name="location_id">
                                     <option value="0">Aucune — ne rien envoyer hors site</option>
+                                    {# A local destination chosen before the site's own server
+                                       stopped being offered is no candidate any more, but stays
+                                       listed and selected: saving the form unchanged must not
+                                       turn it into « Aucune » (#718 § C point 11). #}
+                                    {% if remote_backup_location and remote_backup_location.type.value == 'local' %}
+                                        <option value="{{ remote_backup_location.id }}" selected>
+                                            {{ remote_backup_location.label }} — sur ce serveur, pas hors site
+                                        </option>
+                                    {% endif %}
                                     {% for candidate in remote_backup_locations %}
                                         <option value="{{ candidate.id }}"
                                                 {{ remote_backup_location and remote_backup_location.id == candidate.id ? 'selected' : '' }}>
@@ -153,11 +178,13 @@
                                     {% endfor %}
                                 </select>
                                 {% if remote_backup_locations is empty %}
-                                    {# Not an error, and not a list to pad: only a
-                                       destination that can resume an interrupted send
-                                       belongs here, and on a fresh site there is none. #}
+                                    {# Not an error, and not a list to pad: only an
+                                       external destination that can resume an interrupted
+                                       send belongs here, and on a fresh site there is none.
+                                       The site's own server never does (#718 § C point 11). #}
                                     <div class="form-text">
-                                        Aucun emplacement déclaré ne sait reprendre un envoi interrompu.
+                                        Aucun emplacement externe déclaré ne sait reprendre un envoi interrompu. Le
+                                        disque du serveur ne compte pas : il partirait avec le site.
                                         <a href="/config/stockage/emplacements/nouveau">Déclarez-en un</a> — un compte
                                         Google Drive, par exemple.
                                     </div>

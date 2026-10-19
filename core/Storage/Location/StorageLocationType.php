@@ -100,6 +100,19 @@ enum StorageLocationType: string
     }
 
     /**
+     * Whether a location of this type may receive the off-site backups: an
+     * external storage that can resume an interrupted upload. The site's
+     * own server never does, whatever its path (#718 § C point 11).
+     *
+     * The one statement of the rule, so the picker, the refusal and the
+     * « Sauvegardes » verdict of the comparison table cannot drift apart.
+     */
+    public function canReceiveOffSiteBackups(): bool
+    {
+        return $this !== self::Local && $this->supports(StorageCapability::ResumableUpload);
+    }
+
+    /**
      * Rebuilds this type's configuration record from the serialised column.
      *
      * The one `match` in the codebase that knows which record shape goes

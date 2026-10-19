@@ -41,14 +41,26 @@ final class StorageConsequenceTest extends TestCase
     {
         foreach (StorageLocationType::cases() as $type) {
             $backups = self::areaOf($type, StorageConsequence::AREA_BACKUPS);
-            $canResume = $type->supports(StorageCapability::ResumableUpload);
+            // The rule the destination picker and its refusal apply, read
+            // from the same place rather than re-derived here (#718 § C 11).
+            $accepted = $type->canReceiveOffSiteBackups();
 
             $this->assertSame(
-                $canResume,
+                $accepted,
                 $backups->verdict !== 'non',
                 $type->value . ': the verdict must refuse exactly when RemoteBackupController does'
             );
         }
+    }
+
+    /** The site's own server is refused as an off-site destination, though it can resume an upload. */
+    public function testTheServersOwnDiskIsNoBackupDestination(): void
+    {
+        $backups = self::areaOf(StorageLocationType::Local, StorageConsequence::AREA_BACKUPS);
+
+        $this->assertSame('non', $backups->verdict);
+        $this->assertStringContainsString("n'est pas hors site", $backups->detail);
+        $this->assertTrue(StorageLocationType::Local->supports(StorageCapability::ResumableUpload));
     }
 
     /**

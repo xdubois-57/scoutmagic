@@ -188,7 +188,8 @@ class MaintenanceControllerTest extends TestCase
         $this->rebuildController = function (
             BackupService $service,
             ?HostHealth $hostHealth = null,
-            ?RemoteBackupDestination $remoteDestination = null
+            ?RemoteBackupDestination $remoteDestination = null,
+            ?\Core\Storage\Location\StorageLocationService $storageLocations = null
         ) use (
             $fileRepository,
             $schedulerService,
@@ -206,7 +207,8 @@ class MaintenanceControllerTest extends TestCase
                 // directory, the one anchor valid in both hosting layouts.
                 dirname($storagePath) . '/public',
                 remoteBackupDestination: $remoteDestination,
-                hostHealth: $hostHealth
+                hostHealth: $hostHealth,
+                storageLocations: $storageLocations
             );
         };
 
@@ -476,6 +478,66 @@ class MaintenanceControllerTest extends TestCase
         $this->assertStringContainsString('3,0 Go occupés', $body);
         $this->assertStringContainsString('la plus ancienne du 31/10/2025', $body);
         $this->assertMatchesRegularExpression('~Relevé à la fin de l\'envoi du\s+28/09/2026 à 04:12~', $body);
+    }
+
+    /**
+     * The off-site picker offers external locations only: the site's own
+     * server is never off-site (#718 § C point 11), though it can resume
+     * an upload like any other.
+     */
+    public function testTheOffSitePickerNeverOffersTheSitesOwnServer(): void
+    {
+        $locations = new \Core\Storage\Location\StorageLocationRepository(
+            $this->pdo,
+            new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
+        );
+        $locations->create(
+            \Core\Storage\Location\StorageLocationType::Local,
+            'Disque du serveur',
+            new \Core\Storage\Location\Config\LocalLocationConfig('backups-copie'),
+            null
+        );
+        $this->declareRemoteLocation();
+        $service = new \Core\Storage\Location\StorageLocationService(
+            $locations,
+            new \Core\Storage\Location\Backend\StorageBackendFactory($locations, sys_get_temp_dir()),
+            new \Core\Storage\Location\StorageLocationConsumerRegistry()
+        );
+        $this->controller = ($this->rebuildController)($this->backupService, null, $this->remoteDestination(), $service);
+
+        $body = $this->page('automaticBackupPage');
+        $at = strpos($body, 'id="remote-backup-location"');
+        $this->assertIsInt($at, 'The destination picker is no longer on the page.');
+        $picker = substr($body, $at, (int) strpos($body, '</select>', $at) - $at);
+
+        $this->assertStringContainsString('Drive de l&#039;unité', $picker);
+        $this->assertStringNotContainsString('Disque du serveur', $picker);
+    }
+
+    /** A local destination chosen before the rule stays listed and selected, so saving does not drop it. */
+    public function testALegacyLocalDestinationStaysSelectedInThePicker(): void
+    {
+        $locations = new \Core\Storage\Location\StorageLocationRepository(
+            $this->pdo,
+            new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
+        );
+        $local = $locations->create(
+            \Core\Storage\Location\StorageLocationType::Local,
+            'Ancien dossier',
+            new \Core\Storage\Location\Config\LocalLocationConfig('backups-copie'),
+            null
+        );
+        $destination = $this->remoteDestination();
+        $destination->choose($local);
+        $this->controller = ($this->rebuildController)($this->backupService, null, $destination);
+
+        $body = $this->page('automaticBackupPage');
+
+        $this->assertMatchesRegularExpression('~<option value="' . $local . '" selected>\s*Ancien dossier — sur ce serveur, pas hors site~', $body);
+        $this->assertStringContainsString("Cette destination n'est pas hors site.", $body);
+        // No external candidate on this site: the warning says to declare one, not to pick « below ».
+        $this->assertStringNotContainsString('Choisissez un emplacement externe ci-dessous.', $body);
+        $this->assertStringContainsString('Déclarez un emplacement externe', $body);
     }
 
     /**

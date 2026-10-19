@@ -20,9 +20,10 @@ use Core\Storage\Location\StorageLocationType;
  * Choosing a location's safety copy, and everything that has to be true
  * before the choice is saved.
  *
- * **Three refusals and two warnings, and the split is the design.** A
- * refusal is for a relation that cannot work or that would expose
- * somebody's files; a warning is for one that will work and that an
+ * **Four refusals and two warnings, and the split is the design.** A
+ * refusal is for a relation that cannot work, that protects nothing (two
+ * locations on the site's own server), or that would expose somebody's
+ * files; a warning is for one that will work and that an
  * administrator should know the price of. Turning a warning into a refusal
  * would make the feature unusable for the units that need it most — a unit
  * whose photographs already live off-site has nowhere else to put them —
@@ -87,6 +88,7 @@ class StorageProtectionService
         $destination = $this->requireLocation($destinationLocationId);
 
         $this->refuseCycle($source, $destination);
+        $this->refuseSameServer($source, $destination, $enabled);
         $this->refuseExposure($source, $destination);
 
         if ($gracePeriodDays < self::MIN_GRACE_PERIOD_DAYS) {
@@ -306,6 +308,39 @@ class StorageProtectionService
             }
             $currentId = $next->destinationLocationId;
         }
+    }
+
+    /**
+     * **No copy from the site's server to the site's server** (#718 § C
+     * point 11, the maintainer's decision). Two « Disque du serveur »
+     * locations are, as far as a page can tell, the same disk: losing the
+     * server loses the copy with what it protects. Whether a local path is
+     * a mount from elsewhere cannot be read reliably, so the rule does not
+     * try. A remote source copied to the server stays allowed — that one
+     * survives losing the remote account, which is what it is for.
+     *
+     * A pair declared before the rule may still be paused: pausing copies
+     * nothing, and refusing it would leave deletion as the only way to
+     * silence it.
+     *
+     * @throws StorageLocationException
+     */
+    private function refuseSameServer(StorageLocation $source, StorageLocation $destination, bool $enabled): void
+    {
+        if ($source->type !== StorageLocationType::Local || $destination->type !== StorageLocationType::Local) {
+            return;
+        }
+        if (!$enabled && $this->protections->findBySourceId($source->id)?->destinationLocationId === $destination->id) {
+            return;
+        }
+
+        throw new StorageLocationException(sprintf(
+            '« %s » et « %s » sont tous deux sur le serveur du site : si le serveur est perdu, la copie est '
+            . 'perdue avec ce qu\'elle protège. Choisissez une destination externe, comme Google Drive, un '
+            . 'partage WebDAV ou un stockage S3.',
+            $source->label,
+            $destination->label
+        ));
     }
 
     /**

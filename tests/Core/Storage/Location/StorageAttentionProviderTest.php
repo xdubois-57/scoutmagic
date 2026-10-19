@@ -9,6 +9,7 @@ use Core\Config\AppClock;
 use Core\Security\EncryptionService;
 use Core\Storage\Location\Config\GoogleDriveLocationConfig;
 use Core\Storage\Location\Config\LocalLocationConfig;
+use Core\Storage\Location\Protection\StorageProtectionRepository;
 use Core\Storage\Location\StorageAttentionProvider;
 use Core\Storage\Location\StorageLocationRepository;
 use Core\Storage\Location\StorageLocationType;
@@ -25,10 +26,13 @@ final class StorageAttentionProviderTest extends TestCase
 {
     private StorageLocationRepository $locations;
 
+    private \PDO $pdo;
+
     protected function setUp(): void
     {
+        $this->pdo = DatabaseTestHelper::createTestDatabase();
         $this->locations = new StorageLocationRepository(
-            DatabaseTestHelper::createTestDatabase(),
+            $this->pdo,
             new EncryptionService(str_repeat('k', 32), str_repeat('b', 32))
         );
     }
@@ -185,5 +189,55 @@ final class StorageAttentionProviderTest extends TestCase
 
         $this->assertCount(1, $points);
         $this->assertStringContainsString('« Nouveau nom »', $points[0]->title);
+    }
+
+    // ————— Safety copies left on the site's own server (#718 § C point 11) —————
+
+    private function local(string $label, string $path): int
+    {
+        $id = $this->locations->create(StorageLocationType::Local, $label, new LocalLocationConfig($path), null);
+        $this->locations->recordCheckResult($id, true, null);
+
+        return $id;
+    }
+
+    /** @return AttentionPoint[] */
+    private function pointsWithCopies(): array
+    {
+        return (new StorageAttentionProvider($this->locations, null, new StorageProtectionRepository($this->pdo)))->collect(1);
+    }
+
+    /** Declared before such a pair was refused: said, since it protects nothing against losing the server. */
+    public function testACopyFromTheServerToTheServerIsAnAttentionPoint(): void
+    {
+        $source = $this->local('Galerie', 'gallery');
+        $destination = $this->local('NAS', '/mnt/nas');
+        (new StorageProtectionRepository($this->pdo))->save($source, $destination, 30, 24, true);
+
+        $points = $this->pointsWithCopies();
+
+        $this->assertCount(1, $points);
+        $this->assertSame('La copie de secours de « Galerie » reste sur le serveur du site', $points[0]->title);
+        $this->assertStringContainsString('« NAS »', $points[0]->why);
+        $this->assertSame(AttentionPoint::SEVERITY_ATTENTION, $points[0]->severity);
+        $this->assertSame('/config/stockage/emplacements/' . $source . '/modification', $points[0]->actionUrl);
+    }
+
+    /** A copy from a remote location onto the server is a real protection: nothing to say. */
+    public function testACopyFromARemoteLocationOntoTheServerRaisesNothing(): void
+    {
+        $drive = $this->drive('Drive', true, '');
+        $this->locations->recordCheckResult($drive, true, null);
+        (new StorageProtectionRepository($this->pdo))->save($drive, $this->local('Copie', 'copie'), 30, 24, true);
+
+        $this->assertSame([], $this->pointsWithCopies());
+    }
+
+    /** A paused copy copies nothing: no point about where it would go. */
+    public function testAPausedCopyRaisesNothing(): void
+    {
+        (new StorageProtectionRepository($this->pdo))->save($this->local('Galerie', 'gallery'), $this->local('NAS', 'nas'), 30, 24, false);
+
+        $this->assertSame([], $this->pointsWithCopies());
     }
 }

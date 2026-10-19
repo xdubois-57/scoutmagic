@@ -237,7 +237,9 @@ final class RemoteBackupController extends AbstractController
      * do without over a domestic upstream link. Refused here rather than
      * discovered at four in the morning: the send would meet the same
      * refusal, journal it, and go on failing nightly with nobody reading
-     * the journal.
+     * the journal. **And never to the site's own server**: a « Disque du
+     * serveur » location is not off-site, whatever its path (#718 § C
+     * point 11).
      *
      * @param array<string, string> $params
      */
@@ -286,6 +288,37 @@ final class RemoteBackupController extends AbstractController
                     . 'seule fois : choisissez une destination qui sait reprendre un envoi interrompu.',
                     $location->label,
                     StorageCapability::ResumableUpload->frenchDescription()
+                )
+            );
+
+            return $this->redirect(self::BOX);
+        }
+
+        // A local destination chosen before the rule below, saved again
+        // unchanged: it stays as it is. Only a replacement or « Aucune »
+        // moves the archives elsewhere.
+        if ($location->id === $this->destination->locationId() && !RemoteBackupDestination::canReceive($location)) {
+            FlashMessage::set(
+                'warning',
+                sprintf(
+                    'Destination inchangée : « %s » reste sur ce serveur, et n\'est pas hors site.',
+                    $location->label
+                )
+            );
+
+            return $this->redirect(self::BOX);
+        }
+
+        // The site's own server is never off-site, whatever the path says
+        // (#718 § C point 11) — RemoteBackupDestination::canReceive().
+        if (!RemoteBackupDestination::canReceive($location)) {
+            FlashMessage::set(
+                'error',
+                sprintf(
+                    '« %s » est un dossier du serveur du site : si l\'hébergement est perdu, les sauvegardes '
+                    . 'le sont avec lui. Choisissez un emplacement externe qui sait reprendre un envoi '
+                    . 'interrompu, comme un dossier Google Drive.',
+                    $location->label
                 )
             );
 
