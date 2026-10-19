@@ -151,7 +151,12 @@
             }
             input.select();
             if (navigator.clipboard) {
-                navigator.clipboard.writeText(input.value);
+                navigator.clipboard.writeText(input.value).catch(function () {
+                    window.ScoutMagicToast.show(
+                        'Copie impossible : le lien est sélectionné, copiez-le à la main.',
+                        { variant: 'error' }
+                    );
+                });
             }
         });
     }

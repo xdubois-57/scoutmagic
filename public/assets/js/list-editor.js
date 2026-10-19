@@ -193,7 +193,7 @@
                 if (!activeUrl) return;
                 var nextActive = toggle.dataset.active !== '1';
                 toggle.disabled = true;
-                window.ScoutMagicApi.postJson(activeUrl, { id: Number.parseInt(toggle.dataset.id, 10), active: nextActive })
+                void window.ScoutMagicApi.postJson(activeUrl, { id: Number.parseInt(toggle.dataset.id, 10), active: nextActive })
                     .then(function (res) {
                         var data = res.data || {};
                         toggle.disabled = false;
@@ -220,7 +220,7 @@
                     confirmLabel: 'Supprimer'
                 });
                 if (!confirmed) return;
-                window.ScoutMagicApi.postJson(deleteUrl, { id: Number.parseInt(btn.dataset.id, 10) }).then(function (res) {
+                void window.ScoutMagicApi.postJson(deleteUrl, { id: Number.parseInt(btn.dataset.id, 10) }).then(function (res) {
                     var data = res.data || {};
                     if (!data.success) {
                         window.ScoutMagicToast.show(data.error || 'Erreur lors de la suppression.', { variant: 'error' });
@@ -294,7 +294,7 @@
         // collect content in a dialog before anything is created)
         if (addBtn && container.dataset.addMode !== 'custom') {
             addBtn.addEventListener('click', function () {
-                window.ScoutMagicApi.postJson(addBtn.dataset.url, {}).then(function (res) {
+                void window.ScoutMagicApi.postJson(addBtn.dataset.url, {}).then(function (res) {
                     var data = res.data || {};
                     if (data.success) {
                         window.location.reload();

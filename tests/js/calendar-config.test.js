@@ -141,7 +141,8 @@ beforeEach(() => {
     window.confirm = vi.fn(() => true);
     window.alert = vi.fn();
     Object.defineProperty(window, 'location', { configurable: true, value: { reload: vi.fn() } });
-    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: vi.fn() } });
+    // A promise, as the real API always returns: a refusal rejects it.
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: vi.fn(() => Promise.resolve()) } });
 });
 
 describe('calendar-config.js: entry guard', () => {
@@ -399,6 +400,28 @@ describe('calendar-config.js: copying an ICS link', () => {
         click('#copy-unit-link');
 
         expect(navigator.clipboard.writeText).toHaveBeenCalledWith('https://example.test/calendar/feed/unit/xyz.ics');
+    });
+
+    it('says so when the browser refuses the copy, pointing at the selected link', async () => {
+        await boot();
+        navigator.clipboard.writeText = vi.fn(() => Promise.reject(new Error('NotAllowedError')));
+
+        click('.copy-link-btn');
+        await settle();
+
+        expect(window.ScoutMagicToast.show).toHaveBeenCalledWith(
+            'Copie impossible : le lien est sélectionné, copiez-le à la main.',
+            { variant: 'error' }
+        );
+    });
+
+    it('stays quiet when the copy succeeds', async () => {
+        await boot();
+
+        click('.copy-link-btn');
+        await settle();
+
+        expect(window.ScoutMagicToast.show).not.toHaveBeenCalled();
     });
 });
 

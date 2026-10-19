@@ -50,7 +50,7 @@
         button.addEventListener('click', function () {
             var cell = document.querySelector('.storage-location-status[data-location-id="' + button.dataset.id + '"]');
             button.disabled = true;
-            window.ScoutMagicApi.postJson('/config/stockage/emplacements/' + button.dataset.id + '/test', {}).then(function (res) {
+            void window.ScoutMagicApi.postJson('/config/stockage/emplacements/' + button.dataset.id + '/test', {}).then(function (res) {
                 button.disabled = false;
                 if (isNetworkFailure(res)) return;
                 var data = envelopeData(res);
@@ -70,7 +70,7 @@
         var button = /** @type {HTMLButtonElement} */ (btn);
         button.addEventListener('click', function () {
             button.disabled = true;
-            window.ScoutMagicApi.postJson('/config/stockage/emplacements/' + button.dataset.id + '/defaut', {}).then(function (res) {
+            void window.ScoutMagicApi.postJson('/config/stockage/emplacements/' + button.dataset.id + '/defaut', {}).then(function (res) {
                 if (isNetworkFailure(res)) {
                     button.disabled = false;
                     return;
@@ -165,7 +165,7 @@
             // deliberately left blank ("laisser vide pour conserver la clé
             // actuelle"), so testing an existing location otherwise sent an
             // empty secret and could only ever fail on authentication.
-            window.ScoutMagicApi.postJson('/config/stockage/test-connexion', {
+            void window.ScoutMagicApi.postJson('/config/stockage/test-connexion', {
                 location_id: Number.parseInt(testBtn.dataset.locationId || '0', 10) || 0,
                 endpoint: /** @type {HTMLInputElement} */ (document.getElementById('s3-endpoint')).value,
                 region: /** @type {HTMLInputElement} */ (document.getElementById('s3-region')).value,
@@ -196,7 +196,7 @@
 
             var secretKey = /** @type {HTMLInputElement} */ (document.getElementById('s3-secret-key')).value;
 
-            window.ScoutMagicApi.postJson('/config/stockage/expliquer-erreur-s3', {
+            void window.ScoutMagicApi.postJson('/config/stockage/expliquer-erreur-s3', {
                 provider: /** @type {HTMLSelectElement} */ (document.getElementById('s3-provider')).value,
                 endpoint: /** @type {HTMLInputElement} */ (document.getElementById('s3-endpoint')).value,
                 region: /** @type {HTMLInputElement} */ (document.getElementById('s3-region')).value,
