@@ -53,7 +53,7 @@
             });
             if (!confirmed) return;
             button.disabled = true;
-            window.ScoutMagicApi.postJson(button.dataset.url, { target_location_id: Number.parseInt(select.value, 10) }).then(function (res) {
+            void window.ScoutMagicApi.postJson(button.dataset.url, { target_location_id: Number.parseInt(select.value, 10) }).then(function (res) {
                 if (isNetworkFailure(res)) {
                     button.disabled = false;
                     return;

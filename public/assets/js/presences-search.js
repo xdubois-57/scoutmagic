@@ -160,7 +160,7 @@
     input.addEventListener('input', api.debounce(run, DEBOUNCE_MS));
     input.addEventListener('focus', function () {
         if (panel.classList.contains('d-none')) {
-            run();
+            void run();
         }
     });
 

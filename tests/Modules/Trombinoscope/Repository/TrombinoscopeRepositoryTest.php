@@ -205,4 +205,30 @@ class TrombinoscopeRepositoryTest extends TestCase
             'the batch answers exactly what the per-section query answers'
         );
     }
+
+    /**
+     * Core\Module\SectionResponsableProvider answers for an explicit scout
+     * year, and the "Année scoute" workflow relies on it: the responsable of
+     * the year being prepared is whoever holds the flagged function in THAT
+     * year's import, never last year's holder.
+     */
+    public function testTheLeadIsReadForTheYearAskedOnly(): void
+    {
+        $leadFn = $this->createFunction('RESP', 'admin');
+        $this->pdo->prepare('INSERT INTO trombinoscope_function_flags (function_id, is_lead) VALUES (?, 1)')
+            ->execute([$leadFn]);
+        $leadMy = $this->createStaffMember('D1', $leadFn, $this->sectionId);
+
+        $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date) VALUES ('2026-2027', '2026-09-01', '2027-08-31')");
+        $nextYearId = (int) $this->pdo->lastInsertId();
+
+        $this->assertSame(
+            [$this->sectionId => [['member_year_id' => $leadMy, 'is_lead' => true]]],
+            $this->repository->getEligibleStaffForSections([$this->sectionId], $this->scoutYearId)
+        );
+        $this->assertSame(
+            [$this->sectionId => []],
+            $this->repository->getEligibleStaffForSections([$this->sectionId], $nextYearId)
+        );
+    }
 }

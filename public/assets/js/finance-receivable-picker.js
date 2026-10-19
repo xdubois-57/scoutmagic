@@ -95,7 +95,7 @@
         // amount come first, which is usually the whole answer.
         search.addEventListener('focus', function () {
             if (hidden.value === '' && results.classList.contains('d-none')) {
-                run();
+                void run();
             }
         });
 

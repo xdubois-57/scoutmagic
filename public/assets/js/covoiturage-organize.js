@@ -417,15 +417,15 @@
             // `change` fires when the field is left after an edit — once,
             // never per keystroke (Nominatim forbids autocompletion).
             address.addEventListener('change', function () {
-                locate();
+                void locate();
             });
             if (address.value.trim() !== '') {
-                locate();
+                void locate();
             }
         }
 
         return function () {
-            locate();
+            void locate();
         };
     }
 

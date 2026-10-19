@@ -67,7 +67,7 @@
     toggle.addEventListener('change', function () {
         hideNotices();
         if (toggle.checked) {
-            push.enable(vapidPublicKey).then(function (status) {
+            void push.enable(vapidPublicKey).then(function (status) {
                 if (status === 'denied') {
                     revert(deniedNotice);
                 } else if (status !== 'enabled') {
@@ -75,7 +75,7 @@
                 }
             });
         } else {
-            push.disable().then(function (status) {
+            void push.disable().then(function (status) {
                 if (status === 'error' && errorNotice) {
                     errorNotice.classList.remove('d-none');
                 }

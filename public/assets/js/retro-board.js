@@ -229,7 +229,7 @@
         if (shortenBtn) {
             shortenBtn.addEventListener('click', function () {
                 shortenBtn.disabled = true;
-                window.ScoutMagicApi.postJson('/r/' + token + '/shorten', { body: input.value }).then(function (result) {
+                void window.ScoutMagicApi.postJson('/r/' + token + '/shorten', { body: input.value }).then(function (result) {
                     shortenBtn.disabled = false;
                     var data = envelopeData(result);
                     if (data.success) {
@@ -254,7 +254,7 @@
             }
 
             submitBtn.disabled = true;
-            window.ScoutMagicApi.postJson('/r/' + token + '/comments', { column: column, body: body, accepted_warning: !!acceptedWarning }).then(function (result) {
+            void window.ScoutMagicApi.postJson('/r/' + token + '/comments', { column: column, body: body, accepted_warning: !!acceptedWarning }).then(function (result) {
                 submitBtn.disabled = false;
                 var data = envelopeData(result);
                 if (data.success) {
@@ -262,7 +262,7 @@
                     updateCounter();
                     showError('');
                     hideModeration();
-                    refreshBoard();
+                    void refreshBoard();
                 } else if (data.type === 'offensive') {
                     showError('');
                     showModeration(data.error, data.suggestion, data.moderation_mode);
@@ -293,7 +293,7 @@
         if (likeBtn) {
             var id1 = likeBtn.dataset.commentId;
             likeBtn.disabled = true;
-            window.ScoutMagicApi.postJson('/r/' + token + '/comments/' + id1 + '/vote', {}).then(function (result) {
+            void window.ScoutMagicApi.postJson('/r/' + token + '/comments/' + id1 + '/vote', {}).then(function (result) {
                 likeBtn.disabled = false;
                 var data = envelopeData(result);
                 if (data.success) {
@@ -315,7 +315,7 @@
             var id2 = btn.dataset.commentId;
             var action = addBtn ? 'add' : 'remove';
             btn.disabled = true;
-            window.ScoutMagicApi.postJson('/r/' + token + '/comments/' + id2 + '/vote/' + action, {}).then(function (result) {
+            void window.ScoutMagicApi.postJson('/r/' + token + '/comments/' + id2 + '/vote/' + action, {}).then(function (result) {
                 btn.disabled = false;
                 var data = envelopeData(result);
                 if (data.success) {
@@ -334,11 +334,11 @@
             var id3 = btn2.dataset.commentId;
             var url = '/r/' + token + '/comments/' + id3 + '/' + (hideBtn ? 'hide' : 'unhide');
             btn2.disabled = true;
-            window.ScoutMagicApi.postJson(url, {}).then(function (result) {
+            void window.ScoutMagicApi.postJson(url, {}).then(function (result) {
                 btn2.disabled = false;
                 var data = envelopeData(result);
                 if (data.success) {
-                    refreshBoard();
+                    void refreshBoard();
                 } else if (data.error) {
                     window.ScoutMagicToast.show(data.error, { variant: 'error' });
                 }
@@ -371,6 +371,9 @@
                 navigator.clipboard.writeText(url).then(function () {
                     copyBtn.innerHTML = '<i class="bi bi-check-lg"></i> Copié';
                     setTimeout(restore, 2000);
+                }).catch(function () {
+                    // Refused permission: the link was not copied, so hand it over.
+                    window.ScoutMagicToast.show('Copiez ce lien à la main : ' + url, { variant: 'error' });
                 });
             } else {
                 var input = document.createElement('input');

@@ -193,4 +193,18 @@ describe('audit-timeline', () => {
         expect(button).not.toBeNull();
         expect(button.disabled).toBe(false);
     });
+
+    it('says so, and gives the button back, when the connection drops', async () => {
+        buildDom();
+        window.ScoutMagicToast = { show: vi.fn() };
+        globalThis.fetch = vi.fn().mockRejectedValue(new TypeError('Failed to fetch'));
+        await clickMore();
+
+        const button = document.querySelector('.audit-timeline-more');
+        expect(button.disabled).toBe(false);
+        expect(window.ScoutMagicToast.show).toHaveBeenCalledWith(
+            'La suite de l\'historique n\'a pas pu être chargée.',
+            { variant: 'error' }
+        );
+    });
 });

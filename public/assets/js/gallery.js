@@ -237,7 +237,8 @@
 
         function handleFiles(fileList) {
             if (!fileList?.length) return;
-            uploadAll(fileList);
+            // uploadOne() resolves every failure into its result, so this never rejects.
+            void uploadAll(fileList);
         }
 
         // Drag, drop, click-to-pick and the highlight are the shared zone
@@ -260,7 +261,7 @@
             var ids = Array.from(grid.querySelectorAll('.gallery-media-item')).map(/** @param {HTMLElement} el */ function (el) {
                 return Number.parseInt(el.dataset.mediaId, 10);
             });
-            window.ScoutMagicApi.postJson(reorderUrl, { ordered_ids: ids }).then(function (res) {
+            void window.ScoutMagicApi.postJson(reorderUrl, { ordered_ids: ids }).then(function (res) {
                 var data = envelopeData(res);
                 if (!data.success) {
                     window.ScoutMagicToast.show(data.error || 'Erreur lors de la réorganisation.', { variant: 'error' });
@@ -286,7 +287,7 @@
                 });
                 if (!confirmed) return;
                 var item = btn.closest('.gallery-media-item');
-                window.ScoutMagicApi.postJson(btn.dataset.url, {}).then(function (res) {
+                void window.ScoutMagicApi.postJson(btn.dataset.url, {}).then(function (res) {
                     var data = envelopeData(res);
                     if (data.success) {
                         item.remove();
@@ -299,7 +300,7 @@
 
         grid.querySelectorAll('.gallery-media-set-cover').forEach(/** @param {HTMLElement} btn */ function (btn) {
             btn.addEventListener('click', function () {
-                window.ScoutMagicApi.postJson(btn.dataset.url, { media_id: Number.parseInt(btn.dataset.mediaId, 10) }).then(function (res) {
+                void window.ScoutMagicApi.postJson(btn.dataset.url, { media_id: Number.parseInt(btn.dataset.mediaId, 10) }).then(function (res) {
                     var data = envelopeData(res);
                     if (data.success) {
                         window.location.reload();
@@ -319,7 +320,7 @@
         if (!btn) return;
         btn.addEventListener('click', function () {
             btn.disabled = true;
-            window.ScoutMagicApi.postJson(btn.dataset.url, {}).then(function (res) {
+            void window.ScoutMagicApi.postJson(btn.dataset.url, {}).then(function (res) {
                 var data = envelopeData(res);
                 btn.disabled = false;
                 if (data.success) {
@@ -373,7 +374,7 @@
                 confirmLabel: 'Supprimer'
             });
             if (!confirmed) return;
-            window.ScoutMagicApi.postJson(btn.dataset.url, {}).then(function (res) {
+            void window.ScoutMagicApi.postJson(btn.dataset.url, {}).then(function (res) {
                 var data = envelopeData(res);
                 if (data.success) {
                     window.location.href = '/gallery/manage';

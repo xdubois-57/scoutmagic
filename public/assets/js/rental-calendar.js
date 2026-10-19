@@ -251,7 +251,7 @@ export function wireCalendar(container) {
             return;
         }
 
-        refresh(selectionUrl(window.location.href, next));
+        void refresh(selectionUrl(window.location.href, next));
     });
 }
 
@@ -274,7 +274,7 @@ export function wirePage() {
     document.querySelectorAll('#rental-calendar-fragment a[href^="?"]').forEach(function (link) {
         link.addEventListener('click', function (event) {
             event.preventDefault();
-            refresh(new URL(
+            void refresh(new URL(
                 /** @type {HTMLAnchorElement} */ (link).getAttribute('href') || '',
                 window.location.href
             ).toString());
@@ -287,7 +287,7 @@ export function wirePage() {
     if (form) {
         form.addEventListener('submit', function (event) {
             event.preventDefault();
-            refresh(estimateUrl(form, window.location.href));
+            void refresh(estimateUrl(form, window.location.href));
         });
 
         // As soon as both dates are known, estimate without waiting for the
@@ -297,7 +297,7 @@ export function wirePage() {
         form.querySelectorAll('input[type="date"]').forEach(function (field) {
             field.addEventListener('change', function () {
                 if (estimateReady(form)) {
-                    refresh(estimateUrl(form, window.location.href));
+                    void refresh(estimateUrl(form, window.location.href));
                 }
             });
         });

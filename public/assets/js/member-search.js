@@ -191,7 +191,7 @@
              * @returns {void}
              */
             function save(payload) {
-                api.postJson('/members/' + memberYearId + '/departure', payload).then(function (res) {
+                void api.postJson('/members/' + memberYearId + '/departure', payload).then(function (res) {
                     if (res.data?.success) {
                         return;
                     }

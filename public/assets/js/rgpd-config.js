@@ -94,7 +94,7 @@
      * @param {(success: boolean, result?: any) => void} [callback]
      */
     function saveMode(mode, content, prompt, callback) {
-        api.postJson('/config/rgpd/save', { mode: mode, content: content, prompt: prompt })
+        void api.postJson('/config/rgpd/save', { mode: mode, content: content, prompt: prompt })
             .then(function (res) {
                 var ok = !!(res.data?.success);
                 // Every recorded save moves it, whichever control sent it
@@ -198,7 +198,7 @@
     if (aiPromptCard.dataset.generationRunning === '1') {
         generateBtn.disabled = true;
         startGenerationTimer('Génération en cours');
-        pollGeneration('Contenu généré et enregistré.');
+        void pollGeneration('Contenu généré et enregistré.');
     }
 
     /**
@@ -259,7 +259,7 @@
                     // Auto-generate if prompt exists
                     var prompt = aiPromptTextarea.value.trim();
                     if (prompt) {
-                        runGeneration(prompt, 'Génération automatique en cours…', 'Contenu généré automatiquement');
+                        void runGeneration(prompt, 'Génération automatique en cours…', 'Contenu généré automatiquement');
                     }
                 });
             } else if (mode === 'custom') {
@@ -337,7 +337,7 @@
 
     // Manual generate button (when in AI mode)
     generateBtn.addEventListener('click', function () {
-        runGeneration(aiPromptTextarea.value, 'Génération en cours…', 'Contenu généré et enregistré');
+        void runGeneration(aiPromptTextarea.value, 'Génération en cours…', 'Contenu généré et enregistré');
     });
 
     // Reset button - resets to default content and persists it for the current mode
@@ -350,7 +350,7 @@
         });
         if (!confirmed) return;
 
-        api.postJson('/config/rgpd/reset', {}).then(function (res) {
+        void api.postJson('/config/rgpd/reset', {}).then(function (res) {
             if (res.data?.success) {
                 preview.innerHTML = res.data.content;
                 saveMode(getMode(), res.data.content, aiPromptTextarea.value, function () {

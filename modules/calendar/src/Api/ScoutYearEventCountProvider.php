@@ -33,4 +33,20 @@ interface ScoutYearEventCountProvider
      * particular visitor see".
      */
     public function countEventsBetween(string $fromDate, string $toDate): int;
+
+    /**
+     * The same count, split by the section whose calendar holds the event:
+     * section id => events starting within [$fromDate, $toDate], both
+     * inclusive, both 'Y-m-d'.
+     *
+     * Only section calendars (`calendar_calendars.section_id` set) are
+     * counted — a unit-wide "Animateurs" evening belongs to no section, the
+     * rule Api\SectionEventLookupInterface draws too. A section with no
+     * event in the range is ABSENT rather than zero: the calendar does not
+     * know which sections the caller is checking, so filling the gaps is
+     * the caller's job, against its own list.
+     *
+     * @return array<int, int> section id => event count, every count >= 1
+     */
+    public function countEventsBySectionBetween(string $fromDate, string $toDate): array;
 }

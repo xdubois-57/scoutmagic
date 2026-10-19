@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Core\Photo;
 
 use Core\Photo\MemberPhotoRepository;
+use Core\Photo\PhotoOrigin;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 
@@ -127,5 +128,47 @@ class MemberPhotoRepositoryTest extends TestCase
 
         $this->assertSame([$this->memberId => $this->fileIdB, $secondMemberId => $this->fileIdA], $result);
         $this->assertSame([], $this->repository->findFileIdsForYearOrEarlier([], $this->yearNewId));
+    }
+
+    /**
+     * The same photo findFileIdsForYearOrEarlier() shows, with its origin:
+     * this year's own, carried over from an earlier year, or none. A
+     * future year's photo is never this year's.
+     */
+    public function testFindPhotoYearsSaysWhichYearTheShownPhotoIsFrom(): void
+    {
+        $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('DESK2')");
+        $exactMember = (int) $this->pdo->lastInsertId();
+        $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('DESK3')");
+        $memberWithoutPhoto = (int) $this->pdo->lastInsertId();
+        $futureYearId = $this->createScoutYear('2026-2027', '2026-09-01');
+
+        // Carried over: photos in 2023 and 2024, none in 2025.
+        $this->repository->upsert($this->memberId, $this->yearOldId, $this->fileIdA, null);
+        $this->repository->upsert($this->memberId, $this->yearMidId, $this->fileIdB, null);
+        // Exact, with a later photo that must not win.
+        $this->repository->upsert($exactMember, $this->yearNewId, $this->fileIdA, null);
+        $this->repository->upsert($exactMember, $futureYearId, $this->fileIdB, null);
+
+        $result = $this->repository->findPhotoYears(
+            [$this->memberId, $exactMember, $memberWithoutPhoto, $this->memberId],
+            $this->yearNewId
+        );
+
+        $this->assertCount(3, $result);
+
+        $this->assertSame(PhotoOrigin::Earlier, $result[$this->memberId]->origin);
+        $this->assertSame($this->yearMidId, $result[$this->memberId]->photoScoutYearId);
+        $this->assertSame($this->fileIdB, $result[$this->memberId]->fileId);
+
+        $this->assertSame(PhotoOrigin::Exact, $result[$exactMember]->origin);
+        $this->assertSame($this->yearNewId, $result[$exactMember]->photoScoutYearId);
+        $this->assertSame($this->fileIdA, $result[$exactMember]->fileId);
+
+        $this->assertSame(PhotoOrigin::None, $result[$memberWithoutPhoto]->origin);
+        $this->assertNull($result[$memberWithoutPhoto]->photoScoutYearId);
+        $this->assertNull($result[$memberWithoutPhoto]->fileId);
+
+        $this->assertSame([], $this->repository->findPhotoYears([], $this->yearNewId));
     }
 }

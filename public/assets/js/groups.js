@@ -757,7 +757,7 @@
 
             setBusy(true);
 
-            fetch(form.action, {
+            void fetch(form.action, {
                 method: 'POST',
                 body: payload,
                 headers: { 'X-Requested-With': 'XMLHttpRequest' }
@@ -1206,7 +1206,7 @@
             return;
         }
 
-        fetch('/groups/' + feed.dataset.groupId + '/media-status?ids=' + ids.join(','), {
+        void fetch('/groups/' + feed.dataset.groupId + '/media-status?ids=' + ids.join(','), {
             headers: { 'X-Requested-With': 'fetch' }
         }).then(function (response) {
             return response.ok ? response.json() : [];
@@ -1818,7 +1818,7 @@
         var replyPayload = new FormData(form);
         if (replySubmitBtn) replySubmitBtn.disabled = true;
 
-        fetch(form.action, {
+        void fetch(form.action, {
             method: 'POST',
             body: replyPayload,
             headers: { 'X-Requested-With': 'XMLHttpRequest' }
@@ -1875,7 +1875,7 @@
      * @param {HTMLFormElement} form
      */
     function submitPinForm(form) {
-        askPinDuration(form).then(function (chosen) {
+        void askPinDuration(form).then(function (chosen) {
             if (chosen) {
                 form.submit();
             }
@@ -1893,7 +1893,7 @@
      * @param {HTMLFormElement} form
      */
     function submitPollVote(form) {
-        askPollVoter(form).then(function (proceed) {
+        void askPollVoter(form).then(function (proceed) {
             if (proceed) {
                 swapFragmentOnSubmit(form, '.groups-poll');
             }

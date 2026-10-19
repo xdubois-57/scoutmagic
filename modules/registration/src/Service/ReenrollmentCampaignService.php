@@ -567,6 +567,68 @@ class ReenrollmentCampaignService
     }
 
     /**
+     * Where the campaign asking about the scout year `$targetLabel` stands
+     * at `$now` — Api\ScoutYearRegistrationReviewProvider's answer, so the
+     * "Année scoute" workflow can refuse to mark its departures step while
+     * the families are still answering (chantier « Année scoute » §2.3).
+     *
+     * - `open`: the switch is on. The switch is the current campaign's —
+     *   the one for the year after the public year — so it is read for
+     *   that year only;
+     * - `finished`: the campaign has started (hasStarted(): its opening
+     *   date is behind us, or it was opened before it) and is not open;
+     * - `not_started`: anything else.
+     *
+     * **Never from a count of answers.** A campaign everybody has answered
+     * is still open until it closes, and one nobody answered is finished
+     * once it has closed.
+     *
+     * **The opening day itself** is the one moment hasStarted() is true
+     * while the campaign has not opened yet: the scheduled opening runs on
+     * the first cron pass of the day, which `poor_mans_cron` may not have
+     * reached. Until that opening (or an earlier one by hand that wrote to
+     * the families) is recorded, the day reads `not_started`
+     * — reading `finished` would let the step be marked an hour before the
+     * families are written to.
+     *
+     * Null when the dates designate no campaign for that year and the
+     * switch is not on for it.
+     *
+     * @return array{state: string, opens: ?string, closes: ?string}|null
+     *         state is `not_started`, `open` or `finished`; dates `Y-m-d`
+     */
+    public function stateFor(string $targetLabel, \DateTimeImmutable $now): ?array
+    {
+        $publicYear = $this->scoutYearResolver->getCurrentPublicYear();
+        $isCurrent = $targetLabel === ScoutYearService::nextLabel((string) $publicYear['label']);
+        $switchOn = $isCurrent && $this->isOpen();
+
+        $openAt = $this->monthDay(self::SETTING_OPEN_AT);
+        $closeAt = $this->monthDay(self::SETTING_CLOSE_AT);
+        $key = null;
+        if ($openAt !== null && $closeAt !== null && preg_match('/^(\d{4})-\d{4}$/', $targetLabel, $m) === 1) {
+            $key = self::dateIn(self::closeYearFor((int) $m[1], $openAt, $closeAt), $closeAt)?->format('Y-m-d');
+        }
+
+        if ($key === null) {
+            return $switchOn ? ['state' => 'open', 'opens' => null, 'closes' => null] : null;
+        }
+
+        $opens = self::openingDateOf($key, $openAt)?->format('Y-m-d');
+        $dates = ['opens' => $opens, 'closes' => $key];
+        if ($switchOn) {
+            return ['state' => 'open', ...$dates];
+        }
+
+        $openingDayNotYetApplied = $opens === $now->format('Y-m-d') && !$this->stillRunning($key);
+        if (!$openingDayNotYetApplied && $this->hasStarted($key, $now, $openAt)) {
+            return ['state' => 'finished', ...$dates];
+        }
+
+        return ['state' => 'not_started', ...$dates];
+    }
+
+    /**
      * The last campaign that really closed before the one keyed `$key`, as
      * recorded — by the clock's closing or by its closing e-mail — never
      * worked out from today's settings: a unit that has never run a campaign

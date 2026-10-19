@@ -48,7 +48,7 @@
     channelToggles.forEach(function (toggle) {
         toggle.addEventListener('change', function () {
             var value = toggle.checked ? 'on' : 'off';
-            window.ScoutMagicApi.postJson('/notifications/preferences', {
+            void window.ScoutMagicApi.postJson('/notifications/preferences', {
                 type_id: toggle.dataset.typeId,
                 channel: toggle.dataset.channel,
                 value: value
