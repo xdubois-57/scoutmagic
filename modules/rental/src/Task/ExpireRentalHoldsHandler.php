@@ -18,7 +18,9 @@ use Core\Scheduler\TaskHandlerInterface;
 use Modules\Rental\Audit\BookingAudit;
 use Modules\Rental\Repository\RentalBookingRepository;
 use Modules\Rental\Repository\RentalChangeRequestRepository;
+use Modules\Rental\Repository\RentalPaymentRepository;
 use Modules\Rental\Service\RentalBookingService;
+use Modules\Rental\Service\RentalPaymentService;
 
 /**
  * Expires temporary holds whose deadline has passed (specifications.md §22.5).
@@ -56,9 +58,13 @@ class ExpireRentalHoldsHandler implements TaskHandlerInterface
     public function handle(array $payload, TaskContext $context): void
     {
         $pdo = $context->connection->getPdo();
+        $journal = new JournalService(new JournalRepository($pdo));
+        // No ActorAccountResolver: nothing here has an actor. The deadline
+        // decided, and the timeline says so (§8.66).
+        $bookingAudit = new BookingAudit(new AuditService(new AuditRepository($pdo, $context->encryption)));
         $service = new RentalBookingService(
             new RentalBookingRepository($pdo, $context->encryption),
-            new JournalService(new JournalRepository($pdo)),
+            $journal,
             // A booking this sweep expires has nothing left to decide, so
             // its pending change requests are refused with it — the same
             // rule RentalOperationsService applies when a manager closes a
@@ -67,9 +73,17 @@ class ExpireRentalHoldsHandler implements TaskHandlerInterface
             // « Accepter » on a proposal for a booking that no longer
             // existed.
             new RentalChangeRequestRepository($pdo, $context->encryption),
-            // No ActorAccountResolver: nothing here has an actor. The
-            // deadline decided, and the timeline says so (§8.66).
-            new BookingAudit(new AuditService(new AuditRepository($pdo, $context->encryption)))
+            $bookingAudit,
+            null,
+            // An expired booking's receivable goes to 0 (issue #927). The
+            // Finance side arrives as capabilities, null when it is off.
+            new RentalPaymentService(
+                new RentalPaymentRepository($pdo, $context->encryption),
+                $bookingAudit,
+                $journal,
+                $context->getOptional(\Modules\Finance\Api\ExpectedReceivableInterface::class),
+                $context->getOptional(\Modules\Finance\Api\StructuredCommunicationInterface::class)
+            )
         );
 
         $service->expireLapsedHolds(new \DateTimeImmutable());

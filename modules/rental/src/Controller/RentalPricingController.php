@@ -407,8 +407,7 @@ class RentalPricingController extends AbstractController
                     securityDepositEnabled: $request->getBody('security_deposit_enabled') !== null,
                     securityDepositAmountCents: RentalPricingService::parseAmountToCents(
                         (string) $request->getBody('security_deposit_amount', '')
-                    ),
-                    securityDepositDueDays: self::optionalInt($request->getBody('security_deposit_due_days'))
+                    )
                 )
             );
 

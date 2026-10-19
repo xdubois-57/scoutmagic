@@ -452,6 +452,25 @@ class ReminderPlannerTest extends TestCase
         $this->assertContains(ReminderKind::BALANCE_MISSING->value, self::kinds($due));
     }
 
+    public function testTheSecurityDepositIsNotChasedTwiceWithTheBalanceItIsPartOf(): void
+    {
+        // One receivable, due on one date (issue #927): the balance's
+        // reminder already asks for the security deposit.
+        $due = $this->plan($this->booking(), '2027-06-25', $this->payment([
+            'balance_due_date' => '2027-06-20',
+            'fully_paid' => false,
+            'security_deposit' => [
+                'amount_cents' => 30000,
+                'received_cents' => 0,
+                'due_date' => '2027-06-20',
+                'returned_at' => null,
+            ],
+        ]));
+
+        $this->assertContains(ReminderKind::BALANCE_MISSING->value, self::kinds($due));
+        $this->assertNotContains(ReminderKind::SECURITY_DEPOSIT_MISSING->value, self::kinds($due));
+    }
+
     public function testAnOverdueSecurityDepositIsChased(): void
     {
         $due = $this->plan($this->booking(), '2027-06-25', $this->payment([

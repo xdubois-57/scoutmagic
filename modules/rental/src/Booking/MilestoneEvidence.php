@@ -180,6 +180,12 @@ final class MilestoneEvidence
             );
         }
 
+        // Whether the balance line already counts the security deposit:
+        // one receivable, one running total (issue #927). Its own line then
+        // ticks when the deposit is in hand, but names no amount of its own —
+        // the balance's « attendus » already includes it, and saying it twice
+        // would announce more than the receivable expects.
+        $balanceCountsDeposit = false;
         if (($payment['enabled'] ?? false) === true) {
             $receivedCents = is_int($payment['received_cents'] ?? null) ? $payment['received_cents'] : 0;
             $depositCents = $payment['deposit_cents'] ?? null;
@@ -196,6 +202,7 @@ final class MilestoneEvidence
 
             $totalCents = $payment['total_cents'] ?? null;
             if (is_int($totalCents) && $totalCents > 0) {
+                $balanceCountsDeposit = true;
                 $isPaid = ($payment['fully_paid'] ?? false) === true;
                 $record(
                     BookingMilestones::BALANCE_RECEIVED,
@@ -217,7 +224,9 @@ final class MilestoneEvidence
             $record(
                 BookingMilestones::SECURITY_DEPOSIT_RECEIVED,
                 $isHeld,
-                $isHeld ? null : self::owed($securityCents - $securityReceived, $security['due_date'] ?? null, $today)
+                $isHeld || $balanceCountsDeposit
+                    ? null
+                    : self::owed($securityCents - $securityReceived, $security['due_date'] ?? null, $today)
             );
             $record(
                 BookingMilestones::SECURITY_DEPOSIT_RETURNED,

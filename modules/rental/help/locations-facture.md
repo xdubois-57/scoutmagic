@@ -27,8 +27,12 @@ tranchés, caution. **Il ne modifie jamais le prix convenu** : celui-ci
 reste le témoin de ce qui a été négocié.
 
 Saisissez le nombre réel de participants, puis enregistrez un décompte.
-Chaque enregistrement crée une version ; validez la bonne, elle ne se
-modifie plus.
+Une remise accordée après le séjour se note en « Geste commercial » : un
+libellé et le montant déduit, sans nouveau contrat. Chaque enregistrement
+crée une version ; validez la bonne, elle ne se modifie plus. Avec
+Finances, la validation ramène la créance au montant conservé — location,
+consommations et retenues, moins le geste — et ce qui a été payé en plus,
+la caution à rendre d'abord, apparaît en trop-perçu.
 
 Les incidents tranchés s'affichent avec leur montant, en lecture seule.
 Une décision se change sur la page « État des lieux ».

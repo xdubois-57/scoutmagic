@@ -39,11 +39,12 @@ use Tests\Modules\Rental\RentalTestHelper;
  *
  * Mocking Finance here would test that `rental` calls the methods it thinks
  * it calls, which is the least interesting thing that could go wrong. What
- * matters is the behaviour at the seam: that one receivable serves both the
- * deposit and the balance, that the security deposit is a genuinely separate
- * debt with a separate communication, and — the point of the whole nullable
- * dependency — that every one of these paths degrades quietly when Finance
- * is not there at all.
+ * matters is the behaviour at the seam: that one receivable — rental plus
+ * security deposit, one communication — serves the deposit, the balance and
+ * the security deposit (issue #927), that its amount follows the booking to
+ * 0 or to the kept amount without ever being deleted, and — the point of the
+ * whole nullable dependency — that every one of these paths degrades
+ * quietly when Finance is not there at all.
  *
  * @group database
  */
@@ -145,8 +146,7 @@ class RentalPaymentServiceTest extends TestCase
             depositDueDays: 14,
             balanceDueDays: 30,
             securityDepositEnabled: $securityDeposit,
-            securityDepositAmountCents: $securityDepositCents,
-            securityDepositDueDays: 30
+            securityDepositAmountCents: $securityDepositCents
         );
     }
 
@@ -235,10 +235,9 @@ class RentalPaymentServiceTest extends TestCase
         $this->assertFalse($service->isAvailable());
         $this->assertSame([], $service->availableAccounts());
 
-        $raised = $service->ensureReceivables($booking, $this->settings(), $this->now());
+        $raised = $service->ensureReceivable($booking, $this->settings());
 
-        $this->assertNull($raised['rental']);
-        $this->assertNull($raised['security_deposit']);
+        $this->assertNull($raised);
         $this->assertSame(0, (int) $this->pdo->query(
             'SELECT COUNT(*) FROM finance_expected_receivables'
         )->fetchColumn());
@@ -262,18 +261,13 @@ class RentalPaymentServiceTest extends TestCase
         $booking = $this->createBooking();
 
         $this->assertNull($service->sepaQrPng($booking, $this->settings()));
-        $this->assertNull($service->securityDepositQrPng($booking, $this->settings()));
     }
 
     public function testAnAssetWithPaymentsOffRaisesNothingEvenWithFinanceOn(): void
     {
-        $raised = $this->service->ensureReceivables(
-            $this->createBooking(),
-            $this->settings(enabled: false),
-            $this->now()
-        );
+        $raised = $this->service->ensureReceivable($this->createBooking(), $this->settings(enabled: false));
 
-        $this->assertNull($raised['rental']);
+        $this->assertNull($raised);
     }
 
     // ── Configuration ───────────────────────────────────────────────────
@@ -338,11 +332,11 @@ class RentalPaymentServiceTest extends TestCase
 
     // ── One receivable for the whole rental (§6.19) ─────────────────────
 
-    public function testConfirmationRaisesExactlyOneRentalReceivable(): void
+    public function testRaisingCreatesExactlyOneReceivable(): void
     {
         $booking = $this->createBooking(46750);
 
-        $this->service->ensureReceivables($booking, $this->settings(), $this->now());
+        $this->service->ensureReceivable($booking, $this->settings());
 
         $this->assertSame(1, (int) $this->pdo->query(
             'SELECT COUNT(*) FROM finance_expected_receivables'
@@ -360,7 +354,7 @@ class RentalPaymentServiceTest extends TestCase
         $booking = $this->createBooking(46750);
         $settings = $this->settings(depositMode: DepositMode::PERCENTAGE, depositPercentage: 30);
 
-        $this->service->ensureReceivables($booking, $settings, $this->now());
+        $this->service->ensureReceivable($booking, $settings);
 
         $this->assertSame(1, (int) $this->pdo->query(
             'SELECT COUNT(*) FROM finance_expected_receivables'
@@ -375,7 +369,7 @@ class RentalPaymentServiceTest extends TestCase
     {
         $booking = $this->createBooking(46750);
         $settings = $this->settings(depositMode: DepositMode::FIXED, depositCents: 10000);
-        $this->service->ensureReceivables($booking, $settings, $this->now());
+        $this->service->ensureReceivable($booking, $settings);
 
         $communication = (string) $this->service->statusFor($booking, $settings)['communication'];
         $this->pay($communication, 100.00);
@@ -390,7 +384,7 @@ class RentalPaymentServiceTest extends TestCase
     {
         $booking = $this->createBooking(46750);
         $settings = $this->settings(depositMode: DepositMode::FIXED, depositCents: 10000);
-        $this->service->ensureReceivables($booking, $settings, $this->now());
+        $this->service->ensureReceivable($booking, $settings);
 
         $communication = (string) $this->service->statusFor($booking, $settings)['communication'];
         $this->pay($communication, 100.00);
@@ -405,7 +399,7 @@ class RentalPaymentServiceTest extends TestCase
     {
         $booking = $this->createBooking(46750);
         $settings = $this->settings();
-        $this->service->ensureReceivables($booking, $settings, $this->now());
+        $this->service->ensureReceivable($booking, $settings);
         $communication = (string) $this->service->statusFor($booking, $settings)['communication'];
 
         $this->pay($communication, 500.00);
@@ -425,13 +419,14 @@ class RentalPaymentServiceTest extends TestCase
         $booking = $this->createBooking(46750);
         $settings = $this->settings();
 
-        $first = $this->service->ensureReceivables($booking, $settings, $this->now());
+        $first = $this->service->ensureReceivable($booking, $settings);
         $communication = (string) $this->service->statusFor($booking, $settings)['communication'];
         $this->pay($communication, 200.00);
 
-        $second = $this->service->ensureReceivables($this->reload($booking), $settings, $this->now());
+        $second = $this->service->ensureReceivable($this->reload($booking), $settings);
 
-        $this->assertSame($first['rental'], $second['rental']);
+        $this->assertNotNull($first);
+        $this->assertSame($first, $second);
         $this->assertSame(1, (int) $this->pdo->query(
             'SELECT COUNT(*) FROM finance_expected_receivables'
         )->fetchColumn());
@@ -464,7 +459,7 @@ class RentalPaymentServiceTest extends TestCase
         $this->expectException(RentalException::class);
         $this->expectExceptionMessageMatches('/prix/');
 
-        $this->service->ensureReceivables($booking, $this->settings(), $this->now());
+        $this->service->ensureReceivable($booking, $this->settings());
     }
 
     // ── Amount updates (§6.12) ──────────────────────────────────────────
@@ -473,7 +468,7 @@ class RentalPaymentServiceTest extends TestCase
     {
         $booking = $this->createBooking(46750);
         $settings = $this->settings(depositMode: DepositMode::PERCENTAGE, depositPercentage: 30);
-        $this->service->ensureReceivables($booking, $settings, $this->now());
+        $this->service->ensureReceivable($booking, $settings);
 
         $this->service->updateRentalAmount($booking, $settings, 40000);
 
@@ -488,7 +483,7 @@ class RentalPaymentServiceTest extends TestCase
     {
         $booking = $this->createBooking(46750);
         $settings = $this->settings();
-        $this->service->ensureReceivables($booking, $settings, $this->now());
+        $this->service->ensureReceivable($booking, $settings);
         $communication = (string) $this->service->statusFor($booking, $settings)['communication'];
         $this->pay($communication, 300.00);
 
@@ -502,7 +497,7 @@ class RentalPaymentServiceTest extends TestCase
     {
         $booking = $this->createBooking(46750);
         $settings = $this->settings();
-        $this->service->ensureReceivables($booking, $settings, $this->now());
+        $this->service->ensureReceivable($booking, $settings);
         $communication = (string) $this->service->statusFor($booking, $settings)['communication'];
         $this->pay($communication, 300.00);
 
@@ -522,58 +517,265 @@ class RentalPaymentServiceTest extends TestCase
         )->fetchColumn());
     }
 
-    // ── The security deposit (§6.20) ────────────────────────────────────
+    public function testAChangedPriceKeepsTheSecurityDepositOnTop(): void
+    {
+        // A direct change before the first send, or a countersigned
+        // modification after it: the new rental price, plus the security
+        // deposit snapshotted with the receivable — same receivable.
+        $booking = $this->createBooking(46750);
+        $settings = $this->settings(securityDeposit: true, securityDepositCents: 15000);
+        $id = $this->service->ensureReceivable($booking, $settings);
+        $communication = (string) $this->service->statusFor($booking, $settings)['communication'];
+        $this->pay($communication, 250.00);
 
-    public function testTheSecurityDepositIsItsOwnReceivableWithItsOwnCommunication(): void
+        $this->service->updateRentalAmount($booking, $settings, 66800);
+
+        $status = $this->service->statusFor($booking, $settings);
+        $this->assertSame(81800, $status['total_cents']);
+        $this->assertSame($communication, $status['communication']);
+        $this->assertSame(25000, $status['received_cents']);
+        $this->assertSame($id, $this->service->ensureReceivable($booking, $settings));
+    }
+
+    // ── The contract prints the communication (issue #927) ──────────────
+
+    public function testTheContractCommunicationRaisesTheReceivableFirst(): void
     {
         $booking = $this->createBooking(46750);
-        $settings = $this->settings(securityDeposit: true, securityDepositCents: 50000);
+        $settings = $this->settings(securityDeposit: true, securityDepositCents: 15000);
 
-        $raised = $this->service->ensureReceivables($booking, $settings, $this->now());
+        $communication = $this->service->communicationForContract($booking, $settings);
 
-        $this->assertNotNull($raised['security_deposit']);
-        $this->assertNotSame($raised['rental'], $raised['security_deposit']);
-        $this->assertSame(2, (int) $this->pdo->query(
-            'SELECT COUNT(*) FROM finance_expected_receivables'
+        $this->assertNotNull($communication);
+        $this->assertMatchesRegularExpression('/^\+\+\+\d{3}\/\d{4}\/\d{5}\+\+\+$/', $communication);
+        $this->assertSame($communication, $this->service->statusFor($booking, $settings)['communication']);
+        $this->assertSame(61750, (int) $this->pdo->query(
+            'SELECT amount_due_cents FROM finance_expected_receivables'
         )->fetchColumn());
-
-        $status = $this->service->statusFor($booking, $settings);
-        // Separable on the account: a renter transferring the security
-        // deposit must not accidentally settle part of the rental.
-        $this->assertNotSame($status['communication'], $status['security_deposit']['communication']);
     }
 
-    public function testPayingTheSecurityDepositNeverCountsTowardsTheRental(): void
+    public function testRegeneratingAContractReusesTheSameCommunication(): void
     {
-        // A unit holding 500 € of somebody else's money has not earned it.
+        // Every regeneration, version or modification prints the one
+        // communication the renter may already have paid against.
         $booking = $this->createBooking(46750);
-        $settings = $this->settings(securityDeposit: true, securityDepositCents: 50000);
-        $this->service->ensureReceivables($booking, $settings, $this->now());
+        $settings = $this->settings();
 
-        $status = $this->service->statusFor($booking, $settings);
-        $this->pay((string) $status['security_deposit']['communication'], 500.00);
+        $first = $this->service->communicationForContract($booking, $settings);
+        $second = $this->service->communicationForContract($this->reload($booking), $settings);
 
-        $after = $this->service->statusFor($booking, $settings);
-        $this->assertSame(50000, $after['security_deposit']['received_cents']);
-        $this->assertSame(0, $after['received_cents']);
-        $this->assertFalse($after['fully_paid']);
-    }
-
-    public function testAnAssetWithoutASecurityDepositRaisesOnlyTheRentalReceivable(): void
-    {
-        $raised = $this->service->ensureReceivables($this->createBooking(), $this->settings(), $this->now());
-
-        $this->assertNull($raised['security_deposit']);
+        $this->assertSame($first, $second);
         $this->assertSame(1, (int) $this->pdo->query(
             'SELECT COUNT(*) FROM finance_expected_receivables'
         )->fetchColumn());
+    }
+
+    public function testARegeneratedContractKeepsItsCommunicationAfterTheAccountWasUnpinned(): void
+    {
+        // The communication exists and the renter may have paid against
+        // it: losing the account or category since does not refuse the
+        // next version.
+        $booking = $this->createBooking(46750);
+        $first = $this->service->communicationForContract($booking, $this->settings());
+
+        $again = $this->service->communicationForContract(
+            $this->reload($booking),
+            new PaymentSettings(enabled: true, balanceDueDays: 14)
+        );
+
+        $this->assertNotNull($first);
+        $this->assertSame($first, $again);
+    }
+
+    public function testAContractIsRefusedWhenPaymentsAreOnButNoReceivableCanBeRaised(): void
+    {
+        // Never a contract without a communication: switched on with no
+        // account to raise it on, the generation is refused, and says why.
+        $settings = new PaymentSettings(enabled: true, balanceDueDays: 14);
+
+        $this->expectException(RentalException::class);
+        $this->expectExceptionMessageMatches('/Le contrat n.a pas été généré.*compte/');
+
+        $this->service->communicationForContract($this->createBooking(), $settings);
+    }
+
+    public function testAContractIsRefusedForABookingWithNoPriceWhenPaymentsAreOn(): void
+    {
+        $created = $this->bookingRepository->create(
+            $this->assetId,
+            'LOC-B2B3C4',
+            '2027-07-01',
+            '2027-07-04',
+            1,
+            20,
+            null,
+            ['name' => 'Sans prix', 'email' => 'x@example.be', 'phone' => null, 'organisation' => null,
+                'purpose' => null, 'comment' => null],
+            null,
+            null,
+            null,
+            'v1',
+            str_repeat('0', 64),
+            'v1',
+            str_repeat('0', 64),
+            new \DateTimeImmutable('2027-01-01 10:00:00')
+        );
+        $booking = $this->bookingRepository->findById($created['id']);
+        $this->assertNotNull($booking);
+
+        $this->expectException(RentalException::class);
+        $this->expectExceptionMessageMatches('/Le contrat n.a pas été généré.*prix/');
+
+        $this->service->communicationForContract($booking, $this->settings());
+    }
+
+    public function testWithoutFinanceTheContractIsGeneratedWithoutACommunication(): void
+    {
+        // The explicit degraded mode: no Finance, no communication, and no
+        // refusal either — the unit follows its payments by hand.
+        $this->assertNull($this->withoutFinance()->communicationForContract($this->createBooking(), $this->settings()));
+    }
+
+    public function testWithPaymentsOffTheContractIsGeneratedWithoutACommunication(): void
+    {
+        $this->assertNull($this->service->communicationForContract(
+            $this->createBooking(),
+            $this->settings(enabled: false)
+        ));
+        $this->assertSame(0, (int) $this->pdo->query(
+            'SELECT COUNT(*) FROM finance_expected_receivables'
+        )->fetchColumn());
+    }
+
+    // ── Abandoned and settled bookings (issue #927) ─────────────────────
+
+    public function testAnAbandonedBookingBringsTheReceivableToZeroAndKeepsIt(): void
+    {
+        // Refused, cancelled, expired: nothing is owed, what came in is an
+        // overpayment, and the receivable stays with its communication.
+        $booking = $this->createBooking(46750);
+        $settings = $this->settings(securityDeposit: true, securityDepositCents: 15000);
+        $this->service->ensureReceivable($booking, $settings);
+        $communication = (string) $this->service->statusFor($booking, $settings)['communication'];
+        $this->pay($communication, 100.00);
+
+        $this->service->abandonAmount($booking, 1);
+
+        $status = $this->service->statusFor($booking, $settings);
+        $this->assertSame(0, $status['total_cents']);
+        $this->assertSame(0, $status['remaining_cents']);
+        $this->assertFalse($status['fully_paid']);
+        $this->assertSame($communication, $status['communication']);
+        $this->assertSame(1, (int) $this->pdo->query(
+            'SELECT COUNT(*) FROM finance_expected_receivables'
+        )->fetchColumn());
+    }
+
+    public function testAbandoningABookingWithoutAReceivableDoesNothing(): void
+    {
+        $booking = $this->createBooking();
+
+        $this->service->abandonAmount($booking);
+        $this->withoutFinance()->abandonAmount($booking);
+
+        $this->assertSame(0, (int) $this->pdo->query(
+            'SELECT COUNT(*) FROM finance_expected_receivables'
+        )->fetchColumn());
+    }
+
+    public function testASettledBookingKeepsTheSettlementsAmount(): void
+    {
+        // 668 € rental + 150 € security deposit all paid; the settlement
+        // keeps 622 €, and the 196 € beyond it read as an overpayment.
+        $booking = $this->createBooking(66800);
+        $settings = $this->settings(securityDeposit: true, securityDepositCents: 15000);
+        $this->service->ensureReceivable($booking, $settings);
+        $this->pay((string) $this->service->statusFor($booking, $settings)['communication'], 818.00);
+
+        $this->service->settleAmount($booking, 62200, 1);
+
+        $status = $this->service->statusFor($booking, $settings);
+        $this->assertSame(62200, $status['total_cents']);
+        $this->assertSame(19600, $status['overpaid_cents']);
+        // The agreed price is not the settlement's to change.
+        $this->assertSame(66800, $this->reload($booking)->effectiveTotalCents());
+    }
+
+    // ── The security deposit (§6.20) ────────────────────────────────────
+
+    public function testTheSecurityDepositIsAddedToTheSameReceivable(): void
+    {
+        // One receivable, one communication, for the rental and its
+        // security deposit alike (issue #927).
+        $booking = $this->createBooking(46750);
+        $settings = $this->settings(securityDeposit: true, securityDepositCents: 50000);
+
+        $this->service->ensureReceivable($booking, $settings);
+
+        $this->assertSame(1, (int) $this->pdo->query(
+            'SELECT COUNT(*) FROM finance_expected_receivables'
+        )->fetchColumn());
+        $this->assertSame(96750, (int) $this->pdo->query(
+            'SELECT amount_due_cents FROM finance_expected_receivables'
+        )->fetchColumn());
+
+        $status = $this->service->statusFor($booking, $settings);
+        $this->assertSame(96750, $status['total_cents']);
+        $this->assertSame(46750, $status['rental_cents']);
+        $this->assertSame(50000, $status['security_deposit']['amount_cents']);
+        $this->assertArrayNotHasKey('communication', $status['security_deposit']);
+    }
+
+    public function testPayingTheRentalAloneLeavesTheSecurityDepositOutstanding(): void
+    {
+        // The receipts are compared to the whole receivable, never split:
+        // 467,50 € in leaves 500 € due, security deposit and all.
+        $booking = $this->createBooking(46750);
+        $settings = $this->settings(securityDeposit: true, securityDepositCents: 50000);
+        $this->service->ensureReceivable($booking, $settings);
+
+        $this->pay((string) $this->service->statusFor($booking, $settings)['communication'], 467.50);
+
+        $after = $this->service->statusFor($booking, $settings);
+        $this->assertSame(46750, $after['received_cents']);
+        $this->assertSame(50000, $after['remaining_cents']);
+        $this->assertFalse($after['fully_paid']);
+        $this->assertSame(0, $after['security_deposit']['received_cents']);
+        $this->assertSame(SecurityDepositStatus::TO_RECEIVE, $after['security_deposit']['status']);
+    }
+
+    public function testAnAssetWithoutASecurityDepositRaisesTheRentalAlone(): void
+    {
+        $booking = $this->createBooking(46750);
+        $this->service->ensureReceivable($booking, $this->settings());
+
+        $this->assertSame(46750, (int) $this->pdo->query(
+            'SELECT amount_due_cents FROM finance_expected_receivables'
+        )->fetchColumn());
+        $this->assertNull($this->service->statusFor($booking, $this->settings())['security_deposit']['amount_cents']);
+    }
+
+    public function testTheSecurityDepositIsSnapshottedWithTheReceivable(): void
+    {
+        // A security deposit changed on the asset afterwards does not
+        // rewrite what this renter was asked.
+        $booking = $this->createBooking(46750);
+        $this->service->ensureReceivable($booking, $this->settings(securityDeposit: true, securityDepositCents: 50000));
+
+        $status = $this->service->statusFor(
+            $booking,
+            $this->settings(securityDeposit: true, securityDepositCents: 80000)
+        );
+
+        $this->assertSame(50000, $status['security_deposit']['amount_cents']);
+        $this->assertSame(96750, $status['total_cents']);
     }
 
     public function testTheSecurityDepositStartsAsToReceive(): void
     {
         $booking = $this->createBooking();
         $settings = $this->settings(securityDeposit: true, securityDepositCents: 50000);
-        $this->service->ensureReceivables($booking, $settings, $this->now());
+        $this->service->ensureReceivable($booking, $settings);
 
         $this->assertSame(
             SecurityDepositStatus::TO_RECEIVE,
@@ -588,10 +790,10 @@ class RentalPaymentServiceTest extends TestCase
         // used to read "À recevoir" over money the unit was already holding.
         $booking = $this->createBooking();
         $settings = $this->settings(securityDeposit: true, securityDepositCents: 50000);
-        $this->service->ensureReceivables($booking, $settings, $this->now());
+        $this->service->ensureReceivable($booking, $settings);
 
         $status = $this->service->statusFor($booking, $settings);
-        $this->pay((string) $status['security_deposit']['communication'], 500.00);
+        $this->pay((string) $status['communication'], 967.50);
 
         $after = $this->service->statusFor($booking, $settings)['security_deposit'];
         $this->assertSame(SecurityDepositStatus::RECEIVED, $after['status']);
@@ -602,10 +804,12 @@ class RentalPaymentServiceTest extends TestCase
     {
         $booking = $this->createBooking();
         $settings = $this->settings(securityDeposit: true, securityDepositCents: 50000);
-        $this->service->ensureReceivables($booking, $settings, $this->now());
+        $this->service->ensureReceivable($booking, $settings);
 
+        // 500 € in: as much as the security deposit, but the receivable
+        // is not split, and the whole of it is not there yet.
         $status = $this->service->statusFor($booking, $settings);
-        $this->pay((string) $status['security_deposit']['communication'], 200.00);
+        $this->pay((string) $status['communication'], 500.00);
 
         $this->assertSame(
             SecurityDepositStatus::TO_RECEIVE,
@@ -620,10 +824,10 @@ class RentalPaymentServiceTest extends TestCase
         // still shows it as received — re-deriving would undo the manager.
         $booking = $this->createBooking();
         $settings = $this->settings(securityDeposit: true, securityDepositCents: 50000);
-        $this->service->ensureReceivables($booking, $settings, $this->now());
+        $this->service->ensureReceivable($booking, $settings);
 
         $status = $this->service->statusFor($booking, $settings);
-        $this->pay((string) $status['security_deposit']['communication'], 500.00);
+        $this->pay((string) $status['communication'], 967.50);
         $this->service->recordSecurityDepositReturn($booking, 50000, null, new \DateTimeImmutable('2027-07-10'), 1);
 
         $this->assertSame(
@@ -636,7 +840,7 @@ class RentalPaymentServiceTest extends TestCase
     {
         $booking = $this->createBooking();
         $settings = $this->settings(securityDeposit: true, securityDepositCents: 50000);
-        $this->service->ensureReceivables($booking, $settings, $this->now());
+        $this->service->ensureReceivable($booking, $settings);
 
         $this->service->recordSecurityDepositReturn($booking, 50000, null, new \DateTimeImmutable('2027-07-10'), 1);
 
@@ -653,7 +857,7 @@ class RentalPaymentServiceTest extends TestCase
         // something to allow quietly.
         $booking = $this->createBooking();
         $settings = $this->settings(securityDeposit: true, securityDepositCents: 50000);
-        $this->service->ensureReceivables($booking, $settings, $this->now());
+        $this->service->ensureReceivable($booking, $settings);
 
         $this->expectException(RentalException::class);
         $this->expectExceptionMessageMatches('/retenue/');
@@ -665,7 +869,7 @@ class RentalPaymentServiceTest extends TestCase
     {
         $booking = $this->createBooking();
         $settings = $this->settings(securityDeposit: true, securityDepositCents: 50000);
-        $this->service->ensureReceivables($booking, $settings, $this->now());
+        $this->service->ensureReceivable($booking, $settings);
 
         $this->service->recordSecurityDepositReturn(
             $booking,
@@ -685,7 +889,7 @@ class RentalPaymentServiceTest extends TestCase
     {
         $booking = $this->createBooking();
         $settings = $this->settings(securityDeposit: true, securityDepositCents: 50000);
-        $this->service->ensureReceivables($booking, $settings, $this->now());
+        $this->service->ensureReceivable($booking, $settings);
 
         $this->service->recordSecurityDepositReturn(
             $booking,
@@ -703,7 +907,7 @@ class RentalPaymentServiceTest extends TestCase
     {
         $booking = $this->createBooking();
         $settings = $this->settings(securityDeposit: true, securityDepositCents: 50000);
-        $this->service->ensureReceivables($booking, $settings, $this->now());
+        $this->service->ensureReceivable($booking, $settings);
 
         $this->service->recordSecurityDepositReturn(
             $booking,
@@ -723,7 +927,7 @@ class RentalPaymentServiceTest extends TestCase
     {
         $booking = $this->createBooking();
         $settings = $this->settings(securityDeposit: true, securityDepositCents: 50000);
-        $this->service->ensureReceivables($booking, $settings, $this->now());
+        $this->service->ensureReceivable($booking, $settings);
 
         $this->expectException(RentalException::class);
 
@@ -748,7 +952,7 @@ class RentalPaymentServiceTest extends TestCase
     {
         $booking = $this->createBooking();
         $settings = $this->settings(securityDeposit: true, securityDepositCents: 50000);
-        $this->service->ensureReceivables($booking, $settings, $this->now());
+        $this->service->ensureReceivable($booking, $settings);
 
         $this->service->markSecurityDepositToReturn($booking, 1);
 
@@ -765,7 +969,7 @@ class RentalPaymentServiceTest extends TestCase
     {
         $booking = $this->createBooking(46750);
         $settings = $this->settings(depositMode: DepositMode::FIXED, depositCents: 10000);
-        $this->service->ensureReceivables($booking, $settings, $this->now());
+        $this->service->ensureReceivable($booking, $settings);
 
         $png = $this->service->sepaQrPng($booking, $settings);
 
@@ -777,7 +981,7 @@ class RentalPaymentServiceTest extends TestCase
     {
         $booking = $this->createBooking(46750);
         $settings = $this->settings();
-        $this->service->ensureReceivables($booking, $settings, $this->now());
+        $this->service->ensureReceivable($booking, $settings);
         $this->pay((string) $this->service->statusFor($booking, $settings)['communication'], 467.50);
 
         $this->assertNull($this->service->sepaQrPng($booking, $settings));
@@ -788,29 +992,24 @@ class RentalPaymentServiceTest extends TestCase
         $this->pdo->exec('UPDATE finance_accounts SET iban = NULL, iban_blind_index = NULL');
         $booking = $this->createBooking();
         $settings = $this->settings();
-        $this->service->ensureReceivables($booking, $settings, $this->now());
+        $this->service->ensureReceivable($booking, $settings);
 
         $this->assertNull($this->service->sepaQrPng($booking, $settings));
     }
 
-    public function testTheSecurityDepositHasItsOwnQr(): void
+    public function testTheQrStillAsksOnceOnlyTheRentalIsPaid(): void
     {
-        $booking = $this->createBooking();
+        // The security deposit is part of the balance the QR asks for.
+        $booking = $this->createBooking(46750);
         $settings = $this->settings(securityDeposit: true, securityDepositCents: 50000);
-        $this->service->ensureReceivables($booking, $settings, $this->now());
+        $this->service->ensureReceivable($booking, $settings);
+        $this->pay((string) $this->service->statusFor($booking, $settings)['communication'], 467.50);
 
-        $this->assertIsString($this->service->securityDepositQrPng($booking, $settings));
-    }
+        $this->assertIsString($this->service->sepaQrPng($booking, $settings));
 
-    public function testNoSecurityDepositQrOnceItHasArrived(): void
-    {
-        $booking = $this->createBooking();
-        $settings = $this->settings(securityDeposit: true, securityDepositCents: 50000);
-        $this->service->ensureReceivables($booking, $settings, $this->now());
-        $status = $this->service->statusFor($booking, $settings);
-        $this->pay((string) $status['security_deposit']['communication'], 500.00);
+        $this->pay((string) $this->service->statusFor($booking, $settings)['communication'], 500.00);
 
-        $this->assertNull($this->service->securityDepositQrPng($booking, $settings));
+        $this->assertNull($this->service->sepaQrPng($booking, $settings));
     }
 
     // ── Deleting a booking ──────────────────────────────────────────────
@@ -820,11 +1019,7 @@ class RentalPaymentServiceTest extends TestCase
         // Finance must not be left expecting money for a rental that no
         // longer exists.
         $booking = $this->createBooking();
-        $this->service->ensureReceivables(
-            $booking,
-            $this->settings(securityDeposit: true, securityDepositCents: 50000),
-            $this->now()
-        );
+        $this->service->ensureReceivable($booking, $this->settings(securityDeposit: true, securityDepositCents: 50000));
 
         $this->service->forgetBooking($booking->id);
 
@@ -839,11 +1034,7 @@ class RentalPaymentServiceTest extends TestCase
         // no way to reach them, so it must leave them exactly as they are
         // rather than reach around the missing capability.
         $booking = $this->createBooking();
-        $this->service->ensureReceivables(
-            $booking,
-            $this->settings(securityDeposit: true, securityDepositCents: 50000),
-            $this->now()
-        );
+        $this->service->ensureReceivable($booking, $this->settings(securityDeposit: true, securityDepositCents: 50000));
         $before = (int) $this->pdo->query('SELECT COUNT(*) FROM finance_expected_receivables')->fetchColumn();
         $this->assertGreaterThan(0, $before);
 
@@ -856,16 +1047,59 @@ class RentalPaymentServiceTest extends TestCase
 
     // ── Due dates ───────────────────────────────────────────────────────
 
-    public function testDueDatesAreCountedFromWhenTheReceivableIsRaised(): void
+    public function testTheDepositFallsDueAfterTheFirstContractSent(): void
     {
+        // Nothing is due before a contract went out; then N days after the
+        // first send, and a later send — a replacement contract — moves
+        // nothing (issue #927).
         $booking = $this->createBooking();
         $settings = $this->settings(depositMode: DepositMode::FIXED, depositCents: 10000);
+        $this->service->ensureReceivable($booking, $settings);
 
-        $this->service->ensureReceivables($booking, $settings, new \DateTimeImmutable('2027-02-01'));
+        $this->assertNull($this->service->statusFor($booking, $settings)['deposit_due_date']);
+
+        $this->service->contractSent($booking, $settings, new \DateTimeImmutable('2027-02-01 10:00'));
+        $this->service->contractSent($booking, $settings, new \DateTimeImmutable('2027-03-20 10:00'));
+
+        $this->assertSame('2027-02-15', $this->service->statusFor($booking, $settings)['deposit_due_date']);
+    }
+
+    public function testTheDepositDeadlineIsKeptEvenBeforeAnyReceivable(): void
+    {
+        // Payments switched on after the contract went out still know when
+        // the deposit was due.
+        $booking = $this->createBooking();
+        $settings = $this->settings();
+
+        $this->service->contractSent($booking, $settings, new \DateTimeImmutable('2027-02-01 10:00'));
+        $this->service->ensureReceivable($booking, $settings);
+
+        $this->assertSame('2027-02-15', $this->service->statusFor($booking, $settings)['deposit_due_date']);
+    }
+
+    public function testTheBalanceAndTheSecurityDepositFallDueBeforeTheArrival(): void
+    {
+        // Arrival 2027-07-01, balance due 30 days before it.
+        $booking = $this->createBooking();
+        $settings = $this->settings(securityDeposit: true, securityDepositCents: 50000);
+        $this->service->ensureReceivable($booking, $settings);
 
         $status = $this->service->statusFor($booking, $settings);
-        $this->assertSame('2027-02-15', $status['deposit_due_date']);
-        $this->assertSame('2027-03-03', $status['balance_due_date']);
+
+        $this->assertSame('2027-06-01', $status['balance_due_date']);
+        $this->assertSame('2027-06-01', $status['security_deposit']['due_date']);
+    }
+
+    public function testNoBalanceDeadlineIsAnnouncedWithoutOne(): void
+    {
+        $booking = $this->createBooking();
+        $settings = new PaymentSettings(
+            enabled: true,
+            financeAccountId: $this->accountId,
+            financeCategoryId: $this->categoryId
+        );
+
+        $this->assertNull($this->service->statusFor($booking, $settings)['balance_due_date']);
     }
 
     // ── The two-screen split of one settings row ────────────────────────
@@ -914,13 +1148,12 @@ class RentalPaymentServiceTest extends TestCase
         $booking = $this->createBooking(46750);
         $settings = $this->settings(securityDeposit: true, securityDepositCents: 20000);
 
-        $this->service->ensureReceivables($booking, $settings, $this->now());
+        $this->service->ensureReceivable($booking, $settings);
 
-        // The rental and its security deposit alike.
+        // One receivable, the security deposit inside it.
         $categories = $this->pdo->query('SELECT category_id FROM finance_expected_receivables')
             ->fetchAll(\PDO::FETCH_COLUMN);
-        $this->assertCount(2, $categories);
-        $this->assertSame([$this->categoryId, $this->categoryId], array_map('intval', $categories));
+        $this->assertSame([$this->categoryId], array_map('intval', $categories));
     }
 
     public function testAManagerSavingThePaymentsBlockCannotClearTheAccount(): void
@@ -962,8 +1195,7 @@ class RentalPaymentServiceTest extends TestCase
             depositDueDays: 7,
             balanceDueDays: 21,
             securityDepositEnabled: true,
-            securityDepositAmountCents: 30000,
-            securityDepositDueDays: 3
+            securityDepositAmountCents: 30000
         );
 
         $moved = $settings->withFinanceAccount(9, 4);
@@ -974,7 +1206,7 @@ class RentalPaymentServiceTest extends TestCase
         foreach ([
             'enabled', 'depositMode', 'depositAmountCents', 'depositPercentage',
             'depositDueDays', 'balanceDueDays', 'securityDepositEnabled',
-            'securityDepositAmountCents', 'securityDepositDueDays',
+            'securityDepositAmountCents',
         ] as $property) {
             $this->assertSame($settings->$property, $moved->$property, $property . ' must be carried across.');
         }

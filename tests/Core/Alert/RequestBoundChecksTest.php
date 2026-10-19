@@ -53,7 +53,7 @@ class RequestBoundChecksTest extends TestCase
         $checks = new RequestBoundChecks($this->storagePath);
         $checks->markRun();
 
-        $later = time() + RequestBoundChecks::INTERVAL_SECONDS + 1;
+        $later = $this->markedAt() + RequestBoundChecks::INTERVAL_SECONDS + 1;
 
         $this->assertTrue($checks->due($later));
     }
@@ -62,9 +62,24 @@ class RequestBoundChecksTest extends TestCase
     {
         $checks = new RequestBoundChecks($this->storagePath);
         $checks->markRun();
+        $markedAt = $this->markedAt();
 
-        $this->assertFalse($checks->due(time() + RequestBoundChecks::INTERVAL_SECONDS - 1));
-        $this->assertTrue($checks->due(time() + RequestBoundChecks::INTERVAL_SECONDS));
+        $this->assertFalse($checks->due($markedAt + RequestBoundChecks::INTERVAL_SECONDS - 1));
+        $this->assertTrue($checks->due($markedAt + RequestBoundChecks::INTERVAL_SECONDS));
+    }
+
+    /**
+     * The second the marker was really touched. Measured from the file
+     * rather than from time(): a second may tick between markRun() and the
+     * next line, and the boundary would then be one second off.
+     */
+    private function markedAt(): int
+    {
+        clearstatcache();
+        $mtime = filemtime($this->storagePath . '/temp/operational-request-checks');
+        $this->assertIsInt($mtime);
+
+        return $mtime;
     }
 
     /**

@@ -1,10 +1,10 @@
 {#
   The payment panel on a booking's file (§6.19, §6.20).
 
-  Two things that must never be confused, and are therefore two separate
-  blocks: the RENTAL, where the deposit is a threshold on one receivable, and
-  the SECURITY DEPOSIT, which is a different debt with a different
-  communication and is never rental revenue.
+  ONE receivable per booking — the rental price plus the security deposit —
+  with one communication (issue #927): the deposit and the full payment are
+  thresholds on the cumulative receipts, and nothing here splits them
+  between the rental and the security deposit.
 
   With Finance off, this renders one honest sentence instead of a dead panel.
 
@@ -29,7 +29,7 @@
             </p>
         {% else %}
             <dl class="row mb-3">
-                <dt class="col-sm-5">Total de la location</dt>
+                <dt class="col-sm-5">Montant attendu</dt>
                 <dd class="col-sm-7">
                     {% if payment.total_cents is not null %}
                         {{ payment.total_cents|money_cents }}
@@ -41,6 +41,10 @@
                 <dd class="col-sm-7">{{ payment.received_cents|money_cents }}</dd>
                 <dt class="col-sm-5">Restant dû</dt>
                 <dd class="col-sm-7">{{ payment.remaining_cents|money_cents }}</dd>
+                {% if payment.overpaid_cents|default(0) > 0 %}
+                    <dt class="col-sm-5">Trop-perçu</dt>
+                    <dd class="col-sm-7">{{ payment.overpaid_cents|money_cents }}</dd>
+                {% endif %}
                 {% if payment.communication %}
                     <dt class="col-sm-5">Communication</dt>
                     <dd class="col-sm-7"><code>{{ payment.communication }}</code></dd>
@@ -59,7 +63,7 @@
                     <span class="text-body-secondary small">
                         seuil de {{ payment.deposit_cents|money_cents }}
                         {% if payment.deposit_due_date %}, attendu pour le {{ payment.deposit_due_date|date_fr }}{% endif %}
-                        — même communication que le solde
+                        — même communication que le solde et la caution
                     </span>
                 </p>
             {% endif %}
@@ -74,8 +78,8 @@
                 <hr>
                 <h4 class="h6">Caution</h4>
                 <p class="text-body-secondary small">
-                    Créance distincte, communication distincte. La caution n'entre jamais dans le
-                    revenu de location.
+                    Comprise dans le montant attendu, avec la même communication, et attendue avec le
+                    solde.
                 </p>
                 <dl class="row mb-3">
                     <dt class="col-sm-5">État</dt>
@@ -86,14 +90,6 @@
                     <dd class="col-sm-7">
                         {{ payment.security_deposit.amount_cents|money_cents }}
                     </dd>
-                    <dt class="col-sm-5">Reçu</dt>
-                    <dd class="col-sm-7">
-                        {{ payment.security_deposit.received_cents|money_cents }}
-                    </dd>
-                    {% if payment.security_deposit.communication %}
-                        <dt class="col-sm-5">Communication</dt>
-                        <dd class="col-sm-7"><code>{{ payment.security_deposit.communication }}</code></dd>
-                    {% endif %}
                     {% if payment.security_deposit.returned_at %}
                         <dt class="col-sm-5">Restituée le</dt>
                         <dd class="col-sm-7">

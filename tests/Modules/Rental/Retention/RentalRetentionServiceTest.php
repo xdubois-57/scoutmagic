@@ -317,8 +317,7 @@ class RentalRetentionServiceTest extends TestCase
             depositDueDays: 14,
             balanceDueDays: 30,
             securityDepositEnabled: true,
-            securityDepositAmountCents: 25000,
-            securityDepositDueDays: 30
+            securityDepositAmountCents: 25000
         );
     }
 
@@ -334,12 +333,8 @@ class RentalRetentionServiceTest extends TestCase
         // stay whose every other trace has just been erased — under a label
         // that carries the renter's name.
         $booking = $this->createBooking('LOC-2A3B4C', '2018-07-01', '2018-07-04');
-        $this->payments->ensureReceivables(
-            $booking,
-            $this->paymentSettings(),
-            new \DateTimeImmutable('2018-06-01 10:00:00')
-        );
-        $this->assertSame(2, $this->countReceivables());
+        $this->payments->ensureReceivable($booking, $this->paymentSettings());
+        $this->assertSame(1, $this->countReceivables());
 
         $this->assertSame(1, $this->service->purge(new \DateTimeImmutable('2026-01-01')));
 
@@ -351,16 +346,16 @@ class RentalRetentionServiceTest extends TestCase
         $old = $this->createBooking('LOC-2A3B4C', '2018-07-01', '2018-07-04');
         $recent = $this->createBooking('LOC-3B4C5D', '2025-07-01', '2025-07-04');
         $settings = $this->paymentSettings();
-        $this->payments->ensureReceivables($old, $settings, new \DateTimeImmutable('2018-06-01 10:00:00'));
-        $this->payments->ensureReceivables($recent, $settings, new \DateTimeImmutable('2025-06-01 10:00:00'));
-        $this->assertSame(4, $this->countReceivables());
+        $this->payments->ensureReceivable($old, $settings);
+        $this->payments->ensureReceivable($recent, $settings);
+        $this->assertSame(2, $this->countReceivables());
 
         $this->service->purge(new \DateTimeImmutable('2026-01-01'));
 
         $rows = $this->pdo->query(
             "SELECT source_reference_id FROM finance_expected_receivables WHERE source_module = 'rental'"
         )->fetchAll(\PDO::FETCH_COLUMN);
-        $this->assertSame([$recent->id, $recent->id], array_map('intval', $rows));
+        $this->assertSame([$recent->id], array_map('intval', $rows));
     }
 
     public function testThePurgeStillRunsWithFinanceDisabled(): void

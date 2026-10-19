@@ -490,6 +490,110 @@ class SettlementCalculatorTest extends TestCase
         $this->assertSame(47000, $result['security_deposit_return_cents']);
     }
 
+    // ── One receivable, rental and security deposit (issue #927) ────────
+
+    public function testWithASingleReceivableTheBalanceIsMeasuredAgainstTheKeptAmount(): void
+    {
+        // 380 € rental (3 nights + 20,00 € tax) and a 150 € deposit, all paid
+        // on one receivable: 530 € in. 30 € withheld from the deposit, so
+        // the unit keeps 410 € and owes 120 € back.
+        $result = $this->calculator->compute(
+            $this->agreedQuote(20),
+            null,
+            [],
+            [$this->incident(IncidentDecision::WITHHOLD, 3000)],
+            [],
+            53000,
+            15000,
+            true
+        );
+
+        $this->assertSame(38000, $result['total_cents']);
+        $this->assertSame(41000, $result['kept_cents']);
+        $this->assertSame(-12000, $result['balance_cents']);
+        $this->assertSame(12000, $result['security_deposit_return_cents']);
+        // The same 120 € — the screen must not add one to the other.
+        $this->assertTrue($result['paid_includes_security_deposit']);
+    }
+
+    public function testWithASingleReceivableAndNoWithholdingTheWholeDepositIsOwedBack(): void
+    {
+        $result = $this->calculator->compute($this->agreedQuote(20), null, [], [], [], 53000, 15000, true);
+
+        $this->assertSame(38000, $result['kept_cents']);
+        $this->assertSame(-15000, $result['balance_cents']);
+    }
+
+    public function testAGoodwillGestureLowersWhatIsKeptNeverTheAgreedPrice(): void
+    {
+        $agreed = $this->agreedQuote(20);
+        $gesture = SettlementLine::gesture(null, 5000);
+        $this->assertNotNull($gesture);
+
+        $result = $this->calculator->compute($agreed, null, [], [], [$gesture], 53000, 15000, true);
+
+        $this->assertSame(33000, $result['kept_cents']);
+        $this->assertSame(-20000, $result['balance_cents']);
+        $this->assertSame(38000, $agreed->totalCents);
+        $this->assertSame('Geste commercial', $result['lines'][2]->label);
+        $this->assertSame(SettlementLine::ORIGIN_GESTURE, $result['lines'][2]->origin);
+    }
+
+    public function testAGestureLargerThanTheStayIsCappedAtTheTotal(): void
+    {
+        // A 500 € gesture on a 380 € stay cannot make the unit owe more than
+        // everything back: the total stops at 0, and what the screen shows
+        // is what the receivable is brought to.
+        $gesture = SettlementLine::gesture(null, 50000);
+        $this->assertNotNull($gesture);
+
+        $result = $this->calculator->compute($this->agreedQuote(20), null, [], [], [$gesture], 53000, 15000, true);
+
+        $this->assertSame(0, $result['total_cents']);
+        $this->assertSame(0, $result['kept_cents']);
+        $this->assertSame(-53000, $result['balance_cents']);
+        $this->assertSame(-38000, $result['lines'][2]->amountCents);
+    }
+
+    public function testAGestureOnAStayAlreadyAtNothingLeavesNoLine(): void
+    {
+        $gesture = SettlementLine::gesture(null, 5000);
+        $this->assertNotNull($gesture);
+
+        $result = $this->calculator->compute(null, null, [], [], [$gesture], 0, null);
+
+        $this->assertSame([], $result['lines']);
+        $this->assertSame(0, $result['total_cents']);
+    }
+
+    public function testAGestureIsAlwaysADiscountAndNoneWithoutAnAmount(): void
+    {
+        $this->assertSame(-2500, SettlementLine::gesture('Remise fidélité', 2500)?->amountCents);
+        $this->assertSame(-2500, SettlementLine::gesture('Remise fidélité', -2500)?->amountCents);
+        $this->assertSame('Remise fidélité', SettlementLine::gesture('  Remise fidélité ', 2500)?->label);
+        $this->assertSame('Geste commercial', SettlementLine::gesture('   ', 2500)?->label);
+        $this->assertNull(SettlementLine::gesture('Remise', 0));
+        $this->assertNull(SettlementLine::gesture('Remise', null));
+    }
+
+    public function testWithoutAReceivableTheDepositStaysBesideTheBalance(): void
+    {
+        // No Finance: the deposit is held by hand, nothing was paid on
+        // the site, and the balance is the total as it always was.
+        $result = $this->calculator->compute(
+            $this->agreedQuote(20),
+            null,
+            [],
+            [$this->incident(IncidentDecision::WITHHOLD, 3000)],
+            [],
+            0,
+            15000
+        );
+
+        $this->assertSame(38000, $result['balance_cents']);
+        $this->assertSame(41000, $result['kept_cents']);
+    }
+
     // ── Line snapshots ──────────────────────────────────────────────────
 
     public function testALineSurvivesASnapshotRoundTrip(): void

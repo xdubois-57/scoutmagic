@@ -41,6 +41,24 @@ final class Settlement
     ) {
     }
 
+    /**
+     * What the unit keeps once this settlement holds (issue #927): what the
+     * stay comes to — the agreed rental, consumptions and charged damage,
+     * less any goodwill gesture — plus what it withholds from the security
+     * deposit. The booking's receivable is brought to this figure when the
+     * settlement is validated.
+     */
+    public function keptCents(): int
+    {
+        return max(0, $this->totalCents + ($this->securityDepositWithheldCents ?? 0));
+    }
+
+    /** The « Geste commercial » line, when this settlement grants one. */
+    public function gesture(): ?SettlementLine
+    {
+        return $this->linesOfOrigin(SettlementLine::ORIGIN_GESTURE)[0] ?? null;
+    }
+
     /** Whether the renter has paid more than the settlement comes to. */
     public function isOverpaid(): bool
     {

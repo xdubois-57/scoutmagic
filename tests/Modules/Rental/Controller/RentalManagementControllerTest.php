@@ -170,13 +170,6 @@ class RentalManagementControllerTest extends TestCase
             new RentalConstraintsRepository($this->pdo),
             [new RentalBookingService($this->bookingRepository, $journal), $this->blockRepository]
         );
-        $this->stayService = new \Modules\Rental\Service\RentalStayService(
-            new \Modules\Rental\Repository\RentalStayRepository($this->pdo, $this->encryption),
-            $bookingAudit,
-            $this->pricingService,
-            new \Modules\Rental\Stay\SettlementCalculator(),
-            $journal
-        );
 
         // Finance, wired exactly as public/index.php does: the payment
         // panel and the "still owed" warning are only real when the
@@ -194,6 +187,17 @@ class RentalManagementControllerTest extends TestCase
             $journal,
             FinanceTestHelper::receivableService($this->pdo, $this->encryption, $receivableRepository),
             new StructuredCommunicationService($receivableRepository)
+        );
+
+        $this->stayService = new \Modules\Rental\Service\RentalStayService(
+            new \Modules\Rental\Repository\RentalStayRepository($this->pdo, $this->encryption),
+            $bookingAudit,
+            $this->pricingService,
+            new \Modules\Rental\Stay\SettlementCalculator(),
+            $journal,
+            // As public/index.php wires it: the settlement reads what was
+            // paid on the booking's receivable.
+            $this->paymentService
         );
 
         $this->operationsService = new RentalOperationsService(
@@ -1744,11 +1748,13 @@ class RentalManagementControllerTest extends TestCase
      * received — the ordinary state of a rental a fortnight before the
      * stay.
      */
-    private function bookingOwedFor(int $totalCents = 46750): RentalBooking
+    private function bookingOwedFor(int $totalCents = 46750, ?int $securityDepositCents = null): RentalBooking
     {
         $this->paymentService->saveSettings($this->assetId, new \Modules\Rental\Payment\PaymentSettings(
             enabled: true,
             financeAccountId: $this->financeAccountId,
+            securityDepositEnabled: $securityDepositCents !== null,
+            securityDepositAmountCents: $securityDepositCents,
             financeCategoryId: $this->financeCategoryId
         ));
         $booking = $this->createBooking();
@@ -1763,20 +1769,16 @@ class RentalManagementControllerTest extends TestCase
 
         $fresh = $this->bookingRepository->findById($booking->id);
         $this->assertNotNull($fresh);
-        $this->paymentService->ensureReceivables(
-            $fresh,
-            $this->paymentService->settingsFor($this->assetId),
-            new \DateTimeImmutable('2027-01-01 10:00:00')
-        );
+        $this->paymentService->ensureReceivable($fresh, $this->paymentService->settingsFor($this->assetId));
 
         return $fresh;
     }
 
-    public function testCancellingABookingStillOwedMoneySaysSo(): void
+    public function testCancellingABookingBringsItsReceivableToZeroAndSaysSo(): void
     {
-        // §6.17 is explicit that nothing computes a refund — but cancelling
-        // leaves the receivable exactly where it was, and "Réservation
-        // « Annulée »." on its own reads as "everything is settled".
+        // §6.17 is explicit that nothing computes a refund — but the
+        // receivable goes to 0 and stays (issue #927), and what was paid is
+        // now an overpayment the manager must hear about.
         $this->loginAsManager();
         $booking = $this->bookingOwedFor();
 
@@ -1787,8 +1789,12 @@ class RentalManagementControllerTest extends TestCase
         ]);
 
         $flash = (string) (\Core\Http\FlashMessage::get()['message'] ?? '');
-        $this->assertStringContainsString('Attention', $flash);
-        $this->assertStringContainsString('créance', $flash);
+        $this->assertStringContainsString('ramenée à 0', $flash);
+        $this->assertStringContainsString('trop-perçu', $flash);
+        $this->assertSame(0, (int) $this->fetchScalar(
+            'SELECT amount_due_cents FROM finance_expected_receivables WHERE source_module = ?',
+            ['rental']
+        ));
     }
 
     public function testAnOrdinaryTransitionSaysNothingAboutMoney(): void
@@ -2562,6 +2568,92 @@ class RentalManagementControllerTest extends TestCase
         $documents = $this->documentService->forBooking($booking->id);
         $this->assertCount(1, $documents);
         $this->assertSame('contrat-LOC-A2B3C4-v1.pdf', $documents[0]->originalName);
+    }
+
+    public function testTheFirstContractPrintsTheCommunicationOfTheReceivableItRaises(): void
+    {
+        // The receivable is raised before the first contract (issue #927),
+        // so the contract prints the real communication, and a second
+        // version prints the same one.
+        $this->loginAsManager();
+        $this->setContractTemplate('<p>Virement : {{ communication }}</p>');
+        $booking = $this->bookingOwedFor();
+        $this->runStatement('DELETE FROM finance_expected_receivables WHERE source_reference_id = ?', [$booking->id]);
+        $this->runStatement(
+            'UPDATE rental_bookings SET rental_receivable_id = NULL, rental_communication = NULL WHERE id = ?',
+            [$booking->id]
+        );
+
+        foreach ([1, 2] as $ignored) {
+            $this->post('/mes-locations/document-generer', 'generateDocument', [
+                'asset_id' => (string) $this->assetId,
+                'booking_id' => (string) $booking->id,
+                'document_type' => 'contract',
+            ]);
+        }
+
+        $communication = $this->fetchScalar(
+            'SELECT communication FROM finance_expected_receivables WHERE source_reference_id = ?',
+            [$booking->id]
+        );
+        $this->assertIsString($communication);
+        $this->assertSame(1, (int) $this->fetchScalar(
+            'SELECT COUNT(*) FROM finance_expected_receivables WHERE source_reference_id = ?',
+            [$booking->id]
+        ));
+        $snapshots = $this->runStatement(
+            'SELECT generated_snapshot FROM rental_documents WHERE booking_id = ? AND document_type = ?',
+            [$booking->id, 'contract']
+        )->fetchAll(\PDO::FETCH_COLUMN);
+        $this->assertCount(2, $snapshots);
+        foreach ($snapshots as $snapshot) {
+            $this->assertSame($communication, json_decode((string) $snapshot, true)['communication'] ?? null);
+        }
+    }
+
+    public function testNoContractIsGeneratedWhenPaymentsAreOnButTheReceivableCannotBeRaised(): void
+    {
+        // Payments on, but the category the receivable must name is gone:
+        // generating would send a contract without a communication.
+        $this->loginAsManager();
+        $this->setContractTemplate('<p>Virement : {{ communication }}</p>');
+        $this->paymentService->saveSettings($this->assetId, new \Modules\Rental\Payment\PaymentSettings(
+            enabled: true,
+            financeAccountId: $this->financeAccountId,
+            financeCategoryId: $this->financeCategoryId
+        ));
+        $this->runStatement('UPDATE rental_assets SET finance_category_id = NULL WHERE id = ?', [$this->assetId]);
+        $booking = $this->createBooking();
+
+        $this->post('/mes-locations/document-generer', 'generateDocument', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'document_type' => 'contract',
+        ]);
+
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertSame('error', $flash['type'] ?? null);
+        $this->assertStringContainsString("Le contrat n'a pas été généré", (string) ($flash['message'] ?? ''));
+        $this->assertSame([], $this->documentService->forBooking($booking->id));
+    }
+
+    public function testAGoodwillGestureIsRecordedAsALineOfTheSettlement(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->bookingOwedFor();
+
+        $this->post('/mes-locations/decompte', 'recordSettlement', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'final_persons' => '20',
+            'gesture_label' => 'Geste commercial',
+            'gesture_amount' => '50,00',
+        ]);
+
+        $settlement = $this->stayService->latestSettlement($booking->id);
+        $this->assertNotNull($settlement);
+        $this->assertSame(-5000, $settlement->gesture()?->amountCents);
+        $this->assertSame('Geste commercial', $settlement->gesture()?->label);
     }
 
     /**
@@ -5267,6 +5359,78 @@ class RentalManagementControllerTest extends TestCase
         $this->assertSame(200, $response->getStatusCode());
 
         return (string) preg_replace('/\s+/', ' ', (string) $response->getBody());
+    }
+
+    public function testAnOverpaidRentIsNeverLabelledAsTheSecurityDeposit(): void
+    {
+        // 500 € in on 467,50 € rent + 150 € deposit: the deposit was never
+        // received, so the 32,50 € owed back are not « la caution ».
+        $this->loginAsManager();
+        $booking = $this->bookingOwedFor(46750, 15000);
+        $this->payOnReceivable($booking, 500.00);
+
+        $body = $this->invoicePage($booking);
+
+        $this->assertMatchesRegularExpression('/Solde à rembourser\s*<\/td>\s*<td[^>]*>\s*32,50/u', $body);
+        $this->assertStringNotContainsString('dont la caution', $body);
+        $this->assertStringNotContainsString('Caution à restituer', $body);
+    }
+
+    /**
+     * @param list<int|string> $params
+     */
+    private function runStatement(string $sql, array $params): \PDOStatement
+    {
+        $statement = $this->pdo->prepare($sql);
+        $statement->execute($params);
+
+        return $statement;
+    }
+
+    /**
+     * @param list<int|string> $params
+     */
+    private function fetchScalar(string $sql, array $params): mixed
+    {
+        return $this->runStatement($sql, $params)->fetchColumn();
+    }
+
+    /** A transfer carrying the booking's communication, as a bank import brings it. */
+    private function payOnReceivable(RentalBooking $booking, float $amount): void
+    {
+        $communication = (string) $this->paymentService->statusFor(
+            $booking,
+            $this->paymentService->settingsFor($this->assetId)
+        )['communication'];
+        (new TransactionRepository($this->pdo, $this->encryption))->create(
+            $this->financeAccountId,
+            FinanceTestHelper::createScoutYear($this->pdo, 'Exercice des locations', '2030-09-01', '2031-08-31'),
+            null,
+            '2030-10-01',
+            'Virement ' . $communication,
+            $amount,
+            null,
+            null,
+            'import',
+            null
+        );
+    }
+
+    public function testTheSettlementShowsTheSecurityDepositReturnOnceWithinTheRefund(): void
+    {
+        // 467,50 € rental and a 150 € deposit, all paid on the booking's one
+        // receivable: 150 € is owed back, and the screen must say 150 €
+        // once — never a balance and a deposit return that add up to 300 €.
+        $this->loginAsManager();
+        $booking = $this->bookingOwedFor(46750, 15000);
+        $this->payOnReceivable($booking, 617.50);
+
+        $body = $this->invoicePage($booking);
+
+        $this->assertStringContainsString('Solde à rembourser', $body);
+        $this->assertStringNotContainsString('Caution à restituer', $body);
+        $this->assertMatchesRegularExpression('/Solde à rembourser\s*<\/td>\s*<td[^>]*>\s*150,00/u', $body);
+        $this->assertMatchesRegularExpression('/dont la caution à rendre\s*:?\s*150,00/u', $body);
     }
 
     private function generateInvoice(RentalBooking $booking): void

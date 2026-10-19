@@ -85,3 +85,16 @@ ALTER TABLE rental_booking_inventory DROP COLUMN departure_state;
 -- nothing left to count. A booking that already carries a sequential
 -- reference keeps it; nothing is renumbered.
 DROP TABLE IF EXISTS rental_reference_sequences;
+
+-- The security deposit's own receivable, communication and deadline, and
+-- the stored balance deadline (issue #927). A booking has ONE receivable
+-- now — the rental price plus the security deposit, under one
+-- communication — the security deposit falls due with the balance, and the
+-- balance's deadline is the arrival less `balance_due_days`, read when
+-- shown. The site is in test: nothing is carried over, and the reference
+-- dataset is rebuilt with the single receivable.
+ALTER TABLE rental_assets DROP COLUMN security_deposit_due_days;
+ALTER TABLE rental_bookings DROP COLUMN security_deposit_receivable_id;
+ALTER TABLE rental_bookings DROP COLUMN security_deposit_communication;
+ALTER TABLE rental_bookings DROP COLUMN security_deposit_due_date;
+ALTER TABLE rental_bookings DROP COLUMN balance_due_date;

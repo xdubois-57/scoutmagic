@@ -213,6 +213,23 @@ final class RenterNextStepTest extends TestCase
         );
     }
 
+    public function testTheSecurityDepositIsAskedWithTheBookingsOneCommunication(): void
+    {
+        // One receivable, one communication (issue #927): the security
+        // deposit has none of its own, and the sentence must not lose it.
+        $booking = $this->booking(BookingStatus::CONFIRMED);
+
+        $step = RenterNextStep::forStep(BookingMilestones::SECURITY_DEPOSIT_RECEIVED, $booking, $this->now(), [
+            'communication' => '+++123/4567/89012+++',
+            'security_deposit' => ['amount_cents' => 15000, 'due_date' => '2027-03-10'],
+        ]);
+
+        $this->assertSame(
+            'À vous : versez la caution en indiquant la communication +++123/4567/89012+++ avant le 10/03/2027.',
+            $step->sentence
+        );
+    }
+
     /** A proposal recorded without a status of its own is the renter's to answer too. */
     public function testAProposalWaitingWithoutItsStatusIsTheRenters(): void
     {
