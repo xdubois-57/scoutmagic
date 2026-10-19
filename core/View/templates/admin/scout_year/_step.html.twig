@@ -11,13 +11,14 @@
  click on the green disc undoes it (design.md §7.15). An OBSERVED step's
  disc is a picture: the site decides, nobody marks it.
 
- Context: step (Core\ScoutYear\Step\TransitionStep), is_current, is_last.
+ The <li> holding it is written by _state.html.twig, around the include, so
+ the list item never sits outside its <ol>.
+
+ Context: step (Core\ScoutYear\Step\TransitionStep).
 #}
 {% set disc_label = step.done
     ? 'Étape faite — cliquer pour la remettre à faire'
     : 'Cliquer pour marquer comme faite' %}
-<li class="step-item d-flex gap-3 {{ is_last ? '' : 'pb-4' }} {{ step.done ? 'step-item--done' : (is_current ? 'step-item--current' : '') }}"
-    data-step="{{ step.key }}" data-state="{{ step.state.value }}" data-nature="{{ step.nature.value }}">
     <div class="step-item__marker flex-shrink-0">
         {% if step.human %}
         <form method="post" action="/admin/scout-year/step" class="js-step-mark">
@@ -82,4 +83,3 @@
             </button>
         </div>
     </div>
-</li>
