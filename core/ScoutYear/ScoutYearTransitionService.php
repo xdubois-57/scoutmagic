@@ -79,10 +79,12 @@ use Core\Service\DateInput;
  * import, a check that reads it says so (StepContext::
  * waitingForImportMessage()) and produces neither a point nor a « ✓ ».
  *
- * **The date is a signpost.** The "encodage dans Desk" date
+ * **On this page the date is a signpost.** The "encodage dans Desk" date
  * (SETTING_DESK_ENCODING_DATE, 15 August by default) labels the phases and
- * says which one the calendar is currently in. It activates nothing and
- * triggers nothing on this page — specifications.md §16.4 removed
+ * says which one the calendar is currently in. Here it disables nothing,
+ * activates nothing and triggers nothing (elsewhere it closes the public
+ * year to the Desk import — Core\Import\DeskImportYearPolicy — and never
+ * switches a year) — specifications.md §16.4 removed
  * date-driven transitions on purpose, because a computed date cannot be
  * told "not yet" by the registration veto.
  */
@@ -90,8 +92,9 @@ class ScoutYearTransitionService
 {
     /**
      * Day and month (MM-JJ) from which the workflow presents the Desk
-     * encoding phase as the current one. Indicative only on this page —
-     * see the class comment.
+     * encoding phase as the current one. Indicative on this page — see the
+     * class comment; the Desk import's year policy reads it too
+     * (Core\Import\DeskImportYearDates::SETTING_ENCODING).
      */
     public const SETTING_DESK_ENCODING_DATE = 'scout_year_desk_encoding_date';
 

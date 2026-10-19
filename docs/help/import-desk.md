@@ -8,7 +8,7 @@ question: Comment mettre à jour les membres depuis la fédération ?
 question: Où récupérer le fichier CSV à importer dans le site ?
 question: Que se passe-t-il si j'importe deux fois le même fichier ?
 paths: /admin/import
-related: import-desk-lignes-refusees, annee-scoute, config-desk, membres-admin, import-historique
+related: import-desk-annee, import-desk-lignes-refusees, annee-scoute, config-desk, membres-admin, import-historique
 ---
 
 Le site ne s'alimente pas à la main : les membres, sections et
@@ -18,9 +18,9 @@ la fédération. Importer ce fichier met le site à jour d'un coup.
 ## Importer
 
 1. Dans Desk, exportez la liste des membres au format CSV.
-2. Sur cette page, choisissez l'année scoute cible — l'année publique
-   est proposée d'office, mais vous pouvez importer l'année prochaine
-   sans rien changer à ce que le public voit.
+2. Vérifiez l'« Année scoute cible » : la page ne propose que les
+   années importables aujourd'hui et choisit la bonne (voir « Quelle
+   année scoute importer, et quand »).
 3. Sélectionnez le fichier et touchez « Importer ».
 
 Le fichier doit être l'export complet de Desk : si des colonnes
@@ -72,5 +72,5 @@ personnes concernées.
 Après chaque mise à jour notable dans Desk — nouvelles inscriptions,
 changements de section — et, à la rentrée, dans le cadre du parcours
 guidé de la page « Année scoute ». Le dernier import de l'année
-publique est rappelé en bas de page, et chaque import est consigné au
-journal.
+sélectionnée est rappelé en bas de page, avec son historique, et
+chaque import est consigné au journal.

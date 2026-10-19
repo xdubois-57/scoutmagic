@@ -357,6 +357,89 @@ class SettingsControllerTest extends TestCase
         $this->assertStringNotContainsString('exemple.org', (string) $row['context']);
     }
 
+    /**
+     * The two days of the Desk import policy are saved one at a time but
+     * only mean something together: each is checked against the other as
+     * stored, and an incoherent pair is refused through this endpoint's
+     * own JSON answer, naming both values, with nothing written.
+     *
+     * @return array{0: string, 1: callable(string, string): array<string, mixed>}
+     */
+    private function deskImportDatesFixture(): array
+    {
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+        $token = bin2hex(random_bytes(32));
+        $_SESSION['_csrf_token'] = $token;
+
+        $regex = '^(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$';
+        $this->settingService->register(\Core\Import\DeskImportYearDates::SETTING_NEXT_START, '07-01', 'text', 'L', 'D', null, $regex);
+        $this->settingService->register(\Core\Import\DeskImportYearDates::SETTING_ENCODING, '08-15', 'text', 'L', 'D', null, $regex);
+        $this->settingService->clearCache();
+
+        $save = function (string $key, string $value) use ($token): array {
+            $response = $this->controller->update(
+                $this->createJsonRequest(['key' => $key, 'value' => $value, '_csrf_token' => $token]),
+                []
+            );
+            $this->settingService->clearCache();
+
+            return json_decode($response->getBody(), true);
+        };
+
+        return [$token, $save];
+    }
+
+    public function testAnOpeningAfterTheEncodingDateIsRefusedNamingBothValues(): void
+    {
+        [, $save] = $this->deskImportDatesFixture();
+
+        $answer = $save(\Core\Import\DeskImportYearDates::SETTING_NEXT_START, '08-20');
+
+        $this->assertFalse($answer['success']);
+        $this->assertSame(
+            "L'ouverture de l'import pour l'année suivante (08-20) doit précéder la date d'encodage Desk (08-15).",
+            $answer['error']
+        );
+        $this->assertSame('07-01', $this->settingService->get(\Core\Import\DeskImportYearDates::SETTING_NEXT_START));
+    }
+
+    public function testAnEncodingDateBeforeTheOpeningIsRefusedToo(): void
+    {
+        [, $save] = $this->deskImportDatesFixture();
+
+        $answer = $save(\Core\Import\DeskImportYearDates::SETTING_ENCODING, '06-30');
+
+        $this->assertFalse($answer['success']);
+        $this->assertStringContainsString('(07-01)', $answer['error']);
+        $this->assertStringContainsString('(06-30)', $answer['error']);
+        $this->assertSame('08-15', $this->settingService->get(\Core\Import\DeskImportYearDates::SETTING_ENCODING));
+    }
+
+    public function testADateInSeptemberIsRefused(): void
+    {
+        [, $save] = $this->deskImportDatesFixture();
+
+        $answer = $save(\Core\Import\DeskImportYearDates::SETTING_ENCODING, '09-10');
+
+        $this->assertFalse($answer['success']);
+        $this->assertStringContainsString('avant le 1er septembre', $answer['error']);
+    }
+
+    public function testACoherentPairIsSavedOneValueAtATime(): void
+    {
+        [, $save] = $this->deskImportDatesFixture();
+
+        // Moving both later, in the only order that never passes through
+        // an incoherent pair.
+        $this->assertTrue($save(\Core\Import\DeskImportYearDates::SETTING_ENCODING, '08-25')['success']);
+        $this->assertTrue($save(\Core\Import\DeskImportYearDates::SETTING_NEXT_START, '08-10')['success']);
+
+        $this->assertSame('08-10', $this->settingService->get(\Core\Import\DeskImportYearDates::SETTING_NEXT_START));
+        $this->assertSame('08-25', $this->settingService->get(\Core\Import\DeskImportYearDates::SETTING_ENCODING));
+    }
+
     public function testUpdateNonEditableReturnsError(): void
     {
         if (session_status() === PHP_SESSION_NONE) {

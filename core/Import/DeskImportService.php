@@ -44,6 +44,14 @@ class DeskImportService
          */
         private ScoutYearService $scoutYears,
         /**
+         * Which scout years an import may target today
+         * ({@see DeskImportYearPolicy}). Required, so a caller that means
+         * « any year » — the reference-dataset replay, a test — says so
+         * with DeskImportYearPolicy::unrestricted() rather than by
+         * leaving something out.
+         */
+        private DeskImportYearPolicy $yearPolicy,
+        /**
          * Duplicate detection runs AFTER the commit — it decrypts names
          * and birth dates in bulk, and nothing that slow belongs inside a
          * transaction holding the whole roster's locks. Nullable so a
@@ -71,6 +79,13 @@ class DeskImportService
      * gave on the barrier screen ({@see RosterReplacementGuard}). It is
      * never enough on its own: the guard has verdicts it does not lift.
      *
+     * $confirmedYearId is the year the importer confirmed in the import
+     * page's dialog (`confirmed_year`). The year policy demands it for a
+     * year that needs confirmation and ignores it otherwise; it is a
+     * different thing from the barrier's typed word, and neither stands
+     * in for the other.
+     *
+     * @throws DeskImportYearRefusedException when the year policy refuses $scoutYearId — nothing is read or written
      * @throws ImportException when the file cannot be read or its headers do not match
      * @throws DeskImportRejectedException when a line breaks a rule of DeskImportValidator — nothing is written
      * @throws RosterReplacementRefusedException when the file would replace the roster with something it should not
@@ -79,9 +94,14 @@ class DeskImportService
         string $filePath,
         int $scoutYearId,
         int $importedBy,
-        bool $replacementConfirmed = false
+        bool $replacementConfirmed = false,
+        ?int $confirmedYearId = null
     ): ImportResult
     {
+        // First of all, before the file is even read: a year the policy
+        // refuses gets nothing — no parse, no kept copy, no barrier.
+        $this->assertYearImportable($scoutYearId, $confirmedYearId, $importedBy);
+
         $parsed = $this->parser->parse($filePath);
         $asOf = new \DateTimeImmutable();
 
@@ -256,6 +276,41 @@ class DeskImportService
             newFunctionsCount: $newFunctions,
             warnings: $warnings
         );
+    }
+
+    /**
+     * Refuse, and journal, an import into a year the policy does not allow
+     * today ({@see DeskImportYearPolicy}).
+     *
+     * Public so ImportController can ask before it even moves the
+     * deposited file — the same check import() makes first, against the
+     * same policy, so the two can never disagree. The journal entry holds
+     * ids and the reason, nothing else.
+     *
+     * @throws DeskImportYearRefusedException
+     */
+    public function assertYearImportable(int $scoutYearId, ?int $confirmedYearId, int $importedBy): void
+    {
+        try {
+            $this->yearPolicy->assertImportable($scoutYearId, $confirmedYearId);
+        } catch (DeskImportYearRefusedException $e) {
+            $this->journal->log(
+                'core',
+                'desk_import_year_refused',
+                'warning',
+                $e->reason === DeskImportYearRefusedException::REASON_CONFIRMATION_MISSING
+                    ? "Import Desk refusé : l'année choisie demande une confirmation qui n'a pas été donnée"
+                    : "Import Desk refusé : l'année choisie n'est pas importable aujourd'hui",
+                [
+                    'scout_year_id' => $scoutYearId,
+                    'confirmed_year_id' => $confirmedYearId,
+                    'reason' => $e->reason,
+                ],
+                $importedBy > 0 ? $importedBy : null
+            );
+
+            throw $e;
+        }
     }
 
     /**

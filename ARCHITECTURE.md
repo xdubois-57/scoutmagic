@@ -345,6 +345,41 @@ these drifts silently.
 
 **A file with one unreadable value is refused whole** (`Core\Import\DeskImportValidator`, issue #854). Before the barrier below, before the kept file, before the transaction, one pass over every data line collects every violation of fourteen rules: a birth date on every line, readable and plausible (not in the future, not before 1900); as many cells as the header, or one more if that last one is empty (a real Desk export ends every line with a `;`); a `Tiers`, a `Nom`, a `Prenom` and a `FONCTION` on every line; the lines of one Tiers agreeing on `Nom`, `Prenom`, `Genre`, `Date de naissance` and `Email Tiers` (the parser reads identity from the first line only); `Genre` `F`, `H` or `X` — Desk's own values, a spreadsheet's `M` refused rather than guessed; the three boolean columns `true` or `false`, case ignored, and nothing else; `Email Tiers` empty or well-formed; function dates empty or readable; a `Section` never without its `Branche`; no `Date début` after the end of the targeted scout year (read from `scout_years.end_date` through `ScoutYearService`); exactly one main function per member, counted on distinct functions (dates normalised) since Desk repeats a function on each address line, and a function's lines agreeing on that flag — the service's dedup key includes it, so a disagreement would store the function twice. Any violation throws `DeskImportRejectedException` (an `ImportException`, so user-facing) and nothing is written. Each import used to accept these silently — an empty or two-digit birth date overwrote a good one and took the member out of Statistiques and Prévisions, a spreadsheet's `VRAI` withdrew every mail consent, a cut line emptied its last columns, a malformed e-mail created a login. `ImportController` lays the errors out as a list on the import page (« Ligne N (Tiers) — Colonne « valeur » : raison. », never a member's name, at most `DeskImportRejectedException::MAX_LISTED_ERRORS` sentences and « … et N autres » after them); the journal gets `desk_import_rejected` with a count per rule and nothing else (SECURITY.md §13). Deliberately not checked: codes this site does not know yet (created and reported in Correspondances Desk) and free-text fields. The reference dataset passes every rule, which `Tests\Integration\ReferenceDatasetFormatTest` holds.
 
+**Which years an import may target** (`Core\Import\DeskImportYearPolicy`,
+specifications.md §7.1.2). One policy decides it for the page and for the
+server: what `/admin/import` offers, proposes and asks about, and what
+`DeskImportService::import()` accepts. The rule is anchored on the public
+year the site is really on — `ScoutYearResolver::getCurrentPublicYear()`
+— with the two MM-JJ settings (`DeskImportYearDates`: opening of the next
+year, `07-01`; the Desk-encoding date, `08-15`) placed in the calendar
+year that public year ends in, so a transition restarts the rule from the
+new year and the calendar alone never opens a second year ahead. The next
+year is looked up by label and never created: `listYears()` creates it as
+a side effect, which stays the import page's business and never the
+decision's. The clock (`?\Closure`) and configuration mode
+(`ConfigurationMode::isActive()` by default, read at every check, never a
+value from the browser) are injected, which is what lets each threshold be
+tested on the day before, the day itself and the day after.
+
+It lives in the service, not only in the controller, because a select
+listing two years is a convenience and a POST can name any id: the check
+runs first in `import()`, before the file is read, so a forged or replayed
+request, a barrier re-deposit and any future caller meet it the same way.
+`ImportController` asks the same question again before it moves the
+upload (`DeskImportService::assertYearImportable()`, one journal line
+`desk_import_year_refused` with ids and the reason), and passes it the
+`confirmed_year` the page's dialog (`public/assets/js/admin-import.js`,
+`ScoutMagicConfirm.ask`) sets — demanded, equal to the year, for the
+public year while the next one is open and for a year only configuration
+mode offers. That field is not the barrier's `REMPLACER` and neither
+stands in for the other. The policy is a required constructor argument
+of the service: the reference-dataset replay and the tests pass
+`DeskImportYearPolicy::unrestricted()` explicitly, the composition root
+wires `forSite()` and has no way to ask for the other. The two dates are
+validated together on save (`SettingsController::update()`, through the
+page's existing JSON answer); a stored pair that does not hold together
+falls back to both defaults rather than to a guess.
+
 **The roster-replacement barrier** (`Core\Import\RosterReplacementGuard`,
 SECURITY.md §13). A Desk export filtered on one section is a valid CSV
 that replaces the roster with a fortieth of it — and takes the importer's
@@ -1065,7 +1100,7 @@ A caller with **no session at all** — the personal ICS token is the only one �
 
 **Dernière bascule** is read back from the journal (`JournalRepository::findLatestEvent('core', 'scout_year_public_activated')`), whose context carries both year ids and labels — no table of its own.
 
-**On this page, the Desk-encoding date is a signpost, nothing more.** `scout_year_desk_encoding_date` (MM-JJ, default `08-15`, editable) is placed in the target year's own start calendar year and labels the two dated phases plus which one the calendar is currently in. On the Année scoute page it disables nothing, activates nothing, triggers nothing; a malformed value falls back to the default rather than taking the page down. **The transition is manual-only, year-round** (itération 3): the final step is never date-gated, and nothing switches the public year on its own. This is deliberate, not an oversight — the "registration" module (itération 7, §8.38) vetoes it while registration requests are still open, and an automatic date-driven switch would have bypassed that veto outright (a date calculation can't be told "not yet"), so the two were incompatible by design and manual won. `ScoutYearAdminService::activatePublicYear()` is still the sole write path to the public-year setting, so its checks are never bypassable by construction. Each step is journaled (`scout_year_staff_activated`, `scout_year_public_activated`, etc., level `security`; the marks as `scout_year_step_marked`/`scout_year_step_unmarked`, level `info`) — a blocked activation instead journals `scout_year_staff_activation_blocked` or `scout_year_public_activation_blocked` (§8.38).
+**On this page, the Desk-encoding date is a signpost, nothing more.** `scout_year_desk_encoding_date` (MM-JJ, default `08-15`, editable) is placed in the target year's own start calendar year and labels the two dated phases plus which one the calendar is currently in. On the Année scoute page it disables nothing, activates nothing, triggers nothing; a malformed value falls back to the default rather than taking the page down. Outside this page it is one of the two days of the Desk import's year policy (§8.1 « Which years an import may target »): from it on, only the target year can be imported — it closes an import, it never switches a year. **The transition is manual-only, year-round** (itération 3): the final step is never date-gated, and nothing switches the public year on its own. This is deliberate, not an oversight — the "registration" module (itération 7, §8.38) vetoes it while registration requests are still open, and an automatic date-driven switch would have bypassed that veto outright (a date calculation can't be told "not yet"), so the two were incompatible by design and manual won. `ScoutYearAdminService::activatePublicYear()` is still the sole write path to the public-year setting, so its checks are never bypassable by construction. Each step is journaled (`scout_year_staff_activated`, `scout_year_public_activated`, etc., level `security`; the marks as `scout_year_step_marked`/`scout_year_step_unmarked`, level `info`) — a blocked activation instead journals `scout_year_staff_activation_blocked` or `scout_year_public_activation_blocked` (§8.38).
 
 `ScoutYearTransitionService` is the specification for `tests/e2e/specs/scout-year-transition.spec.js`, which replays the whole workflow in a real browser and blocks the `Checks / End-to-end (browser)` job, on every pull request and every release tag; the service, the template and the test each carry a cross-reference to the other two.
 

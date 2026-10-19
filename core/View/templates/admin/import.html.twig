@@ -16,14 +16,47 @@
         </div>
     {% endif %}
 
-    {# Scout year info #}
+    {# Which years may be imported today (Core\Import\DeskImportYearPolicy).
+       The three periods are always shown, today's highlighted, so the rule
+       reads as a rule and not as an unexplained short list. #}
+    {% set _public_label = current_year.label %}
+    {% set _next_label = next_year_label %}
+    {% set _opening = import_window.nextStartDayMonth() %}
+    {% set _eve_of_encoding = import_window.eveOfEncodingDayMonth() %}
+    {% set _periods = [
+        { key: 'before', title: 'Avant le ' ~ _opening, years: _public_label ~ ' seulement' },
+        { key: 'between', title: 'Du ' ~ _opening ~ ' au ' ~ _eve_of_encoding,
+          years: _public_label ~ ' et ' ~ _next_label ~ ' (proposée)' },
+        { key: 'after', title: 'À partir du ' ~ import_window.encodingDayMonth(), years: _next_label ~ ' seulement' },
+    ] %}
     <div class="card mb-3">
         <div class="card-body">
-            <h2 class="h5">Année scoute</h2>
-            <p class="text-body-secondary small mb-0">
-                L'année publique actuelle est <strong>{{ current_year.label }}</strong>.
-                Vous pouvez importer les données de n'importe quelle année ci-dessous — y compris
-                l'année prochaine — sans changer l'année vue par le public.
+            <h2 class="h5">Années importables aujourd'hui</h2>
+            <p class="small text-body-secondary">
+                L'année publique est <strong>{{ _public_label }}</strong>. Importer ne change jamais l'année que
+                voient les familles.
+            </p>
+            <div class="row g-2 small">
+                {% for period in _periods %}
+                    {% set _today = period.key == import_window.period and not import_window.configurationMode %}
+                    <div class="col-12 col-sm-4">
+                        <div class="border rounded p-2 h-100{{ _today ? ' border-primary bg-primary-subtle' : '' }}"
+                             data-import-period="{{ period.key }}"{% if _today %} aria-current="date"{% endif %}>
+                            <strong>{{ period.title }}</strong>
+                            {%- if _today %} <span class="visually-hidden">(aujourd'hui)</span>{% endif %}<br>
+                            {{ period.years }}
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+            {% if import_window.configurationMode %}
+                <div class="alert alert-info small mt-2 mb-0">
+                    Mode configuration actif : toutes les années existantes sont importables. Une année hors de
+                    la règle habituelle demande une confirmation.
+                </div>
+            {% endif %}
+            <p class="small text-body-secondary mt-2 mb-0">
+                Après la bascule publique, la règle repart de la nouvelle année publique.
             </p>
         </div>
     </div>
@@ -42,33 +75,49 @@
     <div class="card mb-3">
         <div class="card-body">
             <h2 class="h5">Importer un fichier CSV</h2>
-            <p class="text-body-secondary small">
-                Exportez la liste des membres depuis Desk, puis téléchargez le fichier CSV ici.
-                Les données existantes pour l'année sélectionnée seront mises à jour.
-            </p>
-            <form method="post" action="/admin/import" enctype="multipart/form-data">
-                {{ csrf_field()|raw }}
-                {# The public year's own entry says so in its label, so the one
-                   year the import is NOT about by default is named, not just
-                   pre-selected. #}
-                {% set _year_options = years|map(y => {
-                    value: y.id,
-                    label: y.label ~ (y.id == current_year.id ? ' — année publique' : ''),
-                    selected: y.id == current_year.id,
-                }) %}
-                {% include 'partials/form_field.html.twig' with {
-                    field_id: 'scout-year-id', field_name: 'scout_year_id', type: 'select',
-                    label: 'Année scoute cible', options: _year_options,
-                } only %}
-                <div class="mb-3">
-                    <input type="file" name="csv_file" accept=".csv" class="form-control" required aria-label="Fichier CSV à importer">
-                </div>
-                <button type="submit" class="btn btn-primary">Importer</button>
-            </form>
+            {% if import_years is empty %}
+                <div class="alert alert-warning mb-0">Aucune année n'est importable aujourd'hui.</div>
+            {% else %}
+                <p class="text-body-secondary small">
+                    Exportez la liste des membres depuis Desk, puis téléchargez le fichier CSV ici.
+                    Les données existantes pour l'année sélectionnée seront mises à jour.
+                </p>
+                <form method="post" action="/admin/import" enctype="multipart/form-data" id="desk-import-form">
+                    {{ csrf_field()|raw }}
+                    {# The public and the next year say which they are in
+                       their label, so the year the families see is named,
+                       not just listed. #}
+                    {% set _year_options = import_years|map(y => {
+                        value: y.option.id,
+                        label: y.option.label
+                            ~ (y.option.isPublic ? ' — année publique' : '')
+                            ~ (y.option.isNext ? ' — année suivante' : ''),
+                        selected: y.option.id == selected_year_id,
+                    }) %}
+                    {% include 'partials/form_field.html.twig' with {
+                        field_id: 'scout-year-id', field_name: 'scout_year_id', type: 'select',
+                        label: 'Année scoute cible', options: _year_options,
+                        help: import_years|length == 1 ? "Une seule année est importable aujourd'hui." : '',
+                    } only %}
+                    {# Filled by admin-import.js once the dialog has been
+                       answered. The server demands it, equal to the year,
+                       for a year that needs confirmation. #}
+                    <input type="hidden" name="confirmed_year" value="" id="desk-import-confirmed-year">
+                    <div class="mb-3">
+                        <label class="form-label" for="desk-import-file">Fichier CSV exporté de Desk</label>
+                        <input type="file" name="csv_file" accept=".csv" class="form-control" id="desk-import-file"
+                               required aria-describedby="desk-import-file-help">
+                        <div class="form-text" id="desk-import-file-help">
+                            Le fichier reste sélectionné si vous annulez la confirmation.
+                        </div>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Importer</button>
+                </form>
+            {% endif %}
         </div>
     </div>
 
-    {# La conservation est annoncée AVANT le dépôt, pas découverte après. #}
+    {# The retention is announced BEFORE the deposit, not discovered after. #}
     <div class="alert alert-warning d-flex gap-2" role="note">
         <i class="bi bi-lock flex-shrink-0" aria-hidden="true"></i>
         <span>
@@ -80,29 +129,64 @@
         </span>
     </div>
 
-    {# Last import info #}
-    <div class="card mb-3">
-        <div class="card-body">
-            <h2 class="h5">Dernier import</h2>
-            {% if last_import %}
-                <p class="small text-body-secondary mb-2">
-                    {{ last_import.imported_at|datetime_fr }}
-                    {% if last_import_author %} — par {{ last_import_author }}{% endif %}
-                    — {{ last_import.member_count }} membres,
-                    {{ last_import.line_count }} lignes
-                    {% if last_import.new_functions_count > 0 %}
-                        , {{ last_import.new_functions_count }} nouvelle(s) fonction(s)
-                    {% endif %}
-                </p>
-            {% else %}
-                <p class="small text-body-secondary mb-2">Aucun import pour l'année publique.</p>
-            {% endif %}
-            {% if last_import %}
-                <a href="/admin/import/{{ last_import.id }}/rapport" class="btn btn-outline-secondary btn-sm">Voir son rapport</a>
-            {% endif %}
-            <a href="/admin/import/historique" class="btn btn-outline-secondary btn-sm">Historique complet</a>
+    {# Per offered year: the confirmation to ask (null when none) and the
+       last import. The summary sentence is built once, here, and carried
+       as text in the island below, so the block rendered now and the one
+       admin-import.js redraws when another year is picked cannot word it
+       differently. #}
+    {% set _island_years = [] %}
+    {% set _selected = null %}
+    {% for y in import_years %}
+        {% set _last = y.last_import %}
+        {% set _summary = _last
+            ? (_last.imported_at|datetime_fr)
+                ~ (y.last_import_author ? ' — par ' ~ y.last_import_author : '')
+                ~ ' — ' ~ _last.member_count ~ ' membres, ' ~ _last.line_count ~ ' lignes'
+                ~ (_last.new_functions_count > 0 ? ', ' ~ _last.new_functions_count ~ ' nouvelle(s) fonction(s)' : '')
+            : null %}
+        {% set _confirm = null %}
+        {% if y.option.confirmation == 'public_during_window' %}
+            {% set _confirm = {
+                title: "Importer dans l'année publique " ~ y.option.label ~ ' ?',
+                message: "L'année suivante " ~ _next_label ~ ' est déjà importable. Ce fichier modifiera les données de '
+                    ~ y.option.label ~ ", l'année que voient les familles aujourd'hui.",
+                confirmLabel: 'Importer dans ' ~ y.option.label,
+            } %}
+        {% elseif y.option.confirmation == 'configuration_mode' %}
+            {% set _confirm = {
+                title: 'Importer dans ' ~ y.option.label ~ ' ?',
+                message: y.option.label ~ " n'est importable qu'en mode configuration. Le fichier remplacera les "
+                    ~ 'membres de ' ~ y.option.label ~ '.',
+                confirmLabel: 'Importer dans ' ~ y.option.label,
+            } %}
+        {% endif %}
+        {% set _entry = {
+            id: y.option.id,
+            label: y.option.label,
+            confirm: _confirm,
+            lastImport: _last ? { id: _last.id, summary: _summary } : null,
+        } %}
+        {% set _island_years = _island_years|merge([_entry]) %}
+        {% if y.option.id == selected_year_id %}{% set _selected = _entry %}{% endif %}
+    {% endfor %}
+
+    {# The last import of the SELECTED year — it follows the select. #}
+    {% if _selected %}
+        <div class="card mb-3">
+            <div class="card-body" id="desk-import-last" aria-live="polite">
+                <h2 class="h5">Dernier import de {{ _selected.label }}</h2>
+                {% if _selected.lastImport %}
+                    <p class="small text-body-secondary mb-2">{{ _selected.lastImport.summary }}</p>
+                    <a href="/admin/import/{{ _selected.lastImport.id }}/rapport" class="btn btn-outline-secondary btn-sm">Voir son rapport</a>
+                    <a href="/admin/import/historique?annee={{ _selected.id }}" class="btn btn-outline-secondary btn-sm">Historique de {{ _selected.label }}</a>
+                {% else %}
+                    {% include 'partials/empty_state.html.twig' with {
+                        message: 'Aucun import pour ' ~ _selected.label ~ '.', compact: true,
+                    } only %}
+                {% endif %}
+            </div>
         </div>
-    </div>
+    {% endif %}
 
     {# Import result (shown after successful import) #}
     {% if import_result %}
@@ -128,4 +212,15 @@
             </div>
         {% endif %}
     {% endif %}
+
+    {# Server data as a JSON island, read by admin-import.js through
+       ScoutMagicApi.pageData(). #}
+    {% set json_flags = constant('JSON_HEX_TAG') b-or constant('JSON_HEX_AMP') b-or constant('JSON_UNESCAPED_UNICODE') %}
+    <script type="application/json" id="desk-import-years">
+    {{ { years: _island_years }|json_encode(json_flags)|raw }}
+    </script>
+{% endblock %}
+
+{% block scripts %}
+    <script src="{{ asset('/assets/js/admin-import.js') }}" defer></script>
 {% endblock %}
