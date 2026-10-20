@@ -89,7 +89,11 @@
                         options: list_options|map(option => {
                             value: option.value, label: option.label,
                             selected: option.selected, disabled: option.disabled,
-                            data: { 'list-type': option.type },
+                            data: {
+                                'list-type': option.type,
+                                'member-groups': option.member_groups ? '1' : '0',
+                                'contact-groups': option.contact_groups ? '1' : '0',
+                            },
                         }),
                     } only %}
                     <p class="form-text small mb-0 {{ form.list starts with 'mail_merge' ? '' : 'd-none' }}" id="mm-merge-list-note">
@@ -181,6 +185,24 @@
                         </div>
                     {% endfor %}
                 </div>
+                {# What the years change for the chosen custom list: its member
+                   groups only — its contact groups are always included
+                   (chantier #729 §2.5). Nothing for a list of member groups
+                   only, which behaves like the default lists. Toggled by
+                   mass-mail-compose.js from the option's data-member-groups /
+                   data-contact-groups. #}
+                {% set chosen_list = list_options|filter(option => option.selected)|first %}
+                {% set chosen_contacts = chosen_list and chosen_list.contact_groups %}
+                {% set chosen_members = chosen_list and chosen_list.member_groups %}
+                <p class="form-text small fw-semibold mb-1 {{ chosen_contacts and chosen_members ? '' : 'd-none' }}"
+                   id="mm-custom-list-mixed-note">
+                    Les années choisies s'appliquent aux groupes de membres de cette liste. Ses groupes de contacts
+                    sont toujours inclus.
+                </p>
+                <p class="form-text small fw-semibold mb-1 {{ chosen_contacts and not chosen_members ? '' : 'd-none' }}"
+                   id="mm-custom-list-contacts-note">
+                    Cette liste ne contient que des contacts : l'année ne change rien.
+                </p>
                 <p class="form-text small mb-1">
                     Plusieurs années peuvent être sélectionnées à la fois : les listes correspondantes sont
                     fusionnées et dédupliquées par adresse, pour n'envoyer qu'un seul email par personne — utile
