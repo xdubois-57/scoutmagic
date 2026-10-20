@@ -352,7 +352,7 @@ final class ReferenceDatasetBuildTest extends TestCase
              JOIN member_functions mf ON mf.function_id = bf.function_id
              JOIN member_years my ON my.id = mf.member_year_id
              JOIN scout_years sy ON sy.id = my.scout_year_id
-             WHERE bf.block_id = ? AND sy.label = ?'
+             WHERE bf.block_id = ? AND sy.label = ? AND my.is_active = 1'
         );
         foreach ($this->query("SELECT id FROM mass_mail_list_blocks WHERE kind = 'member_group'") as $block) {
             $named->execute([(int) $block['id'], '2026-2027']);

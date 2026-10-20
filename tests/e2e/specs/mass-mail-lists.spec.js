@@ -28,7 +28,7 @@
 // duration.
 import { expect, test } from '@playwright/test';
 
-import { answerConfirmation } from '../support/confirm-dialog.js';
+import { answerConfirmation, waitForConfirmReady } from '../support/confirm-dialog.js';
 import { answerCookieBanner } from '../support/cookie-banner.js';
 import { loginAsAdmin } from '../support/admin-login.js';
 import { closeModal, openModal } from '../support/modal.js';
@@ -99,10 +99,17 @@ async function fillContactGroup(dialog) {
     await expect(dialog.locator('[data-cg-summary]')).toHaveText('3 contacts trouvés, 1 ligne ignorée.');
 }
 
-test('une liste se construit par blocs et la page d\'un e-mail en tient compte', async ({ page }) => {
+test('a list is built from blocks, and the page of an e-mail says how its years apply', async ({ page }) => {
     /** @type {string[]} */
     const pageErrors = [];
     page.on('pageerror', (error) => pageErrors.push(error.message));
+    /** @type {string[]} */
+    const serverErrors = [];
+    page.on('response', (response) => {
+        if (response.status() >= 500) {
+            serverErrors.push(`${response.status()} ${response.url()}`);
+        }
+    });
 
     await loginAsAdmin(page);
     await answerCookieBanner(page);
@@ -232,6 +239,7 @@ test('une liste se construit par blocs et la page d\'un e-mail en tient compte',
     // --- Removing a block asks first, and says no e-mail leaves. ---
     await page.goto(listUrl, { waitUntil: 'load' });
     await expect(memberRow).toHaveCount(1);
+    await waitForConfirmReady(page);
     await page.getByRole('button', { name: 'Retirer ce groupe de membres' }).click();
     const question = await answerConfirmation(page);
     expect(question).toContain('Les e-mails déjà envoyés ne changent pas.');
@@ -254,4 +262,5 @@ test('une liste se construit par blocs et la page d\'un e-mail en tient compte',
     await expect(mixedNote).toBeHidden();
 
     expect(pageErrors, 'uncaught JavaScript error in the browser').toEqual([]);
+    expect(serverErrors, '5xx response during the scenario').toEqual([]);
 });
