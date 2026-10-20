@@ -9,7 +9,7 @@ question: Comment écrire aux intendants de toutes les sections ?
 question: Comment écrire aux animateurs qui portent un badge ?
 question: Pourquoi ne puis-je pas supprimer une liste de diffusion ?
 paths: /admin/listes-de-diffusion
-related: adresses-de-liste, anciens, envoi-de-mails, publipostage
+related: groupes-de-contacts, anciens, envoi-de-mails, publipostage
 ---
 
 Cette page décide **à qui l'unité écrit**. Elle ne compose aucun

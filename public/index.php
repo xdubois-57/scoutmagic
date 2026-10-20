@@ -9225,6 +9225,24 @@ if ($isEnabled('mass_mail')) {
             $massMailListBlockService
         )
     );
+    // The contact group dialog's routes (ARCHITECTURE.md §8.71nonies). No
+    // dependency on MailingListService, so — unlike the controller above —
+    // nothing re-registers it once registration's provider exists.
+    $frontController->registerController(
+        \Modules\MassMail\Controller\ContactGroupController::class,
+        new \Modules\MassMail\Controller\ContactGroupController(
+            $twig,
+            $massMailListBlockService,
+            new \Modules\MassMail\Service\ContactGroupImportService(
+                $massMailBlockRepo,
+                $massMailContactRepo,
+                $massMailListBlockService,
+                $settingService,
+                $journalService,
+                $massMailSuppressedRepo
+            )
+        )
+    );
 
     // The member page's "view as sent" email detail route
     // (/members/{id}/emails/{recipient_id}, module.json) — lives here, not

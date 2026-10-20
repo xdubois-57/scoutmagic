@@ -1,0 +1,96 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{#
+  The contact group dialog (CHANTIER-listes-de-diffusion-blocs.md, screens
+  7 and 8), driven by public/assets/js/mass-mail-contact-groups.js.
+
+  Include it once on the page of a list:
+      {% include '@mass_mail/partials/_contact_group_dialog.html.twig' with { list_id: list.id } only %}
+
+  The page opens it from `[data-contact-group-open]` — without
+  `data-block-id` to create a group, with it to open one — and the script
+  emits `mass-mail:blocks-changed` on `document` after a save.
+
+  One dialog for both screens: the creation half (`data-cg-new`) asks for
+  a file, the existing-group half (`data-cg-existing`) shows the contacts
+  read-only and offers the export and a corrected file. Nothing is written
+  before « Enregistrer », which saves the name and the file together.
+#}
+{% embed 'partials/modal.html.twig' with {
+    id: 'mm-contact-group-modal',
+    title: 'Groupe de contacts',
+    size: 'lg',
+    scrollable: true,
+    list_id: list_id|default(''),
+} only %}
+    {% block body %}
+        <div data-contact-group-dialog data-list-id="{{ list_id }}">
+            <div class="alert alert-danger d-none" data-cg-error></div>
+
+            <div class="mb-3">
+                <label class="form-label small" for="mm-cg-name">Nom du groupe</label>
+                <input type="text" class="form-control form-control-sm" id="mm-cg-name" maxlength="150"
+                       data-cg-name autocomplete="off">
+            </div>
+
+            {# Creation: the file is mandatory, a group never exists without one. #}
+            <div class="mb-3" data-cg-new>
+                <span class="form-label small d-block">Fichier Excel</span>
+                <div class="d-flex flex-wrap gap-2 align-items-center">
+                    <label class="btn btn-sm btn-outline-secondary mb-0">
+                        Choisir un fichier
+                        <input type="file" accept=".xlsx" class="d-none" data-cg-file-new>
+                    </label>
+                    <span class="small text-body-secondary" data-cg-file-name></span>
+                </div>
+                <p class="form-text mb-0">
+                    Colonnes « Nom » et « Adresse ».
+                    <a href="/admin/listes-de-diffusion/contact-groups/template" data-cg-template>Télécharger un modèle vide</a>
+                </p>
+            </div>
+
+            {# An existing group: its contacts, read-only, then the round trip. #}
+            <div class="d-none" data-cg-existing>
+                <p class="small text-body-secondary mb-2" data-cg-count></p>
+
+                <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+                    <input type="search" class="form-control form-control-sm" style="max-width:16rem;"
+                           data-cg-search placeholder="Rechercher un nom ou une adresse"
+                           aria-label="Rechercher dans ce groupe">
+                    <div class="form-check form-switch mb-0">
+                        <input class="form-check-input" type="checkbox" id="mm-cg-unsub-only" data-cg-unsubscribed-only>
+                        <label class="form-check-label small" for="mm-cg-unsub-only">Désinscrites seulement</label>
+                    </div>
+                </div>
+
+                <ul class="list-group list-group-flush mb-2" data-cg-rows></ul>
+                <p class="text-body-secondary small mb-2 d-none" data-cg-empty>Aucun contact ne correspond.</p>
+                <button type="button" class="btn btn-sm btn-outline-secondary d-none mb-2" data-cg-more>Afficher plus</button>
+
+                <div class="d-flex flex-wrap gap-2 align-items-center">
+                    <a class="btn btn-sm btn-outline-secondary" data-cg-export href="#">Exporter en Excel</a>
+                    <label class="btn btn-sm btn-outline-secondary mb-0">
+                        Choisir un fichier corrigé
+                        <input type="file" accept=".xlsx" class="d-none" data-cg-file-existing>
+                    </label>
+                </div>
+                <p class="form-text mb-0">
+                    Le fichier remplacera tous les contacts de ce groupe. Les adresses désinscrites sont conservées
+                    et restent exclues des envois.
+                </p>
+            </div>
+
+            {# What the chosen file WOULD do. Nothing is written yet. #}
+            <div class="alert alert-warning mt-3 mb-0 d-none" data-cg-preview>
+                <p class="mb-1 fw-semibold" data-cg-summary></p>
+                <ul class="small mb-0 d-none" data-cg-line-errors></ul>
+            </div>
+        </div>
+    {% endblock %}
+    {% block footer %}
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Annuler</button>
+        <button type="button" class="btn btn-sm btn-primary" data-cg-save disabled>Enregistrer</button>
+    {% endblock %}
+{% endembed %}

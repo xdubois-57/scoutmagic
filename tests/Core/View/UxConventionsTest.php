@@ -700,6 +700,11 @@ final class UxConventionsTest extends TestCase
         // from their tracking page (#708, IT-16) — a PDF, no page.
         '/locations/suivi/{id}/{token}/contrat-signe.pdf',
         '/locations/{slug}/apercu',
+        // The contact group dialog's JSON contacts, and its two XLSX
+        // downloads — the group's file and the empty template.
+        '/admin/listes-de-diffusion/contact-groups/{id}/contacts',
+        '/admin/listes-de-diffusion/contact-groups/{id}/export',
+        '/admin/listes-de-diffusion/contact-groups/template',
         '/mass-mail/audiences/{id}',
         '/mass-mail/{id}/merge-preview',
         // How many people the send would reach, asked from the send

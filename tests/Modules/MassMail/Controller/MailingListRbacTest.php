@@ -20,6 +20,7 @@ use Core\Module\ModuleManifest;
 use Core\ScoutYear\ScoutYearResolver;
 use Core\Security\AuthSession;
 use Core\Security\EncryptionService;
+use Modules\MassMail\Controller\ContactGroupController;
 use Modules\MassMail\Controller\MailingListController;
 use Modules\MassMail\Repository\MailingListRepository;
 use Modules\MassMail\Repository\MemberResolutionRepository;
@@ -51,6 +52,7 @@ class MailingListRbacTest extends TestCase
     private \PDO $pdo;
     private Environment $twig;
     private MailingListController $controller;
+    private ContactGroupController $contactGroupController;
     private int $accountId;
 
     protected function setUp(): void
@@ -95,6 +97,26 @@ class MailingListRbacTest extends TestCase
             )
         );
 
+        $blockRepository = new \Modules\MassMail\Repository\ListBlockRepository($this->pdo);
+        $contactRepository = new \Modules\MassMail\Repository\ContactRepository($this->pdo, $encryption);
+        $blockService = new \Modules\MassMail\Service\ListBlockService(
+            $blockRepository,
+            $contactRepository,
+            new MailingListRepository($this->pdo),
+            $this->createStub(\Core\Journal\JournalService::class)
+        );
+        $this->contactGroupController = new ContactGroupController(
+            $this->twig,
+            $blockService,
+            new \Modules\MassMail\Service\ContactGroupImportService(
+                $blockRepository,
+                $contactRepository,
+                $blockService,
+                new SettingService(new SettingRepository($this->pdo)),
+                $this->createStub(\Core\Journal\JournalService::class)
+            )
+        );
+
         if (session_status() === PHP_SESSION_NONE) {
             session_start();
         }
@@ -110,7 +132,7 @@ class MailingListRbacTest extends TestCase
      * read from `module.json` itself so a route added later arrives with
      * its own coverage or not at all.
      *
-     * @return array<string, array{string, string, string, string}> method, path, action, role_min
+     * @return array<string, array{string, string, string, string, string}> method, path, controller, action, role_min
      */
     public static function mailingListRouteProvider(): array
     {
@@ -124,6 +146,7 @@ class MailingListRbacTest extends TestCase
             $cases["{$route['method']} {$route['path']}"] = [
                 $route['method'],
                 $route['path'],
+                $route['controller'],
                 $route['action'],
                 $route['role_min'],
             ];
@@ -136,6 +159,7 @@ class MailingListRbacTest extends TestCase
     public function testEveryMailingListRouteOpensAtItsDeclaredFloor(
         string $method,
         string $path,
+        string $controller,
         string $action,
         string $roleMin
     ): void {
@@ -143,7 +167,7 @@ class MailingListRbacTest extends TestCase
 
         AuthSession::login($this->accountId, 'cu@test.com', $roleMin);
 
-        $response = $this->frontController($method, $path, $action, $roleMin)
+        $response = $this->frontController($method, $path, $controller, $action, $roleMin)
             ->handle(new Request($method, str_replace('{id}', '1', $path), [], [], [], []));
 
         $this->assertNotSame(
@@ -157,6 +181,7 @@ class MailingListRbacTest extends TestCase
     public function testEveryMailingListRouteRefusesTheRoleBelowItsFloor(
         string $method,
         string $path,
+        string $controller,
         string $action,
         string $roleMin
     ): void {
@@ -164,7 +189,7 @@ class MailingListRbacTest extends TestCase
         // a section but does not decide who the unit writes to.
         AuthSession::login($this->accountId, 'chef@test.com', 'chief');
 
-        $response = $this->frontController($method, $path, $action, $roleMin)
+        $response = $this->frontController($method, $path, $controller, $action, $roleMin)
             ->handle(new Request($method, str_replace('{id}', '1', $path), [], [], [], []));
 
         $this->assertSame(403, $response->getStatusCode());
@@ -183,16 +208,22 @@ class MailingListRbacTest extends TestCase
         }
     }
 
-    private function frontController(string $method, string $path, string $action, string $roleMin): FrontController
-    {
+    private function frontController(
+        string $method,
+        string $path,
+        string $controller,
+        string $action,
+        string $roleMin
+    ): FrontController {
         $router = new Router();
-        $router->addRoute($method, $path, MailingListController::class, $action, $roleMin);
+        $router->addRoute($method, $path, $controller, $action, $roleMin);
 
         $configFile = sys_get_temp_dir() . '/test_mass_mail_lists_config_' . uniqid() . '.php';
         file_put_contents($configFile, "<?php\nreturn ['site_name' => 'Test', 'debug' => false];");
 
         $frontController = new FrontController($router, $this->twig, new AppConfig($configFile));
         $frontController->registerController(MailingListController::class, $this->controller);
+        $frontController->registerController(ContactGroupController::class, $this->contactGroupController);
 
         return $frontController;
     }

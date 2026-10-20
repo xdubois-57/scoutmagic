@@ -42,6 +42,9 @@
     "/admin/import/{id}": {
       "id": "1"
     },
+    "/admin/listes-de-diffusion/contact-groups/{id}": {
+      "id": "1"
+    },
     "/admin/listes-de-diffusion/lists/{id}": {
       "id": "1"
     },
