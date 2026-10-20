@@ -13,6 +13,7 @@ use Core\Badge\BadgeService;
 use Core\Config\ScoutYearService;
 use Core\Config\SettingService;
 use Core\Import\FunctionRepository;
+use Core\Member\MemberEmailService;
 use Core\Member\MemberService;
 use Core\Member\SectionService;
 use Core\ScoutYear\ScoutYearResolver;
@@ -100,7 +101,16 @@ class MailingListService
          * it, and without it the rows simply carry no name — the address
          * still says who they are.
          */
-        private ?MemberService $memberService = null
+        private ?MemberService $memberService = null,
+        /**
+         * The addresses a member has beside Desk. Read only by the two
+         * methods that say who the list's page reaches — summariseList()'s
+         * total and listRecipients() — for a member with no usable Desk
+         * address, whom the send still writes to at a personal one
+         * (MassMailService::freezeListRecipients()). Null leaves such a
+         * member out of both, as if they had no address at all.
+         */
+        private ?MemberEmailService $memberEmailService = null
     ) {
     }
 
@@ -1092,15 +1102,16 @@ class MailingListService
 
     /**
      * How many people a custom list writes to for one scout year — the
-     * send's own number (resolveMembersForYears() for that single year),
-     * which the page of the lists prints as « ≈ N destinataires » on every
-     * card and the page of one list as its total.
+     * people the send reaches (resolveReachable() for that single year,
+     * exactly the rows of listRecipients()), which the page of the lists
+     * prints as « ≈ N destinataires » on every card and the page of one
+     * list as its total.
      *
      * @throws MailingListException on an unknown list
      */
     public function countRecipients(int $listId, int $scoutYearId): int
     {
-        return count($this->resolveMembersForYears('custom', $listId, null, [$scoutYearId]));
+        return count($this->resolveReachable($listId, $scoutYearId));
     }
 
     /**
@@ -1108,9 +1119,12 @@ class MailingListService
      * page shows: the total, the split between members and contacts, and
      * one count per block.
      *
-     * `total` is the send's own number: resolveMembersForYears() for that
-     * single year, so the page and the email's « ≈ N destinataires » can
-     * never disagree. `members` is the member groups' union, deduplicated
+     * `total` is who the send reaches for that single year: exactly the
+     * rows listRecipients() returns, so the number the page shows and the
+     * list behind « Voir les destinataires » can never disagree — a
+     * member with no usable address at all is not in it, one without a
+     * Desk address but with a valid personal one is. `members` is the
+     * member groups' union, deduplicated
      * the same way (two siblings on one family address are ONE); a
      * member without an address still counts, as everywhere else this
      * module counts members. `contacts` counts the distinct contacts of
@@ -1168,9 +1182,11 @@ class MailingListService
      *
      * Resolved and deduplicated exactly as the send resolves the list
      * (resolveMembersForYears() for that year), and then narrowed to
-     * those who would actually receive something: a member without an
-     * address is left out, and an unsubscribed contact never left the
-     * repository. Each row names every block that brings the person — a
+     * those it would actually write to (resolveReachable()): a member
+     * without a usable Desk address is shown at their first valid
+     * personal address, and left out only when they have none; an
+     * unsubscribed contact never left the repository. Each row names
+     * every block that brings the person — a
      * member matched by two member groups, a contact carried by two
      * contact groups, or a contact who is also a member's address, which
      * then shows the member with both kinds of block.
@@ -1210,7 +1226,7 @@ class MailingListService
         // it is credited with the groups that designated either.
         $memberBlocksByAddress = [];
         foreach ($memberGroups['members'] as $member) {
-            if ($member['email'] === null) {
+            if ($member['email'] === null || trim($member['email']) === '') {
                 continue;
             }
             $key = mb_strtolower(trim($member['email']));
@@ -1219,10 +1235,7 @@ class MailingListService
             }
         }
 
-        $resolved = array_values(array_filter(
-            $this->resolveMembersForYears('custom', $listId, null, [$scoutYearId]),
-            static fn(array $r): bool => $r['email'] !== null && trim($r['email']) !== ''
-        ));
+        $resolved = $this->resolveReachable($listId, $scoutYearId);
 
         $memberIds = array_values(array_filter(array_column($resolved, 'member_id')));
         $fullNames = $memberIds !== [] ? ($this->memberService?->findNamesForMembers($memberIds) ?? []) : [];
@@ -1232,12 +1245,21 @@ class MailingListService
 
         $rows = [];
         foreach ($resolved as $recipient) {
-            $email = (string) $recipient['email'];
+            $email = $recipient['email'];
             $key = mb_strtolower(trim($email));
             $memberId = $recipient['member_id'];
 
-            $blockIds = $memberId !== null ? ($memberBlocksByAddress[$key] ?? []) : [];
-            $blockIds = [...$blockIds, ...($blocksByAddress[$key] ?? [])];
+            // A member is credited by id first — one without a Desk address
+            // has no address to be found under — then by every address the
+            // send writes them at, which is where a contact group they are
+            // also in, or a sibling dropped on the shared address, is found.
+            $blockIds = $memberId !== null ? ($memberGroups['blocks_by_member'][$memberId] ?? []) : [];
+            foreach ($recipient['address_keys'] as $addressKey) {
+                if ($memberId !== null) {
+                    $blockIds = [...$blockIds, ...($memberBlocksByAddress[$addressKey] ?? [])];
+                }
+                $blockIds = [...$blockIds, ...($blocksByAddress[$addressKey] ?? [])];
+            }
 
             $rows[] = [
                 'member_id' => $memberId,
@@ -1248,11 +1270,75 @@ class MailingListService
             ];
         }
 
-        usort($rows, static fn(array $a, array $b): int =>
-            [mb_strtolower($a['name'] ?? ''), mb_strtolower($a['email'])]
-            <=> [mb_strtolower($b['name'] ?? ''), mb_strtolower($b['email'])]);
+        usort(
+            $rows,
+            static fn(array $a, array $b): int =>
+                [mb_strtolower($a['name'] ?? ''), mb_strtolower($a['email'])]
+                <=> [mb_strtolower($b['name'] ?? ''), mb_strtolower($b['email'])]
+        );
 
         return $rows;
+    }
+
+    /**
+     * Who a send to this list for this one year writes to — the
+     * resolution resolveMembersForYears() gives it, narrowed the way
+     * MassMailService::freezeListRecipients() narrows it, so that
+     * summariseList()'s total and listRecipients() count the same people
+     * as the send reaches.
+     *
+     * A member with a valid Desk address is shown at it. One without is
+     * still written to at their valid personal addresses
+     * (MemberEmailService::resolveValidAddressesForMassMail(), asked with
+     * no Desk address, so nothing is created), and shown at the first of
+     * them; with none, they receive nothing and are left out. A contact
+     * equal to one of those personal addresses is the member's row, not a
+     * second one — the freeze skips an address already written. A
+     * member's bounce-blocked Desk address is not looked at: like the
+     * counter, this sees the Desk address as Desk gives it.
+     *
+     * `address_keys` are the normalised addresses the row stands for, the
+     * ones its blocks are found under.
+     *
+     * @return array<int, array{member_id: ?int, email: string, address_keys: string[]}>
+     * @throws MailingListException on an unknown list
+     */
+    private function resolveReachable(int $listId, int $scoutYearId): array
+    {
+        $reachable = [];
+        $personalAddresses = [];
+
+        foreach ($this->resolveMembersForYears('custom', $listId, null, [$scoutYearId]) as $recipient) {
+            $email = (string) $recipient['email'];
+            $key = mb_strtolower(trim($email));
+            $memberId = $recipient['member_id'];
+
+            if ($memberId === null) {
+                if (!isset($personalAddresses[$key])) {
+                    $reachable[] = ['member_id' => null, 'email' => $email, 'address_keys' => [$key]];
+                }
+                continue;
+            }
+
+            if (filter_var($email, FILTER_VALIDATE_EMAIL) !== false) {
+                $reachable[] = ['member_id' => $memberId, 'email' => $email, 'address_keys' => [$key]];
+                continue;
+            }
+
+            $addresses = $this->memberEmailService?->resolveValidAddressesForMassMail($memberId, null) ?? [];
+            if ($addresses === []) {
+                continue;
+            }
+
+            $keys = [];
+            foreach ($addresses as $address) {
+                $keys[] = mb_strtolower(trim($address->email));
+            }
+            $personalAddresses += array_fill_keys($keys, true);
+            $reachable[] = ['member_id' => $memberId, 'email' => $addresses[0]->email, 'address_keys' => $keys];
+        }
+
+        return $reachable;
     }
 
     /**

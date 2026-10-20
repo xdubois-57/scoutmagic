@@ -440,6 +440,77 @@ class ContactGroupImportServiceTest extends TestCase
         );
     }
 
+    /**
+     * A line born unsubscribed is not an address added: the preview the
+     * chief confirms and the summary the save returns (and journals) both
+     * count it among the unsubscribed — and say the same thing.
+     */
+    public function testASuppressedLineIsCountedAsUnsubscribedByThePreviewAndTheSave(): void
+    {
+        $this->repository->create($this->blockId, 'Reste', 'reste@test.be');
+        $this->suppressedRepository->suppress('cure@paroisse.be');
+        $path = $this->spreadsheet([
+            ['Nom', 'Adresse'],
+            ['Reste', 'reste@test.be'],
+            ['Commune', 'jeunesse@wavre.be'],
+            ['Curé', 'CURE@paroisse.be'],
+        ]);
+        $expected = ['added' => 1, 'unchanged' => 1, 'removed' => 0, 'kept_unsubscribed' => 1];
+
+        $preview = $this->service->analyse($this->blockId, $path);
+        $this->assertSame($expected, $preview->summary);
+
+        $this->assertSame($expected, $this->service->apply($this->blockId, $preview->contacts, null));
+        $this->assertSame(['total' => 3, 'unsubscribed' => 1], $this->repository->countForBlock($this->blockId));
+    }
+
+    /**
+     * A group not created yet holds nothing, so a suppressed line in its
+     * file is counted the same way.
+     */
+    public function testASuppressedLineInTheFileOfANewGroupIsNotCountedAsAdded(): void
+    {
+        $this->suppressedRepository->suppress('cure@paroisse.be');
+        $path = $this->spreadsheet([
+            ['Nom', 'Adresse'],
+            ['Commune', 'jeunesse@wavre.be'],
+            ['Curé', 'cure@paroisse.be'],
+        ]);
+
+        $this->assertSame(
+            ['added' => 1, 'unchanged' => 0, 'removed' => 0, 'kept_unsubscribed' => 1],
+            $this->service->analyse(null, $path)->summary
+        );
+    }
+
+    /**
+     * The flag goes through ListBlockService, which journals it, and stays
+     * the global unsubscribe: any other group still holding the address
+     * active is flagged with it.
+     */
+    public function testTheSuppressionPassIsJournalledAndReachesEveryGroup(): void
+    {
+        $journal = $this->createMock(JournalService::class);
+        $journal->expects($this->once())
+            ->method('log')
+            ->with('mass_mail', 'list_contact_unsubscribed', 'info', $this->anything(), ['rows' => 2]);
+        $service = new ContactGroupImportService(
+            $this->blocks,
+            $this->repository,
+            new ListBlockService($this->blocks, $this->repository, new MailingListRepository($this->pdo), $journal),
+            $this->settings,
+            $this->createStub(JournalService::class),
+            $this->suppressedRepository
+        );
+        $other = $this->blocks->create($this->listId, ListBlock::KIND_CONTACT_GROUP, 'Autres', null);
+        $this->repository->create($other, 'Curé', 'cure@paroisse.be');
+        $this->suppressedRepository->suppress('cure@paroisse.be');
+
+        $service->apply($this->blockId, [['name' => 'Curé', 'email' => 'cure@paroisse.be']], null);
+
+        $this->assertSame(['total' => 1, 'unsubscribed' => 1], $this->repository->countForBlock($other));
+    }
+
     public function testApplyingCorrectsANameWithoutDuplicatingTheRow(): void
     {
         $this->repository->create($this->blockId, 'Commune', 'jeunesse@wavre.be');
