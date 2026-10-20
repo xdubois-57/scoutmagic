@@ -814,6 +814,37 @@ if [[ "${PLAYWRIGHT_EXIT}" -ne 0 ]]; then
     tail -40 "${SERVER_LOG}" | dast_redact >&2 || true
     echo "--- PHP error log, last 40 lines ---" >&2
     tail -40 "${INSTANCE_DIR}/php-error.log" | dast_redact >&2 || true
+    # The browser never talks to the terminator: it talks to ZAP, and ZAP
+    # is the hop that can drop a browser connection without an answer (an
+    # exception in one of its handlers, a request it cannot parse). Every
+    # upstream failure, by contrast, reaches the browser as a 502 or is
+    # retried by ZAP itself — so a « net::ERR_EMPTY_RESPONSE » under a
+    # silent terminator journal is answered here. (« net::ERR_TOO_MANY_RETRIES »
+    # was the browser itself, restarting requests over ZAP's untrusted
+    # certificate: see launchArguments() in tests/e2e/playwright.config.js.)
+    # `certificate_unknown` is Chromium refusing
+    # ZAP's CA before ignoreHTTPSErrors lets the connection through, once
+    # per new connection: routine, and a thousand lines of it would bury
+    # the one that matters. A logged exception's stack trace follows its
+    # WARN/ERROR line with no level of its own, so lines that do not open
+    # a new log entry stay with the entry they belong to (at most 20 per
+    # entry). And the container runs with --rm: if ZAP itself died, there
+    # is no log left to read, which must not look like a quiet ZAP.
+    echo "--- ZAP warnings and errors, last 80 lines ---" >&2
+    if ZAP_LOG_DUMP="$(docker logs "${ZAP_CONTAINER}" 2>&1)"; then
+        printf '%s\n' "${ZAP_LOG_DUMP}" | awk '
+            /^([0-9]+|[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] [0-9:,]+) \[/ {
+                keep = ($0 ~ / (WARN|ERROR) / && index($0, "certificate_unknown") == 0)
+                extra = 0
+                if (keep) print
+                next
+            }
+            keep && extra < 20 { print; extra++ }
+        ' | tail -80 | dast_redact >&2 || true
+    else
+        echo "(docker logs failed: with --rm, ZAP's container is gone, so ZAP exited before the suite ended)" >&2
+        printf '%s\n' "${ZAP_LOG_DUMP}" | tail -5 >&2 || true
+    fi
 fi
 
 touch "${RELEASE_FILE_HOST}"

@@ -313,6 +313,16 @@ start, so past the fifth replay — or past 4 h of an `audit` run — each repla
 would only meet the barrier. The passive profile and `scripts/e2e.sh` keep
 the production values.
 
+The browser under the scan accepts ZAP's certificate during the TLS
+handshake (`--ignore-certificate-errors`, added by
+`tests/e2e/playwright.config.js` from the same `E2E_IGNORE_HTTPS_ERRORS`
+that turns on `ignoreHTTPSErrors`), not only request by request. Without
+it a navigation started while assets were loading could fail with
+`net::ERR_TOO_MANY_RETRIES`, which reads as a broken scenario and is a
+harness defect; docs/developpement.md § Analyse de sécurité dynamique has
+the mechanism, and `tests/js/playwright-config.test.js` holds the flag in
+both directions.
+
 Both need Docker and a pulled `ghcr.io/zaproxy/zaproxy:stable`;
 `scripts/dast.sh` refuses to download a missing image and exits before
 scanning, so a missing prerequisite looks nothing like the failure you came
