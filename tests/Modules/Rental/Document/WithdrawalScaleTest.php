@@ -75,6 +75,26 @@ final class WithdrawalScaleTest extends TestCase
         );
     }
 
+    /** One month before the 31st of a month is the last day of the shorter month, never an overflow. */
+    public function testOneMonthBeforeClampsToTheEndOfAShorterMonth(): void
+    {
+        $this->assertStringEndsWith(
+            'au 28/02/2027 inclus, cinquante pour cent du prix de la location ; '
+                . 'à partir du 01/03/2027, soixante-quinze pour cent du prix de la location.',
+            self::scale('2027-03-31', 90, '2026-10-01')->scaleSentence()
+        );
+        $this->assertStringEndsWith(
+            'au 29/02/2028 inclus, cinquante pour cent du prix de la location ; '
+                . 'à partir du 01/03/2028, soixante-quinze pour cent du prix de la location.',
+            self::scale('2028-03-30', 90, '2027-10-01')->scaleSentence()
+        );
+        $this->assertStringEndsWith(
+            'au 30/06/2027 inclus, cinquante pour cent du prix de la location ; '
+                . 'à partir du 01/07/2027, soixante-quinze pour cent du prix de la location.',
+            self::scale('2027-07-31', 90, '2027-01-01')->scaleSentence()
+        );
+    }
+
     /** Booked after the deadline: the contract says the free period does not apply, and prints no past date. */
     public function testAPastDeadlineIsNeverOffered(): void
     {

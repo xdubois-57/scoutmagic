@@ -74,7 +74,7 @@ final class WithdrawalScale
         // The first day an indemnity can be owed: the day after the free
         // period, or — without one — today.
         $owedFrom = $free !== null ? $free->modify('+1 day') : $today;
-        $lastHalfDay = $arrival->modify('-1 month');
+        $lastHalfDay = self::oneMonthBefore($arrival);
 
         $half = $owedFrom <= $lastHalfDay
             ? [$free !== null ? $owedFrom->format('Y-m-d') : null, $lastHalfDay->format('Y-m-d')]
@@ -122,6 +122,18 @@ final class WithdrawalScale
             . 'soixante-quinze pour cent du prix de la location';
 
         return implode(' ; ', $parts) . '.';
+    }
+
+    /**
+     * The same day of the previous month, clamped to that month's last day:
+     * `modify('-1 month')` would turn 31 March into 3 March.
+     */
+    private static function oneMonthBefore(\DateTimeImmutable $date): \DateTimeImmutable
+    {
+        $previous = $date->modify('first day of last month');
+        $day = min((int) $date->format('j'), (int) $previous->format('t'));
+
+        return $previous->setDate((int) $previous->format('Y'), (int) $previous->format('n'), $day);
     }
 
     private static function french(string $isoDate): string
