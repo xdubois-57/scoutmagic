@@ -19,6 +19,11 @@
  * The validation's question counts the lines still empty AS THEY ARE NOW —
  * the count the page was rendered with is stale the moment a line is
  * typed.
+ *
+ * « Trancher » an incident (#980) shows the fields of the choice picked —
+ * « En attente de… » and « Référence » under assessment, the amount to
+ * bill, the reason for not billing — and hides the others, which still post
+ * what they hold.
  */
 
 /**
@@ -50,6 +55,23 @@ export function countUnchecked(root) {
     });
 
     return count;
+}
+
+/**
+ * Shows, in one incident's « Trancher » form, the fields that serve the
+ * choice now checked (`data-incident-field` lists the values they serve),
+ * and hides the rest.
+ *
+ * @param {HTMLFormElement} form
+ * @returns {void}
+ */
+export function showIncidentFields(form) {
+    const checked = /** @type {HTMLInputElement|null} */ (form.querySelector('input[name="decision"]:checked'));
+    const choice = checked ? checked.value : '';
+    form.querySelectorAll('[data-incident-field]').forEach((element) => {
+        const field = /** @type {HTMLElement} */ (element);
+        field.hidden = !(field.dataset.incidentField || '').split(' ').includes(choice);
+    });
 }
 
 /**
@@ -177,9 +199,15 @@ export function wire(doc) {
     });
 
     doc.addEventListener('change', (event) => {
-        const form = /** @type {HTMLElement} */ (event.target).closest?.('form[data-inventory-line]');
+        const target = /** @type {HTMLElement} */ (event.target);
+        const form = target.closest?.('form[data-inventory-line]');
         if (form) {
             void saveLine(/** @type {HTMLFormElement} */ (form));
+            return;
+        }
+        const decision = target.closest?.('form[data-incident-decision]');
+        if (decision && target.matches('input[name="decision"]')) {
+            showIncidentFields(/** @type {HTMLFormElement} */ (decision));
         }
     });
 

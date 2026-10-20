@@ -64,8 +64,8 @@ Voir « Le courrier des locations ».
 La page « État des lieux » d'une réservation consigne ce qu'on constate
 à l'entrée et à la sortie, les relevés de compteurs et les incidents ;
 voir « L'état des lieux d'une réservation ». Un incident ne se facture
-jamais sans qu'un gestionnaire tranche : ajouter au décompte, retenir sur
-la caution, ou ne pas facturer. Le décompte final et la facture se
+jamais sans qu'un gestionnaire tranche : en cours d'évaluation, facturer,
+ou ne pas facturer. Le décompte final et la facture se
 font ensuite sur la page « Facture » ; voir « La facture d'une
 réservation ».
 

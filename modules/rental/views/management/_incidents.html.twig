@@ -1,9 +1,14 @@
 {#
   Incidents and damage (§6.23), on the « État des lieux » page since #708
   (IT-17): observed during the stay — description, estimated amount, photo
-  — until the departure inventory is validated; decided — added to the
-  settlement, withheld from the security deposit, not billed — at any time,
-  since deciding is about billing, not about what was seen.
+  — until the departure inventory is validated; decided at any time, since
+  deciding is about billing, not about what was seen. Three states (#980):
+  under assessment, billed, not billed, each choice saying what it does.
+
+  The fields that belong to one choice carry `data-incident-field` (the
+  values they serve, space-separated) and start hidden unless they serve
+  the current state; rental-inventory.js shows them as the choice changes.
+  Hidden fields still post, so switching back and forth loses nothing.
 
   Requires `incidents`, `incident_decisions`, `incidents_open`, `asset` and
   `booking`.
@@ -12,10 +17,10 @@
             <div class="card-body">
                 <h2 class="h5 mb-2">Incidents et dégâts</h2>
                 <p class="text-body-secondary small">
-                    Rien n'est facturé automatiquement. Vous constatez, puis vous décidez : ajouter au
-                    décompte, retenir sur la caution, ou ne pas facturer. Tant que rien n'est tranché,
-                    aucun montant n'est demandé au locataire ; le PDF de l'état des lieux de sortie
-                    liste ce qui a été constaté, sans montant.
+                    Rien n'est facturé automatiquement. Vous constatez, puis vous tranchez : en cours
+                    d'évaluation, facturer, ou ne pas facturer. Tant que rien n'est facturé, aucun montant
+                    n'est demandé au locataire ; le PDF de l'état des lieux de sortie liste ce qui a été
+                    constaté, sans montant.
                 </p>
 
                 {% if incidents is empty %}
@@ -26,15 +31,33 @@
                 {% else %}
                     <ul class="list-unstyled">
                         {% for incident in incidents %}
-                            <li class="border-bottom py-2">
+                            {% set current = incident.decision.value %}
+                            <li class="border-bottom py-2" id="incident-{{ incident.id }}">
                                 <div class="d-flex justify-content-between align-items-start gap-2">
                                     <span>
                                         {{ incident.description }}
                                         {% if incident.fileId %}
                                             <a href="{{ file_url(incident.fileId) }}" class="small d-block">Photo</a>
                                         {% endif %}
+                                        {% if incident.awaiting or incident.reference %}
+                                            <span class="small text-body-secondary d-block">
+                                                {% if incident.awaiting %}
+                                                    En attente de : {{ incident.awaiting }}
+                                                {% endif %}
+                                                {% if incident.awaiting and incident.reference %} · {% endif %}
+                                                {% if incident.reference %}
+                                                    Référence : {{ incident.reference }}
+                                                {% endif %}
+                                            </span>
+                                        {% endif %}
+                                        {% if incident.waiveReason %}
+                                            <span class="small text-body-secondary d-block">
+                                                Motif : {{ incident.waiveReason }}
+                                            </span>
+                                        {% endif %}
                                     </span>
                                     <span class="text-end">
+                                        <span class="visually-hidden">État actuel :</span>
                                         {% include 'partials/status_badge.html.twig' with {
                                             status: incident.isDecided ? 'closed' : 'pending',
                                             label: incident.decision.label,
@@ -46,35 +69,82 @@
                                         {% endif %}
                                     </span>
                                 </div>
-                                <form method="post" action="/mes-locations/incident-decision"
-                                      class="row g-1 align-items-end mt-2">
+                                <form method="post" action="/mes-locations/incident-decision" class="mt-2"
+                                      data-incident-decision>
                                     {{ csrf_field()|raw }}
                                     <input type="hidden" name="asset_id" value="{{ asset.id }}">
                                     <input type="hidden" name="booking_id" value="{{ booking.id }}">
                                     <input type="hidden" name="booking_page" value="inventory">
                                     <input type="hidden" name="incident_id" value="{{ incident.id }}">
-                                    <div class="col-12 col-md-5">
-                                        <label class="visually-hidden" for="decision-{{ incident.id }}">Décision</label>
-                                        <select class="form-select form-select-sm" name="decision"
-                                                id="decision-{{ incident.id }}">
-                                            {% for option in incident_decisions %}
-                                                <option value="{{ option.value }}"
-                                                        {{ incident.decision.value == option.value ? 'selected' : '' }}>
+                                    <fieldset class="mb-2">
+                                        <legend class="small fw-semibold mb-1">Décision</legend>
+                                        {% for option in incident_decisions %}
+                                            {% set choice_id = 'decision-' ~ incident.id ~ '-' ~ option.value %}
+                                            <div class="form-check">
+                                                <input class="form-check-input" type="radio" name="decision"
+                                                       id="{{ choice_id }}" value="{{ option.value }}"
+                                                       aria-describedby="{{ choice_id }}-help"
+                                                       {{ current == option.value ? 'checked' : '' }}>
+                                                <label class="form-check-label" for="{{ choice_id }}">
                                                     {{ option.label }}
-                                                </option>
-                                            {% endfor %}
-                                        </select>
-                                    </div>
-                                    <div class="col-7 col-md-4">
-                                        <label class="visually-hidden" for="amount-{{ incident.id }}">Montant</label>
-                                        <input type="text" inputmode="decimal" class="form-control form-control-sm"
-                                               id="amount-{{ incident.id }}" name="amount"
-                                               placeholder="Montant (€)"
-                                               value="{{ incident.effectiveAmountCents
-                                                   ? (incident.effectiveAmountCents / 100)|number_format(2, ',', '') : '' }}">
-                                    </div>
-                                    <div class="col-5 col-md-3">
-                                        <button type="submit" class="btn btn-sm btn-outline-secondary w-100">Trancher</button>
+                                                    {% if current == option.value %}
+                                                        <span class="text-body-secondary small">(état actuel)</span>
+                                                    {% endif %}
+                                                </label>
+                                                <div class="form-text mt-0" id="{{ choice_id }}-help">
+                                                    {{ option.consequence }}
+                                                </div>
+                                            </div>
+                                        {% endfor %}
+                                    </fieldset>
+                                    <div class="row g-2 align-items-end">
+                                        <div class="col-12 col-md-5" data-incident-field="pending"
+                                             {{ current != 'pending' ? 'hidden' : '' }}>
+                                            <label class="form-label small mb-0" for="awaiting-{{ incident.id }}">
+                                                En attente de…
+                                            </label>
+                                            <input type="text" class="form-control form-control-sm"
+                                                   id="awaiting-{{ incident.id }}" name="awaiting" maxlength="200"
+                                                   placeholder="Devis, expertise, assurance du locataire"
+                                                   value="{{ incident.awaiting }}">
+                                        </div>
+                                        <div class="col-12 col-md-4" data-incident-field="pending"
+                                             {{ current != 'pending' ? 'hidden' : '' }}>
+                                            <label class="form-label small mb-0" for="reference-{{ incident.id }}">
+                                                Référence
+                                            </label>
+                                            <input type="text" class="form-control form-control-sm"
+                                                   id="reference-{{ incident.id }}" name="reference" maxlength="100"
+                                                   placeholder="N° de dossier"
+                                                   value="{{ incident.reference }}">
+                                        </div>
+                                        <div class="col-7 col-md-3" data-incident-field="pending charge"
+                                             {{ current == 'waive' ? 'hidden' : '' }}>
+                                            <label class="form-label small mb-0" for="amount-{{ incident.id }}">
+                                                Montant (€)
+                                            </label>
+                                            <input type="text" inputmode="decimal" class="form-control form-control-sm"
+                                                   id="amount-{{ incident.id }}" name="amount"
+                                                   value="{{ incident.effectiveAmountCents
+                                                       ? (incident.effectiveAmountCents / 100)|number_format(2, ',', '')
+                                                       : '' }}">
+                                        </div>
+                                        <div class="col-12 col-md-9" data-incident-field="waive"
+                                             {{ current != 'waive' ? 'hidden' : '' }}>
+                                            <label class="form-label small mb-0" for="waive-reason-{{ incident.id }}">
+                                                Motif
+                                            </label>
+                                            <input type="text" class="form-control form-control-sm"
+                                                   id="waive-reason-{{ incident.id }}" name="waive_reason"
+                                                   maxlength="500"
+                                                   placeholder="Facultatif, jamais montré au locataire"
+                                                   value="{{ incident.waiveReason }}">
+                                        </div>
+                                        <div class="col-5 col-md-3">
+                                            <button type="submit" class="btn btn-sm btn-outline-secondary w-100">
+                                                Trancher
+                                            </button>
+                                        </div>
                                     </div>
                                 </form>
                             </li>

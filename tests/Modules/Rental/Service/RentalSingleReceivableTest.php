@@ -488,14 +488,14 @@ class RentalSingleReceivableTest extends TestCase
         $this->assertSame(66800, $this->reload($booking->id)->effectiveTotalCents());
     }
 
-    public function testAValidatedSettlementWithAWithholdingAndAGestureKeepsTheirAmount(): void
+    public function testAValidatedSettlementWithAChargedDamageAndAGestureKeepsTheirAmount(): void
     {
-        // 668 € + 150 € paid. 34 € withheld from the deposit, 80 € of
-        // goodwill: the unit keeps 668 − 80 + 34 = 622 €, and owes 196 €.
+        // 668 € + 150 € paid. 34 € of damage charged, 80 € of goodwill: the
+        // unit keeps 668 + 34 − 80 = 622 €, and owes 196 €.
         $booking = $this->createBooking();
         $this->pay($this->firstContract($booking), 818.00);
         $incident = $this->stay->reportIncident($this->reload($booking->id), 'Vitre fêlée', 3400, null, 1);
-        $this->stay->decideIncident($this->reload($booking->id), $incident, IncidentDecision::WITHHOLD, 3400, 1);
+        $this->stay->decideIncident($this->reload($booking->id), $incident, IncidentDecision::CHARGE, 3400, 1);
         $gesture = SettlementLine::gesture(null, 8000);
         $this->assertNotNull($gesture);
 
@@ -510,6 +510,53 @@ class RentalSingleReceivableTest extends TestCase
         $this->assertSame(19600, $status['overpaid_cents']);
         // The agreed price stays the witness of what was negotiated.
         $this->assertSame(66800, $this->reload($booking->id)->effectiveTotalCents());
+    }
+
+    public function testADamageDearerThanTheDepositLeavesABalanceDueOnTheSameCommunication(): void
+    {
+        // 668 € + 150 € paid, 800 € of damage charged (#980): the
+        // receivable is brought to 1 468 €, the deposit is kept whole, and
+        // 650 € remain due — on the one communication, with its QR.
+        $booking = $this->createBooking();
+        $communication = $this->firstContract($booking);
+        $this->pay($communication, 818.00);
+        $incident = $this->stay->reportIncident($this->reload($booking->id), 'Châssis brisé', 80000, null, 1);
+        $this->stay->decideIncident($this->reload($booking->id), $incident, IncidentDecision::CHARGE, null, 1);
+
+        $settlement = $this->stay->recordSettlement($this->reload($booking->id), $this->assetId, null, [], 1);
+        $this->assertSame(146800, $settlement->keptCents());
+        $this->assertSame(65000, $settlement->balanceCents);
+        $this->stay->validateSettlement($this->reload($booking->id), $settlement->id, 1);
+
+        $status = $this->paymentStatus($booking);
+        $this->assertSame(146800, $status['total_cents']);
+        $this->assertSame(65000, $status['remaining_cents']);
+        $this->assertSame(0, $status['overpaid_cents']);
+        $this->assertSame($communication, $status['communication']);
+        $this->assertSame(1, $this->receivableCount());
+        $this->assertSame(15000, $status['security_deposit']['withheld_cents']);
+        $validated = $this->stay->latestSettlement($booking->id);
+        $this->assertSame(15000, $validated?->securityDepositWithheldCents);
+        $this->assertSame(0, $validated?->securityDepositReturnCents);
+    }
+
+    public function testTheDepositsShareIsDerivedFromTheMoneyAtValidation(): void
+    {
+        // Recorded before anything came in, validated once all of it had:
+        // the version's deposit figures are the ones of the validation
+        // (chantier §2.3), the whole deposit to give back.
+        $booking = $this->createBooking();
+        $communication = $this->firstContract($booking);
+        $settlement = $this->stay->recordSettlement($this->reload($booking->id), $this->assetId, null, [], 1);
+        $this->assertSame(15000, $settlement->securityDepositWithheldCents, 'nothing received yet');
+
+        $this->pay($communication, 818.00);
+        $this->stay->validateSettlement($this->reload($booking->id), $settlement->id, 1);
+
+        $validated = $this->stay->latestSettlement($booking->id);
+        $this->assertSame(0, $validated?->securityDepositWithheldCents);
+        $this->assertSame(15000, $validated?->securityDepositReturnCents);
+        $this->assertSame(0, $this->paymentStatus($booking)['security_deposit']['withheld_cents']);
     }
 
     public function testASettlementIsNotValidatedOnABookingAbandonedSince(): void
@@ -653,15 +700,18 @@ class RentalSingleReceivableTest extends TestCase
         $this->assertTrue($movements[1]->isRefund());
     }
 
-    /** The settlement validated on the booking, withholding $withheldCents of the deposit. */
-    private function settleWithholding(RentalBooking $booking, int $withheldCents): void
+    /**
+     * The settlement validated on the booking, with $chargedCents of damage
+     * billed — which the deposit covers first (#980, chantier §2.3).
+     */
+    private function settleWithCharge(RentalBooking $booking, int $chargedCents): void
     {
-        $incident = $this->stay->reportIncident($this->reload($booking->id), 'Dégâts', $withheldCents, null, 1);
+        $incident = $this->stay->reportIncident($this->reload($booking->id), 'Dégâts', $chargedCents, null, 1);
         $this->stay->decideIncident(
             $this->reload($booking->id),
             $incident,
-            IncidentDecision::WITHHOLD,
-            $withheldCents,
+            IncidentDecision::CHARGE,
+            $chargedCents,
             1
         );
         $settlement = $this->stay->recordSettlement($this->reload($booking->id), $this->assetId, null, [], 1);
@@ -670,11 +720,12 @@ class RentalSingleReceivableTest extends TestCase
 
     public function testADepositKeptWholeIsSettledWithoutAnyRefund(): void
     {
-        // 150 € withheld out of 150 €: the settlement keeps 818 €, nothing
-        // is owed back, and no refund will ever come to tick the step.
+        // 150 € of damage on a 150 € deposit: the settlement keeps 818 €,
+        // nothing is owed back, and no refund will ever come to tick the
+        // step.
         $booking = $this->createBooking();
         $this->pay($this->firstContract($booking), 818.00);
-        $this->settleWithholding($booking, 15000);
+        $this->settleWithCharge($booking, 15000);
 
         $status = $this->paymentStatus($booking);
         $this->assertSame(0, $status['overpaid_cents']);
@@ -690,12 +741,12 @@ class RentalSingleReceivableTest extends TestCase
 
     public function testADepositKeptInPartIsPartlyWithheldOnceTheRestIsRefunded(): void
     {
-        // 34 € withheld: 116 € owed back, and only once they went back is
+        // 34 € of damage: 116 € owed back, and only once they went back is
         // the deposit's life over — partly withheld, not « restituée ».
         $booking = $this->createBooking();
         $communication = $this->firstContract($booking);
         $this->pay($communication, 818.00);
-        $this->settleWithholding($booking, 3400);
+        $this->settleWithCharge($booking, 3400);
 
         $before = $this->paymentStatus($booking);
         $this->assertSame(11600, $before['overpaid_cents']);

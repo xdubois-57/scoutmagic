@@ -12302,6 +12302,15 @@ if ($isEnabled('rental')) {
         $rentalPaymentService
     );
     $rentalStayRepository = new \Modules\Rental\Repository\RentalStayRepository($pdo, $encryptionService);
+    // « À retenir sur la caution » kept the same money as « Facturer »,
+    // capped at the deposit (#980). MigrationRunner is DDL-only, so the
+    // conversion of the incidents already decided that way runs here, once,
+    // behind an internal settings flag — see Service\IncidentDecisionMigration.
+    (new \Modules\Rental\Service\IncidentDecisionMigration(
+        $rentalStayRepository,
+        $settingService,
+        $journalService
+    ))->runOnce();
     $rentalStayService = new \Modules\Rental\Service\RentalStayService(
         $rentalStayRepository,
         $rentalBookingAudit,

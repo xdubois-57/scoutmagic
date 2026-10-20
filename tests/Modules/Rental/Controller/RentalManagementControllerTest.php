@@ -4763,17 +4763,119 @@ class RentalManagementControllerTest extends TestCase
         // Nothing is charged until a human says so.
         $this->assertSame(\Modules\Rental\Stay\IncidentDecision::PENDING, $incidents[0]->decision);
 
+        // Under assessment first, with what it waits for (#980).
         $this->post('/mes-locations/incident-decision', 'decideIncident', [
             'asset_id' => (string) $this->assetId,
             'booking_id' => (string) $booking->id,
             'incident_id' => (string) $incidents[0]->id,
-            'decision' => 'withhold',
+            'decision' => 'pending',
+            'amount' => '50,00',
+            'awaiting' => 'Assurance du locataire',
+            'reference' => 'SIN-2027-118',
+            'waive_reason' => '',
+        ]);
+        $pending = $this->stayService->incidentsFor($booking->id)[0];
+        $this->assertSame(\Modules\Rental\Stay\IncidentDecision::PENDING, $pending->decision);
+        $this->assertSame('Assurance du locataire', $pending->awaiting);
+        $this->assertSame('SIN-2027-118', $pending->reference);
+
+        $this->post('/mes-locations/incident-decision', 'decideIncident', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'incident_id' => (string) $incidents[0]->id,
+            'decision' => 'charge',
             'amount' => '30,00',
+            'awaiting' => 'Assurance du locataire',
+            'reference' => 'SIN-2027-118',
         ]);
 
         $decided = $this->stayService->incidentsFor($booking->id)[0];
-        $this->assertSame(\Modules\Rental\Stay\IncidentDecision::WITHHOLD, $decided->decision);
+        $this->assertSame(\Modules\Rental\Stay\IncidentDecision::CHARGE, $decided->decision);
         $this->assertSame(3000, $decided->decidedAmountCents);
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertSame('Décision enregistrée : Facturer.', $flash['message'] ?? null);
+    }
+
+    public function testTheRetiredWithholdIsNoLongerADecision(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+        $id = $this->stayService->reportIncident($booking, 'Vitre cassée', 5000, null, 1);
+
+        $this->post('/mes-locations/incident-decision', 'decideIncident', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'incident_id' => (string) $id,
+            'decision' => 'withhold',
+        ]);
+
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertSame('error', $flash['type'] ?? null);
+        $this->assertSame(
+            \Modules\Rental\Stay\IncidentDecision::PENDING,
+            $this->stayService->incidentsFor($booking->id)[0]->decision
+        );
+    }
+
+    public function testAnOverlongDecisionTextIsRefusedAndSaysSo(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+        $id = $this->stayService->reportIncident($booking, 'Vitre cassée', 5000, null, 1);
+
+        $this->post('/mes-locations/incident-decision', 'decideIncident', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'incident_id' => (string) $id,
+            'decision' => 'waive',
+            'waive_reason' => str_repeat('x', 501),
+        ]);
+
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertSame('error', $flash['type'] ?? null);
+        $this->assertStringContainsString('500 caractères au plus', $flash['message'] ?? '');
+        $this->assertSame(
+            \Modules\Rental\Stay\IncidentDecision::PENDING,
+            $this->stayService->incidentsFor($booking->id)[0]->decision
+        );
+    }
+
+    /**
+     * « Trancher » offers the three states as choices, says the current one
+     * and what each does, and shows only the fields of the current state
+     * (#980, chantier §2.1).
+     */
+    public function testTrancherOffersTheThreeStatesWithTheirConsequences(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+        $id = $this->stayService->reportIncident($booking, 'Vitre cassée', 5000, null, 1);
+        $this->stayService->decideIncident(
+            $booking,
+            $id,
+            \Modules\Rental\Stay\IncidentDecision::PENDING,
+            null,
+            1,
+            'Expertise',
+            'SIN-42'
+        );
+
+        $body = (string) $this->filePage(BookingPage::INVENTORY, 'local-saint-georges', $booking->id)->getBody();
+
+        foreach (\Modules\Rental\Stay\IncidentDecision::cases() as $state) {
+            $this->assertStringContainsString('value="' . $state->value . '"', $body);
+            $this->assertStringContainsString(htmlspecialchars($state->consequence(), ENT_QUOTES), $body);
+        }
+        $this->assertStringNotContainsString('value="withhold"', $body);
+        $this->assertMatchesRegularExpression('/value="pending"\s+aria-describedby="[^"]+"\s+checked/', $body);
+        $this->assertStringContainsString('(état actuel)', $body);
+        $this->assertStringContainsString('id="incident-' . $id . '"', $body);
+        $this->assertStringContainsString('En attente de : Expertise', $body);
+        $this->assertStringContainsString('value="SIN-42"', $body);
+        // The reason for not billing is the one field of another state:
+        // rendered, hidden, so switching back and forth loses nothing.
+        $this->assertMatchesRegularExpression('/data-incident-field="waive"\s+hidden/', $body);
+        $this->assertDoesNotMatchRegularExpression('/data-incident-field="pending"\s+hidden/', $body);
     }
 
     public function testAnIncidentIsSavedWhenThePhotoInputWasLeftEmpty(): void

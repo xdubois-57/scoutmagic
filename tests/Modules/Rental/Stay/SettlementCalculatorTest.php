@@ -341,23 +341,6 @@ class SettlementCalculatorTest extends TestCase
         $this->assertSame(50000, $result['security_deposit_return_cents']);
     }
 
-    public function testAWithheldIncidentReducesTheDepositAndNotTheTotal(): void
-    {
-        $result = $this->calculator->compute(
-            $this->agreedQuote(),
-            null,
-            [],
-            [$this->incident(IncidentDecision::WITHHOLD)],
-            [],
-            0,
-            50000
-        );
-
-        $this->assertSame(40000, $result['total_cents']);
-        $this->assertSame(5000, $result['security_deposit_withheld_cents']);
-        $this->assertSame(45000, $result['security_deposit_return_cents']);
-    }
-
     public function testADecidedAmountOverridesTheProposedOne(): void
     {
         $result = $this->calculator->compute(
@@ -389,37 +372,68 @@ class SettlementCalculatorTest extends TestCase
         $this->assertSame(45000, $result['total_cents']);
     }
 
-    public function testWithholdingNeverExceedsWhatWasActuallyHeld(): void
+    public function testADamageDearerThanTheDepositIsChargedInFullNeverCapped(): void
     {
-        // A manager who wants the difference invoices it as a charge.
+        // 380 € rental and a 150 € deposit, all paid on one receivable
+        // (530 €), then 800 € of damage charged (#980). The retired
+        // « withhold » stopped at the deposit and the other 650 € vanished;
+        // a charge keeps all of it: the deposit covers 150 € and 650 € are
+        // still due.
         $result = $this->calculator->compute(
-            $this->agreedQuote(),
+            $this->agreedQuote(20),
             null,
             [],
-            [$this->incident(IncidentDecision::WITHHOLD, 80000)],
+            [$this->incident(IncidentDecision::CHARGE, 80000)],
             [],
-            0,
-            50000
+            53000,
+            15000,
+            true
         );
 
-        $this->assertSame(50000, $result['security_deposit_withheld_cents']);
+        $this->assertSame(118000, $result['total_cents']);
+        $this->assertSame(118000, $result['kept_cents']);
+        $this->assertSame(65000, $result['balance_cents']);
+        $this->assertSame(15000, $result['security_deposit_withheld_cents']);
         $this->assertSame(0, $result['security_deposit_return_cents']);
     }
 
     public function testWithNoSecurityDepositNothingCanBeWithheld(): void
     {
-        $result = $this->calculator->compute(
-            $this->agreedQuote(),
-            null,
-            [],
-            [$this->incident(IncidentDecision::WITHHOLD)],
-            [],
-            0,
-            null
-        );
+        foreach ([false, true] as $onReceivable) {
+            $result = $this->calculator->compute(
+                $this->agreedQuote(),
+                null,
+                [],
+                [$this->incident(IncidentDecision::CHARGE)],
+                [],
+                0,
+                null,
+                $onReceivable
+            );
 
-        $this->assertSame(0, $result['security_deposit_withheld_cents']);
-        $this->assertSame(0, $result['security_deposit_return_cents']);
+            $this->assertSame(0, $result['security_deposit_withheld_cents']);
+            $this->assertSame(0, $result['security_deposit_return_cents']);
+        }
+    }
+
+    public function testTheDepositsShareComesFromTheMoneyTheRefundFirstOutOfTheDeposit(): void
+    {
+        // withheld = D − min(D, max(0, received − kept)) (chantier §2.3).
+        $share = static fn(?int $deposit, int $received, int $kept): array
+            => SettlementCalculator::securityDepositAtSettlement($deposit, $received, $kept);
+
+        // Everything paid, nothing charged: the whole deposit goes back.
+        $this->assertSame(['withheld_cents' => 0, 'return_cents' => 15000], $share(15000, 53000, 38000));
+        // 30 € charged: 120 € go back, all of them deposit.
+        $this->assertSame(['withheld_cents' => 3000, 'return_cents' => 12000], $share(15000, 53000, 41000));
+        // Overpaid rent on top: what goes back beyond the deposit is not
+        // the deposit, which goes back whole.
+        $this->assertSame(['withheld_cents' => 0, 'return_cents' => 15000], $share(15000, 60000, 38000));
+        // A damage dearer than the deposit: all of it kept, nothing back.
+        $this->assertSame(['withheld_cents' => 15000, 'return_cents' => 0], $share(15000, 53000, 118000));
+        // No deposit at all, or a negative figure: nothing to share.
+        $this->assertSame(['withheld_cents' => 0, 'return_cents' => 0], $share(null, 53000, 38000));
+        $this->assertSame(['withheld_cents' => 0, 'return_cents' => 0], $share(-500, 53000, 38000));
     }
 
     public function testNoDamageAtAllReturnsTheWholeDeposit(): void
@@ -467,16 +481,17 @@ class SettlementCalculatorTest extends TestCase
 
     public function testEverythingAtOnce(): void
     {
-        // 360,00 hall + 28 × 1,00 tax + 85,63 electricity + 50,00 charged
-        // damage, minus 200,00 already paid; 30,00 withheld from a 500,00
-        // deposit.
+        // 360,00 hall + 28 × 1,00 tax + 85,63 electricity + 50,00 and
+        // 30,00 charged damage, minus 200,00 already paid. No receivable:
+        // the 500,00 deposit is held by hand and goes back whole, the
+        // damage being on the balance already.
         $result = $this->calculator->compute(
             $this->agreedQuote(40),
             28,
             [$this->consumption()],
             [
                 $this->incident(IncidentDecision::CHARGE, 5000),
-                $this->incident(IncidentDecision::WITHHOLD, 3000),
+                $this->incident(IncidentDecision::CHARGE, 3000),
                 $this->incident(IncidentDecision::PENDING, 99999),
             ],
             [new SettlementLine('Geste commercial', -1000, SettlementLine::ORIGIN_MANUAL)],
@@ -484,10 +499,10 @@ class SettlementCalculatorTest extends TestCase
             50000
         );
 
-        $this->assertSame(36000 + 2800 + 8563 + 5000 - 1000, $result['total_cents']);
+        $this->assertSame(36000 + 2800 + 8563 + 5000 + 3000 - 1000, $result['total_cents']);
         $this->assertSame($result['total_cents'] - 20000, $result['balance_cents']);
-        $this->assertSame(3000, $result['security_deposit_withheld_cents']);
-        $this->assertSame(47000, $result['security_deposit_return_cents']);
+        $this->assertSame(0, $result['security_deposit_withheld_cents']);
+        $this->assertSame(50000, $result['security_deposit_return_cents']);
     }
 
     // ── One receivable, rental and security deposit (issue #927) ────────
@@ -495,22 +510,23 @@ class SettlementCalculatorTest extends TestCase
     public function testWithASingleReceivableTheBalanceIsMeasuredAgainstTheKeptAmount(): void
     {
         // 380 € rental (3 nights + 20,00 € tax) and a 150 € deposit, all paid
-        // on one receivable: 530 € in. 30 € withheld from the deposit, so
-        // the unit keeps 410 € and owes 120 € back.
+        // on one receivable: 530 € in. 30 € of damage charged, so the unit
+        // keeps 410 € and owes 120 € back, out of the deposit.
         $result = $this->calculator->compute(
             $this->agreedQuote(20),
             null,
             [],
-            [$this->incident(IncidentDecision::WITHHOLD, 3000)],
+            [$this->incident(IncidentDecision::CHARGE, 3000)],
             [],
             53000,
             15000,
             true
         );
 
-        $this->assertSame(38000, $result['total_cents']);
+        $this->assertSame(41000, $result['total_cents']);
         $this->assertSame(41000, $result['kept_cents']);
         $this->assertSame(-12000, $result['balance_cents']);
+        $this->assertSame(3000, $result['security_deposit_withheld_cents']);
         $this->assertSame(12000, $result['security_deposit_return_cents']);
         // The same 120 € — the screen must not add one to the other.
         $this->assertTrue($result['paid_includes_security_deposit']);
@@ -579,19 +595,22 @@ class SettlementCalculatorTest extends TestCase
     public function testWithoutAReceivableTheDepositStaysBesideTheBalance(): void
     {
         // No Finance: the deposit is held by hand, nothing was paid on
-        // the site, and the balance is the total as it always was.
+        // the site, and the balance is the total as it always was — the
+        // charged damage in it, so the deposit goes back whole.
         $result = $this->calculator->compute(
             $this->agreedQuote(20),
             null,
             [],
-            [$this->incident(IncidentDecision::WITHHOLD, 3000)],
+            [$this->incident(IncidentDecision::CHARGE, 3000)],
             [],
             0,
             15000
         );
 
-        $this->assertSame(38000, $result['balance_cents']);
+        $this->assertSame(41000, $result['balance_cents']);
         $this->assertSame(41000, $result['kept_cents']);
+        $this->assertSame(0, $result['security_deposit_withheld_cents']);
+        $this->assertSame(15000, $result['security_deposit_return_cents']);
     }
 
     // ── Line snapshots ──────────────────────────────────────────────────

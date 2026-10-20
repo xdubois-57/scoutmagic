@@ -9,7 +9,7 @@ declare(strict_types=1);
 namespace Modules\Rental\Stay;
 
 /**
- * What a manager decided about a damage (§6.23).
+ * What a manager decided about a damage (§6.23), in three states (#980).
  *
  * **The financial decision stays human.** Nothing in this module turns a
  * damage into a charge on its own. An automatic scale would be wrong about
@@ -18,24 +18,61 @@ namespace Modules\Rental\Stay;
  * for the same reason.
  *
  * `PENDING` is a real state: an assessment in progress must never reach the
- * renter's page (§6.26), and this is the flag that keeps it off.
+ * renter's page (§6.26), and this is the flag that keeps it off. A manager
+ * picks it too, to note what the assessment waits for, and a decided
+ * incident may go back to it.
+ *
+ * There is no « withheld from the security deposit » any more: it kept the
+ * same money as a charge, capped at the deposit, so the surplus of a damage
+ * dearer than the deposit vanished. A charged damage enters the settlement,
+ * and what the deposit covers follows from the money
+ * (`SettlementCalculator::securityDepositAtSettlement()`).
  */
 enum IncidentDecision: string
 {
     case PENDING = 'pending';
     /** Added to the final settlement, so the renter pays it. */
     case CHARGE = 'charge';
-    /** Withheld from the security deposit instead of being invoiced. */
-    case WITHHOLD = 'withhold';
     case WAIVE = 'waive';
+
+    /**
+     * The value #980 retired. `IncidentDecisionMigration` converts it to
+     * `charge` once per installation; one still stored reads as CHARGE.
+     */
+    public const LEGACY_WITHHOLD = 'withhold';
+
+    /**
+     * A stored value, read defensively: the retired one is a charge (it kept
+     * the same money), anything unknown is still pending.
+     */
+    public static function fromStored(string $value): self
+    {
+        if ($value === self::LEGACY_WITHHOLD) {
+            return self::CHARGE;
+        }
+
+        return self::tryFrom($value) ?? self::PENDING;
+    }
 
     public function label(): string
     {
         return match ($this) {
             self::PENDING => "En cours d'évaluation",
-            self::CHARGE => 'À ajouter au décompte',
-            self::WITHHOLD => 'À retenir sur la caution',
+            self::CHARGE => 'Facturer',
             self::WAIVE => 'Ne pas facturer',
+        };
+    }
+
+    /** What picking this state does, said under the choice in « Trancher ». */
+    public function consequence(): string
+    {
+        return match ($this) {
+            self::PENDING => "Rien n'est facturé tant que l'évaluation est en cours. Le locataire n'en voit "
+                . 'ni la description ni le montant.',
+            self::CHARGE => "Le montant s'ajoute au décompte. S'il dépasse la caution, le surplus est demandé "
+                . 'au locataire.',
+            self::WAIVE => "Rien n'est facturé pour cet incident. Le motif reste interne : le locataire ne le "
+                . 'voit pas.',
         };
     }
 
@@ -43,12 +80,6 @@ enum IncidentDecision: string
     public function entersSettlement(): bool
     {
         return $this === self::CHARGE;
-    }
-
-    /** Whether it reduces what is given back from the security deposit. */
-    public function reducesSecurityDeposit(): bool
-    {
-        return $this === self::WITHHOLD;
     }
 
     /**
@@ -63,9 +94,9 @@ enum IncidentDecision: string
         return $this !== self::PENDING;
     }
 
-    /** @return self[] The ones a manager may actually pick. */
+    /** @return self[] The ones a manager may pick in « Trancher » — all three, in that order. */
     public static function decidable(): array
     {
-        return [self::CHARGE, self::WITHHOLD, self::WAIVE];
+        return [self::PENDING, self::CHARGE, self::WAIVE];
     }
 }

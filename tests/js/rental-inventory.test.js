@@ -2,7 +2,9 @@
 // the REAL public/assets/js/rental-inventory.js: « État des lieux » (#708,
 // IT-17), each line saved as it is typed, « = » taking the reference.
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { countUnchecked, saveLine, validationQuestion, wire } from '../../public/assets/js/rental-inventory.js';
+import {
+    countUnchecked, saveLine, showIncidentFields, validationQuestion, wire
+} from '../../public/assets/js/rental-inventory.js';
 
 function page() {
     document.body.innerHTML = `
@@ -147,5 +149,49 @@ describe('the page', () => {
 
         expect(form.querySelector('[data-inventory-status]')?.textContent).toBe('Indiquez un nombre entier, 0 ou plus.');
         expect(form.querySelector('[data-inventory-value]')?.classList.contains('is-invalid')).toBe(true);
+    });
+});
+
+describe('showIncidentFields()', () => {
+    function incidentForm(current) {
+        document.body.innerHTML = `
+            <form data-incident-decision>
+                <input type="radio" name="decision" value="pending" ${current === 'pending' ? 'checked' : ''}>
+                <input type="radio" name="decision" value="charge" ${current === 'charge' ? 'checked' : ''}>
+                <input type="radio" name="decision" value="waive" ${current === 'waive' ? 'checked' : ''}>
+                <div data-incident-field="pending" id="awaiting"></div>
+                <div data-incident-field="pending charge" id="amount"></div>
+                <div data-incident-field="waive" id="reason" hidden></div>
+            </form>`;
+        return /** @type {HTMLFormElement} */ (document.querySelector('form'));
+    }
+
+    const shown = () => ['awaiting', 'amount', 'reason'].filter((id) => !document.getElementById(id).hidden);
+
+    it('shows the fields of the choice checked and hides the others', () => {
+        const form = incidentForm('waive');
+        showIncidentFields(form);
+        expect(shown()).toEqual(['reason']);
+
+        form.querySelector('input[value="charge"]').checked = true;
+        showIncidentFields(form);
+        expect(shown()).toEqual(['amount']);
+
+        form.querySelector('input[value="pending"]').checked = true;
+        showIncidentFields(form);
+        expect(shown()).toEqual(['awaiting', 'amount']);
+    });
+
+    it('follows a change of choice once the page is wired, without saving anything', () => {
+        const fetchSpy = vi.spyOn(globalThis, 'fetch');
+        const form = incidentForm('pending');
+        wire(document);
+
+        const waive = /** @type {HTMLInputElement} */ (form.querySelector('input[value="waive"]'));
+        waive.checked = true;
+        waive.dispatchEvent(new Event('change', { bubbles: true }));
+
+        expect(shown()).toEqual(['reason']);
+        expect(fetchSpy).not.toHaveBeenCalled();
     });
 });

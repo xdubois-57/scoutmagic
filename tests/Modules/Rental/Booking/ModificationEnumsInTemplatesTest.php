@@ -12,6 +12,7 @@ namespace Tests\Modules\Rental\Booking;
 use Modules\Rental\Booking\BookingStatus;
 use Modules\Rental\Booking\ModificationStage;
 use Modules\Rental\Booking\ModificationStatus;
+use Modules\Rental\Stay\IncidentDecision;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -19,8 +20,8 @@ use PHPUnit\Framework\TestCase;
  * here, so `modification.status.badgeStatus` on an enum without that
  * method renders null and the badge is grey forever, with nothing to say
  * so (#976). Every `booking.status.x`, `modification.status.x`,
- * `progress.stage.x` and `replacement.stage.x` in the module's templates
- * is checked against the enum it names.
+ * `progress.stage.x`, `replacement.stage.x` and `incident.decision.x` in
+ * the module's templates is checked against the enum it names.
  */
 final class ModificationEnumsInTemplatesTest extends TestCase
 {
@@ -29,6 +30,7 @@ final class ModificationEnumsInTemplatesTest extends TestCase
         'modification.status' => ModificationStatus::class,
         'progress.stage' => ModificationStage::class,
         'replacement.stage' => ModificationStage::class,
+        'incident.decision' => IncidentDecision::class,
     ];
 
     public function testEveryEnumMemberATemplateReadsExists(): void
@@ -45,7 +47,8 @@ final class ModificationEnumsInTemplatesTest extends TestCase
             }
             $source = (string) file_get_contents((string) $file);
             preg_match_all(
-                '/\b(booking\.status|modification\.status|progress\.stage|replacement\.stage)\.(\w+)/',
+                '/\b(booking\.status|modification\.status|progress\.stage|replacement\.stage'
+                    . '|incident\.decision)\.(\w+)/',
                 $source,
                 $m,
                 PREG_SET_ORDER

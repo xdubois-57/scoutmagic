@@ -475,12 +475,91 @@ class RentalStayRepositoryTest extends TestCase
     {
         $id = $this->repository->createIncident($this->bookingId, 'Vitre cassée', 4500, null, 7);
 
-        $this->repository->decideIncident($id, IncidentDecision::WITHHOLD, 4000, 9);
+        $this->repository->decideIncident($id, IncidentDecision::CHARGE, 4000, 9);
 
         $incident = $this->repository->findIncident($id);
-        $this->assertSame(IncidentDecision::WITHHOLD, $incident?->decision);
+        $this->assertSame(IncidentDecision::CHARGE, $incident?->decision);
         $this->assertSame(4000, $incident->decidedAmountCents);
         $this->assertSame(9, $incident->decidedByMemberId);
+        $this->assertNull($incident->awaiting);
+        $this->assertNull($incident->reference);
+        $this->assertNull($incident->waiveReason);
+    }
+
+    public function testTheDecisionTextsAreStoredEncryptedEachUnderItsOwnContext(): void
+    {
+        $id = $this->repository->createIncident($this->bookingId, 'Vitre cassée', 4500, null, 7);
+
+        $this->repository->decideIncident(
+            $id,
+            IncidentDecision::PENDING,
+            null,
+            9,
+            'Assurance Zorglub',
+            'Dossier 2027/118',
+            'Motif Vandamme'
+        );
+
+        $incident = $this->repository->findIncident($id);
+        $this->assertSame('Assurance Zorglub', $incident?->awaiting);
+        $this->assertSame('Dossier 2027/118', $incident->reference);
+        $this->assertSame('Motif Vandamme', $incident->waiveReason);
+        \Tests\NothingInClear::inTables($this->pdo, 'rental_incidents')
+            ->assertAbsent('Zorglub', '2027/118', 'Vandamme');
+
+        // Each under its own context: one ciphertext cannot be read as
+        // another field.
+        $row = $this->pdo->query('SELECT awaiting_encrypted FROM rental_incidents')->fetchColumn();
+        $this->assertSame(
+            'Assurance Zorglub',
+            $this->encryption->decrypt((string) $row, 'rental_incidents.awaiting')
+        );
+        $this->expectException(\Throwable::class);
+        $this->encryption->decrypt((string) $row, 'rental_incidents.reference');
+    }
+
+    public function testABlankDecisionTextStoresNothing(): void
+    {
+        $id = $this->repository->createIncident($this->bookingId, 'Vitre cassée', 4500, null, 7);
+        $this->repository->decideIncident($id, IncidentDecision::PENDING, null, 9, 'Devis', 'REF');
+
+        $this->repository->decideIncident($id, IncidentDecision::WAIVE, null, 9, '  ', null, '');
+
+        $row = $this->pdo->query(
+            'SELECT awaiting_encrypted, reference_encrypted, waive_reason_encrypted FROM rental_incidents'
+        )->fetch(\PDO::FETCH_NUM);
+        $this->assertSame([null, null, null], $row);
+    }
+
+    public function testTheRetiredWithholdIsConvertedToAChargeOfTheSameAmountOnce(): void
+    {
+        $decided = $this->repository->createIncident($this->bookingId, 'Décidé', 4500, null, 7);
+        $proposed = $this->repository->createIncident($this->bookingId, 'Proposé', 3000, null, 7);
+        $waived = $this->repository->createIncident($this->bookingId, 'Abandonné', 2000, null, 7);
+        $stmt = $this->pdo->prepare('UPDATE rental_incidents SET decision = ?, decided_amount_cents = ? WHERE id = ?');
+        $stmt->execute(['withhold', 4000, $decided]);
+        $stmt->execute(['withhold', null, $proposed]);
+        $stmt->execute(['waive', null, $waived]);
+
+        $this->assertSame(2, $this->repository->convertWithheldIncidentsToCharges());
+        $this->assertSame(0, $this->repository->convertWithheldIncidentsToCharges(), 'idempotent');
+
+        $this->assertSame(IncidentDecision::CHARGE, $this->repository->findIncident($decided)?->decision);
+        $this->assertSame(4000, $this->repository->findIncident($decided)?->decidedAmountCents);
+        $this->assertSame(3000, $this->repository->findIncident($proposed)?->decidedAmountCents);
+        $this->assertSame(IncidentDecision::WAIVE, $this->repository->findIncident($waived)?->decision);
+        $this->assertSame(
+            ['charge', 'charge', 'waive'],
+            $this->pdo->query('SELECT decision FROM rental_incidents ORDER BY id')->fetchAll(\PDO::FETCH_COLUMN)
+        );
+    }
+
+    public function testALeftoverWithholdReadsAsACharge(): void
+    {
+        $id = $this->repository->createIncident($this->bookingId, 'Vitre cassée', 4500, null, 7);
+        $this->pdo->prepare('UPDATE rental_incidents SET decision = ? WHERE id = ?')->execute(['withhold', $id]);
+
+        $this->assertSame(IncidentDecision::CHARGE, $this->repository->findIncident($id)?->decision);
     }
 
     public function testIncidentsComeBackOldestFirstAndOnlyThisBookings(): void
@@ -612,6 +691,36 @@ class RentalStayRepositoryTest extends TestCase
         $this->assertCount(2, $settlement->lines);
         $this->assertSame('Électricité', $settlement->lines[1]->label);
         $this->assertSame('120 kWh', $settlement->lines[1]->detail);
+    }
+
+    public function testASettlementRecordsWhatItKeeps(): void
+    {
+        $id = $this->repository->createSettlement($this->bookingId, 1, null, [], 46200, 0, 46200, 0, 15000, 7, 46200);
+        $legacy = $this->repository->createSettlement($this->bookingId, 2, null, [], 40000, 0, 40000, 3000, 12000, 7);
+
+        $this->assertSame(46200, $this->repository->findSettlement($id)?->recordedKeptCents);
+        $this->assertSame(46200, $this->repository->findSettlement($id)?->keptCents());
+        // Without the figure — a version recorded before #980 — the kept
+        // amount is read as it was meant then: the total plus the withholding.
+        $this->assertNull($this->repository->findSettlement($legacy)?->recordedKeptCents);
+        $this->assertSame(43000, $this->repository->findSettlement($legacy)?->keptCents());
+    }
+
+    public function testValidatingWritesTheDepositsShareInTheSameStatementAndOnlyOnce(): void
+    {
+        $id = $this->repository->createSettlement($this->bookingId, 1, null, [], 41000, 0, 41000, 15000, 0, 7, 41000);
+
+        $this->assertTrue(
+            $this->repository->validateSettlement($id, 7, ['withheld_cents' => 3000, 'return_cents' => 12000])
+        );
+        $this->assertFalse(
+            $this->repository->validateSettlement($id, 9, ['withheld_cents' => 0, 'return_cents' => 15000])
+        );
+
+        $settlement = $this->repository->findSettlement($id);
+        $this->assertSame(3000, $settlement?->securityDepositWithheldCents);
+        $this->assertSame(12000, $settlement->securityDepositReturnCents, 'a validated version is never rewritten');
+        $this->assertSame(7, $settlement->validatedByMemberId);
     }
 
     public function testSettlementsComeBackNewestVersionFirst(): void

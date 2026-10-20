@@ -49,6 +49,13 @@ use Modules\Rental\Support;
  */
 class RentalStayService
 {
+    /** The longest « En attente de… » a decision keeps (#980). */
+    public const INCIDENT_AWAITING_MAX = 200;
+    /** The longest reference — an insurer's file number. */
+    public const INCIDENT_REFERENCE_MAX = 100;
+    /** The longest reason for not billing a damage. */
+    public const INCIDENT_WAIVE_REASON_MAX = 500;
+
     public function __construct(
         private RentalStayRepository $stayRepository,
         private BookingAudit $bookingAudit,
@@ -520,7 +527,16 @@ class RentalStayService
     }
 
     /**
-     * Records a manager's decision about a damage.
+     * Records a manager's decision about a damage, in one of its three
+     * states (#980) — « En cours d'évaluation » included: that is where
+     * what the assessment waits for and its reference are written, and a
+     * decided incident may go back to it.
+     *
+     * The three texts are optional and encrypted (repository). The reason
+     * for not billing is kept only with « Ne pas facturer »; what an
+     * assessment waits for and its reference stay whatever the state, an
+     * insurer's file number being worth keeping once the damage is billed.
+     * None of them reaches the history or the journal.
      *
      * @throws RentalException
      */
@@ -529,29 +545,42 @@ class RentalStayService
         int $incidentId,
         IncidentDecision $decision,
         ?int $decidedAmountCents,
-        ?int $actorMemberId
+        ?int $actorMemberId,
+        ?string $awaiting = null,
+        ?string $reference = null,
+        ?string $waiveReason = null
     ): void {
         $incident = $this->stayRepository->findIncident($incidentId);
         if ($incident === null || $incident->bookingId !== $booking->id) {
             throw new RentalException("Cet incident n'existe pas.");
         }
 
-        if ($decision === IncidentDecision::PENDING) {
-            throw new RentalException('Choisissez ce qu\'il advient de cet incident.');
-        }
-
         if ($decidedAmountCents !== null && $decidedAmountCents < 0) {
             throw new RentalException('Un montant ne peut pas être négatif.');
         }
 
-        $this->stayRepository->decideIncident($incidentId, $decision, $decidedAmountCents, $actorMemberId);
+        $awaiting = self::boundedText($awaiting, self::INCIDENT_AWAITING_MAX, '« En attente de… »');
+        $reference = self::boundedText($reference, self::INCIDENT_REFERENCE_MAX, 'La référence');
+        $waiveReason = $decision === IncidentDecision::WAIVE
+            ? self::boundedText($waiveReason, self::INCIDENT_WAIVE_REASON_MAX, 'Le motif')
+            : null;
+
+        $this->stayRepository->decideIncident(
+            $incidentId,
+            $decision,
+            $decidedAmountCents,
+            $actorMemberId,
+            $awaiting,
+            $reference,
+            $waiveReason
+        );
 
         $this->bookingAudit->record(
             $booking->id,
             BookingAudit::STATUS_CHANGED,
             $incident->decision->label(),
             $decision->label(),
-            'Incident tranché',
+            $decision === IncidentDecision::PENDING ? "Incident en cours d'évaluation" : 'Incident tranché',
             $actorMemberId
         );
 
@@ -566,6 +595,25 @@ class RentalStayService
                 'amount_cents' => $decidedAmountCents ?? $incident->proposedAmountCents,
             ]
         );
+    }
+
+    /**
+     * A decision's optional text, trimmed — null when blank, refused when
+     * longer than the form allows.
+     *
+     * @throws RentalException
+     */
+    private static function boundedText(?string $text, int $max, string $what): ?string
+    {
+        $text = trim((string) $text);
+        if ($text === '') {
+            return null;
+        }
+        if (mb_strlen($text) > $max) {
+            throw new RentalException($what . ' tient en ' . $max . ' caractères au plus.');
+        }
+
+        return $text;
     }
 
     /**
@@ -689,7 +737,8 @@ class RentalStayService
             $computed['balance_cents'],
             $computed['security_deposit_withheld_cents'],
             $computed['security_deposit_return_cents'],
-            $actorMemberId
+            $actorMemberId,
+            $computed['kept_cents']
         );
 
         $this->bookingAudit->record(
@@ -764,7 +813,13 @@ class RentalStayService
             }
         }
 
-        if (!$this->stayRepository->validateSettlement($settlementId, $actorMemberId)) {
+        // The security deposit's share, derived from the money as it
+        // stands now (#980, chantier §2.3): the refund owed comes first out
+        // of the deposit. Only on the booking's single receivable — without
+        // one the deposit is held by hand and the version keeps its figures.
+        $securityDeposit = $this->securityDepositAtValidation($booking, $settlement);
+
+        if (!$this->stayRepository->validateSettlement($settlementId, $actorMemberId, $securityDeposit)) {
             // Already validated: saying so beats silently re-stamping a
             // document somebody may already have acted on.
             throw new RentalException('Ce décompte est déjà validé. Enregistrez-en un nouveau pour le corriger.');
@@ -783,7 +838,31 @@ class RentalStayService
             $booking,
             $settlement->keptCents(),
             $actorMemberId,
-            $settlement->securityDepositWithheldCents ?? 0
+            $securityDeposit['withheld_cents'] ?? $settlement->securityDepositWithheldCents ?? 0
+        );
+    }
+
+    /**
+     * @return array{withheld_cents: int, return_cents: int}|null null without the booking's single receivable
+     */
+    private function securityDepositAtValidation(RentalBooking $booking, Settlement $settlement): ?array
+    {
+        if ($this->paymentService === null) {
+            return null;
+        }
+
+        $status = $this->paymentService->statusFor(
+            $booking,
+            $this->paymentService->settingsFor($booking->assetId)
+        );
+        if (($status['communication'] ?? null) === null) {
+            return null;
+        }
+
+        return SettlementCalculator::securityDepositAtSettlement(
+            $status['security_deposit']['amount_cents'] ?? null,
+            (int) $status['received_cents'],
+            $settlement->keptCents()
         );
     }
 
