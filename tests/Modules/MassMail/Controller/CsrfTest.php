@@ -174,6 +174,11 @@ class CsrfTest extends TestCase
                 new \Modules\MassMail\Repository\ContactRepository($this->pdo, $encryption),
                 new \Modules\MassMail\Repository\MailingListRepository($this->pdo),
                 $this->createStub(\Core\Journal\JournalService::class)
+            ),
+            new \Modules\MassMail\Service\SendableScoutYears(
+                new \Core\Config\ScoutYearService($this->pdo),
+                new \Core\Import\ImportJournalRepository($this->pdo),
+                $this->createStub(MailingListService::class)
             )
         );
 

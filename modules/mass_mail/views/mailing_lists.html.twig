@@ -4,80 +4,102 @@
 {% block title %}Listes de diffusion — {{ site_name }}{% endblock %}
 
 {% block content %}
-    {% include 'partials/page_header.html.twig' with { title: 'Listes de diffusion' } only %}
-
-    <div class="card mb-4">
-        <div class="card-body">
-            <h2 class="h5 mb-3">Listes de diffusion</h2>
-
-            {# A list has no scout year of its own — it is a set of blocks,
-               and the year is chosen at composition. Saying so here is what
-               makes the warning in the compose dialog make sense when it
-               appears (it names the year, which is not a property of
-               anything on this page). #}
-            <p class="text-body-secondary small">
-                Une liste ne vise aucune année scoute : elle décrit qui reçoit, et l'année se choisit au moment
-                d'écrire l'e-mail. {% if future_audience_notice %}{{ future_audience_notice }}{% endif %}
-            </p>
-
-            <ul class="list-group mb-2">
-                {% for list in default_lists %}
-                    <li class="list-group-item">
-                        <div class="d-flex align-items-center">
-                            <i class="bi bi-lock text-body-secondary me-2" title="Liste par défaut — non modifiable"></i>
-                            <span>{{ list.label }}</span>
-                        </div>
-                        <p class="text-body-secondary small mb-0 mt-1">{{ list.description }}</p>
-                    </li>
-                {% endfor %}
-            </ul>
-
-            <ul class="list-group" id="cfg-custom-lists">
-                {% for list in custom_lists %}
-                    <li class="list-group-item" data-id="{{ list.id }}">
-                        <div class="d-flex justify-content-between align-items-center">
-                            <span>{{ list.name }}{% if not list.isActive %} {% include 'partials/status_badge.html.twig' with { status: 'inactive', label: 'Désactivée' } only %}{% endif %}</span>
-                            <span class="text-nowrap">
-                                <button type="button" class="btn btn-sm btn-outline-secondary cfg-toggle-list-btn" data-id="{{ list.id }}" data-active="{{ list.isActive ? '1' : '0' }}" aria-label="{{ list.isActive ? 'Désactiver la liste' : 'Activer la liste' }}">
-                                    <i class="bi {{ list.isActive ? 'bi-eye-slash' : 'bi-eye' }}" aria-hidden="true"></i>
-                                </button>
-                                <button type="button" class="btn btn-sm btn-outline-danger cfg-delete-list-btn" data-id="{{ list.id }}" aria-label="Supprimer la liste"><i class="bi bi-trash" aria-hidden="true"></i></button>
-                            </span>
-                        </div>
-                        <p class="text-body-secondary small mb-0 mt-1">{{ list.description }}</p>
-
-                        {# What the list is made of, counted per kind of block —
-                           a COUNT(*), so a page of twelve lists decrypts
-                           nothing. #}
-                        {%- set counts = block_counts[list.id] ?? { member_group: 0, contact_group: 0 } -%}
-                        {%- set mg = counts.member_group -%}
-                        {%- set cg = counts.contact_group -%}
-                        {%- set parts = [] -%}
-                        {%- if mg > 0 -%}
-                            {%- set parts = parts|merge([mg ~ ' groupe' ~ (mg > 1 ? 's' : '') ~ ' de membres']) -%}
-                        {%- endif -%}
-                        {%- if cg > 0 -%}
-                            {%- set parts = parts|merge([cg ~ ' groupe' ~ (cg > 1 ? 's' : '') ~ ' de contacts']) -%}
-                        {%- endif -%}
-                        <p class="text-body-secondary small mb-0" data-block-summary data-list-id="{{ list.id }}">
-                            {%- if parts is empty -%}
-                                Aucun groupe : cette liste ne désigne personne.
-                            {%- else -%}
-                                {{ parts|join(' · ') }}
-                            {%- endif -%}
-                        </p>
-                    </li>
-                {% else %}
-                    <li class="list-group-item">
-                        {% include 'partials/empty_state.html.twig' with {
-                            message: 'Aucune liste personnalisée.',
-                            compact: true,
-                        } only %}
-                    </li>
-                {% endfor %}
-            </ul>
-        </div>
+<div class="page-medium">
+    {# page_header's markup, by hand: its action is a link, and « Nouvelle
+       liste » opens a dialog — a list exists only once it has a name. #}
+    <div class="d-flex flex-column flex-sm-row justify-content-between align-items-sm-center gap-2 mb-4 page-header">
+        <h1 class="h3 mb-0">Listes de diffusion</h1>
+        <button type="button" class="btn btn-primary w-100 w-sm-auto flex-shrink-0" data-list-identity-open>
+            <i class="bi bi-plus-lg" aria-hidden="true"></i> Nouvelle liste
+        </button>
     </div>
+
+    {# A list has no scout year of its own — it is a set of blocks, and
+       the year is chosen at composition. Saying so here is what makes the
+       warning in the compose dialog make sense when it appears (it names
+       the year, which is not a property of anything on this page). #}
+    <p class="text-body-secondary small">
+        Une liste ne vise aucune année scoute : elle décrit qui reçoit, et l'année se choisit au moment
+        d'écrire l'e-mail. {% if future_audience_notice %}{{ future_audience_notice }}{% endif %}
+    </p>
+
+    <h2 class="h5 mt-4">Listes par défaut</h2>
+    <ul class="list-group mb-4">
+        {% for list in default_lists %}
+            <li class="list-group-item">
+                <div class="d-flex align-items-center">
+                    <i class="bi bi-lock text-body-secondary me-2" title="Liste par défaut — non modifiable"></i>
+                    <span>{{ list.label }}</span>
+                </div>
+                <p class="text-body-secondary small mb-0 mt-1">{{ list.description }}</p>
+            </li>
+        {% endfor %}
+    </ul>
+
+    <h2 class="h5">Vos listes</h2>
+    <div id="mm-custom-lists">
+        {% for list in custom_lists %}
+            {# One card per list, leading to its page — the only place what
+               a list holds is decided. The card summarises: what the list
+               is made of, counted per kind of block, and how many people it
+               reaches for the effective year. #}
+            <div class="card mb-2" data-list-id="{{ list.id }}">
+                <div class="card-body py-2">
+                    <div class="d-flex justify-content-between align-items-start gap-2">
+                        <span class="fw-semibold">
+                            <a href="/admin/listes-de-diffusion/{{ list.id }}">{{ list.name }}</a>
+                            {% if not list.isActive %} {% include 'partials/status_badge.html.twig' with { status: 'inactive', label: 'Désactivée' } only %}{% endif %}
+                        </span>
+                        <span class="text-nowrap">
+                            <button type="button" class="btn btn-sm btn-outline-secondary mm-toggle-list-btn"
+                                    data-id="{{ list.id }}" data-active="{{ list.isActive ? '1' : '0' }}"
+                                    aria-label="{{ list.isActive ? 'Désactiver' : 'Activer' }} la liste {{ list.name }}">
+                                <i class="bi {{ list.isActive ? 'bi-eye-slash' : 'bi-eye' }}" aria-hidden="true"></i>
+                            </button>
+                            <button type="button" class="btn btn-sm btn-outline-danger mm-delete-list-btn"
+                                    data-id="{{ list.id }}" data-name="{{ list.name }}"
+                                    aria-label="Supprimer la liste {{ list.name }}"><i class="bi bi-trash" aria-hidden="true"></i></button>
+                        </span>
+                    </div>
+                    <p class="text-body-secondary small mb-1 mt-1">{{ list.description }}</p>
+
+                    {# Counted in one COUNT(*) query for the whole page. #}
+                    {%- set counts = block_counts[list.id] ?? { member_group: 0, contact_group: 0 } -%}
+                    {%- set mg = counts.member_group -%}
+                    {%- set cg = counts.contact_group -%}
+                    {%- set parts = [] -%}
+                    {%- if mg > 0 -%}
+                        {%- set parts = parts|merge([mg ~ ' groupe' ~ (mg > 1 ? 's' : '') ~ ' de membres']) -%}
+                    {%- endif -%}
+                    {%- if cg > 0 -%}
+                        {%- set parts = parts|merge([cg ~ ' groupe' ~ (cg > 1 ? 's' : '') ~ ' de contacts']) -%}
+                    {%- endif -%}
+                    <p class="small fw-semibold mb-0" data-block-summary>
+                        {%- if parts is empty -%}
+                            Aucun groupe : cette liste ne désigne personne.
+                        {%- else -%}
+                            {{ parts|join(' · ') }}
+                        {%- endif -%}
+                    </p>
+                    {% if recipient_counts[list.id] is defined %}
+                        {%- set n = recipient_counts[list.id] -%}
+                        <p class="text-body-secondary small mb-0" data-recipient-count>≈ {{ n }} destinataire{{ n > 1 ? 's' : '' }} en {{ effective_year_label }}</p>
+                    {% endif %}
+                </div>
+            </div>
+        {% else %}
+            {% include 'partials/empty_state.html.twig' with {
+                message: 'Aucune liste personnalisée.',
+                compact: true,
+            } only %}
+        {% endfor %}
+    </div>
+    {% if recipient_counts is not empty %}
+        <p class="form-text">« ≈ » : le nombre est calculé pour l'année scoute effective ; l'e-mail peut viser une autre année.</p>
+    {% endif %}
+</div>
+
+{% include '@mass_mail/partials/_list_identity_dialog.html.twig' with { list: null } only %}
 {% endblock %}
 
 {% block scripts %}

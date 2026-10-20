@@ -89,6 +89,8 @@
 /mass-mail
 /mass-mail/new
 /admin/listes-de-diffusion
+# Replace {list_id} with the id of a custom list that has blocks of both kinds.
+/admin/listes-de-diffusion/{list_id}
 /chiefs/stats
 /news
 /news/manage

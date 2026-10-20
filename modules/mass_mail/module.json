@@ -307,6 +307,81 @@
       "menu": "espace_admin",
       "role_min": "admin",
       "label": ""
+    },
+    {
+      "path": "/admin/listes-de-diffusion/{id}",
+      "method": "GET",
+      "controller": "Modules\\MassMail\\Controller\\MailingListController",
+      "action": "show",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": "",
+      "breadcrumb": {
+        "label": "Liste de diffusion",
+        "parents": [
+          "Espace chefs d'U"
+        ],
+        "ancestors": [
+          {
+            "label": "Listes de diffusion",
+            "path": "/admin/listes-de-diffusion"
+          }
+        ]
+      }
+    },
+    {
+      "path": "/admin/listes-de-diffusion/lists/{id}",
+      "method": "PATCH",
+      "controller": "Modules\\MassMail\\Controller\\MailingListController",
+      "action": "updateList",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/admin/listes-de-diffusion/lists/{id}/blocks",
+      "method": "GET",
+      "controller": "Modules\\MassMail\\Controller\\MailingListController",
+      "action": "blocks",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/admin/listes-de-diffusion/lists/{id}/member-groups",
+      "method": "POST",
+      "controller": "Modules\\MassMail\\Controller\\MailingListController",
+      "action": "createMemberGroup",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/admin/listes-de-diffusion/member-groups/{id}",
+      "method": "PATCH",
+      "controller": "Modules\\MassMail\\Controller\\MailingListController",
+      "action": "updateMemberGroup",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/admin/listes-de-diffusion/blocks/{id}",
+      "method": "DELETE",
+      "controller": "Modules\\MassMail\\Controller\\MailingListController",
+      "action": "deleteBlock",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/admin/listes-de-diffusion/lists/{id}/recipients",
+      "method": "GET",
+      "controller": "Modules\\MassMail\\Controller\\MailingListController",
+      "action": "recipients",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
     }
   ],
   "settings": [

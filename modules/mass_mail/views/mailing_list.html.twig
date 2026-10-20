@@ -1,0 +1,172 @@
+{% extends "base.html.twig" %}
+{% block stylesheets %}<link rel="stylesheet" href="{{ asset('/assets/css/components.css') }}">{% endblock %}
+
+{% block title %}{{ list.name }} — {{ site_name }}{% endblock %}
+
+{% block content %}
+<div class="page-medium" id="mm-list-page">
+    {# page_header's markup, by hand: the pencil beside the title is an
+       icon that opens a dialog, which the partial's link action is not. #}
+    <div class="mb-4 page-header">
+        <div class="d-flex align-items-center gap-2">
+            <h1 class="h3 mb-0">{{ list.name }}</h1>
+            {% if not list.isActive %}{% include 'partials/status_badge.html.twig' with { status: 'inactive', label: 'Désactivée' } only %}{% endif %}
+            <button type="button" class="btn btn-sm btn-outline-secondary" data-list-identity-open
+                    aria-label="Modifier le nom et la description">
+                <i class="bi bi-pencil" aria-hidden="true"></i>
+            </button>
+        </div>
+        <p class="text-body-secondary small mb-0 mt-1">{{ list.description }}</p>
+    </div>
+
+    {# The total, the blocks by kind and the empty state are drawn by
+       mass-mail-lists.js from the island below, and redrawn from
+       GET …/lists/{id}/blocks whenever a dialog saved — one renderer. #}
+    <div class="border rounded p-3 mb-4 bg-body-tertiary" data-list-total aria-live="polite"></div>
+
+    <div data-list-blocks></div>
+
+    <p class="text-body-secondary d-none" data-list-empty-text>
+        Ajoutez des groupes de membres de l'unité ou des groupes de contacts extérieurs, autant que nécessaire.
+    </p>
+    <button type="button" class="btn btn-primary w-100 w-sm-auto" data-kind-chooser-open>
+        <i class="bi bi-plus-lg" aria-hidden="true"></i> Ajouter des destinataires
+    </button>
+    <p class="form-text d-none" data-list-year-note>
+        Le nombre de membres dépend de l'année : celui de la page est calculé pour l'année scoute effective.
+    </p>
+</div>
+
+{% set json_flags = constant('JSON_HEX_TAG') b-or constant('JSON_HEX_AMP') b-or constant('JSON_UNESCAPED_UNICODE') %}
+<script type="application/json" id="mm-list-data">
+{{ { list_id: list.id, effective_year_id: effective_year_id, blocks: blocks_payload }|json_encode(json_flags)|raw }}
+</script>
+
+{% include '@mass_mail/partials/_list_identity_dialog.html.twig' with { list: list } only %}
+
+{# « Ajouter des destinataires » — which kind of block. Each choice opens
+   its own dialog: the member group's below, the contact group's from
+   views/partials/_contact_group_dialog.html.twig, which listens for any
+   [data-contact-group-open] without a data-block-id (a creation). #}
+{% embed 'partials/modal.html.twig' with { id: 'mm-kind-chooser-modal', title: 'Que voulez-vous ajouter ?' } only %}
+    {% block body %}
+        <div class="d-grid gap-2">
+            <button type="button" class="btn btn-outline-secondary text-start p-3" data-kind-choice="member_group">
+                <span class="d-block fw-semibold">Groupe de membres</span>
+                <span class="d-block small text-body-secondary">Des membres de l'unité, par fonction, section ou badge.
+                    Leur adresse vient de Desk, pour l'année choisie au moment d'écrire.</span>
+            </button>
+            <button type="button" class="btn btn-outline-secondary text-start p-3" data-contact-group-open>
+                <span class="d-block fw-semibold">Groupe de contacts</span>
+                <span class="d-block small text-body-secondary">Des personnes extérieures — commune, paroisse,
+                    propriétaire… — tenues à jour par un fichier Excel.</span>
+            </button>
+        </div>
+    {% endblock %}
+{% endembed %}
+
+{# One member group: the three axes, the sentence they add up to and the
+   live count. Three select bars (design.md §1.4 / §7.10.1): each list is
+   open-ended, comes from the database and carries long labels. An empty
+   axis reads « Peu importe » — it constrains nothing — and a group needs
+   at least one choice, which is why « Enregistrer » starts disabled. #}
+{% embed 'partials/modal.html.twig' with {
+    id: 'mm-member-group-modal',
+    title: 'Groupe de membres',
+    scrollable: true,
+    all_functions: all_functions,
+    all_sections: all_sections,
+    all_badges: all_badges,
+} only %}
+    {% block body %}
+        <div class="alert alert-danger d-none" data-member-group-error></div>
+        <div class="mb-3">
+            {% include 'partials/select_bar.html.twig' with {
+                picker_id: 'mm-function-picker',
+                label: 'Fonctions',
+                items: all_functions|map(f => { id: f.id, label: f.label, selected: false }),
+                mode: 'multi',
+                none_selected_text: 'Peu importe',
+                count_label: 'fonctions',
+                empty_text: 'Aucune fonction — importez Desk pour en disposer.',
+            } only %}
+        </div>
+        <div class="mb-3">
+            {% include 'partials/select_bar.html.twig' with {
+                picker_id: 'mm-section-picker',
+                label: 'Sections',
+                items: all_sections|map(s => { id: s.id, label: s.name, selected: false }),
+                mode: 'multi',
+                none_selected_text: 'Peu importe',
+                count_label: 'sections',
+                empty_text: 'Aucune section — importez Desk pour en disposer.',
+            } only %}
+        </div>
+        <div class="mb-3">
+            {% include 'partials/select_bar.html.twig' with {
+                picker_id: 'mm-badge-picker',
+                label: 'Badges',
+                items: all_badges|map(b => { id: b.id, label: b.name, selected: false }),
+                mode: 'multi',
+                none_selected_text: 'Peu importe',
+                count_label: 'badges',
+                empty_text: 'Aucun badge actif.',
+            } only %}
+        </div>
+
+        {# What the three choices add up to, worded by the server with
+           every count (MailingListService::criteriaSentence()) — the AND
+           between axes is the one thing the controls cannot show. #}
+        <div class="border rounded p-2 bg-body-tertiary" aria-live="polite">
+            <p class="small mb-1" data-member-group-sentence></p>
+            <p class="small mb-0" data-member-group-count></p>
+        </div>
+        <p class="form-text mb-0">
+            Un membre doit remplir chaque choix fait ici. Pour d'autres membres, ajoutez un autre groupe.
+        </p>
+    {% endblock %}
+    {% block footer %}
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Annuler</button>
+        <button type="button" class="btn btn-primary" data-member-group-save disabled>Enregistrer</button>
+    {% endblock %}
+{% endembed %}
+
+{# « Voir les destinataires » — read-only: the list resolved and
+   deduplicated as the send resolves it, for one of the years an email can
+   target. #}
+{% embed 'partials/modal.html.twig' with {
+    id: 'mm-recipients-modal',
+    title: 'Destinataires',
+    scrollable: true,
+    recipient_years: recipient_years,
+    effective_year_id: effective_year_id,
+} only %}
+    {% block body %}
+        {% if recipient_years|length > 1 %}
+            <div class="mb-2">
+                <label class="form-label small mb-1" for="mm-recipients-year">Année scoute</label>
+                <select class="form-select form-select-sm" id="mm-recipients-year" data-recipients-year>
+                    {% for year in recipient_years %}
+                        <option value="{{ year.id }}"{% if year.id == effective_year_id %} selected{% endif %}>{{ year.label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        {% endif %}
+        <input type="search" class="form-control form-control-sm mb-2" data-recipients-search
+               placeholder="Rechercher un nom ou une adresse" aria-label="Rechercher un destinataire">
+        <div class="alert alert-danger d-none small py-1 px-2" data-recipients-error></div>
+        <ul class="list-group list-group-flush mb-2" data-recipients-rows></ul>
+        <p class="text-body-secondary small d-none" data-recipients-empty>Aucun destinataire ne correspond.</p>
+        <p class="form-text mb-0">
+            Les adresses désinscrites et les membres sans adresse n'apparaissent pas : ils ne recevraient rien.
+        </p>
+    {% endblock %}
+{% endembed %}
+{% endblock %}
+
+{% block scripts %}
+{# select-bar.js is loaded by base.html.twig, before this block and with
+   the same `defer`, so window.SelectBar exists by the time this file
+   drives the three pickers. #}
+<script src="{{ asset('/assets/js/mass-mail-lists.js') }}" defer></script>
+{% endblock %}

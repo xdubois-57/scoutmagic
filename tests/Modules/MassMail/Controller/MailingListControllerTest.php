@@ -25,7 +25,10 @@ use Modules\MassMail\Repository\ContactRepository;
 use Modules\MassMail\Repository\ListBlockRepository;
 use Modules\MassMail\Repository\MailingListRepository;
 use Modules\MassMail\Repository\MemberResolutionRepository;
+use Modules\MassMail\Repository\SuppressedAddressRepository;
+use Modules\MassMail\Service\ContactGroupImportService;
 use Modules\MassMail\Service\ListBlockService;
+use Modules\MassMail\Service\SendableScoutYears;
 use Modules\MassMail\Service\MailingListService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
@@ -58,6 +61,7 @@ class MailingListControllerTest extends TestCase
     private int $badgeId;
     private ScoutYearResolver $scoutYearResolver;
     private ListBlockService $blockService;
+    private ContactGroupImportService $contactGroups;
 
     protected function setUp(): void
     {
@@ -109,12 +113,15 @@ class MailingListControllerTest extends TestCase
             new SettingService(new SettingRepository($this->pdo)),
             new MemberYearRepository($this->pdo)
         );
-        $this->controller = new MailingListController(
-            $this->createStub(Environment::class),
-            $this->listService,
-            $this->scoutYearResolver,
-            $this->blockService
+        $this->contactGroups = new ContactGroupImportService(
+            new ListBlockRepository($this->pdo),
+            new ContactRepository($this->pdo, $encryption),
+            $this->blockService,
+            new SettingService(new SettingRepository($this->pdo)),
+            $this->createStub(\Core\Journal\JournalService::class),
+            new SuppressedAddressRepository($this->pdo)
         );
+        $this->controller = $this->controller($this->createStub(Environment::class));
 
         if (session_status() === PHP_SESSION_NONE) {
             session_start();
@@ -146,12 +153,7 @@ class MailingListControllerTest extends TestCase
             }
         );
 
-        $response = (new MailingListController(
-            $twig,
-            $this->listService,
-            $this->scoutYearResolver,
-            $this->blockService
-        ))
+        $response = $this->controller($twig)
             ->index(new Request('GET', '/admin/listes-de-diffusion', [], [], [], []), []);
 
         $this->assertSame(200, $response->getStatusCode());
@@ -162,6 +164,10 @@ class MailingListControllerTest extends TestCase
             $captured['block_counts']
         );
         $this->assertArrayNotHasKey($empty->id, $captured['block_counts']);
+        // A count per list that has a block — the send's own number — and
+        // none for a list without one, which designates nobody.
+        $this->assertSame([$list->id => 0], $captured['recipient_counts']);
+        $this->assertNotSame('', $captured['effective_year_label']);
         $this->assertNotSame([], $captured['default_lists']);
         $this->assertNotSame('', $captured['csrf_token']);
     }
@@ -175,17 +181,318 @@ class MailingListControllerTest extends TestCase
         $this->blockService->createMemberGroup($this->list('Secouristes')->id, [], [], [$this->badgeId], null);
         $this->list('Vide');
 
-        $html = (new MailingListController(
-            \Tests\TestTwig::create(['mass_mail']),
-            $this->listService,
-            $this->scoutYearResolver,
-            $this->blockService
-        ))->index(new Request('GET', '/admin/listes-de-diffusion', [], [], [], []), [])->getBody();
+        $html = $this->controller(\Tests\TestTwig::create(['mass_mail']))
+            ->index(new Request('GET', '/admin/listes-de-diffusion', [], [], [], []), [])
+            ->getBody();
 
         $this->assertStringContainsString('2 groupes de membres', $html);
         $this->assertStringContainsString('1 groupe de membres', $html);
         $this->assertStringContainsString('Aucun groupe : cette liste ne désigne personne.', $html);
         $this->assertStringNotContainsString('cfg-list-modal', $html);
+        // Each card leads to the list's page, and says how many it reaches.
+        $this->assertStringContainsString('href="/admin/listes-de-diffusion/' . $list->id . '"', $html);
+        $this->assertStringContainsString('≈ 0 destinataire en ', $html);
+        $this->assertStringContainsString('aria-label="Supprimer la liste Staff élargi"', $html);
+        // « Nouvelle liste » and its two-field dialog.
+        $this->assertStringContainsString('Nouvelle liste', $html);
+        $this->assertStringContainsString('id="mm-list-identity-modal"', $html);
+        $this->assertStringContainsString('data-list-identity-save', $html);
+    }
+
+    public function testShowAnswersNotFoundForAnUnknownList(): void
+    {
+        $response = $this->controller->show(new Request('GET', '/admin/listes-de-diffusion/999', [], [], [], []), [
+            'id' => '999',
+        ]);
+
+        $this->assertSame(404, $response->getStatusCode());
+    }
+
+    /**
+     * The page of a list: its name as the title and the trail's last
+     * step, the blocks handed to the script in an island, and the hooks
+     * the contact-group dialog opens from — present whether that dialog
+     * is on the page or not.
+     */
+    public function testShowRendersTheListPageWithItsBlocksAndDialogs(): void
+    {
+        $list = $this->list('Staff élargi');
+        $this->blockService->createMemberGroup($list->id, [$this->functionId], [], [], null);
+        $this->contactGroup($list->id, 'Partenaires', ['commune@example.be']);
+
+        $html = $this->controller(\Tests\TestTwig::create(['mass_mail']))
+            ->show(new Request('GET', '/admin/listes-de-diffusion/' . $list->id, [], [], [], []), [
+                'id' => (string) $list->id,
+            ])->getBody();
+
+        $this->assertStringContainsString('<h1 class="h3 mb-0">Staff élargi</h1>', $html);
+        $this->assertStringContainsString('aria-label="Modifier le nom et la description"', $html);
+        $this->assertStringContainsString('id="mm-list-data"', $html);
+        $this->assertStringContainsString('Ajouter des destinataires', $html);
+        $this->assertStringContainsString('Que voulez-vous ajouter ?', $html);
+        // The creation hook of the contract with the contact-group dialog:
+        // [data-contact-group-open] without a data-block-id.
+        $this->assertMatchesRegularExpression('/<button[^>]*data-contact-group-open>/', $html);
+        // The member-group dialog's three axes read « Peu importe » empty,
+        // and « Enregistrer » starts disabled — a group needs one choice.
+        $this->assertStringContainsString('Peu importe', $html);
+        $this->assertStringNotContainsString('Toutes les fonctions', $html);
+        $this->assertStringContainsString('data-member-group-save disabled', $html);
+        $this->assertStringContainsString('Rechercher un destinataire', $html);
+
+        preg_match('#<script type="application/json" id="mm-list-data">(.*?)</script>#s', $html, $island);
+        $data = json_decode($island[1] ?? '', true);
+        $this->assertIsArray($data);
+        $this->assertSame($list->id, $data['list_id']);
+        $this->assertSame(['member_group', 'contact_group'], array_column($data['blocks']['blocks'], 'kind'));
+    }
+
+    public function testShowNamesTheListInTheBreadcrumb(): void
+    {
+        $list = $this->list('Secouristes');
+        $twig = $this->createStub(Environment::class);
+        $captured = null;
+        $twig->method('render')->willReturnCallback(
+            function (string $name, array $context) use (&$captured): string {
+                $captured = $context;
+                return '';
+            }
+        );
+
+        $this->controller($twig)->show(new Request('GET', '/', [], [], [], []), ['id' => (string) $list->id]);
+
+        $this->assertIsArray($captured);
+        $this->assertSame('Secouristes', $captured['breadcrumb_current']);
+        $this->assertNotSame([], $captured['recipient_years']);
+        $this->assertContains($captured['effective_year_id'], array_column($captured['recipient_years'], 'id'));
+    }
+
+    public function testUpdateListRenamesAndRedescribes(): void
+    {
+        $list = $this->list('Ancien nom');
+
+        $payload = $this->call('updateList', ['id' => (string) $list->id], [
+            'name' => 'Nouveau nom',
+            'description' => 'Une autre description.',
+        ]);
+
+        $this->assertTrue($payload['success']);
+        $this->assertSame('Nouveau nom', $this->listService->getCustomListById($list->id)?->name);
+        $this->assertSame('Une autre description.', $this->listService->getCustomListById($list->id)?->description);
+    }
+
+    public function testUpdateListRefusesAnEmptyNameAndKeepsTheOldOne(): void
+    {
+        $list = $this->list('Gardé');
+
+        $response = $this->controller->updateList(
+            $this->jsonRequest(['name' => ' ', 'description' => 'x', '_csrf_token' => CsrfGuard::generateToken()]),
+            ['id' => (string) $list->id]
+        );
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertSame('Le nom de la liste est obligatoire.', json_decode($response->getBody(), true)['error']);
+        $this->assertSame('Gardé', $this->listService->getCustomListById($list->id)?->name);
+    }
+
+    /**
+     * What the page redraws from: the total and split, then each block —
+     * a member group with its sentence in segments and the ids its dialog
+     * reopens with, a contact group with its name, its counts and the
+     * date its file was applied.
+     */
+    public function testBlocksAnswersTheTotalAndEveryBlockOfBothKinds(): void
+    {
+        $list = $this->list('Staff élargi');
+        $memberGroup = $this->blockService->createMemberGroup($list->id, [$this->functionId], [], [], null);
+        $contactGroupId = $this->contactGroup($list->id, 'Partenaires', ['a@example.be', 'b@example.be']);
+        $this->blockService->unsubscribeEverywhere('b@example.be');
+
+        $response = $this->controller->blocks(new Request('GET', '/', [], [], [], []), ['id' => (string) $list->id]);
+        $payload = json_decode($response->getBody(), true);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertTrue($payload['success']);
+        $this->assertSame(
+            ['total' => 1, 'members' => 0, 'contacts' => 2, 'contacts_unsubscribed' => 1],
+            $payload['summary']
+        );
+        $this->assertNotSame('', $payload['scout_year_label']);
+
+        [$member, $contact] = $payload['blocks'];
+        $this->assertSame($memberGroup->id, $member['id']);
+        $this->assertSame('member_group', $member['kind']);
+        $this->assertNull($member['name']);
+        $this->assertSame([
+            ['text' => 'Les membres qui ont la fonction ', 'strong' => false],
+            ['text' => 'Intendant', 'strong' => true],
+            ['text' => '.', 'strong' => false],
+        ], $member['sentence']);
+        $this->assertSame([$this->functionId], $member['function_ids']);
+        $this->assertSame([], $member['section_ids']);
+        $this->assertSame(0, $member['count']);
+
+        $this->assertSame($contactGroupId, $contact['id']);
+        $this->assertSame('contact_group', $contact['kind']);
+        $this->assertSame('Partenaires', $contact['name']);
+        $this->assertSame([], $contact['sentence']);
+        $this->assertSame(2, $contact['count']);
+        $this->assertSame(1, $contact['unsubscribed']);
+        $this->assertNotNull($contact['file_replaced_at']);
+        $this->assertMatchesRegularExpression('/^\d{1,2} \p{L}+ \d{4}$/u', (string) $contact['file_replaced_label']);
+    }
+
+    public function testBlocksAnswersNotFoundForAnUnknownList(): void
+    {
+        $response = $this->controller->blocks(new Request('GET', '/', [], [], [], []), ['id' => '999']);
+
+        $this->assertSame(404, $response->getStatusCode());
+    }
+
+    public function testCreateMemberGroupAddsAGroupToTheList(): void
+    {
+        $list = $this->list('Les intendants');
+
+        $payload = $this->call('createMemberGroup', ['id' => (string) $list->id], [
+            'function_ids' => [$this->functionId],
+            'section_ids' => [],
+            'badge_ids' => [$this->badgeId],
+        ]);
+
+        $this->assertTrue($payload['success']);
+        $this->assertSame('member_group', $payload['block']['kind']);
+        $blocks = $this->blockService->findForList($list->id);
+        $this->assertCount(1, $blocks);
+        $this->assertSame([$this->functionId], $blocks[0]->functionIds);
+        $this->assertSame([$this->badgeId], $blocks[0]->badgeIds);
+    }
+
+    /** « Peu importe » three times is no group: refused, nothing written. */
+    public function testCreateMemberGroupRefusesAGroupWithoutAnyChoice(): void
+    {
+        $list = $this->list('Vide');
+
+        $response = $this->controller->createMemberGroup(
+            $this->jsonRequest(['function_ids' => [], '_csrf_token' => CsrfGuard::generateToken()]),
+            ['id' => (string) $list->id]
+        );
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertSame(
+            'Choisissez au moins une fonction, une section ou un badge.',
+            json_decode($response->getBody(), true)['error']
+        );
+        $this->assertSame([], $this->blockService->findForList($list->id));
+    }
+
+    public function testUpdateMemberGroupReplacesItsAxes(): void
+    {
+        $list = $this->list('Groupe');
+        $block = $this->blockService->createMemberGroup($list->id, [$this->functionId], [], [], null);
+
+        $this->assertTrue($this->call('updateMemberGroup', ['id' => (string) $block->id], [
+            'function_ids' => [],
+            'section_ids' => [$this->sectionId],
+            'badge_ids' => [],
+        ])['success']);
+
+        $updated = $this->blockService->findById($block->id);
+        $this->assertSame([], $updated?->functionIds);
+        $this->assertSame([$this->sectionId], $updated?->sectionIds);
+    }
+
+    /** A contact group changes by its file only — never through this route. */
+    public function testUpdateMemberGroupRefusesAContactGroup(): void
+    {
+        $list = $this->list('Contacts');
+        $contactGroupId = $this->contactGroup($list->id, 'Partenaires', ['a@example.be']);
+
+        $response = $this->controller->updateMemberGroup(
+            $this->jsonRequest(['function_ids' => [$this->functionId], '_csrf_token' => CsrfGuard::generateToken()]),
+            ['id' => (string) $contactGroupId]
+        );
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertSame([], $this->blockService->findById($contactGroupId)?->functionIds);
+    }
+
+    /** One route removes a block of either kind. */
+    public function testDeleteBlockRemovesBothKinds(): void
+    {
+        $list = $this->list('Deux blocs');
+        $memberGroup = $this->blockService->createMemberGroup($list->id, [$this->functionId], [], [], null);
+        $contactGroupId = $this->contactGroup($list->id, 'Partenaires', ['a@example.be']);
+
+        $this->assertTrue($this->call('deleteBlock', ['id' => (string) $memberGroup->id], [])['success']);
+        $this->assertTrue($this->call('deleteBlock', ['id' => (string) $contactGroupId], [])['success']);
+
+        $this->assertSame([], $this->blockService->findForList($list->id));
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM mass_mail_block_contacts')->fetchColumn());
+    }
+
+    public function testDeleteBlockRefusesAnUnknownBlock(): void
+    {
+        $response = $this->controller->deleteBlock(
+            $this->jsonRequest(['_csrf_token' => CsrfGuard::generateToken()]),
+            ['id' => '999']
+        );
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertSame('Groupe introuvable.', json_decode($response->getBody(), true)['error']);
+    }
+
+    /**
+     * « Voir les destinataires »: one row per person who would receive the
+     * e-mail, the blocks that bring them, and a label per block for the
+     * tags — never an unsubscribed address.
+     */
+    public function testRecipientsListsWhoReceivesAndWhichBlockBringsThem(): void
+    {
+        $list = $this->list('Partenaires');
+        $memberGroup = $this->blockService->createMemberGroup($list->id, [$this->functionId], [], [], null);
+        $contactGroupId = $this->contactGroup($list->id, 'Commune', ['commune@example.be', 'parti@example.be']);
+        $this->blockService->unsubscribeEverywhere('parti@example.be');
+
+        $response = $this->controller->recipients(
+            new Request('GET', '/', [], [], [], []),
+            ['id' => (string) $list->id]
+        );
+        $payload = json_decode($response->getBody(), true);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertTrue($payload['success']);
+        $this->assertNotSame('', $payload['scout_year_label']);
+        $this->assertSame(['commune@example.be'], array_column($payload['recipients'], 'email'));
+        $this->assertSame([$contactGroupId], $payload['recipients'][0]['block_ids']);
+        $this->assertSame([
+            $memberGroup->id => ['kind' => 'member_group', 'label' => 'Intendant'],
+            $contactGroupId => ['kind' => 'contact_group', 'label' => 'Commune'],
+        ], $payload['blocks']);
+    }
+
+    /** Only a year an e-mail can target: anything else is refused, not resolved. */
+    public function testRecipientsRefusesAYearNoEmailCanTarget(): void
+    {
+        $list = $this->list('Partenaires');
+        $this->pdo->exec(
+            "INSERT INTO scout_years (label, start_date, end_date, is_current)
+             VALUES ('1990-1991', '1990-09-01', '1991-08-31', 0)"
+        );
+        $oldYearId = (int) $this->pdo->lastInsertId();
+
+        $response = $this->controller->recipients(
+            new Request('GET', '/', ['year' => (string) $oldYearId], [], [], []),
+            ['id' => (string) $list->id]
+        );
+
+        $this->assertSame(422, $response->getStatusCode());
+    }
+
+    public function testRecipientsAnswersNotFoundForAnUnknownList(): void
+    {
+        $response = $this->controller->recipients(new Request('GET', '/', [], [], [], []), ['id' => '999']);
+
+        $this->assertSame(404, $response->getStatusCode());
     }
 
     /**
@@ -317,9 +624,42 @@ class MailingListControllerTest extends TestCase
     {
         return [
             'createList' => ['createList'],
+            'updateList' => ['updateList'],
             'toggleList' => ['toggleList'],
             'deleteList' => ['deleteList'],
+            'createMemberGroup' => ['createMemberGroup'],
+            'updateMemberGroup' => ['updateMemberGroup'],
+            'deleteBlock' => ['deleteBlock'],
+            'previewCount' => ['previewCount'],
         ];
+    }
+
+    private function controller(Environment $twig): MailingListController
+    {
+        return new MailingListController(
+            $twig,
+            $this->listService,
+            $this->scoutYearResolver,
+            $this->blockService,
+            new SendableScoutYears(
+                new ScoutYearService($this->pdo),
+                new \Core\Import\ImportJournalRepository($this->pdo),
+                $this->listService
+            )
+        );
+    }
+
+    /**
+     * @param string[] $emails
+     */
+    private function contactGroup(int $listId, string $name, array $emails): int
+    {
+        return $this->contactGroups->createGroup(
+            $listId,
+            $name,
+            array_map(static fn(string $e): array => ['name' => null, 'email' => $e], $emails),
+            null
+        )->id;
     }
 
     private function list(string $name): \Modules\MassMail\Repository\MailingList

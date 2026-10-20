@@ -1,15 +1,15 @@
 ---
 id: listes-de-diffusion
 title: Gérer les listes de diffusion
-summary: Les listes par défaut et les listes personnalisées de l'unité.
+summary: Les listes par défaut, et vos listes faites de groupes de membres et de groupes de contacts.
 category: Espace chefs d'U
 role_min: admin
 question: Comment créer une liste de diffusion personnalisée ?
 question: Comment écrire aux intendants de toutes les sections ?
-question: Comment écrire aux animateurs qui portent un badge ?
+question: Comment écrire aux animateurs et au trésorier en une seule liste ?
 question: Pourquoi ne puis-je pas supprimer une liste de diffusion ?
-paths: /admin/listes-de-diffusion
-related: adresses-de-liste, anciens, envoi-de-mails, publipostage
+paths: /admin/listes-de-diffusion, /admin/listes-de-diffusion/*
+related: anciens, envoi-de-mails, publipostage
 ---
 
 Cette page décide **à qui l'unité écrit**. Elle ne compose aucun
@@ -20,47 +20,61 @@ ensuite au moment d'écrire.
 
 Une par section, plus « Membres actifs », « Animateurs uniquement » et
 « Anciens », qui a son propre sujet d'aide : elles sont fournies par le
-site et ne se modifient pas — elles portent un cadenas. Leur contenu suit les données de la fédération : une section
-qui devient inactive disparaît d'elle-même, sans entretien.
+site et ne se modifient pas — elles portent un cadenas. Leur contenu suit
+les données de la fédération : une section qui devient inactive disparaît
+d'elle-même, sans entretien.
 
 ## Vos propres listes
 
-« Nouvelle liste » ouvre trois sélecteurs : « Fonctions », « Sections »
-et « Badges ». Une liste demande un nom, une description, et au moins un
-critère — sur n'importe lequel des trois.
+« Nouvelle liste » demande un nom et une description, puis ouvre la page
+de la liste. La description s'affiche partout où l'on choisit la liste :
+c'est ce qui permet à un animateur de savoir ce qu'elle contient.
 
-Les trois se combinent en **ET**, et chacun se lit en **OU** à
-l'intérieur. Un intendant *ou* un trésorier, dans la meute *ou* dans la
-troupe : c'est une seule liste.
+Sur sa page, une liste est une **suite de blocs, additionnés**.
+« Ajouter des destinataires » propose deux sortes de blocs, autant de
+chacune que nécessaire :
 
-Un sélecteur que vous laissez vide ne restreint rien — il affiche alors
-« Toutes les sections », et la liste vaut pour toutes. C'est ainsi qu'on
-écrit aux intendants sans distinguer leur section.
+- un « Groupe de membres » : des membres de l'unité, choisis par
+  « Fonctions », « Sections » et « Badges » ;
+- un « Groupe de contacts » : des personnes extérieures — commune,
+  paroisse, propriétaire — tenues à jour par un fichier Excel.
 
-Vous n'avez pas à le deviner. Sous les trois sélecteurs, une phrase se
-réécrit à chaque clic et dit exactement qui la liste contient, et le
-nombre de destinataires se recalcule à côté.
+Une personne désignée par plusieurs blocs ne reçoit l'e-mail qu'une fois.
+Un clic sur un bloc rouvre son dialogue ; la corbeille le retire, après
+une confirmation. Retirer un bloc n'envoie aucun e-mail.
+
+## Un groupe de membres
+
+Les trois choix se combinent en **ET**, et chacun se lit en **OU** à
+l'intérieur : un intendant *ou* un trésorier, dans la meute *ou* dans la
+troupe. Un choix laissé vide affiche « Peu importe » et ne restreint
+rien — c'est ainsi qu'on écrit aux intendants de toutes les sections. Il
+faut au moins un choix : sans lui, « Enregistrer » reste grisé.
+
+Pour écrire aux animateurs **ou** au trésorier, ajoutez deux groupes :
+c'est l'addition des blocs qui fait le « ou » entre eux.
+
+Sous les trois choix, une phrase dit qui le groupe désigne et le nombre
+de membres se recalcule.
 
 > Un badge ne s'attribue qu'au Staff d'Unité et aux animateurs. Le
-> croiser avec une section d'animés donne donc toujours zéro
-> destinataire, et le compteur l'annonce en rouge.
+> croiser avec une section d'animés donne donc toujours zéro, et le
+> compteur l'annonce en rouge.
 
-La description est obligatoire, et elle s'affiche à côté de la liste
-partout où on la choisit : c'est ce qui permet à un animateur de savoir
-ce que la liste contient sans le deviner d'après son nom.
+## L'année
 
-Une liste ne vise **aucune année scoute**. Elle décrit qui recevoir ;
-l'année se choisit au moment d'écrire l'e-mail. Sa composition se
-recalcule à chaque envoi, elle reste donc juste après chaque mise à
-jour des données.
+Une liste ne vise **aucune année scoute**. Les années choisies au moment
+d'écrire l'e-mail s'appliquent aux groupes de membres ; les groupes de
+contacts sont toujours inclus. Les nombres de la page sont calculés pour
+l'année scoute effective, et « Voir les destinataires » montre qui
+recevrait l'e-mail, pour cette année ou une autre que l'envoi propose.
 
 ## Désactiver plutôt que supprimer
 
-Une liste déjà utilisée par un e-mail ne peut pas être supprimée —
-le bouton refuse et vous propose de la désactiver. Une liste
-désactivée disparaît du choix des nouvelles compositions, mais
-l'historique des envois qui s'en servaient reste lisible.
+Une liste déjà utilisée par un e-mail ne peut pas être supprimée — le
+bouton refuse et vous propose de la désactiver. Une liste désactivée
+disparaît du choix des nouvelles compositions, mais l'historique des
+envois qui s'en servaient reste lisible.
 
-La cadence d'envoi — combien d'e-mails toutes les combien de minutes —
-n'est pas ici : c'est un réglage du site entier, sur
+La cadence d'envoi n'est pas ici : c'est un réglage du site entier, sur
 « Configuration > Réglages ».
