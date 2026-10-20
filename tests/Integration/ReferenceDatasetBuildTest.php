@@ -16,6 +16,7 @@ use Core\Photo\ImageVariantService;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 use Tests\Fixtures\ReferenceDataset\CampsBlueprint;
+use Tests\Fixtures\ReferenceDataset\MailingListBlueprint;
 use Tests\Fixtures\ReferenceDataset\UnitBlueprint;
 use Tests\UsesProductionEngine;
 
@@ -97,6 +98,7 @@ final class ReferenceDatasetBuildTest extends TestCase
         'rental_bookings_refused' => "SELECT COUNT(*) FROM rental_bookings WHERE status = 'refused'",
         'member_badges' => 'SELECT COUNT(*) FROM member_badges',
         'member_photos' => 'SELECT COUNT(*) FROM member_photos',
+        'mass_mail_contact_groups_with_contacts' => 'SELECT COUNT(DISTINCT block_id) FROM mass_mail_block_contacts',
         'finance_campaign_rows' => 'SELECT COUNT(*) FROM finance_campaign_rows',
         'finance_expected_receivables' => 'SELECT COUNT(*) FROM finance_expected_receivables',
     ];
@@ -308,6 +310,61 @@ final class ReferenceDatasetBuildTest extends TestCase
     }
 
     /**
+     * The two custom mailing lists of MailingListBlueprint, block by block:
+     * one that mixes both kinds and one of contacts only — the two cases the
+     * e-mail page words differently. Exact counts, for the reason given
+     * above the bookings: a group dropped by a seeder that carried on is
+     * exactly what « greater than zero » cannot see.
+     *
+     * Each member group must also name somebody in 2026-2027, or the
+     * « mixed » list holds a member group of nobody — which is what a
+     * function label the Desk import stopped producing would leave.
+     */
+    public function testTheTwoMailingListsCarryTheirDeclaredBlocks(): void
+    {
+        $expected = [];
+        $contactGroupsDeclared = 0;
+        foreach (MailingListBlueprint::LISTS as $list) {
+            $expected[$list['name']] = [
+                'member_group' => count($list['memberGroups']),
+                'contact_group' => count($list['contactGroups']),
+            ];
+            $contactGroupsDeclared += count($list['contactGroups']);
+        }
+
+        $actual = array_fill_keys(array_keys($expected), ['member_group' => 0, 'contact_group' => 0]);
+        foreach ($this->query(
+            'SELECT l.name, b.kind, COUNT(*) AS total FROM mass_mail_lists l
+             JOIN mass_mail_list_blocks b ON b.list_id = l.id GROUP BY l.name, b.kind'
+        ) as $row) {
+            $actual[(string) $row['name']][(string) $row['kind']] = (int) $row['total'];
+        }
+        self::assertSame($expected, $actual, 'the mailing lists do not hold the blocks MailingListBlueprint declares');
+
+        self::assertSame(
+            $contactGroupsDeclared,
+            $this->rowCount('mass_mail_contact_groups_with_contacts'),
+            'a contact group was created without the contacts of its committed file',
+        );
+
+        $named = $this->pdo()->prepare(
+            'SELECT COUNT(DISTINCT my.member_id) FROM mass_mail_block_functions bf
+             JOIN member_functions mf ON mf.function_id = bf.function_id
+             JOIN member_years my ON my.id = mf.member_year_id
+             JOIN scout_years sy ON sy.id = my.scout_year_id
+             WHERE bf.block_id = ? AND sy.label = ? AND my.is_active = 1'
+        );
+        foreach ($this->query("SELECT id FROM mass_mail_list_blocks WHERE kind = 'member_group'") as $block) {
+            $named->execute([(int) $block['id'], '2026-2027']);
+            self::assertGreaterThan(
+                0,
+                (int) $named->fetchColumn(),
+                "Member group {$block['id']} names nobody in 2026-2027.",
+            );
+        }
+    }
+
+    /**
      * #212. `--reset` preserves `settings`, which is right for the unit's
      * name and wrong for the flags a run leaves behind. The one that showed
      * is `current_scout_year_id`: the provisioning pins it on the single
@@ -413,6 +470,7 @@ final class ReferenceDatasetBuildTest extends TestCase
             'member_scout_year_offset_changed' => 'the scout-year offsets',
             'event_created' => 'the calendar events',
             'banner_created' => 'the banners',
+            'list_block_created' => 'the mailing-list blocks',
         ] as $eventType => $domain) {
             self::assertGreaterThan(
                 0,

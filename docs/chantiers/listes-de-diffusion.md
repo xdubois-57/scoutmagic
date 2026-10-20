@@ -753,3 +753,31 @@ humain : un « oui » à propos d'une ligne d'une autre liste n'est pas un
 des critères, et pour la même raison : ce qu'une requête répond n'est vrai
 que pour l'état qui l'a posée.
 
+
+---
+
+## Chantier #729 — une page par liste, groupes de membres et groupes de contacts
+
+Les sections ci-dessus restent telles quelles : elles disent pourquoi la
+résolution, la désinscription et l'aller-retour Excel sont ce qu'ils sont,
+et le chantier suivant s'est appuyé dessus sans les rediscuter. Ce qu'elles
+décrivent de l'**écran** et du **modèle**, en revanche, n'existe plus : le
+dialogue unique qui mêlait critères et adresses, le jeu de critères porté
+par la liste et ses adresses propres ont laissé la place à une page par
+liste faite de **blocs** additionnés — des groupes de membres et des
+groupes de contacts, ces derniers tenus uniquement par fichier.
+
+Le document de ce chantier est dans le dépôt, avec son journal lot par
+lot : `docs/chantiers/CHANTIER-listes-de-diffusion-blocs.md`. La maquette
+qui a fait foi est `docs/chantiers/maquettes/listes-de-diffusion.html`, et
+`ARCHITECTURE.md` §8.71sexies à §8.71nonies décrit le résultat.
+
+Ce qui survit tel quel d'ici : D2 (la désinscription globale à l'unité,
+que `mass_mail_suppressed_addresses` garde vraie), D5 (ET entre les axes,
+OU dedans, un axe vide ne contraint rien — c'est désormais la sémantique
+d'un groupe de membres), la règle IT-02 des éléments désactivés qu'un
+groupe nomme encore, IT-04 (colonnes lues par leur en-tête, fichier
+supprimé dès l'analyse, enregistrement qui revalide tout ce qu'il reçoit)
+et IT-05 (la liste « Anciens »). Les limites notées par IT-03 — une liste
+faite uniquement d'adresses impossible, « Annuler » qui n'annulait pas une
+adresse ajoutée — sont levées par le modèle des blocs.
