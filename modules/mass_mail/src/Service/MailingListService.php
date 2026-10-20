@@ -1250,7 +1250,18 @@ class MailingListService
             }
 
             if (filter_var($email, FILTER_VALIDATE_EMAIL) !== false) {
-                $reachable[] = ['member_id' => $memberId, 'email' => $email, 'address_keys' => [$key]];
+                // The freeze also writes to the member's other valid
+                // addresses and skips a contact holding one of them, so
+                // they are this row's too. Read with a null Desk address:
+                // reading never creates the Desk override row.
+                $keys = [$key];
+                $others = $this->memberEmailService?->resolveValidAddressesForMassMail($memberId, null) ?? [];
+                foreach ($others as $address) {
+                    $keys[] = mb_strtolower(trim($address->email));
+                }
+                $keys = array_values(array_unique($keys));
+                $personalAddresses += array_fill_keys($keys, true);
+                $reachable[] = ['member_id' => $memberId, 'email' => $email, 'address_keys' => $keys];
                 continue;
             }
 

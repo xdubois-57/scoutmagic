@@ -40,6 +40,21 @@ class ContactRepository
     private const ENCRYPTION_CONTEXT_NAME = 'mass_mail_block_contacts.name';
     private const ENCRYPTION_CONTEXT_EMAIL = 'mass_mail_block_contacts.email';
 
+    /** Contacts and unsubscribed contacts of one block — see countByBlock(). */
+    private const COUNT_BY_BLOCK_FOR_BLOCK =
+        'SELECT c.block_id, COUNT(*) AS total,
+                SUM(CASE WHEN c.unsubscribed_at IS NULL THEN 0 ELSE 1 END) AS unsubscribed
+         FROM mass_mail_block_contacts c
+         WHERE c.block_id = ? GROUP BY c.block_id';
+
+    /** The same, per block, for every block of one list. */
+    private const COUNT_BY_BLOCK_FOR_LIST =
+        'SELECT c.block_id, COUNT(*) AS total,
+                SUM(CASE WHEN c.unsubscribed_at IS NULL THEN 0 ELSE 1 END) AS unsubscribed
+         FROM mass_mail_block_contacts c
+         JOIN mass_mail_list_blocks b ON b.id = c.block_id
+         WHERE b.list_id = ? GROUP BY c.block_id';
+
     public function __construct(
         private \PDO $pdo,
         private EncryptionService $encryption
@@ -54,7 +69,7 @@ class ContactRepository
      */
     public function countForBlock(int $blockId): array
     {
-        return $this->countByBlock('c.block_id = ?', [$blockId])[$blockId]
+        return $this->countByBlock(self::COUNT_BY_BLOCK_FOR_BLOCK, [$blockId])[$blockId]
             ?? ['total' => 0, 'unsubscribed' => 0];
     }
 
@@ -66,7 +81,7 @@ class ContactRepository
      */
     public function countByBlockForList(int $listId): array
     {
-        return $this->countByBlock('b.list_id = ?', [$listId]);
+        return $this->countByBlock(self::COUNT_BY_BLOCK_FOR_LIST, [$listId]);
     }
 
     /**
@@ -325,18 +340,14 @@ class ContactRepository
     }
 
     /**
+     * @param string $sql one of the COUNT_BY_BLOCK_* constants, written out
+     *        whole so no SQL is ever assembled (SECURITY.md)
      * @param array<int, int> $parameters
      * @return array<int, array{total: int, unsubscribed: int}>
      */
-    private function countByBlock(string $where, array $parameters): array
+    private function countByBlock(string $sql, array $parameters): array
     {
-        $stmt = $this->pdo->prepare(
-            'SELECT c.block_id, COUNT(*) AS total,
-                    SUM(CASE WHEN c.unsubscribed_at IS NULL THEN 0 ELSE 1 END) AS unsubscribed
-             FROM mass_mail_block_contacts c
-             JOIN mass_mail_list_blocks b ON b.id = c.block_id
-             WHERE ' . $where . ' GROUP BY c.block_id'
-        );
+        $stmt = $this->pdo->prepare($sql);
         $stmt->execute($parameters);
 
         $counts = [];
