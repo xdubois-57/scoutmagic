@@ -387,6 +387,69 @@ describe('mass-mail-contact-groups.js', () => {
             document.removeEventListener('mass-mail:blocks-changed', changed);
         });
 
+        /**
+         * The write is a fact about the server: closing the dialog while it
+         * is in flight (Annuler, Échap) must not hide that it happened, or
+         * the page shows no new group and invites a second one.
+         */
+        it('acknowledges a save that answers after the dialog was closed', async () => {
+            let answer;
+            serve({
+                '/admin/listes-de-diffusion/lists/7/contact-groups/analyse': preview(),
+                '/admin/listes-de-diffusion/lists/7/contact-groups': () => new Promise((resolve) => {
+                    answer = resolve;
+                }),
+            });
+            const changed = vi.fn();
+            document.addEventListener('mass-mail:blocks-changed', changed);
+            await boot();
+            $('#opener-new').click();
+            typeName('Partenaires');
+            chooseFile(hook('file-new'));
+            await settle();
+
+            saveButton().click();
+            await settle();
+            $('#cancel').click();
+            $('#mm-contact-group-modal').dispatchEvent(new Event('hidden.bs.modal'));
+            answer(await jsonResponse({ success: true, group: group({ id: 31 }) }));
+            await settle();
+
+            expect(window.ScoutMagicToast.show)
+                .toHaveBeenCalledWith('Groupe de contacts enregistré.', { variant: 'success' });
+            expect(changed).toHaveBeenCalledTimes(1);
+            expect(changed.mock.calls[0][0].detail).toEqual({ listId: '7', blockId: '31', kind: 'contact_group' });
+            document.removeEventListener('mass-mail:blocks-changed', changed);
+        });
+
+        it('says so in a toast when a save refused after the dialog was closed', async () => {
+            let answer;
+            serve({
+                '/admin/listes-de-diffusion/lists/7/contact-groups/analyse': preview(),
+                '/admin/listes-de-diffusion/lists/7/contact-groups': () => new Promise((resolve) => {
+                    answer = resolve;
+                }),
+            });
+            const changed = vi.fn();
+            document.addEventListener('mass-mail:blocks-changed', changed);
+            await boot();
+            $('#opener-new').click();
+            typeName('Partenaires');
+            chooseFile(hook('file-new'));
+            await settle();
+
+            saveButton().click();
+            await settle();
+            $('#mm-contact-group-modal').dispatchEvent(new Event('hidden.bs.modal'));
+            answer(await jsonResponse({ success: false, error: 'Session expirée.' }, 403));
+            await settle();
+
+            expect(window.ScoutMagicToast.show).toHaveBeenCalledWith('Session expirée.', { variant: 'error' });
+            expect(hook('error').textContent).toBe('');
+            expect(changed).not.toHaveBeenCalled();
+            document.removeEventListener('mass-mail:blocks-changed', changed);
+        });
+
         it('keeps the dialog and says why when the save is refused, and tells the page nothing', async () => {
             serve({
                 '/admin/listes-de-diffusion/lists/7/contact-groups/analyse': preview(),
@@ -642,6 +705,58 @@ describe('mass-mail-contact-groups.js', () => {
             });
             expect(changed).toHaveBeenCalledTimes(1);
             document.removeEventListener('mass-mail:blocks-changed', changed);
+        });
+
+        it('offers nothing to save once a corrected file is refused, until another is accepted', async () => {
+            let verdict = () => jsonResponse({
+                success: false,
+                errors: ['Le fichier doit contenir une colonne « Adresse ».'],
+            }, 422);
+            serve({
+                '/admin/listes-de-diffusion/contact-groups/12/contacts': {
+                    success: true, group: group(), contacts: [],
+                },
+                '/admin/listes-de-diffusion/contact-groups/12/analyse': () => verdict(),
+            });
+            await boot();
+            $('#opener-12').click();
+            await settle();
+
+            chooseFile(hook('file-existing'), 'faux.xlsx');
+            await settle();
+            // Saving now would send the name alone, and say the file was applied.
+            expect(saveButton().disabled).toBe(true);
+
+            verdict = () => jsonResponse(preview());
+            chooseFile(hook('file-existing'), 'bon.xlsx');
+            await settle();
+            expect(hook('error').textContent).toBe('');
+            expect(saveButton().disabled).toBe(false);
+        });
+
+        it('keeps a file\'s refusal when the contacts finish loading after it', async () => {
+            let releaseLoad;
+            const slow = new Promise((resolve) => { releaseLoad = resolve; });
+            serve({
+                '/admin/listes-de-diffusion/contact-groups/12/contacts': () => slow.then(() => ({
+                    ok: true,
+                    status: 200,
+                    json: () => Promise.resolve({ success: true, group: group(), contacts: [] }),
+                })),
+                '/admin/listes-de-diffusion/contact-groups/12/analyse': () => jsonResponse({
+                    success: false,
+                    errors: ['Le fichier doit contenir une colonne « Adresse ».'],
+                }, 422),
+            });
+            await boot();
+            $('#opener-12').click();
+            chooseFile(hook('file-existing'), 'faux.xlsx');
+            await settle();
+            releaseLoad();
+            await settle();
+
+            expect(hook('error').textContent).toContain('colonne « Adresse »');
+            expect(saveButton().disabled).toBe(true);
         });
 
         it('saves the name alone when no file was chosen — no contacts key at all', async () => {
