@@ -291,6 +291,69 @@
       "label": ""
     },
     {
+      "path": "/admin/listes-de-diffusion/lists/{id}/contact-groups/analyse",
+      "method": "POST",
+      "controller": "Modules\\MassMail\\Controller\\ContactGroupController",
+      "action": "analyseNew",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/admin/listes-de-diffusion/lists/{id}/contact-groups",
+      "method": "POST",
+      "controller": "Modules\\MassMail\\Controller\\ContactGroupController",
+      "action": "create",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/admin/listes-de-diffusion/contact-groups/template",
+      "method": "GET",
+      "controller": "Modules\\MassMail\\Controller\\ContactGroupController",
+      "action": "template",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/admin/listes-de-diffusion/contact-groups/{id}/contacts",
+      "method": "GET",
+      "controller": "Modules\\MassMail\\Controller\\ContactGroupController",
+      "action": "contacts",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/admin/listes-de-diffusion/contact-groups/{id}/export",
+      "method": "GET",
+      "controller": "Modules\\MassMail\\Controller\\ContactGroupController",
+      "action": "export",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/admin/listes-de-diffusion/contact-groups/{id}/analyse",
+      "method": "POST",
+      "controller": "Modules\\MassMail\\Controller\\ContactGroupController",
+      "action": "analyseExisting",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/admin/listes-de-diffusion/contact-groups/{id}",
+      "method": "PATCH",
+      "controller": "Modules\\MassMail\\Controller\\ContactGroupController",
+      "action": "update",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
       "path": "/admin/listes-de-diffusion/lists/{id}/toggle",
       "method": "POST",
       "controller": "Modules\\MassMail\\Controller\\MailingListController",

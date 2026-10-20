@@ -9,7 +9,7 @@ question: Comment écrire aux intendants de toutes les sections ?
 question: Comment écrire aux animateurs et au trésorier en une seule liste ?
 question: Pourquoi ne puis-je pas supprimer une liste de diffusion ?
 paths: /admin/listes-de-diffusion, /admin/listes-de-diffusion/*
-related: anciens, envoi-de-mails, publipostage
+related: groupes-de-contacts, anciens, envoi-de-mails, publipostage
 ---
 
 Cette page décide **à qui l'unité écrit**. Elle ne compose aucun

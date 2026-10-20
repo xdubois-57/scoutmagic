@@ -162,6 +162,7 @@
         </p>
     {% endblock %}
 {% endembed %}
+{% include '@mass_mail/partials/_contact_group_dialog.html.twig' with { list_id: list.id } only %}
 {% endblock %}
 
 {% block scripts %}
@@ -169,4 +170,5 @@
    the same `defer`, so window.SelectBar exists by the time this file
    drives the three pickers. #}
 <script src="{{ asset('/assets/js/mass-mail-lists.js') }}" defer></script>
+<script src="{{ asset('/assets/js/mass-mail-contact-groups.js') }}" defer></script>
 {% endblock %}

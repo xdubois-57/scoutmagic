@@ -48,6 +48,9 @@
     "/admin/listes-de-diffusion/blocks/{id}": {
       "id": "1"
     },
+    "/admin/listes-de-diffusion/contact-groups/{id}": {
+      "id": "1"
+    },
     "/admin/listes-de-diffusion/lists/{id}": {
       "id": "1"
     },
