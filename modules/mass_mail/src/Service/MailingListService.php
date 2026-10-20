@@ -1178,9 +1178,12 @@ class MailingListService
             ];
         }
 
-        usort($rows, static fn(array $a, array $b): int =>
-            [mb_strtolower($a['name'] ?? ''), mb_strtolower($a['email'])]
-            <=> [mb_strtolower($b['name'] ?? ''), mb_strtolower($b['email'])]);
+        usort(
+            $rows,
+            static fn(array $a, array $b): int =>
+                [mb_strtolower($a['name'] ?? ''), mb_strtolower($a['email'])]
+                <=> [mb_strtolower($b['name'] ?? ''), mb_strtolower($b['email'])]
+        );
 
         return $rows;
     }

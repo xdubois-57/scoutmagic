@@ -898,6 +898,13 @@ class MassMailService
             $actorId
         );
 
+        // Nothing to send — a custom list without a block, say: no batch
+        // will ever touch this email, so it is finished now rather than
+        // left « en cours d'envoi » for good.
+        if ($validCount === 0) {
+            $this->checkAndMarkSentIfComplete($id, $actorId);
+        }
+
         return $this->requireEmail($id);
     }
 

@@ -221,9 +221,11 @@ class ListBlockFlowTest extends TestCase
         $this->listId = $this->listService->createCustomList('Vide', 'Aucun bloc.', null)->id;
 
         $email = $this->sendableEmail();
-        $this->massMailService->startSending($email->id, null);
+        $sent = $this->massMailService->startSending($email->id, null);
 
         $this->assertSame([], $this->recipientRepository->findByEmailId($email->id));
+        // No batch will ever touch it: it is finished, not left sending.
+        $this->assertSame(Email::STATUS_SENT, $sent->status);
     }
 
     public function testAListWithContactsOnlyResolvesToThoseContacts(): void
