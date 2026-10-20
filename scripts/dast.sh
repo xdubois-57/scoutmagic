@@ -823,9 +823,26 @@ if [[ "${PLAYWRIGHT_EXIT}" -ne 0 ]]; then
     # answered here, or nowhere. `certificate_unknown` is Chromium refusing
     # ZAP's CA before ignoreHTTPSErrors lets the connection through, once
     # per new connection: routine, and a thousand lines of it would bury
-    # the one that matters.
-    echo "--- ZAP warnings and errors, last 40 ---" >&2
-    docker logs "${ZAP_CONTAINER}" 2>&1 | grep -E ' (WARN|ERROR) ' | grep -v -F 'certificate_unknown' | tail -40 | dast_redact >&2 || true
+    # the one that matters. A logged exception's stack trace follows its
+    # WARN/ERROR line with no level of its own, so lines that do not open
+    # a new log entry stay with the entry they belong to (at most 20 per
+    # entry). And the container runs with --rm: if ZAP itself died, there
+    # is no log left to read, which must not look like a quiet ZAP.
+    echo "--- ZAP warnings and errors, last 80 lines ---" >&2
+    if ZAP_LOG_DUMP="$(docker logs "${ZAP_CONTAINER}" 2>&1)"; then
+        printf '%s\n' "${ZAP_LOG_DUMP}" | awk '
+            /^([0-9]+|[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] [0-9:,]+) \[/ {
+                keep = ($0 ~ / (WARN|ERROR) / && index($0, "certificate_unknown") == 0)
+                extra = 0
+                if (keep) print
+                next
+            }
+            keep && extra < 20 { print; extra++ }
+        ' | tail -80 | dast_redact >&2 || true
+    else
+        echo "(docker logs failed: with --rm, ZAP's container is gone, so ZAP exited before the suite ended)" >&2
+        printf '%s\n' "${ZAP_LOG_DUMP}" | tail -5 >&2 || true
+    fi
 fi
 
 touch "${RELEASE_FILE_HOST}"
