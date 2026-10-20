@@ -9208,7 +9208,8 @@ if ($isEnabled('mass_mail')) {
             $settingService,
             $uploadHandler,
             $fileRepository,
-            $massMailAudienceImportService
+            $massMailAudienceImportService,
+            $massMailListBlockService
         )
     );
 
@@ -11957,7 +11958,8 @@ if ($isEnabled('registration')) {
                     new \Modules\MassMail\Repository\AudienceRepository($pdo, $encryptionService),
                     new \Modules\MassMail\Repository\MemberResolutionRepository($pdo, $encryptionService),
                     $journalService
-                )
+                ),
+                $massMailListBlockService
             )
         );
         $frontController->registerController(

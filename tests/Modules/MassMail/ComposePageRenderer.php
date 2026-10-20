@@ -94,16 +94,19 @@ final class ComposePageRenderer
                     'value' => 'default_section:1', 'label' => 'Section - Louveteaux',
                     'selected' => true, 'disabled' => false, 'description' => 'La section.',
                     'type' => Email::LIST_TYPE_DEFAULT_SECTION,
+                    'member_groups' => false, 'contact_groups' => false,
                 ],
                 [
                     'value' => 'external:', 'label' => 'Inscriptions 2025-2026',
                     'selected' => false, 'disabled' => false, 'description' => 'Les inscrits.',
                     'type' => Email::LIST_TYPE_EXTERNAL,
+                    'member_groups' => false, 'contact_groups' => false,
                 ],
                 [
                     'value' => 'mail_merge:', 'label' => 'Publipostage — fichier Excel',
                     'selected' => false, 'disabled' => false, 'description' => 'Un fichier Excel.',
                     'type' => Email::LIST_TYPE_MAIL_MERGE,
+                    'member_groups' => false, 'contact_groups' => false,
                 ],
             ],
             'scout_years' => [
