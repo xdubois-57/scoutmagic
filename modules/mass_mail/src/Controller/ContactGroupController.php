@@ -13,7 +13,6 @@ use Core\Http\Request;
 use Core\Http\Response;
 use Core\Http\SpreadsheetResponse;
 use Core\Security\AuthSession;
-use Core\Security\CsrfGuard;
 use Core\View\DateFilterExtension;
 use Modules\MassMail\Repository\Contact;
 use Modules\MassMail\Repository\ListBlock;
@@ -141,8 +140,8 @@ class ContactGroupController extends AbstractController
      */
     public function analyseNew(Request $request, array $params): Response
     {
-        if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
-            return $this->json(['success' => false, 'errors' => ['Requête invalide.']], 400);
+        if (($guard = $this->guardCsrfJson($request)) !== null) {
+            return $guard;
         }
         if (!$this->listExists((int) $params['id'])) {
             return $this->json(['success' => false, 'errors' => [self::NOT_FOUND_LIST]], 404);
@@ -159,8 +158,8 @@ class ContactGroupController extends AbstractController
      */
     public function analyseExisting(Request $request, array $params): Response
     {
-        if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
-            return $this->json(['success' => false, 'errors' => ['Requête invalide.']], 400);
+        if (($guard = $this->guardCsrfJson($request)) !== null) {
+            return $guard;
         }
         $block = $this->contactGroup((int) $params['id']);
         if ($block === null) {
@@ -180,8 +179,11 @@ class ContactGroupController extends AbstractController
     public function create(Request $request, array $params): Response
     {
         $data = $this->decodeJsonBody($request);
-        if ($data === null || !$this->checkCsrf($data)) {
+        if ($data === null) {
             return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
+        }
+        if (($guard = $this->guardCsrfJson($request, (string) ($data['_csrf_token'] ?? ''))) !== null) {
+            return $guard;
         }
 
         $listId = (int) $params['id'];
@@ -222,8 +224,11 @@ class ContactGroupController extends AbstractController
     public function update(Request $request, array $params): Response
     {
         $data = $this->decodeJsonBody($request);
-        if ($data === null || !$this->checkCsrf($data)) {
+        if ($data === null) {
             return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
+        }
+        if (($guard = $this->guardCsrfJson($request, (string) ($data['_csrf_token'] ?? ''))) !== null) {
+            return $guard;
         }
 
         $block = $this->contactGroup((int) $params['id']);
@@ -384,13 +389,5 @@ class ContactGroupController extends AbstractController
     {
         $data = json_decode($request->getRawBody(), true);
         return is_array($data) ? $data : null;
-    }
-
-    /**
-     * @param array<string, mixed> $data
-     */
-    private function checkCsrf(array $data): bool
-    {
-        return CsrfGuard::validateToken((string) ($data['_csrf_token'] ?? ''));
     }
 }

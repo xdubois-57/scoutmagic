@@ -6,6 +6,7 @@ namespace Tests\Modules\MassMail\Controller;
 
 use Core\Config\SettingRepository;
 use Core\Config\SettingService;
+use Core\Http\Controller\AbstractController;
 use Core\Http\Request;
 use Core\Journal\JournalService;
 use Core\Security\AuthSession;
@@ -273,11 +274,13 @@ class ContactGroupRoutesTest extends TestCase
         $upload = $this->upload([['Nom', 'Adresse'], ['Commune', 'jeunesse@wavre.be']]);
         $refused = new Request('POST', '/x', [], ['_csrf_token' => 'invalide'], [], []);
 
-        $this->assertSame(
-            400,
-            $this->controller->analyseExisting($refused, ['id' => (string) $this->blockId])->getStatusCode()
-        );
-        $this->assertSame(400, $this->controller->analyseNew($refused, ['id' => (string) $this->listId])->getStatusCode());
+        foreach ([
+            $this->controller->analyseExisting($refused, ['id' => (string) $this->blockId]),
+            $this->controller->analyseNew($refused, ['id' => (string) $this->listId]),
+        ] as $response) {
+            $this->assertSame(403, $response->getStatusCode());
+            $this->assertSame(AbstractController::SESSION_EXPIRED_MESSAGE, $this->payload($response)['error']);
+        }
         // Refused before the upload was touched — so it is still there for
         // PHP's own end-of-request cleanup.
         $this->assertFileExists($upload);
@@ -378,7 +381,8 @@ class ContactGroupRoutesTest extends TestCase
             ['id' => (string) $this->listId]
         );
 
-        $this->assertSame(400, $response->getStatusCode());
+        $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame(AbstractController::SESSION_EXPIRED_MESSAGE, $this->payload($response)['error']);
         $this->assertCount(1, $this->blocks->findForList($this->listId));
     }
 
@@ -527,7 +531,8 @@ class ContactGroupRoutesTest extends TestCase
             ['id' => (string) $this->blockId]
         );
 
-        $this->assertSame(400, $response->getStatusCode());
+        $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame(AbstractController::SESSION_EXPIRED_MESSAGE, $this->payload($response)['error']);
         $this->assertSame('Partenaires', $this->blocks->findById($this->blockId)?->name);
         $this->assertSame(1, $this->contacts->countForBlock($this->blockId)['total']);
     }

@@ -132,6 +132,14 @@
      */
     var generation = 0;
 
+    /**
+     * The same proof between two files chosen one after the other in the
+     * same dialog: the first analysis may answer last, and only the file
+     * chosen last is the one previewed and saved. Bumped by every
+     * analysis, on top of `generation`.
+     */
+    var analysis = 0;
+
     /** @param {number} token @returns {boolean} */
     function stale(token) {
         return token !== generation;
@@ -267,7 +275,9 @@
     /**
      * What « Enregistrer » would do, in the order that matters to somebody
      * about to lose rows. A new group only gains, so it says what was
-     * found; an existing one says what arrives, what goes and what stays.
+     * found — those already unsubscribed in the unit included, since they
+     * are saved too, unsubscribed; an existing one says what arrives, what
+     * goes and what stays.
      *
      * @param {{added: number, unchanged: number, removed: number, kept_unsubscribed: number}} summary
      * @param {number} duplicates lines of the file that collapsed onto an address already named
@@ -278,7 +288,13 @@
     function summarySentence(summary, duplicates, refused, fileName) {
         var parts = [];
         if (blockId === null) {
-            parts.push(summary.added + ' contact' + plural(summary.added) + ' trouvé' + plural(summary.added));
+            var found = summary.added + summary.kept_unsubscribed;
+            var foundText = found + ' contact' + plural(found) + ' trouvé' + plural(found);
+            if (summary.kept_unsubscribed > 0) {
+                foundText += ', dont ' + summary.kept_unsubscribed
+                    + ' désinscrit' + plural(summary.kept_unsubscribed);
+            }
+            parts.push(foundText);
         } else {
             parts.push(
                 summary.added + ' ajouté' + plural(summary.added),
@@ -345,6 +361,7 @@
         formData.append('_csrf_token', api.csrfToken());
 
         var token = generation;
+        var attempt = ++analysis;
         clearPreview();
         analysing = true;
         updateSaveState();
@@ -356,12 +373,17 @@
             data = null;
         }
 
-        if (stale(token)) {
+        // Only the latest analysis clears `analysing`: an earlier one
+        // answering meanwhile leaves « Enregistrer » waiting for it.
+        if (stale(token) || attempt !== analysis) {
             return;
         }
         analysing = false;
         if (!data?.success || !Array.isArray(data.contacts)) {
+            // `errors` for the file's own problems, `error` for a refusal
+            // of the request itself (an expired session).
             showError((Array.isArray(data?.errors) ? data.errors.join(' ') : '')
+                || data?.error
                 || 'Erreur : réponse serveur invalide.');
             updateSaveState();
             return;
@@ -483,9 +505,13 @@
         // destinataires » chooser) closes that dialog on the same click.
         // Opening this one before it has finished hiding would let its
         // end strip the page's scroll lock from under this dialog: wait
-        // for it, as the member-group choice does.
-        var host = trigger.closest('.modal.show');
-        if (host && host !== modalEl) {
+        // for it, as the member-group choice does. Whether the page's own
+        // listener has already started the hide depends on listener
+        // order, and the hide takes `.show` off at once; the inline
+        // `display: block` Bootstrap gives a shown dialog stays until the
+        // hide ends, just before `hidden.bs.modal`, so it is the test.
+        var host = /** @type {HTMLElement|null} */ (trigger.closest('.modal'));
+        if (host && host !== modalEl && (host.classList.contains('show') || host.style.display === 'block')) {
             host.addEventListener('hidden.bs.modal', function () {
                 open(list, block);
             }, { once: true });
