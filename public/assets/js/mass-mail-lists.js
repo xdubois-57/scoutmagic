@@ -626,6 +626,14 @@
          */
         var countToken = 0;
 
+        /**
+         * A save in flight. The pickers stay usable meanwhile, and their
+         * change re-runs refreshCriteria(): without this flag a choice
+         * clicked during the request would bring « Enregistrer » back and
+         * let a second click create the group twice.
+         */
+        var memberSaving = false;
+
         async function refreshCriteria() {
             var criteria = currentCriteria();
             var token = ++countToken;
@@ -635,7 +643,7 @@
 
             // At least one choice, as the server requires: three « Peu
             // importe » would read as everybody and resolve to nobody.
-            memberSaveBtn.disabled = empty;
+            memberSaveBtn.disabled = empty || memberSaving;
             if (empty) {
                 sentenceEl.textContent = 'Choisissez au moins une fonction, une section ou un badge.';
                 countEl.textContent = '';
@@ -690,14 +698,20 @@
             // Same rule: a double click must not create the group twice.
             // On success the dialog closes, and reopening it recomputes
             // the button through refreshCriteria().
-            if (memberSaveBtn.disabled) {
+            if (memberSaving || memberSaveBtn.disabled) {
                 return;
             }
+            memberSaving = true;
             memberSaveBtn.disabled = true;
             var criteria = currentCriteria();
-            var res = editedBlockId === null
-                ? await api.postJson(BASE + '/lists/' + listId + '/member-groups', criteria)
-                : await api.postJson(BASE + '/member-groups/' + editedBlockId, criteria, { method: 'PATCH' });
+            var res;
+            try {
+                res = editedBlockId === null
+                    ? await api.postJson(BASE + '/lists/' + listId + '/member-groups', criteria)
+                    : await api.postJson(BASE + '/member-groups/' + editedBlockId, criteria, { method: 'PATCH' });
+            } finally {
+                memberSaving = false;
+            }
             if (!isSuccess(res)) {
                 memberSaveBtn.disabled = false;
                 memberErrorEl.textContent = errorMessage(res);

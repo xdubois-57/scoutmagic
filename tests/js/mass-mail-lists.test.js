@@ -623,6 +623,32 @@ describe('mass-mail-lists.js', () => {
                 expect(fetch.mock.calls.filter(([url]) => url.endsWith('/member-groups'))).toHaveLength(1);
             });
 
+            it('keeps « Enregistrer » off while saving, even when a choice changes meanwhile', async () => {
+                await openNew();
+                choose('mm-section-picker', 4);
+                await settle();
+                let answer;
+                global.fetch = vi.fn((url) => {
+                    if (url.endsWith('/member-groups')) {
+                        return new Promise((resolve) => { answer = resolve; });
+                    }
+                    return jsonResponse(url.endsWith('/blocks')
+                        ? payload([MEMBER_GROUP])
+                        : { success: true, count: 3, scout_year_label: '2026-2027', sentence: [] });
+                });
+
+                const save = document.querySelector('[data-member-group-save]');
+                save.click();
+                choose('mm-function-picker', 1);
+                await settle();
+                expect(save.disabled).toBe(true);
+                save.click();
+                answer(await jsonResponse({ success: true, block: { id: 13, kind: 'member_group' } }));
+                await settle();
+
+                expect(fetch.mock.calls.filter(([url]) => url.endsWith('/member-groups'))).toHaveLength(1);
+            });
+
             it('says a refusal inside the dialog and keeps it open', async () => {
                 await openNew();
                 choose('mm-function-picker', 1);
