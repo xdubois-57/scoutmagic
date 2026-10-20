@@ -181,6 +181,13 @@
         });
 
         saveBtn.addEventListener('click', async function () {
+            // One request at a time: a double click would create the list
+            // twice. The button comes back only when the server refuses —
+            // on success the page is left or reloaded.
+            if (saveBtn.disabled) {
+                return;
+            }
+            saveBtn.disabled = true;
             var payload = { name: nameInput.value, description: descriptionInput.value };
             var res = listId === ''
                 ? await api.postJson(BASE + '/lists', payload)
@@ -188,6 +195,7 @@
             if (!isSuccess(res)) {
                 // An error about the form's own fields belongs inside the
                 // form, next to what has to be corrected.
+                saveBtn.disabled = false;
                 errorBox.textContent = errorMessage(res);
                 errorBox.classList.remove('d-none');
                 return;
@@ -634,11 +642,19 @@
         }
 
         memberSaveBtn.addEventListener('click', async function () {
+            // Same rule: a double click must not create the group twice.
+            // On success the dialog closes, and reopening it recomputes
+            // the button through refreshCriteria().
+            if (memberSaveBtn.disabled) {
+                return;
+            }
+            memberSaveBtn.disabled = true;
             var criteria = currentCriteria();
             var res = editedBlockId === null
                 ? await api.postJson(BASE + '/lists/' + listId + '/member-groups', criteria)
                 : await api.postJson(BASE + '/member-groups/' + editedBlockId, criteria, { method: 'PATCH' });
             if (!isSuccess(res)) {
+                memberSaveBtn.disabled = false;
                 memberErrorEl.textContent = errorMessage(res);
                 memberErrorEl.classList.remove('d-none');
                 return;
