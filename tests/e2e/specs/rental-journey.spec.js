@@ -58,6 +58,7 @@ import { autoConfirm } from '../support/confirm-dialog.js';
 import { loginAsAdmin } from '../support/admin-login.js';
 import { openSectionEditor } from '../support/section-editor.js';
 import { pngBuffer } from '../support/png.js';
+import { giveAssetAddress, giveRenterAddress } from '../support/rental-contract.js';
 import { scaled } from '../support/timeouts.js';
 import { waitOutHumanCheckDelay } from '../support/human-check.js';
 import { waitForServerResponse } from '../support/response.js';
@@ -180,6 +181,10 @@ test.describe('Rentals — one booking from the request to the deposit back', ()
         await payments.getByRole('button', { name: 'Enregistrer les paiements' }).click();
         await expect(page.locator('#paiements')).toContainText(SECURITY_DEPOSIT);
 
+        // What no contract is generated without (issue #977): the asset's
+        // address here, the renter's from their own page further down.
+        await giveAssetAddress(page, ASSET_SLUG, 'Chemin du Camp 4, 1300 Wavre');
+
         // One inventory line, so the stay has something to walk through. It
         // has to exist before the confirmation, which copies it (§6.23).
         await page.goto(`/mes-locations/${ASSET_SLUG}/gabarits`, { waitUntil: 'load' });
@@ -236,6 +241,7 @@ test.describe('Rentals — one booking from the request to the deposit back', ()
         // The renter's page asks nothing of them and offers no change: they
         // contact the unit (#927, chantier §2.2).
         await expectNoRenterChangeAction(renter);
+        await giveRenterAddress(renter, 'Rue Haute 12, 1000 Bruxelles');
 
         // ── 2. The contract, which prints the communication ───────────────
         await page.goto(`/mes-locations/${ASSET_SLUG}/reservations`, { waitUntil: 'load' });

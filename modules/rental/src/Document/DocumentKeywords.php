@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\Rental\Document;
 
+use Core\Pdf\LinkedText;
 use Core\Template\TokenCatalogue;
 use Core\Template\TokenEngine;
 use Core\Template\TokenSyntax;
@@ -42,7 +43,8 @@ use Core\Template\TokenSyntax;
  * pattern, the unknown-keyword report and the rescue of a keyword a
  * rich-text surface broke apart. The publipostage had grown its own copy of
  * the same four rules; what is left here is this module's own: the
- * catalogue, and nothing else.
+ * catalogue, and the one value printed as a link (`substitute()`), whose
+ * escaping `Core\Pdf\LinkedText` does in the engine's place.
  */
 final class DocumentKeywords
 {
@@ -79,8 +81,44 @@ final class DocumentKeywords
         'unite' => "Le nom de l'unité, qui n'est pas forcément le bailleur",
         'date_du_jour' => "La date du jour de génération",
         'mention_tva' => 'La mention d\'exonération de TVA configurée pour ce bien',
-        'conditions_acceptees' => 'La version des conditions de location acceptée avec la demande, et son adresse',
+        'conditions_acceptees' => 'La version des conditions de location acceptée avec la demande, et son adresse, '
+            . 'cliquable dans le PDF',
+        // Issue #977 — what annex 8.1 of the Walloon tourism code requires
+        // a camp-site rental contract to state.
+        'bien_adresse' => "L'adresse du bien loué, réglée dans la section « Contrat » des réglages du bien",
+        'duree_nuits' => 'La durée du séjour, accordée : « 1 nuit », « 3 nuits »',
+        'nombre_participants' => 'Le nombre de participants annoncé, accordé : « 25 participants », ou « — »',
+        'capacite_personnes' => "La capacité maximale d'accueil, accordée : « 60 personnes », ou « — »",
+        'responsable_nom' => 'Le responsable du groupe sur place, ou « — »',
+        'responsable_telephone' => 'Le téléphone du responsable du groupe sur place, ou « — »',
+        'iban' => "Le numéro de compte (IBAN) du compte Finances du bien, ou « à communiquer par écrit "
+            . "par le bailleur » sans compte configuré",
+        'titulaire_compte' => 'Le titulaire de ce compte, ou « le bailleur » sans compte configuré',
+        'echeance_acompte' => "Quand verser l'acompte : « au plus tard le 15/03/2027 », ou combien de jours "
+            . "après l'envoi du contrat",
+        'echeance_solde' => 'Quand verser le solde : « au plus tard le 12/06/2027 », ou « avant le début du séjour »',
+        'date_limite_desistement' => 'La date limite de désistement sans indemnité, au format 31/12/2027, '
+            . 'ou « — » quand elle était passée à la génération du contrat',
+        'desistement_sans_indemnite' => 'La phrase sur le désistement sans indemnité : sa date limite, ou que '
+            . 'cette période ne s\'applique pas à la réservation',
+        'bareme_desistement' => "L'indemnité due après cette date, avec ses dates : cinquante pour cent "
+            . "jusqu'à un mois avant le séjour, soixante-quinze pour cent ensuite",
+        'mention_bce_bailleur' => "« , n° d'entreprise 0123.456.789 », à placer après le nom du bailleur ; "
+            . "rien quand il n'en a pas",
+        'contact_donnees' => "Où écrire pour les données personnelles : l'adresse de contact du site, "
+            . "ou celle du bailleur",
+        'duree_conservation' => 'Combien de temps les données de la location sont conservées',
     ];
+
+    /**
+     * The keywords whose empty value prints NOTHING rather than « — ».
+     *
+     * Each is a mention that only exists when its value does — « , n°
+     * d'entreprise … » after the landlord's name: a dash there would print
+     * « N° d'entreprise : — » on the contract of every landlord without
+     * one, which is most of them (issue #977).
+     */
+    private const OMITTED_WHEN_EMPTY = ['mention_bce_bailleur'];
 
     /**
      * The shared engine, on this module's own vocabulary: `{{ mot_cle }}`
@@ -169,25 +207,36 @@ final class DocumentKeywords
      * whoever reads it, whereas a silently emptied one reads as a clause
      * that simply says nothing.
      *
+     * **A keyword in `$links` becomes a link** (issue #977): its value is
+     * printed as before, and the web address it contains is wrapped in an
+     * `<a href>` dompdf turns into a clickable annotation — still printed,
+     * so a paper copy reads the same (`Core\Pdf\LinkedText`).
+     *
      * @param array<string, string|null> $values Raw, unescaped. A null renders as an em dash.
+     * @param array<string, string> $links keyword => the address its value contains
      */
-    public static function substitute(string $sanitizedHtml, array $values): string
+    public static function substitute(string $sanitizedHtml, array $values, array $links = []): string
     {
-        // Escaping is the engine's, and it is the whole safety of this
-        // class: dompdf renders HTML, and these values come from a form an
-        // anonymous visitor filled in.
+        // Escaping is the whole safety of this class: dompdf renders HTML,
+        // and these values come from a form an anonymous visitor filled in.
+        // Done here rather than by the engine so a link can be built around
+        // an address that was escaped like everything else — LinkedText
+        // escapes the whole line, the address included.
         return self::engine()->substitute(
             $sanitizedHtml,
-            static function (string $keyword) use ($values): ?string {
+            static function (string $keyword) use ($values, $links): ?string {
                 if (!self::isKnown($keyword) || !array_key_exists($keyword, $values)) {
                     return null;
                 }
 
                 $value = $values[$keyword];
+                if ($value === null || trim($value) === '') {
+                    return in_array($keyword, self::OMITTED_WHEN_EMPTY, true) ? '' : '—';
+                }
 
-                return ($value === null || trim($value) === '') ? '—' : $value;
+                return (new LinkedText($value, $links[$keyword] ?? null))->toHtml();
             },
-            true
+            false
         );
     }
 }

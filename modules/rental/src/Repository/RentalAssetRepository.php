@@ -293,6 +293,26 @@ class RentalAssetRepository
     }
 
     /**
+     * What a contract states about the asset itself (issue #977): where it
+     * is, and until how many days before the arrival a renter may withdraw
+     * without owing anything. Written together, from the one section of the
+     * settings page that holds both.
+     */
+    public function saveContractDetails(int $assetId, ?string $address, int $freeWithdrawalDays): void
+    {
+        $address = self::optionalText($address);
+        $stmt = $this->pdo->prepare(
+            'UPDATE rental_assets SET address = ?, free_withdrawal_days = ?, updated_at = ? WHERE id = ?'
+        );
+        $stmt->execute([
+            $address !== null ? mb_substr($address, 0, 500) : null,
+            max(0, $freeWithdrawalDays),
+            (new \DateTimeImmutable())->format('Y-m-d H:i:s'),
+            $assetId,
+        ]);
+    }
+
+    /**
      * The asset's calendar publication settings (§6.30).
      *
      * Its own tiny write, like the VAT note: every section of the
@@ -488,7 +508,11 @@ class RentalAssetRepository
             ) ?? \Modules\Rental\Calendar\PublishFrom::CONFIRMATION,
             landlordName: self::optionalText($row['landlord_name'] ?? null),
             landlordAddress: self::optionalText($row['landlord_address'] ?? null),
-            landlordEnterpriseNumber: self::optionalText($row['landlord_enterprise_number'] ?? null)
+            landlordEnterpriseNumber: self::optionalText($row['landlord_enterprise_number'] ?? null),
+            address: self::optionalText($row['address'] ?? null),
+            freeWithdrawalDays: isset($row['free_withdrawal_days'])
+                ? max(0, (int) $row['free_withdrawal_days'])
+                : RentalAsset::DEFAULT_FREE_WITHDRAWAL_DAYS
         );
     }
 

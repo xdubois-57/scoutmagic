@@ -48,6 +48,8 @@ class RentalBookingRepository
     private const CTX_BILLING_EMAIL = 'rental_bookings.billing_email';
     private const CTX_BILLING_REFERENCE = 'rental_bookings.billing_reference';
     private const CTX_TRACKING_TOKEN = 'rental_bookings.tracking_token';
+    private const CTX_ON_SITE_NAME = 'rental_bookings.on_site_contact_name';
+    private const CTX_ON_SITE_PHONE = 'rental_bookings.on_site_contact_phone';
 
     /**
      * When the renter's signed copy of the contract in force arrived — the
@@ -693,6 +695,51 @@ class RentalBookingRepository
                 self::CTX_BILLING_REFERENCE
             ),
         ];
+    }
+
+    /**
+     * The adult responsible for the group on site (issue #977), decrypted.
+     *
+     * Its own read and write, apart from the billing identity: the same
+     * two forms carry both, but a contract names this person whatever the
+     * invoice says, and the billing write already carries a column
+     * carry-over of its own.
+     *
+     * @return array{name: ?string, phone: ?string}
+     */
+    public function findOnSiteContact(int $bookingId): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT on_site_contact_name_encrypted, on_site_contact_phone_encrypted
+             FROM rental_bookings WHERE id = ?'
+        );
+        $stmt->execute([$bookingId]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+        if ($row === false) {
+            return ['name' => null, 'phone' => null];
+        }
+
+        return [
+            'name' => $this->decryptOptional($row['on_site_contact_name_encrypted'] ?? null, self::CTX_ON_SITE_NAME),
+            'phone' => $this->decryptOptional(
+                $row['on_site_contact_phone_encrypted'] ?? null,
+                self::CTX_ON_SITE_PHONE
+            ),
+        ];
+    }
+
+    public function saveOnSiteContact(int $bookingId, ?string $name, ?string $phone): void
+    {
+        $this->pdo->prepare(
+            'UPDATE rental_bookings SET on_site_contact_name_encrypted = ?, on_site_contact_phone_encrypted = ?,
+                updated_at = ?
+             WHERE id = ?'
+        )->execute([
+            $this->encryptOptional($name, self::CTX_ON_SITE_NAME),
+            $this->encryptOptional($phone, self::CTX_ON_SITE_PHONE),
+            (new \DateTimeImmutable())->format('Y-m-d H:i:s'),
+            $bookingId,
+        ]);
     }
 
     /**

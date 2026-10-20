@@ -516,6 +516,7 @@ class RentalRequestController extends AbstractController
             // reaches this page and nothing else. The block presents itself
             // as a task while every field is empty.
             'billing' => $this->operationsService->billingIdentity($booking->id),
+            'on_site_contact' => $this->operationsService->onSiteContact($booking->id),
             // How to pay: beneficiary, IBAN, the one communication, what is
             // due now and the QR of that transfer (chantier #927, §2.4) —
             // null until a receivable exists.
@@ -621,15 +622,24 @@ class RentalRequestController extends AbstractController
         }
 
         try {
-            $this->operationsService->saveBillingIdentity($booking->id, [
-                'name' => Support::optionalString($request->getBody('billing_name')),
-                'address' => Support::optionalString($request->getBody('billing_address')),
-                'country' => Support::optionalString($request->getBody('billing_country')),
-                'vat_number' => Support::optionalString($request->getBody('billing_vat_number')),
-                'enterprise_number' => Support::optionalString($request->getBody('billing_enterprise_number')),
-                'email' => Support::optionalString($request->getBody('billing_email')),
-                'reference' => Support::optionalString($request->getBody('billing_reference')),
-            ]);
+            $this->operationsService->saveRenterCoordinates(
+                $booking->id,
+                [
+                    'name' => Support::optionalString($request->getBody('billing_name')),
+                    'address' => Support::optionalString($request->getBody('billing_address')),
+                    'country' => Support::optionalString($request->getBody('billing_country')),
+                    'vat_number' => Support::optionalString($request->getBody('billing_vat_number')),
+                    'enterprise_number' => Support::optionalString($request->getBody('billing_enterprise_number')),
+                    'email' => Support::optionalString($request->getBody('billing_email')),
+                    'reference' => Support::optionalString($request->getBody('billing_reference')),
+                ],
+                // The same form names the group's responsible person on site
+                // (issue #977); a post without the fields leaves it as it was.
+                $request->getBody('on_site_contact_name') === null ? null : [
+                    'name' => Support::optionalString($request->getBody('on_site_contact_name')),
+                    'phone' => Support::optionalString($request->getBody('on_site_contact_phone')),
+                ]
+            );
         } catch (RentalException $e) {
             FlashMessage::set('error', $e->getMessage());
 

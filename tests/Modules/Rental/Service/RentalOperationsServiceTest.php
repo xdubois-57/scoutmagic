@@ -765,6 +765,36 @@ class RentalOperationsServiceTest extends TestCase
         $this->assertSame('BE', $stored['country']);
     }
 
+    /** Issue #977: the billing identity and the on-site contact, checked together, written together. */
+    public function testRenterCoordinatesAreCheckedWholeBeforeAnythingIsWritten(): void
+    {
+        $booking = $this->createBooking();
+
+        try {
+            $this->service->saveRenterCoordinates(
+                $booking->id,
+                ['name' => 'Unité du Petit Ry', 'address' => 'Rue du Village 12'],
+                ['name' => 'Paul Lemaire', 'phone' => str_repeat('1', 41)]
+            );
+            $this->fail('an over-long phone is refused');
+        } catch (RentalException $e) {
+            $this->assertStringContainsString('Téléphone du responsable', $e->getMessage());
+        }
+        $this->assertNull($this->service->billingIdentity($booking->id)['name'], 'the billing half waited too');
+
+        $this->service->saveRenterCoordinates(
+            $booking->id,
+            ['name' => 'Unité du Petit Ry', 'address' => 'Rue du Village 12'],
+            ['name' => 'Paul Lemaire', 'phone' => '0470 98 76 54']
+        );
+        $this->assertSame('Unité du Petit Ry', $this->service->billingIdentity($booking->id)['name']);
+        $this->assertSame('Paul Lemaire', $this->service->onSiteContact($booking->id)['name']);
+
+        // Without the contact's fields, the contact stays as it was.
+        $this->service->saveRenterCoordinates($booking->id, ['name' => 'ASBL'], null);
+        $this->assertSame('Paul Lemaire', $this->service->onSiteContact($booking->id)['name']);
+    }
+
     // ── Manual blocks (§6.18) ───────────────────────────────────────────
 
     public function testABlockOverAnAlreadyBookedPeriodIsAcceptedAndBothCoexist(): void

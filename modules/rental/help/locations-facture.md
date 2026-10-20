@@ -35,8 +35,10 @@ Une décision se change sur la page « État des lieux ».
 ## Les coordonnées de facturation
 
 Raison sociale, e-mail, adresse, numéros de TVA et d'entreprise,
-référence de commande. Le locataire les remplit depuis sa page de suivi ;
-vous pouvez les compléter ici. Tout est chiffré au repos. Dès que le nom
+référence de commande, et le responsable du groupe sur place. Le locataire
+les remplit depuis sa page de suivi ; vous pouvez les compléter ici. Sans
+le nom et l'adresse, le contrat ne se génère pas. Tout est chiffré au
+repos. Dès que le nom
 et l'adresse sont connus, le bloc se replie et les résume : « Modifier »
 le rouvre.
 

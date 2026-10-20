@@ -513,6 +513,8 @@ class RentalManagementControllerTest extends TestCase
     {
         $id = $this->assetRepository->create('Local', $name, $slug, 60, 1, null, null, null, true);
         $this->pricingService->saveAssetPricing($id, 'per_night', 12000, null, null);
+        // A contract is refused without the asset's address (issue #977).
+        $this->assetRepository->saveContractDetails($id, 'Chemin du Camp 4, 1300 Wavre', 90);
 
         return $id;
     }
@@ -556,6 +558,8 @@ class RentalManagementControllerTest extends TestCase
             str_repeat('0', 64),
             new \DateTimeImmutable('2027-01-01 10:00:00')
         );
+        // ...nor without the renter's (issue #977).
+        $this->bookingRepository->saveBillingIdentity($created['id'], ['address' => 'Rue Haute 12, 1000 Bruxelles']);
 
         $booking = $this->bookingRepository->findById($created['id']);
         $this->assertNotNull($booking);
@@ -3976,6 +3980,79 @@ class RentalManagementControllerTest extends TestCase
         $identity = $this->bookingRepository->findBillingIdentity($booking->id);
         $this->assertSame('ASBL Les Scouts', $identity['name']);
         $this->assertSame('BE', $identity['country']);
+    }
+
+    /** The same form names the group's responsible person on site (issue #977). */
+    public function testTheResponsiblePersonOnSiteIsSavedFromTheInvoicePage(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+
+        $this->post('/mes-locations/facturation', 'saveBillingIdentity', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'billing_name' => 'ASBL Les Scouts',
+            'billing_address' => 'Place du Marché 1, 5000 Namur',
+            'on_site_contact_name' => 'Paul Lemaire',
+            'on_site_contact_phone' => str_repeat('1', 41),
+        ]);
+        // A crafted post: nothing of it is written, the billing half
+        // included, and the refusal says why.
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertSame('error', $flash['type'] ?? null, 'a phone no column could hold is refused');
+        $this->assertStringContainsString('Téléphone du responsable', (string) ($flash['message'] ?? ''));
+        $identity = $this->bookingRepository->findBillingIdentity($booking->id);
+        $this->assertNull($identity['name']);
+        $this->assertSame('Rue Haute 12, 1000 Bruxelles', $identity['address']);
+        $this->assertSame(['name' => null, 'phone' => null], $this->bookingRepository->findOnSiteContact($booking->id));
+
+        $this->post('/mes-locations/facturation', 'saveBillingIdentity', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'billing_address' => 'Rue Haute 12, 1000 Bruxelles',
+            'on_site_contact_name' => 'Paul Lemaire',
+            'on_site_contact_phone' => '0470 98 76 54',
+        ]);
+
+        $this->assertSame(
+            ['name' => 'Paul Lemaire', 'phone' => '0470 98 76 54'],
+            $this->bookingRepository->findOnSiteContact($booking->id)
+        );
+    }
+
+    /**
+     * A contract the site refuses to generate (issue #977) raises no
+     * receivable: the refusal comes first, and says what to complete.
+     */
+    public function testAContractRefusedForAMissingAddressSaysWhereToCompleteIt(): void
+    {
+        $this->loginAsManager();
+        $settings = new \Modules\Rental\Payment\PaymentSettings(
+            enabled: true,
+            financeAccountId: $this->financeAccountId,
+            financeCategoryId: $this->financeCategoryId
+        );
+        $this->paymentService->saveSettings($this->assetId, $settings);
+        $booking = $this->createBooking();
+        $this->bookingRepository->saveBillingIdentity($booking->id, ['address' => null]);
+
+        $this->post('/mes-locations/document-generer', 'generateDocument', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'document_type' => 'contract',
+        ]);
+
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertSame('error', $flash['type'] ?? null);
+        $this->assertStringContainsString(
+            '« Coordonnées de facturation » sur la page « Facture »',
+            (string) ($flash['message'] ?? '')
+        );
+        $this->assertSame([], $this->documentService->forBooking($booking->id));
+        $this->assertNull(
+            $this->paymentService->statusFor($booking, $settings)['communication'],
+            'no receivable raised'
+        );
     }
 
     // ── The stay (§6.21–§6.23) ──────────────────────────────────────────

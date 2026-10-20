@@ -62,9 +62,24 @@ final class RentalAsset
          */
         public readonly ?string $landlordName = null,
         public readonly ?string $landlordAddress = null,
-        public readonly ?string $landlordEnterpriseNumber = null
+        public readonly ?string $landlordEnterpriseNumber = null,
+        /**
+         * Where the asset is (issue #977): the address a contract states
+         * for the place let, which annex 8.1 of the Walloon tourism code
+         * requires. Null while nobody wrote it, and no contract is
+         * generated then.
+         */
+        public readonly ?string $address = null,
+        /**
+         * Until how many days before the arrival the renter may withdraw
+         * without owing anything (issue #977, annex 8.1 point 8c).
+         */
+        public readonly int $freeWithdrawalDays = self::DEFAULT_FREE_WITHDRAWAL_DAYS
     ) {
     }
+
+    /** The schema's default for `free_withdrawal_days`. */
+    public const DEFAULT_FREE_WITHDRAWAL_DAYS = 90;
 
     /**
      * Whether several units of this asset can be booked independently — the

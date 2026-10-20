@@ -2134,6 +2134,12 @@ class RentalManagementController extends AbstractController
                 throw new RentalException("La facture se génère une fois l'état des lieux de sortie complété.");
             }
 
+            // Refused before the receivable is raised (issue #977): a
+            // contract that cannot be generated leaves nothing behind.
+            if ($type === DocumentType::CONTRACT) {
+                $this->documentService->assertContractCanBeGenerated($booking, $asset);
+            }
+
             $settings = $this->paymentService?->settingsFor($asset->id) ?? new PaymentSettings();
             // A contract prints the real communication: the receivable is
             // raised first, and the generation refused when payments are on
@@ -2376,15 +2382,24 @@ class RentalManagementController extends AbstractController
     public function saveBillingIdentity(Request $request, array $params): Response
     {
         return $this->bookingAction($request, function (RentalBooking $booking) use ($request): void {
-            $this->operationsService->saveBillingIdentity($booking->id, [
-                'name' => Support::optionalString($request->getBody('billing_name')),
-                'address' => Support::optionalString($request->getBody('billing_address')),
-                'country' => Support::optionalString($request->getBody('billing_country')),
-                'vat_number' => Support::optionalString($request->getBody('billing_vat_number')),
-                'enterprise_number' => Support::optionalString($request->getBody('billing_enterprise_number')),
-                'email' => Support::optionalString($request->getBody('billing_email')),
-                'reference' => Support::optionalString($request->getBody('billing_reference')),
-            ]);
+            $this->operationsService->saveRenterCoordinates(
+                $booking->id,
+                [
+                    'name' => Support::optionalString($request->getBody('billing_name')),
+                    'address' => Support::optionalString($request->getBody('billing_address')),
+                    'country' => Support::optionalString($request->getBody('billing_country')),
+                    'vat_number' => Support::optionalString($request->getBody('billing_vat_number')),
+                    'enterprise_number' => Support::optionalString($request->getBody('billing_enterprise_number')),
+                    'email' => Support::optionalString($request->getBody('billing_email')),
+                    'reference' => Support::optionalString($request->getBody('billing_reference')),
+                ],
+                // The same form names the group's responsible person on site
+                // (issue #977); a post without the fields leaves it as it was.
+                $request->getBody('on_site_contact_name') === null ? null : [
+                    'name' => Support::optionalString($request->getBody('on_site_contact_name')),
+                    'phone' => Support::optionalString($request->getBody('on_site_contact_phone')),
+                ]
+            );
 
             FlashMessage::set('success', 'Coordonnées de facturation enregistrées.');
         });
@@ -3229,6 +3244,7 @@ class RentalManagementController extends AbstractController
 
         return [
             'billing' => $this->operationsService->billingIdentity($booking->id),
+            'on_site_contact' => $this->operationsService->onSiteContact($booking->id),
             'settlements' => $this->stayService?->settlementsFor($booking->id) ?? [],
             'final_persons' => $finalPersons,
             'gesture' => $gesture,

@@ -461,10 +461,12 @@ class RentalModificationService
                 throw new RentalException("Cette modification n'est plus en préparation. Rechargez la page.");
             }
 
+            $terms = $this->termsBooking($current, $modification);
+            // Refused before anything moves (issue #977).
+            $this->documents?->assertContractCanBeGenerated($terms, $asset);
             // The same receivable, the same communication (chantier §4):
             // never a new one for a replacement contract.
             $communication = $this->payments?->communicationForContract($current, $settings, $actorMemberId);
-            $terms = $this->termsBooking($current, $modification);
             $contract = $this->documents?->generate(
                 $terms,
                 $asset,

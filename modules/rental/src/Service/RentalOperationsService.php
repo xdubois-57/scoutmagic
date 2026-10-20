@@ -760,6 +760,45 @@ class RentalOperationsService
      */
     public function saveBillingIdentity(int $bookingId, array $identity): void
     {
+        $this->assertBillingIdentityFits($identity);
+
+        $this->bookingRepository->saveBillingIdentity($bookingId, $identity);
+    }
+
+    /**
+     * What both coordinate forms post — the renter's tracking page and the
+     * page « Facture » — in ONE call: the billing identity and, when the
+     * form carried its fields, the group's responsible person on site
+     * (issue #977).
+     *
+     * **Everything is checked before anything is written.** Writing the
+     * billing identity first and refusing the contact afterwards left the
+     * one saved under a flash saying nothing was, and skipped the contract
+     * recheck its caller runs on success.
+     *
+     * @param array<string, ?string> $identity
+     * @param array{name: ?string, phone: ?string}|null $onSiteContact null leaves the contact as it was
+     * @throws RentalException
+     */
+    public function saveRenterCoordinates(int $bookingId, array $identity, ?array $onSiteContact): void
+    {
+        $this->assertBillingIdentityFits($identity);
+        if ($onSiteContact !== null) {
+            self::assertOnSiteContactFits($onSiteContact['name'], $onSiteContact['phone']);
+        }
+
+        $this->bookingRepository->saveBillingIdentity($bookingId, $identity);
+        if ($onSiteContact !== null) {
+            $this->bookingRepository->saveOnSiteContact($bookingId, $onSiteContact['name'], $onSiteContact['phone']);
+        }
+    }
+
+    /**
+     * @param array<string, ?string> $identity
+     * @throws RentalException
+     */
+    private function assertBillingIdentityFits(array $identity): void
+    {
         foreach (self::BILLING_LIMITS as $field => $limit) {
             $value = $identity[$field] ?? null;
             if (is_string($value) && mb_strlen($value) > $limit) {
@@ -770,8 +809,28 @@ class RentalOperationsService
                 ));
             }
         }
+    }
 
-        $this->bookingRepository->saveBillingIdentity($bookingId, $identity);
+    /** @throws RentalException */
+    private static function assertOnSiteContactFits(?string $name, ?string $phone): void
+    {
+        if ($name !== null && mb_strlen($name) > 200) {
+            throw new RentalException('Le champ « Responsable du groupe sur place » dépasse 200 caractères.');
+        }
+        if ($phone !== null && mb_strlen($phone) > 40) {
+            throw new RentalException('Le champ « Téléphone du responsable » dépasse 40 caractères.');
+        }
+    }
+
+    /**
+     * The adult responsible for the group on site (issue #977), whom the
+     * contract names beside the renter.
+     *
+     * @return array{name: ?string, phone: ?string}
+     */
+    public function onSiteContact(int $bookingId): array
+    {
+        return $this->bookingRepository->findOnSiteContact($bookingId);
     }
 
     /** `467,50 €` — for a history line a human reads, never for arithmetic. */

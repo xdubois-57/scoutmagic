@@ -498,6 +498,41 @@ class RentalPaymentService
         $this->paymentRepository->setDepositDueDateIfUnset($booking->id, $due);
     }
 
+    /**
+     * What a contract states about paying (issue #977, annex 8.1 of the
+     * Walloon tourism code, point 8): the number of the account the renter
+     * pays on, its holder, and the deposit's deadline once the first send
+     * has set it.
+     *
+     * The account pinned on the asset, through Finance's `Api\` interface
+     * and nothing else; `iban` and `holder` are null without Finance or
+     * without a pinned account, and `iban` alone when the account has none
+     * — the contract then says so rather than print a blank.
+     * `deposit_due_date` is null until a contract has been sent.
+     *
+     * @return array{iban: ?string, holder: ?string, deposit_due_date: ?string}
+     */
+    public function contractTerms(RentalBooking $booking, PaymentSettings $settings): array
+    {
+        $account = $this->accountById($settings->financeAccountId);
+        $iban = null;
+        $holder = null;
+        if ($account !== null) {
+            $named = trim((string) ($account['holder_name'] ?? ''));
+            $holder = $named !== '' ? $named : $account['name'];
+            $rawIban = (string) preg_replace('/\s+/', '', strtoupper((string) ($account['iban'] ?? '')));
+            $iban = $rawIban !== '' ? trim(chunk_split($rawIban, 4, ' ')) : null;
+        }
+
+        $due = $this->paymentRepository->loadBookingPayment($booking->id)['deposit_due_date'] ?? null;
+
+        return [
+            'iban' => $iban,
+            'holder' => $holder,
+            'deposit_due_date' => is_string($due) && $due !== '' ? $due : null,
+        ];
+    }
+
     // ── Reading where the money is ──────────────────────────────────────
 
     /**

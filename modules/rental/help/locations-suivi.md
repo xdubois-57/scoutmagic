@@ -55,9 +55,12 @@ après vous avoir envoyé ce contrat, un e-mail vous le dit.
 
 ## Vos coordonnées de facturation
 
-Utiles seulement si votre facture doit être établie au nom d'une
-association ou d'une société. Un particulier laisse ces champs vides ;
-les gestionnaires peuvent les corriger de leur côté.
+Votre adresse est indispensable : sans elle, le contrat de location ne
+peut pas être établi. Indiquez aussi le « Responsable du groupe sur
+place », une personne majeure présente pendant tout le séjour. La raison
+sociale et les numéros ne servent que pour une facture au nom d'une
+association ou d'une société. Les gestionnaires peuvent tout corriger de
+leur côté.
 
 ## Le lien
 
