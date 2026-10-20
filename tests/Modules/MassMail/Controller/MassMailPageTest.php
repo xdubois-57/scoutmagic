@@ -35,14 +35,18 @@ use Core\Security\HtmlSanitizer;
 use Core\View\TwigFactory;
 use Modules\MassMail\Controller\MassMailController;
 use Modules\MassMail\Repository\AudienceRepository;
+use Modules\MassMail\Repository\ContactRepository;
 use Modules\MassMail\Repository\Email;
 use Modules\MassMail\Repository\EmailAttachmentRepository;
 use Modules\MassMail\Repository\EmailRepository;
+use Modules\MassMail\Repository\ListBlock;
+use Modules\MassMail\Repository\ListBlockRepository;
 use Modules\MassMail\Repository\MailingListRepository;
 use Modules\MassMail\Repository\MemberResolutionRepository;
 use Modules\MassMail\Repository\RecipientRepository;
 use Modules\MassMail\Repository\SuppressedAddressRepository;
 use Modules\MassMail\Service\AudienceImportService;
+use Modules\MassMail\Service\ListBlockService;
 use Modules\MassMail\Service\MailingListService;
 use Modules\MassMail\Service\MassMailAccessService;
 use Modules\MassMail\Service\MassMailService;
@@ -76,6 +80,9 @@ class MassMailPageTest extends TestCase
     private MassMailController $controller;
     private MassMailService $massMailService;
     private AudienceRepository $audienceRepository;
+    private MailingListService $listService;
+    private ListBlockRepository $blockRepository;
+    private ListBlockService $listBlockService;
     private Environment $twig;
     private int $accountId;
     private int $sectionId;
@@ -118,6 +125,14 @@ class MassMailPageTest extends TestCase
             new FunctionRepository($this->pdo)
         );
         $this->audienceRepository = new AudienceRepository($this->pdo, $encryption);
+        $this->listService = $listService;
+        $this->blockRepository = new ListBlockRepository($this->pdo);
+        $this->listBlockService = new ListBlockService(
+            $this->blockRepository,
+            new ContactRepository($this->pdo, $encryption),
+            new MailingListRepository($this->pdo),
+            new JournalService(new JournalRepository($this->pdo))
+        );
 
         $memberEmailService = new MemberEmailService(
             new MemberEmailRepository($this->pdo, $encryption),
@@ -194,7 +209,8 @@ class MassMailPageTest extends TestCase
                 $this->audienceRepository,
                 new MemberResolutionRepository($this->pdo, $encryption),
                 new JournalService(new JournalRepository($this->pdo))
-            )
+            ),
+            $this->listBlockService
         );
 
         if (session_status() === PHP_SESSION_NONE) {
@@ -641,6 +657,111 @@ class MassMailPageTest extends TestCase
             '~<option[^>]*value="default_active_members:"(?![^>]*disabled)~',
             $body
         );
+    }
+
+    /**
+     * Each custom list option says which kinds of blocks it holds, so the
+     * page can say what the years change (chantier #729 §2.5): the years
+     * apply to member groups only, contact groups are always included.
+     * Every other list says « 0 » for both.
+     */
+    public function testEachCustomListOptionSaysWhichKindsOfGroupsItHolds(): void
+    {
+        $both = $this->customList('Staff élargi', member: true, contacts: true);
+        $contactsOnly = $this->customList('Partenaires locaux', member: false, contacts: true);
+        $membersOnly = $this->customList('Animateurs', member: true, contacts: false);
+        $empty = $this->customList('Liste vide', member: false, contacts: false);
+
+        $body = (string) $this->controller->createForm($this->get('/mass-mail/new'), [])->getBody();
+
+        $cases = [[$both, '1', '1'], [$contactsOnly, '0', '1'], [$membersOnly, '1', '0'], [$empty, '0', '0']];
+        foreach ($cases as [$listId, $members, $contacts]) {
+            $this->assertMatchesRegularExpression(
+                '~<option[^>]*value="custom:' . $listId . '"[^>]*data-member-groups="' . $members
+                    . '"[^>]*data-contact-groups="' . $contacts . '"~',
+                $body
+            );
+        }
+        $this->assertMatchesRegularExpression(
+            '~<option[^>]*value="default_active_members:"[^>]*data-member-groups="0"[^>]*data-contact-groups="0"~',
+            $body
+        );
+        $this->assertMatchesRegularExpression(
+            '~<option[^>]*value="mail_merge:"[^>]*data-member-groups="0"[^>]*data-contact-groups="0"~',
+            $body
+        );
+    }
+
+    /**
+     * The sentence is right on the first paint, before any script runs:
+     * a draft reopened on a list of contacts only says so at once.
+     */
+    public function testTheYearSentenceOfTheStoredCustomListIsRenderedByTheServer(): void
+    {
+        $contactsOnly = $this->customList('Partenaires locaux', member: false, contacts: true);
+        $both = $this->customList('Staff élargi', member: true, contacts: true);
+        $section = $this->createDraft('Section');
+
+        $bodyOf = fn (Email $email): string => (string) $this->controller
+            ->show($this->get('/mass-mail/' . $email->id), ['id' => (string) $email->id])
+            ->getBody();
+
+        $body = $bodyOf($this->createCustomDraft('Partenaires', $contactsOnly));
+        $this->assertNoteShown('mm-custom-list-contacts-note', $body);
+        $this->assertNoteHidden('mm-custom-list-mixed-note', $body);
+        $this->assertStringContainsString("Cette liste ne contient que des contacts : l'année ne change rien.", $body);
+
+        $body = $bodyOf($this->createCustomDraft('Staff', $both));
+        $this->assertNoteShown('mm-custom-list-mixed-note', $body);
+        $this->assertNoteHidden('mm-custom-list-contacts-note', $body);
+        $this->assertMatchesRegularExpression(
+            "~Les années choisies s'appliquent aux groupes de membres de cette liste\\. Ses groupes de contacts\\s+"
+                . 'sont toujours inclus\\.~u',
+            $body
+        );
+
+        $body = $bodyOf($section);
+        $this->assertNoteHidden('mm-custom-list-mixed-note', $body);
+        $this->assertNoteHidden('mm-custom-list-contacts-note', $body);
+    }
+
+    private function customList(string $name, bool $member, bool $contacts): int
+    {
+        $listId = $this->listService->createCustomList($name, 'Une liste de test.', null)->id;
+        if ($member) {
+            $this->listBlockService->createMemberGroup($listId, [], [$this->sectionId], [], null);
+        }
+        if ($contacts) {
+            $this->blockRepository->create($listId, ListBlock::KIND_CONTACT_GROUP, 'Partenaires', null);
+        }
+
+        return $listId;
+    }
+
+    private function createCustomDraft(string $subject, int $listId): Email
+    {
+        return $this->massMailService->createDraft(
+            $subject,
+            '<p>Message</p>',
+            $this->sectionId,
+            Email::LIST_TYPE_CUSTOM,
+            $listId,
+            null,
+            [$this->scoutYearId],
+            $this->accountId,
+            new SenderAuthorization(true, [], null),
+            null
+        );
+    }
+
+    private function assertNoteShown(string $id, string $body): void
+    {
+        $this->assertMatchesRegularExpression('~<p class="(?![^"]*d-none)[^"]*"\s+id="' . $id . '"~', $body);
+    }
+
+    private function assertNoteHidden(string $id, string $body): void
+    {
+        $this->assertMatchesRegularExpression('~<p class="[^"]*d-none[^"]*"\s+id="' . $id . '"~', $body);
     }
 
     // -----------------------------------------------------------------

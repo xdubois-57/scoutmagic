@@ -31,6 +31,11 @@ Cocher plusieurs années fusionne les listes en supprimant les
 doublons : chaque adresse ne reçoit qu'un exemplaire. Les pièces
 jointes s'ajoutent une fois le brouillon créé.
 
+Pour une liste créée par l'unité, l'année ne vaut que pour ses groupes
+de membres : ses groupes de contacts reçoivent l'e-mail quelle que soit
+l'année cochée. Une phrase sous les années le rappelle dès que la liste
+choisie contient des contacts.
+
 Chaque envoi a sa propre page : elle se met en favori, son lien
 s'envoie à un collègue pour relecture, et on y revient le lendemain
 pour finir le message.

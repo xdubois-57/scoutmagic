@@ -62,6 +62,10 @@ function buildDom({ status = 'draft', listType = 'default_section', merge = fals
                 <option value="external:" data-list-type="external"${listType === 'external' ? ' selected' : ''}>Inscriptions</option>
                 <option value="mail_merge:" data-list-type="mail_merge"${listType === 'mail_merge' ? ' selected' : ''}>Publipostage</option>
                 <option value="default_former_members:" data-list-type="default_former_members"${listType === 'default_former_members' ? ' selected' : ''}>Anciens</option>
+                <option value="custom:11" data-list-type="custom" data-member-groups="1" data-contact-groups="1">Staff élargi</option>
+                <option value="custom:12" data-list-type="custom" data-member-groups="0" data-contact-groups="1">Partenaires locaux</option>
+                <option value="custom:13" data-list-type="custom" data-member-groups="1" data-contact-groups="0">Animateurs et trésorier</option>
+                <option value="custom:14" data-list-type="custom" data-member-groups="0" data-contact-groups="0">Liste vide</option>
             </select>
             <p id="mm-merge-list-note" class="d-none"></p>
             <p id="mm-external-list-note" class="d-none"></p>
@@ -90,6 +94,8 @@ function buildDom({ status = 'draft', listType = 'default_section', merge = fals
                     <input type="checkbox" class="mm-year-checkbox" id="mm-year-current" value="2" data-warning="" checked>
                     <input type="checkbox" class="mm-year-checkbox" id="mm-year-next" value="3" data-warning="Année à venir : la liste s'appuie sur Desk.">
                 </div>
+                <p id="mm-custom-list-mixed-note" class="d-none"></p>
+                <p id="mm-custom-list-contacts-note" class="d-none"></p>
                 <div id="mm-future-year-warning" class="d-none"></div>
             </div>
 
@@ -328,6 +334,62 @@ describe('mass-mail-compose.js: the list type reshapes the form', () => {
 
         expect(document.getElementById('mm-scout-year-zone').classList.contains('d-none')).toBe(false);
         expect(document.getElementById('mm-former-list-note').classList.contains('d-none')).toBe(true);
+    });
+
+    describe('the sentence on what the years change for a custom list', () => {
+        function choose(value) {
+            const select = document.getElementById('mm-list');
+            select.value = value;
+            select.dispatchEvent(new Event('change'));
+        }
+        const mixed = () => !document.getElementById('mm-custom-list-mixed-note').classList.contains('d-none');
+        const contactsOnly = () => !document.getElementById('mm-custom-list-contacts-note').classList.contains('d-none');
+
+        it('says the years apply to the member groups when the list holds both kinds', async () => {
+            await boot();
+            choose('custom:11');
+
+            expect(mixed()).toBe(true);
+            expect(contactsOnly()).toBe(false);
+            // The years still matter for its member groups.
+            expect(document.getElementById('mm-scout-year-zone').classList.contains('d-none')).toBe(false);
+        });
+
+        it('says the year changes nothing for a list of contact groups only', async () => {
+            await boot();
+            choose('custom:12');
+
+            expect(mixed()).toBe(false);
+            expect(contactsOnly()).toBe(true);
+        });
+
+        it('says nothing for a list of member groups only, nor for a list without any group', async () => {
+            await boot();
+            choose('custom:13');
+            expect(mixed()).toBe(false);
+            expect(contactsOnly()).toBe(false);
+
+            choose('custom:14');
+            expect(mixed()).toBe(false);
+            expect(contactsOnly()).toBe(false);
+        });
+
+        it('says nothing again once a default list is chosen', async () => {
+            await boot();
+            choose('custom:11');
+            expect(mixed()).toBe(true);
+
+            choose('default_section:2');
+            expect(mixed()).toBe(false);
+            expect(contactsOnly()).toBe(false);
+
+            choose('custom:12');
+            expect(contactsOnly()).toBe(true);
+
+            choose('external:');
+            expect(mixed()).toBe(false);
+            expect(contactsOnly()).toBe(false);
+        });
     });
 
     it('shows the server-written future-year warning only while such a year is ticked', async () => {

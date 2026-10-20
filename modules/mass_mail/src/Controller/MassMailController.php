@@ -27,8 +27,10 @@ use Core\Security\CsrfGuard;
 use Core\Security\Role;
 use Core\View\SectionPickerHelper;
 use Modules\MassMail\Repository\Email;
+use Modules\MassMail\Repository\ListBlock;
 use Modules\MassMail\Service\AudienceImportException;
 use Modules\MassMail\Service\AudienceImportService;
+use Modules\MassMail\Service\ListBlockService;
 use Modules\MassMail\Service\MailingListException;
 use Modules\MassMail\Service\MailingListService;
 use Modules\MassMail\Service\MassMailAccessService;
@@ -58,7 +60,8 @@ class MassMailController extends AbstractController
         private SettingService $settingService,
         private UploadHandler $uploadHandler,
         private FileRepository $fileRepository,
-        private AudienceImportService $audienceImportService
+        private AudienceImportService $audienceImportService,
+        private ListBlockService $listBlockService
     ) {
     }
 
@@ -848,9 +851,18 @@ class MassMailController extends AbstractController
      * (Service\MassMailService), so this is presentation, never a
      * boundary (SECURITY.md §3).
      *
+     * `member_groups` / `contact_groups` say whether a custom list holds
+     * blocks of each kind (always false for the other lists): the years
+     * chosen on the email apply to member groups only, and the page says
+     * so under the year checkboxes when a list holds contact groups
+     * (chantier #729 §2.5). One query for every list on the page.
+     *
      * @return array<
      *     int,
-     *     array{value: string, label: string, selected: bool, disabled: bool, description: string, type: string}
+     *     array{
+     *         value: string, label: string, selected: bool, disabled: bool, description: string, type: string,
+     *         member_groups: bool, contact_groups: bool
+     *     }
      * >
      */
     private function buildListOptions(SenderAuthorization $authorization, string $selected): array
@@ -865,10 +877,14 @@ class MassMailController extends AbstractController
                 'disabled' => !self::isListAllowed($authorization, $list['list_type'], $list['list_section_id']),
                 'description' => $list['description'],
                 'type' => $list['list_type'],
+                'member_groups' => false,
+                'contact_groups' => false,
             ];
         }
+        $blockCounts = $this->listBlockService->countKindsByList();
         foreach ($this->mailingListService->getActiveCustomLists() as $list) {
             $value = Email::LIST_TYPE_CUSTOM . ':' . $list->id;
+            $kinds = $blockCounts[$list->id] ?? [ListBlock::KIND_MEMBER_GROUP => 0, ListBlock::KIND_CONTACT_GROUP => 0];
             $options[] = [
                 'value' => $value,
                 'label' => $list->name,
@@ -876,6 +892,8 @@ class MassMailController extends AbstractController
                 'disabled' => !self::isListAllowed($authorization, Email::LIST_TYPE_CUSTOM, null),
                 'description' => $list->description,
                 'type' => Email::LIST_TYPE_CUSTOM,
+                'member_groups' => $kinds[ListBlock::KIND_MEMBER_GROUP] > 0,
+                'contact_groups' => $kinds[ListBlock::KIND_CONTACT_GROUP] > 0,
             ];
         }
         $options[] = [
@@ -886,6 +904,8 @@ class MassMailController extends AbstractController
             'description' => 'Un fichier Excel importé définit les destinataires : un email par ligne, avec des '
                 . 'variables par colonne.',
             'type' => Email::LIST_TYPE_MAIL_MERGE,
+            'member_groups' => false,
+            'contact_groups' => false,
         ];
 
         return $options;

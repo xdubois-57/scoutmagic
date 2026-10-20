@@ -83,7 +83,8 @@ class CsrfTest extends TestCase
             $this->createStub(SettingService::class),
             $this->createStub(UploadHandler::class),
             new FileRepository($this->pdo),
-            $this->createStub(\Modules\MassMail\Service\AudienceImportService::class)
+            $this->createStub(\Modules\MassMail\Service\AudienceImportService::class),
+            $this->createStub(\Modules\MassMail\Service\ListBlockService::class)
         );
 
         // CSRF is checked before buildAuthorization() is ever evaluated, so
@@ -134,7 +135,8 @@ class CsrfTest extends TestCase
             $this->createStub(SettingService::class),
             $this->createStub(UploadHandler::class),
             new FileRepository($this->pdo),
-            $importService
+            $importService,
+            $this->createStub(\Modules\MassMail\Service\ListBlockService::class)
         );
 
         $response = $controller->importAudience(
