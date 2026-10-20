@@ -119,6 +119,12 @@
      * meanwhile would send the name alone and drop the chosen file.
      */
     var analysing = false;
+    /**
+     * The file chosen last was refused. « Enregistrer » stays off until
+     * another file is accepted or the dialog is closed: saving then would
+     * send the name alone, and the toast would say the file was applied.
+     */
+    var fileRefused = false;
 
     /**
      * **One dialog, reopened on another group, so every answer has to
@@ -158,6 +164,7 @@
 
     function updateSaveState() {
         var ready = !analysing
+            && !fileRefused
             && nameEl.value.trim() !== ''
             && (blockId === null ? pending !== null : loaded);
         saveEl.disabled = !ready;
@@ -265,7 +272,11 @@
         nameEl.value = res.data.group.name || '';
         nameEl.disabled = false;
         countEl.textContent = countSentence(res.data.group);
-        showError(null);
+        // A file refused while the contacts were loading keeps its message:
+        // the error line is the analysis's then, not this load's.
+        if (!fileRefused) {
+            showError(null);
+        }
         render();
         updateSaveState();
     }
@@ -334,6 +345,7 @@
 
     function clearPreview() {
         pending = null;
+        fileRefused = false;
         previewEl.classList.add('d-none');
         summaryEl.textContent = '';
         renderLineErrors([]);
@@ -382,6 +394,7 @@
         if (!data?.success || !Array.isArray(data.contacts)) {
             // `errors` for the file's own problems, `error` for a refusal
             // of the request itself (an expired session).
+            fileRefused = true;
             showError((Array.isArray(data?.errors) ? data.errors.join(' ') : '')
                 || data?.error
                 || 'Erreur : réponse serveur invalide.');
@@ -414,16 +427,26 @@
         var res = blockId === null
             ? await api.postJson(BASE + '/lists/' + listId + '/contact-groups', body)
             : await api.postJson(BASE + '/contact-groups/' + blockId, body, { method: 'PATCH' });
-        if (stale(token)) {
-            return;
-        }
+        // Unlike a load or an analysis, this answer is about the server, not
+        // the dialog: the write happened whether or not the dialog was
+        // closed meanwhile (Annuler, Échap), so its acknowledgement — the
+        // toast and the event the list's page redraws on — is never dropped.
+        // Only what is painted inside the dialog depends on it being current.
+        var current = !stale(token);
         if (!res.data?.success || !res.data.group) {
-            showError(res.data?.error || 'Erreur : réponse serveur invalide.');
+            var message = res.data?.error || 'Erreur : réponse serveur invalide.';
+            if (current) {
+                showError(message);
+            } else {
+                window.ScoutMagicToast?.show(message, { variant: 'error' });
+            }
             return;
         }
 
         var group = res.data.group;
-        close();
+        if (current) {
+            close();
+        }
         window.ScoutMagicToast?.show('Groupe de contacts enregistré.', { variant: 'success' });
         document.dispatchEvent(new CustomEvent('mass-mail:blocks-changed', {
             detail: { listId: String(group.list_id), blockId: String(group.id), kind: 'contact_group' }

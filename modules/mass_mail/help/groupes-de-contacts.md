@@ -8,7 +8,7 @@ question: Comment écrire à la commune ou au propriétaire du terrain de camp ?
 question: Comment ajouter une adresse à une liste de diffusion ?
 question: Pourquoi mon fichier de contacts est-il refusé ?
 question: Pourquoi une adresse désinscrite reste-t-elle affichée ?
-paths: /admin/listes-de-diffusion/*
+paths: /admin/listes-de-diffusion
 related: listes-de-diffusion, se-desinscrire
 ---
 
