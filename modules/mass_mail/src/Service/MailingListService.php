@@ -1293,9 +1293,17 @@ class MailingListService
      * no Desk address, so nothing is created), and shown at the first of
      * them; with none, they receive nothing and are left out. A contact
      * equal to one of those personal addresses is the member's row, not a
-     * second one — the freeze skips an address already written. A
-     * member's bounce-blocked Desk address is not looked at: like the
-     * counter, this sees the Desk address as Desk gives it.
+     * second one — the freeze skips an address already written.
+     *
+     * One gate of the freeze is deliberately not reproduced: the bounce
+     * block (Core\Mail\Feedback\Bounce). A member's Desk address and a
+     * contact's address the far end has refused twice are still shown and
+     * counted here, while the send writes them as error rows on its
+     * tracking page — which is where a blocked address is explained and
+     * lifted. Like the counter, this reads the addresses as the list holds
+     * them. A suppression needs no gate: an unsubscribe and an import both
+     * flag the contact rows themselves, so a suppressed contact is never
+     * active here.
      *
      * `address_keys` are the normalised addresses the row stands for, the
      * ones its blocks are found under.
