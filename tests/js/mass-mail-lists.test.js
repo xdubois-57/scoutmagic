@@ -292,6 +292,18 @@ describe('mass-mail-lists.js', () => {
             expect(window.location.href).toBe('/admin/listes-de-diffusion/42');
         });
 
+        it('creates the list once on a double click', async () => {
+            global.fetch = vi.fn(() => jsonResponse({ success: true, list: { id: 42, name: 'Staff', is_active: true } }));
+            await boot();
+
+            const save = document.querySelector('[data-list-identity-save]');
+            save.click();
+            save.click();
+            await settle();
+
+            expect(fetch).toHaveBeenCalledTimes(1);
+        });
+
         it('says a refused creation inside the dialog, and stays', async () => {
             global.fetch = vi.fn(() => jsonResponse(
                 { success: false, error: 'La description de la liste est obligatoire.' },
@@ -595,6 +607,22 @@ describe('mass-mail-lists.js', () => {
                 expect(call[1].method).toBe('PATCH');
             });
 
+            it('creates the group once on a double click', async () => {
+                await openNew();
+                choose('mm-section-picker', 4);
+                await settle();
+                global.fetch = vi.fn((url) => jsonResponse(url.endsWith('/blocks')
+                    ? payload([MEMBER_GROUP])
+                    : { success: true, block: { id: 13, kind: 'member_group' } }));
+
+                const save = document.querySelector('[data-member-group-save]');
+                save.click();
+                save.click();
+                await settle();
+
+                expect(fetch.mock.calls.filter(([url]) => url.endsWith('/member-groups'))).toHaveLength(1);
+            });
+
             it('says a refusal inside the dialog and keeps it open', async () => {
                 await openNew();
                 choose('mm-function-picker', 1);
@@ -606,6 +634,8 @@ describe('mass-mail-lists.js', () => {
 
                 expect(document.querySelector('[data-member-group-error]').textContent).toBe('Liste introuvable.');
                 expect(isShown('mm-member-group-modal')).toBe(true);
+                // Refused: the button comes back for a corrected attempt.
+                expect(document.querySelector('[data-member-group-save]').disabled).toBe(false);
             });
         });
 
