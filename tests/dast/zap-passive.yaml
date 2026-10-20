@@ -77,6 +77,23 @@ jobs:
         url: "\\Q${DAST_TARGET}\\E/test-tools/uncaught-error"
         urlRegex: true
 
+      # A calendar feed token is 64 random hexadecimal characters, and ZAP's
+      # "PII Disclosure" rule reads any run of 13 to 16 digits that passes
+      # the Luhn check and starts with a known card prefix as a card
+      # number, word boundary or not: "…cf4454765878264d32…" was reported
+      # as a Belfius Visa. About one token in 800 holds such a
+      # run, so the scan failed now and then on whichever page happened to
+      # show a fresh one. Scoped to the pages and answers that carry a
+      # feed token, and nothing else: the application stores no card
+      # number anywhere, so the rule stays armed everywhere a real one
+      # could leak.
+      - ruleId: 10062
+        ruleName: PII Disclosure
+        newRisk: 'False Positive'
+        context: scoutmagic
+        url: "\\Q${DAST_TARGET}\\E/(calendar|calendar/personal-token/regenerate|config/calendar|config/calendar/regenerate|config/calendar/unit-token/regenerate)(\\?.*)?"
+        urlRegex: true
+
   - type: passiveScan-config
     parameters:
       # Only what the browser suite actually visited: an out-of-scope
