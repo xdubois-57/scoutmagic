@@ -86,12 +86,15 @@ class ContactGroupController extends AbstractController
                 'count' => count($contacts),
                 'unsubscribed' => $unsubscribed,
             ],
-            'contacts' => array_map(static fn(Contact $c): array => [
-                'id' => $c->id,
-                'name' => $c->name,
-                'email' => $c->email,
-                'unsubscribed_at' => $c->unsubscribedAt,
-            ], $contacts),
+            'contacts' => array_map(
+                static fn(Contact $c): array => [
+                    'id' => $c->id,
+                    'name' => $c->name,
+                    'email' => $c->email,
+                    'unsubscribed_at' => $c->unsubscribedAt,
+                ],
+                $contacts
+            ),
         ]);
     }
 
