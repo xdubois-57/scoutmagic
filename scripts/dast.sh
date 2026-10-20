@@ -814,6 +814,18 @@ if [[ "${PLAYWRIGHT_EXIT}" -ne 0 ]]; then
     tail -40 "${SERVER_LOG}" | dast_redact >&2 || true
     echo "--- PHP error log, last 40 lines ---" >&2
     tail -40 "${INSTANCE_DIR}/php-error.log" | dast_redact >&2 || true
+    # The browser never talks to the terminator: it talks to ZAP, and ZAP
+    # is the hop that can drop a browser connection without an answer (an
+    # exception in one of its handlers, a request it cannot parse). Every
+    # upstream failure, by contrast, reaches the browser as a 502 or is
+    # retried by ZAP itself — so a « net::ERR_EMPTY_RESPONSE » or
+    # « net::ERR_TOO_MANY_RETRIES » under a silent terminator journal is
+    # answered here, or nowhere. `certificate_unknown` is Chromium refusing
+    # ZAP's CA before ignoreHTTPSErrors lets the connection through, once
+    # per new connection: routine, and a thousand lines of it would bury
+    # the one that matters.
+    echo "--- ZAP warnings and errors, last 40 ---" >&2
+    docker logs "${ZAP_CONTAINER}" 2>&1 | grep -E ' (WARN|ERROR) ' | grep -v -F 'certificate_unknown' | tail -40 | dast_redact >&2 || true
 fi
 
 touch "${RELEASE_FILE_HOST}"
