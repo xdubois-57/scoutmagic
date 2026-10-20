@@ -82,18 +82,6 @@ final class RentalAsset
     public const DEFAULT_FREE_WITHDRAWAL_DAYS = 90;
 
     /**
-     * The last day the renter of a stay arriving on $arrivalDate may
-     * withdraw without owing anything, as `Y-m-d`, or null for an
-     * unreadable arrival.
-     */
-    public function freeWithdrawalDeadline(string $arrivalDate): ?string
-    {
-        $arrival = \Core\Service\DateInput::iso($arrivalDate);
-
-        return $arrival?->modify('-' . max(0, $this->freeWithdrawalDays) . ' days')->format('Y-m-d');
-    }
-
-    /**
      * Whether several units of this asset can be booked independently — the
      * distinction between "the hall" (one booking at a time) and "eight
      * tents". Availability is otherwise computed identically for both.

@@ -4044,9 +4044,15 @@ class RentalManagementControllerTest extends TestCase
 
         $flash = \Core\Http\FlashMessage::get();
         $this->assertSame('error', $flash['type'] ?? null);
-        $this->assertStringContainsString('« Coordonnées de facturation » sur la page « Facture »', (string) ($flash['message'] ?? ''));
+        $this->assertStringContainsString(
+            '« Coordonnées de facturation » sur la page « Facture »',
+            (string) ($flash['message'] ?? '')
+        );
         $this->assertSame([], $this->documentService->forBooking($booking->id));
-        $this->assertNull($this->paymentService->statusFor($booking, $settings)['communication'], 'no receivable raised');
+        $this->assertNull(
+            $this->paymentService->statusFor($booking, $settings)['communication'],
+            'no receivable raised'
+        );
     }
 
     // ── The stay (§6.21–§6.23) ──────────────────────────────────────────

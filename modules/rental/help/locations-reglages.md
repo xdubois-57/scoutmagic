@@ -59,7 +59,10 @@ autre que l'unité.
 
 L'« Adresse du bien », sans laquelle aucun contrat ne se génère, et la
 « Date limite de désistement sans indemnité », en jours avant l'arrivée :
-chaque contrat imprime la date calculée pour son séjour.
+chaque contrat imprime la date calculée pour son séjour, puis l'indemnité
+due — la moitié du prix jusqu'à un mois avant le séjour, les trois quarts
+ensuite. Une date déjà passée à la génération n'est pas offerte : le
+contrat dit que la période sans indemnité ne s'applique pas.
 
 ## Rappels
 

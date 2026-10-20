@@ -26,6 +26,7 @@ use Modules\Rental\Document\DocumentType;
 use Modules\Rental\Document\Landlord;
 use Modules\Rental\Document\RentalDocument;
 use Modules\Rental\Document\StandardTemplates;
+use Modules\Rental\Document\WithdrawalScale;
 use Modules\Rental\Payment\PaymentSettings;
 use Modules\Rental\Repository\RentalAsset;
 use Modules\Rental\Repository\RentalBookingRepository;
@@ -761,7 +762,9 @@ class RentalDocumentService
         $terms = $this->payments?->contractTerms($booking, $paymentSettings)
             ?? ['iban' => null, 'holder' => null, 'deposit_due_date' => null];
         $balanceDue = $paymentSettings->balanceDueDate($booking->arrivalDate);
-        $withdrawal = $asset->freeWithdrawalDeadline($booking->arrivalDate);
+        // As of today, the day the contract is generated: a deadline
+        // already gone is never offered (issue #977).
+        $withdrawal = WithdrawalScale::of($booking->arrivalDate, $asset->freeWithdrawalDays, new \DateTimeImmutable());
 
         return [
             'reference' => $booking->reference,
@@ -813,7 +816,11 @@ class RentalDocumentService
             'echeance_solde' => $balanceDue !== null
                 ? 'au plus tard le ' . self::frenchDate($balanceDue)
                 : 'avant le début du séjour',
-            'date_limite_desistement' => $withdrawal !== null ? self::frenchDate($withdrawal) : null,
+            'date_limite_desistement' => $withdrawal?->freeUntil !== null
+                ? self::frenchDate($withdrawal->freeUntil)
+                : null,
+            'desistement_sans_indemnite' => $withdrawal?->freeSentence(),
+            'bareme_desistement' => $withdrawal?->scaleSentence(),
             'mention_bce_bailleur' => $landlord->enterpriseNumber !== null
                 ? ", n° d'entreprise " . $landlord->enterpriseNumber
                 : null,

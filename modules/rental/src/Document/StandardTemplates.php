@@ -164,7 +164,9 @@ final class StandardTemplates
      * be rephrased. The renter's own withdrawal is a separate, progressive
      * scale built on the free-withdrawal deadline the annex requires
      * (point 8c), so that a private renter is not held to a clause a court
-     * could find abusive.
+     * could find abusive. Its dates are worked out per booking
+     * (`WithdrawalScale`), so its stretches never overlap the free period
+     * and a deadline already gone is never offered.
      */
     public static function contract(): string
     {
@@ -251,18 +253,9 @@ final class StandardTemplates
 
             <h3>9. Annulation et manquements</h3>
             <p><strong>Désistement du locataire.</strong> Le locataire peut se désister par
-            écrit. Jusqu'au <strong>{{ date_limite_desistement }}</strong> inclus, il le fait
-            sans indemnité et les sommes versées lui sont remboursées. Au-delà de cette date,
-            il doit au bailleur une indemnité qui dépend du moment où le désistement parvient
-            à celui-ci&nbsp;:</p>
-            <ul>
-                <li>plus de quatre mois avant le début du séjour&nbsp;: vingt-cinq pour cent
-                    du prix de la location&nbsp;;</li>
-                <li>entre quatre mois et un mois avant le début du séjour&nbsp;: cinquante pour
-                    cent du prix de la location&nbsp;;</li>
-                <li>moins d'un mois avant le début du séjour&nbsp;: soixante-quinze pour cent du
-                    prix de la location.</li>
-            </ul>
+            écrit. {{ desistement_sans_indemnite }} Dans les autres cas, il doit au bailleur une
+            indemnité qui dépend du jour où le désistement parvient à celui-ci&nbsp;:
+            {{ bareme_desistement }}</p>
             <p>Les sommes déjà versées s'imputent sur cette indemnité et le surplus est
             remboursé. Si le bailleur reloue le bien pour la même période, l'indemnité est
             réduite à concurrence de ce que cette nouvelle location lui rapporte.</p>

@@ -97,7 +97,12 @@ final class DocumentKeywords
         'echeance_acompte' => "Quand verser l'acompte : « au plus tard le 15/03/2027 », ou combien de jours "
             . "après l'envoi du contrat",
         'echeance_solde' => 'Quand verser le solde : « au plus tard le 12/06/2027 », ou « avant le début du séjour »',
-        'date_limite_desistement' => 'La date limite de désistement sans indemnité, au format 31/12/2027',
+        'date_limite_desistement' => 'La date limite de désistement sans indemnité, au format 31/12/2027, '
+            . 'ou « — » quand elle était passée à la génération du contrat',
+        'desistement_sans_indemnite' => 'La phrase sur le désistement sans indemnité : sa date limite, ou que '
+            . 'cette période ne s\'applique pas à la réservation',
+        'bareme_desistement' => "L'indemnité due après cette date, avec ses dates : cinquante pour cent "
+            . "jusqu'à un mois avant le séjour, soixante-quinze pour cent ensuite",
         'mention_bce_bailleur' => "« , n° d'entreprise 0123.456.789 », à placer après le nom du bailleur ; "
             . "rien quand il n'en a pas",
         'contact_donnees' => "Où écrire pour les données personnelles : l'adresse de contact du site, "

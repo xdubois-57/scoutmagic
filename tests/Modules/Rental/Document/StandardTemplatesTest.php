@@ -99,17 +99,30 @@ class StandardTemplatesTest extends TestCase
         $this->assertStringNotContainsString('sans autre indemnité', $contract);
     }
 
-    /** The renter's withdrawal: a progressive scale from the free-withdrawal deadline, not « tout est dû ». */
-    public function testTheRentersWithdrawalIsAProgressiveScaleFromTheFreeDeadline(): void
+    /**
+     * The renter's withdrawal: the free period and the scale after it are
+     * worked out per booking (`WithdrawalScale`), never fixed phrases a
+     * free period can contradict.
+     */
+    public function testTheRentersWithdrawalIsAScaleWorkedOutPerBooking(): void
     {
         $contract = self::readableContract();
 
-        $this->assertStringContainsString('{{ date_limite_desistement }} inclus, il le fait sans indemnité', $contract);
-        foreach (['vingt-cinq pour cent', 'cinquante pour cent', 'soixante-quinze pour cent'] as $step) {
-            $this->assertStringContainsString($step, $contract);
+        $this->assertStringContainsString(
+            'Le locataire peut se désister par écrit. {{ desistement_sans_indemnite }} Dans les autres cas, '
+                . 'il doit au bailleur une indemnité',
+            $contract
+        );
+        $this->assertStringContainsString('{{ bareme_desistement }}', $contract);
+        $this->assertStringContainsString("Les sommes déjà versées s'imputent sur cette indemnité", $contract);
+        $this->assertStringContainsString('Si le bailleur reloue le bien pour la même période', $contract);
+        foreach ([
+            'vingt-cinq pour cent',
+            'plus de quatre mois avant le début du séjour',
+            "L'acompte reste acquis",
+        ] as $gone) {
+            $this->assertStringNotContainsString($gone, $contract);
         }
-        $this->assertStringNotContainsString("L'acompte reste acquis au bailleur", $contract);
-        $this->assertStringNotContainsString('le solde reste dû', $contract);
     }
 
     /** Article 8: no exclusion of bodily harm, nor of the landlord's own fault. */
@@ -165,7 +178,7 @@ class StandardTemplatesTest extends TestCase
             '{{ acompte }}',                 // 8° a. the deposit
             '{{ iban }}',                    //    b. the account
             '{{ titulaire_compte }}',
-            '{{ date_limite_desistement }}', //    c. the free-withdrawal deadline
+            '{{ desistement_sans_indemnite }}', //    c. the free-withdrawal deadline
             '{{ echeance_solde }}',          //    d. the day of the balance
             '{{ echeance_acompte }}',
         ] as $keyword) {

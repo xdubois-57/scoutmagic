@@ -58,7 +58,12 @@ final class LinkedTextTest extends TestCase
         $service = new DocumentPdfService();
         $url = 'https://unite.example.be/locations/local/conditions/abc123';
 
-        $linked = $service->generate('Contrat', '<p>Corps</p>', 'Unité', [new LinkedText('Conditions : ' . $url, $url)]);
+        $linked = $service->generate(
+            'Contrat',
+            '<p>Corps</p>',
+            'Unité',
+            [new LinkedText('Conditions : ' . $url, $url)]
+        );
         $plain = $service->generate('Contrat', '<p>Corps</p>', 'Unité', ['Conditions : ' . $url]);
 
         $this->assertStringContainsString('/URI (' . $url . ')', $linked);

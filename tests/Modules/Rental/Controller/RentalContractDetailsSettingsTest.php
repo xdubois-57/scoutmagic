@@ -96,7 +96,11 @@ final class RentalContractDetailsSettingsTest extends TestCase
                 new RentalPricingEngine(),
                 new JournalService(new JournalRepository($this->pdo))
             ),
-            new RentalAvailabilityService(new AvailabilityCalculator(), new RentalConstraintsRepository($this->pdo), []),
+            new RentalAvailabilityService(
+                new AvailabilityCalculator(),
+                new RentalConstraintsRepository($this->pdo),
+                []
+            ),
             new RentalAuthorizationService($memberService, $assetRepository, $managerRepository),
             $assetRepository,
             $scoutYearResolver,
@@ -110,7 +114,17 @@ final class RentalContractDetailsSettingsTest extends TestCase
         );
         $this->assetRepository = $assetRepository;
 
-        $this->assetId = $assetRepository->create('Local', 'Local Saint-Georges', 'local-saint-georges', 60, 1, null, null, null, true);
+        $this->assetId = $assetRepository->create(
+            'Local',
+            'Local Saint-Georges',
+            'local-saint-georges',
+            60,
+            1,
+            null,
+            null,
+            null,
+            true
+        );
 
         $memberId = RentalTestHelper::insertMember($this->pdo, 'D-MGR');
         RentalTestHelper::insertMemberYear($this->pdo, $encryption, $memberId, $scoutYearId, 'manager@test.be');
@@ -172,7 +186,6 @@ final class RentalContractDetailsSettingsTest extends TestCase
         $asset = $this->asset();
         $this->assertSame("Chemin du Camp 4\n1300 Wavre", $asset->address);
         $this->assertSame(45, $asset->freeWithdrawalDays);
-        $this->assertSame('2027-05-17', $asset->freeWithdrawalDeadline('2027-07-01'));
         $this->assertSame('Réglages du contrat enregistrés.', FlashMessage::get()['message'] ?? null);
     }
 
@@ -193,7 +206,10 @@ final class RentalContractDetailsSettingsTest extends TestCase
         $this->save(['asset_address' => '  ', 'free_withdrawal_days' => '60']);
 
         $this->assertNull($this->asset()->address);
-        $this->assertStringContainsString('aucun contrat ne peut être généré', (string) (FlashMessage::get()['message'] ?? ''));
+        $this->assertStringContainsString(
+            'aucun contrat ne peut être généré',
+            (string) (FlashMessage::get()['message'] ?? '')
+        );
     }
 
     public function testADeadlineThatIsNotAWholeNumberOfDaysIsRefusedAndNothingIsStored(): void

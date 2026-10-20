@@ -1240,8 +1240,14 @@ class RentalDocumentServiceTest extends TestCase
             $this->fail('a contract without the renter\'s address must be refused');
         } catch (\Modules\Rental\Service\RentalException $e) {
             $this->assertStringContainsString("il manque l'adresse du locataire", $e->getMessage());
-            $this->assertStringContainsString('« Vos coordonnées de facturation » sur sa page de suivi', $e->getMessage());
-            $this->assertStringContainsString('« Coordonnées de facturation » sur la page « Facture »', $e->getMessage());
+            $this->assertStringContainsString(
+                '« Vos coordonnées de facturation » sur sa page de suivi',
+                $e->getMessage()
+            );
+            $this->assertStringContainsString(
+                '« Coordonnées de facturation » sur la page « Facture »',
+                $e->getMessage()
+            );
             $this->assertStringNotContainsString('Adresse du bien', $e->getMessage());
         }
 
@@ -1283,8 +1289,14 @@ class RentalDocumentServiceTest extends TestCase
             $this->service->generate($booking, $this->asset(), DocumentType::CONTRACT, $this->settings());
             $this->fail('a contract without the asset\'s address must be refused');
         } catch (\Modules\Rental\Service\RentalException $e) {
-            $this->assertStringStartsWith('Le contrat ne peut pas être généré : l\'adresse du bien manque.', $e->getMessage());
-            $this->assertStringContainsString('« Adresse du bien » dans la section « Contrat » des « Réglages »', $e->getMessage());
+            $this->assertStringStartsWith(
+                'Le contrat ne peut pas être généré : l\'adresse du bien manque.',
+                $e->getMessage()
+            );
+            $this->assertStringContainsString(
+                '« Adresse du bien » dans la section « Contrat » des « Réglages »',
+                $e->getMessage()
+            );
         }
 
         $this->assertSame(0, $this->documentCount());
@@ -1310,6 +1322,15 @@ class RentalDocumentServiceTest extends TestCase
         $this->assertSame('Chemin du Camp 4, 1300 Wavre', $values['bien_adresse']);
         // Sixty days before an arrival on 1 July 2027.
         $this->assertSame('02/05/2027', $values['date_limite_desistement']);
+        $this->assertSame(
+            "Jusqu'au 02/05/2027 inclus, il le fait sans indemnité et les sommes versées lui sont remboursées.",
+            $values['desistement_sans_indemnite']
+        );
+        $this->assertSame(
+            'du 03/05/2027 au 01/06/2027 inclus, cinquante pour cent du prix de la location ; '
+                . 'à partir du 02/06/2027, soixante-quinze pour cent du prix de la location.',
+            $values['bareme_desistement']
+        );
 
         $text = (string) preg_replace('/\s+/', ' ', $this->renderedTextOf(
             $this->service->generate($booking, $this->asset(), DocumentType::CONTRACT, $this->settings())->id
@@ -1318,6 +1339,59 @@ class RentalDocumentServiceTest extends TestCase
         // themselves are what is checked here.
         $this->assertStringContainsString('Chemin du Camp 4, 1300 Wavre', $text);
         $this->assertStringContainsString('02/05/2027', $text);
+    }
+
+    /** The schema's default deadline, ninety days, and a short one inside the last month. */
+    public function testTheDefaultAndAShortDeadlineGiveTheirOwnScale(): void
+    {
+        $booking = $this->createBooking();
+
+        $this->assetRepository->saveContractDetails($this->assetId, 'Chemin du Camp 4', 90);
+        $values = $this->service->valuesFor($booking, $this->asset(), $this->settings());
+        $this->assertSame('02/04/2027', $values['date_limite_desistement']);
+        $this->assertStringStartsWith(
+            'du 03/04/2027 au 01/06/2027 inclus, cinquante',
+            (string) $values['bareme_desistement']
+        );
+
+        $this->assetRepository->saveContractDetails($this->assetId, 'Chemin du Camp 4', 10);
+        $values = $this->service->valuesFor($booking, $this->asset(), $this->settings());
+        $this->assertSame('21/06/2027', $values['date_limite_desistement']);
+        $this->assertSame(
+            'à partir du 22/06/2027, soixante-quinze pour cent du prix de la location.',
+            $values['bareme_desistement']
+        );
+    }
+
+    /**
+     * Booked after the deadline: the contract says the free period does
+     * not apply, and prints no past date as an offer.
+     */
+    public function testAContractGeneratedAfterTheDeadlineOffersNoFreeWithdrawal(): void
+    {
+        $booking = $this->createBooking();
+        $arrival = (new \DateTimeImmutable('+20 days'))->format('Y-m-d');
+        $this->pdo->prepare('UPDATE rental_bookings SET arrival_date = ?, departure_date = ? WHERE id = ?')
+            ->execute([$arrival, (new \DateTimeImmutable('+23 days'))->format('Y-m-d'), $booking->id]);
+        $booking = $this->bookingRepository->findById($booking->id);
+        $this->assertNotNull($booking);
+        $deadline = (new \DateTimeImmutable('+20 days'))->modify('-60 days')->format('d/m/Y');
+
+        $values = $this->service->valuesFor($booking, $this->asset(), $this->settings());
+
+        $this->assertNull($values['date_limite_desistement']);
+        $this->assertStringContainsString(
+            'ne s\'applique pas à cette réservation',
+            (string) $values['desistement_sans_indemnite']
+        );
+        $this->assertSame('soixante-quinze pour cent du prix de la location.', $values['bareme_desistement']);
+
+        $text = (string) preg_replace('/\s+/', '', $this->renderedTextOf(
+            $this->service->generate($booking, $this->asset(), DocumentType::CONTRACT, $this->settings())->id
+        ));
+        // The extractor drops words of a justified line, so only the absence
+        // is read off the PDF; the sentence itself is asserted above.
+        $this->assertStringNotContainsString($deadline, $text);
     }
 
     /** Point 8: the account and its holder, from the asset's Finance account. */
@@ -1380,11 +1454,23 @@ class RentalDocumentServiceTest extends TestCase
     /** Point 5: the accepted conditions are a link the reader can click, and still printed. */
     public function testTheAcceptedConditionsAreAClickableLinkInThePdf(): void
     {
-        $this->settingService->register('base_url', 'https://unite.example.be', 'url', 'Adresse', 'Description de test.');
+        $this->settingService->register(
+            'base_url',
+            'https://unite.example.be',
+            'url',
+            'Adresse',
+            'Description de test.'
+        );
         $this->settingService->set('base_url', 'https://unite.example.be');
         $versions = new \Modules\Rental\Repository\RentalConditionsVersionRepository($this->pdo);
         $hash = hash('sha256', '<p>Conditions</p>');
-        $accepted = $versions->archive($this->assetId, $hash, '<p>Conditions</p>', new \DateTimeImmutable('2026-09-12'), null);
+        $accepted = $versions->archive(
+            $this->assetId,
+            $hash,
+            '<p>Conditions</p>',
+            new \DateTimeImmutable('2026-09-12'),
+            null
+        );
         $booking = $this->createBooking();
         $this->pdo->prepare('UPDATE rental_bookings SET conditions_version = ?, conditions_hash = ? WHERE id = ?')
             ->execute([$accepted->version, $hash, $booking->id]);
@@ -1400,14 +1486,22 @@ class RentalDocumentServiceTest extends TestCase
         // At least twice: the frame's header line and article 12 of the body
         // (dompdf writes one annotation per line a link runs over).
         $this->assertGreaterThanOrEqual(2, substr_count($pdf, '/URI (' . $url . ')'));
-        $this->assertStringContainsString($url, (string) preg_replace('/\s+/', '', $this->renderedTextOf($document->id)));
+        $this->assertStringContainsString(
+            $url,
+            (string) preg_replace('/\s+/', '', $this->renderedTextOf($document->id))
+        );
     }
 
     /** Point 12: a contract is headed by its landlord, never by the site's own name. */
     public function testTheContractIsHeadedByTheLandlordAndPrintsNoEmptyEnterpriseNumber(): void
     {
         $this->settingService->set('site_name', 'Scout Magic');
-        $this->assetRepository->saveLandlord($this->assetId, 'ASBL Les Amis du Local', 'Place du Parc 3, 1300 Wavre', null);
+        $this->assetRepository->saveLandlord(
+            $this->assetId,
+            'ASBL Les Amis du Local',
+            'Place du Parc 3, 1300 Wavre',
+            null
+        );
         $booking = $this->createBooking();
 
         $text = (string) preg_replace('/\s+/', ' ', $this->renderedTextOf(
@@ -1418,7 +1512,12 @@ class RentalDocumentServiceTest extends TestCase
         $this->assertStringContainsString('ASBL Les Amis du Local', $text);
         $this->assertStringNotContainsString("N° d'entreprise", $text);
 
-        $this->assetRepository->saveLandlord($this->assetId, 'ASBL Les Amis du Local', 'Place du Parc 3', '0123.456.789');
+        $this->assetRepository->saveLandlord(
+            $this->assetId,
+            'ASBL Les Amis du Local',
+            'Place du Parc 3',
+            '0123.456.789'
+        );
         $values = $this->service->valuesFor($booking, $this->asset(), $this->settings());
         $this->assertSame(", n° d'entreprise 0123.456.789", $values['mention_bce_bailleur']);
     }
