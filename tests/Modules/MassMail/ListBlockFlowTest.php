@@ -472,6 +472,24 @@ class ListBlockFlowTest extends TestCase
     }
 
     /**
+     * A contact holding a member's SECOND address is that member, as the
+     * freeze sees it: one row, credited with both groups, counted once.
+     */
+    public function testAContactOnAMembersSecondAddressIsListedAsThatMember(): void
+    {
+        $memberId = $this->createMember('chef@test.be');
+        $this->addSecondaryEmail($memberId, 'perso@test.be');
+        $contacts = $this->contactGroup($this->listId, 'Le même', ['PERSO@test.be']);
+
+        $rows = $this->listService->listRecipients($this->listId, $this->scoutYearId);
+
+        $this->assertSame(['chef@test.be'], array_column($rows, 'email'));
+        $this->assertSame($memberId, $rows[0]['member_id']);
+        $this->assertSame([$this->memberGroupId, $contacts], $rows[0]['block_ids']);
+        $this->assertSame(1, $this->listService->summariseList($this->listId, $this->scoutYearId)['total']);
+    }
+
+    /**
      * A member with no usable address at all receives nothing: neither
      * listed nor counted in the total — though still one of the members
      * the groups designate, which is what `members` and the per-block
