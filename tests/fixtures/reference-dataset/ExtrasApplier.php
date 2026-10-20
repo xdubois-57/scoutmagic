@@ -70,9 +70,9 @@ use Core\Member\Repository\SectionRepository;
  *
  * **This class stayed the orchestrator when the extras were split up.** Each
  * module-shaped domain — calendar, news, camps, registrations, rentals,
- * banners, the gallery album, the section staffs — now lives in its own
- * `*Blueprint`/`*Seeder` pair, and this file calls them, counts what they
- * wrote and reports what it had to skip. What it still applies itself is the
+ * banners, the gallery album, the section staffs, the mailing lists — now
+ * lives in its own `*Blueprint`/`*Seeder` pair, and this file calls them,
+ * counts what they wrote and reports what it had to skip. What it still applies itself is the
  * member-level half: section addresses, year offsets, departures, photos and
  * the expected receivables, none of which belongs to a module.
  */
@@ -127,6 +127,8 @@ final class ExtrasApplier
         'biens en location' => ['table' => 'rental_assets', 'module' => 'rental'],
         'réservations' => ['table' => 'rental_bookings', 'module' => 'rental'],
         'responsables de section' => ['table' => 'trombinoscope_function_flags', 'module' => 'trombinoscope'],
+        'listes de diffusion' => ['table' => 'mass_mail_list_blocks', 'module' => 'mass_mail'],
+        'groupes de contacts' => ['table' => 'mass_mail_block_contacts', 'module' => 'mass_mail'],
     ];
 
     /**
@@ -269,6 +271,24 @@ final class ExtrasApplier
             foreach ($lead['headless'] as $headless) {
                 $notes[] = 'section sans responsable — ' . $headless;
             }
+        }
+
+        if (isset($present['listes de diffusion'])) {
+            $lists = (new MailingListSeeder(
+                $this->pdo,
+                $this->encryption,
+                $this->sectionService(),
+                $this->datasetRoot,
+                $this->actorId,
+            ))->seed();
+            $counts['listes de diffusion'] = $lists['lists'];
+            $counts['groupes de contacts'] = $lists['contactGroups'];
+            $notes[] = sprintf(
+                'listes de diffusion : %d groupe(s) de membres, %d groupe(s) de contacts, %d contact(s)',
+                $lists['memberGroups'],
+                $lists['contactGroups'],
+                $lists['contacts'],
+            );
         }
 
         return ['counts' => $counts, 'skipped' => $skipped, 'notes' => $notes];

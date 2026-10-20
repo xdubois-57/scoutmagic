@@ -78,6 +78,7 @@ tests/fixtures/reference-dataset/
   desk/                  les trois exports Desk générés, commités
   bank/                  les six relevés BNP et le fichier CODA générés, commités
   photos/                le lot de photos (§4) + assignments.csv, généré
+  mailing/               les fichiers Excel des groupes de contacts, commités
 ```
 
 **Un domaine, deux fichiers** — c'est la règle de ce répertoire, et elle est
@@ -95,6 +96,7 @@ morceaux quand le jeu de données a grossi : un `*Blueprint` **décrit**, un
   GalleryBlueprint / GallerySeeder        l'album externe
   RentalBlueprint / RentalSeeder          le local, son tarif, ses locations
   StaffBlueprint / StaffSeeder            responsables de section et badges
+  MailingListBlueprint / MailingListSeeder  listes de diffusion personnalisées
 ```
 
 Les classes sont autochargées par l'entrée `autoload-dev` de `composer.json`
@@ -439,7 +441,7 @@ services** — jamais une écriture directe dans `member_photos`,
 | Décalages d'année | 2 membres, dont `T0009` en A1 — l'héritage par-dessus l'année manquante (scénario 5). |
 | Départs marqués | 3, avec commentaire : deux qui se réalisent, un qui ne se réalise pas. C'est à quoi ressemble une grille « Départs » en mars. |
 | Badges | `Trésorier` et `Infirmier` sur une personne de **chaque section, chaque année** — une règle, pas une liste — plus cinq attributions épinglées sur des personnes nommées. |
-| Responsables de section | La fonction `Chef de section`, portée par **exactement un cadre par section et par année** (le générateur la distribue) et marquée `is_lead` dans `trombinoscope_function_flags` (le semeur la marque). Une seule des deux moitiés ne se voit pas : une fonction non marquée est un animateur ordinaire, une marque sur une fonction que personne ne porte laisse toutes les sections sans responsable. |
+| Responsables de section | La fonction `Animateur responsable`, portée par **exactement un cadre par section et par année** (le générateur la distribue) et marquée `is_lead` dans `trombinoscope_function_flags` (le semeur la marque). Une seule des deux moitiés ne se voit pas : une fonction non marquée est un animateur ordinaire, une marque sur une fonction que personne ne porte laisse toutes les sections sans responsable. |
 | Photos individuelles | 43, par `PhotoIngestionService` — le pipeline de `/upload`. |
 | Photos de groupe | 14, recadrées en 4:3 avant stockage. |
 | Calendriers de section | Le **rythme** d'une vraie unité, décrit comme une règle et non comme une liste : réunion le samedi de la mi-septembre à fin juin, moins les congés scolaires belges et quelques samedis de plus ; un grand jeu et un weekend avant Noël, autant après ; un camp fin juillet dont la durée dépend de la branche (trois jours chez les Baladins, quinze chez les Pionniers). La Route et le Staff d'U n'en ont pas : l'une s'organise seule, l'autre se réunit en Conseil d'unité. |
@@ -451,6 +453,7 @@ services** — jamais une écriture directe dans `member_photos`,
 | Inscriptions | Le formulaire **ouvert**, les capacités semées à `SlotService::DEFAULT_CAPACITY`, trois réglées à la main pour montrer les trois valeurs qui comptent (un nombre, `NULL` = sans limite, `0` = fermé volontairement), et 23 demandes concentrées sur la première année du chemin : treize acceptées contre une capacité de quinze, donc un créneau visiblement proche de sa limite sans que rien ne soit complet. |
 | Bannières | 5, dont une inactive, réparties sur `public` / `identified` / `chief` — le texte formaté va dans `editable_contents` sous `banner_content_{id}`, jamais dans la table `banners`. |
 | Galerie | Un album **externe** pointant vers une page publique de démonstration sans données personnelles. Délibérément pas d'album local : un album est précisément la surface où un lecteur cesse de voir une fixture et croit voir des photos d'enfants. |
+| Listes de diffusion | Deux listes personnalisées, faites de blocs (chantier #729) : « Staff élargi » — deux groupes de membres (les trois fonctions d'unité ; `Animateur responsable`) et un groupe de contacts, « Anciens animateurs » — et « Partenaires locaux », un groupe de contacts seul. Ce sont les deux cas que la page d'un e-mail formule différemment. Les contacts viennent des fichiers commités de `mailing/`, lus par la vraie analyse (`ContactGroupImportService::analyse()`) puis enregistrés par `createGroup()`, comme le dialogue le fait. |
 | Locations | Le local d'unité, configuré de bout en bout (tarif, contraintes, gestionnaire désigné parmi les membres), et 7 réservations à des stades différents : trois clôturées, deux confirmées dont une à cheval sur aujourd'hui, une demande à traiter, une refusée. |
 
 **Deux points à savoir, tous les deux imposés par les services :**
@@ -648,6 +651,7 @@ Où porter une modification :
 | Une bannière et son `role_min` | `BannerBlueprint.php` |
 | Le local en location, son tarif, ses réservations | `RentalBlueprint.php` |
 | Quels badges chaque section porte | `StaffBlueprint.php` |
+| Une liste de diffusion, ses blocs | `MailingListBlueprint.php`, et `mailing/` pour les contacts |
 
 Seuls les quatre premiers touchent des fichiers **générés** — les autres sont
 lus au moment de la construction, et n'ont rien à régénérer. Après une
@@ -655,7 +659,7 @@ modification de l'un des quatre, relancer le générateur et committer ce qu'il
 a écrit.
 
 **Un cas mérite un mot** : `UnitBlueprint::SECTION_LEAD_FUNCTION`
-(« Chef de section ») est distribuée par le générateur — exactement un cadre
+(« Animateur responsable ») est distribuée par le générateur — exactement un cadre
 par section et par année, choisi en post-passe et **sans tirer une seule fois
 dans le Rng**, parce qu'un tirage supplémentaire décalerait tous les suivants
 et réécrirait l'ensemble du jeu de données. `ReferenceDatasetFormatTest`
