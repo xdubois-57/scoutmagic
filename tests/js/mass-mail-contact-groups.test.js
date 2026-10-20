@@ -456,6 +456,33 @@ describe('mass-mail-contact-groups.js', () => {
             );
         });
 
+        it('keeps « Enregistrer » off while a corrected file is still being analysed', async () => {
+            let answer;
+            serve({
+                '/admin/listes-de-diffusion/contact-groups/12/contacts': {
+                    success: true, group: group(), contacts: [],
+                },
+                '/admin/listes-de-diffusion/contact-groups/12/analyse': () => new Promise((resolve) => {
+                    answer = resolve;
+                }),
+            });
+            await boot();
+            $('#opener-12').click();
+            await settle();
+            expect(saveButton().disabled).toBe(false);
+
+            chooseFile(hook('file-existing'), 'v2.xlsx');
+            await settle();
+            // Saving now would send the name alone and drop the file.
+            expect(saveButton().disabled).toBe(true);
+
+            answer(await jsonResponse(preview({
+                summary: { added: 1, unchanged: 0, removed: 0, kept_unsubscribed: 0 },
+            })));
+            await settle();
+            expect(saveButton().disabled).toBe(false);
+        });
+
         it('names the unsubscribed contacts a file keeps, and only when there are some', async () => {
             serve({
                 '/admin/listes-de-diffusion/contact-groups/12/contacts': {
