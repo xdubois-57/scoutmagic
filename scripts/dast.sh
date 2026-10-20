@@ -563,6 +563,20 @@ if ! php "${DAST_SUPPORT}" wait-url "${BASE_URL}/api/version" "${DAST_SERVER_TIM
     exit 1
 fi
 
+# An active profile replays every recorded request hundreds of times from
+# one address, with the signed HumanCheck token it recorded. HumanCheck lets a
+# public form through 5 times per address per window and only for 4 h after
+# it was rendered, so past the fifth replay — and past 4 h of an `audit` run —
+# every replay would meet « rate_limited » or « form_expired » and the scan
+# would test the anti-robot barrier instead of the handler behind it. Lift
+# both on this throwaway instance only — the passive profile replays nothing,
+# and scripts/e2e.sh keeps the production values so the scenarios still meet
+# them.
+if [[ "${PROFILE}" == "deep" || "${PROFILE}" == "audit" ]]; then
+    echo "DAST: lifting the public-form rate limit and form lifetime on the throwaway instance (active profile)."
+    php "${SUPPORT}" relax-human-check
+fi
+
 # The whole reason IT-01 exists: prove, before spending an hour scanning,
 # that the instance really believes it is on HTTPS. If this header is
 # missing the scan would spend its time rediscovering a broken harness
