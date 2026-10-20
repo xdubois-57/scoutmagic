@@ -149,6 +149,21 @@ describe('mass-mail-contact-groups.js', () => {
             expect(fetch).not.toHaveBeenCalled();
         });
 
+        it('waits for the chooser it was clicked in to finish hiding before showing itself', async () => {
+            document.body.insertAdjacentHTML('beforeend',
+                '<div class="modal show" id="chooser"><button data-contact-group-open id="opener-chooser"></button></div>');
+            const show = vi.fn();
+            window.bootstrap = { Modal: { getOrCreateInstance: () => ({ show }) } };
+            await boot();
+
+            $('#opener-chooser').click();
+            expect(show).not.toHaveBeenCalled();
+
+            $('#chooser').dispatchEvent(new Event('hidden.bs.modal'));
+            expect(show).toHaveBeenCalledTimes(1);
+            expect(hidden(hook('new'))).toBe(false);
+        });
+
         it('analyses the file as soon as it is chosen, and shows the preview without writing', async () => {
             serve({ '/admin/listes-de-diffusion/lists/7/contact-groups/analyse': preview({ duplicates: 2 }) });
             await boot();
