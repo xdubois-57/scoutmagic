@@ -818,9 +818,11 @@ if [[ "${PLAYWRIGHT_EXIT}" -ne 0 ]]; then
     # is the hop that can drop a browser connection without an answer (an
     # exception in one of its handlers, a request it cannot parse). Every
     # upstream failure, by contrast, reaches the browser as a 502 or is
-    # retried by ZAP itself — so a « net::ERR_EMPTY_RESPONSE » or
-    # « net::ERR_TOO_MANY_RETRIES » under a silent terminator journal is
-    # answered here, or nowhere. `certificate_unknown` is Chromium refusing
+    # retried by ZAP itself — so a « net::ERR_EMPTY_RESPONSE » under a
+    # silent terminator journal is answered here. (« net::ERR_TOO_MANY_RETRIES »
+    # was the browser itself, restarting requests over ZAP's untrusted
+    # certificate: see launchArguments() in tests/e2e/playwright.config.js.)
+    # `certificate_unknown` is Chromium refusing
     # ZAP's CA before ignoreHTTPSErrors lets the connection through, once
     # per new connection: routine, and a thousand lines of it would bury
     # the one that matters. A logged exception's stack trace follows its
