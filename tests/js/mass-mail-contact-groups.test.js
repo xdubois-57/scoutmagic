@@ -306,6 +306,23 @@ describe('mass-mail-contact-groups.js', () => {
     });
 
     describe('an existing group', () => {
+        it('renders a contact name and address as text, never as markup', async () => {
+            serve({
+                '/admin/listes-de-diffusion/contact-groups/12/contacts': {
+                    success: true,
+                    group: group({ count: 1 }),
+                    contacts: [contact(1, '<img src=x onerror=alert(1)>', 'a@test.be')],
+                },
+            });
+            await boot();
+
+            $('#opener-12').click();
+            await settle();
+
+            expect(rowTexts()[0]).toContain('<img src=x onerror=alert(1)>');
+            expect(document.querySelector('[data-cg-rows] img')).toBeNull();
+        });
+
         it('loads its contacts once, with its name, its count line and its export', async () => {
             serve({
                 '/admin/listes-de-diffusion/contact-groups/12/contacts': {

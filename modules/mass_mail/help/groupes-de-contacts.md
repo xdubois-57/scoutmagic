@@ -57,7 +57,7 @@ plus ».
 
 Quand quelqu'un clique sur le lien de désinscription au bas d'un e-mail,
 son adresse est désinscrite dans **tous** les groupes de toutes les listes :
-il s'adresse à l'unité, pas à une liste.
+la désinscription vaut pour toute l'unité.
 
 La ligne reste ensuite visible, grisée. Aucun fichier ne la retire ni ne la
 réabonne : un désabonnement qu'un tableur peut annuler ne vaut rien. Elle

@@ -37,14 +37,14 @@
 
             {# Creation: the file is mandatory, a group never exists without one. #}
             <div class="mb-3" data-cg-new>
+                {# A real file input, as everywhere else on the site: it stays in
+                   the tab order, which a button-styled label around a hidden
+                   input does not. #}
                 <span class="form-label small d-block">Fichier Excel</span>
-                <div class="d-flex flex-wrap gap-2 align-items-center">
-                    <label class="btn btn-sm btn-outline-secondary mb-0">
-                        Choisir un fichier
-                        <input type="file" accept=".xlsx" class="d-none" data-cg-file-new>
-                    </label>
-                    <span class="small text-body-secondary" data-cg-file-name></span>
-                </div>
+                <label class="small d-block mb-1" for="mm-cg-file-new">Choisir un fichier</label>
+                <input type="file" accept=".xlsx" class="form-control form-control-sm" id="mm-cg-file-new"
+                       data-cg-file-new>
+                <span class="small text-body-secondary" data-cg-file-name></span>
                 <p class="form-text mb-0">
                     Colonnes « Nom » et « Adresse ».
                     <a href="/admin/listes-de-diffusion/contact-groups/template" data-cg-template>Télécharger un modèle vide</a>
@@ -69,13 +69,10 @@
                 <p class="text-body-secondary small mb-2 d-none" data-cg-empty>Aucun contact ne correspond.</p>
                 <button type="button" class="btn btn-sm btn-outline-secondary d-none mb-2" data-cg-more>Afficher plus</button>
 
-                <div class="d-flex flex-wrap gap-2 align-items-center">
-                    <a class="btn btn-sm btn-outline-secondary" data-cg-export href="#">Exporter en Excel</a>
-                    <label class="btn btn-sm btn-outline-secondary mb-0">
-                        Choisir un fichier corrigé
-                        <input type="file" accept=".xlsx" class="d-none" data-cg-file-existing>
-                    </label>
-                </div>
+                <a class="btn btn-sm btn-outline-secondary mb-2" data-cg-export href="#">Exporter en Excel</a>
+                <label class="form-label small d-block" for="mm-cg-file-existing">Choisir un fichier corrigé</label>
+                <input type="file" accept=".xlsx" class="form-control form-control-sm" id="mm-cg-file-existing"
+                       data-cg-file-existing>
                 <p class="form-text mb-0">
                     Le fichier remplacera tous les contacts de ce groupe. Les adresses désinscrites sont conservées
                     et restent exclues des envois.
@@ -90,7 +87,7 @@
         </div>
     {% endblock %}
     {% block footer %}
-        <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Annuler</button>
-        <button type="button" class="btn btn-sm btn-primary" data-cg-save disabled>Enregistrer</button>
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Annuler</button>
+        <button type="button" class="btn btn-primary" data-cg-save disabled>Enregistrer</button>
     {% endblock %}
 {% endembed %}
