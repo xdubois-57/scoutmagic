@@ -114,6 +114,11 @@
     var shown = SLICE;
     /** @type {{name: string|null, email: string}[]|null} the rows of the analysed file, until saved */
     var pending = null;
+    /**
+     * A file still being analysed. « Enregistrer » waits for it: saving
+     * meanwhile would send the name alone and drop the chosen file.
+     */
+    var analysing = false;
 
     /**
      * **One dialog, reopened on another group, so every answer has to
@@ -144,7 +149,8 @@
     }
 
     function updateSaveState() {
-        var ready = nameEl.value.trim() !== ''
+        var ready = !analysing
+            && nameEl.value.trim() !== ''
             && (blockId === null ? pending !== null : loaded);
         saveEl.disabled = !ready;
     }
@@ -340,6 +346,7 @@
 
         var token = generation;
         clearPreview();
+        analysing = true;
         updateSaveState();
         var data = null;
         try {
@@ -352,6 +359,7 @@
         if (stale(token)) {
             return;
         }
+        analysing = false;
         if (!data?.success || !Array.isArray(data.contacts)) {
             showError((Array.isArray(data?.errors) ? data.errors.join(' ') : '')
                 || 'Erreur : réponse serveur invalide.');
@@ -408,6 +416,7 @@
      */
     function reset() {
         generation++;
+        analysing = false;
         contacts = [];
         loaded = false;
         shown = SLICE;
