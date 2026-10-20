@@ -2042,7 +2042,7 @@ CREATE TABLE IF NOT EXISTS mail_probes (
 -- **A bounce is a fact about a mailbox, not about the row that happened to
 -- reference it.** A parent's address sits on every one of their children's
 -- profiles, so one mailbox is several `member_emails` rows; it may also be
--- a `mass_mail_list_addresses` row of a custom list. Recording the bounce
+-- a `mass_mail_block_contacts` row of a custom list. Recording the bounce
 -- once, here, is what makes « cette adresse ne reçoit plus rien » mean the
 -- same thing on all of them — the same reasoning
 -- MemberEmailService::unsubscribe() already applies when it marks every
@@ -2052,7 +2052,7 @@ CREATE TABLE IF NOT EXISTS mail_probes (
 -- the rule in Core\Security\EncryptionService::blindIndex(): indexes
 -- compared across tables must share one purpose, and this one is compared
 -- against member_emails to find who owns a bounced address.
--- mass_mail_list_addresses keeps its own domain-separated purpose, so the
+-- mass_mail_block_contacts keeps its own domain-separated purpose, so the
 -- module never matches indexes across the boundary — it asks the core with
 -- the plaintext address it already holds at send time (module → core, the
 -- allowed direction).

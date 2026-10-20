@@ -9125,19 +9125,13 @@ if ($isEnabled('mass_mail')) {
     // says so. The two year services are core's and are always available —
     // they are what decides whether a year is in the future at all, which
     // has to work with registration disabled too.
-    $massMailListAddressRepo = new \Modules\MassMail\Repository\ListAddressRepository($pdo, $encryptionService);
-    $massMailListAddressService = new \Modules\MassMail\Service\ListAddressService(
-        $massMailListAddressRepo,
+    $massMailBlockRepo = new \Modules\MassMail\Repository\ListBlockRepository($pdo);
+    $massMailContactRepo = new \Modules\MassMail\Repository\ContactRepository($pdo, $encryptionService);
+    $massMailListBlockService = new \Modules\MassMail\Service\ListBlockService(
+        $massMailBlockRepo,
+        $massMailContactRepo,
         $massMailListRepo,
-        $settingService,
-        $journalService,
-        $massMailSuppressedRepo
-    );
-    $massMailListAddressImportService = new \Modules\MassMail\Service\ListAddressImportService(
-        $massMailListAddressRepo,
-        $massMailListAddressService,
-        $journalService,
-        $massMailSuppressedRepo
+        $journalService
     );
     $massMailListService = new \Modules\MassMail\Service\MailingListService(
         $massMailListRepo,
@@ -9145,12 +9139,14 @@ if ($isEnabled('mass_mail')) {
         $sectionService,
         $massMailFunctionRepo,
         $badgeService,
-        $massMailListAddressRepo,
+        $massMailBlockRepo,
+        $massMailContactRepo,
         null,
         null,
         $scoutYearResolver,
         $scoutYearService,
-        $settingService
+        $settingService,
+        $memberService
     );
     // « This module points at badges by id, so do not let one be deleted
     //   from under a list » — Core\Module\BadgeUsageProvider. Registered
@@ -9158,7 +9154,7 @@ if ($isEnabled('mass_mail')) {
     //   module's schema, so the knowledge of it does too.
     $moduleHooks->register(
         \Core\Module\BadgeUsageProvider::class,
-        new \Modules\MassMail\Service\MailingListBadgeUsageService($massMailListRepo)
+        new \Modules\MassMail\Service\MailingListBadgeUsageService($massMailBlockRepo)
     );
 
     $massMailAccessService = new \Modules\MassMail\Service\MassMailAccessService($memberService, $sectionService);
@@ -9226,8 +9222,7 @@ if ($isEnabled('mass_mail')) {
             $twig,
             $massMailListService,
             $scoutYearResolver,
-            $massMailListAddressService,
-            $massMailListAddressImportService
+            $massMailListBlockService
         )
     );
 
@@ -9257,7 +9252,7 @@ if ($isEnabled('mass_mail')) {
             $massMailRecipientRepo,
             $memberEmailService,
             $massMailSuppressedRepo,
-            $massMailListAddressService
+            $massMailListBlockService
         )
     );
 
@@ -11901,7 +11896,8 @@ if ($isEnabled('registration')) {
             $sectionService,
             $massMailFunctionRepo,
             $badgeService,
-            $massMailListAddressRepo,
+            $massMailBlockRepo,
+            $massMailContactRepo,
             $registrationExternalMailingListService,
             // IT-11 — with registration enabled, a list aimed at a year the
             // unit has not reached yet resolves through the projection
@@ -11909,7 +11905,8 @@ if ($isEnabled('registration')) {
             $registrationProjectedPopulation,
             $scoutYearResolver,
             $scoutYearService,
-            $settingService
+            $settingService,
+            $memberService
         );
         // Fresh instances rather than reusing the $massMailAudienceRepo/…
         // variables from the mass_mail block above — they're identical
@@ -11969,8 +11966,7 @@ if ($isEnabled('registration')) {
                 $twig,
                 $massMailListService,
                 $scoutYearResolver,
-                $massMailListAddressService,
-                $massMailListAddressImportService
+                $massMailListBlockService
             )
         );
     }

@@ -14,8 +14,8 @@ related: adresses-de-liste-excel, listes-de-diffusion, se-desinscrire
 La commune, la paroisse, le propriétaire d'un terrain de camp, un ancien
 membre que la fédération ne connaît plus : ces gens-là n'ont pas de fiche,
 donc aucun critère ne les désigne. Chaque liste porte pour cela ses propres
-adresses, sous « Adresses propres à cette liste », **dans la fenêtre qui
-modifie la liste** — le crayon en face de son nom.
+adresses, **dans la fenêtre qui modifie la liste** — le crayon en face de
+son nom.
 
 C'est là et pas ailleurs : ces adresses font partie de ce que la liste
 contient, au même titre que ses critères, et c'est cette fenêtre qui décide
@@ -45,8 +45,8 @@ retirant et en la retapant. La corbeille en bout de ligne fait le premier
 geste, et demande confirmation.
 
 Tout se passe dans la fenêtre, sans la quitter. La recherche ignore la
-casse et les accents, « Désinscrites seulement » isole celles qui le sont,
-et les adresses s'affichent par tranches, avec « Afficher plus ». Pour en
+casse et les accents, un filtre isole les adresses désinscrites, et les
+adresses s'affichent par tranches, avec « Afficher plus ». Pour en
 traiter beaucoup d'un coup, passez par Excel — c'est l'outil prévu pour ça,
 et il a son propre sujet d'aide.
 

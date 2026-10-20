@@ -13,11 +13,14 @@ use Core\Badge\BadgeService;
 use Core\Config\ScoutYearService;
 use Core\Config\SettingService;
 use Core\Import\FunctionRepository;
+use Core\Member\MemberService;
 use Core\Member\SectionService;
 use Core\ScoutYear\ScoutYearResolver;
+use Modules\MassMail\Repository\Contact;
+use Modules\MassMail\Repository\ContactRepository;
 use Modules\MassMail\Repository\Email;
-use Modules\MassMail\Repository\ListAddress;
-use Modules\MassMail\Repository\ListAddressRepository;
+use Modules\MassMail\Repository\ListBlock;
+use Modules\MassMail\Repository\ListBlockRepository;
 use Modules\MassMail\Repository\MailingList;
 use Modules\MassMail\Repository\MailingListRepository;
 use Modules\MassMail\Repository\MemberResolutionRepository;
@@ -31,7 +34,9 @@ use Modules\Registration\Api\ProjectedPopulationProvider;
  * stored as rows, so a section becoming inactive (or a new one appearing)
  * at the next Desk import is reflected immediately with no sync step of
  * its own to run. Custom lists are the only ones backed by
- * Repository\MailingListRepository. The "external" kind is contributed,
+ * Repository\MailingListRepository, and what one designates is the union
+ * of its blocks (Repository\ListBlockRepository): member groups resolved
+ * for the scout year(s) asked, contact groups always. The "external" kind is contributed,
  * optionally, by another module's own Api\ExternalMailingListProvider
  * (ARCHITECTURE.md §7.5) — currently only the registration module
  * publishes one; $externalListProvider is null (and the list simply
@@ -62,13 +67,18 @@ class MailingListService
          */
         private ?BadgeService $badgeService = null,
         /**
-         * A custom list's own addresses — the second half of what it
-         * resolves to. Nullable and defaulted for the same reason as
-         * $badgeService: the many tests that predate it keep their
-         * constructor call, and a null one simply means the criteria are
-         * all a list resolves to.
+         * What a custom list is made of. Nullable and defaulted for the
+         * same reason as $badgeService: the many tests that only drive the
+         * default lists keep their constructor call, and without it a
+         * custom list simply holds no block — it resolves to nobody.
          */
-        private ?ListAddressRepository $addressRepository = null,
+        private ?ListBlockRepository $blockRepository = null,
+        /**
+         * The contacts of a list's contact groups — the half of a custom
+         * list that does not depend on the year. Null means no contact
+         * group contributes anybody.
+         */
+        private ?ContactRepository $contactRepository = null,
         private ?ExternalMailingListProvider $externalListProvider = null,
         /**
          * The projection (ARCHITECTURE.md §7.5, `registration`'s
@@ -84,7 +94,13 @@ class MailingListService
          * the two above it — the composition roots always pass it, and
          * without it the list falls back to its documented defaults.
          */
-        private ?SettingService $settingService = null
+        private ?SettingService $settingService = null,
+        /**
+         * Names the people listRecipients() returns. Only that method reads
+         * it, and without it the rows simply carry no name — the address
+         * still says who they are.
+         */
+        private ?MemberService $memberService = null
     ) {
     }
 
@@ -307,80 +323,37 @@ class MailingListService
     }
 
     /**
-     * @return int[]
+     * A new custom list is a name and a description, and nothing else: it
+     * starts with no block, which is valid and designates nobody — its
+     * blocks are added afterwards, one dialog each (Service\
+     * ListBlockService, Service\ContactGroupImportService).
+     *
+     * @throws MailingListException on an invalid name/description
      */
-    public function getCustomListFunctionIds(int $listId): array
+    public function createCustomList(string $name, string $description, ?int $createdBy): MailingList
     {
-        return $this->listRepository->getFunctionIds($listId);
-    }
+        $this->validateIdentity($name, $description);
 
-    /**
-     * @return int[]
-     */
-    public function getCustomListSectionIds(int $listId): array
-    {
-        return $this->listRepository->getSectionIds($listId);
-    }
-
-    /**
-     * @return int[]
-     */
-    public function getCustomListBadgeIds(int $listId): array
-    {
-        return $this->listRepository->getBadgeIds($listId);
-    }
-
-    /**
-     * @param int[] $functionIds
-     * @param int[] $sectionIds
-     * @param int[] $badgeIds
-     * @throws MailingListException on an invalid name/description or empty criteria
-     */
-    public function createCustomList(
-        string $name,
-        string $description,
-        array $functionIds,
-        array $sectionIds,
-        array $badgeIds,
-        ?int $createdBy
-    ): MailingList
-    {
-        $this->validateCriteria($name, $description, $functionIds, $sectionIds, $badgeIds);
-
-        $id = $this->listRepository->create(
-            trim($name),
-            trim($description),
-            $functionIds,
-            $sectionIds,
-            $badgeIds,
-            $createdBy
-        );
+        $id = $this->listRepository->create(trim($name), trim($description), $createdBy);
         $list = $this->listRepository->findById($id);
         \assert($list !== null);
         return $list;
     }
 
     /**
-     * @param int[] $functionIds
-     * @param int[] $sectionIds
-     * @param int[] $badgeIds
-     * @throws MailingListException on an invalid name/description, empty criteria, or an unknown list
+     * The name and the description, the two things a list is besides its
+     * blocks.
+     *
+     * @throws MailingListException on an invalid name/description, or an unknown list
      */
-    public function updateCustomList(
-        int $id,
-        string $name,
-        string $description,
-        array $functionIds,
-        array $sectionIds,
-        array $badgeIds
-    ): MailingList
+    public function updateCustomList(int $id, string $name, string $description): MailingList
     {
         if ($this->listRepository->findById($id) === null) {
             throw new MailingListException('Liste introuvable.');
         }
-        $this->validateCriteria($name, $description, $functionIds, $sectionIds, $badgeIds);
+        $this->validateIdentity($name, $description);
 
-        $this->listRepository->update($id, trim($name), trim($description), $functionIds, $sectionIds, $badgeIds);
+        $this->listRepository->update($id, trim($name), trim($description));
         $updated = $this->listRepository->findById($id);
         \assert($updated !== null);
         return $updated;
@@ -480,12 +453,10 @@ class MailingListService
                 if ($list === null) {
                     throw new MailingListException('Liste introuvable.');
                 }
-                return $this->resolutionRepository->resolveCustomList(
-                    $this->listRepository->getFunctionIds($listId),
-                    $this->listRepository->getSectionIds($listId),
-                    $this->listRepository->getBadgeIds($listId),
-                    $scoutYearId
-                );
+                // The member half only: a contact group has no year, and
+                // resolveMembersForYears() adds the contacts once, after
+                // every year has been resolved.
+                return $this->resolveMemberGroups($this->blocksOf($listId), $scoutYearId)['members'];
             default:
                 throw new MailingListException("Type de liste inconnu : {$listType}");
         }
@@ -553,14 +524,73 @@ class MailingListService
     }
 
     /**
-     * A custom list's own addresses that may be written to — the
-     * unsubscribed ones never leave the repository.
+     * The member groups of a list, resolved for one year, as ONE set: in
+     * block order, a member brought by two groups kept once. Beside it,
+     * which groups brought each member — what « Voir les destinataires »
+     * names on every line — and how many each group designates on its
+     * own, deduplicated the way the send is.
      *
-     * @return ListAddress[]
+     * Each group is resolved by `resolveCustomList()` with ITS criteria —
+     * exactly the AND-between-axes, OR-within semantics of a single set of
+     * criteria; the OR between groups is this union.
+     *
+     * @param ListBlock[] $blocks
+     * @return array{
+     *     members: array<int, array{member_id: int, email: ?string}>,
+     *     blocks_by_member: array<int, int[]>,
+     *     counts: array<int, int>
+     * }
      */
-    public function resolveListAddresses(int $listId): array
+    private function resolveMemberGroups(array $blocks, int $scoutYearId): array
     {
-        return $this->addressRepository?->findActiveForList($listId) ?? [];
+        $members = [];
+        $blocksByMember = [];
+        $counts = [];
+
+        foreach ($blocks as $block) {
+            if (!$block->isMemberGroup()) {
+                continue;
+            }
+
+            $resolved = $this->resolutionRepository->resolveCustomList(
+                $block->functionIds,
+                $block->sectionIds,
+                $block->badgeIds,
+                $scoutYearId
+            );
+            $counts[$block->id] = count($this->deduplicateByMemberAndAddress($resolved, $scoutYearId));
+
+            foreach ($resolved as $member) {
+                $memberId = $member['member_id'];
+                if (!isset($blocksByMember[$memberId])) {
+                    $members[] = $member;
+                }
+                $blocksByMember[$memberId][] = $block->id;
+            }
+        }
+
+        return ['members' => $members, 'blocks_by_member' => $blocksByMember, 'counts' => $counts];
+    }
+
+    /**
+     * @return ListBlock[]
+     */
+    private function blocksOf(int $listId): array
+    {
+        return $this->blockRepository?->findForList($listId) ?? [];
+    }
+
+    /**
+     * The contacts of a list's contact groups that may be written to — the
+     * unsubscribed ones never leave the repository. An address carried by
+     * two groups comes back once per group; the deduplication on the
+     * address is the caller's, where the members are known too.
+     *
+     * @return Contact[]
+     */
+    private function resolveListContacts(int $listId): array
+    {
+        return $this->contactRepository?->findActiveForList($listId) ?? [];
     }
 
     /**
@@ -578,13 +608,16 @@ class MailingListService
      * reliable, since a "previous" year's row can be created, and so get
      * its id, after "current"'s).
      *
-     * **A custom list is the UNION of its criteria and its own
-     * addresses** (`mass_mail_list_addresses`), and both halves go through
-     * the same deduplication: an external address that happens to be a
-     * resolved member's too is one recipient, not two. The comparison is
-     * on the NORMALISED address rather than on a member id, which is what
-     * makes that case work at all — the two halves share no identifier.
-     * An address entry carries `member_id` and `scout_year_id` null, the
+     * **A custom list is the UNION of its blocks**: its member groups,
+     * resolved for each of $scoutYearIds, and the active contacts of its
+     * contact groups, which are included ONCE whatever the years — the
+     * years chosen on the email apply to the member groups only. Both
+     * halves go through the same deduplication: a contact that happens to
+     * be a resolved member's address too is one recipient, not two, and
+     * a contact present in two groups is one. The comparison is on the
+     * NORMALISED address rather than on a member id, which is what makes
+     * that case work at all — the two halves share no identifier. A
+     * contact entry carries `member_id` and `scout_year_id` null, the
      * same shape an external mail-merge recipient already had.
      *
      * @param int[] $scoutYearIds Most-recent-first.
@@ -673,11 +706,11 @@ class MailingListService
             }
         }
 
-        // The second half of a custom list, resolved once rather than per
-        // year: an address belongs to the list, not to a scout year.
+        // The contact half of a custom list, resolved once rather than per
+        // year: a contact group belongs to the list, not to a scout year.
         if ($listType === 'custom' && $listId !== null) {
-            foreach ($this->resolveListAddresses($listId) as $address) {
-                $addressKey = mb_strtolower(trim($address->email));
+            foreach ($this->resolveListContacts($listId) as $contact) {
+                $addressKey = mb_strtolower(trim($contact->email));
                 if (isset($seenAddresses[$addressKey])) {
                     continue;
                 }
@@ -685,7 +718,7 @@ class MailingListService
 
                 $merged[] = [
                     'member_id' => null,
-                    'email' => $address->email,
+                    'email' => $contact->email,
                     'scout_year_id' => null,
                 ];
             }
@@ -879,8 +912,8 @@ class MailingListService
 
     /**
      * The sections offered as a criterion: the active, visible ones —
-     * plus any section a list still names, however it was deactivated or
-     * hidden since. See getAllBadges() for why the second half is not
+     * plus any section a member group still names, however it was
+     * deactivated or hidden since. See getAllBadges() for why the second half is not
      * optional.
      *
      * @return array<int, array{id: int, name: string}>
@@ -897,18 +930,17 @@ class MailingListService
 
     /**
      * The badges offered as a criterion: the active ones — plus any badge
-     * a list still names, marked as deactivated.
+     * a member group still names, marked as deactivated.
      *
      * The second half is not a courtesy. The three pickers are the only
-     * place a list's criteria round-trip through: the form submits what
-     * the pickers hold, and Repository\MailingListRepository::
+     * place a member group's criteria round-trip through: the form submits
+     * what the pickers hold, and Repository\ListBlockRepository::
      * replaceCriteria() deletes and reinserts from that submission. An id
      * with no item to be selected in is therefore an id that saving ANY
-     * edit — even a description — silently drops. On a list whose badge
-     * axis was that one badge, the axis would then stop constraining
-     * anything at all and the list would quietly widen to everybody the
-     * other axes match, which is the opposite of what deactivating a
-     * badge means.
+     * edit silently drops. On a group whose badge axis was that one badge,
+     * the axis would then stop constraining anything at all and the group
+     * would quietly widen to everybody the other axes match, which is the
+     * opposite of what deactivating a badge means.
      *
      * They are offered greyed rather than merely preserved, because a
      * criterion nobody can see is a criterion nobody can remove — and the
@@ -930,7 +962,7 @@ class MailingListService
         $activeIds = array_column($active, 'id');
 
         $stillReferenced = [];
-        $referencedIds = $this->listRepository->findReferencedBadgeIds();
+        $referencedIds = $this->blockRepository?->findReferencedBadgeIds() ?? [];
         foreach ($this->badgeService->getAll() as $badge) {
             if (in_array($badge->id, $activeIds, true) || !in_array($badge->id, $referencedIds, true)) {
                 continue;
@@ -948,7 +980,7 @@ class MailingListService
     private function stillReferencedSections(array $offeredIds): array
     {
         $missingIds = array_values(array_filter(
-            $this->listRepository->findReferencedSectionIds(),
+            $this->blockRepository?->findReferencedSectionIds() ?? [],
             static fn(int $id): bool => !in_array($id, $offeredIds, true)
         ));
         if ($missingIds === []) {
@@ -1002,36 +1034,197 @@ class MailingListService
     }
 
     /**
-     * An axis left empty is not a constraint (see
-     * `MemberResolutionRepository::resolveCustomList()`), so demanding one
-     * function AND one section would forbid « les intendants, toutes
-     * sections confondues » — the very list the empty axis exists to
-     * express. What stays forbidden is all three empty at once: that
-     * resolves to nobody, and a list nothing can ever be added to is a
-     * mistake, not a choice.
+     * What a custom list comes to for one scout year — the numbers its
+     * page shows: the total, the split between members and contacts, and
+     * one count per block.
      *
-     * @param int[] $functionIds
-     * @param int[] $sectionIds
-     * @param int[] $badgeIds
+     * `total` is the send's own number: resolveMembersForYears() for that
+     * single year, so the page and the email's « ≈ N destinataires » can
+     * never disagree. `members` is the member groups' union, deduplicated
+     * the same way (two siblings on one family address are ONE); a
+     * member without an address still counts, as everywhere else this
+     * module counts members. `contacts` counts the distinct contacts of
+     * every contact group, unsubscribed ones included, beside how many of
+     * those are unsubscribed — « 37 contacts, dont 2 désinscrits ». The
+     * total is therefore not their sum: an unsubscribed contact receives
+     * nothing, and a contact who is also a member's address is one
+     * recipient.
+     *
+     * In `blocks`, a member group's `count` is what it designates on its
+     * own for this year and its `unsubscribed` is always 0; a contact
+     * group's are its rows and its unsubscribed rows, whatever the year.
+     *
+     * @return array{
+     *     total: int,
+     *     members: int,
+     *     contacts: int,
+     *     contacts_unsubscribed: int,
+     *     blocks: array<int, array{count: int, unsubscribed: int}>
+     * }
+     * @throws MailingListException on an unknown list
+     */
+    public function summariseList(int $listId, int $scoutYearId): array
+    {
+        $this->requireCustomList($listId);
+
+        $blocks = $this->blocksOf($listId);
+        $memberGroups = $this->resolveMemberGroups($blocks, $scoutYearId);
+        $contactCounts = $this->contactRepository?->countByBlockForList($listId) ?? [];
+        $distinctContacts = $this->contactRepository?->countDistinctForList($listId)
+            ?? ['total' => 0, 'unsubscribed' => 0];
+
+        $perBlock = [];
+        foreach ($blocks as $block) {
+            $perBlock[$block->id] = $block->isMemberGroup()
+                ? ['count' => $memberGroups['counts'][$block->id] ?? 0, 'unsubscribed' => 0]
+                : [
+                    'count' => $contactCounts[$block->id]['total'] ?? 0,
+                    'unsubscribed' => $contactCounts[$block->id]['unsubscribed'] ?? 0,
+                ];
+        }
+
+        return [
+            'total' => count($this->resolveMembersForYears('custom', $listId, null, [$scoutYearId])),
+            'members' => count($this->deduplicateByMemberAndAddress($memberGroups['members'], $scoutYearId)),
+            'contacts' => $distinctContacts['total'],
+            'contacts_unsubscribed' => $distinctContacts['unsubscribed'],
+            'blocks' => $perBlock,
+        ];
+    }
+
+    /**
+     * The people a custom list writes to for one scout year, one row per
+     * recipient — « Voir les destinataires ».
+     *
+     * Resolved and deduplicated exactly as the send resolves the list
+     * (resolveMembersForYears() for that year), and then narrowed to
+     * those who would actually receive something: a member without an
+     * address is left out, and an unsubscribed contact never left the
+     * repository. Each row names every block that brings the person — a
+     * member matched by two member groups, a contact carried by two
+     * contact groups, or a contact who is also a member's address, which
+     * then shows the member with both kinds of block.
+     *
+     * `name` is the member's full name and `display_name` their totem or
+     * first name, both null without the member service; for a contact,
+     * `name` is the name the file gave and `display_name` is null.
+     * Sorted by name, then address, in PHP — the names are decrypted.
+     *
+     * @return array<int, array{
+     *     member_id: ?int,
+     *     name: ?string,
+     *     display_name: ?string,
+     *     email: string,
+     *     block_ids: int[]
+     * }>
+     * @throws MailingListException on an unknown list
+     */
+    public function listRecipients(int $listId, int $scoutYearId): array
+    {
+        $this->requireCustomList($listId);
+
+        $blocks = $this->blocksOf($listId);
+        $memberGroups = $this->resolveMemberGroups($blocks, $scoutYearId);
+        $contacts = $this->resolveListContacts($listId);
+
+        $blocksByAddress = [];
+        $contactNames = [];
+        foreach ($contacts as $contact) {
+            $key = mb_strtolower(trim($contact->email));
+            $blocksByAddress[$key][] = $contact->blockId;
+            $contactNames[$key] ??= $contact->name;
+        }
+
+        // Block ids of a member the send drops for sharing an address with
+        // one it keeps: the kept row is the person the address reaches, so
+        // it is credited with the groups that designated either.
+        $memberBlocksByAddress = [];
+        foreach ($memberGroups['members'] as $member) {
+            if ($member['email'] === null) {
+                continue;
+            }
+            $key = mb_strtolower(trim($member['email']));
+            foreach ($memberGroups['blocks_by_member'][$member['member_id']] ?? [] as $blockId) {
+                $memberBlocksByAddress[$key][] = $blockId;
+            }
+        }
+
+        $resolved = array_values(array_filter(
+            $this->resolveMembersForYears('custom', $listId, null, [$scoutYearId]),
+            static fn(array $r): bool => $r['email'] !== null && trim($r['email']) !== ''
+        ));
+
+        $memberIds = array_values(array_filter(array_column($resolved, 'member_id')));
+        $fullNames = $memberIds !== [] ? ($this->memberService?->findNamesForMembers($memberIds) ?? []) : [];
+        $displayNames = $memberIds !== []
+            ? ($this->memberService?->findDisplayNamesByMemberIds($memberIds, $scoutYearId) ?? [])
+            : [];
+
+        $rows = [];
+        foreach ($resolved as $recipient) {
+            $email = (string) $recipient['email'];
+            $key = mb_strtolower(trim($email));
+            $memberId = $recipient['member_id'];
+
+            $blockIds = $memberId !== null ? ($memberBlocksByAddress[$key] ?? []) : [];
+            $blockIds = [...$blockIds, ...($blocksByAddress[$key] ?? [])];
+
+            $rows[] = [
+                'member_id' => $memberId,
+                'name' => $memberId !== null ? ($fullNames[$memberId] ?? null) : ($contactNames[$key] ?? null),
+                'display_name' => $memberId !== null ? ($displayNames[$memberId] ?? null) : null,
+                'email' => $email,
+                'block_ids' => self::inBlockOrder($blockIds, $blocks),
+            ];
+        }
+
+        usort($rows, static fn(array $a, array $b): int =>
+            [mb_strtolower($a['name'] ?? ''), mb_strtolower($a['email'])]
+            <=> [mb_strtolower($b['name'] ?? ''), mb_strtolower($b['email'])]);
+
+        return $rows;
+    }
+
+    /**
+     * @param int[] $blockIds
+     * @param ListBlock[] $blocks
+     * @return int[] each id once, in the order the page shows the blocks
+     */
+    private static function inBlockOrder(array $blockIds, array $blocks): array
+    {
+        $wanted = array_flip($blockIds);
+
+        return array_values(array_map(
+            static fn(ListBlock $b): int => $b->id,
+            array_filter($blocks, static fn(ListBlock $b): bool => isset($wanted[$b->id]))
+        ));
+    }
+
+    /**
      * @throws MailingListException
      */
-    private function validateCriteria(
-        string $name,
-        string $description,
-        array $functionIds,
-        array $sectionIds,
-        array $badgeIds
-    ): void {
+    private function requireCustomList(int $listId): void
+    {
+        if ($this->listRepository->findById($listId) === null) {
+            throw new MailingListException('Liste introuvable.');
+        }
+    }
+
+    /**
+     * The criteria belong to a list's member groups, each validated by
+     * Service\ListBlockService, so what is validated here is what a list
+     * IS: a name and a description, both mandatory (the description is
+     * shown next to the list wherever it is picked).
+     *
+     * @throws MailingListException
+     */
+    private function validateIdentity(string $name, string $description): void
+    {
         if (trim($name) === '') {
             throw new MailingListException('Le nom de la liste est obligatoire.');
         }
         if (trim($description) === '') {
             throw new MailingListException('La description de la liste est obligatoire.');
-        }
-        if ($functionIds === [] && $sectionIds === [] && $badgeIds === []) {
-            throw new MailingListException(
-                'Une liste doit porter au moins un critère — une fonction, une section ou un badge.'
-            );
         }
     }
 }

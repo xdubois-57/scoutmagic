@@ -9,22 +9,23 @@ declare(strict_types=1);
 namespace Modules\MassMail\Repository;
 
 /**
- * One address a custom list writes to that belongs to nobody in the
- * members table — the commune, the curé, a former member.
+ * One contact of a contact group — somebody a custom list writes to who
+ * belongs to nobody in the members table: the commune, the curé, a former
+ * member.
  *
  * Decrypted: this object only ever exists on the far side of
- * Repository\ListAddressRepository, which is the single place the
- * ciphertext is read (SECURITY.md §5).
+ * Repository\ContactRepository, which is the single place the ciphertext
+ * is read (SECURITY.md §5).
  */
-final class ListAddress
+final class Contact
 {
     public function __construct(
         public readonly int $id,
-        public readonly int $listId,
+        public readonly int $blockId,
         /** One field, deliberately: these people have no first name and no totem to tell apart. */
         public readonly ?string $name,
         public readonly string $email,
-        /** Non-null once somebody asked not to be written to; the row then survives everything. */
+        /** Non-null once somebody asked not to be written to; the row then survives every file. */
         public readonly ?string $unsubscribedAt,
         public readonly string $createdAt
     ) {

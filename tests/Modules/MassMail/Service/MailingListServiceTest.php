@@ -16,9 +16,14 @@ use Core\Import\MemberYearRepository;
 use Core\Member\SectionService;
 use Core\ScoutYear\ScoutYearResolver;
 use Core\Security\EncryptionService;
+use Core\Journal\JournalService;
+use Modules\MassMail\Repository\ContactRepository;
 use Modules\MassMail\Repository\Email;
+use Modules\MassMail\Repository\ListBlockRepository;
+use Modules\MassMail\Repository\MailingList;
 use Modules\MassMail\Repository\MailingListRepository;
 use Modules\MassMail\Repository\MemberResolutionRepository;
+use Modules\MassMail\Service\ListBlockService;
 use Modules\MassMail\Service\MailingListException;
 use Modules\MassMail\Service\MailingListService;
 use PHPUnit\Framework\TestCase;
@@ -35,6 +40,7 @@ class MailingListServiceTest extends TestCase
 {
     private \PDO $pdo;
     private MailingListService $service;
+    private ListBlockService $blocks;
     private int $scoutYearId;
     private int $sectionActiveId;
     private int $functionId;
@@ -67,10 +73,17 @@ class MailingListServiceTest extends TestCase
                 new MemberBadgeRepository($this->pdo),
                 $sectionService
             ),
-            null,
+            new ListBlockRepository($this->pdo),
+            new ContactRepository($this->pdo, $encryption),
             null,
             null,
             $this->scoutYearResolver
+        );
+        $this->blocks = new ListBlockService(
+            new ListBlockRepository($this->pdo),
+            new ContactRepository($this->pdo, $encryption),
+            new MailingListRepository($this->pdo),
+            $this->createStub(JournalService::class)
         );
 
         $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('2025-2026', '2025-09-01', '2026-08-31', 1)");
@@ -135,65 +148,57 @@ class MailingListServiceTest extends TestCase
     }
 
     /**
-     * One axis is enough now — « les intendants, toutes sections
-     * confondues » is a real list, and demanding one of each forbade it.
-     * What is still refused is all three axes empty at once: that
-     * resolves to nobody, by design (D5).
+     * A new list is a name and a description: it holds no block, which is
+     * valid and designates nobody.
      */
-    public function testCreateCustomListAcceptsASingleAxis(): void
+    public function testANewListHoldsNoBlockAndResolvesToNobody(): void
     {
-        $list = $this->service->createCustomList('Les chefs', 'Toutes sections', [$this->functionId], [], [], null);
+        $list = $this->service->createCustomList('Ma liste', 'Description de la liste', null);
 
-        $this->assertSame([$this->functionId], $this->service->getCustomListFunctionIds($list->id));
-        $this->assertSame([], $this->service->getCustomListSectionIds($list->id));
-    }
-
-    public function testCreateCustomListRefusesCriteriaOnNoAxisAtAll(): void
-    {
-        $this->expectException(MailingListException::class);
-        $this->service->createCustomList('Liste vide', 'Description', [], [], [], null);
+        $this->assertSame('Description de la liste', $list->description);
+        $this->assertSame([], $this->blocks->findForList($list->id));
+        $this->assertSame([], $this->service->resolveMembers('custom', $list->id, null, $this->scoutYearId));
+        $this->assertSame(
+            [],
+            $this->service->resolveMembersForYears('custom', $list->id, null, [$this->scoutYearId])
+        );
     }
 
     public function testCreateCustomListRequiresANonEmptyName(): void
     {
         $this->expectException(MailingListException::class);
-        $this->service->createCustomList('  ', 'Description', [$this->functionId], [$this->sectionActiveId], [], null);
+        $this->service->createCustomList('  ', 'Description', null);
     }
 
     public function testCreateCustomListRequiresANonEmptyDescription(): void
     {
         $this->expectException(MailingListException::class);
-        $this->service->createCustomList('Ma liste', '  ', [$this->functionId], [$this->sectionActiveId], [], null);
+        $this->service->createCustomList('Ma liste', '  ', null);
     }
 
-    public function testCreateAndResolveCustomListRoundTrips(): void
+    public function testUpdateCustomListChangesTheNameAndTheDescriptionOnly(): void
     {
-        $list = $this->service->createCustomList('Ma liste', 'Description de la liste', [$this->functionId], [$this->sectionActiveId], [$this->badgeId], null);
+        $list = $this->listWithGroup([$this->functionId], [], [$this->badgeId]);
 
-        $this->assertSame('Description de la liste', $list->description);
-        $this->assertSame([$this->functionId], $this->service->getCustomListFunctionIds($list->id));
-        $this->assertSame([$this->sectionActiveId], $this->service->getCustomListSectionIds($list->id));
-        $this->assertSame([$this->badgeId], $this->service->getCustomListBadgeIds($list->id));
+        $updated = $this->service->updateCustomList($list->id, 'Autre nom', 'Autre description');
 
-        $resolved = $this->service->resolveMembers('custom', $list->id, null, $this->scoutYearId);
-        $this->assertSame([], $resolved); // no members assigned yet, but resolves without error
-    }
-
-    public function testUpdateCustomListReplacesTheBadgeAxisToo(): void
-    {
-        $list = $this->service->createCustomList('Ma liste', 'Description', [$this->functionId], [], [$this->badgeId], null);
-
-        $this->service->updateCustomList($list->id, 'Ma liste', 'Description', [$this->functionId], [], []);
-
-        $this->assertSame([], $this->service->getCustomListBadgeIds($list->id));
+        $this->assertSame('Autre nom', $updated->name);
+        $this->assertSame('Autre description', $updated->description);
+        $this->assertSame([$this->badgeId], $this->blocks->findForList($list->id)[0]->badgeIds);
     }
 
     public function testUpdateCustomListRequiresANonEmptyDescription(): void
     {
-        $list = $this->service->createCustomList('Ma liste', 'Description', [$this->functionId], [$this->sectionActiveId], [], null);
+        $list = $this->service->createCustomList('Ma liste', 'Description', null);
 
         $this->expectException(MailingListException::class);
-        $this->service->updateCustomList($list->id, 'Ma liste', '', [$this->functionId], [$this->sectionActiveId], []);
+        $this->service->updateCustomList($list->id, 'Ma liste', '');
+    }
+
+    public function testUpdateCustomListRefusesAnUnknownList(): void
+    {
+        $this->expectException(MailingListException::class);
+        $this->service->updateCustomList(999, 'Ma liste', 'Description');
     }
 
     /**
@@ -219,7 +224,7 @@ class MailingListServiceTest extends TestCase
      */
     public function testADeactivatedBadgeStillNamedByAListIsStillOfferedGreyed(): void
     {
-        $this->service->createCustomList('Ma liste', 'Description', [], [], [$this->badgeId], null);
+        $this->listWithGroup([], [], [$this->badgeId]);
         $this->pdo->exec("UPDATE badges SET is_active = 0 WHERE id = {$this->badgeId}");
 
         $offered = $this->service->getAllBadges();
@@ -230,7 +235,7 @@ class MailingListServiceTest extends TestCase
 
     public function testASectionStillNamedByAListIsOfferedEvenOnceItIsGone(): void
     {
-        $this->service->createCustomList('Ma liste', 'Description', [], [$this->sectionActiveId], [], null);
+        $this->listWithGroup([], [$this->sectionActiveId], []);
         $this->pdo->exec("UPDATE sections SET is_active = 0 WHERE id = {$this->sectionActiveId}");
 
         $offered = $this->service->getAllSections();
@@ -314,7 +319,7 @@ class MailingListServiceTest extends TestCase
      */
     public function testADeactivatedBadgeIsNamedWithItsSuffix(): void
     {
-        $this->service->createCustomList('Ma liste', 'Description', [], [], [$this->badgeId], null);
+        $this->listWithGroup([], [], [$this->badgeId]);
         $this->pdo->exec("UPDATE badges SET is_active = 0 WHERE id = {$this->badgeId}");
 
         $this->assertSame(
@@ -348,9 +353,10 @@ class MailingListServiceTest extends TestCase
         $count = $this->service->countMembersForCriteria([$this->functionId], [], [], $this->scoutYearId);
 
         $this->assertSame(2, $count);
+        $listId = $this->listWithGroup([$this->functionId], [], [])->id;
         $this->assertCount(
             $count,
-            $this->service->resolveMembersForYears('custom', $this->listOverTheFunction()->id, null, [$this->scoutYearId]),
+            $this->service->resolveMembersForYears('custom', $listId, null, [$this->scoutYearId]),
             'The counter and the send answer the same question.'
         );
     }
@@ -367,9 +373,19 @@ class MailingListServiceTest extends TestCase
         $this->assertSame(2, $this->service->countMembersForCriteria([$this->functionId], [], [], $this->scoutYearId));
     }
 
-    private function listOverTheFunction(): \Modules\MassMail\Repository\MailingList
+    /**
+     * A list holding one member group with these criteria.
+     *
+     * @param int[] $functionIds
+     * @param int[] $sectionIds
+     * @param int[] $badgeIds
+     */
+    private function listWithGroup(array $functionIds, array $sectionIds, array $badgeIds): MailingList
     {
-        return $this->service->createCustomList('Ma liste', 'Description', [$this->functionId], [], [], null);
+        $list = $this->service->createCustomList('Ma liste', 'Description', null);
+        $this->blocks->createMemberGroup($list->id, $functionIds, $sectionIds, $badgeIds, null);
+
+        return $list;
     }
 
     private function createMemberWithFunction(?string $email): void
@@ -407,11 +423,11 @@ class MailingListServiceTest extends TestCase
      */
     public function testTheBadgeUsageProviderNamesEveryBadgeAListStillCrosses(): void
     {
-        $provider = new \Modules\MassMail\Service\MailingListBadgeUsageService(new MailingListRepository($this->pdo));
+        $provider = new \Modules\MassMail\Service\MailingListBadgeUsageService(new ListBlockRepository($this->pdo));
 
         $this->assertSame([], $provider->badgeIdsInUse());
 
-        $this->service->createCustomList('Ma liste', 'Description', [], [], [$this->badgeId], null);
+        $this->listWithGroup([], [], [$this->badgeId]);
 
         $this->assertSame([$this->badgeId], $provider->badgeIdsInUse());
         $this->assertNotSame('', $provider->describeBadgeUsage());
@@ -419,7 +435,7 @@ class MailingListServiceTest extends TestCase
 
     public function testDeleteCustomListBlockedWhenReferencedByAnEmail(): void
     {
-        $list = $this->service->createCustomList('Ma liste', 'Description', [$this->functionId], [$this->sectionActiveId], [], null);
+        $list = $this->listWithGroup([$this->functionId], [$this->sectionActiveId], []);
 
         $this->pdo->exec(
             "INSERT INTO mass_mail_emails (subject, body_html, section_id, list_type, list_id, status)
@@ -432,7 +448,7 @@ class MailingListServiceTest extends TestCase
 
     public function testDeleteCustomListSucceedsWhenNotReferenced(): void
     {
-        $list = $this->service->createCustomList('Ma liste', 'Description', [$this->functionId], [$this->sectionActiveId], [], null);
+        $list = $this->listWithGroup([$this->functionId], [$this->sectionActiveId], []);
 
         $this->service->deleteCustomList($list->id);
 
@@ -465,7 +481,7 @@ class MailingListServiceTest extends TestCase
     new SectionRepository(Connection::withPdo($this->pdo)),
     new MemberProfileRepository(Connection::withPdo($this->pdo), new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)), new MemberBadgeRepository($this->pdo))
 ),
-            new FunctionRepository($this->pdo), null, null, $provider
+            new FunctionRepository($this->pdo), null, null, null, $provider
         );
 
         $lists = $service->getDefaultLists();
@@ -489,7 +505,7 @@ class MailingListServiceTest extends TestCase
     new SectionRepository(Connection::withPdo($this->pdo)),
     new MemberProfileRepository(Connection::withPdo($this->pdo), new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)), new MemberBadgeRepository($this->pdo))
 ),
-            new FunctionRepository($this->pdo), null, null, $provider
+            new FunctionRepository($this->pdo), null, null, null, $provider
         );
 
         // The compose dialog's own year checkboxes (current year here) must
@@ -521,6 +537,7 @@ class MailingListServiceTest extends TestCase
     new MemberProfileRepository(Connection::withPdo($this->pdo), $encryption, new MemberBadgeRepository($this->pdo))
 ),
             new FunctionRepository($this->pdo),
+            null,
             null,
             null,
             null,

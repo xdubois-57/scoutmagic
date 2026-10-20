@@ -96,6 +96,7 @@ class MassMailServiceTest extends TestCase
             null,
             null,
             null,
+            null,
             $this->scoutYearResolver
         );
 
@@ -168,6 +169,7 @@ class MassMailServiceTest extends TestCase
             new MemberResolutionRepository($this->pdo, $encryption),
             $sectionService,
             new FunctionRepository($this->pdo),
+            null,
             null,
             null,
             null,

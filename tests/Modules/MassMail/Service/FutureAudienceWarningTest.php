@@ -244,6 +244,7 @@ class FutureAudienceWarningTest extends TestCase
             null,
             null,
             null,
+            null,
             $projection,
             new ScoutYearResolver(
                 $scoutYearService,

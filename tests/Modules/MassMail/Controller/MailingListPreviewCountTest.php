@@ -20,10 +20,8 @@ use Core\ScoutYear\ScoutYearResolver;
 use Core\Security\CsrfGuard;
 use Core\Security\EncryptionService;
 use Modules\MassMail\Controller\MailingListController;
-use Modules\MassMail\Repository\ListAddressRepository;
 use Modules\MassMail\Repository\MailingListRepository;
 use Modules\MassMail\Repository\MemberResolutionRepository;
-use Modules\MassMail\Service\ListAddressService;
 use Modules\MassMail\Service\MailingListService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
@@ -126,20 +124,10 @@ class MailingListPreviewCountTest extends TestCase
                 new SettingService(new SettingRepository($this->pdo)),
                 new MemberYearRepository($this->pdo)
             ),
-            new ListAddressService(
-                new ListAddressRepository($this->pdo, $this->encryption),
-                new MailingListRepository($this->pdo),
-                new SettingService(new SettingRepository($this->pdo)),
-                $this->createStub(\Core\Journal\JournalService::class)
-            ),
-            new \Modules\MassMail\Service\ListAddressImportService(
-                new ListAddressRepository($this->pdo, $this->encryption),
-                new ListAddressService(
-                    new ListAddressRepository($this->pdo, $this->encryption),
-                    new MailingListRepository($this->pdo),
-                    new SettingService(new SettingRepository($this->pdo)),
-                    $this->createStub(\Core\Journal\JournalService::class)
-                ),
+            new \Modules\MassMail\Service\ListBlockService(
+                new \Modules\MassMail\Repository\ListBlockRepository($this->pdo),
+                new \Modules\MassMail\Repository\ContactRepository($this->pdo, $this->encryption),
+                new \Modules\MassMail\Repository\MailingListRepository($this->pdo),
                 $this->createStub(\Core\Journal\JournalService::class)
             )
         );

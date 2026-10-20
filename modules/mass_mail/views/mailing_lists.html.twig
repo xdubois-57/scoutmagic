@@ -8,19 +8,16 @@
 
     <div class="card mb-4">
         <div class="card-body">
-            <div class="d-flex justify-content-between align-items-center mb-3">
-                <h2 class="h5 mb-0">Listes de diffusion</h2>
-                <button type="button" class="btn btn-sm btn-primary" id="cfg-new-list-btn"><i class="bi bi-plus-lg" aria-hidden="true"></i> Nouvelle liste</button>
-            </div>
+            <h2 class="h5 mb-3">Listes de diffusion</h2>
 
-            {# A list has no scout year of its own — it is a set of criteria,
+            {# A list has no scout year of its own — it is a set of blocks,
                and the year is chosen at composition. Saying so here is what
                makes the warning in the compose dialog make sense when it
                appears (it names the year, which is not a property of
                anything on this page). #}
             <p class="text-body-secondary small">
-                Une liste ne vise aucune année scoute : elle décrit qui recevoir, et l'année se choisit au moment
-                d'écrire l'email. {% if future_audience_notice %}{{ future_audience_notice }}{% endif %}
+                Une liste ne vise aucune année scoute : elle décrit qui reçoit, et l'année se choisit au moment
+                d'écrire l'e-mail. {% if future_audience_notice %}{{ future_audience_notice }}{% endif %}
             </p>
 
             <ul class="list-group mb-2">
@@ -41,14 +38,6 @@
                         <div class="d-flex justify-content-between align-items-center">
                             <span>{{ list.name }}{% if not list.isActive %} {% include 'partials/status_badge.html.twig' with { status: 'inactive', label: 'Désactivée' } only %}{% endif %}</span>
                             <span class="text-nowrap">
-                                <button type="button" class="btn btn-sm btn-outline-secondary cfg-edit-list-btn"
-                                        data-id="{{ list.id }}" data-name="{{ list.name }}" data-description="{{ list.description }}"
-                                        data-function-ids="{{ custom_list_criteria[list.id].function_ids|join(',') }}"
-                                        data-section-ids="{{ custom_list_criteria[list.id].section_ids|join(',') }}"
-                                        data-badge-ids="{{ custom_list_criteria[list.id].badge_ids|join(',') }}"
-                                        aria-label="Modifier la liste">
-                                    <i class="bi bi-pencil" aria-hidden="true"></i>
-                                </button>
                                 <button type="button" class="btn btn-sm btn-outline-secondary cfg-toggle-list-btn" data-id="{{ list.id }}" data-active="{{ list.isActive ? '1' : '0' }}" aria-label="{{ list.isActive ? 'Désactiver la liste' : 'Activer la liste' }}">
                                     <i class="bi {{ list.isActive ? 'bi-eye-slash' : 'bi-eye' }}" aria-hidden="true"></i>
                                 </button>
@@ -57,26 +46,24 @@
                         </div>
                         <p class="text-body-secondary small mb-0 mt-1">{{ list.description }}</p>
 
-                        {# This page SUMMARISES a list; it never operates on
-                           one. Two sentences, both read-only: what the
-                           criteria come to, and how many addresses of its
-                           own the list carries. Editing either happens in
-                           the dialog, which is where a list's contents are
-                           decided — and the count stays a COUNT(*), so a
-                           page of twelve lists decrypts nothing. #}
-                        <p class="text-body-secondary small mb-0">{{ custom_list_criteria[list.id].criteria_summary }}</p>
-                        {# The same sentence exists once more, in
-                           mass-mail-list-addresses.js: adding and removing
-                           an address are immediate, so the dialog rewrites
-                           this line in place rather than leaving the page
-                           claiming a number the database no longer holds.
-                           Keep the two wordings identical. #}
-                        {%- set counts = custom_list_criteria[list.id].address_counts -%}
-                        <p class="text-body-secondary small mb-0" data-address-count data-list-id="{{ list.id }}">
-                            {%- if counts.total == 0 -%}
-                                Aucune adresse propre à cette liste.
+                        {# What the list is made of, counted per kind of block —
+                           a COUNT(*), so a page of twelve lists decrypts
+                           nothing. #}
+                        {%- set counts = block_counts[list.id] ?? { member_group: 0, contact_group: 0 } -%}
+                        {%- set mg = counts.member_group -%}
+                        {%- set cg = counts.contact_group -%}
+                        {%- set parts = [] -%}
+                        {%- if mg > 0 -%}
+                            {%- set parts = parts|merge([mg ~ ' groupe' ~ (mg > 1 ? 's' : '') ~ ' de membres']) -%}
+                        {%- endif -%}
+                        {%- if cg > 0 -%}
+                            {%- set parts = parts|merge([cg ~ ' groupe' ~ (cg > 1 ? 's' : '') ~ ' de contacts']) -%}
+                        {%- endif -%}
+                        <p class="text-body-secondary small mb-0" data-block-summary data-list-id="{{ list.id }}">
+                            {%- if parts is empty -%}
+                                Aucun groupe : cette liste ne désigne personne.
                             {%- else -%}
-                                {{ counts.total }} adresse{{ counts.total > 1 ? 's' : '' }} propre{{ counts.total > 1 ? 's' : '' }} à cette liste{% if counts.unsubscribed > 0 %}, dont {{ counts.unsubscribed }} désinscrite{{ counts.unsubscribed > 1 ? 's' : '' }}{% endif %}.
+                                {{ parts|join(' · ') }}
                             {%- endif -%}
                         </p>
                     </li>
@@ -91,182 +78,8 @@
             </ul>
         </div>
     </div>
-
-    {# The title id the JS targets (cfg-list-modal-title) is exactly the
-       embed's {id}-title convention. #}
-    {# The addresses of a list live in the dialog too, so it holds a form
-       AND a working panel. `lg` + scrollable is what keeps both usable on
-       a laptop; the footer stays out of the scroll, so « Enregistrer »
-       never scrolls away from a chief halfway down a list of addresses.
-       Nothing spans body and footer — the save button is a plain button,
-       not a submit — so the caveat `partials/modal.html.twig` raises
-       about scrollable does not apply here. #}
-    {% embed 'partials/modal.html.twig' with {
-        id: 'cfg-list-modal',
-        title: 'Nouvelle liste',
-        size: 'lg',
-        scrollable: true,
-        all_functions: all_functions,
-        all_sections: all_sections,
-        all_badges: all_badges,
-        effective_year_label: effective_year_label,
-    } only %}
-        {% block body %}
-            <div class="alert alert-danger d-none" id="cfg-list-error"></div>
-            <div class="mb-3">
-                <label class="form-label small" for="cfg-list-name">Nom</label>
-                <input type="text" class="form-control form-control-sm" id="cfg-list-name">
-            </div>
-            <div class="mb-3">
-                <label class="form-label small" for="cfg-list-description">Description</label>
-                <textarea class="form-control form-control-sm" id="cfg-list-description" rows="2" maxlength="500"
-                          placeholder="À qui s'adresse cette liste, dans quel but — affiché aux animateurs qui la choisissent."></textarea>
-            </div>
-            {# Three axes, three select bars (design.md §1.4 / §7.10.1):
-               each list is open-ended, comes from the database and carries
-               long labels, which is what the select bar is for. It also
-               brings, at no cost here, the things a hand-rolled row of
-               controls gets wrong — a real 44px tap target from
-               `.tap-target`, a panel that scrolls itself instead of the
-               page, and nothing hidden behind a « +N ». #}
-            <div class="mb-3">
-                {% include 'partials/select_bar.html.twig' with {
-                    picker_id: 'cfg-function-picker',
-                    label: 'Fonctions',
-                    items: all_functions|map(f => { id: f.id, label: f.label, selected: false }),
-                    mode: 'multi',
-                    none_selected_text: 'Toutes les fonctions',
-                    count_label: 'fonctions',
-                    empty_text: 'Aucune fonction — importez Desk pour en disposer.',
-                } only %}
-            </div>
-            <div class="mb-3">
-                {% include 'partials/select_bar.html.twig' with {
-                    picker_id: 'cfg-section-picker',
-                    label: 'Sections',
-                    items: all_sections|map(s => { id: s.id, label: s.name, selected: false }),
-                    mode: 'multi',
-                    none_selected_text: 'Toutes les sections',
-                    count_label: 'sections',
-                    empty_text: 'Aucune section — importez Desk pour en disposer.',
-                } only %}
-            </div>
-            <div class="mb-3">
-                {% include 'partials/select_bar.html.twig' with {
-                    picker_id: 'cfg-badge-picker',
-                    label: 'Badges',
-                    items: all_badges|map(b => { id: b.id, label: b.name, selected: false }),
-                    mode: 'multi',
-                    none_selected_text: 'Tous les badges',
-                    count_label: 'badges',
-                    empty_text: 'Aucun badge actif.',
-                } only %}
-            </div>
-
-            {# What the three selections add up to, in a sentence, rebuilt
-               at every toggle — the combination is the one thing the
-               controls themselves cannot show, and it is where the AND
-               between axes stops being a guess. #}
-            <div class="border rounded p-2 bg-body-tertiary">
-                <p class="small mb-1" id="cfg-criteria-sentence"></p>
-                <p class="small mb-0" id="cfg-criteria-count"
-                   data-year-label="{{ effective_year_label }}"></p>
-            </div>
-
-            {# The list's own addresses — the second half of what it
-               resolves to, and therefore part of deciding what the list
-               IS rather than something to operate on from a summary
-               page. One panel, re-pointed at whichever list the dialog
-               was opened for; the addresses arrive in one call the first
-               time it is shown for that list. #}
-            <hr class="my-3">
-            <h3 class="h6">Adresses propres à cette liste</h3>
-            <p class="form-text mt-0">
-                La commune, la paroisse, le propriétaire d'un terrain de camp, un ancien que la fédération ne
-                connaît plus : la liste vaut pour les membres que ses critères désignent <strong>et</strong> pour
-                ces adresses.
-            </p>
-
-            {# A list that does not exist yet has nothing to attach an
-               address to. Said, rather than shown as an empty panel that
-               refuses every click. #}
-            <p class="form-text mt-0 d-none" id="cfg-addresses-unsaved">
-                Enregistrez d'abord la liste : une adresse s'attache à une liste, qui n'existe pas encore.
-            </p>
-
-            <div id="cfg-list-addresses" class="d-none" data-list-id="">
-                <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
-                    <input type="search" class="form-control form-control-sm" style="max-width:16rem;"
-                           data-address-search placeholder="Rechercher un nom ou une adresse"
-                           aria-label="Rechercher dans les adresses de cette liste">
-                    <div class="form-check form-switch mb-0">
-                        <input class="form-check-input" type="checkbox"
-                               id="cfg-unsub-only" data-address-unsubscribed-only>
-                        <label class="form-check-label small" for="cfg-unsub-only">
-                            Désinscrites seulement
-                        </label>
-                    </div>
-                </div>
-
-                <div class="alert alert-danger d-none small py-1 px-2" data-address-error></div>
-
-                <ul class="list-group list-group-flush mb-2" data-address-rows></ul>
-                <p class="text-body-secondary small mb-2 d-none" data-address-empty>
-                    Aucune adresse ne correspond.
-                </p>
-                <button type="button" class="btn btn-sm btn-outline-secondary d-none mb-2"
-                        data-address-more>Afficher plus</button>
-
-                <form class="d-flex flex-wrap gap-2 align-items-start mb-3" data-address-add-form>
-                    <input type="text" class="form-control form-control-sm" style="max-width:12rem;"
-                           data-address-new-name placeholder="Nom" aria-label="Nom" maxlength="150">
-                    <input type="email" class="form-control form-control-sm" style="max-width:16rem;"
-                           data-address-new-email placeholder="adresse@exemple.be" required
-                           aria-label="Adresse email">
-                    <button type="submit" class="btn btn-sm btn-primary">Ajouter</button>
-                </form>
-
-                {# The Excel round trip: the working tool for anything at
-                   scale, and the only operation here with no way back —
-                   hence the preview between the file and the
-                   replacement. #}
-                <div class="border-top pt-2">
-                    <div class="d-flex flex-wrap gap-2 align-items-center">
-                        <a class="btn btn-sm btn-outline-secondary" data-address-export href="#">
-                            Exporter en Excel
-                        </a>
-                        <label class="btn btn-sm btn-outline-secondary mb-0">
-                            Remplacer depuis Excel
-                            <input type="file" accept=".xlsx" class="d-none" data-address-import-input>
-                        </label>
-                    </div>
-                    <p class="form-text mb-0">
-                        Le fichier remplace toutes les adresses de cette liste. Les adresses
-                        désinscrites sont conservées et restent exclues des envois.
-                    </p>
-
-                    <div class="alert alert-warning mt-2 d-none" data-address-import-preview>
-                        <p class="mb-1 fw-semibold" data-address-import-summary></p>
-                        <ul class="small mb-2 d-none" data-address-import-errors></ul>
-                        <button type="button" class="btn btn-sm btn-danger"
-                                data-address-import-confirm>Remplacer les adresses</button>
-                        <button type="button" class="btn btn-sm btn-outline-secondary"
-                                data-address-import-cancel>Annuler</button>
-                    </div>
-                </div>
-            </div>
-        {% endblock %}
-        {% block footer %}
-            <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Annuler</button>
-            <button type="button" class="btn btn-sm btn-primary" id="cfg-list-save-btn">Enregistrer</button>
-        {% endblock %}
-    {% endembed %}
 {% endblock %}
 
 {% block scripts %}
-{# select-bar.js is loaded by base.html.twig, before this block and with
-   the same `defer`, so it has already run and window.SelectBar exists by
-   the time this file drives the three pickers. #}
 <script src="{{ asset('/assets/js/mass-mail-lists.js') }}" defer></script>
-<script src="{{ asset('/assets/js/mass-mail-list-addresses.js') }}" defer></script>
 {% endblock %}

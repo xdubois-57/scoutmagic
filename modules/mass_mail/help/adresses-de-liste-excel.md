@@ -31,7 +31,7 @@ de noms, sans rien signaler.
 
 ## Le renvoi se fait en deux temps
 
-« Remplacer depuis Excel » **remplace** les adresses de la liste : ce qui
+Renvoyer le fichier **remplace** les adresses de la liste : ce qui
 ne figure pas dans le fichier est retiré. C'est la seule opération de cet
 écran sans retour en arrière, alors elle demande deux gestes.
 

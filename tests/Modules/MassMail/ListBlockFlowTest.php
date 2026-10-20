@@ -31,13 +31,15 @@ use Modules\MassMail\Repository\AudienceRepository;
 use Modules\MassMail\Repository\Email;
 use Modules\MassMail\Repository\EmailAttachmentRepository;
 use Modules\MassMail\Repository\EmailRepository;
-use Modules\MassMail\Repository\ListAddressRepository;
+use Modules\MassMail\Repository\ContactRepository;
+use Modules\MassMail\Repository\ListBlockRepository;
 use Modules\MassMail\Repository\MailingListRepository;
 use Modules\MassMail\Repository\MemberResolutionRepository;
 use Modules\MassMail\Repository\Recipient;
 use Modules\MassMail\Repository\RecipientRepository;
 use Modules\MassMail\Repository\SuppressedAddressRepository;
-use Modules\MassMail\Service\ListAddressService;
+use Modules\MassMail\Service\ContactGroupImportService;
+use Modules\MassMail\Service\ListBlockService;
 use Modules\MassMail\Service\MailingListService;
 use Modules\MassMail\Service\MassMailService;
 use Modules\MassMail\Service\MergeRenderer;
@@ -50,27 +52,31 @@ use Core\Member\Repository\MemberProfileRepository;
 use Core\Member\Repository\SectionRepository;
 
 /**
- * A custom list is the UNION of what its criteria resolve and its own
- * addresses — end to end, from resolution through the recipient freeze to
- * the unsubscribe link at the foot of the mail.
+ * A custom list is the UNION of its blocks — member groups resolved for
+ * the email's years, contact groups always — end to end, from resolution
+ * through the recipient freeze to the unsubscribe link at the foot of the
+ * mail, and the numbers the list's page and « Voir les destinataires »
+ * are built on.
  *
- * The three things this file exists to pin are the three that are easy to
- * get wrong and invisible when they are: an address that is also a
- * member's is ONE recipient, an unsubscribed address is not written to,
- * and an unsubscribe reaches every list rather than the one the mail
- * happened to come from.
+ * The things this file exists to pin are the ones that are easy to get
+ * wrong and invisible when they are: an address brought by two blocks, or
+ * by a contact and a member, is ONE recipient; an unsubscribed contact is
+ * not written to; an unsubscribe reaches every group of every list; and
+ * the years chosen on the email change the members and never the
+ * contacts.
  *
  * @group database
  */
 #[\PHPUnit\Framework\Attributes\Group('database')]
-class ListAddressFlowTest extends TestCase
+class ListBlockFlowTest extends TestCase
 {
     private \PDO $pdo;
     private EncryptionService $encryption;
     private MassMailService $massMailService;
     private MailingListService $listService;
-    private ListAddressService $addressService;
-    private ListAddressRepository $addressRepository;
+    private ListBlockService $blockService;
+    private ContactGroupImportService $contactGroups;
+    private ContactRepository $contactRepository;
     private RecipientRepository $recipientRepository;
     private SuppressedAddressRepository $suppressedRepository;
     private \Core\Mail\Feedback\Bounce\BounceStateRepository $bounceStates;
@@ -80,6 +86,7 @@ class ListAddressFlowTest extends TestCase
     private AudienceRepository $audienceRepository;
     private int $functionId;
     private int $listId;
+    private int $memberGroupId;
 
     protected function setUp(): void
     {
@@ -97,11 +104,19 @@ class ListAddressFlowTest extends TestCase
     new MemberProfileRepository($connection, $this->encryption)
 );
 
-        $this->addressRepository = new ListAddressRepository($this->pdo, $this->encryption);
+        $this->contactRepository = new ContactRepository($this->pdo, $this->encryption);
+        $blockRepository = new ListBlockRepository($this->pdo);
         $listRepository = new MailingListRepository($this->pdo);
-        $this->addressService = new ListAddressService(
-            $this->addressRepository,
+        $this->blockService = new ListBlockService(
+            $blockRepository,
+            $this->contactRepository,
             $listRepository,
+            $this->createStub(JournalService::class)
+        );
+        $this->contactGroups = new ContactGroupImportService(
+            $blockRepository,
+            $this->contactRepository,
+            $this->blockService,
             new SettingService(new SettingRepository($this->pdo)),
             $this->createStub(JournalService::class),
             new SuppressedAddressRepository($this->pdo)
@@ -112,7 +127,14 @@ class ListAddressFlowTest extends TestCase
             $sectionService,
             new FunctionRepository($this->pdo),
             null,
-            $this->addressRepository
+            $blockRepository,
+            $this->contactRepository,
+            null,
+            null,
+            null,
+            null,
+            null,
+            $memberService
         );
 
         $this->recipientRepository = new RecipientRepository($this->pdo, $this->encryption);
@@ -168,6 +190,10 @@ class ListAddressFlowTest extends TestCase
         $this->listId = $this->listService->createCustomList(
             'Les chefs et la commune',
             'Les chefs de la meute, plus la commune.',
+            null
+        )->id;
+        $this->memberGroupId = $this->blockService->createMemberGroup(
+            $this->listId,
             [$this->functionId],
             [$this->sectionId],
             [],
@@ -175,17 +201,35 @@ class ListAddressFlowTest extends TestCase
         )->id;
     }
 
-    public function testAListWithAddressesOnlyResolvesToThoseAddresses(): void
+    public function testAListWithoutAnyBlockResolvesToNobody(): void
     {
-        $listId = $this->listService->createCustomList(
-            'Carnet',
-            'Uniquement des adresses extérieures.',
-            [$this->functionId],
+        $this->createMember('chef@test.be');
+        $emptyId = $this->listService->createCustomList('Vide', 'Aucun bloc.', null)->id;
+
+        $this->assertSame(
             [],
-            [],
-            null
-        )->id;
-        $this->addressService->add($listId, 'Commune', 'jeunesse@wavre.be');
+            $this->listService->resolveMembersForYears('custom', $emptyId, null, [$this->scoutYearId])
+        );
+        $this->assertSame(0, $this->listService->summariseList($emptyId, $this->scoutYearId)['total']);
+        $this->assertSame([], $this->listService->listRecipients($emptyId, $this->scoutYearId));
+    }
+
+    /** And the send treats it as a list that resolves to zero recipients today. */
+    public function testSendingToAListWithoutAnyBlockFreezesNobody(): void
+    {
+        $this->createMember('chef@test.be');
+        $this->listId = $this->listService->createCustomList('Vide', 'Aucun bloc.', null)->id;
+
+        $email = $this->sendableEmail();
+        $this->massMailService->startSending($email->id, null);
+
+        $this->assertSame([], $this->recipientRepository->findByEmailId($email->id));
+    }
+
+    public function testAListWithContactsOnlyResolvesToThoseContacts(): void
+    {
+        $listId = $this->listService->createCustomList('Carnet', 'Uniquement des contacts extérieurs.', null)->id;
+        $this->contactGroup($listId, 'Commune', ['jeunesse@wavre.be']);
 
         $resolved = $this->listService->resolveMembersForYears('custom', $listId, null, [$this->scoutYearId]);
 
@@ -195,10 +239,38 @@ class ListAddressFlowTest extends TestCase
         );
     }
 
-    public function testAListWithCriteriaAndAddressesResolvesToTheUnion(): void
+    /**
+     * « Les animateurs OU le trésorier » — the case a single set of
+     * criteria could not express: two member groups are added, not
+     * crossed.
+     */
+    public function testTwoMemberGroupsResolveToTheirUnion(): void
     {
         $this->createMember('chef@test.be');
-        $this->addressService->add($this->listId, 'Commune', 'jeunesse@wavre.be');
+        $this->pdo->exec("INSERT INTO functions (desk_code, label, role) VALUES ('TRES', 'Trésorier', 'identified')");
+        $treasurerFunction = (int) $this->pdo->lastInsertId();
+        $this->createMember('tresorier@test.be', $treasurerFunction);
+        $this->blockService->createMemberGroup($this->listId, [$treasurerFunction], [], [], null);
+
+        $resolved = $this->listService->resolveMembersForYears('custom', $this->listId, null, [$this->scoutYearId]);
+
+        $this->assertEqualsCanonicalizing(['chef@test.be', 'tresorier@test.be'], array_column($resolved, 'email'));
+    }
+
+    public function testAMemberBroughtByTwoMemberGroupsIsOneRecipient(): void
+    {
+        $this->createMember('chef@test.be');
+        $this->blockService->createMemberGroup($this->listId, [$this->functionId], [], [], null);
+
+        $resolved = $this->listService->resolveMembersForYears('custom', $this->listId, null, [$this->scoutYearId]);
+
+        $this->assertSame(['chef@test.be'], array_column($resolved, 'email'));
+    }
+
+    public function testAMemberGroupAndAContactGroupResolveToTheUnion(): void
+    {
+        $this->createMember('chef@test.be');
+        $this->contactGroup($this->listId, 'Commune', ['jeunesse@wavre.be']);
 
         $resolved = $this->listService->resolveMembersForYears('custom', $this->listId, null, [$this->scoutYearId]);
 
@@ -213,10 +285,10 @@ class ListAddressFlowTest extends TestCase
      * halves of the union share no identifier at all, so a member id
      * cannot be what catches this.
      */
-    public function testAnAddressThatIsAlsoAMembersCountsOnce(): void
+    public function testAContactThatIsAlsoAMembersDeskAddressCountsOnce(): void
     {
         $this->createMember('chef@test.be');
-        $this->addressService->add($this->listId, 'Le même', '  CHEF@Test.BE ');
+        $this->contactGroup($this->listId, 'Le même', ['  CHEF@Test.BE ']);
 
         $resolved = $this->listService->resolveMembersForYears('custom', $this->listId, null, [$this->scoutYearId]);
 
@@ -225,11 +297,29 @@ class ListAddressFlowTest extends TestCase
         $this->assertNotNull($resolved[0]['member_id']);
     }
 
-    public function testAnUnsubscribedAddressIsNeverResolved(): void
+    public function testAContactPresentInTwoGroupsIsWrittenToOnce(): void
     {
-        $this->addressService->add($this->listId, 'Commune', 'jeunesse@wavre.be');
-        $this->addressService->add($this->listId, 'Curé', 'cure@paroisse.be');
-        $this->addressService->unsubscribeEverywhere('cure@paroisse.be');
+        $this->contactGroup($this->listId, 'Commune', ['jeunesse@wavre.be']);
+        $this->contactGroup($this->listId, 'Fête d\'unité', ['jeunesse@wavre.be', 'cure@paroisse.be']);
+
+        $resolved = $this->listService->resolveMembersForYears('custom', $this->listId, null, [$this->scoutYearId]);
+        $this->assertEqualsCanonicalizing(['jeunesse@wavre.be', 'cure@paroisse.be'], array_column($resolved, 'email'));
+
+        $email = $this->sendableEmail();
+        $this->massMailService->startSending($email->id, null);
+
+        $addresses = array_map(
+            static fn(Recipient $r): string => (string) $r->emailAddress,
+            $this->recipientRepository->findByEmailId($email->id)
+        );
+        sort($addresses);
+        $this->assertSame(['cure@paroisse.be', 'jeunesse@wavre.be'], $addresses);
+    }
+
+    public function testAnUnsubscribedContactIsNeverResolved(): void
+    {
+        $this->contactGroup($this->listId, 'Partenaires', ['jeunesse@wavre.be', 'cure@paroisse.be']);
+        $this->blockService->unsubscribeEverywhere('cure@paroisse.be');
 
         $resolved = $this->listService->resolveMembersForYears('custom', $this->listId, null, [$this->scoutYearId]);
 
@@ -237,14 +327,127 @@ class ListAddressFlowTest extends TestCase
     }
 
     /**
-     * A list address is frozen as a recipient of its own: no member, no
-     * scout year, no member_emails row and no audience row — the shape
-     * that tells it apart from an external mail-merge recipient.
+     * §2.3: the years chosen on the email apply to the member groups, and
+     * the contact groups are always included. A year in which nobody is
+     * active resolves the members to nobody and the contacts unchanged.
      */
-    public function testAListAddressIsFrozenAsItsOwnRecipient(): void
+    public function testTheEmailsYearChangesTheMembersAndNeverTheContacts(): void
     {
         $this->createMember('chef@test.be');
-        $this->addressService->add($this->listId, 'Commune', 'jeunesse@wavre.be');
+        $this->contactGroup($this->listId, 'Commune', ['jeunesse@wavre.be']);
+        $this->pdo->exec(
+            "INSERT INTO scout_years (label, start_date, end_date, is_current)
+             VALUES ('2099-2100', '2099-09-01', '2100-08-31', 0)"
+        );
+        $emptyYearId = (int) $this->pdo->lastInsertId();
+
+        $this->assertEqualsCanonicalizing(
+            ['chef@test.be', 'jeunesse@wavre.be'],
+            array_column(
+                $this->listService->resolveMembersForYears('custom', $this->listId, null, [$this->scoutYearId]),
+                'email'
+            )
+        );
+        $this->assertSame(
+            [['member_id' => null, 'email' => 'jeunesse@wavre.be', 'scout_year_id' => null]],
+            $this->listService->resolveMembersForYears('custom', $this->listId, null, [$emptyYearId])
+        );
+        // Two years at once: the contact still arrives once, not per year.
+        $this->assertCount(
+            2,
+            $this->listService->resolveMembersForYears(
+                'custom',
+                $this->listId,
+                null,
+                [$emptyYearId, $this->scoutYearId]
+            )
+        );
+    }
+
+    /**
+     * The numbers of the list's page: the total is the send's own count,
+     * and it is not members + contacts — an unsubscribed contact receives
+     * nothing, and a contact who is a member's address is one recipient.
+     */
+    public function testTheSummaryCountsLikeTheSendAndPerBlock(): void
+    {
+        $this->createMember('chef@test.be');
+        $this->createMember('autre.chef@test.be');
+        $this->pdo->exec("INSERT INTO functions (desk_code, label, role) VALUES ('TRES', 'Trésorier', 'identified')");
+        $treasurerFunction = (int) $this->pdo->lastInsertId();
+        $this->createMember('tresorier@test.be', $treasurerFunction);
+        $treasurerGroup = $this->blockService->createMemberGroup($this->listId, [$treasurerFunction], [], [], null)->id;
+        $contacts = $this->contactGroup(
+            $this->listId,
+            'Partenaires',
+            ['jeunesse@wavre.be', 'cure@paroisse.be', 'chef@test.be']
+        );
+        $this->blockService->unsubscribeEverywhere('cure@paroisse.be');
+
+        $summary = $this->listService->summariseList($this->listId, $this->scoutYearId);
+
+        $this->assertSame(3, $summary['members']);
+        $this->assertSame(3, $summary['contacts']);
+        $this->assertSame(1, $summary['contacts_unsubscribed']);
+        // Three members, plus the one active contact who is not a member.
+        $this->assertSame(4, $summary['total']);
+        $this->assertSame(
+            count($this->listService->resolveMembersForYears('custom', $this->listId, null, [$this->scoutYearId])),
+            $summary['total']
+        );
+        $this->assertSame(
+            [
+                $this->memberGroupId => ['count' => 2, 'unsubscribed' => 0],
+                $treasurerGroup => ['count' => 1, 'unsubscribed' => 0],
+                $contacts => ['count' => 3, 'unsubscribed' => 1],
+            ],
+            $summary['blocks']
+        );
+    }
+
+    public function testTheSummaryOfAnUnknownListIsRefused(): void
+    {
+        $this->expectException(\Modules\MassMail\Service\MailingListException::class);
+        $this->listService->summariseList(999, $this->scoutYearId);
+    }
+
+    /**
+     * « Voir les destinataires »: deduplicated like the send, without the
+     * people who would receive nothing, and every line names the blocks
+     * that bring it — both kinds when a contact is a member's address.
+     */
+    public function testTheRecipientListNamesTheBlocksThatBringEachPerson(): void
+    {
+        $this->createMember('chef@test.be', null, 'Akela');
+        $this->createMember('', null, 'Sans adresse');
+        $second = $this->blockService->createMemberGroup($this->listId, [], [$this->sectionId], [], null)->id;
+        $contacts = $this->contactGroup($this->listId, 'Partenaires', ['chef@test.be', 'cure@paroisse.be']);
+        $this->contactGroup($this->listId, 'Désinscrits', ['parti@exemple.be']);
+        $this->blockService->unsubscribeEverywhere('parti@exemple.be');
+
+        $rows = $this->listService->listRecipients($this->listId, $this->scoutYearId);
+
+        $this->assertSame(['cure@paroisse.be', 'chef@test.be'], array_column($rows, 'email'));
+
+        [$contact, $member] = $rows;
+        $this->assertNull($contact['member_id']);
+        $this->assertSame([$contacts], $contact['block_ids']);
+
+        $this->assertNotNull($member['member_id']);
+        $this->assertSame('Akela Dupont', $member['name']);
+        $this->assertSame('Akela', $member['display_name']);
+        $this->assertSame([$this->memberGroupId, $second, $contacts], $member['block_ids']);
+    }
+
+    /**
+     * A contact is frozen as a recipient of its own: no member, no scout
+     * year, no member_emails row and no audience row — the shape that
+     * tells it apart from an external mail-merge recipient.
+     */
+    public function testAContactIsFrozenAsItsOwnRecipient(): void
+    {
+        $this->createMember('chef@test.be');
+        $this->contactGroup($this->listId, 'Commune', ['jeunesse@wavre.be']);
 
         $email = $this->sendableEmail();
         $this->massMailService->startSending($email->id, null);
@@ -265,9 +468,11 @@ class ListAddressFlowTest extends TestCase
      * mail-merge unsubscribe is not written to through a list either, and
      * the row says why rather than quietly disappearing.
      */
-    public function testAnAddressSuppressedElsewhereIsFrozenAsAnExplicitError(): void
+    public function testAContactSuppressedElsewhereIsFrozenAsAnExplicitError(): void
     {
-        $this->addressService->add($this->listId, 'Commune', 'jeunesse@wavre.be');
+        $this->contactGroup($this->listId, 'Commune', ['jeunesse@wavre.be']);
+        // Suppressed AFTER the file was applied, so the row itself is still
+        // active: only the freeze's own check stands between it and a send.
         $this->suppressedRepository->suppress('jeunesse@wavre.be');
 
         $email = $this->sendableEmail();
@@ -281,8 +486,8 @@ class ListAddressFlowTest extends TestCase
     /**
      * **The one hole the member-side filter cannot cover** (roadmap
      * IT-05). `MemberEmailService::resolveValidAddressesForMassMail()`
-     * drops blocked addresses, but it never sees a list address: a
-     * custom list carries addresses that belong to no member. Without
+     * drops blocked addresses, but it never sees a contact: a contact
+     * group carries addresses that belong to no member. Without
      * this branch, an address the far end has refused twice goes on being
      * written to through a list — which is the reputation damage the
      * whole feature exists to stop.
@@ -290,13 +495,13 @@ class ListAddressFlowTest extends TestCase
      * Frozen as an explicit error row rather than silently dropped, like
      * the suppression above, so the tracking page says why.
      */
-    public function testABounceBlockedAddressIsFrozenAsAnExplicitError(): void
+    public function testABounceBlockedContactIsFrozenAsAnExplicitError(): void
     {
-        $this->addressService->add($this->listId, 'Commune', 'jeunesse@wavre.be');
+        $this->contactGroup($this->listId, 'Commune', ['jeunesse@wavre.be']);
 
         $t = new \DateTimeImmutable('2026-03-01 09:00:00');
         // Vouched for by the module, as `SendBatchHandler` does for its
-        // own recipients: a list address is one a staff member entered,
+        // own recipients: a contact is one a staff member's file brought,
         // it lives in a table the core cannot read, and so the core's
         // « is this address on file? » cannot answer for it.
         $this->bounceStates->recordSend('jeunesse@wavre.be', $t, true);
@@ -442,9 +647,9 @@ class ListAddressFlowTest extends TestCase
     }
 
     /** And an address that never bounced goes through untouched. */
-    public function testAnAddressThatNeverBouncedIsStillSendable(): void
+    public function testAContactThatNeverBouncedIsStillSendable(): void
     {
-        $this->addressService->add($this->listId, 'Commune', 'jeunesse@wavre.be');
+        $this->contactGroup($this->listId, 'Commune', ['jeunesse@wavre.be']);
 
         $email = $this->sendableEmail();
         $this->massMailService->startSending($email->id, null);
@@ -455,20 +660,18 @@ class ListAddressFlowTest extends TestCase
 
     /**
      * D2, end to end: the unsubscribe link at the foot of a mail sent to
-     * one list flags the same address in EVERY list.
+     * one list flags the same address in EVERY group of EVERY list.
      */
-    public function testUnsubscribingFromOneListReachesTheOthers(): void
+    public function testUnsubscribingFromOneListReachesEveryGroup(): void
     {
         $secondListId = $this->listService->createCustomList(
             'Autre liste',
             'Une autre liste qui écrit à la commune.',
-            [$this->functionId],
-            [$this->sectionId],
-            [],
             null
         )->id;
-        $this->addressService->add($this->listId, 'Commune', 'jeunesse@wavre.be');
-        $this->addressService->add($secondListId, 'Commune de Wavre', 'jeunesse@wavre.be');
+        $first = $this->contactGroup($this->listId, 'Commune', ['jeunesse@wavre.be']);
+        $sameList = $this->contactGroup($this->listId, 'Fête', ['jeunesse@wavre.be']);
+        $other = $this->contactGroup($secondListId, 'Commune de Wavre', ['jeunesse@wavre.be']);
 
         $email = $this->sendableEmail();
         $this->massMailService->startSending($email->id, null);
@@ -483,8 +686,9 @@ class ListAddressFlowTest extends TestCase
         );
 
         $this->assertSame(200, $response->getStatusCode());
-        $this->assertSame(1, $this->addressRepository->countForList($this->listId)['unsubscribed']);
-        $this->assertSame(1, $this->addressRepository->countForList($secondListId)['unsubscribed']);
+        $this->assertSame(1, $this->contactRepository->countForBlock($first)['unsubscribed']);
+        $this->assertSame(1, $this->contactRepository->countForBlock($sameList)['unsubscribed']);
+        $this->assertSame(1, $this->contactRepository->countForBlock($other)['unsubscribed']);
         // And the address is suppressed for the mail-merge path too: the
         // person asked the unit to stop, not one of its lists.
         $this->assertTrue($this->suppressedRepository->isSuppressed('jeunesse@wavre.be'));
@@ -524,13 +728,13 @@ class ListAddressFlowTest extends TestCase
      * The dedup at resolution time only knows a member's DESK address —
      * it is the one the criteria carry. A member is written to at every
      * valid address they have, so the freeze is the only place that can
-     * see a list address matching a member's SECOND one.
+     * see a contact matching a member's SECOND one.
      */
-    public function testAListAddressMatchingAMembersSecondAddressIsNotASecondMail(): void
+    public function testAContactMatchingAMembersSecondAddressIsNotASecondMail(): void
     {
         $memberId = $this->createMember('chef@test.be');
         $this->addSecondaryEmail($memberId, 'perso@test.be');
-        $this->addressService->add($this->listId, 'Le même', 'PERSO@test.be');
+        $this->contactGroup($this->listId, 'Le même', ['PERSO@test.be']);
 
         $email = $this->sendableEmail();
         $this->massMailService->startSending($email->id, null);
@@ -542,17 +746,17 @@ class ListAddressFlowTest extends TestCase
         );
 
         $this->assertSame(['chef@test.be', 'perso@test.be'], $addresses);
-        // The one row kept is the member's, not a nameless list address.
+        // The one row kept is the member's, not a nameless contact.
         $this->assertNotNull($this->recipientFor($recipients, 'perso@test.be')->memberId);
     }
 
     /**
      * A member's own unsubscribe deactivates their member_emails row and
-     * nothing else — so without the suppression write, a chief adding
-     * that same address to a list tomorrow would write to somebody who
+     * nothing else — so without the suppression write, a chief's file
+     * carrying that same address tomorrow would write to somebody who
      * asked the unit to stop.
      */
-    public function testAMembersUnsubscribeAlsoClosesTheListAddressPath(): void
+    public function testAMembersUnsubscribeAlsoClosesTheContactPath(): void
     {
         $memberId = $this->createMember('chef@test.be');
         $email = $this->sendableEmail();
@@ -570,10 +774,10 @@ class ListAddressFlowTest extends TestCase
 
         $this->assertTrue($this->suppressedRepository->isSuppressed('chef@test.be'));
 
-        // And the row a chief adds afterwards is born unsubscribed, so the
+        // And the row a file brings afterwards is born unsubscribed, so the
         // screen says so instead of counting an address the send refuses.
-        $added = $this->addressService->add($this->listId, 'Ancien chef', 'chef@test.be');
-        $this->assertNotNull($this->addressRepository->findById($added->id)?->unsubscribedAt);
+        $blockId = $this->contactGroup($this->listId, 'Anciens chefs', ['chef@test.be']);
+        $this->assertNotNull($this->contactRepository->findForBlock($blockId)[0]->unsubscribedAt);
         // The member is still WHO the list designates — resolution reads
         // the criteria, not an address's fate — but the new row is not a
         // second entry beside them.
@@ -582,7 +786,23 @@ class ListAddressFlowTest extends TestCase
         $this->assertSame($memberId, $resolved[0]['member_id']);
     }
 
-    private function createMember(string $email): int
+    /**
+     * A contact group created the way the dialog's « Enregistrer » does.
+     *
+     * @param string[] $emails
+     * @return int the block id
+     */
+    private function contactGroup(int $listId, string $name, array $emails): int
+    {
+        return $this->contactGroups->createGroup(
+            $listId,
+            $name,
+            array_map(static fn(string $e): array => ['name' => null, 'email' => $e], $emails),
+            null
+        )->id;
+    }
+
+    private function createMember(string $email, ?int $functionId = null, string $firstName = 'Jean'): int
     {
         $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('DESK_" . uniqid() . "')");
         $memberId = (int) $this->pdo->lastInsertId();
@@ -596,7 +816,7 @@ class ListAddressFlowTest extends TestCase
         $stmt->execute([
             $memberId,
             $this->scoutYearId,
-            $this->encryption->encrypt('Jean', 'member_years.first_name'),
+            $this->encryption->encrypt($firstName, 'member_years.first_name'),
             $this->encryption->encrypt('Dupont', 'member_years.last_name'),
             $this->encryption->encrypt($email, 'member_years.email'),
             $this->encryption->blindIndex($email, 'email'),
@@ -607,7 +827,7 @@ class ListAddressFlowTest extends TestCase
             'INSERT INTO member_functions (member_year_id, function_id, section_id, is_main_function)
              VALUES (?, ?, ?, 1)'
         );
-        $stmt->execute([$memberYearId, $this->functionId, $this->sectionId]);
+        $stmt->execute([$memberYearId, $functionId ?? $this->functionId, $this->sectionId]);
 
         return $memberId;
     }
@@ -632,7 +852,7 @@ class ListAddressFlowTest extends TestCase
             $this->recipientRepository,
             $this->memberEmailService,
             $this->suppressedRepository,
-            $this->addressService
+            $this->blockService
         );
     }
 

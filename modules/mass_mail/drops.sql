@@ -9,9 +9,10 @@
 -- exists (idempotent — safe to run on every request, and a no-op on fresh
 -- installs that never had it).
 --
--- `ALTER TABLE <table> DROP COLUMN <column>;` and
--- `ALTER TABLE <table> DROP FOREIGN KEY <constraint>;` statements are
--- recognized here. See Core\Database\MigrationRunner::applyExplicitDrops().
+-- `ALTER TABLE <table> DROP COLUMN <column>;`,
+-- `ALTER TABLE <table> DROP FOREIGN KEY <constraint>;` and
+-- `DROP TABLE <table>;` statements are recognized here. See
+-- Core\Database\MigrationRunner::applyExplicitDrops().
 
 -- mass_mail_emails.scout_year_id was replaced by the
 -- mass_mail_email_scout_years join table (schema.sql) so an email can
@@ -19,3 +20,17 @@
 -- merge/dedup). The single-column FK is retired outright.
 ALTER TABLE mass_mail_emails DROP FOREIGN KEY fk_mme_scout_year;
 ALTER TABLE mass_mail_emails DROP COLUMN scout_year_id;
+
+-- A custom list's single set of criteria and its own addresses, replaced
+-- by blocks (issue #729): member groups carry their criteria in
+-- mass_mail_block_functions/_sections/_badges, contact groups their
+-- addresses in mass_mail_block_contacts. Nothing is converted, by the
+-- maintainer's decision (the site is in its test phase): a list survives
+-- with its name, description, state and the emails that cite it, and
+-- holds no block until somebody adds one. The four tables only point at
+-- mass_mail_lists and core tables, and nothing points at them, so they
+-- go in any order.
+DROP TABLE mass_mail_list_functions;
+DROP TABLE mass_mail_list_sections;
+DROP TABLE mass_mail_list_badges;
+DROP TABLE mass_mail_list_addresses;
