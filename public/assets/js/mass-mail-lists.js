@@ -108,6 +108,41 @@
     }
 
     /**
+     * @param {{name: ?string, display_name: ?string, email: string, block_ids: number[]}} recipient
+     * @param {Object<string, {kind: string, label: string}>} blocks
+     * @returns {HTMLElement}
+     */
+    function recipientRow(recipient, blocks) {
+        var li = node('li', 'list-group-item d-flex justify-content-between align-items-start gap-2 px-0');
+        var who = node('div', 'text-break');
+        var name = recipient.name || '';
+        // A totem says who somebody is in the unit; a first name the
+        // full name already holds says nothing more.
+        if (recipient.display_name && !name.includes(recipient.display_name)) {
+            name += (name ? ' — ' : '') + recipient.display_name;
+        }
+        if (name) {
+            who.appendChild(node('span', 'd-block', name));
+        }
+        who.appendChild(node('span', 'd-block small text-body-secondary', recipient.email));
+        li.appendChild(who);
+
+        var tags = node('div', 'd-flex flex-wrap gap-1 justify-content-end flex-shrink-0');
+        var labels = [];
+        recipient.block_ids.forEach(function (id) {
+            var block = blocks[String(id)];
+            if (!block) return;
+            labels.push(block.label);
+            tags.appendChild(node('span', block.kind === KIND_MEMBER_GROUP
+                ? 'badge text-bg-primary'
+                : 'badge text-bg-secondary', block.label));
+        });
+        li.appendChild(tags);
+        li.dataset.search = fold([name, recipient.email].concat(labels).join(' '));
+        return li;
+    }
+
+    /**
      * @param {string} tag
      * @param {string} [className]
      * @param {string} [text]
@@ -693,41 +728,6 @@
                 if (match) shown++;
             });
             recipientsEmptyEl.classList.toggle('d-none', shown > 0);
-        }
-
-        /**
-         * @param {{name: ?string, display_name: ?string, email: string, block_ids: number[]}} recipient
-         * @param {Object<string, {kind: string, label: string}>} blocks
-         * @returns {HTMLElement}
-         */
-        function recipientRow(recipient, blocks) {
-            var li = node('li', 'list-group-item d-flex justify-content-between align-items-start gap-2 px-0');
-            var who = node('div', 'text-break');
-            var name = recipient.name || '';
-            // A totem says who somebody is in the unit; a first name the
-            // full name already holds says nothing more.
-            if (recipient.display_name && !name.includes(recipient.display_name)) {
-                name += (name ? ' — ' : '') + recipient.display_name;
-            }
-            if (name) {
-                who.appendChild(node('span', 'd-block', name));
-            }
-            who.appendChild(node('span', 'd-block small text-body-secondary', recipient.email));
-            li.appendChild(who);
-
-            var tags = node('div', 'd-flex flex-wrap gap-1 justify-content-end flex-shrink-0');
-            var labels = [];
-            recipient.block_ids.forEach(function (id) {
-                var block = blocks[String(id)];
-                if (!block) return;
-                labels.push(block.label);
-                tags.appendChild(node('span', block.kind === KIND_MEMBER_GROUP
-                    ? 'badge text-bg-primary'
-                    : 'badge text-bg-secondary', block.label));
-            });
-            li.appendChild(tags);
-            li.dataset.search = fold([name, recipient.email].concat(labels).join(' '));
-            return li;
         }
 
         async function loadRecipients() {
