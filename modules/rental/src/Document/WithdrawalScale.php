@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\Rental\Document;
 
 use Core\Service\DateInput;
+use Modules\Rental\Support;
 
 /**
  * What a renter owes for withdrawing, as one contract states it (issue
@@ -82,7 +83,10 @@ final class WithdrawalScale
 
         $threeQuartersStart = max($owedFrom, $lastHalfDay->modify('+1 day'));
         $threeQuartersFrom = match (true) {
-            $threeQuartersStart > $arrival => false,
+            // Nothing owed only while a free period runs to the arrival: a
+            // contract generated once the stay has begun keeps the last
+            // stretch rather than promising a free withdrawal it denies.
+            $threeQuartersStart > $arrival && $free !== null => false,
             $half === null && $free === null => null,
             default => $threeQuartersStart->format('Y-m-d'),
         };
@@ -95,7 +99,7 @@ final class WithdrawalScale
     {
         if ($this->freeUntil === null) {
             return 'La période de désistement sans indemnité ne s\'applique pas à cette réservation : '
-                . 'sa date limite, ' . ($this->freeDays === 1 ? '1 jour' : $this->freeDays . ' jours')
+                . 'sa date limite, ' . Support::plural($this->freeDays, 'jour', 'jours')
                 . ' avant l\'arrivée, était passée quand le présent contrat a été établi.';
         }
 

@@ -118,6 +118,23 @@ final class WithdrawalScaleTest extends TestCase
         $this->assertSame('soixante-quinze pour cent du prix de la location.', $scale->scaleSentence());
     }
 
+    /** A contract generated once the stay has begun never promises a free withdrawal it denies. */
+    public function testAContractGeneratedAfterTheArrivalKeepsTheLastStretch(): void
+    {
+        $scale = self::scale('2027-01-10', 90, '2027-01-15');
+
+        $this->assertNull($scale->freeUntil);
+        $this->assertSame('soixante-quinze pour cent du prix de la location.', $scale->scaleSentence());
+    }
+
+    public function testNoFreeDayAfterTheArrivalSaysZeroDayInTheSingular(): void
+    {
+        $scale = self::scale('2027-01-10', 0, '2027-01-15');
+
+        $this->assertStringContainsString('sa date limite, 0 jour avant', $scale->freeSentence());
+        $this->assertSame('soixante-quinze pour cent du prix de la location.', $scale->scaleSentence());
+    }
+
     /** The last free day is today: still a free day. */
     public function testADeadlineFallingTodayIsStillOffered(): void
     {
