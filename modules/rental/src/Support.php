@@ -42,6 +42,16 @@ final class Support
     }
 
     /**
+     * `1 nuit`, `3 nuits` — a count with its noun agreed, the French way:
+     * 0 and 1 take the singular. What a contract prints instead of
+     * « nuit(s) » (issue #977).
+     */
+    public static function plural(int $count, string $singular, string $plural): string
+    {
+        return $count . ' ' . (abs($count) <= 1 ? $singular : $plural);
+    }
+
+    /**
      * A submitted field as a value or as an absence — a blank box and a
      * box of spaces are both "not filled in", never `''`.
      */

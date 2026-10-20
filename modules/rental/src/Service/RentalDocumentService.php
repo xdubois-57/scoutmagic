@@ -14,6 +14,7 @@ use Core\File\AttachedFileRemover;
 use Core\File\FileRepository;
 use Core\Journal\JournalService;
 use Core\Pdf\DocumentPdfService;
+use Core\Pdf\LinkedText;
 use Core\Security\HtmlSanitizer;
 use Core\Service\DateInput;
 use Core\View\EditableContentService;
@@ -95,7 +96,14 @@ class RentalDocumentService
          * Nullable where nothing is generated; without it the contract
          * says « — » rather than point at a text nobody accepted.
          */
-        private ?RentalConditionsService $conditions = null
+        private ?RentalConditionsService $conditions = null,
+        /**
+         * Where the renter pays (issue #977): the account and its holder a
+         * contract states, read from Finance through the payment service.
+         * Nullable like Finance itself; without it the contract says the
+         * landlord communicates the account in writing.
+         */
+        private ?RentalPaymentService $payments = null
     ) {
     }
 
@@ -340,6 +348,10 @@ class RentalDocumentService
             throw new RentalException("Ce type de document ne se génère pas.");
         }
 
+        if ($type === DocumentType::CONTRACT) {
+            $this->assertContractCanBeGenerated($booking, $asset);
+        }
+
         $body = trim($this->bookingText($booking, $asset, $type));
         if ($body === '') {
             throw new RentalException(
@@ -356,9 +368,12 @@ class RentalDocumentService
         //
         // Repaired here as well as at save time, because a text stored
         // before the repair pass existed is still out there.
+        $conditionsUrl = $this->acceptedConditionsUrl($booking, $asset);
         $rendered = DocumentKeywords::substitute(
             DocumentKeywords::repairSplitKeywords($this->sanitizer->sanitize($body)),
-            $values
+            $values,
+            // A real link, not an address printed as text (issue #977).
+            $conditionsUrl !== null ? ['conditions_acceptees' => $conditionsUrl] : []
         );
 
         // The booking takes its own copy at the FIRST generation (§6.25),
@@ -383,13 +398,21 @@ class RentalDocumentService
         // template predates the keyword still sends a contract that names
         // the conditions its renter accepted — never today's (#708, IT-16).
         if ($type === DocumentType::CONTRACT && $this->acceptedConditions($booking) !== null) {
-            $header[] = 'Conditions de location acceptées : ' . $values['conditions_acceptees'];
+            $header[] = new LinkedText(
+                'Conditions de location acceptées : ' . $values['conditions_acceptees'],
+                $conditionsUrl
+            );
         }
 
         $pdf = $this->pdfService->generate(
             $type->label() . ' — ' . $booking->reference,
             $rendered,
-            (string) ($this->settingService->get('site_name') ?: 'Unité scoute'),
+            // A contract is headed by the party letting the asset — the
+            // unit or the ASBL that owns it — never by the site's own name,
+            // which on many installations is the product's (issue #977).
+            $type === DocumentType::CONTRACT
+                ? $this->landlordFor($asset)->name
+                : (string) ($this->settingService->get('site_name') ?: 'Unité scoute'),
             $header,
             $type === DocumentType::INVOICE ? $this->vatNote($asset) : null
         );
@@ -441,6 +464,47 @@ class RentalDocumentService
         }
 
         return $document;
+    }
+
+    /**
+     * Refuses a contract that would leave out what annex 8.1 of the
+     * Walloon tourism code requires it to state and nothing else can fill
+     * in afterwards (issue #977): the renter's name and address (point 2)
+     * and the address of the asset let (point 4).
+     *
+     * Called by `generate()` itself, so no caller can get round it, and by
+     * the callers before they raise the receivable, so a refused contract
+     * leaves nothing behind. The refusal says what to complete and where:
+     * a manager reading only « données manquantes » cannot act on it.
+     *
+     * @throws RentalException
+     */
+    public function assertContractCanBeGenerated(RentalBooking $booking, RentalAsset $asset): void
+    {
+        $billing = $this->bookingRepository->findBillingIdentity($booking->id);
+        $missingName = self::renterName($booking, $billing) === null;
+        $missingAddress = trim((string) ($billing['address'] ?? '')) === '';
+        $missingAsset = trim((string) ($asset->address ?? '')) === '';
+
+        $reasons = [];
+        if ($missingName || $missingAddress) {
+            $what = match (true) {
+                $missingName && $missingAddress => ['le nom et l\'adresse', 'les'],
+                $missingName => ['le nom', 'le'],
+                default => ['l\'adresse', 'la'],
+            };
+            $reasons[] = 'il manque ' . $what[0] . ' du locataire. Le locataire peut ' . $what[1]
+                . ' compléter dans « Vos coordonnées de facturation » sur sa page de suivi, ou vous dans '
+                . '« Coordonnées de facturation » sur la page « Facture » de la réservation.';
+        }
+        if ($missingAsset) {
+            $reasons[] = ($reasons === [] ? 'l\'adresse du bien manque.' : 'L\'adresse du bien manque aussi.')
+                . ' Complétez « Adresse du bien » dans la section « Contrat » des « Réglages » du bien.';
+        }
+
+        if ($reasons !== []) {
+            throw new RentalException('Le contrat ne peut pas être généré : ' . implode(' ', $reasons));
+        }
     }
 
     /**
@@ -689,9 +753,15 @@ class RentalDocumentService
     ): array {
         $total = $booking->effectiveTotalCents();
         $billing = $this->bookingRepository->findBillingIdentity($booking->id);
+        $onSite = $this->bookingRepository->findOnSiteContact($booking->id);
         $deposit = $total !== null ? $paymentSettings->depositFor($total) : null;
         $securityDeposit = $paymentSettings->securityDepositAmount();
         $landlord = $this->landlordFor($asset);
+        $nights = self::nightsBetween($booking->arrivalDate, $booking->departureDate);
+        $terms = $this->payments?->contractTerms($booking, $paymentSettings)
+            ?? ['iban' => null, 'holder' => null, 'deposit_due_date' => null];
+        $balanceDue = $paymentSettings->balanceDueDate($booking->arrivalDate);
+        $withdrawal = $asset->freeWithdrawalDeadline($booking->arrivalDate);
 
         return [
             'reference' => $booking->reference,
@@ -709,7 +779,7 @@ class RentalDocumentService
             'acompte' => $deposit !== null ? Support::euros($deposit) : null,
             'caution' => $securityDeposit !== null ? Support::euros($securityDeposit) : null,
             'communication' => $communication,
-            'locataire_nom' => $booking->renterName,
+            'locataire_nom' => self::renterName($booking, $billing),
             'locataire_organisation' => $booking->renterOrganisation,
             'locataire_email' => $booking->renterEmail,
             'locataire_telephone' => $booking->renterPhone,
@@ -722,7 +792,91 @@ class RentalDocumentService
             'date_du_jour' => (new \DateTimeImmutable())->format('d/m/Y'),
             'mention_tva' => $this->vatNote($asset),
             'conditions_acceptees' => $this->acceptedConditionsLine($booking, $asset),
+            // Issue #977 — annex 8.1 of the Walloon tourism code.
+            'bien_adresse' => $asset->address !== null ? UnitAddresses::oneLine($asset->address) : null,
+            'duree_nuits' => Support::plural($nights, 'nuit', 'nuits'),
+            'nombre_participants' => $booking->estimatedPersons !== null
+                ? Support::plural($booking->estimatedPersons, 'participant', 'participants')
+                : null,
+            'capacite_personnes' => $asset->capacity !== null
+                ? Support::plural($asset->capacity, 'personne', 'personnes')
+                : null,
+            'responsable_nom' => $onSite['name'],
+            'responsable_telephone' => $onSite['phone'],
+            // Said rather than left blank: a contract stating no account
+            // reads as one where the landlord forgot it.
+            'iban' => $terms['iban'] ?? 'à communiquer par écrit par le bailleur',
+            'titulaire_compte' => $terms['holder'] ?? 'le bailleur',
+            'echeance_acompte' => $deposit !== null
+                ? self::depositDeadline($terms['deposit_due_date'], $paymentSettings->depositDueDays)
+                : null,
+            'echeance_solde' => $balanceDue !== null
+                ? 'au plus tard le ' . self::frenchDate($balanceDue)
+                : 'avant le début du séjour',
+            'date_limite_desistement' => $withdrawal !== null ? self::frenchDate($withdrawal) : null,
+            'mention_bce_bailleur' => $landlord->enterpriseNumber !== null
+                ? ", n° d'entreprise " . $landlord->enterpriseNumber
+                : null,
+            'contact_donnees' => self::text($this->settingService->get('contact_email'))
+                ?? "l'adresse du bailleur indiquée en tête du présent contrat",
+            'duree_conservation' => $this->retentionPhrase(),
         ];
+    }
+
+    /**
+     * The renter as the contract names them: the name given with the
+     * request, else the name of the billing coordinates, else null — and a
+     * contract is not generated then (`assertContractCanBeGenerated()`).
+     *
+     * @param array<string, ?string> $billing
+     */
+    private static function renterName(RentalBooking $booking, array $billing): ?string
+    {
+        return self::text($booking->renterName) ?? self::text($billing['name'] ?? null);
+    }
+
+    /**
+     * « au plus tard le 15/03/2027 » once the first send has stamped the
+     * deadline (issue #927), « dans les 15 jours qui suivent l'envoi du
+     * présent contrat » before it — the contract being generated is the
+     * one whose send will stamp it.
+     */
+    private static function depositDeadline(?string $stampedDate, ?int $days): string
+    {
+        if ($stampedDate !== null) {
+            return 'au plus tard le ' . self::frenchDate($stampedDate);
+        }
+        if ($days === null) {
+            return 'à la date convenue avec le bailleur';
+        }
+
+        return $days === 0
+            ? "dès l'envoi du présent contrat"
+            : 'dans les ' . Support::plural($days, 'jour', 'jours') . " qui suivent l'envoi du présent contrat";
+    }
+
+    /**
+     * How long a booking's data are kept, as the retention purge applies
+     * it (`RentalRetentionService`): from the close of the accounting year
+     * the stay fell in, never from the stay itself.
+     */
+    private function retentionPhrase(): string
+    {
+        $years = (int) ($this->settingService->get(RentalRetentionService::SETTING_RETENTION_YEARS, 'rental')
+            ?: RentalRetentionService::DEFAULT_RETENTION_YEARS);
+        if ($years <= 0) {
+            $years = RentalRetentionService::DEFAULT_RETENTION_YEARS;
+        }
+
+        return Support::plural($years, 'an', 'ans')
+            . " à compter de la clôture de l'exercice comptable au cours duquel le séjour a eu lieu";
+    }
+
+    private static function text(mixed $value): ?string
+    {
+        $text = is_scalar($value) ? trim((string) $value) : '';
+
+        return $text === '' ? null : $text;
     }
 
     /**
@@ -747,11 +901,25 @@ class RentalDocumentService
         $line = $dated !== null
             ? 'version du ' . $dated->format('d/m/Y')
             : 'version acceptée le ' . $booking->conditionsAcceptedAt?->format('d/m/Y');
-        $baseUrl = rtrim((string) ($this->settingService->get('base_url') ?: ''), '/');
+        $url = $this->acceptedConditionsUrl($booking, $asset);
 
-        return $baseUrl === ''
-            ? $line
-            : $line . ', ' . $baseUrl . '/locations/' . $asset->slug . '/conditions/' . $version->version;
+        return $url === null ? $line : $line . ', ' . $url;
+    }
+
+    /**
+     * The permanent address of the conditions the renter accepted, or null
+     * when the archive cannot name them or the site has no base address.
+     * The contract prints it AND links it (issue #977).
+     */
+    private function acceptedConditionsUrl(RentalBooking $booking, RentalAsset $asset): ?string
+    {
+        $version = $this->acceptedConditions($booking);
+        $baseUrl = rtrim((string) ($this->settingService->get('base_url') ?: ''), '/');
+        if ($version === null || $baseUrl === '') {
+            return null;
+        }
+
+        return $baseUrl . '/locations/' . $asset->slug . '/conditions/' . $version->version;
     }
 
     /**

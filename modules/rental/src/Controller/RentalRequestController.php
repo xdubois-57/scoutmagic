@@ -516,6 +516,7 @@ class RentalRequestController extends AbstractController
             // reaches this page and nothing else. The block presents itself
             // as a task while every field is empty.
             'billing' => $this->operationsService->billingIdentity($booking->id),
+            'on_site_contact' => $this->operationsService->onSiteContact($booking->id),
             // How to pay: beneficiary, IBAN, the one communication, what is
             // due now and the QR of that transfer (chantier #927, §2.4) —
             // null until a receivable exists.
@@ -630,6 +631,15 @@ class RentalRequestController extends AbstractController
                 'email' => Support::optionalString($request->getBody('billing_email')),
                 'reference' => Support::optionalString($request->getBody('billing_reference')),
             ]);
+            // The same form names the group's responsible person on site
+            // (issue #977); a post without the fields leaves it as it was.
+            if ($request->getBody('on_site_contact_name') !== null) {
+                $this->operationsService->saveOnSiteContact(
+                    $booking->id,
+                    Support::optionalString($request->getBody('on_site_contact_name')),
+                    Support::optionalString($request->getBody('on_site_contact_phone'))
+                );
+            }
         } catch (RentalException $e) {
             FlashMessage::set('error', $e->getMessage());
 

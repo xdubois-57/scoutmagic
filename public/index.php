@@ -12269,7 +12269,9 @@ if ($isEnabled('rental')) {
         $storagePath,
         // A contract names the version of the conditions its renter
         // accepted with the request (#708, IT-16).
-        $rentalConditionsService
+        $rentalConditionsService,
+        // ...and the account the renter pays on (issue #977).
+        $rentalPaymentService
     );
     $rentalStayRepository = new \Modules\Rental\Repository\RentalStayRepository($pdo, $encryptionService);
     $rentalStayService = new \Modules\Rental\Service\RentalStayService(

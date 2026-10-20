@@ -774,5 +774,35 @@ class RentalOperationsService
         $this->bookingRepository->saveBillingIdentity($bookingId, $identity);
     }
 
+    /**
+     * The adult responsible for the group on site (issue #977), whom the
+     * contract names beside the renter.
+     *
+     * @return array{name: ?string, phone: ?string}
+     */
+    public function onSiteContact(int $bookingId): array
+    {
+        return $this->bookingRepository->findOnSiteContact($bookingId);
+    }
+
+    /**
+     * Records it, with the same length guard as the billing identity and
+     * for the same reason: encrypted, a value near the ceiling would come
+     * back over it.
+     *
+     * @throws RentalException
+     */
+    public function saveOnSiteContact(int $bookingId, ?string $name, ?string $phone): void
+    {
+        if ($name !== null && mb_strlen($name) > 200) {
+            throw new RentalException('Le champ « Responsable du groupe sur place » dépasse 200 caractères.');
+        }
+        if ($phone !== null && mb_strlen($phone) > 40) {
+            throw new RentalException('Le champ « Téléphone du responsable » dépasse 40 caractères.');
+        }
+
+        $this->bookingRepository->saveOnSiteContact($bookingId, $name, $phone);
+    }
+
     /** `467,50 €` — for a history line a human reads, never for arithmetic. */
 }

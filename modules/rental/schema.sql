@@ -167,6 +167,19 @@ CREATE TABLE IF NOT EXISTS rental_assets (
     landlord_address VARCHAR(500) NULL,
     landlord_enterprise_number VARCHAR(20) NULL,
 
+    -- ── Contract (issue #977) ────────────────────────────────────────
+    -- Where the asset is: annex 8.1 of the Walloon tourism code (point 4)
+    -- requires a rental contract to state the address of the place let,
+    -- which is not the landlord's — the hall and the ASBL owning it are
+    -- often in different villages. A contract is not generated without
+    -- it. Not personal data: the address of a building.
+    address VARCHAR(500) NULL,
+    -- How many days before the arrival the renter may still withdraw
+    -- without owing anything (annex 8.1, point 8c). Days rather than a
+    -- date, like the payment deadlines above: the rule outlives any single
+    -- booking, and each contract prints the date it gives for its own stay.
+    free_withdrawal_days SMALLINT UNSIGNED NOT NULL DEFAULT 90,
+
     billing_unit VARCHAR(30) NOT NULL DEFAULT 'flat_stay',
     -- Rate used when the period × category grid has no cell for the resolved
     -- pair. NULL means "not priced yet", which produces a visible warning
@@ -558,6 +571,15 @@ CREATE TABLE IF NOT EXISTS rental_bookings (
     billing_enterprise_number_encrypted BLOB NULL,
     billing_email_encrypted BLOB NULL,
     billing_reference_encrypted BLOB NULL,
+
+    -- ── The group's responsible person on site (issue #977) ──────────
+    -- An adult present for the whole stay, whom the contract names with
+    -- the renter (annex 8.1 of the Walloon tourism code, point 2: « le
+    -- groupe local dont il est responsable »). Personal data, encrypted
+    -- like the renter's own identity, entered by the renter on their
+    -- tracking page or by a manager beside the billing coordinates.
+    on_site_contact_name_encrypted BLOB NULL,
+    on_site_contact_phone_encrypted BLOB NULL,
 
     -- ── Renter tracking token (§13 of the conventions) ───────────────
     -- A sensitive capability token: cryptographically random, never logged,

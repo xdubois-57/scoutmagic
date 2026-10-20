@@ -1667,6 +1667,35 @@ class RentalRequestControllerTest extends TestCase
         $this->assertStringNotContainsString('Amis du Sart', $raw);
     }
 
+    /**
+     * The contract names the group's responsible person on site (issue
+     * #977); the renter gives them in the same form, and a post that does
+     * not carry the fields leaves them as they were.
+     */
+    public function testTheRenterNamesTheResponsiblePersonOnSite(): void
+    {
+        $this->createAsset();
+        [$bookingId, $token] = $this->submitAndTrack();
+
+        $body = (string) $this->track($bookingId, $token)->getBody();
+        $this->assertStringContainsString('Responsable du groupe sur place', $body);
+        $this->assertStringContainsString('sans votre adresse, il ne peut pas être établi', $body);
+
+        $this->postToTracking('saveBillingIdentity', $bookingId, $token, [
+            'billing_address' => 'Rue Haute 12, 1000 Bruxelles',
+            'on_site_contact_name' => 'Paul Lemaire',
+            'on_site_contact_phone' => '0470 98 76 54',
+        ]);
+        $this->assertSame(
+            ['name' => 'Paul Lemaire', 'phone' => '0470 98 76 54'],
+            $this->bookingRepository->findOnSiteContact($bookingId)
+        );
+        $this->assertStringContainsString('Paul Lemaire', (string) $this->track($bookingId, $token)->getBody());
+
+        $this->postToTracking('saveBillingIdentity', $bookingId, $token, ['billing_name' => 'ASBL']);
+        $this->assertSame('Paul Lemaire', $this->bookingRepository->findOnSiteContact($bookingId)['name']);
+    }
+
     public function testTheTrackingPageNeverShowsAnInternalComment(): void
     {
         // §6.6: the page does not even load them, which is stronger than a
@@ -1720,6 +1749,12 @@ class RentalRequestControllerTest extends TestCase
     {
         $booking = $this->bookingRepository->findById($bookingId);
         $this->assertNotNull($booking);
+        // What a contract cannot be generated without (issue #977): the
+        // asset's address, and the renter's — given here unless the test did.
+        $this->assetRepository->saveContractDetails($booking->assetId, 'Chemin du Camp 4, 1300 Wavre', 90);
+        if ($this->bookingRepository->findBillingIdentity($bookingId)['address'] === null) {
+            $this->bookingRepository->saveBillingIdentity($bookingId, ['address' => 'Rue Haute 12, 1000 Bruxelles']);
+        }
         $contract = $this->documentService->generate(
             $booking,
             $this->trackedAsset(),

@@ -116,6 +116,8 @@ class RentalContractValidityServiceTest extends TestCase
             null,
             true
         );
+        // A contract is refused without the asset's address (issue #977).
+        $this->assetRepository->saveContractDetails($this->assetId, 'Chemin du Camp 4, 1300 Wavre', 90);
     }
 
     protected function tearDown(): void
@@ -168,6 +170,8 @@ class RentalContractValidityServiceTest extends TestCase
             str_repeat('0', 64),
             new \DateTimeImmutable('2027-01-01 10:00:00')
         );
+        // ...nor without the renter's (issue #977).
+        $this->bookingRepository->saveBillingIdentity($created['id'], ['address' => 'Rue Haute 12, 1000 Bruxelles']);
         $booking = $this->fresh($created['id']);
 
         $contract = $this->documents->generate($booking, $this->asset(), DocumentType::CONTRACT, new PaymentSettings());

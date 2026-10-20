@@ -176,6 +176,12 @@ final class RentalSeeder
             BillingUnit::from(RentalBlueprint::ASSET['billingUnit']),
         );
 
+        $this->assetRepository->saveContractDetails(
+            $assetId,
+            RentalBlueprint::ASSET['address'],
+            RentalBlueprint::ASSET['freeWithdrawalDays'],
+        );
+
         $this->pricingService->saveAssetPricing(
             $assetId,
             RentalBlueprint::PRICING['billingUnit'],

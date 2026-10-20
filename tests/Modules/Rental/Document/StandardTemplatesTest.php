@@ -41,7 +41,7 @@ class StandardTemplatesTest extends TestCase
         // them in a reword is worth catching.
         $contract = StandardTemplates::contract();
 
-        foreach (['{{ prix_total }}', '{{ caution }}', '{{ communication }}', '{{ capacite }}'] as $money) {
+        foreach (['{{ prix_total }}', '{{ caution }}', '{{ communication }}', '{{ capacite_personnes }}'] as $money) {
             $this->assertStringContainsString($money, $contract);
         }
 
@@ -59,6 +59,147 @@ class StandardTemplatesTest extends TestCase
         ] as $clause) {
             $this->assertStringContainsString($clause, $contract);
         }
+    }
+
+    // ── Annex 8.1 of the Walloon tourism code (issue #977) ─────────────
+
+    /**
+     * The contract text, whitespace collapsed and tags removed — the way a
+     * reader of the PDF reads it, whatever the line breaks of the source.
+     */
+    private static function readableContract(): string
+    {
+        $text = html_entity_decode(strip_tags(StandardTemplates::contract()), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+
+        return trim((string) preg_replace('/\s+/u', ' ', str_replace("\u{00A0}", ' ', $text)));
+    }
+
+    /**
+     * Point 9 of the annex has an IMPOSED wording: the old clause — « il
+     * rembourse l'intégralité des sommes versées, sans autre indemnité » —
+     * contradicted it. Word for word, every sentence of it.
+     */
+    public function testArticleNineReproducesTheAnnexWordingWordForWord(): void
+    {
+        $contract = self::readableContract();
+
+        foreach ([
+            "Au cas où le bailleur manquerait à son obligation de délivrance, il sera redevable envers le "
+                . "locataire, outre le remboursement de l'acompte éventuellement perçu, d'une indemnité minimale "
+                . 'irréductible équivalent à :',
+            "cinquante pour cent du prix de la location s'il en a informé le locataire au minimum quatre mois "
+                . 'avant la prise de cours de la location ;',
+            'cent pour cent du prix de la location dans les autres cas ;',
+            "Si le locataire justifie d'un préjudice supérieur, le bailleur sera tenu de l'indemniser "
+                . 'intégralement.',
+            "Il en va de même pour le locataire s'il ne respecte pas ses obligations.",
+        ] as $sentence) {
+            $this->assertStringContainsString($sentence, $contract);
+        }
+        $this->assertStringNotContainsString('sans autre indemnité', $contract);
+    }
+
+    /** The renter's withdrawal: a progressive scale from the free-withdrawal deadline, not « tout est dû ». */
+    public function testTheRentersWithdrawalIsAProgressiveScaleFromTheFreeDeadline(): void
+    {
+        $contract = self::readableContract();
+
+        $this->assertStringContainsString('{{ date_limite_desistement }} inclus, il le fait sans indemnité', $contract);
+        foreach (['vingt-cinq pour cent', 'cinquante pour cent', 'soixante-quinze pour cent'] as $step) {
+            $this->assertStringContainsString($step, $contract);
+        }
+        $this->assertStringNotContainsString("L'acompte reste acquis au bailleur", $contract);
+        $this->assertStringNotContainsString('le solde reste dû', $contract);
+    }
+
+    /** Article 8: no exclusion of bodily harm, nor of the landlord's own fault. */
+    public function testArticleEightExcludesOnlyPersonalBelongingsAndNeverTheLandlordsFault(): void
+    {
+        $contract = self::readableContract();
+
+        $this->assertStringContainsString(
+            "Le bailleur n'est pas responsable des vols, des pertes ni des dommages aux biens personnels des "
+                . 'occupants, sauf faute de sa part.',
+            $contract
+        );
+        $this->assertStringNotContainsString('accident', $contract);
+    }
+
+    /** Article 11: the courts where the asset is, without taking a private renter's own judge away. */
+    public function testArticleElevenKeepsTheCourtsOfThePlaceAndThePrivateRentersJudge(): void
+    {
+        $contract = self::readableContract();
+
+        $this->assertStringContainsString('les tribunaux du lieu où se trouve le bien loué sont compétents', $contract);
+        $this->assertStringContainsString('juge de son domicile', $contract);
+        $this->assertStringNotContainsString('seuls compétents', $contract);
+    }
+
+    /** Article 10 names the controller, the purpose, the duration, the rights and where to write. */
+    public function testArticleTenNamesTheControllerTheDurationAndTheRights(): void
+    {
+        $contract = self::readableContract();
+
+        foreach ([
+            'Le bailleur, {{ nom_bailleur }}, est responsable du traitement',
+            'servent uniquement à la gestion de cette location',
+            'conservées {{ duree_conservation }}',
+            'accéder à ses données, les faire rectifier ou en demander l\'effacement',
+            'en écrivant à {{ contact_donnees }}',
+        ] as $part) {
+            $this->assertStringContainsString($part, $contract);
+        }
+    }
+
+    public function testTheContractStatesEveryElementTheAnnexLists(): void
+    {
+        $contract = StandardTemplates::contract();
+
+        foreach ([
+            '{{ adresse_bailleur }}',        // 1° the landlord
+            '{{ locataire_adresse }}',       // 2° the renter…
+            '{{ responsable_nom }}',         // …and the group's responsible person
+            '{{ responsable_telephone }}',
+            '{{ heure_arrivee }}',           // 3° the period, with its hours
+            '{{ bien_adresse }}',            // 4° the place, and its address
+            '{{ acompte }}',                 // 8° a. the deposit
+            '{{ iban }}',                    //    b. the account
+            '{{ titulaire_compte }}',
+            '{{ date_limite_desistement }}', //    c. the free-withdrawal deadline
+            '{{ echeance_solde }}',          //    d. the day of the balance
+            '{{ echeance_acompte }}',
+        ] as $keyword) {
+            $this->assertStringContainsString($keyword, $contract);
+        }
+        // 11° where and when each party signs.
+        $this->assertSame(2, substr_count($contract, 'Fait à '));
+    }
+
+    /** « nuit(s) » and its kind are agreed keywords now, and the header prints no empty enterprise number. */
+    public function testTheContractAgreesItsCountsAndPrintsNoEmptyEnterpriseNumber(): void
+    {
+        $contract = StandardTemplates::contract();
+
+        $this->assertStringNotContainsString('(s)', $contract);
+        $this->assertStringNotContainsString('bon père de famille', $contract);
+        $this->assertStringContainsString('en personne prudente et raisonnable', self::readableContract());
+        $this->assertStringNotContainsString("N° d'entreprise", $contract);
+        $this->assertStringContainsString('{{ nom_bailleur }}{{ mention_bce_bailleur }}', $contract);
+    }
+
+    /** Stored and rendered through the sanitizer: what it strips would never reach the PDF. */
+    public function testTheContractSurvivesTheSanitizerUnchanged(): void
+    {
+        $contract = StandardTemplates::contract();
+        $sanitized = (new \Core\Security\HtmlSanitizer())->sanitize($contract);
+        // `&nbsp;` comes back as the character itself, which is the same text.
+        $strip = static fn(string $html): string => (string) preg_replace(
+            '/\s+/u',
+            '',
+            str_replace(['&nbsp;', "\u{00A0}"], '', $html)
+        );
+
+        $this->assertSame($strip($contract), $strip($sanitized));
     }
 
     public function testTheInvoiceCarriesTheVatSentenceAndNeverAVatCalculation(): void

@@ -55,6 +55,9 @@ use Twig\Environment;
  */
 class RentalPricingController extends AbstractController
 {
+    /** Two years: a free-withdrawal deadline further out than that is a typo. */
+    private const MAX_FREE_WITHDRAWAL_DAYS = 730;
+
     public function __construct(
         Environment $twig,
         private RentalPricingService $pricingService,
@@ -506,6 +509,38 @@ class RentalPricingController extends AbstractController
             return $name === null && $address === null
                 ? 'Ce bien reprend désormais le bailleur des réglages du module.'
                 : 'Le bailleur de ce bien a été enregistré.';
+        });
+    }
+
+    /**
+     * POST /mes-locations/{slug}/reglages/contrat — what the contract states
+     * about the asset itself (issue #977): its address, which annex 8.1 of
+     * the Walloon tourism code requires and without which no contract is
+     * generated, and the free-withdrawal deadline, in days before arrival.
+     *
+     * @param array<string, string> $params
+     */
+    public function saveContractDetails(Request $request, array $params): Response
+    {
+        return $this->guarded($request, $params, 'contrat', function (RentalAsset $asset) use ($request): string {
+            $address = self::optionalText($request->getBody('asset_address'));
+            $rawDays = trim((string) $request->getBody('free_withdrawal_days', ''));
+
+            if ($address !== null && mb_strlen($address) > 500) {
+                throw new RentalException("L'adresse du bien dépasse 500 caractères.");
+            }
+            if (preg_match('/^\d{1,4}$/', $rawDays) !== 1 || (int) $rawDays > self::MAX_FREE_WITHDRAWAL_DAYS) {
+                throw new RentalException(
+                    'La date limite de désistement sans indemnité se donne en jours avant l\'arrivée, '
+                        . 'un nombre entier entre 0 et ' . self::MAX_FREE_WITHDRAWAL_DAYS . '.'
+                );
+            }
+
+            $this->assetRepository->saveContractDetails($asset->id, $address, (int) $rawDays);
+
+            return $address === null
+                ? 'Réglages du contrat enregistrés. Sans adresse du bien, aucun contrat ne peut être généré.'
+                : 'Réglages du contrat enregistrés.';
         });
     }
 

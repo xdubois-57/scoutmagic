@@ -113,6 +113,8 @@ class RentalDocumentServiceTest extends TestCase
             null,
             true
         );
+        // A contract is refused without the asset's address (issue #977).
+        $this->assetRepository->saveContractDetails($this->assetId, "Chemin du Camp 4\n1300 Wavre", 60);
     }
 
     protected function tearDown(): void
@@ -140,7 +142,8 @@ class RentalDocumentServiceTest extends TestCase
     private function createBooking(
         string $renterName = 'Jeanne Martin',
         ?string $organisation = null,
-        string $reference = 'LOC-K7Q2M4'
+        string $reference = 'LOC-K7Q2M4',
+        ?string $renterAddress = 'Rue Haute 12, 1000 Bruxelles'
     ): RentalBooking {
         $created = $this->bookingRepository->create(
             $this->assetId,
@@ -174,6 +177,10 @@ class RentalDocumentServiceTest extends TestCase
             str_repeat('0', 64),
             new \DateTimeImmutable('2027-01-01 10:00:00')
         );
+        // A contract is refused without the renter's address (issue #977).
+        if ($renterAddress !== null) {
+            $this->bookingRepository->saveBillingIdentity($created['id'], ['address' => $renterAddress]);
+        }
 
         $booking = $this->bookingRepository->findById($created['id']);
         $this->assertNotNull($booking);
@@ -1162,6 +1169,313 @@ class RentalDocumentServiceTest extends TestCase
         $raw = (string) json_encode($this->pdo->query('SELECT * FROM rental_bookings')->fetch(\PDO::FETCH_ASSOC));
         $this->assertStringNotContainsString('ASBL Les Scouts', $raw);
         $this->assertStringNotContainsString('BE0123456789', $raw);
+    }
+
+    // ── Annex 8.1 of the Walloon tourism code (issue #977) ─────────────
+
+    /** The same service, reading the asset's account through Finance's Api\\ interface. */
+    private function serviceWithAccount(?string $iban, ?string $holder): RentalDocumentService
+    {
+        $accounts = new class ($iban, $holder) implements \Modules\Finance\Api\FinanceAccountInterface {
+            public function __construct(private ?string $iban, private ?string $holder)
+            {
+            }
+
+            public function getConfiguredAccounts(): array
+            {
+                return [[
+                    'id' => 1, 'name' => 'Compte unité', 'iban' => $this->iban,
+                    'holder_name' => $this->holder, 'section_id' => null,
+                ]];
+            }
+
+            public function getDefaultAccountForSection(int $sectionId): ?int
+            {
+                return null;
+            }
+
+            public function getCategories(): array
+            {
+                return [];
+            }
+        };
+
+        return new RentalDocumentService(
+            $this->documentRepository,
+            $this->bookingRepository,
+            RentalTestHelper::bookingAudit($this->pdo, $this->encryption),
+            $this->editableContentService,
+            $this->fileRepository,
+            new \Core\File\AttachedFileRemover($this->fileRepository, $this->storagePath),
+            new DocumentPdfService(),
+            new HtmlSanitizer(),
+            $this->settingService,
+            new JournalService(new JournalRepository($this->pdo)),
+            $this->storagePath,
+            null,
+            new \Modules\Rental\Service\RentalPaymentService(
+                new \Modules\Rental\Repository\RentalPaymentRepository($this->pdo, $this->encryption),
+                RentalTestHelper::bookingAudit($this->pdo, $this->encryption),
+                new JournalService(new JournalRepository($this->pdo)),
+                null,
+                null,
+                null,
+                $accounts
+            )
+        );
+    }
+
+    private function documentCount(): int
+    {
+        return (int) $this->pdo->query('SELECT COUNT(*) FROM rental_documents')->fetchColumn();
+    }
+
+    /** Point 2: no contract without the renter's address, and the refusal says where to complete it. */
+    public function testAContractIsRefusedWithoutTheRentersAddressAndSaysWhereToCompleteIt(): void
+    {
+        $booking = $this->createBooking(renterAddress: null);
+
+        try {
+            $this->service->generate($booking, $this->asset(), DocumentType::CONTRACT, $this->settings());
+            $this->fail('a contract without the renter\'s address must be refused');
+        } catch (\Modules\Rental\Service\RentalException $e) {
+            $this->assertStringContainsString("il manque l'adresse du locataire", $e->getMessage());
+            $this->assertStringContainsString('« Vos coordonnées de facturation » sur sa page de suivi', $e->getMessage());
+            $this->assertStringContainsString('« Coordonnées de facturation » sur la page « Facture »', $e->getMessage());
+            $this->assertStringNotContainsString('Adresse du bien', $e->getMessage());
+        }
+
+        $this->assertSame(0, $this->documentCount(), 'a refused contract leaves nothing behind');
+    }
+
+    /** The billing name stands in for a blank request name; with neither, both are asked for. */
+    public function testTheRefusalNamesEverythingMissingAtOnce(): void
+    {
+        $booking = $this->createBooking(renterName: ' ', renterAddress: null);
+        $this->assetRepository->saveContractDetails($this->assetId, null, 60);
+
+        try {
+            $this->service->assertContractCanBeGenerated($booking, $this->asset());
+            $this->fail('refused');
+        } catch (\Modules\Rental\Service\RentalException $e) {
+            $this->assertStringContainsString("il manque le nom et l'adresse du locataire", $e->getMessage());
+            $this->assertStringContainsString("L'adresse du bien manque aussi", $e->getMessage());
+        }
+
+        $this->bookingRepository->saveBillingIdentity($booking->id, [
+            'name' => 'ASBL Les Scouts', 'address' => 'Rue Haute 12, 1000 Bruxelles',
+        ]);
+        $this->assetRepository->saveContractDetails($this->assetId, 'Chemin du Camp 4, 1300 Wavre', 60);
+        $this->service->assertContractCanBeGenerated($booking, $this->asset());
+        $this->assertSame(
+            'ASBL Les Scouts',
+            $this->service->valuesFor($booking, $this->asset(), $this->settings())['locataire_nom']
+        );
+    }
+
+    /** Point 4: no contract without the asset's address. */
+    public function testAContractIsRefusedWithoutTheAssetsAddressAndSaysWhereToCompleteIt(): void
+    {
+        $this->assetRepository->saveContractDetails($this->assetId, null, 60);
+        $booking = $this->createBooking();
+
+        try {
+            $this->service->generate($booking, $this->asset(), DocumentType::CONTRACT, $this->settings());
+            $this->fail('a contract without the asset\'s address must be refused');
+        } catch (\Modules\Rental\Service\RentalException $e) {
+            $this->assertStringStartsWith('Le contrat ne peut pas être généré : l\'adresse du bien manque.', $e->getMessage());
+            $this->assertStringContainsString('« Adresse du bien » dans la section « Contrat » des « Réglages »', $e->getMessage());
+        }
+
+        $this->assertSame(0, $this->documentCount());
+    }
+
+    /** The guard is the contract's: an invoice is out of its scope. */
+    public function testAnInvoiceIsNotHeldToTheContractsGuard(): void
+    {
+        $this->assetRepository->saveContractDetails($this->assetId, null, 60);
+        $booking = $this->createBooking(renterAddress: null);
+
+        $document = $this->service->generate($booking, $this->asset(), DocumentType::INVOICE, $this->settings());
+
+        $this->assertSame(DocumentType::INVOICE, $document->type);
+    }
+
+    public function testTheAssetAddressAndTheFreeWithdrawalDeadlineArePrinted(): void
+    {
+        $booking = $this->createBooking();
+
+        $values = $this->service->valuesFor($booking, $this->asset(), $this->settings());
+
+        $this->assertSame('Chemin du Camp 4, 1300 Wavre', $values['bien_adresse']);
+        // Sixty days before an arrival on 1 July 2027.
+        $this->assertSame('02/05/2027', $values['date_limite_desistement']);
+
+        $text = (string) preg_replace('/\s+/', ' ', $this->renderedTextOf(
+            $this->service->generate($booking, $this->asset(), DocumentType::CONTRACT, $this->settings())->id
+        ));
+        // A justified line loses its spaces to the text extractor: the values
+        // themselves are what is checked here.
+        $this->assertStringContainsString('Chemin du Camp 4, 1300 Wavre', $text);
+        $this->assertStringContainsString('02/05/2027', $text);
+    }
+
+    /** Point 8: the account and its holder, from the asset's Finance account. */
+    public function testThePaymentKeywordsComeFromTheAssetsFinanceAccount(): void
+    {
+        $booking = $this->createBooking();
+        $settings = new PaymentSettings(
+            enabled: true,
+            financeAccountId: 1,
+            depositMode: \Modules\Rental\Payment\DepositMode::FIXED,
+            depositAmountCents: 10000,
+            depositDueDays: 15,
+            balanceDueDays: 30
+        );
+
+        $values = $this->serviceWithAccount('be68 5390 0754 7034', 'ASBL Les Amis du Local')
+            ->valuesFor($booking, $this->asset(), $settings);
+
+        $this->assertSame('BE68 5390 0754 7034', $values['iban']);
+        $this->assertSame('ASBL Les Amis du Local', $values['titulaire_compte']);
+        // Before the first send: counted from it, which this contract's send will stamp.
+        $this->assertSame("dans les 15 jours qui suivent l'envoi du présent contrat", $values['echeance_acompte']);
+        $this->assertSame('au plus tard le 01/06/2027', $values['echeance_solde']);
+
+        // After it, the date that send stamped (issue #927).
+        $this->pdo->prepare('UPDATE rental_bookings SET deposit_due_date = ? WHERE id = ?')
+            ->execute(['2027-02-15', $booking->id]);
+        $values = $this->serviceWithAccount('BE68539007547034', 'ASBL Les Amis du Local')
+            ->valuesFor($booking, $this->asset(), $settings);
+        $this->assertSame('au plus tard le 15/02/2027', $values['echeance_acompte']);
+    }
+
+    /** Without an account the contract says so, rather than print a blank. */
+    public function testWithoutAFinanceAccountTheContractSaysSo(): void
+    {
+        $booking = $this->createBooking();
+        $settings = new PaymentSettings(enabled: false);
+
+        foreach ([$this->service, $this->serviceWithAccount(null, null)] as $service) {
+            $values = $service->valuesFor($booking, $this->asset(), $settings);
+
+            $this->assertSame('à communiquer par écrit par le bailleur', $values['iban']);
+            $this->assertSame('le bailleur', $values['titulaire_compte']);
+            $this->assertNull($values['echeance_acompte'], 'no deposit, no deadline for it');
+            $this->assertSame('avant le début du séjour', $values['echeance_solde']);
+        }
+
+        // An account pinned but without an IBAN says it too.
+        $values = $this->serviceWithAccount(null, 'Unité Saint-Georges')
+            ->valuesFor($booking, $this->asset(), new PaymentSettings(financeAccountId: 1));
+        $this->assertSame('à communiquer par écrit par le bailleur', $values['iban']);
+        $this->assertSame('Unité Saint-Georges', $values['titulaire_compte']);
+
+        $text = (string) preg_replace('/\s+/', '', $this->renderedTextOf(
+            $this->service->generate($booking, $this->asset(), DocumentType::CONTRACT, $settings)->id
+        ));
+        $this->assertStringContainsString('titulaireestlebailleur', $text);
+    }
+
+    /** Point 5: the accepted conditions are a link the reader can click, and still printed. */
+    public function testTheAcceptedConditionsAreAClickableLinkInThePdf(): void
+    {
+        $this->settingService->register('base_url', 'https://unite.example.be', 'url', 'Adresse', 'Description de test.');
+        $this->settingService->set('base_url', 'https://unite.example.be');
+        $versions = new \Modules\Rental\Repository\RentalConditionsVersionRepository($this->pdo);
+        $hash = hash('sha256', '<p>Conditions</p>');
+        $accepted = $versions->archive($this->assetId, $hash, '<p>Conditions</p>', new \DateTimeImmutable('2026-09-12'), null);
+        $booking = $this->createBooking();
+        $this->pdo->prepare('UPDATE rental_bookings SET conditions_version = ?, conditions_hash = ? WHERE id = ?')
+            ->execute([$accepted->version, $hash, $booking->id]);
+        $booking = $this->bookingRepository->findById($booking->id);
+        $this->assertNotNull($booking);
+        $url = 'https://unite.example.be/locations/local-saint-georges/conditions/' . $accepted->version;
+
+        $document = $this->serviceWithConditions($versions)
+            ->generate($booking, $this->asset(), DocumentType::CONTRACT, $this->settings());
+
+        $pdf = $this->pdfTextOf($document->id);
+        $this->assertStringContainsString('/URI', $pdf, 'dompdf wrote a link annotation');
+        // At least twice: the frame's header line and article 12 of the body
+        // (dompdf writes one annotation per line a link runs over).
+        $this->assertGreaterThanOrEqual(2, substr_count($pdf, '/URI (' . $url . ')'));
+        $this->assertStringContainsString($url, (string) preg_replace('/\s+/', '', $this->renderedTextOf($document->id)));
+    }
+
+    /** Point 12: a contract is headed by its landlord, never by the site's own name. */
+    public function testTheContractIsHeadedByTheLandlordAndPrintsNoEmptyEnterpriseNumber(): void
+    {
+        $this->settingService->set('site_name', 'Scout Magic');
+        $this->assetRepository->saveLandlord($this->assetId, 'ASBL Les Amis du Local', 'Place du Parc 3, 1300 Wavre', null);
+        $booking = $this->createBooking();
+
+        $text = (string) preg_replace('/\s+/', ' ', $this->renderedTextOf(
+            $this->service->generate($booking, $this->asset(), DocumentType::CONTRACT, $this->settings())->id
+        ));
+
+        $this->assertStringNotContainsString('Scout Magic', $text);
+        $this->assertStringContainsString('ASBL Les Amis du Local', $text);
+        $this->assertStringNotContainsString("N° d'entreprise", $text);
+
+        $this->assetRepository->saveLandlord($this->assetId, 'ASBL Les Amis du Local', 'Place du Parc 3', '0123.456.789');
+        $values = $this->service->valuesFor($booking, $this->asset(), $this->settings());
+        $this->assertSame(", n° d'entreprise 0123.456.789", $values['mention_bce_bailleur']);
+    }
+
+    /** Point 12: « nuit(s) » and its kind, agreed. */
+    public function testTheCountsAreAgreedInTheSingularAndThePlural(): void
+    {
+        $booking = $this->createBooking();
+        $values = $this->service->valuesFor($booking, $this->asset(), $this->settings());
+        $this->assertSame('3 nuits', $values['duree_nuits']);
+        $this->assertSame('20 participants', $values['nombre_participants']);
+        $this->assertSame('60 personnes', $values['capacite_personnes']);
+
+        $this->pdo->prepare('UPDATE rental_bookings SET departure_date = ?, estimated_persons = 1 WHERE id = ?')
+            ->execute(['2027-07-02', $booking->id]);
+        $this->pdo->exec('UPDATE rental_assets SET capacity = 1');
+        $booking = $this->bookingRepository->findById($booking->id);
+        $this->assertNotNull($booking);
+        $values = $this->service->valuesFor($booking, $this->asset(), $this->settings());
+        $this->assertSame('1 nuit', $values['duree_nuits']);
+        $this->assertSame('1 participant', $values['nombre_participants']);
+        $this->assertSame('1 personne', $values['capacite_personnes']);
+    }
+
+    /** Point 2: the group's responsible person on site, stored encrypted. */
+    public function testTheResponsiblePersonOnSiteIsNamedAndStoredEncrypted(): void
+    {
+        $booking = $this->createBooking();
+        $this->bookingRepository->saveOnSiteContact($booking->id, 'Paul Lemaire', '+32 470 12 34 56');
+
+        $values = $this->service->valuesFor($booking, $this->asset(), $this->settings());
+        $this->assertSame('Paul Lemaire', $values['responsable_nom']);
+        $this->assertSame('+32 470 12 34 56', $values['responsable_telephone']);
+
+        $raw = (string) json_encode($this->pdo->query('SELECT * FROM rental_bookings')->fetch(\PDO::FETCH_ASSOC));
+        $this->assertStringNotContainsString('Paul Lemaire', $raw);
+        $this->assertStringNotContainsString('470 12 34 56', $raw);
+    }
+
+    /** Point 11: the controller, the duration and where to write. */
+    public function testTheDataClauseNamesItsDurationAndAContact(): void
+    {
+        $booking = $this->createBooking();
+
+        $values = $this->service->valuesFor($booking, $this->asset(), $this->settings());
+        $this->assertSame(
+            "7 ans à compter de la clôture de l'exercice comptable au cours duquel le séjour a eu lieu",
+            $values['duree_conservation']
+        );
+        $this->assertSame("l'adresse du bailleur indiquée en tête du présent contrat", $values['contact_donnees']);
+
+        $this->settingService->register('contact_email', 'rgpd@unite.be', 'email', 'Contact', 'Description de test.');
+        $this->settingService->set('contact_email', 'rgpd@unite.be');
+        $this->assertSame(
+            'rgpd@unite.be',
+            $this->service->valuesFor($booking, $this->asset(), $this->settings())['contact_donnees']
+        );
     }
 
     // ── VAT (§6.27) ─────────────────────────────────────────────────────

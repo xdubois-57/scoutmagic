@@ -55,6 +55,10 @@ final class RentalBlueprint
         'emergencyPhone' => '+32 470 00 30 00',
         'isPublic' => true,
         'billingUnit' => 'per_night',
+        // What a contract states about the asset itself (issue #977): no
+        // contract is generated without the address.
+        'address' => "Rue de la Grange 12\n1340 Ottignies",
+        'freeWithdrawalDays' => 90,
     ];
 
     /**

@@ -11,7 +11,13 @@
   box arrives open, as the task it is. collapse-label.js swaps « Modifier »
   and « Replier » with the fold, from the two attributes on the trigger.
 
-  Requires `asset`, `booking`, `booking_page` and `billing`.
+  **The contract needs the name and the address** (issue #977, annex 8.1
+  of the Walloon tourism code): no contract is generated without them, so
+  the paragraph under the title says so. The same form names the group's
+  responsible person on site, whom the contract names beside the renter.
+
+  Requires `asset`, `booking`, `booking_page` and `billing`;
+  `on_site_contact` is optional.
 #}
 {% set billing_known = billing.name and billing.address %}
 <div class="card mb-3" id="coordonnees-facturation">
@@ -40,6 +46,7 @@
             <p class="text-body-secondary small">
                 Demandées au moment utile, pas au formulaire public : un visiteur qui se renseigne sur un
                 week-end n'a aucune raison de taper un numéro de TVA. Tout est chiffré au repos.
+                L'adresse est indispensable au contrat de location : sans elle, il ne se génère pas.
             </p>
             <form method="post" action="/mes-locations/facturation" class="row g-2">
                 {{ csrf_field()|raw }}
@@ -81,6 +88,21 @@
                     <input type="text" class="form-control form-control-sm" id="billing-reference"
                            name="billing_reference" value="{{ billing.reference }}">
                 </div>
+                <div class="col-12 col-md-6">
+                    <label class="form-label" for="on-site-contact-name">Responsable du groupe sur place</label>
+                    <input type="text" class="form-control form-control-sm" id="on-site-contact-name"
+                           name="on_site_contact_name" maxlength="200"
+                           value="{{ on_site_contact.name ?? '' }}" aria-describedby="on-site-contact-help">
+                </div>
+                <div class="col-12 col-md-6">
+                    <label class="form-label" for="on-site-contact-phone">Téléphone du responsable</label>
+                    <input type="tel" class="form-control form-control-sm" id="on-site-contact-phone"
+                           name="on_site_contact_phone" maxlength="40"
+                           value="{{ on_site_contact.phone ?? '' }}" aria-describedby="on-site-contact-help">
+                </div>
+                <p class="col-12 form-text mt-0" id="on-site-contact-help">
+                    Une personne majeure présente pendant tout le séjour, que le contrat nomme.
+                </p>
                 <div class="col-12">
                     <button type="submit" class="btn btn-sm btn-outline-secondary">Enregistrer</button>
                 </div>

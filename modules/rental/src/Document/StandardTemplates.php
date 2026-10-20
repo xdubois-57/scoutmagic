@@ -151,15 +151,29 @@ final class StandardTemplates
             HTML;
     }
 
+    /**
+     * The standard « Convention de location ».
+     *
+     * **Annex 8.1 of the Walloon tourism code** (« éléments minimums devant
+     * figurer au sein d'un contrat de location d'un endroit de camp »,
+     * ministerial order of 1 October 2025), which the Atouts Camps label
+     * makes binding, lists what such a contract must state; this body
+     * states all of it (issue #977). Its point 9 — what each party owes when
+     * it fails the other — has an IMPOSED wording, reproduced word for word
+     * in article 9 below: `StandardTemplatesTest` pins it, and it is not to
+     * be rephrased. The renter's own withdrawal is a separate, progressive
+     * scale built on the free-withdrawal deadline the annex requires
+     * (point 8c), so that a private renter is not held to a clause a court
+     * could find abusive.
+     */
     public static function contract(): string
     {
         return <<<'HTML'
             <h2>Convention de location</h2>
 
             <p><strong>Entre le bailleur</strong><br>
-            {{ nom_bailleur }}<br>
-            {{ adresse_bailleur }}<br>
-            N° d'entreprise&nbsp;: {{ bce_bailleur }}</p>
+            {{ nom_bailleur }}{{ mention_bce_bailleur }}<br>
+            {{ adresse_bailleur }}</p>
 
             <p><strong>Et le locataire</strong><br>
             {{ locataire_nom }}<br>
@@ -167,13 +181,16 @@ final class StandardTemplates
             {{ locataire_adresse }}<br>
             {{ locataire_email }} — {{ locataire_telephone }}</p>
 
+            <p>Responsable du groupe sur place, personne majeure présente pendant tout le
+            séjour&nbsp;: {{ responsable_nom }} — {{ responsable_telephone }}</p>
+
             <p>Dossier <strong>{{ reference }}</strong>, établi le {{ date_du_jour }}.</p>
 
             <h3>1. Objet</h3>
             <p>Le bailleur met à disposition du locataire&nbsp;: <strong>{{ bien }}</strong>
-            ({{ bien_type }}), pour un séjour de {{ nuits }} nuit(s) et
-            {{ participants }} participant(s).</p>
-            <p>La capacité maximale d'accueil du bien est de {{ capacite }} personne(s),
+            ({{ bien_type }}), à l'adresse {{ bien_adresse }}, pour un séjour de
+            {{ duree_nuits }} et {{ nombre_participants }}.</p>
+            <p>La capacité maximale d'accueil du bien est de {{ capacite_personnes }},
             animateurs et intendance compris. Elle ne peut être dépassée.</p>
 
             <h3>2. Durée</h3>
@@ -184,9 +201,10 @@ final class StandardTemplates
 
             <h3>3. Prix et paiement</h3>
             <p>Le montant total de la location s'élève à <strong>{{ prix_total }}</strong>.</p>
-            <p>Un acompte de {{ acompte }} est demandé pour confirmer la réservation. Le solde
-            est payable avant le début du séjour. Tout versement se fait sur le compte du
-            bailleur avec la communication <strong>{{ communication }}</strong>.</p>
+            <p>Un acompte de {{ acompte }} est demandé pour confirmer la réservation&nbsp;; il
+            est à verser {{ echeance_acompte }}. Le solde est à verser {{ echeance_solde }}.</p>
+            <p>Tout versement se fait sur le compte {{ iban }}, dont le titulaire est
+            {{ titulaire_compte }}, avec la communication <strong>{{ communication }}</strong>.</p>
             <p>La réservation n'est définitive qu'après réception de l'acompte.</p>
 
             <h3>4. Garantie</h3>
@@ -205,15 +223,17 @@ final class StandardTemplates
 
             <h3>6. État des lieux</h3>
             <p>Un état des lieux contradictoire est établi à l'arrivée et au départ, en
-            présence des deux parties, et fait foi entre elles. Les compteurs sont relevés au
-            même moment. Les dégâts éventuels sont constatés au plus tard le jour du départ.
-            À défaut d'état des lieux d'entrée, les lieux sont réputés avoir été reçus en bon
-            état.</p>
+            présence des deux parties. Les compteurs sont relevés au même moment. À défaut
+            d'état des lieux d'entrée, les lieux sont réputés avoir été reçus en bon état.</p>
+            <p>L'ensemble des biens loués sera rendu par les deux parties dans l'état où ils
+            ont été trouvés, l'état des lieux signé par les deux parties établi en début et en
+            fin de location faisant foi. Les dégâts éventuels seront constatés au plus tard le
+            jour du départ du groupe.</p>
 
             <h3>7. Obligations du locataire</h3>
             <ul>
-                <li>Occuper les lieux en bon père de famille et respecter le voisinage,
-                    en particulier le calme après 22&nbsp;h.</li>
+                <li>Occuper les lieux en personne prudente et raisonnable et respecter le
+                    voisinage, en particulier le calme après 22&nbsp;h.</li>
                 <li>Rendre les lieux nettoyés&nbsp;: sols balayés et lavés, sanitaires et
                     cuisine propres, déchets triés et évacués.</li>
                 <li>Ne pas dépasser le nombre de participants annoncé sans accord écrit.</li>
@@ -226,25 +246,54 @@ final class StandardTemplates
             <h3>8. Assurance et responsabilité</h3>
             <p>Le locataire déclare être couvert par une assurance en responsabilité civile
             pour l'ensemble de son groupe et pour la durée du séjour, et en fournit la preuve
-            sur simple demande. Le bailleur décline toute responsabilité en cas de vol, de
-            perte ou de dommage aux biens personnels des occupants, ainsi qu'en cas
-            d'accident lié à l'usage des lieux.</p>
+            sur simple demande. Le bailleur n'est pas responsable des vols, des pertes ni des
+            dommages aux biens personnels des occupants, sauf faute de sa part.</p>
 
-            <h3>9. Annulation</h3>
-            <p>Toute annulation est notifiée par écrit. L'acompte reste acquis au bailleur.
-            En cas d'annulation moins de trente jours avant le début du séjour, le solde
-            reste dû, sauf accord contraire des deux parties.</p>
-            <p>Si le bailleur se trouve dans l'impossibilité de fournir les lieux, il
-            rembourse l'intégralité des sommes versées, sans autre indemnité.</p>
+            <h3>9. Annulation et manquements</h3>
+            <p><strong>Désistement du locataire.</strong> Le locataire peut se désister par
+            écrit. Jusqu'au <strong>{{ date_limite_desistement }}</strong> inclus, il le fait
+            sans indemnité et les sommes versées lui sont remboursées. Au-delà de cette date,
+            il doit au bailleur une indemnité qui dépend du moment où le désistement parvient
+            à celui-ci&nbsp;:</p>
+            <ul>
+                <li>plus de quatre mois avant le début du séjour&nbsp;: vingt-cinq pour cent
+                    du prix de la location&nbsp;;</li>
+                <li>entre quatre mois et un mois avant le début du séjour&nbsp;: cinquante pour
+                    cent du prix de la location&nbsp;;</li>
+                <li>moins d'un mois avant le début du séjour&nbsp;: soixante-quinze pour cent du
+                    prix de la location.</li>
+            </ul>
+            <p>Les sommes déjà versées s'imputent sur cette indemnité et le surplus est
+            remboursé. Si le bailleur reloue le bien pour la même période, l'indemnité est
+            réduite à concurrence de ce que cette nouvelle location lui rapporte.</p>
+            <p><strong>Manquements des parties.</strong> Au cas où le bailleur manquerait à son
+            obligation de délivrance, il sera redevable envers le locataire, outre le
+            remboursement de l'acompte éventuellement perçu, d'une indemnité minimale
+            irréductible équivalent à&nbsp;:</p>
+            <ul>
+                <li>cinquante pour cent du prix de la location s'il en a informé le locataire au
+                    minimum quatre mois avant la prise de cours de la location&nbsp;;</li>
+                <li>cent pour cent du prix de la location dans les autres cas&nbsp;;</li>
+            </ul>
+            <p>Si le locataire justifie d'un préjudice supérieur, le bailleur sera tenu de
+            l'indemniser intégralement.</p>
+            <p>Il en va de même pour le locataire s'il ne respecte pas ses obligations.</p>
 
             <h3>10. Traitement des données</h3>
-            <p>Les données du locataire sont traitées uniquement pour la gestion de cette
-            location et conservées le temps nécessaire à son suivi comptable et légal.</p>
+            <p>Le bailleur, {{ nom_bailleur }}, est responsable du traitement des données
+            personnelles du locataire et du responsable du groupe. Elles servent uniquement à
+            la gestion de cette location&nbsp;: la réservation, le contrat, les paiements,
+            l'état des lieux et le décompte. Elles sont conservées
+            {{ duree_conservation }}, puis supprimées.</p>
+            <p>Le locataire peut accéder à ses données, les faire rectifier ou en demander
+            l'effacement, dans les limites des obligations légales du bailleur, en écrivant
+            à {{ contact_donnees }}.</p>
 
             <h3>11. Litiges</h3>
             <p>La présente convention est régie par le droit belge. En cas de litige relatif
-            à son exécution, les tribunaux de l'arrondissement où se situe le bien loué sont
-            seuls compétents.</p>
+            à l'exécution du présent contrat, les tribunaux du lieu où se trouve le bien loué
+            sont compétents. Cette clause ne prive pas le locataire qui agit à des fins
+            privées du droit de saisir le juge de son domicile que la loi lui reconnaît.</p>
 
             <h3>12. Acceptation</h3>
             <p>Les conditions de location acceptées par le locataire lors de sa demande
@@ -252,8 +301,13 @@ final class StandardTemplates
             <p>Fait en deux exemplaires. La signature de la présente convention vaut
             acceptation de l'ensemble de ses conditions.</p>
 
-            <p>Pour le bailleur&nbsp;: ..............................................<br>
-            Pour le locataire&nbsp;: ..............................................</p>
+            <p><strong>Pour le bailleur</strong>, {{ nom_bailleur }}<br>
+            Fait à ......................................, le ....../....../..........<br>
+            Signature&nbsp;: ..............................................</p>
+
+            <p><strong>Pour le locataire</strong>, {{ locataire_nom }}<br>
+            Fait à ......................................, le ....../....../..........<br>
+            Signature&nbsp;: ..............................................</p>
             HTML;
     }
 

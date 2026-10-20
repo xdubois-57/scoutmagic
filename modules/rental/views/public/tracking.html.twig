@@ -286,9 +286,11 @@
                 <div class="collapse{{ billing_is_empty ? ' show' }}" id="facturation-body">
                     <div class="card-body pt-0">
                         <p class="text-body-secondary small">
-                            Utiles seulement si votre facture doit être établie au nom d'une
-                            association ou d'une société. Un particulier peut laisser ces champs
-                            vides. Tout est chiffré et n'est lu que par les gestionnaires du bien.
+                            Votre adresse et le responsable du groupe sur place figurent dans le
+                            contrat de location : sans votre adresse, il ne peut pas être établi.
+                            La raison sociale et les numéros ne servent que si votre facture doit être
+                            établie au nom d'une association ou d'une société. Tout est chiffré et
+                            n'est lu que par les gestionnaires du bien.
                         </p>
                         <form method="post" action="/locations/suivi/{{ booking.id }}/{{ tracking_token }}/facturation"
                               class="row g-2">
@@ -370,6 +372,30 @@
                                     value: billing.reference,
                                     maxlength: 100,
                                     help: 'Un numéro de bon de commande, si votre comptabilité en demande un.',
+                                    size: 'sm',
+                                    wrapper_class: 'mb-0',
+                                } only %}
+                            </div>
+                            <div class="col-12 col-md-6">
+                                {% include 'partials/form_field.html.twig' with {
+                                    field_id: 'renter-on-site-contact-name',
+                                    field_name: 'on_site_contact_name',
+                                    label: 'Responsable du groupe sur place',
+                                    value: on_site_contact.name ?? '',
+                                    maxlength: 200,
+                                    help: 'Une personne majeure présente pendant tout le séjour.',
+                                    size: 'sm',
+                                    wrapper_class: 'mb-0',
+                                } only %}
+                            </div>
+                            <div class="col-12 col-md-6">
+                                {% include 'partials/form_field.html.twig' with {
+                                    field_id: 'renter-on-site-contact-phone',
+                                    field_name: 'on_site_contact_phone',
+                                    label: 'Téléphone du responsable',
+                                    type: 'tel',
+                                    value: on_site_contact.phone ?? '',
+                                    maxlength: 40,
                                     size: 'sm',
                                     wrapper_class: 'mb-0',
                                 } only %}

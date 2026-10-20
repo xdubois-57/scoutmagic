@@ -88,6 +88,7 @@ import { loginAsAdmin } from '../support/admin-login.js';
 import { openCard } from '../support/collapsible-card.js';
 import { openSectionEditor } from '../support/section-editor.js';
 import { pngBuffer } from '../support/png.js';
+import { giveAssetAddress, giveRenterAddress } from '../support/rental-contract.js';
 import { scaled } from '../support/timeouts.js';
 import { waitOutHumanCheckDelay } from '../support/human-check.js';
 import { waitForServerResponse } from '../support/response.js';
@@ -193,6 +194,10 @@ test.describe('Rentals — the milestones after a confirmation', () => {
         await page.reload({ waitUntil: 'load' });
         await expect(page.locator('#inventory-list .list-editor-item')).toHaveCount(2);
         await expect(page.locator('#inventory-list .list-editor-item').first()).toContainText(INVENTORY_KEYS);
+
+        // What no contract is generated without (issue #977): the asset's
+        // address, and — given by the renter below — theirs.
+        await giveAssetAddress(page, ASSET_SLUG, 'Chemin du Camp 4, 1300 Wavre');
 
         // The request itself, by somebody with no account — in a browser of
         // its own, so the manager's session survives and this spec pays for
@@ -637,8 +642,12 @@ async function requestTheHall(browser) {
 
         const heading = page.getByRole('heading', { name: /Votre demande LOC-[2-9A-HJKMNP-Z]{6}/ });
         await expect(heading).toBeVisible();
+        const reference = (await heading.textContent()).match(/LOC-[2-9A-HJKMNP-Z]{6}/)[0];
 
-        return (await heading.textContent()).match(/LOC-[2-9A-HJKMNP-Z]{6}/)[0];
+        // The contract states the renter's address (issue #977).
+        await giveRenterAddress(page, 'Rue Haute 12, 1000 Bruxelles');
+
+        return reference;
     } finally {
         await visitor.close();
     }

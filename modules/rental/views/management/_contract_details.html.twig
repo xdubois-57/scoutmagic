@@ -1,0 +1,72 @@
+{#
+  « Contrat » — what the contract states about the asset itself (issue
+  #977): where it is, and until when a renter may withdraw without owing
+  anything. Annex 8.1 of the Walloon tourism code requires both on a
+  contract for a camp site; no contract is generated without the address.
+
+  Requires `asset`.
+#}
+<div class="card mb-4" id="contrat">
+    <div class="card-body">
+        <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-1">
+            <h2 class="h5 mb-0">Contrat</h2>
+            <button type="button" class="btn btn-sm btn-outline-secondary"
+                    data-bs-toggle="modal" data-bs-target="#contrat-edit">
+                <i class="bi bi-pencil" aria-hidden="true"></i>
+                Modifier
+            </button>
+        </div>
+        <p class="text-body-secondary small mb-3">
+            Ce que le contrat de location dit du bien lui-même. Chaque contrat imprime la date
+            limite de désistement calculée pour son propre séjour.
+        </p>
+
+        <dl class="row mb-0">
+            <dt class="col-sm-5 col-lg-4">Adresse du bien</dt>
+            <dd class="col-sm-7 col-lg-8">
+                {% if asset.address %}
+                    {{ asset.address|nl2br }}
+                {% else %}
+                    <span class="text-danger">Aucune : aucun contrat ne peut être généré.</span>
+                {% endif %}
+            </dd>
+
+            <dt class="col-sm-5 col-lg-4">Date limite de désistement sans indemnité</dt>
+            <dd class="col-sm-7 col-lg-8">
+                {{ asset.freeWithdrawalDays }} jour{{ asset.freeWithdrawalDays > 1 ? 's' }} avant l'arrivée
+            </dd>
+        </dl>
+    </div>
+</div>
+
+{# Outside the card: a modal nested in one inherits its stacking context. #}
+{% embed 'partials/modal.html.twig' with {
+    id: 'contrat-edit',
+    title: 'Contrat de ce bien',
+    section_editor: true,
+    asset: asset,
+} only %}
+    {% block body %}
+        <form method="post" action="/mes-locations/{{ asset.slug }}/reglages/contrat" id="contract-details-form">
+            {{ csrf_field()|raw }}
+
+            {% include 'partials/form_field.html.twig' with {
+                field_id: 'asset-address', field_name: 'asset_address', type: 'textarea', rows: 3,
+                label: 'Adresse du bien', maxlength: 500,
+                help: 'L\'adresse où se trouve le bien loué, imprimée dans le contrat.',
+                value: asset.address ?? '',
+            } only %}
+            {% include 'partials/form_field.html.twig' with {
+                field_id: 'asset-free-withdrawal-days', field_name: 'free_withdrawal_days', type: 'number',
+                label: 'Date limite de désistement sans indemnité (jours avant l\'arrivée)',
+                min: 0, max: 730, required: true,
+                help: 'Jusqu\'à cette date, le locataire peut se désister sans rien devoir.',
+                value: asset.freeWithdrawalDays,
+            } only %}
+        </form>
+    {% endblock %}
+    {% block footer %}
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Annuler</button>
+        <button type="submit" form="contract-details-form" class="btn btn-primary">Enregistrer le contrat</button>
+    {% endblock %}
+{% endembed %}

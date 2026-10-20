@@ -37,7 +37,8 @@ class DocumentPdfService
 {
     /**
      * @param string $bodyHtml Already sanitized, with every substituted value already escaped.
-     * @param string[] $metaLines Short lines under the title — reference, dates, a total.
+     * @param array<int, string|LinkedText> $metaLines Short lines under the title — reference, dates, a
+     *   total; a LinkedText carries an address the reader can click (issue #977).
      * @return string raw PDF bytes
      */
     public function generate(
@@ -109,7 +110,7 @@ class DocumentPdfService
     }
 
     /**
-     * @param string[] $metaLines
+     * @param array<int, string|LinkedText> $metaLines
      */
     private function renderHtml(
         string $title,
@@ -124,7 +125,9 @@ class DocumentPdfService
 
         $meta = '';
         foreach ($metaLines as $line) {
-            $meta .= '<div class="meta">' . htmlspecialchars($line, ENT_QUOTES, 'UTF-8') . '</div>';
+            $meta .= '<div class="meta">'
+                . ($line instanceof LinkedText ? $line->toHtml() : htmlspecialchars($line, ENT_QUOTES, 'UTF-8'))
+                . '</div>';
         }
 
         // The page number comes from dompdf's own `page` counter rather

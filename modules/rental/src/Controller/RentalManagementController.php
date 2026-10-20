@@ -2134,6 +2134,12 @@ class RentalManagementController extends AbstractController
                 throw new RentalException("La facture se génère une fois l'état des lieux de sortie complété.");
             }
 
+            // Refused before the receivable is raised (issue #977): a
+            // contract that cannot be generated leaves nothing behind.
+            if ($type === DocumentType::CONTRACT) {
+                $this->documentService->assertContractCanBeGenerated($booking, $asset);
+            }
+
             $settings = $this->paymentService?->settingsFor($asset->id) ?? new PaymentSettings();
             // A contract prints the real communication: the receivable is
             // raised first, and the generation refused when payments are on
@@ -2385,6 +2391,15 @@ class RentalManagementController extends AbstractController
                 'email' => Support::optionalString($request->getBody('billing_email')),
                 'reference' => Support::optionalString($request->getBody('billing_reference')),
             ]);
+            // The same form names the group's responsible person on site
+            // (issue #977); a post without the fields leaves it as it was.
+            if ($request->getBody('on_site_contact_name') !== null) {
+                $this->operationsService->saveOnSiteContact(
+                    $booking->id,
+                    Support::optionalString($request->getBody('on_site_contact_name')),
+                    Support::optionalString($request->getBody('on_site_contact_phone'))
+                );
+            }
 
             FlashMessage::set('success', 'Coordonnées de facturation enregistrées.');
         });
@@ -3229,6 +3244,7 @@ class RentalManagementController extends AbstractController
 
         return [
             'billing' => $this->operationsService->billingIdentity($booking->id),
+            'on_site_contact' => $this->operationsService->onSiteContact($booking->id),
             'settlements' => $this->stayService?->settlementsFor($booking->id) ?? [],
             'final_persons' => $finalPersons,
             'gesture' => $gesture,
