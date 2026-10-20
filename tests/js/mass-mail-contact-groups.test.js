@@ -150,8 +150,12 @@ describe('mass-mail-contact-groups.js', () => {
         });
 
         it('waits for the chooser it was clicked in to finish hiding before showing itself', async () => {
-            document.body.insertAdjacentHTML('beforeend',
-                '<div class="modal show" id="chooser"><button data-contact-group-open id="opener-chooser"></button></div>');
+            document.body.insertAdjacentHTML('beforeend', '<div class="modal show" id="chooser" style="display: block">'
+                + '<button data-contact-group-open id="opener-chooser"></button></div>');
+            // What mass-mail-lists.js does on the same button, before this
+            // document-level listener runs: Bootstrap's hide() takes
+            // `.show` off at once and leaves `display: block` until the end.
+            $('#opener-chooser').addEventListener('click', () => $('#chooser').classList.remove('show'));
             const show = vi.fn();
             window.bootstrap = { Modal: { getOrCreateInstance: () => ({ show }) } };
             await boot();
@@ -159,6 +163,7 @@ describe('mass-mail-contact-groups.js', () => {
             $('#opener-chooser').click();
             expect(show).not.toHaveBeenCalled();
 
+            $('#chooser').style.display = 'none';
             $('#chooser').dispatchEvent(new Event('hidden.bs.modal'));
             expect(show).toHaveBeenCalledTimes(1);
             expect(hidden(hook('new'))).toBe(false);
@@ -183,6 +188,95 @@ describe('mass-mail-contact-groups.js', () => {
             expect(hidden(hook('preview'))).toBe(false);
             expect(hook('summary').textContent).toBe('2 contacts trouvés, 2 doublons fusionnés.');
             expect(hook('file-name').textContent).toBe('partenaires-2026.xlsx');
+        });
+
+        it('counts the addresses already unsubscribed in the unit among those found', async () => {
+            serve({
+                '/admin/listes-de-diffusion/lists/7/contact-groups/analyse': preview({
+                    summary: { added: 3, unchanged: 0, removed: 0, kept_unsubscribed: 1 },
+                }),
+            });
+            await boot();
+            $('#opener-new').click();
+
+            chooseFile(hook('file-new'));
+            await settle();
+
+            expect(hook('summary').textContent).toBe('4 contacts trouvés, dont 1 désinscrit.');
+        });
+
+        it('says the session expired when the analysis is refused for it', async () => {
+            serve({
+                '/admin/listes-de-diffusion/lists/7/contact-groups/analyse': () => jsonResponse({
+                    success: false,
+                    error: 'Votre session a expiré. Rechargez la page et réessayez.',
+                }, 403),
+            });
+            await boot();
+            $('#opener-new').click();
+
+            chooseFile(hook('file-new'));
+            await settle();
+
+            expect(hook('error').textContent).toBe('Votre session a expiré. Rechargez la page et réessayez.');
+            expect(hidden(hook('preview'))).toBe(true);
+        });
+
+        it('previews and saves the file chosen last, whichever analysis answers first', async () => {
+            const answers = [];
+            serve({
+                '/admin/listes-de-diffusion/lists/7/contact-groups/analyse': () => new Promise((resolve) => {
+                    answers.push(resolve);
+                }),
+                '/admin/listes-de-diffusion/lists/7/contact-groups': { success: true, group: group({ id: 31 }) },
+            });
+            await boot();
+            $('#opener-new').click();
+            typeName('Partenaires');
+
+            chooseFile(hook('file-new'), 'a.xlsx');
+            chooseFile(hook('file-new'), 'b.xlsx');
+            await settle();
+            expect(answers).toHaveLength(2);
+
+            const rowsOfB = [{ name: 'B', email: 'b@test.be' }];
+            answers[1](await jsonResponse(preview({
+                contacts: rowsOfB,
+                summary: { added: 1, unchanged: 0, removed: 0, kept_unsubscribed: 0 },
+            })));
+            await settle();
+            answers[0](await jsonResponse(preview()));
+            await settle();
+
+            expect(hook('file-name').textContent).toBe('b.xlsx');
+            expect(hook('summary').textContent).toBe('1 contact trouvé.');
+            expect(saveButton().disabled).toBe(false);
+
+            saveButton().click();
+            await settle();
+            expect(JSON.parse(fetch.mock.calls[2][1].body).contacts).toEqual(rowsOfB);
+        });
+
+        it('keeps « Enregistrer » waiting for the file chosen last when an earlier one answers', async () => {
+            const answers = [];
+            serve({
+                '/admin/listes-de-diffusion/lists/7/contact-groups/analyse': () => new Promise((resolve) => {
+                    answers.push(resolve);
+                }),
+            });
+            await boot();
+            $('#opener-new').click();
+            typeName('Partenaires');
+
+            chooseFile(hook('file-new'), 'a.xlsx');
+            chooseFile(hook('file-new'), 'b.xlsx');
+            await settle();
+            answers[0](await jsonResponse(preview()));
+            await settle();
+
+            expect(saveButton().disabled).toBe(true);
+            expect(hidden(hook('preview'))).toBe(true);
+            expect(hook('file-name').textContent).toBe('');
         });
 
         it('keeps « Enregistrer » disabled until the group has both a name and a file', async () => {

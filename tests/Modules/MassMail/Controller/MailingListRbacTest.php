@@ -10,6 +10,7 @@ use Core\Config\ScoutYearService;
 use Core\Config\SettingRepository;
 use Core\Config\SettingService;
 use Core\Database\Connection;
+use Core\Http\Controller\AbstractController;
 use Core\Http\FrontController;
 use Core\Http\Request;
 use Core\Http\Router;
@@ -175,9 +176,13 @@ class MailingListRbacTest extends TestCase
         $response = $this->frontController($method, $path, $controller, $action, $roleMin)
             ->handle(new Request($method, str_replace('{id}', '1', $path), [], [], [], []));
 
-        $this->assertNotSame(
-            403,
-            $response->getStatusCode(),
+        // Past the guard, a route still turns back a request with no CSRF
+        // token — and guardCsrfJson() says so with a 403 of its own, which
+        // names the expired session rather than the role.
+        $refusal = json_decode($response->getBody(), true);
+        $this->assertFalse(
+            $response->getStatusCode() === 403
+                && (!is_array($refusal) || ($refusal['error'] ?? null) !== AbstractController::SESSION_EXPIRED_MESSAGE),
             "Expected {$roleMin} to get past the guard on {$method} {$path}"
         );
     }
@@ -198,6 +203,8 @@ class MailingListRbacTest extends TestCase
             ->handle(new Request($method, str_replace('{id}', '1', $path), [], [], [], []));
 
         $this->assertSame(403, $response->getStatusCode());
+        // The guard's own refusal, not the controller's CSRF one.
+        $this->assertStringNotContainsString(AbstractController::SESSION_EXPIRED_MESSAGE, $response->getBody());
     }
 
     /**
