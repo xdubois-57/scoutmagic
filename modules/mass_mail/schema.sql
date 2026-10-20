@@ -6,9 +6,9 @@
 --   "Chefs uniquement"), so a section becoming active/inactive at Desk
 --   import is reflected immediately, with nothing to keep in sync.
 -- - "custom" lists (mass_mail_lists) are admin-authored, stored, and
---   resolved dynamically at every use (functions x sections criteria,
---   never a cached member snapshot) — see mass_mail_list_functions/
---   mass_mail_list_sections below.
+--   resolved dynamically at every use (never a cached member snapshot):
+--   the union of their blocks — member groups (criteria) and contact
+--   groups (external addresses) — see mass_mail_list_blocks below.
 -- - "external" lists are never stored here either — contributed at
 --   request time by another module's Api\ExternalMailingListProvider
 --   (ARCHITECTURE.md §7.5), nullable, degrading to "no such list" when
@@ -80,12 +80,11 @@ CREATE TABLE IF NOT EXISTS mass_mail_suppressed_addresses (
     UNIQUE INDEX idx_mmsa_hash (email_hash)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- mass_mail_lists: a custom mailing list's identity/lifecycle. The
--- selection criteria themselves live in the two junction tables below —
--- this table is deliberately criteria-free so "resolve this list's
--- members" always means "join against the current junction rows", never
--- risking a stale snapshot. is_active mirrors the Core\Badge pattern
--- (§8.11 of ARCHITECTURE.md): a list already referenced by an email (any
+-- mass_mail_lists: a custom mailing list's identity/lifecycle. What it
+-- designates lives in its blocks below — this table is deliberately
+-- criteria-free so "resolve this list" always means "read its current
+-- blocks", never risking a stale snapshot. is_active mirrors the
+-- Core\Badge pattern (§8.11 of ARCHITECTURE.md): a list already referenced by an email (any
 -- status) can never be deleted, only deactivated — see Service\
 -- MailingListService::delete().
 CREATE TABLE IF NOT EXISTS mass_mail_lists (
@@ -100,29 +99,63 @@ CREATE TABLE IF NOT EXISTS mass_mail_lists (
     CONSTRAINT fk_mml_created_by FOREIGN KEY (created_by) REFERENCES user_accounts(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- mass_mail_list_functions / mass_mail_list_sections /
--- mass_mail_list_badges: a custom list's selection criteria, on three
--- axes. AND between the tables (a member must hold one of the selected
--- functions AND be within one of the selected sections AND wear one of
--- the selected badges), OR within each table. An axis with no rows is
--- NOT a constraint and drops out of the conjunction entirely; a list
--- with no rows in any of the three resolves to NO member, never to
--- every member — a list may legitimately hold nothing but its own
--- addresses. See Service\MailingListService::resolveCustomList().
-CREATE TABLE IF NOT EXISTS mass_mail_list_functions (
+-- mass_mail_list_blocks: what a custom list is made of. A list is a
+-- suite of 0..N blocks, ADDED together (a union) — no exclusion, no
+-- order: the screen ranks them by kind, member groups first, then by
+-- creation. No limit on how many of either kind.
+--
+-- Two kinds, and `kind` never changes once a block exists (Service\
+-- ListBlockService refuses it: a member group turned contact group would
+-- carry criteria nothing reads, or the other way round):
+-- - 'member_group': a set of criteria in the three junctions below,
+--   resolved against the scout year(s) chosen when the email is written.
+--   No name — its sentence describes it — so `name` stays NULL.
+-- - 'contact_group': people who are nobody in the members table, in
+--   mass_mail_block_contacts, maintained by Excel file only. `name` is
+--   mandatory for it (150 characters), and `file_replaced_at` says when
+--   the last file was applied (« fichier remplacé le … »). Always
+--   included, whatever the year.
+-- Both rules on `name` are the service's, not a CHECK constraint, which
+-- the SQLite test database would not enforce the same way.
+--
+-- A list with no block at all is valid and designates nobody.
+CREATE TABLE IF NOT EXISTS mass_mail_list_blocks (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     list_id INT UNSIGNED NOT NULL,
-    function_id INT UNSIGNED NOT NULL,
-    PRIMARY KEY (list_id, function_id),
-    CONSTRAINT fk_mmlf_list FOREIGN KEY (list_id) REFERENCES mass_mail_lists(id) ON DELETE CASCADE,
-    CONSTRAINT fk_mmlf_function FOREIGN KEY (function_id) REFERENCES functions(id) ON DELETE CASCADE
+    kind ENUM('member_group', 'contact_group') NOT NULL,
+    name VARCHAR(150) NULL,
+    file_replaced_at DATETIME NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_by INT UNSIGNED,
+    INDEX idx_mmlbk_list (list_id),
+    CONSTRAINT fk_mmlbk_list FOREIGN KEY (list_id) REFERENCES mass_mail_lists(id) ON DELETE CASCADE,
+    CONSTRAINT fk_mmlbk_created_by FOREIGN KEY (created_by) REFERENCES user_accounts(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE IF NOT EXISTS mass_mail_list_sections (
-    list_id INT UNSIGNED NOT NULL,
+-- mass_mail_block_functions / mass_mail_block_sections /
+-- mass_mail_block_badges: a member group's criteria, on three axes. AND
+-- between the tables (a member must hold one of the selected functions
+-- AND be within one of the selected sections AND wear one of the
+-- selected badges), OR within each table. An axis with no rows is NOT a
+-- constraint and drops out of the conjunction entirely. A member group
+-- with no row in any of the three would resolve to NO member, never to
+-- every member — and cannot be saved: Service\ListBlockService demands
+-- at least one choice. See Repository\MemberResolutionRepository::
+-- resolveCustomList().
+CREATE TABLE IF NOT EXISTS mass_mail_block_functions (
+    block_id INT UNSIGNED NOT NULL,
+    function_id INT UNSIGNED NOT NULL,
+    PRIMARY KEY (block_id, function_id),
+    CONSTRAINT fk_mmbf_block FOREIGN KEY (block_id) REFERENCES mass_mail_list_blocks(id) ON DELETE CASCADE,
+    CONSTRAINT fk_mmbf_function FOREIGN KEY (function_id) REFERENCES functions(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS mass_mail_block_sections (
+    block_id INT UNSIGNED NOT NULL,
     section_id INT UNSIGNED NOT NULL,
-    PRIMARY KEY (list_id, section_id),
-    CONSTRAINT fk_mmls_list FOREIGN KEY (list_id) REFERENCES mass_mail_lists(id) ON DELETE CASCADE,
-    CONSTRAINT fk_mmls_section FOREIGN KEY (section_id) REFERENCES sections(id) ON DELETE CASCADE
+    PRIMARY KEY (block_id, section_id),
+    CONSTRAINT fk_mmbs_block FOREIGN KEY (block_id) REFERENCES mass_mail_list_blocks(id) ON DELETE CASCADE,
+    CONSTRAINT fk_mmbs_section FOREIGN KEY (section_id) REFERENCES sections(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Badges are already historised BY SCOUT YEAR (member_badges.
@@ -132,63 +165,70 @@ CREATE TABLE IF NOT EXISTS mass_mail_list_sections (
 -- here. badges(id) is a CORE table, so this foreign key crosses no
 -- module boundary (AGENTS.md § Database).
 -- The badge cascade is guarded ABOVE the database, and has to be. Losing
--- this row does not narrow the list to nobody — an axis with no rows
--- stops constraining anything — so « la meute ET le badge X » would
+-- this row does not narrow the member group to nobody — an axis with no
+-- rows stops constraining anything — so « la meute ET le badge X » would
 -- quietly become « la meute » the moment X is deleted. Core\Badge\
--- BadgeService::delete() therefore refuses a badge a list still crosses,
--- asking Core\Module\BadgeUsageProvider, which Service\
+-- BadgeService::delete() therefore refuses a badge a member group still
+-- crosses, asking Core\Module\BadgeUsageProvider, which Service\
 -- MailingListBadgeUsageService implements over findReferencedBadgeIds().
 -- Deactivating a badge stays allowed: the criteria picker keeps offering
--- a deactivated badge a list names, greyed, so the criterion can be
+-- a deactivated badge a group names, greyed, so the criterion can be
 -- removed by hand first. The FK stays CASCADE for the case the guard
 -- cannot cover — a row deleted outside the application.
-CREATE TABLE IF NOT EXISTS mass_mail_list_badges (
-    list_id INT UNSIGNED NOT NULL,
+CREATE TABLE IF NOT EXISTS mass_mail_block_badges (
+    block_id INT UNSIGNED NOT NULL,
     badge_id INT UNSIGNED NOT NULL,
-    PRIMARY KEY (list_id, badge_id),
-    CONSTRAINT fk_mmlb_list FOREIGN KEY (list_id) REFERENCES mass_mail_lists(id) ON DELETE CASCADE,
-    CONSTRAINT fk_mmlb_badge FOREIGN KEY (badge_id) REFERENCES badges(id) ON DELETE CASCADE
+    PRIMARY KEY (block_id, badge_id),
+    CONSTRAINT fk_mmbb_block FOREIGN KEY (block_id) REFERENCES mass_mail_list_blocks(id) ON DELETE CASCADE,
+    CONSTRAINT fk_mmbb_badge FOREIGN KEY (badge_id) REFERENCES badges(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- mass_mail_list_addresses: the people a list writes to who are NOT
--- members of the site — the commune, the curé, the owner of the camp
--- ground, a former member Desk never knew. Resolving a custom list is the
--- UNION of what its criteria resolve and its own active addresses here.
+-- mass_mail_block_contacts: the people a contact group writes to who are
+-- NOT members of the site — the commune, the curé, the owner of the camp
+-- ground, a former member Desk never knew. Resolving a custom list adds
+-- the active contacts of every one of its contact groups to what its
+-- member groups resolve.
 --
--- The addresses belong to the LIST (list_id, ON DELETE CASCADE). No
--- global address book, no join table, no contact entity shared between
--- lists: editing an address changes it here and nowhere else. A shared
--- book would have bought inter-list deduplication for a rare case, at
--- the price of orphan rules and side effects nobody can see on screen.
+-- The contacts belong to their GROUP (block_id, ON DELETE CASCADE). No
+-- global address book, no contact entity shared between lists or
+-- groups: the same address in two groups is two rows, and the send
+-- writes to it once. A shared book would have bought inter-list
+-- deduplication for a rare case, at the price of orphan rules and side
+-- effects nobody can see on screen.
+--
+-- A group's contacts change ONLY through its Excel file (Service\
+-- ContactGroupImportService): no row is added, corrected or removed one
+-- at a time.
 --
 -- **The unsubscribe, by contrast, is global** and that is the reason for
 -- the second index: it is an UPDATE on every row carrying the same blind
--- index, in every list. Somebody asking not to be written to is
--- addressing the unit, not a list — and it creates no shared entity,
--- being a WHERE clause rather than a table.
+-- index, in every group of every list. Somebody asking not to be written
+-- to is addressing the unit, not a list — and it creates no shared
+-- entity, being a WHERE clause rather than a table. It is also written
+-- to mass_mail_suppressed_addresses, which is what keeps it true once a
+-- group is removed and its rows with it.
 --
--- An unsubscribed row survives everything: it stays visible (greyed) on
--- the screen, it survives a wholesale Excel replacement, and no import
--- can ever re-subscribe it. Without that the unsubscribe link is worth
--- nothing.
+-- An unsubscribed row survives every file: a wholesale replacement
+-- neither removes it nor re-subscribes it. Without that the unsubscribe
+-- link is worth nothing.
 --
 -- One name field, deliberately: these people are not members, there is
 -- no first name and no totem to tell apart. Name and address are
 -- personal data → BLOB encrypted through Core\Security\EncryptionService,
--- encrypted and decrypted ONLY in Repository\ListAddressRepository
+-- encrypted and decrypted ONLY in Repository\ContactRepository
 -- (SECURITY.md §5).
-CREATE TABLE IF NOT EXISTS mass_mail_list_addresses (
+CREATE TABLE IF NOT EXISTS mass_mail_block_contacts (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    list_id INT UNSIGNED NOT NULL,
+    block_id INT UNSIGNED NOT NULL,
     name_encrypted BLOB,
     email_encrypted BLOB NOT NULL,
     email_blind_index CHAR(64) NOT NULL,
     unsubscribed_at DATETIME,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE INDEX idx_mmla_list_email (list_id, email_blind_index),
-    INDEX idx_mmla_blind (email_blind_index),
-    CONSTRAINT fk_mmla_list FOREIGN KEY (list_id)
-        REFERENCES mass_mail_lists(id) ON DELETE CASCADE
+    UNIQUE INDEX idx_mmbc_block_email (block_id, email_blind_index),
+    INDEX idx_mmbc_blind (email_blind_index),
+    CONSTRAINT fk_mmbc_block FOREIGN KEY (block_id)
+        REFERENCES mass_mail_list_blocks(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- mass_mail_emails: one mass email, draft → test → sending → sent (see
@@ -280,8 +320,8 @@ CREATE TABLE IF NOT EXISTS mass_mail_recipients (
     -- NULL for the two recipients who are nobody in the members table,
     -- and audience_row_id is what tells them apart: a mail-merge row
     -- addressed by its "Email" column rather than a "Tiers" (audience_row_id
-    -- SET), and a mass_mail_list_addresses row of a custom list
-    -- (audience_row_id NULL). That pair is what
+    -- SET), and a contact of a custom list's contact group
+    -- (mass_mail_block_contacts, audience_row_id NULL). That pair is what
     -- Controller\UnsubscribeController branches on, so a « stop writing to
     -- me » lands on the right table. Every criteria-resolved recipient
     -- still always has a member_id.

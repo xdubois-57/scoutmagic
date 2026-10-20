@@ -323,17 +323,17 @@ class SendBatchHandler implements TaskHandlerInterface
                     )
                 );
                 $recipientRepository->recordSendSuccess($recipient->id);
-                // **The module vouches for its own list addresses**
+                // **The module vouches for its own contacts**
                 // (roadmap IT-05). `Core\Mail\MailService::send()` stamps
                 // a bounce receipt by itself, but only for an address the
                 // CORE already holds — a confirmed `member_emails` row or
                 // a `user_accounts` row — because an address the site was
                 // merely handed must not vouch for itself.
                 //
-                // A custom mailing-list address is neither, and it lives
-                // in a table this module owns, which core cannot read
-                // (§7.5). It is also not something a visitor typed: a
-                // staff member entered it. So the module says so here,
+                // A contact of a custom list's contact group is neither,
+                // and it lives in a table this module owns, which core
+                // cannot read (§7.5). It is also not something a visitor
+                // typed: a staff member's file brought it. So the module says so here,
                 // for its own recipients, and nothing else has to know
                 // the rule.
                 //
@@ -639,13 +639,15 @@ class SendBatchHandler implements TaskHandlerInterface
                 $sectionService,
                 new \Core\Import\FunctionRepository($pdo),
                 // No BadgeService here: this instance only ever RESOLVES a
-                // list, which reads mass_mail_list_badges straight through
+                // list, which reads mass_mail_block_badges straight through
                 // the repository. The service needs one solely to offer
                 // the badge vocabulary to the criteria form, and there is
-                // no form in a scheduled task. The address repository IS
-                // passed: it is half of what a custom list resolves to.
+                // no form in a scheduled task. The block and contact
+                // repositories ARE passed: they are what a custom list
+                // resolves to.
                 null,
-                new \Modules\MassMail\Repository\ListAddressRepository($pdo, $context->encryption)
+                new \Modules\MassMail\Repository\ListBlockRepository($pdo),
+                new \Modules\MassMail\Repository\ContactRepository($pdo, $context->encryption)
             ),
             $memberService,
             $memberEmailService,

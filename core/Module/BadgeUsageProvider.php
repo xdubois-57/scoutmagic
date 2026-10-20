@@ -15,11 +15,11 @@ namespace Core\Module;
  *
  * The guard exists because a badge reference held by a module is a
  * foreign key with its own `ON DELETE CASCADE`, and a cascade is silent
- * by construction. `mass_mail_list_badges` is today's case: a mailing
- * list crossing « la meute ET le badge X » loses its badge row when X is
- * deleted, and an axis with no row left does not narrow the list to
- * nobody — it stops constraining anything, so the list quietly widens to
- * every member of the meute. Deactivating a badge is the operation that
+ * by construction. `mass_mail_block_badges` is today's case: a member
+ * group of a mailing list crossing « la meute ET le badge X » loses its
+ * badge row when X is deleted, and an axis with no row left does not
+ * narrow the group to nobody — it stops constraining anything, so the
+ * group quietly widens to every member of the meute. Deactivating a badge is the operation that
  * means "stop using this"; deleting one must not mean "widen whatever
  * pointed at it".
  *

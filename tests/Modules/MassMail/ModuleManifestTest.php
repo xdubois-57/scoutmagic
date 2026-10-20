@@ -61,13 +61,6 @@ class ModuleManifestTest extends TestCase
                 '/admin/listes-de-diffusion',
                 '/admin/listes-de-diffusion/preview-count',
                 '/admin/listes-de-diffusion/lists',
-                '/admin/listes-de-diffusion/lists/{id}',
-                '/admin/listes-de-diffusion/lists/{id}/addresses',
-                '/admin/listes-de-diffusion/lists/{id}/addresses',
-                '/admin/listes-de-diffusion/lists/{id}/addresses/export',
-                '/admin/listes-de-diffusion/lists/{id}/addresses/import',
-                '/admin/listes-de-diffusion/lists/{id}/addresses/import/confirm',
-                '/admin/listes-de-diffusion/addresses/{id}',
                 '/admin/listes-de-diffusion/lists/{id}/toggle',
                 '/admin/listes-de-diffusion/lists/{id}',
             ],
@@ -124,6 +117,23 @@ class ModuleManifestTest extends TestCase
             [],
             array_values(array_filter($this->manifest->routes, fn(array $r) => str_ends_with($r['path'], '/settings')))
         );
+    }
+
+    /**
+     * The cap kept its key and its default when a list's addresses became
+     * contact groups, and now applies per group — which its label and
+     * description say.
+     */
+    public function testTheContactCapIsCountedPerGroup(): void
+    {
+        $setting = array_values(array_filter(
+            $this->manifest->settings,
+            fn(array $s) => $s['key'] === \Modules\MassMail\Service\ContactGroupImportService::SETTING_MAX_CONTACTS
+        ))[0];
+
+        $this->assertSame('2000', $setting['default_value']);
+        $this->assertSame('Contacts par groupe (maximum)', $setting['label']);
+        $this->assertStringContainsString('groupe de contacts', $setting['description']);
     }
 
     public function testTrackingRouteHasNoMenuLabel(): void

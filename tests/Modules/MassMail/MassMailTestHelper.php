@@ -23,40 +23,52 @@ class MassMailTestHelper
             FOREIGN KEY (created_by) REFERENCES user_accounts(id)
         )');
 
-        $pdo->exec('CREATE TABLE mass_mail_list_functions (
+        $pdo->exec('CREATE TABLE mass_mail_list_blocks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
             list_id INTEGER NOT NULL,
-            function_id INTEGER NOT NULL,
-            PRIMARY KEY (list_id, function_id),
+            kind TEXT NOT NULL,
+            name TEXT,
+            file_replaced_at TEXT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            created_by INTEGER,
             FOREIGN KEY (list_id) REFERENCES mass_mail_lists(id),
+            FOREIGN KEY (created_by) REFERENCES user_accounts(id)
+        )');
+
+        $pdo->exec('CREATE TABLE mass_mail_block_functions (
+            block_id INTEGER NOT NULL,
+            function_id INTEGER NOT NULL,
+            PRIMARY KEY (block_id, function_id),
+            FOREIGN KEY (block_id) REFERENCES mass_mail_list_blocks(id),
             FOREIGN KEY (function_id) REFERENCES functions(id)
         )');
 
-        $pdo->exec('CREATE TABLE mass_mail_list_sections (
-            list_id INTEGER NOT NULL,
+        $pdo->exec('CREATE TABLE mass_mail_block_sections (
+            block_id INTEGER NOT NULL,
             section_id INTEGER NOT NULL,
-            PRIMARY KEY (list_id, section_id),
-            FOREIGN KEY (list_id) REFERENCES mass_mail_lists(id),
+            PRIMARY KEY (block_id, section_id),
+            FOREIGN KEY (block_id) REFERENCES mass_mail_list_blocks(id),
             FOREIGN KEY (section_id) REFERENCES sections(id)
         )');
 
-        $pdo->exec('CREATE TABLE mass_mail_list_badges (
-            list_id INTEGER NOT NULL,
+        $pdo->exec('CREATE TABLE mass_mail_block_badges (
+            block_id INTEGER NOT NULL,
             badge_id INTEGER NOT NULL,
-            PRIMARY KEY (list_id, badge_id),
-            FOREIGN KEY (list_id) REFERENCES mass_mail_lists(id),
+            PRIMARY KEY (block_id, badge_id),
+            FOREIGN KEY (block_id) REFERENCES mass_mail_list_blocks(id),
             FOREIGN KEY (badge_id) REFERENCES badges(id)
         )');
 
-        $pdo->exec('CREATE TABLE mass_mail_list_addresses (
+        $pdo->exec('CREATE TABLE mass_mail_block_contacts (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            list_id INTEGER NOT NULL,
+            block_id INTEGER NOT NULL,
             name_encrypted BLOB,
             email_encrypted BLOB NOT NULL,
             email_blind_index TEXT NOT NULL,
             unsubscribed_at TEXT,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE (list_id, email_blind_index),
-            FOREIGN KEY (list_id) REFERENCES mass_mail_lists(id)
+            UNIQUE (block_id, email_blind_index),
+            FOREIGN KEY (block_id) REFERENCES mass_mail_list_blocks(id)
         )');
 
         $pdo->exec('CREATE TABLE mass_mail_audiences (

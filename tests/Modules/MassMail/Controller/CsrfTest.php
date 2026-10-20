@@ -169,20 +169,10 @@ class CsrfTest extends TestCase
                 new SettingService(new \Core\Config\SettingRepository($this->pdo)),
                 new \Core\Import\MemberYearRepository($this->pdo)
             ),
-            new \Modules\MassMail\Service\ListAddressService(
-                new \Modules\MassMail\Repository\ListAddressRepository($this->pdo, $encryption),
-                new MailingListRepository($this->pdo),
-                new SettingService(new \Core\Config\SettingRepository($this->pdo)),
-                $this->createStub(\Core\Journal\JournalService::class)
-            ),
-            new \Modules\MassMail\Service\ListAddressImportService(
-                new \Modules\MassMail\Repository\ListAddressRepository($this->pdo, $encryption),
-                new \Modules\MassMail\Service\ListAddressService(
-                    new \Modules\MassMail\Repository\ListAddressRepository($this->pdo, $encryption),
-                    new MailingListRepository($this->pdo),
-                    new SettingService(new \Core\Config\SettingRepository($this->pdo)),
-                    $this->createStub(\Core\Journal\JournalService::class)
-                ),
+            new \Modules\MassMail\Service\ListBlockService(
+                new \Modules\MassMail\Repository\ListBlockRepository($this->pdo),
+                new \Modules\MassMail\Repository\ContactRepository($this->pdo, $encryption),
+                new \Modules\MassMail\Repository\MailingListRepository($this->pdo),
                 $this->createStub(\Core\Journal\JournalService::class)
             )
         );

@@ -42,9 +42,6 @@
     "/admin/import/{id}": {
       "id": "1"
     },
-    "/admin/listes-de-diffusion/addresses/{id}": {
-      "id": "1"
-    },
     "/admin/listes-de-diffusion/lists/{id}": {
       "id": "1"
     },

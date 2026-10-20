@@ -96,6 +96,7 @@ class MassMailServiceTest extends TestCase
             null,
             null,
             null,
+            null,
             $this->scoutYearResolver
         );
 
@@ -168,6 +169,7 @@ class MassMailServiceTest extends TestCase
             new MemberResolutionRepository($this->pdo, $encryption),
             $sectionService,
             new FunctionRepository($this->pdo),
+            null,
             null,
             null,
             null,
@@ -299,8 +301,10 @@ class MassMailServiceTest extends TestCase
     {
         $email = $this->createDraft();
         $this->service->moveToTest($email->id, null);
-        $sending = $this->service->startSending($email->id, null);
-        $this->assertSame(Email::STATUS_SENDING, $sending->status);
+        $started = $this->service->startSending($email->id, null);
+        // Nobody to write to here, so the send is finished at once — and a
+        // started send stays out of reach of « brouillon » either way.
+        $this->assertSame(Email::STATUS_SENT, $started->status);
 
         $this->expectException(MassMailException::class);
         $this->service->backToDraft($email->id, null);

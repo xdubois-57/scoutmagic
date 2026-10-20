@@ -898,6 +898,13 @@ class MassMailService
             $actorId
         );
 
+        // Nothing to send — a custom list without a block, say: no batch
+        // will ever touch this email, so it is finished now rather than
+        // left « en cours d'envoi » for good.
+        if ($validCount === 0) {
+            $this->checkAndMarkSentIfComplete($id, $actorId);
+        }
+
         return $this->requireEmail($id);
     }
 
@@ -905,10 +912,12 @@ class MassMailService
      * The classic list freeze — every member the list resolves to right
      * now, expanded into all their currently-valid addresses.
      *
-     * A custom list also resolves to **its own addresses**
-     * (`mass_mail_list_addresses`), which arrive here with `member_id`
-     * null, already deduplicated against the members by
-     * `MailingListService::resolveMembersForYears()`. Such a recipient is
+     * A custom list also resolves to **the contacts of its contact
+     * groups** (`mass_mail_block_contacts`), which arrive here with
+     * `member_id` null, already deduplicated against the members and
+     * against each other — a contact carried by two groups arrives once —
+     * by `MailingListService::resolveMembersForYears()`, which has also
+     * applied the email's years to the member groups only. Such a recipient is
      * written with `member_id`, `scout_year_id` and `member_email_id` all
      * null and no `audience_row_id` — the shape that tells it apart from
      * an external mail-merge recipient, which is exactly the distinction
@@ -931,25 +940,26 @@ class MassMailService
         $validCount = 0;
         $invalidCount = 0;
 
-        // Members first, in a pass of their own, and the list's own
-        // addresses second — because only the first pass knows the whole
-        // set of addresses a member is actually written to.
+        // Two passes: the members of every member group first, and the
+        // contacts of every contact group second — because only the first
+        // pass knows the whole set of addresses a member is actually
+        // written to.
         //
-        // Service\MailingListService already dropped a list address equal
-        // to a member's DESK address, which is the only one it can see. A
+        // Service\MailingListService already dropped a contact equal to a
+        // member's DESK address, which is the only one it can see. A
         // member is frozen here at every valid address they have
-        // (member_emails included), so a list address matching a member's
+        // (member_emails included), so a contact matching a member's
         // SECOND address would otherwise be a second mail to the same
         // person — which is exactly what « le site compare les adresses,
         // pas les fiches » promises does not happen. The set below is
         // what makes that promise true, and it can only be built once the
         // member rows are written.
         $writtenAddresses = [];
-        $listAddresses = [];
+        $contacts = [];
 
         foreach ($members as $member) {
             if ($member['member_id'] === null) {
-                $listAddresses[] = (string) $member['email'];
+                $contacts[] = (string) $member['email'];
                 continue;
             }
 
@@ -1006,8 +1016,8 @@ class MassMailService
             }
         }
 
-        foreach ($listAddresses as $listAddress) {
-            $key = mb_strtolower(trim($listAddress));
+        foreach ($contacts as $contact) {
+            $key = mb_strtolower(trim($contact));
             if (isset($writtenAddresses[$key])) {
                 // Already written to as a member, at this very address.
                 // No row at all rather than an error row: nothing went
@@ -1017,9 +1027,9 @@ class MassMailService
             }
             $writtenAddresses[$key] = true;
 
-            [$validCount, $invalidCount] = $this->freezeListAddressRecipient(
+            [$validCount, $invalidCount] = $this->freezeContactRecipient(
                 $email,
-                $listAddress,
+                $contact,
                 $validCount,
                 $invalidCount
             );
@@ -1029,10 +1039,11 @@ class MassMailService
     }
 
     /**
-     * One address of a custom list, frozen as its own recipient row.
+     * One contact of a custom list's contact groups, frozen as its own
+     * recipient row.
      *
      * The module's external suppression list is honoured here too: a
-     * mail-merge unsubscribe and a list-address unsubscribe are the same
+     * mail-merge unsubscribe and a contact's unsubscribe are the same
      * request from the same person, and an address that asked not to be
      * written to through one path must not be written to through the
      * other. The row is written all the same, as an explicit error rather
@@ -1041,7 +1052,7 @@ class MassMailService
      *
      * @return array{0: int, 1: int} [valid recipient rows, invalid-address rows]
      */
-    private function freezeListAddressRecipient(
+    private function freezeContactRecipient(
         Email $email,
         string $address,
         int $validCount,
@@ -1081,8 +1092,8 @@ class MassMailService
         // A bounce block applies to the ADDRESS, so it has to be honoured
         // on this path too (roadmap IT-05). Member-resolved recipients are
         // filtered in `MemberEmailService::resolveValidAddressesForMassMail()`,
-        // which never sees a list address: without this check, an address
-        // the far end has refused twice keeps being written to through a
+        // which never sees a contact: without this check, an address the
+        // far end has refused twice keeps being written to through a
         // custom list — the one hole in the rule the whole feature exists
         // for. Written as an explicit error row, like the suppression just
         // above, so the tracking page says why.

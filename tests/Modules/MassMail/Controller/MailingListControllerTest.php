@@ -21,11 +21,11 @@ use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Security\EncryptionService;
 use Modules\MassMail\Controller\MailingListController;
+use Modules\MassMail\Repository\ContactRepository;
+use Modules\MassMail\Repository\ListBlockRepository;
 use Modules\MassMail\Repository\MailingListRepository;
-use Modules\MassMail\Repository\ListAddressRepository;
 use Modules\MassMail\Repository\MemberResolutionRepository;
-use Modules\MassMail\Service\ListAddressImportService;
-use Modules\MassMail\Service\ListAddressService;
+use Modules\MassMail\Service\ListBlockService;
 use Modules\MassMail\Service\MailingListService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
@@ -35,7 +35,7 @@ use Core\Member\Repository\MemberProfileRepository;
 use Core\Member\Repository\SectionRepository;
 
 /**
- * What the mailing lists page's four JSON endpoints actually answer.
+ * What the mailing lists page and its JSON endpoints actually answer.
  *
  * `MailingListRbacTest` drives the same routes through the real
  * Router/RbacGuard and asks only who gets past the guard; this one calls
@@ -57,8 +57,7 @@ class MailingListControllerTest extends TestCase
     private int $functionId;
     private int $badgeId;
     private ScoutYearResolver $scoutYearResolver;
-    private ListAddressService $listAddressService;
-    private ListAddressImportService $listAddressImportService;
+    private ListBlockService $blockService;
 
     protected function setUp(): void
     {
@@ -95,18 +94,14 @@ class MailingListControllerTest extends TestCase
             new MemberResolutionRepository($this->pdo, $encryption),
             $sectionService,
             new FunctionRepository($this->pdo),
-            new BadgeService(new BadgeRepository($this->pdo), new MemberBadgeRepository($this->pdo), $sectionService)
+            new BadgeService(new BadgeRepository($this->pdo), new MemberBadgeRepository($this->pdo), $sectionService),
+            new ListBlockRepository($this->pdo),
+            new ContactRepository($this->pdo, $encryption)
         );
-
-        $this->listAddressService = new ListAddressService(
-            new ListAddressRepository($this->pdo, $encryption),
+        $this->blockService = new ListBlockService(
+            new ListBlockRepository($this->pdo),
+            new ContactRepository($this->pdo, $encryption),
             new MailingListRepository($this->pdo),
-            new SettingService(new SettingRepository($this->pdo)),
-            $this->createStub(\Core\Journal\JournalService::class)
-        );
-        $this->listAddressImportService = new ListAddressImportService(
-            new ListAddressRepository($this->pdo, $encryption),
-            $this->listAddressService,
             $this->createStub(\Core\Journal\JournalService::class)
         );
         $this->scoutYearResolver = new ScoutYearResolver(
@@ -118,8 +113,7 @@ class MailingListControllerTest extends TestCase
             $this->createStub(Environment::class),
             $this->listService,
             $this->scoutYearResolver,
-            $this->listAddressService,
-            $this->listAddressImportService
+            $this->blockService
         );
 
         if (session_status() === PHP_SESSION_NONE) {
@@ -134,21 +128,14 @@ class MailingListControllerTest extends TestCase
     }
 
     /**
-     * The page hands the template every list's criteria, keyed by list id
-     * — that map is what pre-fills the edit dialog, and it was silently
-     * empty for a while because the reduce that builds it never ran on a
-     * unit with no list at all.
+     * The page only summarises a list: what it is made of, counted per
+     * kind of block for the whole page at once, and nothing decrypted.
      */
-    public function testIndexHandsTheTemplateEachListsCriteria(): void
+    public function testIndexHandsTheTemplateWhatEachListIsMadeOf(): void
     {
-        $list = $this->listService->createCustomList(
-            'Les intendants',
-            'Description.',
-            [$this->functionId],
-            [$this->sectionId],
-            [$this->badgeId],
-            $this->accountId
-        );
+        $list = $this->list('Les intendants');
+        $this->blockService->createMemberGroup($list->id, [], [], [$this->badgeId], null);
+        $empty = $this->list('Vide');
 
         $twig = $this->createStub(Environment::class);
         $captured = null;
@@ -163,41 +150,54 @@ class MailingListControllerTest extends TestCase
             $twig,
             $this->listService,
             $this->scoutYearResolver,
-            $this->listAddressService,
-            $this->listAddressImportService
+            $this->blockService
         ))
             ->index(new Request('GET', '/admin/listes-de-diffusion', [], [], [], []), []);
 
         $this->assertSame(200, $response->getStatusCode());
         $this->assertIsArray($captured);
-        $this->assertCount(1, $captured['custom_lists']);
+        $this->assertCount(2, $captured['custom_lists']);
         $this->assertSame(
-            [
-                'function_ids' => [$this->functionId],
-                'section_ids' => [$this->sectionId],
-                'badge_ids' => [$this->badgeId],
-                'address_counts' => ['total' => 0, 'unsubscribed' => 0],
-                // The page only ever summarises a list, so the sentence
-                // it prints is built here rather than in the browser —
-                // and it NAMES the criteria, having no pickers above it
-                // to point at (MailingListService::describeCriteria()).
-                'criteria_summary' => 'Membres qui exercent la fonction Intendant '
-                    . 'ET sont dans la section Meute ET portent le badge Infirmier.',
-            ],
-            $captured['custom_list_criteria'][$list->id]
+            [$list->id => ['member_group' => 1, 'contact_group' => 0]],
+            $captured['block_counts']
         );
+        $this->assertArrayNotHasKey($empty->id, $captured['block_counts']);
         $this->assertNotSame([], $captured['default_lists']);
         $this->assertNotSame('', $captured['csrf_token']);
     }
 
-    public function testCreateListStoresTheListAndItsCriteriaAndAnswersWithIt(): void
+    /** The page renders those counts as a sentence, a list without blocks included. */
+    public function testThePageSaysWhatEachListIsMadeOf(): void
+    {
+        $list = $this->list('Staff élargi');
+        $this->blockService->createMemberGroup($list->id, [$this->functionId], [], [], null);
+        $this->blockService->createMemberGroup($list->id, [], [], [$this->badgeId], null);
+        $this->blockService->createMemberGroup($this->list('Secouristes')->id, [], [], [$this->badgeId], null);
+        $this->list('Vide');
+
+        $html = (new MailingListController(
+            \Tests\TestTwig::create(['mass_mail']),
+            $this->listService,
+            $this->scoutYearResolver,
+            $this->blockService
+        ))->index(new Request('GET', '/admin/listes-de-diffusion', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('2 groupes de membres', $html);
+        $this->assertStringContainsString('1 groupe de membres', $html);
+        $this->assertStringContainsString('Aucun groupe : cette liste ne désigne personne.', $html);
+        $this->assertStringNotContainsString('cfg-list-modal', $html);
+    }
+
+    /**
+     * A new list is a name and a description; criteria sent along are
+     * not a list's any more and create no block.
+     */
+    public function testCreateListStoresANameAndADescriptionAndNoBlock(): void
     {
         $payload = $this->call('createList', [], [
             'name' => 'Les intendants',
             'description' => 'Tous les intendants de la meute.',
             'function_ids' => [$this->functionId],
-            'section_ids' => [$this->sectionId],
-            'badge_ids' => [$this->badgeId],
         ]);
 
         $this->assertTrue($payload['success']);
@@ -205,9 +205,11 @@ class MailingListControllerTest extends TestCase
         $this->assertTrue($payload['list']['is_active']);
 
         $listId = (int) $payload['list']['id'];
-        $this->assertSame([$this->functionId], $this->listService->getCustomListFunctionIds($listId));
-        $this->assertSame([$this->sectionId], $this->listService->getCustomListSectionIds($listId));
-        $this->assertSame([$this->badgeId], $this->listService->getCustomListBadgeIds($listId));
+        $this->assertSame(
+            'Tous les intendants de la meute.',
+            $this->listService->getCustomListById($listId)?->description
+        );
+        $this->assertSame([], $this->blockService->findForList($listId));
     }
 
     /**
@@ -220,8 +222,6 @@ class MailingListControllerTest extends TestCase
             $this->jsonRequest([
                 'name' => 'Sans description',
                 'description' => '',
-                'function_ids' => [$this->functionId],
-                'section_ids' => [$this->sectionId],
                 '_csrf_token' => CsrfGuard::generateToken(),
             ]),
             []
@@ -235,60 +235,9 @@ class MailingListControllerTest extends TestCase
         $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM mass_mail_lists')->fetchColumn());
     }
 
-    public function testUpdateListReplacesTheNameAndTheCriteria(): void
-    {
-        $this->pdo->exec("INSERT INTO functions (desk_code, label, role) VALUES ('ANIM', 'Animateur', 'identified')");
-        $otherFunctionId = (int) $this->pdo->lastInsertId();
-
-        $list = $this->listService->createCustomList(
-            'Avant',
-            'Description initiale.',
-            [$this->functionId],
-            [$this->sectionId],
-            [],
-            $this->accountId
-        );
-
-        $payload = $this->call('updateList', ['id' => (string) $list->id], [
-            'name' => 'Après',
-            'description' => 'Description révisée.',
-            'function_ids' => [$otherFunctionId],
-            'section_ids' => [$this->sectionId],
-            'badge_ids' => [],
-        ]);
-
-        $this->assertTrue($payload['success']);
-        $this->assertSame('Après', $payload['list']['name']);
-        $this->assertSame([$otherFunctionId], $this->listService->getCustomListFunctionIds($list->id));
-    }
-
-    public function testUpdateListOnAnUnknownIdIsRefusedRatherThanCreatingOne(): void
-    {
-        $response = $this->controller->updateList(
-            $this->jsonRequest([
-                'name' => 'Fantôme',
-                'description' => 'Une liste qui n\'existe pas.',
-                'function_ids' => [$this->functionId],
-                'section_ids' => [$this->sectionId],
-                '_csrf_token' => CsrfGuard::generateToken(),
-            ]),
-            ['id' => '9999']
-        );
-
-        $this->assertSame(422, $response->getStatusCode());
-        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM mass_mail_lists')->fetchColumn());
-    }
-
     public function testToggleListDeactivatesAndReactivates(): void
     {
-        $list = $this->listService->createCustomList(
-            'Bascule',
-            'Description.',
-            [$this->functionId],
-            [$this->sectionId],
-            [],
-            $this->accountId
-        );
+        $list = $this->list('Bascule');
 
         $this->assertTrue($this->call('toggleList', ['id' => (string) $list->id], ['active' => false])['success']);
         $this->assertFalse($this->listService->getCustomListById($list->id)?->isActive);
@@ -299,14 +248,7 @@ class MailingListControllerTest extends TestCase
 
     public function testDeleteListRemovesAListNoEmailUses(): void
     {
-        $list = $this->listService->createCustomList(
-            'Jamais utilisée',
-            'Description.',
-            [$this->functionId],
-            [$this->sectionId],
-            [],
-            $this->accountId
-        );
+        $list = $this->list('Jamais utilisée');
 
         $this->assertTrue($this->call('deleteList', ['id' => (string) $list->id], [])['success']);
         $this->assertNull($this->listService->getCustomListById($list->id));
@@ -319,14 +261,7 @@ class MailingListControllerTest extends TestCase
      */
     public function testDeleteListIsRefusedWhenAnEmailReferencesIt(): void
     {
-        $list = $this->listService->createCustomList(
-            'Utilisée',
-            'Description.',
-            [$this->functionId],
-            [$this->sectionId],
-            [],
-            $this->accountId
-        );
+        $list = $this->list('Utilisée');
         $this->pdo->exec(
             "INSERT INTO mass_mail_emails (subject, body_html, section_id, list_type, list_id, status)
              VALUES ('Sujet', '<p>Corps</p>', {$this->sectionId}, 'custom', {$list->id}, 'draft')"
@@ -344,89 +279,14 @@ class MailingListControllerTest extends TestCase
         $this->assertNotNull($this->listService->getCustomListById($list->id));
     }
 
-    public function testAddressesAnswersTheWholeDecryptedSetOfOneList(): void
+    /** Removing a list takes its blocks with it. */
+    public function testDeleteListTakesItsBlocksWithIt(): void
     {
-        $list = $this->list('Avec des adresses');
-        $this->listAddressService->add($list->id, 'Commune de Wavre', 'jeunesse@wavre.be');
-        $this->listAddressService->add($list->id, null, 'cure@paroisse.be');
+        $list = $this->list('Avec un groupe');
+        $this->blockService->createMemberGroup($list->id, [$this->functionId], [], [], null);
 
-        $response = $this->controller->addresses(
-            new Request('GET', '/admin/listes-de-diffusion/lists/' . $list->id . '/addresses', [], [], [], []),
-            ['id' => (string) $list->id]
-        );
-
-        $this->assertSame(200, $response->getStatusCode());
-        $payload = json_decode($response->getBody(), true);
-        $this->assertIsArray($payload);
-        $this->assertTrue($payload['success']);
-        // Sorted by name then address: the nameless one comes first.
-        $this->assertSame(
-            ['cure@paroisse.be', 'jeunesse@wavre.be'],
-            array_column($payload['addresses'], 'email')
-        );
-        $this->assertNull($payload['addresses'][0]['name']);
-        $this->assertNull($payload['addresses'][0]['unsubscribed_at']);
-    }
-
-    public function testAddressesOfAnUnknownListIsA404RatherThanAnEmptySet(): void
-    {
-        $response = $this->controller->addresses(
-            new Request('GET', '/admin/listes-de-diffusion/lists/9999/addresses', [], [], [], []),
-            ['id' => '9999']
-        );
-
-        $this->assertSame(404, $response->getStatusCode());
-    }
-
-    public function testAddAddressStoresItAndAnswersWithTheListsNewCounts(): void
-    {
-        $list = $this->list('Avec des adresses');
-
-        $payload = $this->call('addAddress', ['id' => (string) $list->id], [
-            'name' => 'Commune de Wavre',
-            'email' => 'Jeunesse@Wavre.BE',
-        ]);
-
-        $this->assertTrue($payload['success']);
-        $this->assertSame('jeunesse@wavre.be', $payload['address']['email']);
-        $this->assertSame(['total' => 1, 'unsubscribed' => 0], $payload['counts']);
-    }
-
-    public function testAddAddressRefusesAnInvalidOneWithTheServicesOwnSentence(): void
-    {
-        $list = $this->list('Avec des adresses');
-
-        $response = $this->controller->addAddress(
-            $this->jsonRequest(['email' => 'pas-une-adresse', '_csrf_token' => CsrfGuard::generateToken()]),
-            ['id' => (string) $list->id]
-        );
-
-        $this->assertSame(422, $response->getStatusCode());
-        $payload = json_decode($response->getBody(), true);
-        $this->assertIsArray($payload);
-        $this->assertSame('Adresse email invalide.', $payload['error']);
-        $this->assertSame(0, $this->listAddressService->countForList($list->id)['total']);
-    }
-
-    public function testDeleteAddressRemovesItAndAnswersWithTheListsNewCounts(): void
-    {
-        $list = $this->list('Avec des adresses');
-        $address = $this->listAddressService->add($list->id, null, 'cure@paroisse.be');
-
-        $payload = $this->call('deleteAddress', ['id' => (string) $address->id], []);
-
-        $this->assertSame(['total' => 0, 'unsubscribed' => 0], $payload['counts']);
-        $this->assertNull($this->listAddressService->findById($address->id));
-    }
-
-    public function testDeletingAnAddressThatIsNotThereIsRefused(): void
-    {
-        $response = $this->controller->deleteAddress(
-            $this->jsonRequest(['_csrf_token' => CsrfGuard::generateToken()]),
-            ['id' => '9999']
-        );
-
-        $this->assertSame(422, $response->getStatusCode());
+        $this->assertTrue($this->call('deleteList', ['id' => (string) $list->id], [])['success']);
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM mass_mail_list_blocks')->fetchColumn());
     }
 
     /**
@@ -457,24 +317,14 @@ class MailingListControllerTest extends TestCase
     {
         return [
             'createList' => ['createList'],
-            'updateList' => ['updateList'],
             'toggleList' => ['toggleList'],
             'deleteList' => ['deleteList'],
-            'addAddress' => ['addAddress'],
-            'deleteAddress' => ['deleteAddress'],
         ];
     }
 
     private function list(string $name): \Modules\MassMail\Repository\MailingList
     {
-        return $this->listService->createCustomList(
-            $name,
-            'Description.',
-            [$this->functionId],
-            [$this->sectionId],
-            [],
-            $this->accountId
-        );
+        return $this->listService->createCustomList($name, 'Description.', $this->accountId);
     }
 
     /**
