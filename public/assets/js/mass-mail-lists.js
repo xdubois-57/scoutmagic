@@ -86,6 +86,28 @@
     }
 
     /**
+     * « 37 contacts, dont 2 désinscrits »
+     *
+     * @param {number} total
+     * @param {number} unsubscribed
+     * @returns {string}
+     */
+    function contactsLine(total, unsubscribed) {
+        return counted(total, 'contact', 'contacts')
+            + (unsubscribed > 0 ? ', dont ' + counted(unsubscribed, 'désinscrit', 'désinscrits') : '');
+    }
+
+    /**
+     * Lower case, without accents — « Hélène » is found by « helene ».
+     *
+     * @param {string} value
+     * @returns {string}
+     */
+    function fold(value) {
+        return (value || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+    }
+
+    /**
      * @param {string} tag
      * @param {string} [className]
      * @param {string} [text]
@@ -290,18 +312,6 @@
             return state.blocks.filter(function (b) { return b.kind !== KIND_MEMBER_GROUP; });
         }
 
-        /**
-         * « 37 contacts, dont 2 désinscrits »
-         *
-         * @param {number} total
-         * @param {number} unsubscribed
-         * @returns {string}
-         */
-        function contactsLine(total, unsubscribed) {
-            return counted(total, 'contact', 'contacts')
-                + (unsubscribed > 0 ? ', dont ' + counted(unsubscribed, 'désinscrit', 'désinscrits') : '');
-        }
-
         function renderTotal() {
             var year = state.scout_year_label;
             var summary = state.summary;
@@ -334,7 +344,7 @@
             var link = /** @type {HTMLButtonElement} */ (
                 node('button', 'btn btn-link btn-sm p-0', 'Voir les destinataires'));
             link.type = 'button';
-            link.setAttribute('data-recipients-open', '');
+            link.dataset.recipientsOpen = '';
             link.addEventListener('click', openRecipients);
             totalEl.appendChild(link);
         }
@@ -364,14 +374,14 @@
             remove.appendChild(node('i', 'bi bi-trash')).setAttribute('aria-hidden', 'true');
 
             if (block.kind === KIND_MEMBER_GROUP) {
-                open.setAttribute('data-member-group-open', '');
+                open.dataset.memberGroupOpen = '';
                 renderSentence(title, block.sentence);
                 detail.textContent = counted(block.count, 'membre', 'membres') + ' en ' + state.scout_year_label;
                 remove.setAttribute('aria-label', 'Retirer ce groupe de membres');
             } else {
                 // The contract with mass-mail-contact-groups.js: this
                 // attribute and data-block-id are what it opens from.
-                open.setAttribute('data-contact-group-open', '');
+                open.dataset.contactGroupOpen = '';
                 title.textContent = block.name || '';
                 detail.textContent = contactsLine(block.count, block.unsubscribed)
                     + (block.file_replaced_label ? ' · fichier remplacé le ' + block.file_replaced_label : '');
@@ -673,16 +683,6 @@
         var recipientsEmptyEl = /** @type {HTMLElement} */ (recipientsModalEl.querySelector('[data-recipients-empty]'));
         var recipientsErrorEl = /** @type {HTMLElement} */ (recipientsModalEl.querySelector('[data-recipients-error]'));
         var recipientsToken = 0;
-
-        /**
-         * Lower case, without accents — « Hélène » is found by « helene ».
-         *
-         * @param {string} value
-         * @returns {string}
-         */
-        function fold(value) {
-            return (value || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
-        }
 
         function applySearch() {
             var query = fold(searchInput.value.trim());
