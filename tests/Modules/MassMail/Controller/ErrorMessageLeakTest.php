@@ -128,7 +128,8 @@ class ErrorMessageLeakTest extends TestCase
             $this->createStub(SettingService::class),
             $this->createStub(UploadHandler::class),
             new FileRepository($this->pdo),
-            $this->createStub(AudienceImportService::class)
+            $this->createStub(AudienceImportService::class),
+            $this->createStub(\Modules\MassMail\Service\ListBlockService::class)
         );
     }
 

@@ -12,7 +12,8 @@
 // server round-trip cannot do without losing what the chief is typing:
 //
 //   1. showing/hiding the mail-merge zone and the scout-year block as the
-//      list type changes;
+//      list type changes, and the sentence saying what the years change
+//      for a custom list holding contact groups;
 //   2. importing the .xlsx (a multipart POST answering JSON) without
 //      leaving the page and dropping the half-written body — the drop
 //      zone itself is the site's shared one (drop-zone.js);
@@ -79,6 +80,25 @@
         toggle('mm-external-list-note', !isExternal);
         toggle('mm-former-list-note', !isFormer);
         toggle('mm-scout-year-zone', isMerge || isExternal || isFormer);
+        updateCustomListYearNote();
+    }
+
+    /**
+     * The years chosen on the email apply to a custom list's member
+     * groups only; its contact groups are always included. Said under
+     * the year checkboxes whenever it matters — a list with contact
+     * groups — and nothing for one with member groups only, which
+     * behaves like a default list (chantier #729 §2.5). The option's
+     * data-member-groups / data-contact-groups come from the server
+     * (MassMailController::buildListOptions()); every other list carries
+     * "0" for both, so choosing one hides both sentences again.
+     */
+    function updateCustomListYearNote() {
+        const option = listSelect ? listSelect.selectedOptions[0] : null;
+        const members = !!option && option.dataset.memberGroups === '1';
+        const contacts = !!option && option.dataset.contactGroups === '1';
+        toggle('mm-custom-list-mixed-note', !(members && contacts));
+        toggle('mm-custom-list-contacts-note', !(contacts && !members));
     }
 
     /**
