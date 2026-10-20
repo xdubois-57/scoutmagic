@@ -42,10 +42,19 @@
     "/admin/import/{id}": {
       "id": "1"
     },
+    "/admin/listes-de-diffusion/{id}": {
+      "id": "1"
+    },
+    "/admin/listes-de-diffusion/blocks/{id}": {
+      "id": "1"
+    },
     "/admin/listes-de-diffusion/contact-groups/{id}": {
       "id": "1"
     },
     "/admin/listes-de-diffusion/lists/{id}": {
+      "id": "1"
+    },
+    "/admin/listes-de-diffusion/member-groups/{id}": {
       "id": "1"
     },
     "/admin/locations/{id}": {

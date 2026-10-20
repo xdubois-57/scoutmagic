@@ -109,6 +109,31 @@ class DecorativeLabelMisuseTest extends TestCase
         $this->assertTextIsNotInsideALabel($html, 'Fichier de publipostage');
     }
 
+    public function testMassMailMemberGroupDialogAxisCaptionsAreNotLabelElements(): void
+    {
+        $twig = $this->createTwig(['mass_mail' => dirname(__DIR__, 3) . '/modules/mass_mail/views']);
+        $html = $twig->render('@mass_mail/mailing_list.html.twig', [
+            'list' => new \Modules\MassMail\Repository\MailingList(7, 'Staff élargi', 'Description.', true, '', null),
+            'blocks_payload' => ['success' => true, 'scout_year_label' => '2025-2026', 'summary' => [], 'blocks' => []],
+            'recipient_years' => [['id' => 1, 'label' => '2025-2026']],
+            'effective_year_id' => 1,
+            // Non-empty on purpose: a select bar with nothing to choose
+            // from renders its empty state and no field name at all, so an
+            // empty list would assert nothing.
+            'all_functions' => [['id' => 1, 'label' => 'Animateur', 'role' => 'identified']],
+            'all_sections' => [['id' => 2, 'name' => 'Meute']],
+            'all_badges' => [['id' => 3, 'name' => 'Infirmier']],
+        ]);
+
+        // The member-group dialog's three axes are select bars, and the
+        // component renders each field name in a <span> inside its
+        // <summary>: a caption that labels a GROUP is never a <label>,
+        // which has a control.
+        $this->assertTextIsNotInsideALabel($html, 'Fonctions');
+        $this->assertTextIsNotInsideALabel($html, 'Sections');
+        $this->assertTextIsNotInsideALabel($html, 'Badges');
+    }
+
     public function testFinanceReceiptsListSpacerLabelsAreNotLabelElements(): void
     {
         $twig = $this->createTwig(['finance' => dirname(__DIR__, 3) . '/modules/finance/views']);

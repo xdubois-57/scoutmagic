@@ -35,6 +35,7 @@ use Modules\MassMail\Service\MassMailAccessService;
 use Modules\MassMail\Api\MassMailException;
 use Modules\MassMail\Service\MassMailService;
 use Modules\MassMail\Service\SenderAuthorization;
+use Modules\MassMail\Service\SendableScoutYears;
 use Twig\Environment;
 
 class MassMailController extends AbstractController
@@ -1053,44 +1054,14 @@ class MassMailController extends AbstractController
      */
     private function buildScoutYearOptions(): array
     {
-        $current = $this->scoutYearService->getCurrentYear();
-        $previousLabel = ScoutYearService::previousLabel($current['label']);
-        $nextLabel = ScoutYearService::nextLabel($current['label']);
-        $nextId = $this->scoutYearService->ensureYear($nextLabel);
-
-        // A future scout year used to be selectable ONLY once Desk had been
-        // imported for it (module addendum) — there was nothing to send to
-        // otherwise. With the registration module enabled there now is: the
-        // projection knows who is expected next year long before Desk does
-        // (Modules\Registration\Api\ProjectedPopulationProvider), which is
-        // exactly what the warning below is about. Without that module the
-        // old rule stands unchanged.
-        // Computing the projected audience means running the registration
-        // module's whole projection (every animé of the year, decrypted);
-        // an import for next year already makes it available, so the
-        // projection is only asked when nothing cheaper answers.
-        $nextImported = $this->importJournalRepository->findByYear($nextId) !== [];
-        $nextIsProjected = !$nextImported
-            && $this->mailingListService->futureAudienceWarning($nextId) !== null
-            && $this->mailingListService->resolveMembers('default_active_members', null, null, $nextId) !== [];
-
-        return [
-            'previous' => [
-                'id' => $this->scoutYearService->ensureYear($previousLabel),
-                'label' => $previousLabel,
-                'available' => true,
-                'warning' => null
-            ],
-            'current' => ['id' => $current['id'], 'label' => $current['label'], 'available' => true, 'warning' => null],
-            'next' => [
-                'id' => $nextId,
-                'label' => $nextLabel,
-                'available' => $nextImported || $nextIsProjected,
-                // Null for the current year and for any past one: a warning
-                // shown on every ordinary send is a warning nobody reads.
-                'warning' => $this->mailingListService->futureAudienceWarning($nextId),
-            ],
-        ];
+        // The rule lives in Service\SendableScoutYears, which « Voir les
+        // destinataires » on the page of a list reads too: a list is
+        // previewed for exactly the years an email can target.
+        return (new SendableScoutYears(
+            $this->scoutYearService,
+            $this->importJournalRepository,
+            $this->mailingListService
+        ))->options();
     }
 
     /**

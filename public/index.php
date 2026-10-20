@@ -9223,7 +9223,12 @@ if ($isEnabled('mass_mail')) {
             $twig,
             $massMailListService,
             $scoutYearResolver,
-            $massMailListBlockService
+            $massMailListBlockService,
+            new \Modules\MassMail\Service\SendableScoutYears(
+                $scoutYearService,
+                $importJournalRepo,
+                $massMailListService
+            )
         )
     );
     // The contact group dialog's routes (ARCHITECTURE.md §8.71nonies). No
@@ -11986,7 +11991,12 @@ if ($isEnabled('registration')) {
                 $twig,
                 $massMailListService,
                 $scoutYearResolver,
-                $massMailListBlockService
+                $massMailListBlockService,
+                new \Modules\MassMail\Service\SendableScoutYears(
+                    $scoutYearService,
+                    $importJournalRepo,
+                    $massMailListService
+                )
             )
         );
     }

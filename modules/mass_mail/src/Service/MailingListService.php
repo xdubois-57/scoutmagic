@@ -798,71 +798,128 @@ class MailingListService
     }
 
     /**
-     * What a custom list's criteria come to, in one French sentence, for
-     * the page that LISTS the lists.
+     * What a member group's criteria come to, in the one French sentence
+     * the list page, the member-group dialog and the removal confirmation
+     * all show: « Les membres de la section **Baladins** qui portent le
+     * badge **Trésorier**. »
      *
-     * There is a second sentence for the same three axes, in
-     * `public/assets/js/mass-mail-lists.js`, and the two are deliberately
-     * different rather than one duplicated: the browser's is rebuilt at
-     * every click UNDER the three pickers, where the chosen rows are
-     * visible, so it counts them (« une des 3 fonctions choisies »); this
-     * one has no pickers above it and nothing else on the page says which
-     * ones they are, so it NAMES them. The same words in both places
-     * would leave the summary saying « choisies » about a choice the
-     * reader cannot see.
+     * Returned as segments rather than as a string, so that the names can
+     * be bold without the browser ever parsing markup the server built: a
+     * function label is data typed into Desk, and `textContent` into a
+     * `<b>` is the only way it reaches the page. Built once, here — the
+     * dialog asks for it with every live count (previewCount()), so the
+     * page and the dialog cannot word the same group two ways.
+     *
+     * An axis that constrains nothing is absent from the sentence: « qui
+     * sont dans n'importe quelle section » would read as a restriction.
+     * Three empty axes are no group at all (Service\ListBlockService
+     * refuses them) and give no segment.
      *
      * A deactivated badge or a section gone from Desk keeps the suffix
      * `getAllBadges()`/`getAllSections()` give it — « portent le badge
      * Infirmier (désactivé) » is the one place a chief finds out why the
-     * list resolves to fewer members than its other axes suggest.
+     * group resolves to fewer members than its other axes suggest.
+     *
+     * @param int[] $functionIds
+     * @param int[] $sectionIds
+     * @param int[] $badgeIds
+     * @return list<array{text: string, strong: bool}>
+     */
+    public function criteriaSentence(array $functionIds, array $sectionIds, array $badgeIds): array
+    {
+        $sections = $this->labelsFor($sectionIds, $this->sectionLabels());
+        $clauses = array_values(array_filter([
+            self::clause('ont la fonction ', $this->labelsFor($functionIds, $this->functionLabels())),
+            self::clause('portent le badge ', $this->labelsFor($badgeIds, $this->badgeLabels())),
+        ]));
+        if ($sections === [] && $clauses === []) {
+            return [];
+        }
+
+        $segments = [self::plain('Les membres')];
+        if ($sections !== []) {
+            $segments = [
+                ...$segments,
+                ...self::clause(count($sections) === 1 ? ' de la section ' : ' des sections ', $sections),
+            ];
+        }
+        foreach ($clauses as $i => $clause) {
+            $segments = [...$segments, self::plain($i === 0 ? ' qui ' : ' et '), ...$clause];
+        }
+        $segments[] = self::plain('.');
+
+        return self::mergePlainSegments($segments);
+    }
+
+    /**
+     * A member group's short name — the names it chooses, in axis order —
+     * for the one place a sentence is too long: the tag that says, on
+     * each line of « Voir les destinataires », which group brings that
+     * person.
      *
      * @param int[] $functionIds
      * @param int[] $sectionIds
      * @param int[] $badgeIds
      */
-    public function describeCriteria(array $functionIds, array $sectionIds, array $badgeIds): string
+    public function criteriaLabel(array $functionIds, array $sectionIds, array $badgeIds): string
     {
-        $clauses = array_values(array_filter([
-            self::axisClause(
-                $this->labelsFor($functionIds, $this->functionLabels()),
-                'exercent la fonction %s',
-                'exercent une des fonctions %s'
-            ),
-            self::axisClause(
-                $this->labelsFor($sectionIds, $this->sectionLabels()),
-                'sont dans la section %s',
-                'sont dans une des sections %s'
-            ),
-            self::axisClause(
-                $this->labelsFor($badgeIds, $this->badgeLabels()),
-                'portent le badge %s',
-                'portent un des badges %s'
-            ),
-        ]));
-
-        if ($clauses === []) {
-            return 'Aucun membre du site dans cette liste.';
-        }
-
-        return 'Membres qui ' . implode(' ET ', $clauses) . '.';
+        return implode(', ', [
+            ...$this->labelsFor($functionIds, $this->functionLabels()),
+            ...$this->labelsFor($sectionIds, $this->sectionLabels()),
+            ...$this->labelsFor($badgeIds, $this->badgeLabels()),
+        ]);
     }
 
     /**
-     * One axis's clause, or null when the axis constrains nothing.
-     *
-     * Singular and plural are two sentences rather than one carrying an
-     * « (s) »: « une des fonctions Intendant » is what a template
-     * produces and nobody writes.
+     * « ont la fonction **A**, **B** ou **C** » — or null when the axis
+     * constrains nothing.
      *
      * @param string[] $labels
+     * @return list<array{text: string, strong: bool}>|null
      */
-    private static function axisClause(array $labels, string $singular, string $plural): ?string
+    private static function clause(string $lead, array $labels): ?array
     {
         if ($labels === []) {
             return null;
         }
 
-        return sprintf(count($labels) === 1 ? $singular : $plural, implode(', ', $labels));
+        $segments = [self::plain($lead)];
+        $last = count($labels) - 1;
+        foreach ($labels as $i => $label) {
+            if ($i > 0) {
+                $segments[] = self::plain($i === $last ? ' ou ' : ', ');
+            }
+            $segments[] = ['text' => $label, 'strong' => true];
+        }
+
+        return $segments;
+    }
+
+    /**
+     * @return array{text: string, strong: bool}
+     */
+    private static function plain(string $text): array
+    {
+        return ['text' => $text, 'strong' => false];
+    }
+
+    /**
+     * @param list<array{text: string, strong: bool}> $segments
+     * @return list<array{text: string, strong: bool}>
+     */
+    private static function mergePlainSegments(array $segments): array
+    {
+        $merged = [];
+        foreach ($segments as $segment) {
+            $previous = array_key_last($merged);
+            if ($previous !== null && !$segment['strong'] && !$merged[$previous]['strong']) {
+                $merged[$previous]['text'] .= $segment['text'];
+                continue;
+            }
+            $merged[] = $segment;
+        }
+
+        return $merged;
     }
 
     /**
@@ -1044,6 +1101,20 @@ class MailingListService
     }
 
     /**
+     * How many people a custom list writes to for one scout year — the
+     * people the send reaches (resolveReachable() for that single year,
+     * exactly the rows of listRecipients()), which the page of the lists
+     * prints as « ≈ N destinataires » on every card and the page of one
+     * list as its total.
+     *
+     * @throws MailingListException on an unknown list
+     */
+    public function countRecipients(int $listId, int $scoutYearId): int
+    {
+        return count($this->resolveReachable($listId, $scoutYearId));
+    }
+
+    /**
      * What a custom list comes to for one scout year — the numbers its
      * page shows: the total, the split between members and contacts, and
      * one count per block.
@@ -1097,7 +1168,7 @@ class MailingListService
         }
 
         return [
-            'total' => count($this->resolveReachable($listId, $scoutYearId)),
+            'total' => $this->countRecipients($listId, $scoutYearId),
             'members' => count($this->deduplicateByMemberAndAddress($memberGroups['members'], $scoutYearId)),
             'contacts' => $distinctContacts['total'],
             'contacts_unsubscribed' => $distinctContacts['unsubscribed'],

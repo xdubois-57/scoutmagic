@@ -129,6 +129,11 @@ class MailingListPreviewCountTest extends TestCase
                 new \Modules\MassMail\Repository\ContactRepository($this->pdo, $this->encryption),
                 new \Modules\MassMail\Repository\MailingListRepository($this->pdo),
                 $this->createStub(\Core\Journal\JournalService::class)
+            ),
+            new \Modules\MassMail\Service\SendableScoutYears(
+                new \Core\Config\ScoutYearService($this->pdo),
+                new \Core\Import\ImportJournalRepository($this->pdo),
+                $this->createStub(MailingListService::class)
             )
         );
 
@@ -147,6 +152,27 @@ class MailingListPreviewCountTest extends TestCase
         $this->assertTrue($payload['success']);
         $this->assertSame(2, $payload['count']);
         $this->assertSame('2025-2026', $payload['scout_year_label']);
+    }
+
+    /**
+     * The dialog's sentence comes with every count, worded by the same
+     * method as the lines of the list page.
+     */
+    public function testItWordsTheSentenceTheGroupWillReadAs(): void
+    {
+        $payload = $this->preview([
+            'function_ids' => [$this->functionChiefId],
+            'section_ids' => [$this->sectionStaffId],
+        ]);
+
+        $this->assertSame(
+            'Les membres de la section Staff qui ont la fonction Chef.',
+            implode('', array_column($payload['sentence'], 'text'))
+        );
+        $this->assertSame(['Staff', 'Chef'], array_column(
+            array_filter($payload['sentence'], static fn(array $s): bool => $s['strong']),
+            'text'
+        ));
     }
 
     /**

@@ -641,6 +641,11 @@ final class UxConventionsTest extends TestCase
         '/admin/fees/tarifs/export',
         // XLSX download of one invoice's verification report, likewise.
         '/admin/fees/factures/{id}/export',
+        // JSON: what the page of a mailing list redraws after a dialog
+        // saved, and « Voir les destinataires ». Never a page — the list
+        // page is the page.
+        '/admin/listes-de-diffusion/lists/{id}/blocks',
+        '/admin/listes-de-diffusion/lists/{id}/recipients',
         '/admin/locations/gestionnaire-recherche',
         '/admin/sos/transitions',
         '/calendar/feed/personal/{token}.ics',
