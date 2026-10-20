@@ -121,6 +121,7 @@ class ListBlockFlowTest extends TestCase
             $this->createStub(JournalService::class),
             new SuppressedAddressRepository($this->pdo)
         );
+        $this->memberEmailService = $this->buildMemberEmailService($sectionService, $memberService);
         $this->listService = new MailingListService(
             $listRepository,
             new MemberResolutionRepository($this->pdo, $this->encryption),
@@ -134,12 +135,12 @@ class ListBlockFlowTest extends TestCase
             null,
             null,
             null,
-            $memberService
+            $memberService,
+            $this->memberEmailService
         );
 
         $this->recipientRepository = new RecipientRepository($this->pdo, $this->encryption);
         $this->suppressedRepository = new SuppressedAddressRepository($this->pdo);
-        $this->memberEmailService = $this->buildMemberEmailService($sectionService, $memberService);
 
         $this->massMailService = new MassMailService(
             new EmailRepository($this->pdo),
@@ -221,9 +222,11 @@ class ListBlockFlowTest extends TestCase
         $this->listId = $this->listService->createCustomList('Vide', 'Aucun bloc.', null)->id;
 
         $email = $this->sendableEmail();
-        $this->massMailService->startSending($email->id, null);
+        $sent = $this->massMailService->startSending($email->id, null);
 
         $this->assertSame([], $this->recipientRepository->findByEmailId($email->id));
+        // No batch will ever touch it: it is finished, not left sending.
+        $this->assertSame(Email::STATUS_SENT, $sent->status);
     }
 
     public function testAListWithContactsOnlyResolvesToThoseContacts(): void
@@ -437,6 +440,56 @@ class ListBlockFlowTest extends TestCase
         $this->assertSame('Akela Dupont', $member['name']);
         $this->assertSame('Akela', $member['display_name']);
         $this->assertSame([$this->memberGroupId, $second, $contacts], $member['block_ids']);
+    }
+
+    /**
+     * A member Desk gives no address to is still written to at a personal
+     * one — the freeze asks MemberEmailService — so « Voir les
+     * destinataires » shows them there, credited with their groups by
+     * member id, and the page's total counts them. A contact carrying that
+     * same personal address is the member's row, as it is at the freeze.
+     */
+    public function testAMemberWithoutDeskAddressIsListedAtTheirPersonalAddress(): void
+    {
+        $memberId = $this->createMember('', null, 'Perso');
+        $this->addSecondaryEmail($memberId, 'perso@test.be');
+        $contacts = $this->contactGroup($this->listId, 'Partenaires', ['PERSO@test.be', 'cure@paroisse.be']);
+
+        $rows = $this->listService->listRecipients($this->listId, $this->scoutYearId);
+
+        $this->assertSame(['cure@paroisse.be', 'perso@test.be'], array_column($rows, 'email'));
+        $this->assertSame($memberId, $rows[1]['member_id']);
+        $this->assertSame('Perso Dupont', $rows[1]['name']);
+        $this->assertSame([$this->memberGroupId, $contacts], $rows[1]['block_ids']);
+
+        $summary = $this->listService->summariseList($this->listId, $this->scoutYearId);
+        $this->assertSame(count($rows), $summary['total']);
+
+        // And the send agrees: one row for the member, one for the contact.
+        $email = $this->sendableEmail();
+        $this->massMailService->startSending($email->id, null);
+        $this->assertCount(count($rows), $this->recipientRepository->findByEmailId($email->id));
+    }
+
+    /**
+     * A member with no usable address at all receives nothing: neither
+     * listed nor counted in the total — though still one of the members
+     * the groups designate, which is what `members` and the per-block
+     * counts answer.
+     */
+    public function testAMemberWithoutAnyUsableAddressIsNeitherListedNorCounted(): void
+    {
+        $this->createMember('chef@test.be');
+        $this->createMember('', null, 'Sans adresse');
+        $this->contactGroup($this->listId, 'Partenaires', ['cure@paroisse.be']);
+
+        $rows = $this->listService->listRecipients($this->listId, $this->scoutYearId);
+        $summary = $this->listService->summariseList($this->listId, $this->scoutYearId);
+
+        $this->assertSame(['cure@paroisse.be', 'chef@test.be'], array_column($rows, 'email'));
+        $this->assertSame(2, $summary['total']);
+        $this->assertSame(count($rows), $summary['total']);
+        $this->assertSame(2, $summary['members']);
     }
 
     /**

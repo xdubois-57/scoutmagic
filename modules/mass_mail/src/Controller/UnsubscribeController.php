@@ -107,13 +107,7 @@ class UnsubscribeController extends AbstractController
         // happened to come from — a person who unsubscribes as a list's
         // contact and then receives a publipostage has not been heard.
         if ($recipient->emailAddress !== null) {
-            // Every contact group's rows holding this address, in every
-            // list, flagged in one statement — which is what keeps them
-            // visible and greyed on the screen rather than silently
-            // skipped.
-            $this->listBlockService?->unsubscribeEverywhere($recipient->emailAddress);
-
-            // And the module's own suppression list, WHOEVER asked — a
+            // The module's own suppression list first, WHOEVER asked — a
             // member included. A member's own unsubscribe deactivates
             // their member_emails row, which stops member mail and
             // nothing else: a chief's Excel file could carry that same
@@ -131,6 +125,13 @@ class UnsubscribeController extends AbstractController
             // and a publipostage — and those are exactly the two nobody
             // but a chief can reopen.
             $this->suppressedAddressRepository->suppress($recipient->emailAddress);
+
+            // Then every contact group's rows holding this address, in
+            // every list, flagged in one statement — which is what keeps
+            // them visible and greyed on the screen rather than silently
+            // skipped. After the suppression, so a failure here cannot
+            // lose the request itself: the freeze reads the suppression.
+            $this->listBlockService?->unsubscribeEverywhere($recipient->emailAddress);
         }
 
         if ($recipient->memberEmailId !== null) {

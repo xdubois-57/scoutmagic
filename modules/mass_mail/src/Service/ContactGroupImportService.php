@@ -203,6 +203,10 @@ class ContactGroupImportService
      * neither removed nor re-subscribed whatever the file says. Stamps the
      * group's `file_replaced_at`.
      *
+     * The summary counts as {@see summarise()} does: a line new to the
+     * group whose address is suppressed elsewhere is created unsubscribed,
+     * so it is counted in `kept_unsubscribed`, not in `added`.
+     *
      * @param array<int, array{name?: ?string, email?: string}> $contacts
      * @return array{added: int, unchanged: int, removed: int, kept_unsubscribed: int}
      * @throws MailingListException on an unknown block, a member group, an invalid
@@ -215,25 +219,37 @@ class ContactGroupImportService
         $this->assertRoomForReplacement($blockId, $contacts);
 
         $summary = $this->blockRepository->atomically(function () use ($blockId, $contacts): array {
+            // A file never re-subscribes anybody (D3), and `replaceForBlock()`
+            // already refuses to touch an unsubscribed row of THIS group. What
+            // it cannot see is an address unsubscribed somewhere else and now
+            // arriving as a new line: it would be created active. The
+            // suppression table is the one place that knows, every unsubscribe
+            // writing to it whoever asked, so the rows it names are flagged
+            // right after the replacement, in the same transaction — asked in
+            // one query for the whole file, then one statement per address
+            // actually concerned, which is almost always none.
+            $suppressed = $this->suppressedIn($contacts);
+            $bornUnsubscribed = count($this->notHeldBy($blockId, $suppressed));
+
             $summary = $this->contactRepository->replaceForBlock($blockId, $contacts);
             $this->blockRepository->markFileReplaced($blockId, new \DateTimeImmutable());
 
+            // Through the block service, which journals it. The flag is the
+            // global unsubscribe on purpose, every group of every list: the
+            // address asked the unit, not a list, to stop — any other row
+            // holding it is normally flagged already, and one that is not is
+            // exactly the door this pass exists to shut.
+            foreach ($suppressed as $address) {
+                $this->blockService->unsubscribeEverywhere($address);
+            }
+
+            // What the summary says is what the group can be written to:
+            // a line born unsubscribed is not one more address mailed.
+            $summary['added'] -= $bornUnsubscribed;
+            $summary['kept_unsubscribed'] += $bornUnsubscribed;
+
             return $summary;
         });
-
-        // A file never re-subscribes anybody (D3), and `replaceForBlock()`
-        // already refuses to touch an unsubscribed row of THIS group. What
-        // it cannot see is an address unsubscribed somewhere else and now
-        // arriving as a new line: it would be created active. The
-        // suppression table is the one place that knows, every unsubscribe
-        // writing to it whoever asked, so the rows it names are flagged
-        // right after the replacement — in one query for the whole file,
-        // then one statement per address actually concerned, which is
-        // almost always none.
-        $imported = array_map(static fn(array $c): string => $c['email'], $contacts);
-        foreach ($this->suppressedAddressRepository?->filterSuppressed($imported) ?? [] as $suppressed) {
-            $this->contactRepository->unsubscribeEverywhere($suppressed);
-        }
 
         $this->journal->log(
             'mass_mail',
@@ -446,12 +462,57 @@ class ContactGroupImportService
             $removed++;
         }
 
+        // A line the save would create already unsubscribed — its address
+        // suppressed elsewhere, see apply() — is not an address added to
+        // those the group writes to, and the preview says so as the save
+        // will.
+        $bornUnsubscribed = count($this->notHeldBy($blockId, $this->suppressedIn($contacts)));
+
         return [
-            'added' => $added,
+            'added' => $added - $bornUnsubscribed,
             'unchanged' => $unchanged,
             'removed' => $removed,
-            'kept_unsubscribed' => $keptUnsubscribed,
+            'kept_unsubscribed' => $keptUnsubscribed + $bornUnsubscribed,
         ];
+    }
+
+    /**
+     * The addresses of $contacts that `mass_mail_suppressed_addresses`
+     * names — one query for the whole file.
+     *
+     * @param array<int, array{name: ?string, email: string}> $contacts
+     * @return string[]
+     */
+    private function suppressedIn(array $contacts): array
+    {
+        return $this->suppressedAddressRepository?->filterSuppressed(
+            array_map(static fn(array $c): string => $c['email'], $contacts)
+        ) ?? [];
+    }
+
+    /**
+     * Those of $addresses this group does not hold yet — the lines the
+     * replacement would create. The group is read only when there is
+     * something to compare, which is almost never.
+     *
+     * @param string[] $addresses
+     * @return string[]
+     */
+    private function notHeldBy(?int $blockId, array $addresses): array
+    {
+        if ($addresses === [] || $blockId === null) {
+            return $addresses;
+        }
+
+        $held = [];
+        foreach ($this->contactRepository->findForBlock($blockId) as $contact) {
+            $held[mb_strtolower($contact->email)] = true;
+        }
+
+        return array_values(array_filter(
+            $addresses,
+            static fn(string $address): bool => !isset($held[mb_strtolower($address)])
+        ));
     }
 
     /**

@@ -4,7 +4,7 @@ title: Gérer les listes de diffusion
 summary: Les listes par défaut et les listes personnalisées de l'unité.
 category: Espace chefs d'U
 role_min: admin
-question: Comment créer une liste de diffusion personnalisée ?
+question: Que contient une liste de diffusion personnalisée ?
 question: Comment écrire aux intendants de toutes les sections ?
 question: Comment écrire aux animateurs qui portent un badge ?
 question: Pourquoi ne puis-je pas supprimer une liste de diffusion ?
@@ -25,34 +25,24 @@ qui devient inactive disparaît d'elle-même, sans entretien.
 
 ## Vos propres listes
 
-« Nouvelle liste » ouvre trois sélecteurs : « Fonctions », « Sections »
-et « Badges ». Une liste demande un nom, une description, et au moins un
-critère — sur n'importe lequel des trois.
+Une liste personnalisée additionne des **groupes**, de deux sortes :
 
-Les trois se combinent en **ET**, et chacun se lit en **OU** à
-l'intérieur. Un intendant *ou* un trésorier, dans la meute *ou* dans la
-troupe : c'est une seule liste.
+- un **groupe de membres** désigne des membres par leurs fonctions,
+  leurs sections et leurs badges — les trois se combinent en **ET**, et
+  chacun se lit en **OU** à l'intérieur ;
+- un **groupe de contacts** réunit des personnes qui ne sont pas
+  membres, comme la commune ou le propriétaire d'un terrain de camp.
 
-Un sélecteur que vous laissez vide ne restreint rien — il affiche alors
-« Toutes les sections », et la liste vaut pour toutes. C'est ainsi qu'on
-écrit aux intendants sans distinguer leur section.
+La page indique, pour chaque liste, combien de groupes de chaque sorte
+elle contient. Une liste sans aucun groupe ne désigne personne.
 
-Vous n'avez pas à le deviner. Sous les trois sélecteurs, une phrase se
-réécrit à chaque clic et dit exactement qui la liste contient, et le
-nombre de destinataires se recalcule à côté.
+Une personne apportée par deux groupes ne reçoit qu'un seul e-mail : le
+site compare les adresses, pas les fiches.
 
-> Un badge ne s'attribue qu'au Staff d'Unité et aux animateurs. Le
-> croiser avec une section d'animés donne donc toujours zéro
-> destinataire, et le compteur l'annonce en rouge.
-
-La description est obligatoire, et elle s'affiche à côté de la liste
-partout où on la choisit : c'est ce qui permet à un animateur de savoir
-ce que la liste contient sans le deviner d'après son nom.
-
-Une liste ne vise **aucune année scoute**. Elle décrit qui recevoir ;
-l'année se choisit au moment d'écrire l'e-mail. Sa composition se
-recalcule à chaque envoi, elle reste donc juste après chaque mise à
-jour des données.
+Une liste ne vise **aucune année scoute**. L'année se choisit au moment
+d'écrire l'e-mail et ne change que les groupes de membres ; les groupes
+de contacts sont toujours inclus. Sa composition se recalcule à chaque
+envoi.
 
 ## Désactiver plutôt que supprimer
 
