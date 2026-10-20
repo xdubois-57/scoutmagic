@@ -3991,11 +3991,20 @@ class RentalManagementControllerTest extends TestCase
         $this->post('/mes-locations/facturation', 'saveBillingIdentity', [
             'asset_id' => (string) $this->assetId,
             'booking_id' => (string) $booking->id,
-            'billing_address' => 'Rue Haute 12, 1000 Bruxelles',
+            'billing_name' => 'ASBL Les Scouts',
+            'billing_address' => 'Place du Marché 1, 5000 Namur',
             'on_site_contact_name' => 'Paul Lemaire',
             'on_site_contact_phone' => str_repeat('1', 41),
         ]);
-        $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null, 'a phone no column could hold is refused');
+        // A crafted post: nothing of it is written, the billing half
+        // included, and the refusal says why.
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertSame('error', $flash['type'] ?? null, 'a phone no column could hold is refused');
+        $this->assertStringContainsString('Téléphone du responsable', (string) ($flash['message'] ?? ''));
+        $identity = $this->bookingRepository->findBillingIdentity($booking->id);
+        $this->assertNull($identity['name']);
+        $this->assertSame('Rue Haute 12, 1000 Bruxelles', $identity['address']);
+        $this->assertSame(['name' => null, 'phone' => null], $this->bookingRepository->findOnSiteContact($booking->id));
 
         $this->post('/mes-locations/facturation', 'saveBillingIdentity', [
             'asset_id' => (string) $this->assetId,

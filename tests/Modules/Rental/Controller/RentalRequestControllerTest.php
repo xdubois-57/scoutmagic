@@ -1696,6 +1696,31 @@ class RentalRequestControllerTest extends TestCase
         $this->assertSame('Paul Lemaire', $this->bookingRepository->findOnSiteContact($bookingId)['name']);
     }
 
+    /**
+     * A crafted post whose contact no column could hold is refused WHOLE:
+     * the billing half is not written either, and the renter is told why.
+     */
+    public function testAnOverLongContactWritesNothingAtAll(): void
+    {
+        $this->createAsset();
+        [$bookingId, $token] = $this->submitAndTrack();
+
+        $this->postToTracking('saveBillingIdentity', $bookingId, $token, [
+            'billing_name' => 'Les Amis du Sart ASBL',
+            'billing_address' => 'Rue Haute 12, 1000 Bruxelles',
+            'on_site_contact_name' => str_repeat('a', 201),
+            'on_site_contact_phone' => '0470 98 76 54',
+        ]);
+
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertSame('error', $flash['type'] ?? null);
+        $this->assertStringContainsString('Responsable du groupe sur place', (string) ($flash['message'] ?? ''));
+        $identity = $this->bookingRepository->findBillingIdentity($bookingId);
+        $this->assertNull($identity['name']);
+        $this->assertNull($identity['address']);
+        $this->assertSame(['name' => null, 'phone' => null], $this->bookingRepository->findOnSiteContact($bookingId));
+    }
+
     public function testTheTrackingPageNeverShowsAnInternalComment(): void
     {
         // §6.6: the page does not even load them, which is stronger than a

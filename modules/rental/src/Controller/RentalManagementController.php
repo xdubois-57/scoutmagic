@@ -2382,24 +2382,24 @@ class RentalManagementController extends AbstractController
     public function saveBillingIdentity(Request $request, array $params): Response
     {
         return $this->bookingAction($request, function (RentalBooking $booking) use ($request): void {
-            $this->operationsService->saveBillingIdentity($booking->id, [
-                'name' => Support::optionalString($request->getBody('billing_name')),
-                'address' => Support::optionalString($request->getBody('billing_address')),
-                'country' => Support::optionalString($request->getBody('billing_country')),
-                'vat_number' => Support::optionalString($request->getBody('billing_vat_number')),
-                'enterprise_number' => Support::optionalString($request->getBody('billing_enterprise_number')),
-                'email' => Support::optionalString($request->getBody('billing_email')),
-                'reference' => Support::optionalString($request->getBody('billing_reference')),
-            ]);
-            // The same form names the group's responsible person on site
-            // (issue #977); a post without the fields leaves it as it was.
-            if ($request->getBody('on_site_contact_name') !== null) {
-                $this->operationsService->saveOnSiteContact(
-                    $booking->id,
-                    Support::optionalString($request->getBody('on_site_contact_name')),
-                    Support::optionalString($request->getBody('on_site_contact_phone'))
-                );
-            }
+            $this->operationsService->saveRenterCoordinates(
+                $booking->id,
+                [
+                    'name' => Support::optionalString($request->getBody('billing_name')),
+                    'address' => Support::optionalString($request->getBody('billing_address')),
+                    'country' => Support::optionalString($request->getBody('billing_country')),
+                    'vat_number' => Support::optionalString($request->getBody('billing_vat_number')),
+                    'enterprise_number' => Support::optionalString($request->getBody('billing_enterprise_number')),
+                    'email' => Support::optionalString($request->getBody('billing_email')),
+                    'reference' => Support::optionalString($request->getBody('billing_reference')),
+                ],
+                // The same form names the group's responsible person on site
+                // (issue #977); a post without the fields leaves it as it was.
+                $request->getBody('on_site_contact_name') === null ? null : [
+                    'name' => Support::optionalString($request->getBody('on_site_contact_name')),
+                    'phone' => Support::optionalString($request->getBody('on_site_contact_phone')),
+                ]
+            );
 
             FlashMessage::set('success', 'Coordonnées de facturation enregistrées.');
         });
