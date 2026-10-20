@@ -1,0 +1,38 @@
+{#
+  The name and the description of a custom list — the two things a list
+  is besides its blocks. One dialog for both pages: « Nouvelle liste » on
+  the page of the lists opens it empty, and « Enregistrer » creates the
+  list and opens its page; the pencil on the page of a list opens it
+  filled, and « Enregistrer » renames.
+
+  `list` is the list being edited, or null for a creation. Driven by
+  public/assets/js/mass-mail-lists.js, which reads the target from
+  `data-list-id` (empty for a creation).
+#}
+{% embed 'partials/modal.html.twig' with {
+    id: 'mm-list-identity-modal',
+    title: list ? 'Nom et description' : 'Nouvelle liste',
+    list: list,
+} only %}
+    {% block body %}
+        <div class="alert alert-danger d-none" data-list-identity-error></div>
+        <div class="mb-3">
+            <label class="form-label" for="mm-list-name">Nom</label>
+            <input type="text" class="form-control" id="mm-list-name" maxlength="150"
+                   value="{{ list ? list.name : '' }}">
+        </div>
+        <div class="mb-0">
+            <label class="form-label" for="mm-list-description">Description</label>
+            <textarea class="form-control" id="mm-list-description" rows="3" maxlength="500"
+                      aria-describedby="mm-list-description-help">{{ list ? list.description : '' }}</textarea>
+            <p class="form-text mb-0" id="mm-list-description-help">
+                Affichée aux animateurs qui choisissent la liste au moment d'écrire.
+            </p>
+        </div>
+    {% endblock %}
+    {% block footer %}
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Annuler</button>
+        <button type="button" class="btn btn-primary" data-list-identity-save
+                data-list-id="{{ list ? list.id : '' }}">Enregistrer</button>
+    {% endblock %}
+{% endembed %}

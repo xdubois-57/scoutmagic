@@ -263,59 +263,91 @@ class MailingListServiceTest extends TestCase
         $this->assertSame([], $service->getAllBadges());
     }
 
-    // --- The summary the page prints (describeCriteria) ------------------
+    // --- The sentence a member group reads as (criteriaSentence) --------
 
     /**
-     * The page that lists the lists has no pickers above its sentence, so
-     * the sentence NAMES the criteria rather than counting them — see the
-     * method's own docblock for why it is deliberately not the same
-     * sentence as the dialog's.
+     * The sentence as plain text — the segments only decide what is bold.
+     *
+     * @param list<array{text: string, strong: bool}> $segments
      */
-    public function testTheSummaryNamesEachAxisAndJoinsThemWithEt(): void
+    private static function text(array $segments): string
     {
-        $this->assertSame(
-            'Membres qui exercent la fonction Animateur ET sont dans la section Meute A '
-                . 'ET portent le badge Infirmier.',
-            $this->service->describeCriteria([$this->functionId], [$this->sectionActiveId], [$this->badgeId])
-        );
-    }
-
-    public function testAnAxisThatConstrainsNothingDisappearsFromTheSummary(): void
-    {
-        $this->assertSame(
-            'Membres qui exercent la fonction Animateur.',
-            $this->service->describeCriteria([$this->functionId], [], [])
-        );
+        return implode('', array_column($segments, 'text'));
     }
 
     /**
-     * Singular and plural are two sentences rather than one carrying an
-     * « (s) »: « une des fonctions Animateur » is what a template
-     * produces and nobody writes.
+     * The section first, then the other two axes joined by « et »: the AND
+     * between axes is the one thing three pickers cannot show.
      */
-    public function testTwoCriteriaOnOneAxisSwitchTheClauseToItsPlural(): void
+    public function testTheSentenceNamesEachAxisAndJoinsThemWithEt(): void
+    {
+        $this->assertSame(
+            'Les membres de la section Meute A qui ont la fonction Animateur et portent le badge Infirmier.',
+            self::text($this->service->criteriaSentence(
+                [$this->functionId],
+                [$this->sectionActiveId],
+                [$this->badgeId]
+            ))
+        );
+    }
+
+    /** Only the names are bold — they are what the chief chose. */
+    public function testTheNamesAreTheBoldSegments(): void
+    {
+        $this->assertSame([
+            ['text' => 'Les membres de la section ', 'strong' => false],
+            ['text' => 'Meute A', 'strong' => true],
+            ['text' => ' qui portent le badge ', 'strong' => false],
+            ['text' => 'Infirmier', 'strong' => true],
+            ['text' => '.', 'strong' => false],
+        ], $this->service->criteriaSentence([], [$this->sectionActiveId], [$this->badgeId]));
+    }
+
+    public function testAnAxisThatConstrainsNothingDisappearsFromTheSentence(): void
+    {
+        $this->assertSame(
+            'Les membres qui ont la fonction Animateur.',
+            self::text($this->service->criteriaSentence([$this->functionId], [], []))
+        );
+    }
+
+    /** Several choices on one axis are alternatives: « A, B ou C ». */
+    public function testSeveralChoicesOnOneAxisReadAsAlternatives(): void
     {
         $this->pdo->exec("INSERT INTO functions (desk_code, label, role) VALUES ('INT', 'Intendant', 'identified')");
         $second = (int) $this->pdo->lastInsertId();
+        $this->pdo->exec("INSERT INTO functions (desk_code, label, role) VALUES ('TRE', 'Trésorier', 'identified')");
+        $third = (int) $this->pdo->lastInsertId();
+        $branchId = (int) $this->pdo->query('SELECT MIN(id) FROM age_branches')->fetchColumn();
+        $this->pdo->exec(
+            "INSERT INTO sections (desk_code, age_branch_id, name, is_active) VALUES ('LOU03', {$branchId}, 'Meute C', 1)"
+        );
+        $sectionC = (int) $this->pdo->lastInsertId();
 
         $this->assertSame(
-            'Membres qui exercent une des fonctions Animateur, Intendant.',
-            $this->service->describeCriteria([$this->functionId, $second], [], [])
+            'Les membres qui ont la fonction Animateur ou Intendant.',
+            self::text($this->service->criteriaSentence([$this->functionId, $second], [], []))
+        );
+        $this->assertSame(
+            'Les membres qui ont la fonction Animateur, Intendant ou Trésorier.',
+            self::text($this->service->criteriaSentence([$this->functionId, $second, $third], [], []))
+        );
+        $this->assertSame(
+            'Les membres des sections Meute A ou Meute C.',
+            self::text($this->service->criteriaSentence([], [$this->sectionActiveId, $sectionC], []))
         );
     }
 
-    public function testNoCriterionAtAllSaysSoRatherThanNamingNothing(): void
+    /** No choice at all is no group: nothing to say. */
+    public function testNoChoiceAtAllGivesNoSentence(): void
     {
-        $this->assertSame(
-            'Aucun membre du site dans cette liste.',
-            $this->service->describeCriteria([], [], [])
-        );
+        $this->assertSame([], $this->service->criteriaSentence([], [], []));
     }
 
     /**
-     * A deactivated badge a list still names keeps the suffix the picker
+     * A deactivated badge a group still names keeps the suffix the picker
      * gives it — this sentence is the one place a chief finds out why the
-     * list resolves to fewer members than its other axes suggest.
+     * group resolves to fewer members than its other axes suggest.
      */
     public function testADeactivatedBadgeIsNamedWithItsSuffix(): void
     {
@@ -323,8 +355,17 @@ class MailingListServiceTest extends TestCase
         $this->pdo->exec("UPDATE badges SET is_active = 0 WHERE id = {$this->badgeId}");
 
         $this->assertSame(
-            'Membres qui portent le badge Infirmier (désactivé).',
-            $this->service->describeCriteria([], [], [$this->badgeId])
+            'Les membres qui portent le badge Infirmier (désactivé).',
+            self::text($this->service->criteriaSentence([], [], [$this->badgeId]))
+        );
+    }
+
+    /** The short name a tag shows: every chosen name, in axis order. */
+    public function testTheLabelListsEveryChosenName(): void
+    {
+        $this->assertSame(
+            'Animateur, Meute A, Infirmier',
+            $this->service->criteriaLabel([$this->functionId], [$this->sectionActiveId], [$this->badgeId])
         );
     }
 

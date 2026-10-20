@@ -9224,7 +9224,12 @@ if ($isEnabled('mass_mail')) {
             $twig,
             $massMailListService,
             $scoutYearResolver,
-            $massMailListBlockService
+            $massMailListBlockService,
+            new \Modules\MassMail\Service\SendableScoutYears(
+                $scoutYearService,
+                $importJournalRepo,
+                $massMailListService
+            )
         )
     );
 
@@ -11970,7 +11975,12 @@ if ($isEnabled('registration')) {
                 $twig,
                 $massMailListService,
                 $scoutYearResolver,
-                $massMailListBlockService
+                $massMailListBlockService,
+                new \Modules\MassMail\Service\SendableScoutYears(
+                    $scoutYearService,
+                    $importJournalRepo,
+                    $massMailListService
+                )
             )
         );
     }

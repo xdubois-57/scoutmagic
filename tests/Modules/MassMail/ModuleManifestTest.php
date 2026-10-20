@@ -63,6 +63,14 @@ class ModuleManifestTest extends TestCase
                 '/admin/listes-de-diffusion/lists',
                 '/admin/listes-de-diffusion/lists/{id}/toggle',
                 '/admin/listes-de-diffusion/lists/{id}',
+                // The page of one list and what it calls.
+                '/admin/listes-de-diffusion/{id}',
+                '/admin/listes-de-diffusion/lists/{id}',
+                '/admin/listes-de-diffusion/lists/{id}/blocks',
+                '/admin/listes-de-diffusion/lists/{id}/member-groups',
+                '/admin/listes-de-diffusion/member-groups/{id}',
+                '/admin/listes-de-diffusion/blocks/{id}',
+                '/admin/listes-de-diffusion/lists/{id}/recipients',
             ],
             $paths
         );
