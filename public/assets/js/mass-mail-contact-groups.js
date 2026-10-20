@@ -479,6 +479,18 @@
         if (block === null && list === null) {
             return;
         }
+        // An opener inside another dialog (the page's « Ajouter des
+        // destinataires » chooser) closes that dialog on the same click.
+        // Opening this one before it has finished hiding would let its
+        // end strip the page's scroll lock from under this dialog: wait
+        // for it, as the member-group choice does.
+        var host = trigger.closest('.modal.show');
+        if (host && host !== modalEl) {
+            host.addEventListener('hidden.bs.modal', function () {
+                open(list, block);
+            }, { once: true });
+            return;
+        }
         open(list, block);
     });
 
