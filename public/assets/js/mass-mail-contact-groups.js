@@ -274,9 +274,11 @@
         if (blockId === null) {
             parts.push(summary.added + ' contact' + plural(summary.added) + ' trouvé' + plural(summary.added));
         } else {
-            parts.push(summary.added + ' ajouté' + plural(summary.added));
-            parts.push(summary.removed + ' retiré' + plural(summary.removed));
-            parts.push(summary.unchanged + ' inchangé' + plural(summary.unchanged));
+            parts.push(
+                summary.added + ' ajouté' + plural(summary.added),
+                summary.removed + ' retiré' + plural(summary.removed),
+                summary.unchanged + ' inchangé' + plural(summary.unchanged)
+            );
             if (summary.kept_unsubscribed > 0) {
                 parts.push(summary.kept_unsubscribed + ' désinscrit' + plural(summary.kept_unsubscribed)
                     + ' conservé' + plural(summary.kept_unsubscribed));
