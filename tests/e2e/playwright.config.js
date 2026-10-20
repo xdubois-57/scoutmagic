@@ -61,9 +61,10 @@ if (!baseURL) {
 }
 
 /**
- * Chromium launch overrides, assembled from the two environment opt-ins
- * above. Returns an empty object when neither is set, so the project
- * definition is byte-identical to what it was before either existed.
+ * Chromium launch overrides, assembled from the environment opt-ins
+ * (E2E_CHROMIUM_EXECUTABLE, E2E_PROXY_SERVER, E2E_IGNORE_HTTPS_ERRORS).
+ * Returns an empty object when none is set, so the project definition is
+ * byte-identical to what it was before any existed.
  *
  * @returns {{launchOptions?: import('@playwright/test').LaunchOptions, proxy?: {server: string}}}
  */
@@ -77,9 +78,42 @@ function launchArguments() {
         launchOptions.executablePath = process.env.E2E_CHROMIUM_EXECUTABLE;
     }
 
+    /** @type {string[]} */
+    const args = [];
+
     if (process.env.E2E_PROXY_SERVER) {
         use.proxy = { server: process.env.E2E_PROXY_SERVER };
-        launchOptions.args = ['--proxy-bypass-list=<-loopback>'];
+        args.push('--proxy-bypass-list=<-loopback>');
+    }
+
+    // The same opt-in as `ignoreHTTPSErrors` below, enforced one layer
+    // lower. It widens nothing: the run that sets E2E_IGNORE_HTTPS_ERRORS
+    // (scripts/dast.sh) already ignores every certificate error, and the
+    // switch only changes WHEN the error is ignored.
+    //
+    // `ignoreHTTPSErrors` alone ignores it after the fact. The handshake
+    // with ZAP's certificate, which nothing trusts, still fails; the
+    // failure is handed to a request, and Chromium restarts that request
+    // with the certificate allowed — for that request only. The socket
+    // pool gives a connection being opened to the highest-priority request
+    // waiting, so a navigation started while the previous page's assets
+    // are still loading (each opening its connections without that
+    // allowance) collects their failures, one restart each. Chromium caps
+    // restarts at 32 per request (kMaxRestarts,
+    // net/http/http_network_transaction.cc) and then fails the navigation
+    // with net::ERR_TOO_MANY_RETRIES: a click or a goto() that leaves the
+    // page on chrome-error://. That was the DAST job's
+    // cookie-consent-accept.spec.js:83 failure and its
+    // rental-lifecycle.spec.js one (giveRenterAddress()), never a
+    // security finding. A local net-log through ZAP measured navigations
+    // restarted up to 24 times; with this switch the handshake succeeds
+    // and no request restarts at all.
+    if (process.env.E2E_IGNORE_HTTPS_ERRORS === '1') {
+        args.push('--ignore-certificate-errors');
+    }
+
+    if (args.length > 0) {
+        launchOptions.args = args;
     }
 
     if (Object.keys(launchOptions).length > 0) {
@@ -180,7 +214,8 @@ export default defineConfig({
         // trusted by nothing — see scripts/dast-support.php's
         // generate-cert. Unset, which is every other caller including
         // `npm run e2e`, this stays false and a certificate problem is
-        // still a test failure.
+        // still a test failure. launchArguments() pairs it with
+        // --ignore-certificate-errors, for the reason written there.
         ignoreHTTPSErrors: process.env.E2E_IGNORE_HTTPS_ERRORS === '1',
     },
     projects: [
