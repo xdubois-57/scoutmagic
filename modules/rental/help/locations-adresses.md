@@ -25,8 +25,8 @@ départage ses réservations.
 ## Ajouter et retirer
 
 « Ajouter une adresse » en ajoute une. L'adresse du locataire lui-même ou
-une adresse déjà listée est refusée. « Retirer » en retire une après
-confirmation : les messages déjà rattachés restent sur la réservation,
+une adresse déjà listée est refusée. La croix au bout de sa ligne
+(« Retirer ») en retire une après confirmation : les messages déjà rattachés restent sur la réservation,
 seuls les suivants ne le seront plus automatiquement. Chaque ajout et
 chaque retrait figure dans l'historique de la réservation.
 

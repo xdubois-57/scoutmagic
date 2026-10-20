@@ -229,10 +229,11 @@ class RentalModificationService
             if ($discount === null) {
                 throw new RentalException("Le montant de la remise n'est pas un montant valide.");
             }
-            if ($discount > 0) {
-                throw new RentalException('Une remise est un montant négatif, par exemple -50,00.');
-            }
-            $discount = $discount === 0 ? null : $discount;
+            // The amount deducted, whatever its sign: a phone's decimal
+            // keypad has no minus key, so « 50,00 » and « -50,00 » both mean
+            // fifty euros off — the same rule as the settlement's « Geste
+            // commercial ». Zero is no discount.
+            $discount = $discount === 0 ? null : -abs($discount);
         }
 
         $tariff = $this->pricing->quoteForAsset(

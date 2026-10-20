@@ -8,8 +8,8 @@ question: Comment le locataire me renvoie-t-il le contrat signé ?
 question: Comment contresigner un contrat de location ?
 question: Où enregistrer ma signature pour les contrats ?
 question: Qui peut voir ma signature ?
-paths: /mes-locations/ma-signature, /mes-locations/*/reservations/*
-related: locations-documents, locations-parcours, locations-suivi
+paths: /mes-locations/ma-signature, /mes-locations/*/reservations/*, /mes-locations/*/reservations/*/documents
+related: locations-documents, locations-modifications, locations-parcours, locations-suivi
 ---
 
 Le contrat part **sans signature**. Il porte deux signatures, dans cet
@@ -20,7 +20,8 @@ ordre : celle du locataire, puis celle de l'unité.
 Le locataire imprime le contrat, le signe et dépose sa copie sur sa page
 de suivi : un PDF, un scan ou une photo lisible de chaque page suffit.
 L'étape « Contrat signé reçu » se coche à la réception, et vous recevez
-la notification « Contrat signé reçu ».
+la notification « Contrat signé reçu ». Une copie que vous n'avez pas
+refusée bloque les dates **fermement**, sans confirmer la réservation.
 
 ## Vérifier et contresigner
 
@@ -31,10 +32,8 @@ copie reçue, puis choisissez :
   locataire et lui ajoute **une dernière page** — qui a contresigné pour
   l'unité, quand, votre signature, la référence de la réservation. Vous
   y êtes désigné par le nom de votre compte (« Mon compte »), jamais par
-  votre totem : le locataire est extérieur à l'unité et ne le connaît
-  pas. Le locataire reçoit le contrat signé par les deux parties par
-  e-mail, et peut le télécharger depuis sa page de suivi : c'est le seul
-  document téléchargeable depuis cette page.
+  votre totem. Le locataire reçoit le contrat signé par les deux parties
+  par e-mail, et peut le télécharger depuis sa page de suivi.
 - **« Refuser la copie »** : écrivez un court motif, 300 caractères au
   plus. Le locataire le reçoit par e-mail et peut déposer une autre copie ;
   ses dates restent bloquées au moins trois jours.
@@ -45,21 +44,18 @@ scan ou une photo, le site ne peut pas savoir où se trouve l'emplacement.
 Peu avant la fin du blocage des dates, le locataire qui n'a pas encore
 déposé sa copie reçoit un rappel par e-mail, une seule fois.
 
-## Un contrat qui ne correspond plus
+## Le contrat de remplacement
 
-Dès que la réservation change — dates, participants, prix, coordonnées
-du locataire —, son contrat ne vaut plus. Il reste dans les documents,
-marqué « Remplacé », avec les copies signées à partir de lui ; les étapes
-du contrat se rouvrent, et un nouveau contrat doit partir. Une demande
-qui attendait la signature revient à « Demande reçue » ; une réservation
-confirmée le reste.
+Une fois un contrat envoyé, rien ne le rend caduc de lui-même : ni les
+coordonnées de facturation remplies après l'envoi, ni les réglages du
+bien. Un changement passe par un contrat de remplacement (« Modifier une
+réservation »). Sa copie se vérifie sur la page « Documents », à côté du
+contrat en vigueur : « Contresigner » applique la modification, et
+l'ancien contrat et ses copies sont marqués « Remplacé le » ; « Refuser
+la copie » laisse la modification en cours.
 
-Compléter un renseignement que le contrat laissait vide — l'adresse de
-facturation que le locataire remplit après l'envoi, par exemple — ne
-change rien à ce qu'il a signé, et le contrat reste valable. Modifier les
-réglages du bien (son nom, ses heures, son acompte, sa caution) ne rend
-pas non plus les contrats déjà générés caducs. Une réservation clôturée
-garde son contrat.
+Avant le premier envoi, un changement s'applique directement et un
+contrat déjà généré est marqué « À régénérer ».
 
 ## Ma signature
 

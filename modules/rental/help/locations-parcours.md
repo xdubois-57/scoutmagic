@@ -8,7 +8,7 @@ question: Comment savoir ce qu'il me reste à faire sur une réservation ?
 question: Comment marquer une étape faite en dehors du site ?
 question: Pourquoi le bouton proposé n'est-il jamais « Refuser la demande » ?
 paths: /mes-locations/*/reservations/*
-related: locations-reservation, gerer-les-locations, locations-documents
+related: locations-reservation, locations-modifications, locations-signatures, gerer-les-locations, locations-documents
 ---
 
 Le haut du tableau de bord d'une réservation répond à deux questions :
@@ -31,10 +31,12 @@ ce sont des décisions réelles, rangées derrière « Autres décisions ».
 **Votre réponse à une demande, c'est le contrat.** Générez-le depuis son
 étape, relisez le PDF, puis envoyez-le : l'envoi passe la réservation à
 « Contrat envoyé » et garde les dates bloquées au moins 15 jours, le
-temps qu'il soit signé. Le locataire signe et renvoie une copie, l'unité
-contresigne. On ne confirme qu'au bout de
-l'accord, quand tout ce qui précède « Réservation confirmée » est fait ;
-d'ici là, la ligne dit ce qui manque.
+temps qu'il soit signé. Le locataire signe et renvoie une copie — ses
+dates sont alors « Dates bloquées fermement » —, l'unité contresigne. On
+ne confirme qu'au bout de l'accord, quand tout ce qui précède
+« Réservation confirmée » est fait ; d'ici là, la ligne dit ce qui
+manque. Confirmer reste votre décision : ni la copie ni la contresignature
+ne confirment d'elles-mêmes.
 
 ## Cycle de vie
 
