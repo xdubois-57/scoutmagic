@@ -1270,6 +1270,42 @@ class RentalRbacTest extends TestCase
     }
 
     /**
+     * The « Contrat » section's write (issue #977), dispatched at the
+     * role_min the manifest really declares, with no session at all: the
+     * router turns the visitor away before the controller runs, and the
+     * asset's address stays unwritten.
+     */
+    public function testAnAnonymousVisitorIsRefusedTheContractDetailsWrite(): void
+    {
+        $assetId = $this->createAsset('Local', 'local');
+        AuthSession::logout();
+
+        $manifest = json_decode(
+            (string) file_get_contents(dirname(__DIR__, 4) . '/modules/rental/module.json'),
+            true
+        );
+        $routes = array_values(array_filter(
+            $manifest['routes'],
+            static fn(array $route) => $route['path'] === '/mes-locations/{slug}/reglages/contrat'
+                && $route['method'] === 'POST'
+        ));
+        $this->assertCount(1, $routes);
+        $this->assertSame('saveContractDetails', $routes[0]['action']);
+
+        $response = $this->dispatchPost(
+            $routes[0]['path'],
+            '/mes-locations/local/reglages/contrat',
+            \Modules\Rental\Controller\RentalPricingController::class,
+            $routes[0]['action'],
+            $routes[0]['role_min'],
+            ['asset_address' => 'Chemin du Camp 4', 'free_withdrawal_days' => '30']
+        );
+
+        $this->assertContains($response->getStatusCode(), [302, 401, 403]);
+        $this->assertNull($this->assetRepository->findById($assetId)?->address);
+    }
+
+    /**
      * Every write action of the settings page, one per case: an identified
      * visitor who does not manage the asset must get 404 from each of them.
      * A single one of these left unchecked is a tariff anybody logged in can
