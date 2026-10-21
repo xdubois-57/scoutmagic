@@ -138,6 +138,23 @@ class StandardTemplatesTest extends TestCase
         $this->assertStringNotContainsString('accident', $contract);
     }
 
+    /**
+     * Article 4: a damage still being assessed holds the deposit back, and
+     * the contract says so — the month after departure is not a promise the
+     * unit breaks while an incident is pending (issue #980).
+     */
+    public function testTheDepositIsReturnedOnceAPendingDamageIsSettled(): void
+    {
+        $contract = self::readableContract();
+
+        $this->assertStringContainsString(
+            "Elle est restituée dans le mois suivant le départ ou le règlement d'un dégât en cours "
+                . "d'évaluation, déduction faite des éventuels dégâts",
+            $contract
+        );
+        $this->assertStringNotContainsString('dans le mois qui suit le départ', $contract);
+    }
+
     /** Article 11: the courts where the asset is, without taking a private renter's own judge away. */
     public function testArticleElevenKeepsTheCourtsOfThePlaceAndThePrivateRentersJudge(): void
     {
