@@ -211,8 +211,9 @@ final class StandardTemplates
 
             <h3>4. Garantie</h3>
             <p>Une garantie locative de {{ caution }} est versée avant le séjour. Elle est
-            restituée dans le mois qui suit le départ, déduction faite des éventuels dégâts,
-            du matériel manquant, des consommations non réglées ou des frais de nettoyage.</p>
+            restituée dans le mois suivant le départ ou le règlement d'un dégât en cours
+            d'évaluation, déduction faite des éventuels dégâts, du matériel manquant, des
+            consommations non réglées ou des frais de nettoyage.</p>
             <p>La garantie n'est pas un plafond&nbsp;: si les dégâts la dépassent, le
             locataire reste redevable de la différence.</p>
 
