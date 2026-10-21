@@ -39,6 +39,10 @@ class DocumentPdfService
      * @param string $bodyHtml Already sanitized, with every substituted value already escaped.
      * @param array<int, string|LinkedText> $metaLines Short lines under the title — reference, dates, a
      *   total; a LinkedText carries an address the reader can click (issue #977).
+     * @param string|null $paymentQrDataUri A payment QR code as a `data:image/png;base64,` URI, printed
+     *   under the body with a line saying what it is for (issue #980). Outside the body on purpose: the
+     *   body is sanitised rich text, which keeps no image a template did not have, and a QR is not
+     *   something a template writes. Anything but a PNG data URI is ignored rather than rendered.
      * @return string raw PDF bytes
      */
     public function generate(
@@ -46,9 +50,28 @@ class DocumentPdfService
         string $bodyHtml,
         string $unitName = '',
         array $metaLines = [],
-        ?string $footerNote = null
+        ?string $footerNote = null,
+        ?string $paymentQrDataUri = null
     ): string {
-        return $this->renderPdf($this->renderHtml($title, $bodyHtml, $unitName, $metaLines, $footerNote));
+        return $this->renderPdf(
+            $this->renderHtml($title, $bodyHtml, $unitName, $metaLines, $footerNote, $paymentQrDataUri)
+        );
+    }
+
+    /**
+     * The QR block, or nothing: only a well-formed PNG data URI is printed,
+     * so no caller can turn this parameter into a way past the sanitised
+     * body — a remote address, an attribute break-out, markup.
+     */
+    private static function paymentQrHtml(?string $dataUri): string
+    {
+        if ($dataUri === null || preg_match('#^data:image/png;base64,[A-Za-z0-9+/]+={0,2}$#', $dataUri) !== 1) {
+            return '';
+        }
+
+        return '<div class="payment-qr"><img src="' . $dataUri . '" alt="Code QR de paiement" width="120"'
+            . ' height="120"><div class="payment-qr-caption">Scannez ce code avec l\'application de votre'
+            . ' banque : le compte, le montant et la communication sont repris.</div></div>';
     }
 
     /**
@@ -117,8 +140,10 @@ class DocumentPdfService
         string $bodyHtml,
         string $unitName,
         array $metaLines,
-        ?string $footerNote
+        ?string $footerNote,
+        ?string $paymentQrDataUri = null
     ): string {
+        $qr = self::paymentQrHtml($paymentQrDataUri);
         $safeTitle = htmlspecialchars($title, ENT_QUOTES, 'UTF-8');
         $safeUnit = htmlspecialchars($unitName, ENT_QUOTES, 'UTF-8');
         $safeFooter = $footerNote !== null ? htmlspecialchars($footerNote, ENT_QUOTES, 'UTF-8') : '';
@@ -155,6 +180,8 @@ class DocumentPdfService
                     footer { position: fixed; bottom: -14mm; left: 0; right: 0;
                              font-size: 8pt; color: #666; border-top: 1px solid #ddd; padding-top: 4px; }
                     .page-number:after { content: counter(page); }
+                    .payment-qr { margin-top: 14px; page-break-inside: avoid; }
+                    .payment-qr-caption { font-size: 8.5pt; color: #444; width: 60mm; }
                 </style>
             </head>
             <body>
@@ -164,6 +191,7 @@ class DocumentPdfService
                     {$meta}
                 </header>
                 <div class="body">{$bodyHtml}</div>
+                {$qr}
                 <footer>{$safeFooter} <span style="float:right;">Page <span class="page-number"></span></span></footer>
             </body>
             </html>

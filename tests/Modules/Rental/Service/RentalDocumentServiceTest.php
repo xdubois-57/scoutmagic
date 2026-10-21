@@ -1865,4 +1865,393 @@ class RentalDocumentServiceTest extends TestCase
         $this->assertTrue($checker->supports('rental_document'));
         $this->assertFalse($checker->supports('section_document'));
     }
+
+    // ── The supplementary invoice (#980, chantier decision 2.8) ─────────────────
+
+    /**
+     * A settlement as stored, without the stay service: what the document
+     * service is handed by its caller.
+     *
+     * @param list<array{string, int, string}> $lines label, amount, origin
+     */
+    private function settlement(
+        int $id,
+        int $version,
+        array $lines,
+        bool $validated = true,
+        int $balanceCents = 0,
+        int $bookingId = 0
+    ): \Modules\Rental\Stay\Settlement {
+        $settlementLines = [];
+        $total = 0;
+        foreach ($lines as [$label, $amount, $origin]) {
+            $settlementLines[] = new \Modules\Rental\Stay\SettlementLine($label, $amount, $origin);
+            $total += $amount;
+        }
+
+        return new \Modules\Rental\Stay\Settlement(
+            id: $id,
+            bookingId: $bookingId,
+            version: $version,
+            finalPersons: 20,
+            lines: $settlementLines,
+            totalCents: $total,
+            alreadyPaidCents: $total - $balanceCents,
+            balanceCents: $balanceCents,
+            securityDepositWithheldCents: 0,
+            securityDepositReturnCents: 0,
+            isValidated: $validated,
+            validatedAt: $validated ? new \DateTimeImmutable('2027-07-20 10:00:00') : null,
+            validatedByMemberId: $validated ? 1 : null,
+            createdByMemberId: 1,
+            createdAt: new \DateTimeImmutable('2027-07-20 09:00:00'),
+            recordedKeptCents: $total,
+            incidentBasisHash: str_repeat('a', 64)
+        );
+    }
+
+    /** The booking's invoice, generated before any settlement and sent. */
+    private function sentInvoice(RentalBooking $booking): \Modules\Rental\Document\RentalDocument
+    {
+        $invoice = $this->service->generate($booking, $this->asset(), DocumentType::INVOICE, $this->settings());
+        $this->service->markSent($invoice->id, new \DateTimeImmutable('2027-07-10 12:00:00'));
+
+        return $this->documentRepository->findById($invoice->id) ?? throw new \LogicException('no invoice');
+    }
+
+    /** @return list<array{string, int, string}> */
+    private static function stayWithBrokenWindow(): array
+    {
+        return [
+            ['Séjour', 36000, \Modules\Rental\Stay\SettlementLine::ORIGIN_AGREED],
+            ['Vitre brisée', 3000, \Modules\Rental\Stay\SettlementLine::ORIGIN_INCIDENT],
+        ];
+    }
+
+    /** A service whose payments answer with $instructions (Finance on). */
+    private function serviceWithPayments(array $instructions): RentalDocumentService
+    {
+        $payments = $this->createStub(\Modules\Rental\Service\RentalPaymentService::class);
+        $payments->method('contractTerms')->willReturn(['iban' => null, 'holder' => null, 'deposit_due_date' => null]);
+        $payments->method('paymentInstructions')->willReturn($instructions + [
+            'communication' => '+++090/9337/55493+++',
+            'beneficiary' => 'Unité Saint-Georges',
+            'iban' => 'BE68 5390 0754 7034',
+            'amount_cents' => 0,
+            'stage' => null,
+            'due_date' => null,
+            'qr_data_uri' => null,
+            'overpaid_cents' => 0,
+            'includes_security_deposit' => true,
+        ]);
+
+        return new RentalDocumentService(
+            $this->documentRepository,
+            $this->bookingRepository,
+            RentalTestHelper::bookingAudit($this->pdo, $this->encryption),
+            $this->editableContentService,
+            $this->fileRepository,
+            new \Core\File\AttachedFileRemover($this->fileRepository, $this->storagePath),
+            new DocumentPdfService(),
+            new HtmlSanitizer(),
+            $this->settingService,
+            new JournalService(new JournalRepository($this->pdo)),
+            $this->storagePath,
+            null,
+            $payments
+        );
+    }
+
+    private const QR_PNG = 'data:image/png;base64,'
+        . 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+
+    public function testAnInvoiceRecordsWhatItBillsBeforeAndAfterASettlement(): void
+    {
+        $booking = $this->createBooking();
+
+        $before = $this->service->generate($booking, $this->asset(), DocumentType::INVOICE, $this->settings());
+        $this->assertNull($before->settlementId);
+        $this->assertSame(36000, $before->billedKeptCents);
+
+        $validated = $this->settlement(7, 1, self::stayWithBrokenWindow(), bookingId: $booking->id);
+        $after = $this->service->generate(
+            $booking,
+            $this->asset(),
+            DocumentType::INVOICE,
+            $this->settings(),
+            null,
+            1,
+            $validated
+        );
+        $this->assertSame(7, $after->settlementId);
+        $this->assertSame(39000, $after->billedKeptCents);
+    }
+
+    public function testAnInvoiceRefusesASettlementThatIsNotValidatedOrNotTheBookings(): void
+    {
+        $booking = $this->createBooking();
+
+        $this->expectException(RentalException::class);
+        $this->service->generate(
+            $booking,
+            $this->asset(),
+            DocumentType::INVOICE,
+            $this->settings(),
+            null,
+            1,
+            $this->settlement(7, 1, self::stayWithBrokenWindow(), false, 0, $booking->id)
+        );
+    }
+
+    public function testNothingIsOfferedUntilAnInvoiceWentOutAndASettlementBillsAnotherAmount(): void
+    {
+        $booking = $this->createBooking();
+        $validated = $this->settlement(7, 1, self::stayWithBrokenWindow(), bookingId: $booking->id);
+
+        // No invoice at all, then one not sent.
+        $this->assertNull($this->service->supplementOffer($booking, [$validated]));
+        $this->service->generate($booking, $this->asset(), DocumentType::INVOICE, $this->settings());
+        $this->assertNull($this->service->supplementOffer($booking, [$validated]));
+
+        // Sent, but no validated settlement yet.
+        $invoice = $this->sentInvoice($booking);
+        $this->assertNull($this->service->supplementOffer(
+            $booking,
+            [$this->settlement(7, 1, self::stayWithBrokenWindow(), false, 0, $booking->id)]
+        ));
+
+        // A settlement keeping exactly what was billed has no difference.
+        $same = $this->settlement(8, 1, [['Séjour', 36000, 'agreed']], bookingId: $booking->id);
+        $this->assertNull($this->service->supplementOffer($booking, [$same]));
+
+        $offer = $this->service->supplementOffer($booking, [$validated]);
+        $this->assertNotNull($offer);
+        $this->assertSame($invoice->id, $offer->originalInvoice->id);
+        $this->assertSame(36000, $offer->alreadyBilledCents);
+        $this->assertSame(3000, $offer->differenceCents());
+        $this->assertFalse($offer->favoursTheRenter());
+    }
+
+    public function testAnInvoiceBasedOnTheLatestSettlementNeedsNoSupplement(): void
+    {
+        $booking = $this->createBooking();
+        $validated = $this->settlement(7, 1, self::stayWithBrokenWindow(), bookingId: $booking->id);
+        $invoice = $this->service->generate(
+            $booking,
+            $this->asset(),
+            DocumentType::INVOICE,
+            $this->settings(),
+            null,
+            1,
+            $validated
+        );
+        $this->service->markSent($invoice->id, new \DateTimeImmutable());
+
+        $this->assertNull($this->service->supplementOffer($booking, [$validated]));
+    }
+
+    /**
+     * Only the difference, a reference to the invoice by number and date,
+     * the balance due with its deadline — and the invoice untouched.
+     */
+    public function testTheSupplementBillsOnlyTheDifferenceAndLeavesTheInvoiceAsItWas(): void
+    {
+        $booking = $this->createBooking();
+        $invoice = $this->sentInvoice($booking);
+        $invoiceBytes = $this->pdfTextOf($invoice->id);
+        $invoiceSnapshot = $this->documentRepository->findSnapshot($invoice->id);
+        $validated = $this->settlement(7, 1, self::stayWithBrokenWindow(), true, 3000, $booking->id);
+
+        $supplement = $this->service->generateSupplementaryInvoice(
+            $booking,
+            $this->asset(),
+            $this->settings(),
+            [$validated],
+            1
+        );
+
+        $this->assertSame(DocumentType::SUPPLEMENTARY_INVOICE, $supplement->type);
+        $this->assertSame(1, $supplement->version);
+        $this->assertSame('Facture complémentaire v1', $supplement->label());
+        $this->assertSame('facture-complementaire-LOC-K7Q2M4-v1.pdf', $supplement->originalName);
+        $this->assertTrue($supplement->isForRenter);
+        $this->assertNull($supplement->sentAt);
+        $this->assertSame(7, $supplement->settlementId);
+        $this->assertSame(39000, $supplement->billedKeptCents);
+        $this->assertSame($invoice->id, $supplement->supplementsDocumentId);
+
+        // The frame and the figures, as printed; the sentences, as they were
+        // substituted (a justified paragraph's text layer is split apart).
+        $text = str_replace("\u{a0}", ' ', $this->renderedTextOf($supplement->id));
+        $this->assertStringContainsString('LOC-K7Q2M4-C1', $text);
+        $this->assertStringContainsString(
+            'Complète la facture LOC-K7Q2M4-v1 du ' . $invoice->createdAt->format('d/m/Y'),
+            $text
+        );
+        $this->assertStringContainsString('Déjà facturé : 360,00 €', $text);
+        $this->assertStringContainsString('Décompte final validé : 390,00 €', $text);
+        $this->assertStringContainsString('Différence : 30,00 €', $text);
+        $values = $this->documentRepository->findSnapshot($supplement->id) ?? [];
+        $this->assertSame('LOC-K7Q2M4-v1 du ' . $invoice->createdAt->format('d/m/Y'), $values['facture_origine']);
+        // Against the agreed quote the invoice billed: only the damage is new.
+        $this->assertSame('Ajouté au décompte : Vitre brisée (30,00 €).', $values['detail_complement']);
+        $this->assertSame(
+            'Restant dû : 30,00 €, à verser au plus tard le 19/08/2027.',
+            $values['reglement_complement']
+        );
+        // Without Finance there is nothing to scan.
+        $this->assertSame(0, substr_count($this->pdfTextOf($supplement->id), '/Subtype /Image'));
+
+        // The invoice the renter holds is exactly what it was.
+        $after = $this->documentRepository->findById($invoice->id);
+        $this->assertNotNull($after);
+        $this->assertSame($invoiceBytes, $this->pdfTextOf($invoice->id));
+        $this->assertSame($invoiceSnapshot, $this->documentRepository->findSnapshot($invoice->id));
+        $this->assertEquals($invoice->sentAt, $after->sentAt);
+        $this->assertSame($invoice->billedKeptCents, $after->billedKeptCents);
+        $this->assertNull($after->settlementId);
+        $this->assertSame(1, $after->version);
+    }
+
+    public function testTheSupplementOfOneSettlementIsGeneratedOnce(): void
+    {
+        $booking = $this->createBooking();
+        $this->sentInvoice($booking);
+        $validated = $this->settlement(7, 1, self::stayWithBrokenWindow(), bookingId: $booking->id);
+        $this->service->generateSupplementaryInvoice($booking, $this->asset(), $this->settings(), [$validated], 1);
+
+        $this->assertNull($this->service->supplementOffer($booking, [$validated]));
+        try {
+            $this->service->generateSupplementaryInvoice($booking, $this->asset(), $this->settings(), [$validated], 1);
+            $this->fail('a second supplement of the same settlement was generated');
+        } catch (RentalException $e) {
+            $this->assertStringContainsString('Aucune facture complémentaire à générer', $e->getMessage());
+        }
+        $this->assertCount(1, array_filter(
+            $this->service->forBooking($booking->id),
+            static fn($document) => $document->type === DocumentType::SUPPLEMENTARY_INVOICE
+        ));
+    }
+
+    /**
+     * With Finance, the balance due is the receivable's, with the account,
+     * the communication and the payment QR.
+     */
+    public function testWithFinanceTheBalanceDueCarriesTheCommunicationAndTheQr(): void
+    {
+        $service = $this->serviceWithPayments([
+            'amount_cents' => 3000,
+            'stage' => 'balance',
+            'qr_data_uri' => self::QR_PNG,
+        ]);
+        $booking = $this->createBooking();
+        $this->sentInvoice($booking);
+
+        $supplement = $service->generateSupplementaryInvoice(
+            $booking,
+            $this->asset(),
+            $this->settings(),
+            [$this->settlement(7, 1, self::stayWithBrokenWindow(), bookingId: $booking->id)],
+            1
+        );
+
+        $this->assertSame(
+            'Restant dû : 30,00 €, à verser au plus tard le 19/08/2027 sur le compte BE68 5390 0754 7034 '
+                . '(Unité Saint-Georges), avec la communication +++090/9337/55493+++.',
+            ($this->documentRepository->findSnapshot($supplement->id) ?? [])['reglement_complement'] ?? null
+        );
+        $this->assertStringContainsString('Scannez ce code', $this->renderedTextOf($supplement->id));
+        $this->assertGreaterThan(0, substr_count($this->pdfTextOf($supplement->id), '/Subtype /Image'));
+    }
+
+    /**
+     * A decision in the renter's favour after a supplement: the second one
+     * bills the difference from the first, refers to the INVOICE, and says
+     * what comes back — with no QR, even with a QR at hand.
+     */
+    public function testASecondSupplementInTheRentersFavourRefersToTheInvoiceAndCarriesNoQr(): void
+    {
+        $booking = $this->createBooking();
+        $invoice = $this->sentInvoice($booking);
+        $charged = $this->settlement(7, 1, self::stayWithBrokenWindow(), bookingId: $booking->id);
+        $first = $this->service->generateSupplementaryInvoice(
+            $booking,
+            $this->asset(),
+            $this->settings(),
+            [$charged],
+            1
+        );
+        $this->service->markSent($first->id, new \DateTimeImmutable('2027-07-21 12:00:00'));
+
+        $waived = $this->settlement(8, 2, [['Séjour', 36000, 'agreed']], bookingId: $booking->id);
+        $service = $this->serviceWithPayments([
+            'amount_cents' => 0,
+            'overpaid_cents' => 3000,
+            'qr_data_uri' => self::QR_PNG,
+        ]);
+
+        $offer = $service->supplementOffer($booking, [$waived, $charged]);
+        $this->assertNotNull($offer);
+        $this->assertSame($invoice->id, $offer->originalInvoice->id);
+        $this->assertSame(39000, $offer->alreadyBilledCents);
+        $this->assertSame(-3000, $offer->differenceCents());
+        $this->assertTrue($offer->favoursTheRenter());
+
+        $second = $service->generateSupplementaryInvoice(
+            $booking,
+            $this->asset(),
+            $this->settings(),
+            [$waived, $charged],
+            1
+        );
+
+        $this->assertSame(2, $second->version);
+        $this->assertSame($invoice->id, $second->supplementsDocumentId);
+        $text = str_replace("\u{a0}", ' ', $this->renderedTextOf($second->id));
+        $this->assertStringContainsString('LOC-K7Q2M4-C2', $text);
+        $this->assertStringContainsString('Complète la facture LOC-K7Q2M4-v1 du', $text);
+        $this->assertStringContainsString('Différence : 30,00 € en faveur du locataire', $text);
+        $this->assertStringNotContainsString('Scannez', $text);
+        $values = $this->documentRepository->findSnapshot($second->id) ?? [];
+        $this->assertSame('Retiré du décompte : Vitre brisée (30,00 €).', $values['detail_complement']);
+        $this->assertStringStartsWith(
+            'Montant à rembourser au locataire (trop-perçu) : 30,00 €.',
+            (string) $values['reglement_complement']
+        );
+        $this->assertSame(0, substr_count($this->pdfTextOf($second->id), '/Subtype /Image'));
+        // The first supplement is left as it was sent.
+        $this->assertSame(39000, $this->documentRepository->findById($first->id)?->billedKeptCents);
+    }
+
+    /** An invoice generated before #980 recorded nothing: its printed total is the baseline. */
+    public function testAnInvoiceFromBeforeTheColumnsIsBilledAtTheTotalItPrinted(): void
+    {
+        $booking = $this->createBooking();
+        $invoice = $this->sentInvoice($booking);
+        $this->pdo->prepare('UPDATE rental_documents SET billed_kept_cents = NULL WHERE id = ?')
+            ->execute([$invoice->id]);
+        $legacy = $this->documentRepository->findById($invoice->id);
+        $this->assertNotNull($legacy);
+
+        $this->assertSame(36000, $this->service->billedCents($legacy));
+        $this->assertSame(3000, $this->service->supplementOffer(
+            $booking,
+            [$this->settlement(7, 1, self::stayWithBrokenWindow(), bookingId: $booking->id)]
+        )?->differenceCents());
+    }
+
+    public function testTheSupplementIsNeitherGeneratedAsADocumentNorWritten(): void
+    {
+        $booking = $this->createBooking();
+
+        try {
+            $this->service->generate($booking, $this->asset(), DocumentType::SUPPLEMENTARY_INVOICE, $this->settings());
+            $this->fail('the supplementary invoice was generated without a settlement');
+        } catch (RentalException $e) {
+            $this->assertStringContainsString('page « Facture »', $e->getMessage());
+        }
+
+        $this->expectException(RentalException::class);
+        $this->service->saveBookingText($booking, DocumentType::SUPPLEMENTARY_INVOICE, '<p>x</p>', 1);
+    }
 }

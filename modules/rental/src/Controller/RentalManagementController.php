@@ -2046,7 +2046,7 @@ class RentalManagementController extends AbstractController
 
         $booking = $this->bookingOfAsset($asset, (int) ($params['id'] ?? 0));
         $type = DocumentType::tryFrom((string) ($params['type'] ?? ''));
-        if ($booking === null || $type === null || !$type->isGenerated()) {
+        if ($booking === null || $type === null || !$type->hasEditableText()) {
             return $this->notFound();
         }
 
@@ -2089,7 +2089,7 @@ class RentalManagementController extends AbstractController
             }
 
             $type = DocumentType::tryFrom((string) $request->getBody('document_type', ''));
-            if ($type === null || !$type->isGenerated()) {
+            if ($type === null || !$type->hasEditableText()) {
                 throw new RentalException("Ce type de document ne se rédige pas.");
             }
 
@@ -2154,7 +2154,10 @@ class RentalManagementController extends AbstractController
                 $type,
                 $settings,
                 $communication,
-                $this->actorMemberId()
+                $this->actorMemberId(),
+                // What the invoice bills, for a later supplementary invoice
+                // to bill only the difference (#980, chantier decision 2.8).
+                $type === DocumentType::INVOICE ? $this->stayService?->latestValidatedSettlement($booking->id) : null
             );
 
             // A missing landlord address is printed as « — » on the page a
@@ -2202,6 +2205,18 @@ class RentalManagementController extends AbstractController
                 throw new RentalException(
                     'Ce document a été remplacé : la réservation a changé depuis. '
                         . 'Générez-en une nouvelle version.'
+                );
+            }
+
+            // A supplementary invoice bills one settlement (#980): once a
+            // later one is validated, its difference is no longer the one
+            // owed, and it is not sent for a first time.
+            if ($document->type === DocumentType::SUPPLEMENTARY_INVOICE && !$document->hasBeenSent()
+                && $document->settlementId !== $this->stayService?->latestValidatedSettlement($booking->id)?->id
+            ) {
+                throw new RentalException(
+                    'Cette facture complémentaire ne correspond plus au dernier décompte validé : '
+                        . 'générez celle de ce décompte depuis la page « Facture ».'
                 );
             }
 
@@ -3092,7 +3107,7 @@ class RentalManagementController extends AbstractController
         }
 
         $type = DocumentType::tryFrom((string) $request->getBody('document_type', ''));
-        if ($type === null || !$type->isGenerated()) {
+        if ($type === null || !$type->hasEditableText()) {
             return $this->notFound();
         }
 
@@ -3231,12 +3246,17 @@ class RentalManagementController extends AbstractController
         $gesture = $latestSettlement?->gesture();
 
         $invoice = null;
+        // Newest first, as the repository lists them (#980).
+        $supplements = [];
         foreach ($this->documentService?->forBooking($booking->id) ?? [] as $document) {
             if ($document->type === DocumentType::INVOICE
                 && !$document->isSuperseded()
                 && ($invoice === null || $document->version > $invoice->version)
             ) {
                 $invoice = $document;
+            }
+            if ($document->type === DocumentType::SUPPLEMENTARY_INVOICE) {
+                $supplements[] = $document;
             }
         }
 
@@ -3275,6 +3295,13 @@ class RentalManagementController extends AbstractController
                 ? BookingPage::INVENTORY->url($this->bookingUrl($asset, $booking))
                 : null,
             'invoice' => $invoice,
+            // A decision taken after the validation (#980, chantier decision 2.8):
+            // the banner, then the supplementary invoice once validated.
+            'settlement_revision' => $this->stayService?->decisionAfterValidation($booking->id, $settlements),
+            'supplement_offer' => $this->documentService?->supplementOffer($booking, $settlements),
+            'supplementary_invoices' => $supplements,
+            'latest_validated_settlement_id' => $this->stayService
+                ?->latestValidatedSettlement($booking->id, $settlements)?->id,
             'invoice_waits_for' => $this->invoiceWaits($booking, $asset)
                 ? BookingPage::INVENTORY->url($this->bookingUrl($asset, $booking))
                 : null,
@@ -3509,7 +3536,78 @@ class RentalManagementController extends AbstractController
                 $this->actorMemberId()
             );
 
-            FlashMessage::set('success', 'Décompte validé. Il ne peut plus être modifié.');
+            // The invoice already sent bills another amount (#980): the
+            // supplementary invoice is offered on the page, and said here.
+            $offer = $this->stayService !== null
+                ? $this->documentService?->supplementOffer($booking, $this->stayService->settlementsFor($booking->id))
+                : null;
+            FlashMessage::set(
+                'success',
+                'Décompte validé. Il ne peut plus être modifié.'
+                . ($offer !== null
+                    ? ' La facture a déjà été envoyée : générez la facture complémentaire, qui porte la différence.'
+                    : '')
+            );
+        });
+    }
+
+    // ── A decision after validation, the supplementary invoice (#980) ───
+
+    /**
+     * POST /mes-locations/decompte-actualiser — a version that takes the
+     * latest validated settlement's lines and the incidents as decided now
+     * (chantier decision 2.8, Q12). The validated version stays as it is.
+     *
+     * @param array<string, string> $params
+     */
+    public function recordSettlementFromValidated(Request $request, array $params): Response
+    {
+        return $this->bookingAction($request, function (RentalBooking $booking, RentalAsset $asset): void {
+            if ($this->stayService === null) {
+                throw new RentalException('Le décompte final n\'est pas disponible.');
+            }
+
+            $settlement = $this->stayService->recordSettlementFromValidated(
+                $booking,
+                $asset->id,
+                $this->actorMemberId()
+            );
+
+            FlashMessage::set(
+                'success',
+                'Décompte v' . $settlement->version . ' enregistré, avec les incidents tels qu\'ils sont tranchés. '
+                . 'Le décompte validé reste tel quel.'
+            );
+        });
+    }
+
+    /**
+     * POST /mes-locations/facture-complementaire — the difference between
+     * the latest validated settlement and what the invoice sent billed
+     * (chantier decision 2.8). Nothing is e-mailed: it is sent like any document.
+     *
+     * @param array<string, string> $params
+     */
+    public function generateSupplementaryInvoice(Request $request, array $params): Response
+    {
+        return $this->bookingAction($request, function (RentalBooking $booking, RentalAsset $asset): void {
+            if ($this->documentService === null || $this->stayService === null) {
+                throw new RentalException('Les documents ne sont pas disponibles.');
+            }
+
+            $document = $this->documentService->generateSupplementaryInvoice(
+                $booking,
+                $asset,
+                $this->paymentService?->settingsFor($asset->id) ?? new PaymentSettings(),
+                $this->stayService->settlementsFor($booking->id),
+                $this->actorMemberId()
+            );
+
+            FlashMessage::set(
+                'success',
+                $document->label() . ' générée. Relisez-la, puis envoyez-la au locataire. '
+                . 'La facture d\'origine reste telle qu\'elle a été envoyée.'
+            );
         });
     }
 

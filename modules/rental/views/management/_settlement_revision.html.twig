@@ -1,0 +1,33 @@
+{#
+  A decision taken on an incident after the settlement was validated
+  (#980, chantier decision 2.8): the validated version does not carry it, and stays
+  as it was validated. « Enregistrer un nouveau décompte » records a version
+  with its lines and the incidents as they are decided now (Q12); that
+  version then validates like any other, on the list below.
+
+  Optional `settlement_revision`, RentalStayService::decisionAfterValidation():
+  the validated settlement and the date of the decision. Requires `asset`
+  and `booking` when it is set.
+#}
+{% if settlement_revision|default(null) %}
+    <div class="alert alert-warning d-flex flex-wrap justify-content-between align-items-center gap-2"
+         data-settlement-revision>
+        <span>
+            Le décompte validé (v{{ settlement_revision.settlement.version }}) ne tient pas compte de la
+            décision du {{ settlement_revision.decided_at|date_fr }}. Il reste tel qu'il a été validé.
+        </span>
+        <form method="post" action="/mes-locations/decompte-actualiser"
+              data-confirm="{{ 'Enregistrer un décompte qui reprend les lignes de la v'
+                  ~ settlement_revision.settlement.version
+                  ~ ' avec les incidents tels qu\'ils sont tranchés ? La v'
+                  ~ settlement_revision.settlement.version
+                  ~ ' reste validée telle quelle. Aucun e-mail n\'est envoyé.' }}"
+              data-confirm-label="Enregistrer">
+            {{ csrf_field()|raw }}
+            <input type="hidden" name="asset_id" value="{{ asset.id }}">
+            <input type="hidden" name="booking_id" value="{{ booking.id }}">
+            <input type="hidden" name="booking_page" value="invoice">
+            <button type="submit" class="btn btn-sm btn-primary">Enregistrer un nouveau décompte</button>
+        </form>
+    </div>
+{% endif %}

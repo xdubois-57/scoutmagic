@@ -271,6 +271,9 @@ class RentalTestHelper
             superseded_at TEXT,
             contract_document_id INTEGER,
             modification_id INTEGER,
+            settlement_id INTEGER,
+            billed_kept_cents INTEGER,
+            supplements_document_id INTEGER,
             FOREIGN KEY (booking_id) REFERENCES rental_bookings(id) ON DELETE CASCADE
         )');
 

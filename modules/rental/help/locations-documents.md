@@ -14,8 +14,8 @@ related: gerer-les-locations, locations-modifications, locations-signatures, loc
 
 La page « Documents » d'une réservation réunit ses documents — contrat,
 facture, copies signées, pièces jointes des e-mails, jamais en double.
-Rangés « Non classé », ils se reclassent depuis leur ligne. La facture se
-génère sur la page « Facture ».
+Rangés « Non classé », ils se reclassent depuis leur ligne. La facture,
+complémentaire comprise, se génère sur la page « Facture ».
 
 Un contrat et une facture se construisent en trois temps : le **gabarit du
 bien**, la **copie de cette réservation**, puis le **PDF**.

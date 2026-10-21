@@ -1,0 +1,75 @@
+{#
+  The supplementary invoice (#980, chantier decision 2.8), under the invoice on
+  « Facture ». A settlement validated after the invoice went out keeps
+  another amount: the supplement bills only the difference from what was
+  last billed, and refers to the invoice it completes, which never changes.
+
+  Generating sends nothing; sending asks first and names the address, like
+  the invoice. A supplement not sent yet whose settlement is no longer the
+  latest validated one says so instead of offering to be sent.
+
+  Requires `asset` and `booking`. Optional: `supplement_offer`
+  (Document\SupplementOffer, null when there is nothing to bill),
+  `supplementary_invoices` (newest first) and
+  `latest_validated_settlement_id`.
+#}
+{% set offer = supplement_offer|default(null) %}
+{% if offer %}
+    {% set invoice_number = booking.reference ~ '-v' ~ offer.originalInvoice.version %}
+    {% set difference = offer.favoursTheRenter
+        ? (-offer.differenceCents)|money_cents ~ ' en faveur du locataire'
+        : offer.differenceCents|money_cents ~ ' de plus' %}
+    <div class="border-top mt-3 pt-3" data-supplement-offer>
+        <p class="small mb-2">
+            Le décompte validé v{{ offer.settlement.version }} conserve
+            {{ offer.settlement.keptCents|money_cents }} ; la facture {{ invoice_number }}, envoyée le
+            {{ offer.originalInvoice.sentAt|date_fr }}, et ce qui l'a complétée ont facturé
+            {{ offer.alreadyBilledCents|money_cents }} : {{ difference }}. La facture complémentaire porte
+            cette différence et renvoie à la facture {{ invoice_number }}, qui ne change pas.
+        </p>
+        <form method="post" action="/mes-locations/facture-complementaire"
+              data-confirm="{{ 'Générer la facture complémentaire (' ~ difference ~ ') ? Elle renvoie à la facture '
+                  ~ invoice_number ~ ', qui ne change pas. Aucun e-mail n\'est envoyé : vous l\'envoyez ensuite.' }}"
+              data-confirm-label="Générer">
+            {{ csrf_field()|raw }}
+            <input type="hidden" name="asset_id" value="{{ asset.id }}">
+            <input type="hidden" name="booking_id" value="{{ booking.id }}">
+            <input type="hidden" name="booking_page" value="invoice">
+            <button type="submit" class="btn btn-sm btn-outline-secondary">Générer la facture complémentaire</button>
+        </form>
+    </div>
+{% endif %}
+
+{% for supplement in supplementary_invoices|default([]) %}
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 border-top mt-3 pt-3"
+         data-supplementary-invoice="{{ supplement.id }}">
+        <span>
+            <a href="{{ file_url(supplement.fileId) }}" target="_blank" rel="noopener">{{ supplement.label }}</a>
+            <span class="text-body-secondary small d-block">
+                {% if supplement.hasBeenSent %}
+                    Envoyée le {{ supplement.sentAt|date_fr }}
+                {% else %}
+                    Pas encore envoyée
+                {% endif %}
+            </span>
+        </span>
+        {% if not supplement.hasBeenSent and supplement.settlementId != latest_validated_settlement_id|default(null) %}
+            <span class="small text-body-secondary text-end" data-supplement-outdated>
+                Elle ne correspond plus au dernier décompte validé : générez celle de ce décompte.
+            </span>
+        {% else %}
+            <form method="post" action="/mes-locations/document-envoyer"
+                  data-confirm="{{ supplement.hasBeenSent ? 'Renvoyer' : 'Envoyer' }} la facture complémentaire à {{ booking.renterEmail }} ? Elle part immédiatement et ne peut pas être rappelée."
+                  data-confirm-label="{{ supplement.hasBeenSent ? 'Renvoyer' : 'Envoyer' }}">
+                {{ csrf_field()|raw }}
+                <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                <input type="hidden" name="booking_page" value="invoice">
+                <input type="hidden" name="document_id" value="{{ supplement.id }}">
+                <button type="submit" class="btn btn-sm btn-primary">
+                    {{ supplement.hasBeenSent ? 'Renvoyer la facture complémentaire' : 'Envoyer la facture complémentaire' }}
+                </button>
+            </form>
+        {% endif %}
+    </div>
+{% endfor %}

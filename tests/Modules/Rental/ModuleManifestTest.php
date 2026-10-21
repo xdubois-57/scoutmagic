@@ -198,6 +198,8 @@ class ModuleManifestTest extends TestCase
             '/mes-locations/incident-decision',
             '/mes-locations/decompte',
             '/mes-locations/decompte-valider',
+            '/mes-locations/decompte-actualiser',
+            '/mes-locations/facture-complementaire',
             '/mes-locations/calendrier-publication',
             '/mes-locations/{slug}/reglages/regles',
             '/mes-locations/{slug}/reglages/tarif',
