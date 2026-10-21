@@ -44,6 +44,7 @@ use Modules\Rental\Repository\RentalConditionsVersionRepository;
 use Modules\Rental\Repository\RentalConstraintsRepository;
 use Modules\Rental\Repository\RentalPaymentRepository;
 use Modules\Rental\Repository\RentalPricingRepository;
+use Modules\Rental\Repository\RentalStayRepository;
 use Modules\Rental\Service\RentalAvailabilityService;
 use Modules\Rental\Service\RentalBookingMailService;
 use Modules\Rental\Service\RentalBookingService;
@@ -53,6 +54,9 @@ use Modules\Rental\Service\RentalManagerService;
 use Modules\Rental\Service\RentalOperationsService;
 use Modules\Rental\Service\RentalPaymentService;
 use Modules\Rental\Service\RentalPricingService;
+use Modules\Rental\Service\RentalStayService;
+use Modules\Rental\Stay\IncidentDecision;
+use Modules\Rental\Stay\SettlementCalculator;
 use PHPUnit\Framework\TestCase;
 use Tests\Core\Mail\Template\EmailTemplateRendererFactory;
 use Tests\DatabaseTestHelper;
@@ -136,7 +140,7 @@ class RentalTrackingPaymentTest extends TestCase
         ));
     }
 
-    private function controller(?RentalPaymentService $payments): RentalRequestController
+    private function controller(?RentalPaymentService $payments, ?RentalStayService $stay = null): RentalRequestController
     {
         $settingService = new SettingService(new SettingRepository($this->pdo));
         $journal = new JournalService(new JournalRepository($this->pdo));
@@ -205,7 +209,8 @@ class RentalTrackingPaymentTest extends TestCase
                 $journal
             ),
             new RentalConditionsService(new RentalConditionsVersionRepository($this->pdo), $editable),
-            paymentService: $payments
+            paymentService: $payments,
+            stayService: $stay
         );
     }
 
@@ -259,9 +264,12 @@ class RentalTrackingPaymentTest extends TestCase
         return $communication;
     }
 
-    private function track(array $booking, ?RentalPaymentService $payments = null): string
-    {
-        $response = $this->controller($payments ?? $this->payments)->tracking(
+    private function track(
+        array $booking,
+        ?RentalPaymentService $payments = null,
+        ?RentalStayService $stay = null
+    ): string {
+        $response = $this->controller($payments ?? $this->payments, $stay)->tracking(
             new Request('GET', '/locations/suivi/' . $booking['id'] . '/' . $booking['token'], [], [], [], []),
             ['id' => (string) $booking['id'], 'token' => $booking['token']]
         );
@@ -291,6 +299,34 @@ class RentalTrackingPaymentTest extends TestCase
         $this->assertStringContainsString('payment-qr.js', $body);
         $this->assertStringContainsString('pour l\'acompte, le solde et la caution', $body);
         $this->assertStringContainsString('data-renter-payment-communication', $body);
+    }
+
+    /**
+     * A damage under assessment on a booking whose deposit was asked but
+     * never paid (#980, §2.7): « la caution reste retenue » would be false,
+     * so the page says only that a damage is being assessed.
+     */
+    public function testADepositAskedButNotPaidIsNeverSaidToBeHeld(): void
+    {
+        $journal = new JournalService(new JournalRepository($this->pdo));
+        $stay = new RentalStayService(
+            new RentalStayRepository($this->pdo, $this->encryption),
+            RentalTestHelper::bookingAudit($this->pdo, $this->encryption),
+            new RentalPricingService(new RentalPricingRepository($this->pdo), new RentalPricingEngine(), $journal),
+            new SettlementCalculator(),
+            $journal
+        );
+        $created = $this->createBooking();
+        $this->raiseReceivable($created['id']);
+        $booking = $this->bookingRepository->findById($created['id']);
+        $this->assertNotNull($booking);
+        $incident = $stay->reportIncident($booking, 'Vitre brisée', 12000, null, 1);
+        $stay->decideIncident($booking, $incident, IncidentDecision::PENDING, 12000, 1);
+
+        $body = $this->track($created, null, $stay);
+
+        $this->assertStringContainsString('Un dégât constaté pendant votre séjour est en cours d\'évaluation.', $body);
+        $this->assertStringNotContainsString('la caution reste retenue', $body);
     }
 
     public function testThePaymentBlockWaitsForTheReceivable(): void

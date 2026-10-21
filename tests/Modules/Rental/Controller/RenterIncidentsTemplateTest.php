@@ -10,8 +10,9 @@ use Tests\TestTwig;
 
 /**
  * The sentence `views/public/_incidents.html.twig` shows while a damage is
- * being assessed: it says the deposit stays held only when the asset takes
- * one (#980, §2.7) — on any other booking that would be false.
+ * being assessed: it says the deposit stays held only when the unit is
+ * actually holding one (#980, §2.7) — on a booking without a deposit, or
+ * whose deposit was never paid, that would be false.
  */
 final class RenterIncidentsTemplateTest extends TestCase
 {

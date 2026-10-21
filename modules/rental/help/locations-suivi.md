@@ -49,7 +49,7 @@ vous avez versé en plus, la caution par exemple.
 Si un dégât est constaté pendant le séjour, « Incidents et dégâts » le
 décrit, avec sa date et le montant facturé, ou « Non facturé ». Tant
 qu'un dégât est en cours d'évaluation, la page le dit sans détail ; si
-une caution a été versée, elle reste retenue jusqu'à son règlement.
+votre caution a été reçue, elle reste retenue jusqu'à son règlement.
 
 ## Changer vos dates ou annuler
 
