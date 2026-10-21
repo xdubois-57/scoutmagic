@@ -26,11 +26,14 @@ use Modules\Rental\Document\DocumentType;
 use Modules\Rental\Document\Landlord;
 use Modules\Rental\Document\RentalDocument;
 use Modules\Rental\Document\StandardTemplates;
+use Modules\Rental\Document\SupplementOffer;
 use Modules\Rental\Document\WithdrawalScale;
 use Modules\Rental\Payment\PaymentSettings;
 use Modules\Rental\Repository\RentalAsset;
 use Modules\Rental\Repository\RentalBookingRepository;
 use Modules\Rental\Repository\RentalDocumentRepository;
+use Modules\Rental\Stay\Settlement;
+use Modules\Rental\Stay\SettlementLine;
 use Modules\Rental\Support;
 
 /**
@@ -234,7 +237,7 @@ class RentalDocumentService
         string $bodyHtml,
         ?int $actorMemberId = null
     ): array {
-        if (!$type->isGenerated()) {
+        if (!$type->hasEditableText()) {
             throw new RentalException("Ce type de document ne se rédige pas : il s'envoie.");
         }
 
@@ -314,6 +317,8 @@ class RentalDocumentService
         return $opening . match ($type) {
             DocumentType::INVOICE => 'La facture qu\'il a reçue doit rester celle qu\'il a reçue.',
             DocumentType::CONTRACT => 'Le contrat qu\'il a reçu doit rester celui qu\'il a reçu.',
+            DocumentType::SUPPLEMENTARY_INVOICE
+                => 'La facture complémentaire qu\'il a reçue doit rester celle qu\'il a reçue.',
             // Unreachable while `textIsLocked()` guards on `isGenerated()`,
             // and a neutral sentence rather than a throw: a document type
             // added to that list must not be able to blank this page.
@@ -335,6 +340,12 @@ class RentalDocumentService
      * 467,50 € when the booking says 400,00 €?" still has an answer six
      * months later.
      *
+     * An invoice also records what it bills (#980, chantier decision 2.8): the
+     * booking's latest validated settlement, `$validatedSettlement`, and its
+     * kept amount — or, before any, the agreed total it prints. A
+     * supplementary invoice later bills the difference from that figure.
+     * The invoice itself prints what it always printed.
+     *
      * @throws RentalException
      */
     public function generate(
@@ -343,10 +354,24 @@ class RentalDocumentService
         DocumentType $type,
         PaymentSettings $paymentSettings,
         ?string $communication = null,
-        ?int $actorMemberId = null
+        ?int $actorMemberId = null,
+        ?Settlement $validatedSettlement = null
     ): RentalDocument {
         if (!$type->isGenerated()) {
             throw new RentalException("Ce type de document ne se génère pas.");
+        }
+        // Worked out from two settlements, never from a template alone:
+        // its own path checks there is a difference to bill.
+        if ($type === DocumentType::SUPPLEMENTARY_INVOICE) {
+            throw new RentalException(
+                'Une facture complémentaire se génère depuis la page « Facture », '
+                    . "une fois un décompte validé après l'envoi de la facture."
+            );
+        }
+        if ($validatedSettlement !== null
+            && (!$validatedSettlement->isValidated || $validatedSettlement->bookingId !== $booking->id)
+        ) {
+            throw new RentalException("Ce décompte n'est pas un décompte validé de cette réservation.");
         }
 
         if ($type === DocumentType::CONTRACT) {
@@ -430,7 +455,14 @@ class RentalDocumentService
             // download link" (§6.24).
             true,
             (string) json_encode($values, JSON_UNESCAPED_UNICODE),
-            $actorMemberId
+            $actorMemberId,
+            RentalDocument::SOURCE_MANUAL,
+            null,
+            null,
+            $type === DocumentType::INVOICE ? $validatedSettlement?->id : null,
+            $type === DocumentType::INVOICE
+                ? ($validatedSettlement?->keptCents() ?? $booking->effectiveTotalCents())
+                : null
         );
 
         // What this contract says about its booking, so the day the booking
@@ -465,6 +497,397 @@ class RentalDocumentService
         }
 
         return $document;
+    }
+
+    // ── The supplementary invoice (#980, chantier decision 2.8) ─────────────────
+
+    /**
+     * What a supplementary invoice would bill now, or null when there is
+     * nothing to bill.
+     *
+     * Something to bill means: an invoice went out, the booking's latest
+     * validated settlement is not what the last billing document sent was
+     * based on, no supplement for that settlement exists yet (sent or
+     * not — « Générer » twice makes one), and its kept amount differs from
+     * what that document billed. The baseline is the last one sent, the
+     * invoice or a supplement before this one, so two supplements never
+     * bill the same euro; every supplement still names the invoice.
+     *
+     * @param Settlement[] $settlements the booking's, as `RentalStayService::settlementsFor()` gives them
+     */
+    public function supplementOffer(RentalBooking $booking, array $settlements): ?SupplementOffer
+    {
+        $byId = [];
+        $latest = null;
+        foreach ($settlements as $settlement) {
+            if ($settlement->bookingId !== $booking->id) {
+                continue;
+            }
+            $byId[$settlement->id] = $settlement;
+            if ($settlement->isValidated && ($latest === null || $settlement->version > $latest->version)) {
+                $latest = $settlement;
+            }
+        }
+        if ($latest === null) {
+            return null;
+        }
+
+        // Newest first: the first sent invoice met is the one the renter
+        // holds, the first sent billing document what was last billed.
+        $original = null;
+        $lastBilled = null;
+        foreach ($this->documentRepository->findForBooking($booking->id) as $document) {
+            if (!$document->hasBeenSent() || $document->isSuperseded()) {
+                continue;
+            }
+            if ($document->type === DocumentType::INVOICE) {
+                $original ??= $document;
+                $lastBilled ??= $document;
+            } elseif ($document->type === DocumentType::SUPPLEMENTARY_INVOICE) {
+                $lastBilled ??= $document;
+            }
+        }
+        if ($original === null || $lastBilled === null || $lastBilled->settlementId === $latest->id
+            || $this->documentRepository->hasSupplementForSettlement($booking->id, $latest->id)
+        ) {
+            return null;
+        }
+
+        $billed = $this->billedCents($lastBilled);
+        if ($billed === null) {
+            return null;
+        }
+
+        $offer = new SupplementOffer(
+            $original,
+            $latest,
+            $billed,
+            $lastBilled->settlementId !== null ? ($byId[$lastBilled->settlementId] ?? null) : null
+        );
+
+        return $offer->differenceCents() === 0 ? null : $offer;
+    }
+
+    /**
+     * What a billing document billed: the figure recorded at its
+     * generation, or — for an invoice generated before #980 recorded one —
+     * the agreed total frozen in its snapshot, the figure it printed.
+     */
+    public function billedCents(RentalDocument $document): ?int
+    {
+        if ($document->billedKeptCents !== null) {
+            return $document->billedKeptCents;
+        }
+        if ($document->type !== DocumentType::INVOICE) {
+            return null;
+        }
+
+        $printed = $this->documentRepository->findSnapshot($document->id)['prix_total'] ?? null;
+        if (!is_string($printed)) {
+            return null;
+        }
+
+        try {
+            return RentalPricingService::parseAmountToCents(str_replace('€', '', $printed));
+        } catch (RentalException) {
+            return null;
+        }
+    }
+
+    /**
+     * Generates the supplementary invoice of the latest validated
+     * settlement (#980, chantier decision 2.8): only the difference from what was
+     * last billed, the invoice it completes named by number and date, and
+     * how to settle it — the balance due with its deadline (validation +
+     * 30 days, Q13), account, communication and payment QR, or the
+     * overpayment the landlord gives back, with no QR.
+     *
+     * Decided and written under the booking's lock, so two managers make
+     * one. Neither the invoice nor any earlier supplement is touched.
+     *
+     * @param Settlement[] $settlements the booking's
+     * @throws RentalException when there is nothing to bill
+     */
+    public function generateSupplementaryInvoice(
+        RentalBooking $booking,
+        RentalAsset $asset,
+        PaymentSettings $paymentSettings,
+        array $settlements,
+        ?int $actorMemberId = null
+    ): RentalDocument {
+        $type = DocumentType::SUPPLEMENTARY_INVOICE;
+        // Read from Finance before the booking is locked: nothing of it
+        // depends on what the lock decides, and the lock stays short.
+        $instructions = $this->payments?->paymentInstructions($booking, $paymentSettings);
+
+        $documentId = $this->documentRepository->withBookingLocked(
+            $booking->id,
+            function () use (
+                $booking,
+                $asset,
+                $paymentSettings,
+                $settlements,
+                $actorMemberId,
+                $type,
+                $instructions
+            ): int {
+                $offer = $this->supplementOffer($booking, $settlements);
+                if ($offer === null) {
+                    throw new RentalException(
+                        'Aucune facture complémentaire à générer : la facture envoyée correspond au dernier '
+                        . 'décompte validé, ou sa facture complémentaire existe déjà.'
+                    );
+                }
+
+                $body = trim($this->bookingText($booking, $asset, $type));
+                if ($this->documentRepository->findText($booking->id, $type) === null) {
+                    $this->documentRepository->saveText($booking->id, $type, $this->sanitizer->sanitize($body));
+                }
+                $version = $this->documentRepository->claimNextVersion($booking->id, $type);
+
+                $values = array_merge(
+                    $this->valuesFor($booking, $asset, $paymentSettings, $instructions['communication'] ?? null),
+                    $this->supplementValues($booking, $offer, $version, $instructions)
+                );
+                $rendered = DocumentKeywords::substitute(
+                    DocumentKeywords::repairSplitKeywords($this->sanitizer->sanitize($body)),
+                    $values
+                );
+
+                $original = $offer->originalInvoice;
+                $pdf = $this->pdfService->generate(
+                    $type->label() . ' — ' . $booking->reference,
+                    $rendered,
+                    (string) ($this->settingService->get('site_name') ?: 'Unité scoute'),
+                    [
+                        'Bien : ' . $asset->name,
+                        'Séjour : du ' . self::frenchDate($booking->arrivalDate)
+                            . ' au ' . self::frenchDate($booking->departureDate),
+                        // In the frame as well as in the text: whatever the
+                        // body says, the reader sees which invoice this completes.
+                        'Complète la facture ' . self::invoiceNumber($booking, $original)
+                            . ' du ' . $original->createdAt->format('d/m/Y'),
+                    ],
+                    $this->vatNote($asset),
+                    // Only what the renter still owes is scanned: a
+                    // supplement in their favour says what comes back, and
+                    // a QR there would invite them to pay it (Q15).
+                    $offer->differenceCents() > 0 && ($instructions['amount_cents'] ?? 0) > 0
+                        ? ($instructions['qr_data_uri'] ?? null)
+                        : null
+                );
+
+                $fileName = RentalDocument::fileNameFor($type, $booking->reference, $version);
+
+                return $this->documentRepository->create(
+                    $booking->id,
+                    $this->storePdf($pdf, $fileName, $booking->id),
+                    $type,
+                    $version,
+                    true,
+                    (string) json_encode($values, JSON_UNESCAPED_UNICODE),
+                    $actorMemberId,
+                    RentalDocument::SOURCE_MANUAL,
+                    null,
+                    null,
+                    $offer->settlement->id,
+                    $offer->settlement->keptCents(),
+                    $original->id
+                );
+            }
+        );
+
+        $document = $this->documentRepository->findById($documentId)
+            ?? throw new RentalException("Le document n'a pas pu être enregistré.");
+
+        $this->bookingAudit->record(
+            $booking->id,
+            BookingAudit::STATUS_CHANGED,
+            null,
+            $document->label(),
+            'Document généré',
+            $actorMemberId
+        );
+        // Ids and the version, never an amount or anything about the renter.
+        $this->journal->log(
+            'rental',
+            'rental_document_generated',
+            'info',
+            $document->label() . ' généré pour ' . $booking->reference,
+            [
+                'booking_id' => $booking->id,
+                'document_id' => $documentId,
+                'version' => $document->version,
+                'settlement_id' => $document->settlementId,
+                'supplements_document_id' => $document->supplementsDocumentId,
+            ]
+        );
+
+        return $document;
+    }
+
+    /**
+     * An invoice's number (Q3): the booking's reference and the version,
+     * « LOC-K7Q2M4-v1 » — the name it has always been listed and filed
+     * under, with no sequence of its own.
+     */
+    public static function invoiceNumber(RentalBooking $booking, RentalDocument $invoice): string
+    {
+        return $booking->reference . '-v' . $invoice->version;
+    }
+
+    /**
+     * The supplement's own keywords.
+     *
+     * @param array<string, mixed>|null $instructions RentalPaymentService::paymentInstructions()
+     * @return array<string, string|null>
+     */
+    private function supplementValues(
+        RentalBooking $booking,
+        SupplementOffer $offer,
+        int $version,
+        ?array $instructions
+    ): array {
+        $settlement = $offer->settlement;
+        $difference = $offer->differenceCents();
+        $validatedAt = $settlement->validatedAt ?? $settlement->createdAt;
+
+        return [
+            // « C » for complément: never « -v1 », which is the invoice's.
+            'numero_facture_complementaire' => $booking->reference . '-C' . $version,
+            'facture_origine' => self::invoiceNumber($booking, $offer->originalInvoice)
+                . ' du ' . $offer->originalInvoice->createdAt->format('d/m/Y'),
+            'date_decompte' => $validatedAt->format('d/m/Y'),
+            'detail_complement' => self::lineChanges(
+                $offer->billedSettlement->lines ?? self::agreedLines($booking),
+                $settlement->lines
+            ),
+            'montant_deja_facture' => Support::euros($offer->alreadyBilledCents),
+            'montant_decompte' => Support::euros($settlement->keptCents()),
+            'montant_complement' => $difference < 0
+                ? Support::euros(-$difference) . ' en faveur du locataire'
+                : Support::euros($difference),
+            'reglement_complement' => self::settlementSentence(
+                $settlement,
+                $instructions,
+                // Q13: thirty days from the validation, never the
+                // balance date of a stay that is over.
+                $validatedAt->add(new \DateInterval('P30D'))
+            ),
+        ];
+    }
+
+    /**
+     * How the supplement is settled, as one sentence a template can hold.
+     *
+     * @param array<string, mixed>|null $instructions
+     */
+    private static function settlementSentence(
+        Settlement $settlement,
+        ?array $instructions,
+        \DateTimeImmutable $dueDate
+    ): string {
+        if ($instructions !== null) {
+            $dueCents = (int) ($instructions['amount_cents'] ?? 0);
+            $overpaidCents = (int) ($instructions['overpaid_cents'] ?? 0);
+        } else {
+            // Without Finance the payments are recorded by hand, and the
+            // settlement's own balance is what is left.
+            $dueCents = max(0, $settlement->balanceCents);
+            $overpaidCents = max(0, -$settlement->balanceCents);
+        }
+
+        if ($dueCents > 0) {
+            $account = '';
+            if (is_string($instructions['iban'] ?? null)) {
+                $holder = $instructions['beneficiary'] ?? null;
+                $account = ' sur le compte ' . $instructions['iban'] . (is_string($holder) ? ' (' . $holder . ')' : '');
+            }
+            $communication = is_string($instructions['communication'] ?? null)
+                ? ', avec la communication ' . $instructions['communication']
+                : '';
+
+            return 'Restant dû : ' . Support::euros($dueCents) . ', à verser au plus tard le '
+                . $dueDate->format('d/m/Y') . $account . $communication . '.';
+        }
+        if ($overpaidCents > 0) {
+            return 'Montant à rembourser au locataire (trop-perçu) : ' . Support::euros($overpaidCents)
+                . '. Le bailleur le rembourse ; rien n\'est à payer.';
+        }
+
+        return 'Rien ne reste à payer : les paiements reçus couvrent le décompte final.';
+    }
+
+    /**
+     * The agreed quote's lines, as an invoice billed before any settlement
+     * billed them — what the settlement's lines are compared with then.
+     * Null when the booking has no quote to compare with.
+     *
+     * @return SettlementLine[]|null
+     */
+    private static function agreedLines(RentalBooking $booking): ?array
+    {
+        $quote = $booking->effectivePrice();
+        if ($quote === null) {
+            return null;
+        }
+
+        $lines = [];
+        foreach ($quote->lines as $line) {
+            if (!$line->isInformational) {
+                $lines[] = new SettlementLine($line->label, $line->amountCents, SettlementLine::ORIGIN_AGREED);
+            }
+        }
+
+        return $lines;
+    }
+
+    /**
+     * The settlement lines added and taken away since what was billed — a
+     * charged damage, a waived one, a consumption — matched on what they
+     * say rather than how they were produced, so an agreed line carried
+     * unchanged is not « added ». Without lines to compare with, says the
+     * settlement replaces what was billed.
+     *
+     * @param SettlementLine[]|null $billed
+     * @param SettlementLine[] $current
+     */
+    private static function lineChanges(?array $billed, array $current): string
+    {
+        if ($billed === null) {
+            return 'Le décompte final validé remplace le montant déjà facturé.';
+        }
+
+        $key = static fn(SettlementLine $line): string => $line->label . "\x1F" . $line->amountCents;
+        $remaining = [];
+        foreach ($billed as $line) {
+            $remaining[$key($line)][] = $line;
+        }
+
+        $added = [];
+        foreach ($current as $line) {
+            if (($remaining[$key($line)] ?? []) !== []) {
+                array_pop($remaining[$key($line)]);
+                continue;
+            }
+            $added[] = $line->label . ' (' . Support::euros($line->amountCents) . ')';
+        }
+        $removed = [];
+        foreach ($remaining as $lines) {
+            foreach ($lines as $line) {
+                $removed[] = $line->label . ' (' . Support::euros($line->amountCents) . ')';
+            }
+        }
+
+        $parts = [];
+        if ($added !== []) {
+            $parts[] = 'Ajouté au décompte : ' . implode(' ; ', $added) . '.';
+        }
+        if ($removed !== []) {
+            $parts[] = 'Retiré du décompte : ' . implode(' ; ', $removed) . '.';
+        }
+
+        return $parts !== [] ? implode(' ', $parts) : 'Les lignes du décompte sont celles déjà facturées.';
     }
 
     /**
@@ -827,6 +1250,16 @@ class RentalDocumentService
             'contact_donnees' => self::text($this->settingService->get('contact_email'))
                 ?? "l'adresse du bailleur indiquée en tête du présent contrat",
             'duree_conservation' => $this->retentionPhrase(),
+            // The supplementary invoice's own (#980): « — » in any other
+            // document whose author inserts one, never literal braces.
+            'numero_facture_complementaire' => null,
+            'facture_origine' => null,
+            'date_decompte' => null,
+            'detail_complement' => null,
+            'montant_deja_facture' => null,
+            'montant_decompte' => null,
+            'montant_complement' => null,
+            'reglement_complement' => null,
         ];
     }
 

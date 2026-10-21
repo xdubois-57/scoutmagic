@@ -64,7 +64,17 @@ final class RentalDocument
          * the project's, and the booking's contract in force is still the
          * one before (chantier §2.3).
          */
-        public readonly bool $inActiveModification = false
+        public readonly bool $inActiveModification = false,
+        /**
+         * An invoice or a supplementary invoice (#980, chantier decision 2.8): the
+         * validated settlement it bills — null for an invoice generated
+         * before any — and the amount it brings the billing to, that
+         * settlement's kept amount or else the agreed total.
+         */
+        public readonly ?int $settlementId = null,
+        public readonly ?int $billedKeptCents = null,
+        /** The invoice a supplementary invoice completes. */
+        public readonly ?int $supplementsDocumentId = null
     ) {
     }
 

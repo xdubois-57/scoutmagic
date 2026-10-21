@@ -59,6 +59,7 @@ final class StandardTemplates
         return match ($type) {
             DocumentType::CONTRACT => self::contract(),
             DocumentType::INVOICE => self::invoice(),
+            DocumentType::SUPPLEMENTARY_INVOICE => self::supplementaryInvoice(),
             default => null,
         };
     }
@@ -337,6 +338,57 @@ final class StandardTemplates
             <strong>{{ communication }}</strong>, dans les trente jours.</p>
             <p>Garantie locative&nbsp;: {{ caution }}. Elle ne fait pas partie du prix de la
             location et est restituée après le séjour.</p>
+
+            <p><em>{{ mention_tva }}</em></p>
+            HTML;
+    }
+
+    /**
+     * What a settlement validated after the invoice went out adds to it, or
+     * takes off it (#980, chantier decision 2.8). The only text of its type, never
+     * edited (`DocumentType::hasEditableText()`): its sentences are worked
+     * out from two settlements, so a manager has nothing to word.
+     *
+     * **Only the difference**, and the invoice it completes named by its
+     * number and date: that invoice stays valid as it was sent. How to
+     * settle it is one sentence (`reglement_complement`) — the balance due
+     * with its deadline, account and communication, or the overpayment the
+     * landlord gives back — because a template has no « if ». The payment
+     * QR, when one is due, is printed under the body by the PDF service.
+     */
+    public static function supplementaryInvoice(): string
+    {
+        return <<<'HTML'
+            <h2>Facture complémentaire</h2>
+
+            <p><strong>{{ nom_bailleur }}</strong><br>
+            {{ adresse_bailleur }}<br>
+            N° d'entreprise&nbsp;: {{ bce_bailleur }}</p>
+
+            <p><strong>Facturé à</strong><br>
+            {{ locataire_nom }}<br>
+            {{ locataire_organisation }}<br>
+            {{ locataire_adresse }}<br>
+            N° TVA / BCE&nbsp;: {{ locataire_tva }}</p>
+
+            <p>Date&nbsp;: {{ date_du_jour }}<br>
+            Facture complémentaire n°&nbsp;<strong>{{ numero_facture_complementaire }}</strong><br>
+            Référence&nbsp;: <strong>{{ reference }}</strong></p>
+
+            <h3>Objet</h3>
+            <p>La présente facture complète la facture {{ facture_origine }}, qui reste valable
+            telle qu'elle a été envoyée. Elle ne porte que la différence entre ce qui a déjà été
+            facturé et le décompte final de la location de <strong>{{ bien }}</strong>, du
+            {{ date_arrivee }} au {{ date_depart }}, validé le {{ date_decompte }}.</p>
+            <p>{{ detail_complement }}</p>
+
+            <h3>Montant</h3>
+            <p>Déjà facturé&nbsp;: {{ montant_deja_facture }}<br>
+            Décompte final validé&nbsp;: {{ montant_decompte }}<br>
+            Différence&nbsp;: <strong>{{ montant_complement }}</strong></p>
+
+            <h3>Règlement</h3>
+            <p>{{ reglement_complement }}</p>
 
             <p><em>{{ mention_tva }}</em></p>
             HTML;

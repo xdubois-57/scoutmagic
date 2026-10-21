@@ -8,7 +8,7 @@ question: Comment établir le décompte final d'une location ?
 question: Comment envoyer la facture au locataire ?
 question: Pourquoi ne puis-je pas encore générer la facture ?
 paths: /mes-locations/*/reservations/*/facture
-related: locations-etat-des-lieux, locations-documents, locations-finances, gerer-les-locations
+related: locations-etat-des-lieux, locations-documents, locations-finances, gerer-les-locations, locations-facture-complementaire
 ---
 
 La page « Facture » d'une réservation réunit, dans cet ordre, les trois
@@ -37,6 +37,10 @@ incident ne se valide pas non plus : enregistrez-en une nouvelle.
 
 Les incidents tranchés s'affichent avec leur montant, en lecture seule.
 Une décision se change sur la page « État des lieux ».
+Une décision prise après la validation est signalée en tête de page,
+avec « Enregistrer un nouveau décompte » ; si la facture était partie, une
+facture complémentaire porte la différence (voir l'aide sur la facture
+complémentaire).
 
 ## Les coordonnées de facturation
 

@@ -42,14 +42,18 @@ class RentalDocumentRepository implements AttachedFileRepository
         ?int $createdByMemberId,
         string $source = RentalDocument::SOURCE_MANUAL,
         ?int $contractDocumentId = null,
-        ?int $modificationId = null
+        ?int $modificationId = null,
+        ?int $settlementId = null,
+        ?int $billedKeptCents = null,
+        ?int $supplementsDocumentId = null
     ): int {
         $stmt = $this->pdo->prepare(
             'INSERT INTO rental_documents
                 (booking_id, file_id, document_type, version, is_for_renter,
                  generated_snapshot, created_by_member_id, created_at, source,
-                 contract_document_id, modification_id)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                 contract_document_id, modification_id,
+                 settlement_id, billed_kept_cents, supplements_document_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
             $bookingId,
@@ -65,9 +69,27 @@ class RentalDocumentRepository implements AttachedFileRepository
                 : RentalDocument::SOURCE_MANUAL,
             $contractDocumentId,
             $modificationId,
+            $settlementId,
+            $billedKeptCents,
+            $supplementsDocumentId,
         ]);
 
         return (int) $this->pdo->lastInsertId();
+    }
+
+    /**
+     * Whether a supplementary invoice already bills this settlement (#980,
+     * chantier decision 2.8) — asked under `withBookingLocked()`, so two managers
+     * pressing « Générer la facture complémentaire » at once make one.
+     */
+    public function hasSupplementForSettlement(int $bookingId, int $settlementId): bool
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT 1 FROM rental_documents WHERE booking_id = ? AND document_type = ? AND settlement_id = ? LIMIT 1'
+        );
+        $stmt->execute([$bookingId, DocumentType::SUPPLEMENTARY_INVOICE->value, $settlementId]);
+
+        return $stmt->fetchColumn() !== false;
     }
 
     /**
@@ -629,7 +651,10 @@ class RentalDocumentRepository implements AttachedFileRepository
             fingerprint: isset($row['fingerprint']) ? (string) $row['fingerprint'] : null,
             contractDocumentId: isset($row['contract_document_id']) ? (int) $row['contract_document_id'] : null,
             modificationId: isset($row['modification_id']) ? (int) $row['modification_id'] : null,
-            inActiveModification: (int) ($row['in_active_modification'] ?? 0) > 0
+            inActiveModification: (int) ($row['in_active_modification'] ?? 0) > 0,
+            settlementId: isset($row['settlement_id']) ? (int) $row['settlement_id'] : null,
+            billedKeptCents: isset($row['billed_kept_cents']) ? (int) $row['billed_kept_cents'] : null,
+            supplementsDocumentId: isset($row['supplements_document_id']) ? (int) $row['supplements_document_id'] : null
         );
     }
 }

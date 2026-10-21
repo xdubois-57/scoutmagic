@@ -207,4 +207,30 @@ class DocumentKeywordsTest extends TestCase
     {
         $this->assertFalse(DocumentKeywords::isKnown('mot_de_passe_admin'));
     }
+
+    /**
+     * The supplementary invoice's own keywords (#980), each saying it
+     * belongs to that document — the palette is shared with the contract
+     * and the invoice, whose author must not mistake one for theirs.
+     */
+    public function testTheSupplementaryInvoiceKeywordsAreKnownAndSayWhereTheyBelong(): void
+    {
+        $catalogue = array_column(DocumentKeywords::catalogue(), 'description', 'keyword');
+        foreach ([
+            'numero_facture_complementaire', 'facture_origine', 'date_decompte', 'detail_complement',
+            'montant_deja_facture', 'montant_decompte', 'montant_complement', 'reglement_complement',
+        ] as $keyword) {
+            $this->assertTrue(DocumentKeywords::isKnown($keyword), $keyword . ' must exist.');
+            $this->assertStringStartsWith('Facture complémentaire : ', $catalogue[$keyword]);
+        }
+    }
+
+    /** Elsewhere they print « — », never braces (RentalDocumentService::valuesFor() gives them null). */
+    public function testASupplementKeywordWithANullValuePrintsADash(): void
+    {
+        $this->assertSame(
+            '<p>—</p>',
+            DocumentKeywords::substitute('<p>{{ montant_complement }}</p>', ['montant_complement' => null])
+        );
+    }
 }

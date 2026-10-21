@@ -10,6 +10,8 @@ declare(strict_types=1);
 namespace Tests\Modules\Rental\Repository;
 
 use Core\Security\EncryptionService;
+use Modules\Rental\Document\DocumentType;
+use Modules\Rental\Document\RentalDocument;
 use Modules\Rental\Repository\RentalBookingRepository;
 use Modules\Rental\Repository\RentalDocumentRepository;
 use PHPUnit\Framework\Attributes\Group;
@@ -137,6 +139,74 @@ final class RentalDocumentRepositoryOnMysqlTest extends TestCase
         $probe->execute([$this->bookingId]);
         $this->assertSame(1, (int) $probe->fetchColumn(), 'nothing written by the failed work remains');
         $other->rollBack();
+    }
+
+    /**
+     * What a billing document bills (#980, chantier decision 2.8), on the real
+     * schema: the three columns round-trip, and a supplement is found by
+     * the settlement it bills — the question « Générer » asks under the lock.
+     */
+    public function testWhatAnInvoiceAndItsSupplementBillRoundTrips(): void
+    {
+        $invoiceId = $this->repository->create(
+            $this->bookingId,
+            1,
+            DocumentType::INVOICE,
+            1,
+            true,
+            null,
+            null,
+            RentalDocument::SOURCE_MANUAL,
+            null,
+            null,
+            null,
+            46750
+        );
+        $supplementId = $this->repository->create(
+            $this->bookingId,
+            2,
+            DocumentType::SUPPLEMENTARY_INVOICE,
+            1,
+            true,
+            null,
+            null,
+            RentalDocument::SOURCE_MANUAL,
+            null,
+            null,
+            41,
+            51750,
+            $invoiceId
+        );
+
+        $invoice = $this->repository->findById($invoiceId);
+        $this->assertNull($invoice?->settlementId);
+        $this->assertSame(46750, $invoice?->billedKeptCents);
+        $this->assertNull($invoice?->supplementsDocumentId);
+
+        $supplement = $this->repository->findById($supplementId);
+        $this->assertSame(DocumentType::SUPPLEMENTARY_INVOICE, $supplement?->type);
+        $this->assertSame(41, $supplement?->settlementId);
+        $this->assertSame(51750, $supplement?->billedKeptCents);
+        $this->assertSame($invoiceId, $supplement?->supplementsDocumentId);
+
+        $this->assertTrue($this->repository->hasSupplementForSettlement($this->bookingId, 41));
+        $this->assertFalse($this->repository->hasSupplementForSettlement($this->bookingId, 42));
+        // An invoice billing a settlement is not its supplement.
+        $this->repository->create(
+            $this->bookingId,
+            3,
+            DocumentType::INVOICE,
+            2,
+            true,
+            null,
+            null,
+            RentalDocument::SOURCE_MANUAL,
+            null,
+            null,
+            43,
+            50000
+        );
+        $this->assertFalse($this->repository->hasSupplementForSettlement($this->bookingId, 43));
     }
 
     private function secondConnection(): \PDO

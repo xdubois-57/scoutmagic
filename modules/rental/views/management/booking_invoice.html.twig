@@ -14,11 +14,17 @@
   « Envoyer la facture » sends the latest version through the document
   e-mail, like Documents does, and its question names the address.
 
+  A decision taken after the settlement was validated (#980, chantier
+  decision 2.8) puts a banner above the settlement; a settlement validated after
+  the invoice went out offers the supplementary invoice under it.
+
   Requires the context of RentalManagementController::invoiceContext().
 #}
 {% block booking_content %}
     <div id="{{ boxes.invoice.anchor }}">
         <div data-booking-panel="invoice">
+            {% include '@rental/management/_settlement_revision.html.twig' %}
+
             {% include '@rental/management/_settlement.html.twig' %}
 
             {% include '@rental/management/_billing.html.twig' %}
@@ -75,6 +81,8 @@
                             </form>
                         </div>
                     {% endif %}
+
+                    {% include '@rental/management/_supplementary_invoices.html.twig' %}
                 </div>
             </div>
         </div>

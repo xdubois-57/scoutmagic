@@ -1605,6 +1605,8 @@ class RentalManagementControllerTest extends TestCase
             ['/mes-locations/incident-decision', 'decideIncident', ['incident_id' => '1', 'decision' => 'charge']],
             ['/mes-locations/decompte', 'recordSettlement', ['final_persons' => '10']],
             ['/mes-locations/decompte-valider', 'validateSettlement', ['settlement_id' => '1']],
+            ['/mes-locations/decompte-actualiser', 'recordSettlementFromValidated', []],
+            ['/mes-locations/facture-complementaire', 'generateSupplementaryInvoice', []],
             ['/mes-locations/virement-chercher', 'searchTransfer', ['amount' => '300']],
             ['/mes-locations/virement-rapprocher', 'reconcileTransfer', ['transaction_id' => '1', 'amount_cents' => '1']],
             ['/mes-locations/virement-detacher', 'detachTransfer', ['transaction_id' => '1']],
@@ -7476,5 +7478,188 @@ class RentalManagementControllerTest extends TestCase
         AuthSession::login(2, 'nobody@test.be', 'identified');
         $this->assertSame(404, $this->modificationPage($booking, (string) $project->id)->getStatusCode());
         $this->assertSame(404, $this->modificationPage($booking, 'nouvelle')->getStatusCode());
+    }
+
+    // ── A decision after validation, the supplementary invoice (#980, lot F)
+
+    /**
+     * A booking whose settlement was validated — well before today — and
+     * whose invoice, generated from it, went out.
+     */
+    private function invoicedAfterASettlement(): RentalBooking
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+        $settlement = $this->stayService->recordSettlement($booking, $this->assetId, null, [], 1);
+        $this->stayService->validateSettlement($booking, $settlement->id, 1);
+        $this->pdo->prepare('UPDATE rental_settlements SET validated_at = ? WHERE id = ?')
+            ->execute(['2026-01-05 10:00:00', $settlement->id]);
+        $this->generateInvoice($booking);
+        $this->post('/mes-locations/document-envoyer', 'sendDocument', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'booking_page' => 'invoice',
+            'document_id' => (string) $this->invoices($booking)[0]->id,
+        ]);
+
+        return $booking;
+    }
+
+    /** @return list<\Modules\Rental\Document\RentalDocument> */
+    private function supplements(RentalBooking $booking): array
+    {
+        return array_values(array_filter(
+            $this->documentService->forBooking($booking->id),
+            static fn($document): bool
+                => $document->type === \Modules\Rental\Document\DocumentType::SUPPLEMENTARY_INVOICE
+        ));
+    }
+
+    private function postOnBooking(RentalBooking $booking, string $path, string $action, array $body = []): Response
+    {
+        return $this->post($path, $action, $body + [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'booking_page' => 'invoice',
+        ]);
+    }
+
+    /**
+     * Chantier decision 2.8 end to end on « Facture »: the banner, a version
+     * carrying the decision, its validation, the supplementary invoice of
+     * only the difference — generated once, sent after a question naming
+     * the address, listed on « Documents » — and the invoice untouched.
+     */
+    public function testADecisionAfterValidationLeadsToASupplementaryInvoiceOfTheDifference(): void
+    {
+        $booking = $this->invoicedAfterASettlement();
+        $invoice = $this->invoices($booking)[0];
+        $this->assertNotNull($invoice->settlementId);
+        $this->assertStringNotContainsString('data-settlement-revision', $this->invoicePage($booking));
+
+        $incident = $this->stayService->reportIncident($booking, 'Vitre cassée', 5000, null, 1);
+        $this->stayService->decideIncident($booking, $incident, \Modules\Rental\Stay\IncidentDecision::CHARGE, null, 1);
+
+        $body = $this->invoicePage($booking);
+        $this->assertStringContainsString('data-settlement-revision', $body);
+        $this->assertStringContainsString('Le décompte validé (v1) ne tient pas compte de la décision du', $body);
+        $this->assertStringContainsString('action="/mes-locations/decompte-actualiser"', $body);
+        $this->assertStringContainsString('Aucun e-mail n&#039;est envoyé.', $body);
+        $this->assertStringNotContainsString('data-supplement-offer', $body);
+
+        $this->postOnBooking($booking, '/mes-locations/decompte-actualiser', 'recordSettlementFromValidated');
+        $revised = $this->stayService->latestSettlement($booking->id);
+        $this->assertNotNull($revised);
+        $this->assertSame(2, $revised->version);
+        $body = $this->invoicePage($booking);
+        $this->assertStringNotContainsString('data-settlement-revision', $body);
+        $this->assertStringContainsString('name="settlement_id" value="' . $revised->id . '"', $body);
+
+        $this->postOnBooking($booking, '/mes-locations/decompte-valider', 'validateSettlement', [
+            'settlement_id' => (string) $revised->id,
+        ]);
+        $this->assertStringContainsString(
+            'générez la facture complémentaire',
+            (string) (\Core\Http\FlashMessage::get()['message'] ?? '')
+        );
+
+        $body = $this->invoicePage($booking);
+        $this->assertStringContainsString('data-supplement-offer', $body);
+        $this->assertStringContainsString('50,00 € de plus', $body);
+        $this->assertStringContainsString('Générer la facture complémentaire</button>', $body);
+
+        $this->postOnBooking($booking, '/mes-locations/facture-complementaire', 'generateSupplementaryInvoice');
+        $supplements = $this->supplements($booking);
+        $this->assertCount(1, $supplements);
+        $this->assertSame($revised->id, $supplements[0]->settlementId);
+        $this->assertSame($invoice->id, $supplements[0]->supplementsDocumentId);
+        $this->assertSame(
+            ($invoice->billedKeptCents ?? 0) + 5000,
+            $supplements[0]->billedKeptCents
+        );
+
+        $body = $this->invoicePage($booking);
+        $this->assertStringNotContainsString('data-supplement-offer', $body);
+        $this->assertStringContainsString(
+            'Envoyer la facture complémentaire à ' . $booking->renterEmail . ' ?',
+            $body
+        );
+
+        // Twice is once.
+        $this->postOnBooking($booking, '/mes-locations/facture-complementaire', 'generateSupplementaryInvoice');
+        $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
+        $this->assertCount(1, $this->supplements($booking));
+
+        $this->documentEmails = [];
+        $this->postOnBooking($booking, '/mes-locations/document-envoyer', 'sendDocument', [
+            'document_id' => (string) $supplements[0]->id,
+        ]);
+        $this->assertSame(
+            [['booking_id' => $booking->id, 'label' => 'Facture complémentaire v1']],
+            $this->documentEmails
+        );
+        $this->assertNotNull($this->documentService->find($supplements[0]->id)?->sentAt);
+
+        // The invoice the renter holds is as it was sent.
+        $after = $this->documentService->find($invoice->id);
+        $this->assertEquals($invoice->sentAt, $after?->sentAt);
+        $this->assertSame($invoice->billedKeptCents, $after?->billedKeptCents);
+        $this->assertSame($invoice->settlementId, $after?->settlementId);
+
+        $documents = (string) $this->filePage(BookingPage::DOCUMENTS, 'local-saint-georges', $booking->id)->getBody();
+        $this->assertStringContainsString('Facture complémentaire v1', $documents);
+        $this->assertStringContainsString('au locataire, à ' . $booking->renterEmail . ' ?', $documents);
+    }
+
+    /** A supplement left unsent is not sent once a later settlement holds. */
+    public function testAnUnsentSupplementOfAnOlderSettlementIsNotSent(): void
+    {
+        $booking = $this->invoicedAfterASettlement();
+        $incident = $this->stayService->reportIncident($booking, 'Vitre cassée', 5000, null, 1);
+        $this->stayService->decideIncident($booking, $incident, \Modules\Rental\Stay\IncidentDecision::CHARGE, null, 1);
+        $v2 = $this->stayService->recordSettlementFromValidated($booking, $this->assetId, 1);
+        $this->stayService->validateSettlement($booking, $v2->id, 1);
+        $this->postOnBooking($booking, '/mes-locations/facture-complementaire', 'generateSupplementaryInvoice');
+        $supplement = $this->supplements($booking)[0];
+
+        $this->pdo->prepare('UPDATE rental_settlements SET validated_at = ? WHERE id = ?')
+            ->execute(['2026-01-06 10:00:00', $v2->id]);
+        $this->stayService->decideIncident($booking, $incident, \Modules\Rental\Stay\IncidentDecision::CHARGE, 8000, 1);
+        $v3 = $this->stayService->recordSettlementFromValidated($booking, $this->assetId, 1);
+        $this->stayService->validateSettlement($booking, $v3->id, 1);
+
+        $body = $this->invoicePage($booking);
+        $this->assertStringContainsString('data-supplement-outdated', $body);
+        // Against the INVOICE still, since the first supplement never left.
+        $this->assertStringContainsString('80,00 € de plus', $body);
+
+        $this->documentEmails = [];
+        $this->postOnBooking($booking, '/mes-locations/document-envoyer', 'sendDocument', [
+            'document_id' => (string) $supplement->id,
+        ]);
+        $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
+        $this->assertSame([], $this->documentEmails);
+        $this->assertNull($this->documentService->find($supplement->id)?->sentAt);
+    }
+
+    public function testTheSupplementaryInvoiceHasNoTextToEdit(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+
+        $response = $this->filePage(BookingPage::INVOICE, 'local-saint-georges', $booking->id);
+        $this->assertStringNotContainsString('/document/supplementary_invoice', (string) $response->getBody());
+
+        $this->postOnBooking($booking, '/mes-locations/document-texte', 'saveDocumentText', [
+            'document_type' => 'supplementary_invoice',
+            'body' => '<p>x</p>',
+        ]);
+        $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
+
+        $this->postOnBooking($booking, '/mes-locations/document-generer', 'generateDocument', [
+            'document_type' => 'supplementary_invoice',
+        ]);
+        $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
+        $this->assertSame([], $this->supplements($booking));
     }
 }

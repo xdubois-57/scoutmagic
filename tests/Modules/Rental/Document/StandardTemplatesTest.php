@@ -25,7 +25,11 @@ class StandardTemplatesTest extends TestCase
 {
     public function testEveryPlaceholderTheyUseIsOnTheClosedList(): void
     {
-        foreach ([StandardTemplates::contract(), StandardTemplates::invoice()] as $body) {
+        foreach ([
+            StandardTemplates::contract(),
+            StandardTemplates::invoice(),
+            StandardTemplates::supplementaryInvoice(),
+        ] as $body) {
             $this->assertSame(
                 [],
                 DocumentKeywords::unknownIn($body),
@@ -252,7 +256,38 @@ class StandardTemplatesTest extends TestCase
         );
     }
 
-    public function testOnlyTheTwoGeneratedTypesHaveAStandardBody(): void
+    /**
+     * The supplementary invoice (#980, chantier decision 2.8): the invoice it
+     * completes, only the difference, how to settle it, the VAT sentence —
+     * and nothing a manager writes, so no « prix_total » to bill twice.
+     */
+    public function testTheSupplementaryInvoiceSaysWhatItCompletesAndOnlyTheDifference(): void
+    {
+        $body = StandardTemplates::supplementaryInvoice();
+
+        foreach ([
+            '{{ numero_facture_complementaire }}', '{{ facture_origine }}', '{{ date_decompte }}',
+            '{{ detail_complement }}', '{{ montant_deja_facture }}', '{{ montant_decompte }}',
+            '{{ montant_complement }}', '{{ reglement_complement }}', '{{ mention_tva }}', '{{ reference }}',
+        ] as $keyword) {
+            $this->assertStringContainsString($keyword, $body);
+        }
+        $this->assertStringContainsString('reste valable', $body);
+        $this->assertStringNotContainsString('{{ prix_total }}', $body);
+        $this->assertStringNotContainsString('{{ communication }}', $body);
+        $this->assertSame($body, StandardTemplates::forType(DocumentType::SUPPLEMENTARY_INVOICE));
+    }
+
+    public function testTheSupplementaryInvoiceSurvivesTheSanitizerWithItsKeywords(): void
+    {
+        $body = StandardTemplates::supplementaryInvoice();
+        $sanitized = (new \Core\Security\HtmlSanitizer())->sanitize($body);
+
+        $this->assertSame([], DocumentKeywords::unknownIn($sanitized));
+        $this->assertStringContainsString('{{ reglement_complement }}', $sanitized);
+    }
+
+    public function testOnlyTheGeneratedTypesHaveAStandardBody(): void
     {
         foreach (DocumentType::cases() as $type) {
             $standard = StandardTemplates::forType($type);

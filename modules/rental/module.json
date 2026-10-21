@@ -501,6 +501,24 @@
       "label": ""
     },
     {
+      "path": "/mes-locations/decompte-actualiser",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "recordSettlementFromValidated",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/mes-locations/facture-complementaire",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "generateSupplementaryInvoice",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
       "path": "/mes-locations/calendrier-publication",
       "method": "POST",
       "controller": "Modules\\Rental\\Controller\\RentalManagementController",

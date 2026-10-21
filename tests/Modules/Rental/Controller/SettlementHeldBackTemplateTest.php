@@ -11,6 +11,8 @@ namespace Tests\Modules\Rental\Controller;
 
 use Modules\Rental\Booking\BookingStatus;
 use Modules\Rental\Payment\SecurityDepositStatus;
+use Modules\Rental\Stay\Incident;
+use Modules\Rental\Stay\IncidentDecision;
 use Modules\Rental\Stay\Settlement;
 use PHPUnit\Framework\TestCase;
 use Tests\TestTwig;
@@ -142,5 +144,33 @@ final class SettlementHeldBackTemplateTest extends TestCase
             'data-security-deposit-held',
             $this->renderSummary(true, SecurityDepositStatus::RETURNED)
         );
+    }
+
+    /**
+     * A charge decided without retyping its figure bills what was proposed
+     * (`Incident::effectiveAmountCents()`): the list of decided incidents
+     * shows that amount, never « 0,00 € » (#980).
+     */
+    public function testADecidedChargeShowsTheAmountItBills(): void
+    {
+        $incident = new Incident(
+            id: 5,
+            bookingId: 9,
+            description: 'Vitre cassée',
+            proposedAmountCents: 12000,
+            decision: IncidentDecision::CHARGE,
+            decidedAmountCents: null,
+            decidedAt: new \DateTimeImmutable('2027-07-22 10:00:00'),
+            decidedByMemberId: 1,
+            fileId: null,
+            createdByMemberId: 1,
+            createdAt: new \DateTimeImmutable('2027-07-20 10:00:00')
+        );
+
+        $html = $this->renderSettlement(['decided_incidents' => [$incident]]);
+
+        $this->assertSame(1, preg_match('/<ul[^>]*data-decided-incidents.*?<\/ul>/s', $html, $list));
+        $this->assertStringContainsString('120,00', $list[0]);
+        $this->assertStringNotContainsString('>0,00', $list[0]);
     }
 }

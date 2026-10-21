@@ -11,10 +11,12 @@ namespace Modules\Rental\Document;
 /**
  * What a document attached to a booking is (§6.24).
  *
- * Two of them — the contract and the invoice — are **generated** from a
- * template and are versioned; the rest are uploaded by a manager. That
- * difference is the only one the code cares about, and `isGenerated()` is
- * where it lives rather than in a condition repeated at every call site.
+ * Three of them — the contract, the invoice and the supplementary invoice
+ * — are **generated** from a template and are versioned; the rest are
+ * uploaded by a manager. That difference is the one the code cares about
+ * most, and `isGenerated()` is where it lives rather than in a condition
+ * repeated at every call site. Of the three, only the contract and the
+ * invoice have a text a manager writes (`hasEditableText()`).
  */
 enum DocumentType: string
 {
@@ -28,6 +30,12 @@ enum DocumentType: string
     /** The contract signed by both parties: the agreement itself. */
     case SIGNED_CONTRACT = 'signed_contract';
     case INVOICE = 'invoice';
+    /**
+     * What a settlement validated after the invoice went out adds to it, or
+     * takes off it (#980, chantier decision 2.8): only the difference, referring to
+     * the invoice it completes, which never changes.
+     */
+    case SUPPLEMENTARY_INVOICE = 'supplementary_invoice';
     case INVENTORY = 'inventory';
     case PHOTO = 'photo';
     case METER_READING = 'meter_reading';
@@ -43,6 +51,7 @@ enum DocumentType: string
             self::SIGNED_COPY => 'Copie signée du locataire',
             self::SIGNED_CONTRACT => 'Contrat signé par les deux parties',
             self::INVOICE => 'Facture',
+            self::SUPPLEMENTARY_INVOICE => 'Facture complémentaire',
             self::INVENTORY => 'État des lieux',
             self::PHOTO => 'Photo',
             self::METER_READING => 'Relevé',
@@ -59,6 +68,19 @@ enum DocumentType: string
      */
     public function isGenerated(): bool
     {
+        return $this === self::CONTRACT || $this === self::INVOICE || $this === self::SUPPLEMENTARY_INVOICE;
+    }
+
+    /**
+     * Whether a manager writes this type's text — in the asset's template,
+     * then in the booking's own copy (§6.25).
+     *
+     * Not the supplementary invoice (#980): it says one thing, a difference
+     * worked out from two settlements, and its standard body is all the
+     * wording it needs. A text to edit would be a text to get wrong.
+     */
+    public function hasEditableText(): bool
+    {
         return $this === self::CONTRACT || $this === self::INVOICE;
     }
 
@@ -71,6 +93,7 @@ enum DocumentType: string
         return match ($this) {
             self::CONTRACT => 'contrat',
             self::INVOICE => 'facture',
+            self::SUPPLEMENTARY_INVOICE => 'facture-complementaire',
             default => 'document',
         };
     }

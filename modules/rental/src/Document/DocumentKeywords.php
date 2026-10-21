@@ -108,6 +108,20 @@ final class DocumentKeywords
         'contact_donnees' => "Où écrire pour les données personnelles : l'adresse de contact du site, "
             . "ou celle du bailleur",
         'duree_conservation' => 'Combien de temps les données de la location sont conservées',
+        // Issue #980 — the supplementary invoice; « — » anywhere else.
+        'numero_facture_complementaire' => 'Facture complémentaire : son numéro, la référence suivie de C1, C2…',
+        'facture_origine' => "Facture complémentaire : la facture qu'elle complète, son numéro et sa date, "
+            . 'par exemple « LOC-K7Q2M4-v1 du 12/07/2027 »',
+        'date_decompte' => 'Facture complémentaire : la date de validation du décompte final qu\'elle facture',
+        'detail_complement' => 'Facture complémentaire : les lignes du décompte ajoutées ou retirées depuis '
+            . 'ce qui a déjà été facturé',
+        'montant_deja_facture' => 'Facture complémentaire : le montant que la facture envoyée, et les '
+            . 'factures complémentaires avant celle-ci, ont déjà facturé',
+        'montant_decompte' => 'Facture complémentaire : le montant conservé du décompte final validé',
+        'montant_complement' => 'Facture complémentaire : la différence, en faveur du locataire quand '
+            . 'elle est négative',
+        'reglement_complement' => 'Facture complémentaire : le restant dû avec son échéance, le compte et la '
+            . 'communication, ou le montant que le bailleur rembourse',
     ];
 
     /**

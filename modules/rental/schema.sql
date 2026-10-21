@@ -912,9 +912,9 @@ CREATE TABLE IF NOT EXISTS rental_documents (
     booking_id INT UNSIGNED NOT NULL,
     file_id INT UNSIGNED NOT NULL,
 
-    -- 'contract' | 'signed_copy' | 'signed_contract' | 'invoice' | 'inventory'
-    -- | 'photo' | 'meter_reading' | 'certificate' | 'evidence' | 'unsorted'
-    -- | 'other'.
+    -- 'contract' | 'signed_copy' | 'signed_contract' | 'invoice'
+    -- | 'supplementary_invoice' | 'inventory' | 'photo' | 'meter_reading'
+    -- | 'certificate' | 'evidence' | 'unsorted' | 'other'.
     document_type VARCHAR(30) NOT NULL,
     -- 1 for the first generation of a type, 2 for the next… An uploaded
     -- document is always version 1: versioning is about regeneration.
@@ -970,6 +970,18 @@ CREATE TABLE IF NOT EXISTS rental_documents (
     -- contract in force is still the one before (§2.3). No foreign key, for
     -- the same reason as rental_booking_modifications.contract_document_id.
     modification_id INT UNSIGNED NULL,
+
+    -- What an invoice or a supplementary invoice bills (#980, chantier
+    -- decision 2.8), written at its generation and never after: the validated
+    -- settlement it was based on (NULL for an invoice generated before
+    -- any) and the amount it brings the billing to — that settlement's
+    -- kept amount, or else the agreed total. A supplementary invoice
+    -- carries the difference from the last one sent, and names the
+    -- invoice it completes in `supplements_document_id`. No foreign keys:
+    -- the rows belong to the same booking, and only its purge removes them.
+    settlement_id INT UNSIGNED NULL,
+    billed_kept_cents INT NULL,
+    supplements_document_id INT UNSIGNED NULL,
 
     created_by_member_id INT UNSIGNED NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,

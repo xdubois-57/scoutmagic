@@ -969,4 +969,189 @@ class RentalStayService
     {
         return $this->stayRepository->findLatestSettlement($bookingId);
     }
+
+    // ── A decision taken after validation (#980, chantier decision 2.8) ─────────
+
+    /**
+     * The booking's latest validated settlement — the one that holds, and
+     * the one an invoice bills.
+     *
+     * @param Settlement[]|null $settlements the booking's, when the caller has them
+     */
+    public function latestValidatedSettlement(int $bookingId, ?array $settlements = null): ?Settlement
+    {
+        $latest = null;
+        foreach ($settlements ?? $this->stayRepository->findSettlements($bookingId) as $settlement) {
+            if ($settlement->bookingId === $bookingId && $settlement->isValidated
+                && ($latest === null || $settlement->version > $latest->version)
+            ) {
+                $latest = $settlement;
+            }
+        }
+
+        return $latest;
+    }
+
+    /**
+     * Whether an incident was decided after the latest validated settlement
+     * in a way it does not carry — what « Le décompte validé ne tient pas
+     * compte de la décision du … » says on « Facture » — and, if so, that
+     * settlement and the date of the latest such decision.
+     *
+     * Null when nothing was decided since; when the incidents came back to
+     * what the settlement was computed from (its fingerprint matches); and
+     * when a version recorded after that decision already carries it —
+     * its own « Valider » is then the next step, not a banner.
+     *
+     * @param Settlement[] $settlements the booking's
+     * @return array{settlement: Settlement, decided_at: \DateTimeImmutable}|null
+     */
+    public function decisionAfterValidation(int $bookingId, array $settlements): ?array
+    {
+        $validated = $this->latestValidatedSettlement($bookingId, $settlements);
+        if ($validated === null || $validated->validatedAt === null) {
+            return null;
+        }
+
+        $incidents = $this->stayRepository->findIncidents($bookingId);
+        $decidedAt = null;
+        foreach ($incidents as $incident) {
+            if ($incident->decidedAt !== null && $incident->decidedAt > $validated->validatedAt
+                && ($decidedAt === null || $incident->decidedAt > $decidedAt)
+            ) {
+                $decidedAt = $incident->decidedAt;
+            }
+        }
+        if ($decidedAt === null) {
+            return null;
+        }
+
+        $current = IncidentBasis::hashOf($incidents);
+        if ($validated->incidentBasisHash !== null && hash_equals($validated->incidentBasisHash, $current)) {
+            return null;
+        }
+        foreach ($settlements as $settlement) {
+            if (!$settlement->isValidated && $settlement->version > $validated->version
+                && $settlement->createdAt >= $decidedAt && !$settlement->isOutdatedFor($current)
+            ) {
+                return null;
+            }
+        }
+
+        return ['settlement' => $validated, 'decided_at' => $decidedAt];
+    }
+
+    /**
+     * Records a version that takes the latest validated settlement's lines
+     * and the incidents as they are decided now (#980, chantier decision 2.8, Q12):
+     * the participants, the consumptions, the gesture and every other line
+     * are carried across as validated; only the incident lines are those of
+     * today — a damage charged since appears, one waived since goes. The
+     * validated version stays as it is.
+     *
+     * The fingerprint is read before the lines, like `recordSettlement()`
+     * does, so the version validates under lot C's rules and no other.
+     *
+     * @throws RentalException
+     */
+    public function recordSettlementFromValidated(
+        RentalBooking $booking,
+        int $assetId,
+        ?int $actorMemberId,
+        ?PaymentSettings $paymentSettings = null
+    ): Settlement {
+        $validated = $this->latestValidatedSettlement($booking->id);
+        if ($validated === null) {
+            throw new RentalException('Aucun décompte validé à reprendre : enregistrez un décompte.');
+        }
+
+        $paymentSettings ??= $this->paymentService?->settingsFor($assetId) ?? new PaymentSettings();
+        $incidentBasisHash = $this->incidentBasisHash($booking->id);
+
+        $carried = array_values(array_filter(
+            $validated->lines,
+            static fn(SettlementLine $line): bool => $line->origin !== SettlementLine::ORIGIN_INCIDENT
+        ));
+
+        $paymentStatus = $this->paymentService?->statusFor($booking, $paymentSettings);
+        $onReceivable = ($paymentStatus['communication'] ?? null) !== null;
+        $receivedCents = (int) ($paymentStatus['received_cents'] ?? 0);
+
+        // No quote and no consumptions: what they gave is in the carried
+        // lines already, as validated. The incidents give today's lines.
+        $computed = $this->calculator->compute(
+            null,
+            null,
+            [],
+            $this->stayRepository->findIncidents($booking->id),
+            $carried,
+            $receivedCents,
+            $onReceivable
+                ? ($paymentStatus['security_deposit']['amount_cents'] ?? null)
+                : $paymentSettings->securityDepositAmount(),
+            $onReceivable
+        );
+
+        $version = $this->stayRepository->claimNextSettlementVersion($booking->id);
+        $id = $this->stayRepository->createSettlement(
+            $booking->id,
+            $version,
+            $validated->finalPersons,
+            self::inSettlementOrder($computed['lines']),
+            $computed['total_cents'],
+            $receivedCents,
+            $computed['balance_cents'],
+            $computed['security_deposit_withheld_cents'],
+            $computed['security_deposit_return_cents'],
+            $actorMemberId,
+            $computed['kept_cents'],
+            $incidentBasisHash
+        );
+
+        $this->bookingAudit->record(
+            $booking->id,
+            BookingAudit::PRICE_CHANGED,
+            null,
+            Support::euros($computed['total_cents']),
+            'Décompte final v' . $version . ' (repris de la v' . $validated->version . ')',
+            $actorMemberId
+        );
+
+        $this->journal->log(
+            'rental',
+            'rental_settlement_recorded',
+            'info',
+            'Décompte final v' . $version . ' pour ' . $booking->reference,
+            [
+                'booking_id' => $booking->id,
+                'settlement_id' => $id,
+                'from_settlement_id' => $validated->id,
+                'total_cents' => $computed['total_cents'],
+                'balance_cents' => $computed['balance_cents'],
+            ]
+        );
+
+        return $this->stayRepository->findSettlement($id)
+            ?? throw new RentalException("Le décompte n'a pas pu être enregistré.");
+    }
+
+    /**
+     * The order `SettlementCalculator` writes lines in — the stay, the
+     * damage, then what a manager added — so a carried version reads like
+     * any other. Stable within each group.
+     *
+     * @param SettlementLine[] $lines
+     * @return SettlementLine[]
+     */
+    private static function inSettlementOrder(array $lines): array
+    {
+        $rank = static fn(SettlementLine $line): int => match ($line->origin) {
+            SettlementLine::ORIGIN_AGREED, SettlementLine::ORIGIN_PER_PERSON, SettlementLine::ORIGIN_METER => 0,
+            SettlementLine::ORIGIN_INCIDENT => 1,
+            default => 2,
+        };
+        usort($lines, static fn(SettlementLine $a, SettlementLine $b): int => $rank($a) <=> $rank($b));
+
+        return $lines;
+    }
 }

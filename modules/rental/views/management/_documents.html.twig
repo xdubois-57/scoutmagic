@@ -25,7 +25,9 @@
   says whether this box wants opening lives.
 
   The invoice is generated, and its billing details kept, on « Facture »
-  (#708, IT-18); it is still listed here with every other document.
+  (#708, IT-18); it is still listed here with every other document, and so
+  is a supplementary invoice (#980). Every send names the address it goes
+  to.
 
   Requires `asset`, `booking`, `booking_url`, `documents` and
   `uploadable_types`; optional `landlord`, the resolved Document\Landlord,
@@ -195,7 +197,7 @@
                                               it.
                                             #}
                                             <form method="post" action="/mes-locations/document-envoyer" class="d-inline"
-                                                  data-confirm="{{ document.hasBeenSent ? 'Renvoyer' : 'Envoyer' }} « {{ document.label }} » au locataire par email ? Il part immédiatement et ne peut pas être rappelé.{% if not document.hasBeenSent and document.type.isGenerated %} Le texte de ce document ne sera plus modifiable ensuite.{% endif %}"
+                                                  data-confirm="{{ document.hasBeenSent ? 'Renvoyer' : 'Envoyer' }} « {{ document.label }} » au locataire, à {{ booking.renterEmail }} ? Il part immédiatement et ne peut pas être rappelé.{% if not document.hasBeenSent and document.type.hasEditableText %} Le texte de ce document ne sera plus modifiable ensuite.{% endif %}"
                                                   data-confirm-label="{{ document.hasBeenSent ? 'Renvoyer' : 'Envoyer' }}">
                                                 {{ csrf_field()|raw }}
                                                 <input type="hidden" name="asset_id" value="{{ asset.id }}">

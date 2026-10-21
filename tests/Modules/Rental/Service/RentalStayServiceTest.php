@@ -1497,4 +1497,131 @@ class RentalStayServiceTest extends TestCase
 
         return $last === false ? [null, null, null] : [$last->fromValue, $last->toValue, $last->summary];
     }
+
+    // ── A decision after validation (#980, lot F) ───────────────────────
+
+    /**
+     * A booking whose settlement — the hall, the head count, a charged
+     * damage and a gesture — was validated well before today, so a
+     * decision taken now is after it.
+     *
+     * @return array{RentalBooking, int, \Modules\Rental\Stay\Settlement}
+     */
+    private function validatedWithACharge(): array
+    {
+        $booking = $this->createBooking();
+        $incident = $this->service->reportIncident($booking, 'Vitre cassée', 5000, null, 1);
+        $this->service->decideIncident($booking, $incident, IncidentDecision::CHARGE, null, 1);
+        $settlement = $this->service->recordSettlement(
+            $booking,
+            $this->assetId,
+            28,
+            [\Modules\Rental\Stay\SettlementLine::gesture('Geste', 2000)],
+            1
+        );
+        $this->service->validateSettlement($booking, $settlement->id, 1);
+        $this->pdo->prepare('UPDATE rental_settlements SET validated_at = ? WHERE id = ?')
+            ->execute(['2026-01-05 10:00:00', $settlement->id]);
+        $this->pdo->prepare('UPDATE rental_incidents SET decided_at = ? WHERE id = ?')
+            ->execute(['2026-01-04 10:00:00', $incident]);
+
+        return [$booking, $incident, $this->stayRepository->findSettlement($settlement->id)
+            ?? throw new \LogicException('no settlement')];
+    }
+
+    /** @return array{settlement: \Modules\Rental\Stay\Settlement, decided_at: \DateTimeImmutable}|null */
+    private function revisionOf(RentalBooking $booking): ?array
+    {
+        return $this->service->decisionAfterValidation($booking->id, $this->service->settlementsFor($booking->id));
+    }
+
+    public function testADecisionAfterValidationIsReportedWithItsDate(): void
+    {
+        [$booking, $incident, $validated] = $this->validatedWithACharge();
+        $this->assertNull($this->revisionOf($booking));
+
+        $this->service->decideIncident($booking, $incident, IncidentDecision::WAIVE, null, 1);
+
+        $revision = $this->revisionOf($booking);
+        $this->assertNotNull($revision);
+        $this->assertSame($validated->id, $revision['settlement']->id);
+        $this->assertSame(
+            $this->service->incidentsFor($booking->id)[0]->decidedAt?->format('Y-m-d H:i:s'),
+            $revision['decided_at']->format('Y-m-d H:i:s')
+        );
+
+        // Decided back as it was validated: nothing to say.
+        $this->service->decideIncident($booking, $incident, IncidentDecision::CHARGE, null, 1);
+        $this->assertNull($this->revisionOf($booking));
+    }
+
+    /**
+     * Q12: the validated lines, the head count and the gesture carried as
+     * they were; the incident lines as decided now. The validated version
+     * is untouched, and the new one validates under lot C's fingerprint.
+     */
+    public function testAVersionFromTheValidatedOneCarriesItsLinesWithTodaysIncidents(): void
+    {
+        [$booking, $incident, $validated] = $this->validatedWithACharge();
+        $this->service->decideIncident($booking, $incident, IncidentDecision::WAIVE, null, 1);
+
+        $revised = $this->service->recordSettlementFromValidated($booking, $this->assetId, 1);
+
+        $this->assertSame($validated->version + 1, $revised->version);
+        $this->assertFalse($revised->isValidated);
+        $this->assertSame(28, $revised->finalPersons);
+        $this->assertSame(
+            array_map(
+                static fn($line) => [$line->label, $line->amountCents, $line->origin],
+                array_values(array_filter(
+                    $validated->lines,
+                    static fn($line) => $line->origin !== \Modules\Rental\Stay\SettlementLine::ORIGIN_INCIDENT
+                ))
+            ),
+            array_map(static fn($line) => [$line->label, $line->amountCents, $line->origin], $revised->lines)
+        );
+        $this->assertSame($validated->totalCents - 5000, $revised->totalCents);
+        $this->assertSame($this->service->incidentBasisHash($booking->id), $revised->incidentBasisHash);
+
+        // The validated version stays exactly as it was validated.
+        $kept = $this->stayRepository->findSettlement($validated->id);
+        $this->assertNotNull($kept);
+        $this->assertTrue($kept->isValidated);
+        $this->assertSame($validated->totalCents, $kept->totalCents);
+        $this->assertCount(count($validated->lines), $kept->lines);
+
+        // Recorded after the decision, it carries it: the banner goes.
+        $this->assertNull($this->revisionOf($booking));
+        $this->service->validateSettlement($booking, $revised->id, 1);
+        $this->assertSame($revised->id, $this->service->latestValidatedSettlement($booking->id)?->id);
+    }
+
+    public function testADamageChargedAfterValidationComesBeforeTheGesture(): void
+    {
+        [$booking, $incident] = $this->validatedWithACharge();
+        $this->service->decideIncident($booking, $incident, IncidentDecision::CHARGE, 7000, 1);
+
+        $revised = $this->service->recordSettlementFromValidated($booking, $this->assetId, 1);
+
+        $origins = array_map(static fn($line) => $line->origin, $revised->lines);
+        $this->assertSame(
+            [
+                \Modules\Rental\Stay\SettlementLine::ORIGIN_AGREED,
+                \Modules\Rental\Stay\SettlementLine::ORIGIN_PER_PERSON,
+                \Modules\Rental\Stay\SettlementLine::ORIGIN_INCIDENT,
+                \Modules\Rental\Stay\SettlementLine::ORIGIN_GESTURE,
+            ],
+            $origins
+        );
+        $this->assertSame(7000, $revised->lines[2]->amountCents);
+    }
+
+    public function testNothingToCarryWithoutAValidatedSettlement(): void
+    {
+        $booking = $this->createBooking();
+        $this->service->recordSettlement($booking, $this->assetId, 28, [], 1);
+
+        $this->expectException(RentalException::class);
+        $this->service->recordSettlementFromValidated($booking, $this->assetId, 1);
+    }
 }
