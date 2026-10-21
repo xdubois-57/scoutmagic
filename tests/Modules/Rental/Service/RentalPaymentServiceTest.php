@@ -14,20 +14,25 @@ use Modules\Finance\Service\ExpectedReceivableService;
 use Modules\Finance\Service\FinanceAccountService;
 use Modules\Finance\Service\SepaQrCodeService;
 use Modules\Finance\Service\StructuredCommunicationService;
+use Modules\Rental\Booking\BookingMilestones;
 use Modules\Rental\Booking\HoldOrigin;
 use Modules\Rental\Booking\RentalBooking;
+use Modules\Rental\Booking\RenterNextStep;
 use Modules\Rental\Payment\DepositMode;
 use Modules\Rental\Payment\PaymentSettings;
 use Modules\Rental\Payment\SecurityDepositStatus;
 use Modules\Rental\Pricing\BillingUnit;
 use Modules\Rental\Pricing\PriceLine;
 use Modules\Rental\Pricing\PriceQuote;
+use Modules\Rental\Reminder\ReminderPlanner;
+use Modules\Rental\Reminder\ReminderSchedule;
 use Modules\Rental\Repository\RentalAssetRepository;
 use Modules\Rental\Audit\BookingAudit;
 use Modules\Rental\Repository\RentalBookingRepository;
 use Modules\Rental\Repository\RentalPaymentRepository;
 use Modules\Rental\Service\RentalException;
 use Modules\Rental\Service\RentalPaymentService;
+use Modules\Rental\Stay\Settlement;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Finance\FinanceTestHelper;
@@ -1135,6 +1140,93 @@ class RentalPaymentServiceTest extends TestCase
         );
 
         $this->assertNull($this->service->statusFor($booking, $settings)['balance_due_date']);
+    }
+
+    /** One settlement version of $booking, as RentalStayRepository stores it. */
+    private function recordSettlement(RentalBooking $booking, int $version, ?string $validatedAt): void
+    {
+        $this->pdo->prepare(
+            'INSERT INTO rental_settlements (booking_id, version, lines_snapshot, total_cents, kept_cents,
+                is_validated, validated_at, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+        )->execute([
+            $booking->id, $version, '[]', 61800, 61800,
+            $validatedAt !== null ? 1 : 0, $validatedAt, '2027-07-05 10:00:00',
+        ]);
+    }
+
+    public function testAfterAValidatedSettlementTheBalanceFallsDueThirtyDaysAfterTheValidation(): void
+    {
+        // Arrival 2027-07-01: the settings' date, 2027-06-01, is long gone
+        // once the stay is settled (#980, chantier §2.5, Q13).
+        $booking = $this->createBooking();
+        $settings = $this->settings(securityDeposit: true, securityDepositCents: 15000);
+        $this->service->ensureReceivable($booking, $settings);
+        $this->recordSettlement($booking, 1, '2027-07-10 15:30:00');
+
+        $status = $this->service->statusFor($booking, $settings);
+
+        $this->assertSame('2027-08-09', $status['balance_due_date']);
+        $this->assertSame('2027-08-09', $status['security_deposit']['due_date']);
+        $this->assertSame('2027-08-09', $this->service->paymentInstructions($booking, $settings)['due_date'] ?? null);
+        $this->assertSame(
+            '2027-08-09',
+            Settlement::balanceDueAfter(new \DateTimeImmutable('2027-07-10 15:30:00'))->format('Y-m-d'),
+            'the supplementary invoice reads the same rule'
+        );
+    }
+
+    public function testALaterValidatedVersionMovesTheBalanceDate(): void
+    {
+        $booking = $this->createBooking();
+        $settings = $this->settings();
+        $this->service->ensureReceivable($booking, $settings);
+        $this->recordSettlement($booking, 1, '2027-07-10 15:30:00');
+        $this->recordSettlement($booking, 2, '2027-08-20 09:00:00');
+        // A version recorded and not validated moves nothing.
+        $this->recordSettlement($booking, 3, null);
+
+        $this->assertSame('2027-09-19', $this->service->statusFor($booking, $settings)['balance_due_date']);
+    }
+
+    public function testWithoutAValidatedSettlementTheSettingsDateStands(): void
+    {
+        $booking = $this->createBooking();
+        $settings = $this->settings();
+        $this->service->ensureReceivable($booking, $settings);
+        $this->recordSettlement($booking, 1, null);
+
+        $this->assertSame('2027-06-01', $this->service->statusFor($booking, $settings)['balance_due_date']);
+    }
+
+    public function testTheRenterAndTheRemindersReadTheBalanceDateOfTheSettlement(): void
+    {
+        // What the renter is told to pay by, and when « À traiter » counts
+        // the balance late, both follow the validation — never the
+        // settings' date before the stay, which would read late at once.
+        $booking = $this->createBooking();
+        $settings = $this->settings();
+        $this->service->ensureReceivable($booking, $settings);
+        $this->recordSettlement($booking, 1, '2027-07-10 15:30:00');
+        $status = $this->service->statusFor($booking, $settings);
+
+        $step = RenterNextStep::forStep(
+            BookingMilestones::BALANCE_RECEIVED,
+            $booking,
+            new \DateTimeImmutable('2027-07-11 09:00'),
+            $status
+        );
+        $this->assertStringContainsString('avant le 09/08/2027', $step->sentence);
+
+        $deadline = ReminderPlanner::renterDeadline(
+            BookingMilestones::BALANCE_RECEIVED,
+            $booking,
+            $status,
+            ReminderSchedule::shipped()
+        );
+        $this->assertNotNull($deadline);
+        $this->assertSame('2027-08-09', $deadline->expected->format('Y-m-d'));
+        $this->assertFalse($deadline->isLate(new \DateTimeImmutable('2027-07-11')));
     }
 
     // ── The two-screen split of one settings row ────────────────────────

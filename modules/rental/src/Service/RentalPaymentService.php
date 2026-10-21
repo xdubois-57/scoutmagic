@@ -26,6 +26,7 @@ use Modules\Rental\Payment\PaymentSettings;
 use Modules\Rental\Payment\SecurityDepositStatus;
 use Modules\Rental\Audit\BookingAudit;
 use Modules\Rental\Repository\RentalPaymentRepository;
+use Modules\Rental\Stay\Settlement;
 
 /**
  * The **only** place `rental` touches money (§6.19, §6.20).
@@ -661,7 +662,16 @@ class RentalPaymentService
         }
         $depositHeld = $depositStatus->isHeld() || $depositStatus->isSettled();
 
-        $balanceDueDate = $settings->balanceDueDate($booking->arrivalDate);
+        // Once a settlement is validated the stay is over, and the balance
+        // date the settings count before the arrival is in the past: what
+        // is still due falls due thirty days after the latest validation
+        // (#980, chantier §2.5, Q13). Every reader follows from here — the
+        // renter's next step, the milestones, the reminders, the payment
+        // instructions — and the security deposit's date with it.
+        $settledAt = DateInput::fromStorage($this->paymentRepository->latestSettlementValidatedAt($booking->id));
+        $balanceDueDate = $settledAt !== null
+            ? Settlement::balanceDueAfter($settledAt)->format('Y-m-d')
+            : $settings->balanceDueDate($booking->arrivalDate);
 
         return [
             'available' => $this->isAvailable(),

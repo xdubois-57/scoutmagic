@@ -27,7 +27,8 @@ libellé et le montant déduit, sans nouveau contrat. Chaque enregistrement
 crée une version ; validez la bonne, elle ne se modifie plus. Avec
 Finances, la validation ramène la créance au montant conservé — location,
 consommations et dégâts facturés, moins le geste — et ce qui a été payé en plus,
-la caution à rendre d'abord, apparaît en trop-perçu.
+la caution à rendre d'abord, apparaît en trop-perçu. Ce qui reste dû est
+attendu 30 jours après la validation.
 
 **Un dégât en cours d'évaluation retient le décompte.** Tant qu'un
 incident est « En cours d'évaluation », le décompte s'enregistre mais ne
@@ -53,9 +54,8 @@ Raison sociale, e-mail, adresse, numéros de TVA et d'entreprise,
 référence de commande, et le responsable du groupe sur place. Le locataire
 les remplit depuis sa page de suivi ; vous pouvez les compléter ici. Sans
 le nom et l'adresse, le contrat ne se génère pas. Tout est chiffré au
-repos. Dès que le nom
-et l'adresse sont connus, le bloc se replie et les résume : « Modifier »
-le rouvre.
+repos. Une fois ceux-ci connus, le bloc se replie : « Modifier » le
+rouvre.
 
 ## La facture
 

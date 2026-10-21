@@ -41,8 +41,9 @@ La boîte « Paiement » donne le bénéficiaire, l'IBAN, la communication,
 le montant à verser et son échéance, avec un QR code à scanner depuis
 votre application bancaire — « Agrandir le QR code » l'affiche en grand.
 Utilisez toujours la même communication, pour l'acompte, le solde et la
-caution. Après le séjour, l'unité vous rembourse par virement ce que
-vous avez versé en plus, la caution par exemple.
+caution. Après le décompte du séjour, l'unité vous rembourse par virement
+ce que vous avez versé en plus, la caution par exemple ; un solde
+restant se paie dans les 30 jours.
 
 ## Incidents et dégâts
 
