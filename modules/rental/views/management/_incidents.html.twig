@@ -62,8 +62,10 @@
                                             status: incident.isDecided ? 'closed' : 'pending',
                                             label: incident.decision.label,
                                         } only %}
-                                        {% if incident.effectiveAmountCents %}
-                                            <span class="d-block small">
+                                        {# Only a charge counts in the settlement: an amount next to
+                                           « En cours d'évaluation » or « Ne pas facturer » would read as owed. #}
+                                        {% if current == 'charge' and incident.effectiveAmountCents %}
+                                            <span class="d-block small" data-incident-amount>
                                                 {{ incident.effectiveAmountCents|money_cents }}
                                             </span>
                                         {% endif %}

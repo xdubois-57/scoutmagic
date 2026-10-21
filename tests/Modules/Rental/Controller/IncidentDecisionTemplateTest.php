@@ -106,6 +106,24 @@ final class IncidentDecisionTemplateTest extends TestCase
         $this->assertStringContainsString('Référence : D-1', $html);
     }
 
+    public function testOnlyAChargedIncidentShowsAnAmountBesideItsState(): void
+    {
+        // A pending or waived incident keeps its amount for a later
+        // « Facturer », but showing it beside the state would read as owed.
+        $this->assertStringContainsString(
+            'data-incident-amount',
+            $this->render($this->incident(4, IncidentDecision::CHARGE))
+        );
+        $this->assertStringNotContainsString(
+            'data-incident-amount',
+            $this->render($this->incident(5, IncidentDecision::PENDING))
+        );
+        $this->assertStringNotContainsString(
+            'data-incident-amount',
+            $this->render($this->incident(6, IncidentDecision::WAIVE))
+        );
+    }
+
     public function testEveryChoiceIsARadioWithItsConsequenceAndTheFormCarriesNoScript(): void
     {
         $html = $this->render($this->incident(4, IncidentDecision::PENDING));

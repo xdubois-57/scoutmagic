@@ -819,7 +819,12 @@ class RentalStayService
         // one the deposit is held by hand and the version keeps its figures.
         $securityDeposit = $this->securityDepositAtValidation($booking, $settlement);
 
-        if (!$this->stayRepository->validateSettlement($settlementId, $actorMemberId, $securityDeposit)) {
+        if (!$this->stayRepository->validateSettlement(
+            $settlementId,
+            $actorMemberId,
+            $securityDeposit,
+            $settlement->keptCents()
+        )) {
             // Already validated: saying so beats silently re-stamping a
             // document somebody may already have acted on.
             throw new RentalException('Ce décompte est déjà validé. Enregistrez-en un nouveau pour le corriger.');

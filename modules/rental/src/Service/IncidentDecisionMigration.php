@@ -22,7 +22,10 @@ use Modules\Rental\Repository\RentalStayRepository;
  * back to what was proposed, as it was read. **Settlements are not
  * touched** — a validated version is immutable and keeps its own figures,
  * and `Stay\Settlement::keptCents()` still reads a version recorded before
- * #980 as it was meant.
+ * #980 as it was meant. On a booking whose settlement is still to come,
+ * the converted incident is a charge of the final settlement like any
+ * other, no longer capped at the deposit: what exceeds what was paid is
+ * due from the renter.
  *
  * `MigrationRunner` never touches data — every schema file it applies is
  * DDL — so a change of MEANING like this one has nowhere else to live. The

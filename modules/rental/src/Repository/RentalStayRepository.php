@@ -787,23 +787,32 @@ class RentalStayRepository
      * already validated is never rewritten.
      *
      * @param array{withheld_cents: int, return_cents: int}|null $securityDeposit
+     * @param int|null $keptCents The kept amount read before validation, stored when the version has none
      */
     public function validateSettlement(
         int $settlementId,
         ?int $validatedByMemberId,
-        ?array $securityDeposit = null
+        ?array $securityDeposit = null,
+        ?int $keptCents = null
     ): bool {
         $now = (new \DateTimeImmutable())->format('Y-m-d H:i:s');
+        // kept_cents is written in the same compare-and-set, and only when
+        // the version has none: a version recorded before #980 reads its
+        // kept amount as « total + withheld », and validation rewrites the
+        // withheld figure from the money — without this, its kept amount
+        // would silently change the moment it was validated.
         if ($securityDeposit === null) {
             $stmt = $this->pdo->prepare(
-                'UPDATE rental_settlements SET is_validated = 1, validated_at = ?, validated_by_member_id = ?
+                'UPDATE rental_settlements SET is_validated = 1, validated_at = ?, validated_by_member_id = ?,
+                        kept_cents = COALESCE(kept_cents, ?)
                  WHERE id = ? AND is_validated = 0'
             );
-            $stmt->execute([$now, $validatedByMemberId, $settlementId]);
+            $stmt->execute([$now, $validatedByMemberId, $keptCents, $settlementId]);
         } else {
             $stmt = $this->pdo->prepare(
                 'UPDATE rental_settlements SET is_validated = 1, validated_at = ?, validated_by_member_id = ?,
-                        security_deposit_withheld_cents = ?, security_deposit_return_cents = ?
+                        security_deposit_withheld_cents = ?, security_deposit_return_cents = ?,
+                        kept_cents = COALESCE(kept_cents, ?)
                  WHERE id = ? AND is_validated = 0'
             );
             $stmt->execute([
@@ -811,6 +820,7 @@ class RentalStayRepository
                 $validatedByMemberId,
                 max(0, $securityDeposit['withheld_cents']),
                 max(0, $securityDeposit['return_cents']),
+                $keptCents,
                 $settlementId,
             ]);
         }

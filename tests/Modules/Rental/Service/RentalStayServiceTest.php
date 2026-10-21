@@ -1278,6 +1278,52 @@ class RentalStayServiceTest extends TestCase
         $this->assertSame(43000, $legacy?->keptCents());
     }
 
+    public function testAVersionRecordedBeforeTheThreeStatesKeepsItsKeptAmountWhenValidatedAfter(): void
+    {
+        // Recorded before #980 (no kept_cents), validated after it: the
+        // validation rewrites the withheld figure from the money, so the
+        // kept amount read before it is stored in the same statement —
+        // otherwise « total + withheld » would read a new number afterwards.
+        $booking = $this->createBooking();
+        $this->pdo->prepare(
+            'INSERT INTO rental_settlements
+                (booking_id, version, lines_snapshot, total_cents, already_paid_cents, balance_cents,
+                 security_deposit_withheld_cents, security_deposit_return_cents, is_validated, created_at)
+             VALUES (?, 1, ?, 40000, 0, 40000, 3000, 12000, 0, ?)'
+        )->execute([$booking->id, '[]', '2027-01-10 10:00:00']);
+        $legacy = $this->service->latestSettlement($booking->id);
+        $this->assertNotNull($legacy);
+
+        $this->assertTrue($this->stayRepository->validateSettlement(
+            $legacy->id,
+            1,
+            ['withheld_cents' => 13000, 'return_cents' => 2000],
+            $legacy->keptCents()
+        ));
+
+        $validated = $this->stayRepository->findSettlement($legacy->id);
+        $this->assertSame(43000, $validated?->recordedKeptCents);
+        $this->assertSame(43000, $validated?->keptCents());
+        $this->assertSame(13000, $validated?->securityDepositWithheldCents);
+    }
+
+    public function testValidatingStoresTheKeptAmountOfAVersionThatHasNone(): void
+    {
+        $booking = $this->createBooking();
+        $this->pdo->prepare(
+            'INSERT INTO rental_settlements
+                (booking_id, version, lines_snapshot, total_cents, already_paid_cents, balance_cents,
+                 security_deposit_withheld_cents, security_deposit_return_cents, is_validated, created_at)
+             VALUES (?, 1, ?, 40000, 0, 40000, 3000, 12000, 0, ?)'
+        )->execute([$booking->id, '[]', '2027-01-10 10:00:00']);
+        $legacy = $this->service->latestSettlement($booking->id);
+        $this->assertNotNull($legacy);
+
+        $this->service->validateSettlement($booking, $legacy->id, 1);
+
+        $this->assertSame(43000, $this->stayRepository->findSettlement($legacy->id)?->recordedKeptCents);
+    }
+
     /**
      * The newest history entry of a booking: [old value, new value, summary].
      *
