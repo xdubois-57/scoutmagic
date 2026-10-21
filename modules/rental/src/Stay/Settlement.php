@@ -43,8 +43,28 @@ final class Settlement
          * before it, when a damage « withheld from the security deposit »
          * sat beside the total instead of in it.
          */
-        public readonly ?int $recordedKeptCents = null
+        public readonly ?int $recordedKeptCents = null,
+        /**
+         * The fingerprint of the incidents it was computed from
+         * (`IncidentBasis`, #980). Null on a version recorded before it.
+         */
+        public readonly ?string $incidentBasisHash = null
     ) {
+    }
+
+    /**
+     * Whether this version was computed from incidents other than those
+     * giving $currentHash — a decision taken since, whose figures it does
+     * not carry (#980, chantier §2.4). Such a version does not validate.
+     *
+     * One recorded before the fingerprint existed has nothing to compare
+     * and is not outdated by it: #980 lot A lets such a version validate
+     * at the kept amount it was recorded with. A damage still assessed
+     * holds it back all the same.
+     */
+    public function isOutdatedFor(string $currentHash): bool
+    {
+        return $this->incidentBasisHash !== null && !hash_equals($this->incidentBasisHash, $currentHash);
     }
 
     /**

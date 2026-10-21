@@ -388,6 +388,7 @@ class RentalTestHelper
             security_deposit_withheld_cents INTEGER,
             security_deposit_return_cents INTEGER,
             kept_cents INTEGER,
+            incident_basis_hash TEXT,
             is_validated INTEGER NOT NULL DEFAULT 0,
             validated_at TEXT,
             validated_by_member_id INTEGER,

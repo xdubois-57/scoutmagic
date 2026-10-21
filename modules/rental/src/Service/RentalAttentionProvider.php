@@ -13,10 +13,13 @@ use Core\Attention\AttentionPointProvider;
 use Core\Config\AppClock;
 use Core\Config\SettingService;
 use Core\Service\DateInput;
+use Modules\Rental\Booking\BookingPage;
+use Modules\Rental\Booking\BookingStatus;
 use Modules\Rental\Document\Landlord;
 use Modules\Rental\Repository\RentalAsset;
 use Modules\Rental\Repository\RentalAssetRepository;
 use Modules\Rental\Repository\RentalComplianceRepository;
+use Modules\Rental\Repository\RentalStayRepository;
 
 /**
  * What the Locations module knows is wrong and no other page says
@@ -29,7 +32,13 @@ use Modules\Rental\Repository\RentalComplianceRepository;
  * - **a compliance entry already expired**. Only expired: the register's
  *   own reminder (`RentalComplianceService::dueForReminder()`) already
  *   speaks up before the date, and a point before it would say the same
- *   thing twice.
+ *   thing twice;
+ * - **a damage still assessed more than a calendar month after the
+ *   departure** (#980, chantier §2.4): the settlement does not validate
+ *   and the security deposit stays held meanwhile, while the standard
+ *   contract promises it back within the month. The point says the
+ *   booking's reference, the asset, how long and what the assessment
+ *   waits for — never the renter's name.
  *
  * Registered only inside the module's enabled block of public/index.php,
  * so a site without Locations never runs it.
@@ -39,7 +48,9 @@ class RentalAttentionProvider implements AttentionPointProvider
     public function __construct(
         private RentalAssetRepository $assets,
         private RentalComplianceRepository $compliance,
-        private SettingService $settingService
+        private SettingService $settingService,
+        /** Null leaves the damages out (a caller without the stay features). */
+        private ?RentalStayRepository $stay = null
     ) {
     }
 
@@ -60,8 +71,116 @@ class RentalAttentionProvider implements AttentionPointProvider
 
         return array_merge(
             $this->missingLandlordAddresses($assets),
-            $this->expiredCompliance($assets)
+            $this->expiredCompliance($assets),
+            $this->longAssessments($assets)
         );
+    }
+
+    /**
+     * The incidents still assessed more than a calendar month after their
+     * booking's departure, one point each.
+     *
+     * Bounded: the repository reads only the pending incidents of bookings
+     * gone at least 28 days — no calendar month is shorter — and the exact
+     * calendar month is decided here, by PHP, whatever the engine.
+     *
+     * @param array<int, RentalAsset> $assets
+     * @return AttentionPoint[]
+     */
+    private function longAssessments(array $assets): array
+    {
+        if ($this->stay === null) {
+            return [];
+        }
+
+        $today = AppClock::now()->setTime(0, 0);
+        $abandoned = array_values(array_map(
+            static fn(BookingStatus $status): string => $status->value,
+            array_filter(BookingStatus::cases(), static fn(BookingStatus $status): bool => $status->isAbandoned())
+        ));
+
+        $candidates = $this->stay->findPendingIncidentsDepartedBy(
+            $today->modify('-28 days')->format('Y-m-d'),
+            $abandoned
+        );
+
+        $points = [];
+        foreach ($candidates as $row) {
+            $asset = $assets[$row['asset_id']] ?? null;
+            $departure = DateInput::iso($row['departure_date']);
+            if ($asset === null || $departure === null) {
+                continue; // archived: nobody lets it any more
+            }
+            $days = self::daysHeldPastAMonth($departure, $today);
+            if ($days === null) {
+                continue;
+            }
+
+            $points[] = new AttentionPoint(
+                title: 'Caution retenue depuis ' . $days . ' jours : ' . self::damageWaiting($row['awaiting']),
+                why: 'Réservation ' . $row['reference'] . ' de « ' . $asset->name . ' », partie le '
+                    . $departure->format('d/m/Y')
+                    . ($row['file_reference'] !== null ? ' — référence du dossier : ' . $row['file_reference'] : '')
+                    . ". Tant que l'incident est en cours d'évaluation, le décompte ne se valide pas et la caution "
+                    . "n'est pas rendue. Tranchez-le dès que vous savez ce qu'il coûte.",
+                actionLabel: "Trancher l'incident",
+                actionUrl: '/mes-locations/' . rawurlencode($asset->slug) . '/reservations/' . $row['booking_id']
+                    . BookingPage::INVENTORY->pathSuffix() . '#incident-' . $row['incident_id'],
+                severity: AttentionPoint::SEVERITY_ATTENTION
+            );
+        }
+
+        return $points;
+    }
+
+    /**
+     * How many days since the departure, when today is past one calendar
+     * month after it (chantier §2.4, Q8) — null before. A month ends on the
+     * same day of the next month, or on its last day when it has none: a
+     * departure on 31 January is a month old on 28 (or 29) February, and
+     * the point appears the day after.
+     */
+    public static function daysHeldPastAMonth(\DateTimeImmutable $departure, \DateTimeImmutable $today): ?int
+    {
+        $departure = $departure->setTime(0, 0);
+        $today = $today->setTime(0, 0);
+
+        $nextMonth = $departure->modify('first day of next month');
+        $oneMonthLater = $nextMonth->setDate(
+            (int) $nextMonth->format('Y'),
+            (int) $nextMonth->format('n'),
+            min((int) $departure->format('j'), (int) $nextMonth->format('t'))
+        );
+        if ($today <= $oneMonthLater) {
+            return null;
+        }
+
+        return (int) $departure->diff($today)->days;
+    }
+
+    /**
+     * « dégât en attente du devis du menuisier » — what the manager typed
+     * in « En attente de… », joined to the sentence the way French joins
+     * it (« de le » is « du », « de un » is « d'un »), without the ellipsis
+     * or full stop they may have added. Nothing typed: the state itself.
+     */
+    public static function damageWaiting(?string $awaiting): string
+    {
+        $text = (string) preg_replace('/[\s.…]+$/u', '', trim((string) $awaiting));
+        if ($text === '') {
+            return "dégât en cours d'évaluation";
+        }
+
+        $lower = mb_strtolower($text);
+        foreach (['le ' => 'du ', 'les ' => 'des ', 'un ' => "d'un ", 'une ' => "d'une "] as $article => $joined) {
+            if (str_starts_with($lower, $article)) {
+                return 'dégât en attente ' . $joined . mb_substr($text, mb_strlen($article));
+            }
+        }
+
+        $elided = preg_match('/^[aeiouyhàâéèêëîïôûü]/u', $lower) === 1;
+
+        return 'dégât en attente ' . ($elided ? "d'" : 'de ') . $text;
     }
 
     /**
