@@ -159,16 +159,20 @@ Comportement existant, inchangé ici.
   transaction que le passage `test` → `sending` (règle actuelle,
   `MassMailService::startSending()` L878-888) : un second gel de la même
   communication est impossible, et c'est cette transition qui garantit
-  l'unicité. **Aucun index unique ne doit inclure `audience_row_id` sur
-  `mass_mail_deliveries` ni `mass_mail_targets`** : la purge le met à NULL
-  (`SET NULL`), ce qui ferait se confondre deux lignes du fichier vers la même
-  adresse ou du même Tiers et ferait échouer la purge.
+  l'unicité. **Ne pas chercher à l'obtenir par un index unique incluant
+  `audience_row_id`** sur `mass_mail_deliveries` ou `mass_mail_targets` : un
+  index ordinaire ne protège plus rien après la purge (qui met la colonne à
+  NULL, et MySQL tient plusieurs NULL pour distincts), et un index sur
+  `COALESCE(audience_row_id, 0)` ferait au contraire échouer la purge dès que
+  deux lignes du fichier visent la même adresse ou le même Tiers.
 - `mass_mail_targets` : `id`, `email_id` (CASCADE), `member_id`,
   `scout_year_id`, `audience_row_id` (NULL ; SET NULL à la purge). Liste : une
   cible par animé et par communication (vérifié par le service). Publipostage :
   une cible par ligne du fichier qui a un Tiers (deux lignes du même Tiers =
   deux cibles).
-- `mass_mail_delivery_targets` : `(delivery_id, target_id)`, clé primaire.
+- `mass_mail_delivery_targets` : `(delivery_id, target_id)`, clé primaire ;
+  **`ON DELETE CASCADE` sur les deux clés étrangères**, sans quoi la suppression
+  d'un e-mail (et donc de ses messages et cibles) serait bloquée.
 - `mass_mail_notified_accounts` : `email_id` (CASCADE), `audience_row_id`
   (NULL, **`ON DELETE CASCADE`** — contrairement aux deux tables ci-dessus),
   `user_account_id` (CASCADE) ; unique sur (`email_id`, `COALESCE(audience_row_id,
@@ -355,9 +359,14 @@ Vague 3 :                 [D Bout en bout, aide, docs, clôture]
 
 **Propriété des fichiers.**
 - A possède `AudienceImportService`, `MergeDraftService`,
-  `Api\MassMailDraftInterface`, et dans `MemberResolutionRepository` la seule
-  méthode `findMemberIdsByDeskIds()`.
-- B possède tout le reste de `modules/mass_mail` et, dans le cœur, la fiche
+  `Api\MassMailDraftInterface`, dans `MemberResolutionRepository` la seule
+  méthode `findMemberIdsByDeskIds()`, l'aide
+  `modules/mass_mail/help/publipostage.md`, et dans ARCHITECTURE.md §8.71 ainsi
+  que, dans §8.61, le seul paragraphe sur la reconnaissance des en-têtes et la
+  recherche du Tiers.
+- B possède tout le reste de `modules/mass_mail` (aide comprise, sauf
+  `publipostage.md`), le reste d'ARCHITECTURE.md §8.61, §8.71octies et §8.96,
+  SECURITY.md §4, et, dans le cœur, la fiche
   (`MemberPageService`, `members/show.html.twig`,
   `members/email_detail.html.twig`), plus le commentaire de
   `modules/registration/src/Service/ExternalMailingListService.php` (L30) qui
@@ -387,7 +396,9 @@ dans un ordre ou dans l'autre.
 - Aide Actualités (`modules/news/help/reponses-au-formulaire.md`,
   `suivi-apres-un-evenement.md`) et ARCHITECTURE.md §8.71 : « deux réponses
   d'une même famille sont deux e-mails » ; `modules/mass_mail/help/publipostage.md`
-  (Email ignoré à côté d'un Tiers, séparateurs `;` et `,`).
+  (Email ignoré à côté d'un Tiers, séparateurs `;` et `,`, un message par
+  adresse de la ligne, une entrée par ligne sur la fiche de l'animé pour une
+  ligne avec Tiers, aucune pour une ligne sans Tiers).
 
 ### Lot B — Messages, cibles, historique, notifications (vague 1)
 
@@ -417,9 +428,9 @@ dans un ordre ou dans l'autre.
   `member_years` (pas de lien) ; purge qui supprime les notifications des cibles
   purgées ; désinscription par message (un clic, page, jeton invalide). Vitest
   pour le suivi si son JavaScript change.
-- Aide : `modules/mass_mail/help/envoi-de-mails.md`, `publipostage.md` (un
-  message par adresse, une entrée par ligne sur la fiche), `se-desinscrire.md`,
-  `docs/help/page-membre.md`. ARCHITECTURE.md §8.61, §8.71, §8.71octies, §8.96 ;
+- Aide : `modules/mass_mail/help/envoi-de-mails.md`, `se-desinscrire.md`,
+  `docs/help/page-membre.md` (pas `publipostage.md`, qui appartient à A).
+  ARCHITECTURE.md §8.61 (hors paragraphe de A), §8.71octies, §8.96 ;
   SECURITY.md §4.
 
 ### Lot C — Finances et Encadrement (vague 2, après A)
