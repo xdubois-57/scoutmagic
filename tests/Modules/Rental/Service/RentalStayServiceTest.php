@@ -866,7 +866,8 @@ class RentalStayServiceTest extends TestCase
         $this->service->reportIncident($booking, 'Dégât en cours d\'évaluation', 5000, null, 1);
 
         $this->assertSame(IncidentDecision::PENDING, $this->service->incidentsFor($booking->id)[0]->decision);
-        $this->assertSame([], $this->service->incidentsVisibleToRenter($booking->id));
+        $this->assertSame([], $this->service->renterIncidents($booking->id)->decided);
+        $this->assertTrue($this->service->renterIncidents($booking->id)->assessmentInProgress);
     }
 
     public function testADecidedIncidentBecomesVisibleToTheRenter(): void
@@ -876,7 +877,11 @@ class RentalStayServiceTest extends TestCase
 
         $this->service->decideIncident($booking, $id, IncidentDecision::CHARGE, null, 1);
 
-        $this->assertCount(1, $this->service->incidentsVisibleToRenter($booking->id));
+        $renter = $this->service->renterIncidents($booking->id);
+        $this->assertCount(1, $renter->decided);
+        $this->assertSame('Vitre cassée', $renter->decided[0]->description);
+        $this->assertSame(5000, $renter->decided[0]->chargedCents);
+        $this->assertFalse($renter->assessmentInProgress);
     }
 
     public function testAnEmptyDescriptionIsRefused(): void
@@ -900,7 +905,7 @@ class RentalStayServiceTest extends TestCase
         $this->assertSame(IncidentDecision::PENDING, $incident->decision);
         $this->assertSame('Expertise', $incident->awaiting);
         $this->assertSame('SIN-42', $incident->reference);
-        $this->assertSame([], $this->service->incidentsVisibleToRenter($booking->id));
+        $this->assertSame([], $this->service->renterIncidents($booking->id)->decided);
         $this->assertSame(
             ['Facturer', "En cours d'évaluation", "Incident en cours d'évaluation"],
             $this->lastAudit($booking->id)

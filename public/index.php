@@ -12665,7 +12665,9 @@ if ($isEnabled('rental')) {
             $uploadHandler,
             $rentalContractValidity,
             // How to pay, with the SEPA QR, on the renter's page (#927).
-            paymentService: $rentalPaymentService
+            paymentService: $rentalPaymentService,
+            // The decided incidents, and that one is being assessed (#980).
+            stayService: $rentalStayService
         )
     );
 
