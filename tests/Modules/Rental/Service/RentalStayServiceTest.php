@@ -886,16 +886,124 @@ class RentalStayServiceTest extends TestCase
         $this->service->reportIncident($this->createBooking(), '   ', 5000, null, 1);
     }
 
-    public function testDecidingBackToPendingIsRefused(): void
+    public function testADecidedIncidentCanGoBackToTheAssessment(): void
     {
-        // "Undecide" is not a decision; a manager who changes their mind
-        // picks one of the three.
+        // « En cours d'évaluation » is one of the three choices (#980, Q5):
+        // the insurer contests, and the damage is no longer billed.
+        $booking = $this->createBooking();
+        $id = $this->service->reportIncident($booking, 'Vitre cassée', 5000, null, 1);
+        $this->service->decideIncident($booking, $id, IncidentDecision::CHARGE, null, 1);
+
+        $this->service->decideIncident($booking, $id, IncidentDecision::PENDING, null, 1, 'Expertise', 'SIN-42');
+
+        $incident = $this->service->incidentsFor($booking->id)[0];
+        $this->assertSame(IncidentDecision::PENDING, $incident->decision);
+        $this->assertSame('Expertise', $incident->awaiting);
+        $this->assertSame('SIN-42', $incident->reference);
+        $this->assertSame([], $this->service->incidentsVisibleToRenter($booking->id));
+        $this->assertSame(
+            ['Facturer', "En cours d'évaluation", "Incident en cours d'évaluation"],
+            $this->lastAudit($booking->id)
+        );
+    }
+
+    public function testTheDecisionTextsAreKeptTrimmedAndBlankOnesCleared(): void
+    {
+        $booking = $this->createBooking();
+        $id = $this->service->reportIncident($booking, 'Vitre cassée', 5000, null, 1);
+        $this->service->decideIncident(
+            $booking,
+            $id,
+            IncidentDecision::PENDING,
+            null,
+            1,
+            '  Assurance du locataire ',
+            ' Ethias 2027/118 '
+        );
+
+        // Billed afterwards: what the assessment waited for and the file
+        // number stay, an insurer's reference being worth keeping.
+        $this->service->decideIncident($booking, $id, IncidentDecision::CHARGE, 4000, 1, 'Assurance du locataire', '');
+
+        $incident = $this->service->incidentsFor($booking->id)[0];
+        $this->assertSame('Assurance du locataire', $incident->awaiting);
+        $this->assertNull($incident->reference, 'a blank field clears it');
+        $this->assertNull($incident->waiveReason);
+        $this->assertSame(4000, $incident->effectiveAmountCents());
+    }
+
+    public function testTheReasonForNotBillingIsKeptOnlyWithNotBilling(): void
+    {
         $booking = $this->createBooking();
         $id = $this->service->reportIncident($booking, 'Vitre cassée', 5000, null, 1);
 
-        $this->expectException(RentalException::class);
+        $this->service->decideIncident($booking, $id, IncidentDecision::WAIVE, null, 1, null, null, 'Geste');
+        $this->assertSame('Geste', $this->service->incidentsFor($booking->id)[0]->waiveReason);
 
-        $this->service->decideIncident($booking, $id, IncidentDecision::PENDING, null, 1);
+        // The form posts the hidden reason with every choice: billing the
+        // damage drops it.
+        $this->service->decideIncident($booking, $id, IncidentDecision::CHARGE, null, 1, null, null, 'Geste');
+        $this->assertNull($this->service->incidentsFor($booking->id)[0]->waiveReason);
+    }
+
+    public function testADecisionTextLongerThanTheFormAllowsIsRefused(): void
+    {
+        $booking = $this->createBooking();
+        $id = $this->service->reportIncident($booking, 'Vitre cassée', 5000, null, 1);
+
+        foreach ([
+            [str_repeat('é', RentalStayService::INCIDENT_AWAITING_MAX + 1), null, null, IncidentDecision::PENDING],
+            [null, str_repeat('x', RentalStayService::INCIDENT_REFERENCE_MAX + 1), null, IncidentDecision::PENDING],
+            [null, null, str_repeat('x', RentalStayService::INCIDENT_WAIVE_REASON_MAX + 1), IncidentDecision::WAIVE],
+        ] as [$awaiting, $reference, $reason, $decision]) {
+            try {
+                $this->service->decideIncident($booking, $id, $decision, null, 1, $awaiting, $reference, $reason);
+                $this->fail('a text longer than its limit was accepted');
+            } catch (RentalException $e) {
+                $this->assertStringContainsString('caractères au plus', $e->getMessage());
+            }
+        }
+
+        // At the limit, in characters rather than bytes, it is accepted.
+        $this->service->decideIncident(
+            $booking,
+            $id,
+            IncidentDecision::PENDING,
+            null,
+            1,
+            str_repeat('é', RentalStayService::INCIDENT_AWAITING_MAX)
+        );
+        $this->assertSame(
+            RentalStayService::INCIDENT_AWAITING_MAX,
+            mb_strlen((string) $this->service->incidentsFor($booking->id)[0]->awaiting)
+        );
+    }
+
+    public function testTheDecisionTextsReachNeitherTheJournalNorTheHistoryNorTheDiskInClear(): void
+    {
+        $booking = $this->createBooking();
+        $id = $this->service->reportIncident($booking, 'Vitre cassée', 5000, null, 1);
+        $this->service->decideIncident(
+            $booking,
+            $id,
+            IncidentDecision::PENDING,
+            null,
+            1,
+            'Expertise Dubreucq',
+            'Dossier Zorglub'
+        );
+        $this->service->decideIncident($booking, $id, IncidentDecision::WAIVE, null, 1, null, null, 'Famille Vandamme');
+
+        \Tests\NothingInClear::inTables($this->pdo, 'rental_incidents', 'event_log')
+            ->assertAbsent('Dubreucq', 'Zorglub', 'Vandamme');
+        // The history is encrypted at rest anyway: read it back decrypted.
+        foreach (RentalTestHelper::bookingHistory($this->pdo, $this->encryption, $booking->id) as $entry) {
+            foreach ([$entry->fromValue, $entry->toValue, $entry->summary] as $value) {
+                foreach (['Dubreucq', 'Zorglub', 'Vandamme'] as $needle) {
+                    $this->assertStringNotContainsString($needle, (string) $value);
+                }
+            }
+        }
     }
 
     public function testAnIncidentOfAnotherBookingCannotBeDecidedHere(): void
@@ -1107,11 +1215,13 @@ class RentalStayServiceTest extends TestCase
         $this->assertSame(50000, $settlement->securityDepositReturnCents);
     }
 
-    public function testAWithheldIncidentReducesWhatIsGivenBack(): void
+    public function testAChargedDamageIsInvoicedAndTheDepositHeldByHandGoesBackWhole(): void
     {
+        // Without Finance (#980): the damage is a line of the settlement,
+        // on the balance, never a withholding beside it.
         $booking = $this->createBooking();
         $id = $this->service->reportIncident($booking, 'Vitre cassée', 3000, null, 1);
-        $this->service->decideIncident($booking, $id, IncidentDecision::WITHHOLD, null, 1);
+        $this->service->decideIncident($booking, $id, IncidentDecision::CHARGE, null, 1);
 
         $settlement = $this->service->recordSettlement(
             $booking,
@@ -1122,18 +1232,16 @@ class RentalStayServiceTest extends TestCase
             new PaymentSettings(securityDepositEnabled: true, securityDepositAmountCents: 50000)
         );
 
-        $this->assertSame(3000, $settlement->securityDepositWithheldCents);
-        $this->assertSame(47000, $settlement->securityDepositReturnCents);
-        // And it did NOT enter the total: it is withheld, not invoiced.
-        $this->assertSame(40000, $settlement->totalCents);
+        $this->assertSame(43000, $settlement->totalCents);
+        $this->assertSame(43000, $settlement->keptCents());
+        $this->assertSame(43000, $settlement->recordedKeptCents);
+        $this->assertSame(0, $settlement->securityDepositWithheldCents);
+        $this->assertSame(50000, $settlement->securityDepositReturnCents);
     }
 
-    public function testWithholdingEverythingLeavesNothingToReturn(): void
+    public function testValidatingWithoutAReceivableKeepsTheVersionsDepositFigures(): void
     {
         $booking = $this->createBooking();
-        $id = $this->service->reportIncident($booking, 'Dégâts majeurs', 50000, null, 1);
-        $this->service->decideIncident($booking, $id, IncidentDecision::WITHHOLD, null, 1);
-
         $settlement = $this->service->recordSettlement(
             $booking,
             $this->assetId,
@@ -1143,7 +1251,89 @@ class RentalStayServiceTest extends TestCase
             new PaymentSettings(securityDepositEnabled: true, securityDepositAmountCents: 50000)
         );
 
-        $this->assertSame(50000, $settlement->securityDepositWithheldCents);
-        $this->assertSame(0, $settlement->securityDepositReturnCents);
+        $this->service->validateSettlement($booking, $settlement->id, 1);
+
+        $validated = $this->stayRepository->findSettlement($settlement->id);
+        $this->assertTrue($validated?->isValidated);
+        $this->assertSame(0, $validated?->securityDepositWithheldCents);
+        $this->assertSame(50000, $validated?->securityDepositReturnCents);
+    }
+
+    public function testAVersionRecordedBeforeTheThreeStatesKeepsItsWithholdingOnTopOfTheTotal(): void
+    {
+        // A version recorded with a damage « withheld from the deposit »
+        // has no kept_cents: its kept amount stays the total plus that
+        // withholding, so a validated version never changes meaning.
+        $booking = $this->createBooking();
+        $this->pdo->prepare(
+            'INSERT INTO rental_settlements
+                (booking_id, version, lines_snapshot, total_cents, already_paid_cents, balance_cents,
+                 security_deposit_withheld_cents, security_deposit_return_cents, is_validated, created_at)
+             VALUES (?, 1, ?, 40000, 0, 40000, 3000, 47000, 1, ?)'
+        )->execute([$booking->id, '[]', '2027-01-10 10:00:00']);
+
+        $legacy = $this->service->latestSettlement($booking->id);
+
+        $this->assertNull($legacy?->recordedKeptCents);
+        $this->assertSame(43000, $legacy?->keptCents());
+    }
+
+    public function testAVersionRecordedBeforeTheThreeStatesKeepsItsKeptAmountWhenValidatedAfter(): void
+    {
+        // Recorded before #980 (no kept_cents), validated after it: the
+        // validation rewrites the withheld figure from the money, so the
+        // kept amount read before it is stored in the same statement —
+        // otherwise « total + withheld » would read a new number afterwards.
+        $booking = $this->createBooking();
+        $this->pdo->prepare(
+            'INSERT INTO rental_settlements
+                (booking_id, version, lines_snapshot, total_cents, already_paid_cents, balance_cents,
+                 security_deposit_withheld_cents, security_deposit_return_cents, is_validated, created_at)
+             VALUES (?, 1, ?, 40000, 0, 40000, 3000, 12000, 0, ?)'
+        )->execute([$booking->id, '[]', '2027-01-10 10:00:00']);
+        $legacy = $this->service->latestSettlement($booking->id);
+        $this->assertNotNull($legacy);
+
+        $this->assertTrue($this->stayRepository->validateSettlement(
+            $legacy->id,
+            1,
+            ['withheld_cents' => 13000, 'return_cents' => 2000],
+            $legacy->keptCents()
+        ));
+
+        $validated = $this->stayRepository->findSettlement($legacy->id);
+        $this->assertSame(43000, $validated?->recordedKeptCents);
+        $this->assertSame(43000, $validated?->keptCents());
+        $this->assertSame(13000, $validated?->securityDepositWithheldCents);
+    }
+
+    public function testValidatingStoresTheKeptAmountOfAVersionThatHasNone(): void
+    {
+        $booking = $this->createBooking();
+        $this->pdo->prepare(
+            'INSERT INTO rental_settlements
+                (booking_id, version, lines_snapshot, total_cents, already_paid_cents, balance_cents,
+                 security_deposit_withheld_cents, security_deposit_return_cents, is_validated, created_at)
+             VALUES (?, 1, ?, 40000, 0, 40000, 3000, 12000, 0, ?)'
+        )->execute([$booking->id, '[]', '2027-01-10 10:00:00']);
+        $legacy = $this->service->latestSettlement($booking->id);
+        $this->assertNotNull($legacy);
+
+        $this->service->validateSettlement($booking, $legacy->id, 1);
+
+        $this->assertSame(43000, $this->stayRepository->findSettlement($legacy->id)?->recordedKeptCents);
+    }
+
+    /**
+     * The newest history entry of a booking: [old value, new value, summary].
+     *
+     * @return array{0: ?string, 1: ?string, 2: ?string}
+     */
+    private function lastAudit(int $bookingId): array
+    {
+        $history = RentalTestHelper::bookingHistory($this->pdo, $this->encryption, $bookingId);
+        $last = end($history);
+
+        return $last === false ? [null, null, null] : [$last->fromValue, $last->toValue, $last->summary];
     }
 }

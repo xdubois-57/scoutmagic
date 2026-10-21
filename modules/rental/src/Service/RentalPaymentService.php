@@ -448,17 +448,20 @@ class RentalPaymentService
 
     /**
      * Brings the receivable to the amount the final settlement keeps —
-     * agreed rental, consumptions and withholdings, less any goodwill
+     * agreed rental, consumptions and charged damage, less any goodwill
      * gesture — once that settlement is validated (issue #927). What was
      * received beyond it, the security deposit to give back first, then
-     * shows as an overpayment. The booking's agreed price is not touched:
-     * the settlement sits beside it.
+     * shows as an overpayment; a damage dearer than the deposit leaves a
+     * balance still due on the same communication (#980). The booking's
+     * agreed price is not touched: the settlement sits beside it.
      *
-     * $withheldCents is what that settlement keeps of the security deposit.
-     * Stored on the booking, it is how statusFor() knows the settlement
-     * was validated and what the deposit's end is once nothing is owed
-     * back: kept whole, kept in part, or given back (chantier #927, §2.6).
-     * Null — a caller that does not say — stores nothing.
+     * $withheldCents is what that settlement keeps of the security deposit,
+     * derived from the money at validation (`SettlementCalculator::
+     * securityDepositAtSettlement()`, #980). Stored on the booking, it is
+     * how statusFor() knows the settlement was validated and what the
+     * deposit's end is once nothing is owed back: kept whole, kept in part,
+     * or given back (chantier #927, §2.6). Null — a caller that does not
+     * say — stores nothing.
      *
      * Never throws, for the reason `abandonAmount()` gives.
      */

@@ -36,6 +36,9 @@ use Modules\Rental\Support;
  *
  * **Nothing here decides anything about a damage.** An incident enters the
  * total only if a human already decided it should (`IncidentDecision`).
+ * Nothing is « withheld from the security deposit » either (#980): a
+ * charged damage is a line, and the deposit's share of what is kept follows
+ * from the money (`securityDepositAtSettlement()`).
  */
 final class SettlementCalculator
 {
@@ -47,11 +50,12 @@ final class SettlementCalculator
      * @param bool $paidIncludesSecurityDeposit whether $alreadyPaidCents
      *   came in on the booking's single receivable, which holds the
      *   security deposit too (issue #927). Then the balance is measured
-     *   against the KEPT amount — the total plus what is withheld from the
-     *   deposit — and a negative one is everything to pay back, the
-     *   deposit's return included. Without it (no Finance) the deposit is
-     *   held by hand beside the rental, and the balance is the total less
-     *   what was paid, as it always was.
+     *   against the KEPT amount — the total — and a negative one is
+     *   everything to pay back, the deposit's return included, with the
+     *   deposit's share derived by securityDepositAtSettlement(). Without
+     *   it (no Finance) the deposit is held by hand beside the rental: the
+     *   balance is the total less what was paid, and the deposit is given
+     *   back whole, a charged damage being on the balance already.
      * @return array{
      *     lines: SettlementLine[],
      *     total_cents: int,
@@ -85,22 +89,15 @@ final class SettlementCalculator
             $total += $line->amountCents;
         }
 
-        $withheld = 0;
-        foreach ($incidents as $incident) {
-            if ($incident->decision->reducesSecurityDeposit()) {
-                $withheld += $incident->effectiveAmountCents();
-            }
-        }
-
-        // Never more than was actually held: withholding 800 € from a 500 €
-        // deposit does not make the renter owe 300 € twice, and a manager
-        // who wants the difference invoices it as a charge instead.
-        $withheld = $securityDepositCents !== null ? min($withheld, $securityDepositCents) : 0;
-
         // What the unit keeps of the money: the agreed rental, the
-        // consumptions and the charged damage, less any gesture — the
-        // total — plus what it withholds from the security deposit.
-        $kept = $total + $withheld;
+        // consumptions and the charged damage, less any gesture — the total,
+        // and nothing beside it. A damage dearer than the deposit is kept in
+        // full: the surplus is a balance still due, never lost to a cap.
+        $kept = $total;
+
+        $deposit = $paidIncludesSecurityDeposit
+            ? self::securityDepositAtSettlement($securityDepositCents, $alreadyPaidCents, $kept)
+            : ['withheld_cents' => 0, 'return_cents' => max(0, $securityDepositCents ?? 0)];
 
         return [
             'lines' => $lines,
@@ -109,14 +106,39 @@ final class SettlementCalculator
             // Deliberately signed: an overpayment is a real outcome, and
             // flooring it at zero is how a refund nobody knows about
             // happens.
-            'balance_cents' => ($paidIncludesSecurityDeposit ? $kept : $total) - $alreadyPaidCents,
-            'security_deposit_withheld_cents' => $withheld,
-            'security_deposit_return_cents' => max(0, ($securityDepositCents ?? 0) - $withheld),
+            'balance_cents' => $total - $alreadyPaidCents,
+            'security_deposit_withheld_cents' => $deposit['withheld_cents'],
+            'security_deposit_return_cents' => $deposit['return_cents'],
             // Said so the screen does not add the deposit's return to a
             // balance that already contains it: with one receivable, a
             // negative balance IS everything owed back, deposit included.
             'paid_includes_security_deposit' => $paidIncludesSecurityDeposit,
         ];
+    }
+
+    /**
+     * What a settlement keeps of the security deposit, on the booking's
+     * single receivable (#980, chantier §2.3): the refund owed comes first
+     * out of the deposit, so
+     *
+     *     withheld = D − min(D, max(0, received − kept))
+     *
+     * and the rest of the deposit is given back. Received 818 € for a
+     * 668 € rental and a 150 € deposit, a 30 € damage charged: 120 € go
+     * back, all of them deposit, and 30 € of it are kept. A damage dearer
+     * than the deposit keeps all of it and leaves a balance due. Derived
+     * from the money rather than from any incident, which is what
+     * « withhold » used to do — the same figure the settlement screen
+     * names « dont la caution à rendre ».
+     *
+     * @return array{withheld_cents: int, return_cents: int}
+     */
+    public static function securityDepositAtSettlement(?int $depositCents, int $receivedCents, int $keptCents): array
+    {
+        $deposit = max(0, $depositCents ?? 0);
+        $given = min($deposit, max(0, $receivedCents - $keptCents));
+
+        return ['withheld_cents' => $deposit - $given, 'return_cents' => $given];
     }
 
     /**
@@ -271,9 +293,8 @@ final class SettlementCalculator
     {
         $lines = [];
         foreach ($incidents as $incident) {
-            // Only what a human decided to charge. A pending assessment, a
-            // waived damage and one withheld from the deposit all
-            // contribute nothing to this total.
+            // Only what a human decided to charge. A pending assessment and
+            // a waived damage contribute nothing to this total.
             if (!$incident->decision->entersSettlement()) {
                 continue;
             }

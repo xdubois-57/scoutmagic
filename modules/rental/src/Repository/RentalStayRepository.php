@@ -43,6 +43,9 @@ use Modules\Rental\Stay\SettlementLine;
 class RentalStayRepository
 {
     private const CTX_INCIDENT = 'rental_incidents.description';
+    private const CTX_INCIDENT_AWAITING = 'rental_incidents.awaiting';
+    private const CTX_INCIDENT_REFERENCE = 'rental_incidents.reference';
+    private const CTX_INCIDENT_WAIVE_REASON = 'rental_incidents.waive_reason';
 
     public function __construct(
         private \PDO $pdo,
@@ -617,15 +620,23 @@ class RentalStayRepository
         return $stmt->rowCount() > 0 ? (int) $this->pdo->lastInsertId() : null;
     }
 
+    /**
+     * The three texts are written as given — null clears one — and each
+     * under its own encryption context, like the description (#980).
+     */
     public function decideIncident(
         int $incidentId,
         IncidentDecision $decision,
         ?int $decidedAmountCents,
-        ?int $decidedByMemberId
+        ?int $decidedByMemberId,
+        ?string $awaiting = null,
+        ?string $reference = null,
+        ?string $waiveReason = null
     ): void {
         $stmt = $this->pdo->prepare(
             'UPDATE rental_incidents
-             SET decision = ?, decided_amount_cents = ?, decided_at = ?, decided_by_member_id = ?
+             SET decision = ?, decided_amount_cents = ?, decided_at = ?, decided_by_member_id = ?,
+                 awaiting_encrypted = ?, reference_encrypted = ?, waive_reason_encrypted = ?
              WHERE id = ?'
         );
         $stmt->execute([
@@ -633,8 +644,35 @@ class RentalStayRepository
             $decidedAmountCents,
             (new \DateTimeImmutable())->format('Y-m-d H:i:s'),
             $decidedByMemberId,
+            $this->encryptOptional($awaiting, self::CTX_INCIDENT_AWAITING),
+            $this->encryptOptional($reference, self::CTX_INCIDENT_REFERENCE),
+            $this->encryptOptional($waiveReason, self::CTX_INCIDENT_WAIVE_REASON),
             $incidentId,
         ]);
+    }
+
+    /**
+     * Turns every incident still « withheld from the security deposit »
+     * into a charge of the same amount — what was decided, falling back to
+     * what was proposed, as `Incident::effectiveAmountCents()` read it (#980).
+     * Settlements are not touched: a validated one is immutable.
+     *
+     * Idempotent: a second run matches nothing. Every matched row changes
+     * its decision, so the count is the same on SQLite (rows matched) and
+     * on MySQL and MariaDB (rows changed).
+     *
+     * @return int incidents converted
+     */
+    public function convertWithheldIncidentsToCharges(): int
+    {
+        $stmt = $this->pdo->prepare(
+            'UPDATE rental_incidents
+             SET decision = ?, decided_amount_cents = COALESCE(decided_amount_cents, proposed_amount_cents)
+             WHERE decision = ?'
+        );
+        $stmt->execute([IncidentDecision::CHARGE->value, IncidentDecision::LEGACY_WITHHOLD]);
+
+        return $stmt->rowCount();
     }
 
     public function findIncident(int $incidentId): ?Incident
@@ -704,14 +742,15 @@ class RentalStayRepository
         int $balanceCents,
         ?int $withheldCents,
         ?int $returnCents,
-        ?int $createdByMemberId
+        ?int $createdByMemberId,
+        ?int $keptCents = null
     ): int {
         $stmt = $this->pdo->prepare(
             'INSERT INTO rental_settlements
                 (booking_id, version, final_persons, lines_snapshot, total_cents, already_paid_cents,
                  balance_cents, security_deposit_withheld_cents, security_deposit_return_cents,
-                 created_by_member_id, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                 created_by_member_id, created_at, kept_cents)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
             $bookingId,
@@ -728,6 +767,7 @@ class RentalStayRepository
             $returnCents,
             $createdByMemberId,
             (new \DateTimeImmutable())->format('Y-m-d H:i:s'),
+            $keptCents,
         ]);
 
         return (int) $this->pdo->lastInsertId();
@@ -740,19 +780,53 @@ class RentalStayRepository
      * settlement immutable: a second validation matches no row and the
      * caller is told so, rather than silently re-stamping a document
      * somebody may already have acted on.
+     *
+     * $securityDeposit, when given, is the deposit's share derived from the
+     * money at this moment (#980, chantier §2.3) and replaces the figures
+     * the version was recorded with, in the same statement — so a version
+     * already validated is never rewritten.
+     *
+     * @param array{withheld_cents: int, return_cents: int}|null $securityDeposit
+     * @param int|null $keptCents The kept amount read before validation, stored when the version has none
      */
-    public function validateSettlement(int $settlementId, ?int $validatedByMemberId): bool
-    {
-        $stmt = $this->pdo->prepare(
-            'UPDATE rental_settlements SET is_validated = 1, validated_at = ?, validated_by_member_id = ?
-             WHERE id = ? AND is_validated = 0'
-        );
-        $stmt->execute([
-            (new \DateTimeImmutable())->format('Y-m-d H:i:s'),
-            $validatedByMemberId,
-            $settlementId,
-        ]);
+    public function validateSettlement(
+        int $settlementId,
+        ?int $validatedByMemberId,
+        ?array $securityDeposit = null,
+        ?int $keptCents = null
+    ): bool {
+        $now = (new \DateTimeImmutable())->format('Y-m-d H:i:s');
+        // kept_cents is written in the same compare-and-set, and only when
+        // the version has none: a version recorded before #980 reads its
+        // kept amount as « total + withheld », and validation rewrites the
+        // withheld figure from the money — without this, its kept amount
+        // would silently change the moment it was validated.
+        if ($securityDeposit === null) {
+            $stmt = $this->pdo->prepare(
+                'UPDATE rental_settlements SET is_validated = 1, validated_at = ?, validated_by_member_id = ?,
+                        kept_cents = COALESCE(kept_cents, ?)
+                 WHERE id = ? AND is_validated = 0'
+            );
+            $stmt->execute([$now, $validatedByMemberId, $keptCents, $settlementId]);
+        } else {
+            $stmt = $this->pdo->prepare(
+                'UPDATE rental_settlements SET is_validated = 1, validated_at = ?, validated_by_member_id = ?,
+                        security_deposit_withheld_cents = ?, security_deposit_return_cents = ?,
+                        kept_cents = COALESCE(kept_cents, ?)
+                 WHERE id = ? AND is_validated = 0'
+            );
+            $stmt->execute([
+                $now,
+                $validatedByMemberId,
+                max(0, $securityDeposit['withheld_cents']),
+                max(0, $securityDeposit['return_cents']),
+                $keptCents,
+                $settlementId,
+            ]);
+        }
 
+        // is_validated goes from 0 to 1 on every matched row, so rows
+        // changed (MySQL, MariaDB) and rows matched (SQLite) agree.
         return $stmt->rowCount() > 0;
     }
 
@@ -823,14 +897,37 @@ class RentalStayRepository
             proposedAmountCents: $row['proposed_amount_cents'] !== null
                 ? (int) $row['proposed_amount_cents']
                 : null,
-            decision: IncidentDecision::tryFrom((string) $row['decision']) ?? IncidentDecision::PENDING,
+            decision: IncidentDecision::fromStored((string) $row['decision']),
             decidedAmountCents: $row['decided_amount_cents'] !== null ? (int) $row['decided_amount_cents'] : null,
             decidedAt: DateInput::fromStorage($row['decided_at'] === null ? null : (string) $row['decided_at']),
             decidedByMemberId: $row['decided_by_member_id'] !== null ? (int) $row['decided_by_member_id'] : null,
             fileId: $row['file_id'] !== null ? (int) $row['file_id'] : null,
             createdByMemberId: $row['created_by_member_id'] !== null ? (int) $row['created_by_member_id'] : null,
-            createdAt: DateInput::requireFromStorage((string) $row['created_at'], 'created_at')
+            createdAt: DateInput::requireFromStorage((string) $row['created_at'], 'created_at'),
+            awaiting: $this->decryptOptional($row['awaiting_encrypted'] ?? null, self::CTX_INCIDENT_AWAITING),
+            reference: $this->decryptOptional($row['reference_encrypted'] ?? null, self::CTX_INCIDENT_REFERENCE),
+            waiveReason: $this->decryptOptional(
+                $row['waive_reason_encrypted'] ?? null,
+                self::CTX_INCIDENT_WAIVE_REASON
+            )
         );
+    }
+
+    /** Null, or a blank text, stores NULL rather than the ciphertext of nothing. */
+    private function encryptOptional(?string $text, string $context): ?string
+    {
+        $text = $text !== null ? trim($text) : '';
+
+        return $text === '' ? null : $this->encryption->encrypt($text, $context);
+    }
+
+    private function decryptOptional(mixed $cipher, string $context): ?string
+    {
+        if ($cipher === null || $cipher === '') {
+            return null;
+        }
+
+        return $this->encryption->decrypt((string) $cipher, $context);
     }
 
     /**
@@ -864,7 +961,8 @@ class RentalStayRepository
                 ? (int) $row['validated_by_member_id']
                 : null,
             createdByMemberId: $row['created_by_member_id'] !== null ? (int) $row['created_by_member_id'] : null,
-            createdAt: DateInput::requireFromStorage((string) $row['created_at'], 'created_at')
+            createdAt: DateInput::requireFromStorage((string) $row['created_at'], 'created_at'),
+            recordedKeptCents: isset($row['kept_cents']) ? (int) $row['kept_cents'] : null
         );
     }
 

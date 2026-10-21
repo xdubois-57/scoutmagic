@@ -20,6 +20,7 @@ use Modules\Rental\Repository\RentalStayRepository;
 use Modules\Rental\Service\RentalException;
 use Modules\Rental\Service\RentalPricingService;
 use Modules\Rental\Service\RentalStayService;
+use Modules\Rental\Stay\IncidentDecision;
 use Modules\Rental\Stay\InventoryKind;
 use Modules\Rental\Stay\MeterKind;
 use Modules\Rental\Stay\ReadingPhase;
@@ -306,6 +307,55 @@ final class RentalStayRepositoryOnMysqlTest extends TestCase
         $this->expectException(RentalException::class);
         $this->expectExceptionMessage('validé et envoyé au locataire');
         $service->setInventoryValue($booking, $inventoryId, ReadingPhase::ARRIVAL, '4', null);
+    }
+
+    public function testTheDecisionTextsRoundTripThroughTheirBlobColumns(): void
+    {
+        // A ciphertext is binary: a column that is not a BLOB on this engine
+        // would mangle it and the decryption would fail (#980).
+        $id = $this->repository->createIncident($this->bookingId, 'Vitre cassée', 4500, null, 7);
+        $this->assertNotNull($id);
+
+        $this->repository->decideIncident(
+            $id,
+            IncidentDecision::WAIVE,
+            null,
+            9,
+            "Expertise de l'assureur — délai",
+            'Dossier 2027/118',
+            'Geste envers le groupe'
+        );
+
+        $incident = $this->repository->findIncident($id);
+        $this->assertSame(IncidentDecision::WAIVE, $incident?->decision);
+        $this->assertSame("Expertise de l'assureur — délai", $incident->awaiting);
+        $this->assertSame('Dossier 2027/118', $incident->reference);
+        $this->assertSame('Geste envers le groupe', $incident->waiveReason);
+    }
+
+    /**
+     * Validation is a compare-and-set decided on `rowCount()`: here it
+     * counts the rows CHANGED, and `is_validated` going from 0 to 1 is a
+     * change, so a first validation is told apart from a second one — and
+     * the deposit's share written with the first never rewritten by the
+     * second.
+     */
+    public function testAValidationWithTheDepositsShareHappensOnceAndOnlyOnce(): void
+    {
+        $id = $this->repository->createSettlement($this->bookingId, 1, null, [], 41000, 0, 41000, 15000, 0, 7, 41000);
+
+        $this->assertTrue(
+            $this->repository->validateSettlement($id, 7, ['withheld_cents' => 3000, 'return_cents' => 12000])
+        );
+        $this->assertFalse(
+            $this->repository->validateSettlement($id, 9, ['withheld_cents' => 3000, 'return_cents' => 12000])
+        );
+
+        $settlement = $this->repository->findSettlement($id);
+        $this->assertSame(3000, $settlement?->securityDepositWithheldCents);
+        $this->assertSame(12000, $settlement->securityDepositReturnCents);
+        $this->assertSame(41000, $settlement->recordedKeptCents);
+        $this->assertSame(7, $settlement->validatedByMemberId);
     }
 
     private function inventoryLine(): int

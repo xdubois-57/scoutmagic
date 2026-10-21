@@ -37,19 +37,32 @@ final class Settlement
         public readonly ?\DateTimeImmutable $validatedAt,
         public readonly ?int $validatedByMemberId,
         public readonly ?int $createdByMemberId,
-        public readonly \DateTimeImmutable $createdAt
+        public readonly \DateTimeImmutable $createdAt,
+        /**
+         * The kept amount as recorded (#980). Null on a version recorded
+         * before it, when a damage « withheld from the security deposit »
+         * sat beside the total instead of in it.
+         */
+        public readonly ?int $recordedKeptCents = null
     ) {
     }
 
     /**
      * What the unit keeps once this settlement holds (issue #927): what the
      * stay comes to — the agreed rental, consumptions and charged damage,
-     * less any goodwill gesture — plus what it withholds from the security
-     * deposit. The booking's receivable is brought to this figure when the
-     * settlement is validated.
+     * less any goodwill gesture. The booking's receivable is brought to
+     * this figure when the settlement is validated.
+     *
+     * A version recorded before #980 kept its withholding on top of the
+     * total, and still does: a validated settlement is immutable, and the
+     * meaning of its figures with it.
      */
     public function keptCents(): int
     {
+        if ($this->recordedKeptCents !== null) {
+            return max(0, $this->recordedKeptCents);
+        }
+
         return max(0, $this->totalCents + ($this->securityDepositWithheldCents ?? 0));
     }
 

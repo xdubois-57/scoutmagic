@@ -3418,7 +3418,9 @@ class RentalManagementController extends AbstractController
     }
 
     /**
-     * POST /mes-locations/incident-decision — the human decision (§6.23).
+     * POST /mes-locations/incident-decision — the human decision (§6.23),
+     * one of the three states (#980), with what an assessment waits for,
+     * its reference and the reason for not billing, all optional.
      *
      * @param array<string, string> $params
      */
@@ -3435,7 +3437,10 @@ class RentalManagementController extends AbstractController
                 (int) $request->getBody('incident_id', 0),
                 $decision,
                 RentalPricingService::parseAmountToCents((string) $request->getBody('amount', '')),
-                $this->actorMemberId()
+                $this->actorMemberId(),
+                (string) $request->getBody('awaiting', ''),
+                (string) $request->getBody('reference', ''),
+                (string) $request->getBody('waive_reason', '')
             );
 
             FlashMessage::set('success', 'Décision enregistrée : ' . $decision->label() . '.');

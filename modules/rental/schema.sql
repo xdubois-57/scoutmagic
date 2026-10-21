@@ -1177,9 +1177,9 @@ CREATE TABLE IF NOT EXISTS rental_inventory_validations (
 --
 -- **The financial decision stays human.** Nothing in this module ever
 -- turns a damage into a charge on its own: a manager proposes an amount,
--- and a manager decides whether it is billed, withheld from the security
--- deposit, or waived. An automatic scale would be wrong about the one case
--- that matters — the group that broke something and immediately said so.
+-- and a manager decides whether it is billed or waived, or keeps it under
+-- assessment. An automatic scale would be wrong about the one case that
+-- matters — the group that broke something and immediately said so.
 CREATE TABLE IF NOT EXISTS rental_incidents (
     id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
     booking_id INT UNSIGNED NOT NULL,
@@ -1190,13 +1190,24 @@ CREATE TABLE IF NOT EXISTS rental_incidents (
     description_encrypted BLOB NOT NULL,
     proposed_amount_cents INT UNSIGNED NULL,
 
-    -- 'pending' | 'charge' | 'withhold' | 'waive'. `pending` is a real
-    -- state, not a placeholder: an assessment in progress must never leak
-    -- to the renter's page (§6.26), and it is the flag that keeps it off.
+    -- 'pending' | 'charge' | 'waive' (#980). `pending` is a real state,
+    -- not a placeholder: an assessment in progress must never leak to the
+    -- renter's page (§6.26), and it is the flag that keeps it off. The
+    -- retired 'withhold' kept the same money as 'charge', capped at the
+    -- deposit; Service\IncidentDecisionMigration converts it once.
     decision VARCHAR(20) NOT NULL DEFAULT 'pending',
     decided_amount_cents INT UNSIGNED NULL,
     decided_at DATETIME NULL,
     decided_by_member_id INT UNSIGNED NULL,
+
+    -- What an assessment waits for (« En attente de… » : a quote, an
+    -- expert, the renter's insurer), its reference (an insurer's file
+    -- number), and why a damage is not billed. Written about a renter's
+    -- group like the description, so encrypted like it. The last one is
+    -- internal and never reaches the renter's page.
+    awaiting_encrypted BLOB NULL,
+    reference_encrypted BLOB NULL,
+    waive_reason_encrypted BLOB NULL,
 
     -- Optional photo, through UploadHandler and FileAccessGuard.
     file_id INT UNSIGNED NULL,
@@ -1244,8 +1255,16 @@ CREATE TABLE IF NOT EXISTS rental_settlements (
     -- behind a floor of zero is how a refund nobody knows about happens.
     balance_cents INT NOT NULL DEFAULT 0,
 
+    -- What the deposit covers of the kept amount, and what of it goes back
+    -- (#980): derived from the money at validation, the refund owed coming
+    -- first out of the deposit (SettlementCalculator::
+    -- securityDepositAtSettlement()).
     security_deposit_withheld_cents INT UNSIGNED NULL,
     security_deposit_return_cents INT UNSIGNED NULL,
+    -- What the unit keeps: the total. NULL on a version recorded before
+    -- #980, whose kept amount is the total plus its withholding — a
+    -- validated version never changes meaning (Stay\Settlement::keptCents()).
+    kept_cents INT NULL,
 
     is_validated TINYINT(1) NOT NULL DEFAULT 0,
     validated_at DATETIME NULL,

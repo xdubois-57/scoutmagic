@@ -105,7 +105,9 @@
                         {{ incident.description }}
                         <span class="text-body-secondary d-block">{{ incident.decision.label }}</span>
                     </span>
-                    <span class="text-end text-nowrap">{{ (incident.decidedAmountCents ?? 0)|money_cents }}</span>
+                    {% if incident.decision.value == 'charge' %}
+                        <span class="text-end text-nowrap">{{ (incident.decidedAmountCents ?? 0)|money_cents }}</span>
+                    {% endif %}
                 </li>
             {% endfor %}
         </ul>

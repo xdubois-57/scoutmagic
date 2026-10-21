@@ -13,6 +13,10 @@ namespace Modules\Rental\Stay;
  *
  * `$description` arrives decrypted — the repository is the only place it is
  * ever a ciphertext, like every other field written about a renter's group.
+ * So do the three texts a decision may carry (#980): what an assessment
+ * waits for (« En attente de… »), its reference (an insurer's file number)
+ * and why a damage is not billed. The last one is internal and never shown
+ * to the renter.
  */
 final class Incident
 {
@@ -27,7 +31,10 @@ final class Incident
         public readonly ?int $decidedByMemberId,
         public readonly ?int $fileId,
         public readonly ?int $createdByMemberId,
-        public readonly \DateTimeImmutable $createdAt
+        public readonly \DateTimeImmutable $createdAt,
+        public readonly ?string $awaiting = null,
+        public readonly ?string $reference = null,
+        public readonly ?string $waiveReason = null
     ) {
     }
 

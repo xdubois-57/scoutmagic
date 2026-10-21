@@ -26,7 +26,7 @@ Une remise accordée après le séjour se note en « Geste commercial » : un
 libellé et le montant déduit, sans nouveau contrat. Chaque enregistrement
 crée une version ; validez la bonne, elle ne se modifie plus. Avec
 Finances, la validation ramène la créance au montant conservé — location,
-consommations et retenues, moins le geste — et ce qui a été payé en plus,
+consommations et dégâts facturés, moins le geste — et ce qui a été payé en plus,
 la caution à rendre d'abord, apparaît en trop-perçu.
 
 Les incidents tranchés s'affichent avec leur montant, en lecture seule.

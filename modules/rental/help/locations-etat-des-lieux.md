@@ -8,7 +8,7 @@ question: Comment faire l'état des lieux d'entrée d'une location ?
 question: Pourquoi ne puis-je plus modifier un état des lieux ?
 question: Comment envoyer l'état des lieux au locataire ?
 paths: /mes-locations/*/reservations/*/etat-des-lieux
-related: locations-facture, locations-gabarits, locations-reservation, gerer-les-locations, locations-documents
+related: locations-incidents, locations-facture, locations-gabarits, locations-reservation, gerer-les-locations, locations-documents
 ---
 
 La page « État des lieux » d'une réservation propose l'état des lieux si
@@ -43,7 +43,8 @@ validé ne se complète plus.
 
 Les incidents se signalent ici aussi, jusqu'à la validation de l'état des
 lieux de sortie — son PDF les liste, sans montant : ce qui se facture se
-décide ensuite, et n'est demandé au locataire qu'une fois tranché.
+décide ensuite, et n'est demandé au locataire qu'une fois tranché : voir
+« Les incidents et dégâts d'une location ».
 
 ## Valider et envoyer
 
