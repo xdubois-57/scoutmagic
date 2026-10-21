@@ -44,7 +44,8 @@ jobs:
   # URL: any other endpoint missing a token is a real finding and must
   # still fail the run.
   #
-  # Nothing beyond those two is filtered. In particular the "Cookie
+  # Nothing beyond those two and the "PII Disclosure" filter below is
+  # filtered. In particular the "Cookie
   # Without Secure Flag" (10011) and "Strict-Transport-Security Header
   # Not Set" (10035) rules are deliberately left armed: the instance is
   # served over real TLS and told about it through X-Forwarded-Proto, so
@@ -76,6 +77,25 @@ jobs:
         context: scoutmagic
         url: "\\Q${DAST_TARGET}\\E/test-tools/uncaught-error"
         urlRegex: true
+
+      # "PII Disclosure" reads any run of 13 to 16 digits that passes the
+      # Luhn check and starts with a known card prefix as a card number,
+      # word boundary or not. Every random hexadecimal token this
+      # application prints (a calendar feed token, the CSRF token on
+      # every page) holds such a run about once in 800 draws:
+      # "…cf4454765878264d32…" in a freshly regenerated feed token was
+      # reported as a Belfius Visa and failed a run that had found
+      # nothing. The application never asks for a card number (payments
+      # are structured bank transfers), and the scan only sees the browser
+      # suite's own data, which never types one: the rule can only ever
+      # report a token. Filtered on every URL, by the maintainer's
+      # decision, knowing it would also hide a card number a future page
+      # might echo; the alert stays in the report, marked as a false
+      # positive, rather than the rule being switched off.
+      - ruleId: 10062
+        ruleName: PII Disclosure
+        newRisk: 'False Positive'
+        context: scoutmagic
 
   - type: passiveScan-config
     parameters:

@@ -110,11 +110,12 @@ env:
 
 jobs:
   # --------------------------------------------------------------------
-  # The same two alert filters as the passive profile, for the same two
-  # reasons: SECURITY.md § 4's documented anti-CSRF exception,
-  # authenticated by an HMAC signature ZAP cannot see, and the one route
-  # whose job is to answer 500 (see the passive plan for both). Applied
-  # before any traffic is scanned.
+  # The same three alert filters as the passive profile, for the same
+  # three reasons: SECURITY.md § 4's documented anti-CSRF exception,
+  # authenticated by an HMAC signature ZAP cannot see; the one route
+  # whose job is to answer 500; and "PII Disclosure" reading a card
+  # number into random hexadecimal tokens (see the passive plan for all
+  # three). Applied before any traffic is scanned.
   - type: alertFilter
     parameters:
       deleteGlobalAlerts: true
@@ -132,6 +133,11 @@ jobs:
         context: scoutmagic
         url: "\\Q${DAST_TARGET}\\E/test-tools/uncaught-error"
         urlRegex: true
+
+      - ruleId: 10062
+        ruleName: PII Disclosure
+        newRisk: 'False Positive'
+        context: scoutmagic
 
   - type: passiveScan-config
     parameters:
