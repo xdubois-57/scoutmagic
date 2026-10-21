@@ -15,8 +15,18 @@
   of what came in is nobody's share: it is the surplus, shown as its own
   line so the column still adds up to what the renter paid.
 
-  Requires `movements` (list<Finance\Api\ReceivableMovement>) and
-  `payment`.
+  A movement a person reconciled says who and when (« Rapproché à la
+  main par …, le … »), and one attached from « Rapprocher un virement »
+  offers « Détacher » for as long as no settlement validated since has
+  counted it (#980, chantier §2.6, Q11): the controller says which
+  (`detachable_transactions`), the service checks it again on the POST.
+  « Rapprocher un virement » opens the dialog of
+  `_finance_transfer.html.twig`.
+
+  Requires `movements` (list<Finance\Api\ReceivableMovement>), `payment`,
+  `asset`, `booking`, `booking_page` and the keys of
+  RentalManagementController::transferContext(): `transfer_available`,
+  `movement_authors` and `detachable_transactions`.
 #}
 {% set absorbed = movements|filter(m => m.amountCents > 0)|reduce((sum, m) => sum + m.amountCents, 0) %}
 {% set beyond = payment.received_cents|default(0) - absorbed %}
@@ -58,6 +68,16 @@
                                             status: movement.automatic ? 'done' : 'info',
                                             label: movement.automatic ? 'Automatique' : 'Manuelle',
                                         } only %}
+                                        {% set author = movement_authors[movement.transactionId] ?? null %}
+                                        {% if movement.reconciledAt and author %}
+                                            <span class="small text-body-secondary d-block" data-movement-reconciled-by>
+                                                Rapproché à la main par {{ author }},
+                                                le {{ movement.reconciledAt|date_fr }}
+                                            </span>
+                                        {% endif %}
+                                        {% if movement.transactionId in detachable_transactions|default([]) %}
+                                            {% include '@rental/management/_finance_movement_detach.html.twig' %}
+                                        {% endif %}
                                     </td>
                                 </tr>
                             {% endfor %}
@@ -81,6 +101,18 @@
                 Les virements apparaissent après l'import d'un extrait bancaire. Seuls les mouvements de
                 cette réservation sont montrés.
             </p>
+            {% if transfer_available|default(false) %}
+                <div class="mt-3" data-transfer-open>
+                    <button type="button" class="btn btn-outline-secondary w-100 w-sm-auto"
+                            data-bs-toggle="modal" data-bs-target="#rapprocher-virement">
+                        Rapprocher un virement
+                    </button>
+                    <p class="small text-body-secondary mt-2 mb-0">
+                        Pour un paiement arrivé sans la communication de la réservation, par exemple celui de
+                        l'assurance du locataire.
+                    </p>
+                </div>
+            {% endif %}
         </div>
     </div>
 </div>

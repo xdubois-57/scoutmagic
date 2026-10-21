@@ -1,0 +1,23 @@
+{#
+  « Détacher » on one movement of « Mouvements du compte » (#980,
+  chantier §2.6): a credit attached by hand from « Rapprocher un
+  virement » goes back to the account's unreconciled credits. Shown only
+  for the movements RentalManagementController::transferContext() lists
+  as detachable; RentalPaymentService::detachPayment() checks it again.
+
+  Requires `movement` (Finance\Api\ReceivableMovement), `asset`, `booking`
+  and `booking_page`.
+#}
+{% set detach_question = 'Détacher ce virement de ' ~ movement.amountCents|money_cents ~ ' ('
+    ~ (movement.counterpartyName ? movement.counterpartyName ~ ', ' : '') ~ movement.date|date_fr
+    ~ ') de ' ~ booking.reference ~ ' ? Il redevient un virement non rapproché du compte, et ce qu\'il '
+    ~ 'payait est à nouveau attendu. Aucun e-mail n\'est envoyé.' %}
+<form method="post" action="/mes-locations/virement-detacher" class="mt-1"
+      data-confirm="{{ detach_question }}" data-confirm-label="Détacher" data-movement-detach>
+    {{ csrf_field()|raw }}
+    <input type="hidden" name="asset_id" value="{{ asset.id }}">
+    <input type="hidden" name="booking_id" value="{{ booking.id }}">
+    <input type="hidden" name="booking_page" value="{{ booking_page.value }}">
+    <input type="hidden" name="transaction_id" value="{{ movement.transactionId }}">
+    <button type="submit" class="btn btn-sm btn-outline-danger">Détacher</button>
+</form>

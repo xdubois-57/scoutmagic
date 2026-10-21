@@ -9,14 +9,17 @@ declare(strict_types=1);
 namespace Modules\Rental\Service;
 
 use Core\Exception\UserFacingMessage;
+use Core\Service\DateInput;
 use Modules\Rental\Support;
 
 use Core\Journal\JournalService;
 use Modules\Finance\Api\ExpectedReceivableInterface;
 use Modules\Finance\Api\FinanceAccountInterface;
+use Modules\Finance\Api\PaymentCandidate;
 use Modules\Finance\Api\ReceivableMovement;
 use Modules\Finance\Api\RefundCandidate;
 use Modules\Finance\Api\SepaQrCodeInterface;
+use Modules\Finance\Api\StatementImportStatusInterface;
 use Modules\Finance\Api\StructuredCommunicationInterface;
 use Modules\Rental\Booking\RentalBooking;
 use Modules\Rental\Payment\PaymentSettings;
@@ -27,8 +30,8 @@ use Modules\Rental\Repository\RentalPaymentRepository;
 /**
  * The **only** place `rental` touches money (§6.19, §6.20).
  *
- * Everything here goes through Finance's four public interfaces
- * (ARCHITECTURE.md §7.5) and never near its tables. All four are
+ * Everything here goes through Finance's five public interfaces
+ * (ARCHITECTURE.md §7.5) and never near its tables. All five are
  * **nullable**: with Finance disabled — or simply not installed — every
  * method degrades to "no receivable, no QR, nothing raised", and the rest of
  * the module carries on unchanged. A unit that settles its rentals by hand
@@ -70,7 +73,13 @@ class RentalPaymentService
         private ?ExpectedReceivableInterface $receivables = null,
         private ?StructuredCommunicationInterface $communications = null,
         private ?SepaQrCodeInterface $sepaQr = null,
-        private ?FinanceAccountInterface $accounts = null
+        private ?FinanceAccountInterface $accounts = null,
+        /**
+         * How far the account's money is known (#980, chantier §2.6):
+         * « Rapprocher un virement » says when no statement came in since
+         * the search starts. Null says nothing about it.
+         */
+        private ?StatementImportStatusInterface $statementStatus = null
     ) {
     }
 
@@ -865,6 +874,262 @@ class RentalPaymentService
             'rental_refund_reconciled',
             'info',
             'Remboursement rapproché pour ' . $booking->reference,
+            ['booking_id' => $booking->id, 'transaction_id' => $transactionId]
+        );
+    }
+
+    // ── « Rapprocher un virement » (#980, chantier §2.6) ────────────────
+
+    /** The longest payer name a search takes — a name, never a sentence. */
+    public const PAYER_NAME_MAX_LENGTH = 100;
+
+    /**
+     * Since when a credit can be this booking's payment (Q10): the day a
+     * contract first went out — nobody pays a rental before being asked
+     * to — and, before any, the day the request came in. Worked out from
+     * the booking on every page and every POST, never taken from a form.
+     */
+    public function transferSince(RentalBooking $booking): \DateTimeImmutable
+    {
+        $sentAt = DateInput::fromStorage($this->paymentRepository->firstContractSentAt($booking->id));
+
+        return ($sentAt ?? $booking->receivedAt)->setTime(0, 0);
+    }
+
+    /**
+     * When the asset's account last had a statement imported, or null —
+     * none ever, Finance off, no account pinned, or nothing wired to say.
+     * The account is the asset's, which is the one its receivables are
+     * raised on.
+     */
+    public function lastStatementImportedAt(PaymentSettings $settings): ?\DateTimeImmutable
+    {
+        if ($this->statementStatus === null || $settings->financeAccountId === null) {
+            return null;
+        }
+
+        return DateInput::fromStorage($this->statementStatus->lastStatementImportedAt($settings->financeAccountId));
+    }
+
+    /**
+     * The credits of the receivable's own account that could be a payment
+     * made without the communication — a renter's insurer settling a
+     * damage: reconciled with nothing, booked on or after $since, of
+     * exactly $amountCents, and, with a payer name, only those whose
+     * counterparty contains it (Finance compares it without case or
+     * accents). Each says when, how much, from whom and what the payer
+     * wrote, nothing else (Finance\Api\PaymentCandidate). Never the
+     * account's list: the amount is mandatory.
+     *
+     * The journal records that a search happened, with the ids and the
+     * number of credits found — never the name typed, never the amount
+     * (Q9): both say something about somebody's money.
+     *
+     * @return list<PaymentCandidate>
+     * @throws RentalException
+     */
+    public function paymentCandidates(
+        RentalBooking $booking,
+        int $amountCents,
+        ?string $payerName,
+        \DateTimeImmutable $since
+    ): array {
+        $receivableId = $this->receivableIdOf($booking);
+        if ($receivableId === null || $this->receivables === null) {
+            throw new RentalException("Les paiements de cette réservation ne sont pas suivis dans les Finances.");
+        }
+        if ($amountCents <= 0) {
+            throw new RentalException('Indiquez le montant reçu.');
+        }
+        $payerName = $payerName !== null && trim($payerName) !== '' ? trim($payerName) : null;
+        if ($payerName !== null && mb_strlen($payerName) > self::PAYER_NAME_MAX_LENGTH) {
+            throw new RentalException(
+                'Le nom du payeur ne peut pas dépasser ' . self::PAYER_NAME_MAX_LENGTH . ' caractères.'
+            );
+        }
+
+        try {
+            $candidates = $this->receivables->findPaymentCandidates(
+                self::SOURCE_MODULE,
+                $receivableId,
+                $amountCents,
+                $payerName,
+                $since
+            );
+        } catch (\Throwable $e) {
+            throw new RentalException(
+                UserFacingMessage::from($e, "La recherche n'a pas abouti — rechargez la page et réessayez."),
+                0,
+                $e
+            );
+        }
+
+        $this->journal->log(
+            'rental',
+            'rental_transfer_searched',
+            'info',
+            'Recherche d\'un virement pour ' . $booking->reference,
+            ['booking_id' => $booking->id, 'candidates' => count($candidates)]
+        );
+
+        return $candidates;
+    }
+
+    /**
+     * « Rapprocher un virement »: records one candidate credit as a
+     * payment of this booking — **the whole transfer, even beyond what is
+     * still due** (Q1): the excess reads as an overpayment until a
+     * validated final settlement charges the damage it paid. Finance
+     * checks everything again under its locks (account, direction,
+     * amount, date, reconciled with nothing, no communication), and its
+     * refusal, written for the person in front of the booking, is passed
+     * on as it is.
+     *
+     * No e-mail: the renter is not necessarily the one who paid, and the
+     * booking's page says the rest.
+     *
+     * @throws RentalException
+     */
+    public function reconcilePayment(
+        RentalBooking $booking,
+        int $transactionId,
+        int $amountCents,
+        \DateTimeImmutable $since,
+        ?int $actorUserAccountId,
+        ?int $actorMemberId = null
+    ): void {
+        $receivableId = $this->receivableIdOf($booking);
+        if ($receivableId === null || $this->receivables === null) {
+            throw new RentalException("Les paiements de cette réservation ne sont pas suivis dans les Finances.");
+        }
+
+        try {
+            $this->receivables->reconcilePayment(
+                self::SOURCE_MODULE,
+                $receivableId,
+                $transactionId,
+                $amountCents,
+                $since,
+                $actorUserAccountId
+            );
+        } catch (\Throwable $e) {
+            throw new RentalException(
+                UserFacingMessage::from(
+                    $e,
+                    "Ce virement n'a pas pu être rapproché — rechargez la page et réessayez."
+                ),
+                0,
+                $e
+            );
+        }
+
+        $this->bookingAudit->record(
+            $booking->id,
+            BookingAudit::PAYMENT_RECORDED,
+            null,
+            null,
+            'Virement rapproché dans les Finances',
+            $actorMemberId
+        );
+
+        // Ids only (SECURITY.md §5): the credit's amount and payer stay in
+        // Finance.
+        $this->journal->log(
+            'rental',
+            'rental_transfer_reconciled',
+            'info',
+            'Virement rapproché pour ' . $booking->reference,
+            ['booking_id' => $booking->id, 'transaction_id' => $transactionId]
+        );
+    }
+
+    /**
+     * Whether « Détacher » may take this movement off the booking again:
+     * a credit a person attached that carries no communication (what
+     * Finance says of it), and that no validated settlement has counted
+     * since (Q11) — a settlement validated after the reconciliation was
+     * worked out with that money in, and undoing it would leave the
+     * validated version saying something the account no longer does.
+     *
+     * $lastValidatedAt is the most recent validation of any of the
+     * booking's settlements, or null when none is validated.
+     */
+    public static function canDetach(ReceivableMovement $movement, ?\DateTimeImmutable $lastValidatedAt): bool
+    {
+        if (!$movement->detachable || $movement->amountCents <= 0 || $movement->transactionId === null) {
+            return false;
+        }
+        if ($lastValidatedAt === null) {
+            return true;
+        }
+        $reconciledAt = DateInput::fromStorage($movement->reconciledAt);
+
+        // Strictly before: a validation within the same second as the
+        // reconciliation may well have counted it, and the validated
+        // version is the one never to contradict.
+        return $reconciledAt !== null && $lastValidatedAt < $reconciledAt;
+    }
+
+    /**
+     * « Détacher »: takes a credit attached by hand off the booking again,
+     * for a transfer picked by mistake. Refused unless canDetach() allows
+     * it, read again here from Finance's own list rather than from the
+     * page; Finance then checks the pair under its locks, so detaching
+     * twice detaches once. The credit becomes a candidate again.
+     *
+     * @throws RentalException
+     */
+    public function detachPayment(
+        RentalBooking $booking,
+        int $transactionId,
+        ?\DateTimeImmutable $lastValidatedAt,
+        ?int $actorMemberId = null
+    ): void {
+        $receivableId = $this->receivableIdOf($booking);
+        if ($receivableId === null || $this->receivables === null) {
+            throw new RentalException("Les paiements de cette réservation ne sont pas suivis dans les Finances.");
+        }
+
+        $movement = null;
+        foreach ($this->receivables->getReceivableMovements(self::SOURCE_MODULE, $receivableId) as $candidate) {
+            if ($candidate->transactionId === $transactionId) {
+                $movement = $candidate;
+            }
+        }
+        if ($movement === null || !$movement->detachable || $movement->amountCents <= 0) {
+            throw new RentalException("Ce virement n'est pas rapproché à la main de cette réservation.");
+        }
+        if (!self::canDetach($movement, $lastValidatedAt)) {
+            throw new RentalException(
+                'Le décompte validé le ' . $lastValidatedAt?->format('d/m/Y')
+                . ' tient compte de ce virement : il ne peut plus être détaché.'
+            );
+        }
+
+        try {
+            $this->receivables->detachPayment(self::SOURCE_MODULE, $receivableId, $transactionId);
+        } catch (\Throwable $e) {
+            throw new RentalException(
+                UserFacingMessage::from($e, "Ce virement n'a pas pu être détaché — rechargez la page et réessayez."),
+                0,
+                $e
+            );
+        }
+
+        $this->bookingAudit->record(
+            $booking->id,
+            BookingAudit::PAYMENT_RECORDED,
+            null,
+            null,
+            'Virement détaché dans les Finances',
+            $actorMemberId
+        );
+
+        $this->journal->log(
+            'rental',
+            'rental_transfer_detached',
+            'info',
+            'Virement détaché pour ' . $booking->reference,
             ['booking_id' => $booking->id, 'transaction_id' => $transactionId]
         );
     }
