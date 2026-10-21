@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\Rental\Booking;
 
 use Core\Service\DateInput;
+use Modules\Rental\Payment\SecurityDepositStatus;
 
 /**
  * What the renter has to do next — or that they have nothing to do — in
@@ -34,6 +35,13 @@ final class RenterNextStep
     /** While a damage is assessed: the one thing the renter is told of it (#980). */
     public const DAMAGE_UNDER_ASSESSMENT = "Rien à faire de votre côté pour l'instant : un dégât est en cours "
         . "d'évaluation ; la caution reste retenue jusqu'à son règlement.";
+
+    /**
+     * The same, on a booking that holds no deposit — none asked, or asked
+     * and never received: saying it stays held would be false.
+     */
+    public const DAMAGE_UNDER_ASSESSMENT_NO_DEPOSIT = "Rien à faire de votre côté pour l'instant : un dégât "
+        . "constaté pendant votre séjour est en cours d'évaluation.";
 
     public function __construct(
         public readonly string $sentence,
@@ -82,7 +90,15 @@ final class RenterNextStep
         // deposit (#980, chantier §2.7): the renter reads that sentence and
         // nothing more — never what the damage is nor what it may cost.
         if ($next->awaitsAssessment) {
-            return new self(self::DAMAGE_UNDER_ASSESSMENT);
+            $status = is_array($payment['security_deposit'] ?? null)
+                ? ($payment['security_deposit']['status'] ?? null)
+                : null;
+
+            return new self(
+                $status instanceof SecurityDepositStatus && $status->isHeld()
+                    ? self::DAMAGE_UNDER_ASSESSMENT
+                    : self::DAMAGE_UNDER_ASSESSMENT_NO_DEPOSIT
+            );
         }
 
         return self::forStep($next->key, $booking, $now, $payment);

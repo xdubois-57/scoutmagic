@@ -1,0 +1,55 @@
+{#
+  « Incidents et dégâts » on the renter's tracking page (#980, §22.5): the
+  decided incidents — what was observed, the day it was, and « Facturé : … »
+  or « Non facturé » — and, while one is still being assessed, a single
+  sentence and nothing else.
+
+  `renter_incidents` (RentalStayService::renterIncidents(), or null) holds
+  no description, amount or internal text of an incident under assessment,
+  and no waive reason at all: they are never built for this page, so there
+  is nothing here to forget to hide (ARCHITECTURE.md §7.6, rule 3). Absent
+  while there is no incident.
+
+  Included from tracking.html.twig with one line, so the page around it
+  stays whose it is.
+#}
+{% if renter_incidents and not renter_incidents.isEmpty %}
+    <div class="card mb-4" id="incidents">
+        <div class="card-body">
+            <h2 class="h5 mb-3">Incidents et dégâts</h2>
+            {% if renter_incidents.assessmentInProgress %}
+                <p class="alert alert-info small {{ renter_incidents.decided is empty ? 'mb-0' : 'mb-3' }}"
+                   data-renter-incident-assessment>
+                    {% if renter_incidents_deposit ?? false %}
+                        Un dégât est en cours d'évaluation ; la caution reste retenue jusqu'à son règlement.
+                    {% else %}
+                        Un dégât constaté pendant votre séjour est en cours d'évaluation.
+                    {% endif %}
+                </p>
+            {% endif %}
+            {% if renter_incidents.decided is not empty %}
+                <ul class="list-unstyled mb-0">
+                    {% for incident in renter_incidents.decided %}
+                        <li class="{{ loop.last ? '' : 'border-bottom mb-2 pb-2' }}" data-renter-incident>
+                            <div class="d-flex justify-content-between align-items-start gap-2">
+                                <span>
+                                    {{ incident.description }}
+                                    <span class="small text-body-secondary d-block">
+                                        Constaté le {{ incident.reportedAt|date_fr }}
+                                    </span>
+                                </span>
+                                <span class="text-end text-nowrap">
+                                    {% if incident.isCharged %}
+                                        Facturé : {{ incident.chargedCents|money_cents }}
+                                    {% else %}
+                                        Non facturé
+                                    {% endif %}
+                                </span>
+                            </div>
+                        </li>
+                    {% endfor %}
+                </ul>
+            {% endif %}
+        </div>
+    </div>
+{% endif %}
