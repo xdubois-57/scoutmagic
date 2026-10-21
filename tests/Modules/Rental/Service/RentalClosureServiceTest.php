@@ -383,6 +383,32 @@ final class RentalClosureServiceTest extends TestCase
         $this->closure->closeUnrecovered($this->reload($booking->id), 65000, 'Locataire injoignable', 1, new \DateTimeImmutable());
     }
 
+    /**
+     * A receivable raised above what the validated settlement kept — by a
+     * modification countersigned after it — leaves money due, but nothing
+     * the settlement could write off: the page says so, instead of asking
+     * for a settlement that is already validated, and the action refuses
+     * rather than claiming nothing is due.
+     */
+    public function testAReceivableRaisedAboveTheSettlementSaysSo(): void
+    {
+        $booking = $this->confirmedBooking();
+        $this->pay($booking, 818.00);
+        $this->settleWithDamage($booking, 15000);
+        $this->payments->settleAmount($this->reload($booking->id), 90000);
+        $this->assertSame(8200, $this->moneyOf($booking)['remaining_cents']);
+
+        $check = $this->closure->check($this->reload($booking->id));
+        $this->assertFalse($check->offersUnrecovered());
+        $this->assertStringContainsString('82,00 € restent dus', (string) $check->refusal);
+        $this->assertStringContainsString(RentalClosureService::REFUSED_RECEIVABLE_DIFFERS, (string) $check->refusal);
+        $this->assertStringNotContainsString('validez d\'abord', (string) $check->refusal);
+
+        $this->expectException(RentalException::class);
+        $this->expectExceptionMessage(RentalClosureService::REFUSED_RECEIVABLE_DIFFERS);
+        $this->closure->closeUnrecovered($this->reload($booking->id), 8200, 'Locataire injoignable', 1, new \DateTimeImmutable());
+    }
+
     public function testAnAmountStillDuePointsToTheUnrecoveredClosure(): void
     {
         $booking = $this->bookingWithABalanceDue();
@@ -622,9 +648,14 @@ final class RentalClosureServiceTest extends TestCase
         $incident = $this->stay->reportIncident($this->reload($booking->id), 'Volet arraché', 5000, null, 1);
         $this->stay->decideIncident($this->reload($booking->id), $incident, IncidentDecision::CHARGE, null, 1);
 
-        $this->assertFalse($this->closure->check($this->reload($booking->id))->offersUnrecovered());
+        $check = $this->closure->check($this->reload($booking->id));
+        $this->assertFalse($check->offersUnrecovered());
+        // A version is validated: the page says it is outdated, never to
+        // validate one first.
+        $this->assertStringContainsString(RentalClosureService::REFUSED_SETTLEMENT_OUTDATED, (string) $check->refusal);
+        $this->assertStringNotContainsString('validez d\'abord', (string) $check->refusal);
         $this->expectException(RentalException::class);
-        $this->expectExceptionMessage('enregistrez et validez-en un nouveau');
+        $this->expectExceptionMessage(RentalClosureService::REFUSED_SETTLEMENT_OUTDATED);
         $this->closure->closeUnrecovered($booking, 65000, 'Assurance refusée', 1, new \DateTimeImmutable());
     }
 

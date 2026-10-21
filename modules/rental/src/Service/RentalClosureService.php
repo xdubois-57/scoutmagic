@@ -61,6 +61,9 @@ class RentalClosureService
     /** The receivable no longer asks what the validated settlement kept: no figure to write off. */
     public const REFUSED_RECEIVABLE_DIFFERS = 'La créance ne demande plus ce que le décompte validé a conservé : '
         . 'vérifiez-la sur la page Finances, ou enregistrez et validez un nouveau décompte, avant de clôturer.';
+    /** A decision taken since the validation: the version in force no longer says what is owed. */
+    public const REFUSED_SETTLEMENT_OUTDATED = 'Le décompte validé ne reflète pas les incidents tels qu\'ils sont '
+        . 'tranchés : enregistrez et validez-en un nouveau avant de clôturer.';
     public const REFUSED_DEPOSIT_BY_HAND = "La restitution de la caution n'est pas enregistrée : notez-la sur la "
         . 'page Finances avant de clôturer la location.';
 
@@ -103,28 +106,7 @@ class RentalClosureService
         if ($status['tracked']) {
             $remaining = $status['remaining_cents'];
             if ($remaining > 0) {
-                $unrecovered = $this->unrecoveredFrom($booking, $status);
-                // The write-off is the settlement's figure and the sentence
-                // the receivable's: offered only when they are one amount,
-                // so a manager never agrees to a sum the page did not say.
-                if ($unrecovered !== null && $unrecovered !== $remaining) {
-                    return new ClosureCheck(
-                        Support::euros($remaining) . ' restent dus sur cette réservation. '
-                            . self::REFUSED_RECEIVABLE_DIFFERS
-                    );
-                }
-
-                return new ClosureCheck(
-                    $unrecovered !== null
-                        ? Support::euros($remaining) . ' restent dus sur cette réservation : attendez leur paiement '
-                            . 'avant de clôturer la location, ou, si vous renoncez à les recouvrer, utilisez '
-                            . '« Clôturer avec un solde non recouvré ».'
-                        : Support::euros($remaining) . ' restent dus sur cette réservation : attendez leur paiement '
-                            . 'avant de clôturer la location. Pour renoncer à les recouvrer, validez d\'abord le '
-                            . 'décompte final sur la page Facture, puis utilisez « Clôturer avec un solde non '
-                            . 'recouvré ».',
-                    $unrecovered
-                );
+                return $this->balanceDue($booking, $status, $remaining);
             }
 
             if ($depositStatus->isHeld()) {
@@ -231,19 +213,16 @@ class RentalClosureService
                 );
             }
             if ($validated->isOutdatedFor($this->stayService->incidentBasisHash($current->id))) {
-                throw new RentalException(
-                    'Le décompte validé ne reflète pas les incidents tels qu\'ils sont tranchés : enregistrez et '
-                    . 'validez-en un nouveau avant de clôturer.'
-                );
+                throw new RentalException(self::REFUSED_SETTLEMENT_OUTDATED);
             }
 
             $received = self::netReceived($status);
-            $unrecovered = $status['remaining_cents'] > 0 ? $validated->keptCents() - $received : 0;
-            if ($unrecovered <= 0) {
+            if ($status['remaining_cents'] <= 0) {
                 throw new RentalException(
                     'Rien ne reste dû sur cette réservation : clôturez-la avec « Clôturer la location ».'
                 );
             }
+            $unrecovered = $validated->keptCents() - $received;
             if ($unrecovered !== $status['remaining_cents']) {
                 throw new RentalException(self::REFUSED_RECEIVABLE_DIFFERS);
             }
@@ -382,26 +361,43 @@ class RentalClosureService
     }
 
     /**
-     * The amount an unrecovered closure would write off now, or null when
-     * it is not offered: money is still due, the final settlement is
-     * validated and still matches the incidents.
+     * Why a booking with $remaining still due cannot close normally — and,
+     * when the unit may give it up, the amount « Clôturer avec un solde non
+     * recouvré » writes off. Each state gets its own sentence: no version
+     * validated yet, the one in force outdated by a later decision, or a
+     * receivable that no longer asks what that version kept (moved since,
+     * up or down) — the write-off is the settlement's figure and the
+     * sentence the receivable's, so it is offered only when they are one
+     * amount and a manager never agrees to a sum the page did not say.
      *
-     * @param array{remaining_cents: int, received_cents: int, refunded_cents: int} $status
+     * @param array{received_cents: int, refunded_cents: int} $status
      */
-    private function unrecoveredFrom(RentalBooking $booking, array $status): ?int
+    private function balanceDue(RentalBooking $booking, array $status, int $remaining): ClosureCheck
     {
-        if ($status['remaining_cents'] <= 0) {
-            return null;
-        }
+        $due = Support::euros($remaining) . ' restent dus sur cette réservation';
 
         $validated = $this->lastValidatedSettlement($booking->id);
-        if ($validated === null || $validated->isOutdatedFor($this->stayService->incidentBasisHash($booking->id))) {
-            return null;
+        if ($validated === null) {
+            return new ClosureCheck(
+                $due . ' : attendez leur paiement avant de clôturer la location. Pour renoncer à les recouvrer, '
+                    . 'validez d\'abord le décompte final sur la page Facture, puis utilisez « Clôturer avec un '
+                    . 'solde non recouvré ».'
+            );
+        }
+        if ($validated->isOutdatedFor($this->stayService->incidentBasisHash($booking->id))) {
+            return new ClosureCheck($due . '. ' . self::REFUSED_SETTLEMENT_OUTDATED);
         }
 
         $unrecovered = $validated->keptCents() - self::netReceived($status);
+        if ($unrecovered !== $remaining) {
+            return new ClosureCheck($due . '. ' . self::REFUSED_RECEIVABLE_DIFFERS);
+        }
 
-        return $unrecovered > 0 ? $unrecovered : null;
+        return new ClosureCheck(
+            $due . ' : attendez leur paiement avant de clôturer la location, ou, si vous renoncez à les '
+                . 'recouvrer, utilisez « Clôturer avec un solde non recouvré ».',
+            $unrecovered
+        );
     }
 
     /** The newest validated settlement version, which is the one in force. */

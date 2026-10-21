@@ -231,7 +231,9 @@ final class RentalClosureOnMysqlTest extends TestCase
     private static function isLockTimeout(\Throwable $e): bool
     {
         for ($cause = $e; $cause !== null; $cause = $cause->getPrevious()) {
-            if ($cause instanceof \PDOException) {
+            // 1205: ER_LOCK_WAIT_TIMEOUT. Any other failure — a deadlock, a
+            // dropped connection — proves nothing about the asset's lock.
+            if ($cause instanceof \PDOException && (int) ($cause->errorInfo[1] ?? 0) === 1205) {
                 return true;
             }
         }
