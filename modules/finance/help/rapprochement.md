@@ -49,6 +49,11 @@ ou l'imputer sur une autre créance du même foyer, souvent la bonne
 réponse : un parent qui arrondit veut payer, pas se faire rembourser
 6,75 €.
 
+Une location peut afficher un trop-perçu attendu : depuis la réservation,
+le gestionnaire y a rattaché en entier un virement sans communication,
+celui d'un assureur par exemple, avant le décompte qui facture le dégât.
+Attendez ce décompte avant de rembourser.
+
 Pour rembourser, faites le virement depuis la banque **avec la
 communication de la créance** : à l'import de l'extrait, le débit est
 rapproché tout seul, dans la limite du trop-perçu, et la créance passe

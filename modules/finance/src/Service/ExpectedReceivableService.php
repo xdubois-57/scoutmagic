@@ -10,6 +10,7 @@ namespace Modules\Finance\Service;
 
 use Modules\Finance\Api\ExpectedReceivableInterface;
 use Modules\Finance\Api\FinanceException;
+use Modules\Finance\Api\PaymentCandidate;
 use Modules\Finance\Api\ReceivableStanding;
 use Modules\Finance\Api\RefundCandidate;
 use Modules\Finance\Repository\ExpectedReceivable;
@@ -257,6 +258,70 @@ class ExpectedReceivableService implements ExpectedReceivableInterface
             $since->format('Y-m-d'),
             $actorUserAccountId
         );
+    }
+
+    public function findPaymentCandidates(
+        string $sourceModule,
+        int $receivableId,
+        int $amountCents,
+        ?string $counterpartyContains,
+        \DateTimeImmutable $since
+    ): array {
+        $receivable = $this->ownedBy($sourceModule, $receivableId);
+        if ($receivable === null) {
+            return [];
+        }
+
+        $candidates = [];
+        $credits = $this->allocations->paymentCandidatesFor(
+            $receivable,
+            $amountCents,
+            $counterpartyContains,
+            $since->format('Y-m-d')
+        );
+        foreach ($credits as $credit) {
+            $candidates[] = new PaymentCandidate(
+                transactionId: $credit->id,
+                date: $credit->transactionDate,
+                amountCents: (int) round($credit->amount * 100),
+                counterpartyName: $credit->counterpartyName,
+                label: $credit->label
+            );
+        }
+
+        return $candidates;
+    }
+
+    public function reconcilePayment(
+        string $sourceModule,
+        int $receivableId,
+        int $transactionId,
+        int $amountCents,
+        \DateTimeImmutable $since,
+        ?int $actorUserAccountId
+    ): void {
+        $receivable = $this->ownedBy($sourceModule, $receivableId);
+        if ($receivable === null) {
+            throw new FinanceException("Cette créance n'existe pas.");
+        }
+
+        $this->allocations->paymentFromCandidate(
+            $receivable,
+            $transactionId,
+            $amountCents,
+            $since->format('Y-m-d'),
+            $actorUserAccountId
+        );
+    }
+
+    public function detachPayment(string $sourceModule, int $receivableId, int $transactionId): void
+    {
+        $receivable = $this->ownedBy($sourceModule, $receivableId);
+        if ($receivable === null) {
+            throw new FinanceException("Cette créance n'existe pas.");
+        }
+
+        $this->allocations->detachPayment($receivable, $transactionId);
     }
 
     /**

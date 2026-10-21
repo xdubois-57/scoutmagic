@@ -91,12 +91,43 @@ class TransactionRepository
     }
 
     /**
+     * The credits of an account of exactly $amountCents, booked on or
+     * after $sinceDate (`Y-m-d`), oldest first — what a payment made
+     * without its communication is looked for among
+     * (Service\ReceivableAllocationService::paymentCandidatesFor()).
+     * Filtered in SQL on the columns kept in the clear, so only credits of
+     * that very amount are decrypted, never the account's whole history.
+     *
+     * @return Transaction[]
+     */
+    public function findCreditsOfAmountSince(int $accountId, int $amountCents, string $sinceDate): array
+    {
+        if ($amountCents <= 0) {
+            return [];
+        }
+
+        // The DECIMAL column compared with the decimal spelling of the
+        // cents, never with a float PHP computed.
+        $stmt = $this->pdo->prepare(
+            'SELECT * FROM finance_transactions WHERE account_id = ? AND amount = ? AND transaction_date >= ? '
+                . 'ORDER BY transaction_date ASC, id ASC'
+        );
+        $stmt->execute([
+            $accountId,
+            sprintf('%d.%02d', intdiv($amountCents, 100), $amountCents % 100),
+            $sinceDate,
+        ]);
+        return array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
+    /**
      * Holds one movement's row until the transaction open on this
      * connection ends (`SELECT … FOR UPDATE`), so two decisions about the
-     * same movement — a refund for two different receivables — are taken
-     * one after the other, the second seeing what the first wrote. Only
-     * meaningful inside a transaction, which is why its one caller runs
-     * under ExpectedReceivableRepository::withReceivableLocked(). SQLite
+     * same movement — a refund for two different receivables, one credit
+     * claimed as the payment of two — are taken one after the other, the
+     * second seeing what the first wrote. Only meaningful inside a
+     * transaction, which is why its callers run under
+     * ExpectedReceivableRepository::withReceivableLocked(). SQLite
      * serialises writers on its own and has no `FOR UPDATE`.
      */
     public function lockForUpdate(int $id): void

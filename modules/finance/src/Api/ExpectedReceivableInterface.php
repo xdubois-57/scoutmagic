@@ -184,4 +184,91 @@ interface ExpectedReceivableInterface
         \DateTimeImmutable $since,
         ?int $actorUserAccountId
     ): void;
+
+    // ── the incoming side (chantier #980, §2.6) ─────────────────────────
+
+    /**
+     * Credits that could be a payment of this receivable, for the person
+     * who knows a transfer arrived without its communication — a renter's
+     * insurer settling a damage: credits on the receivable's own account,
+     * of exactly $amountCents, booked on or after $since, reconciled with
+     * nothing, oldest first. With $counterpartyContains, only those whose
+     * counterparty name contains it, ignoring case and accents (compared
+     * after decryption: the name is encrypted at rest).
+     *
+     * **Never the account's whole list.** The person asking is not a
+     * treasurer, and every candidate is somebody's money: the exact amount
+     * is mandatory, and a credit is left out when it carries the
+     * communication of any receivable (that one is somebody's payment, and
+     * the import matches it on its own), when a treasurer declared it no
+     * payment for any receivable, or when a person already said it pays
+     * nothing towards this one. Each candidate says when, how much, from
+     * whom and what the payer wrote, and nothing else (PaymentCandidate).
+     *
+     * An id that is unknown or another module's is answered with an empty
+     * list, as for the refund side.
+     *
+     * @return list<PaymentCandidate>
+     * @throws \Modules\Finance\Api\FinanceException when $amountCents is
+     *         not positive.
+     */
+    public function findPaymentCandidates(
+        string $sourceModule,
+        int $receivableId,
+        int $amountCents,
+        ?string $counterpartyContains,
+        \DateTimeImmutable $since
+    ): array;
+
+    /**
+     * Records one candidate credit as a payment of this receivable — **its
+     * whole amount, even beyond what the receivable still expects**: the
+     * excess reads as an overpayment until the receivable's amount is
+     * raised to take it in (a validated final settlement charging the
+     * damage the insurer paid). This is the one written exception to « a
+     * receivable never absorbs more than it is owed » (ARCHITECTURE.md
+     * §8.81, rule 1); it is a person's decision, which the automatic
+     * matching never revises.
+     *
+     * **Everything findPaymentCandidates() filters on is checked again**,
+     * under a lock on the receivable and then on the movement: the credit
+     * must still be on the receivable's account, of exactly $amountCents,
+     * booked on or after $since, carry no receivable's communication and
+     * be reconciled with nothing. Two people pointing at the same credit
+     * for two receivables at once cannot both have it.
+     *
+     * $actorUserAccountId is who decided (`user_accounts.id`), handed back
+     * as ReceivableMovement::$reconciledBy.
+     *
+     * @throws \Modules\Finance\Api\FinanceException with a French sentence
+     *         when the receivable is not this module's, or when the credit
+     *         is no longer a candidate.
+     */
+    public function reconcilePayment(
+        string $sourceModule,
+        int $receivableId,
+        int $transactionId,
+        int $amountCents,
+        \DateTimeImmutable $since,
+        ?int $actorUserAccountId
+    ): void;
+
+    /**
+     * Takes a credit a person attached off this receivable again — the
+     * undo of reconcilePayment(), for a credit attached by mistake. Only
+     * a movement ReceivableMovement::$detachable says so of: a person's
+     * attachment of a credit that carries no receivable's communication.
+     * Nothing else of the receivable is touched, and the credit becomes a
+     * candidate again, for this receivable or another.
+     *
+     * Checked under the same locks as reconcilePayment(), so detaching
+     * twice, or while somebody else does, removes it once. What the
+     * consuming module adds to the rule (a settlement that has since
+     * counted the payment) is its own to check before calling.
+     *
+     * @throws \Modules\Finance\Api\FinanceException with a French sentence
+     *         when the receivable is not this module's, or when no such
+     *         attachment exists on the pair.
+     */
+    public function detachPayment(string $sourceModule, int $receivableId, int $transactionId): void;
 }
