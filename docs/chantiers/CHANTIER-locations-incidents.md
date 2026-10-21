@@ -25,8 +25,8 @@ réelles sont `specifications.md` §22.5 (suivi), §22.6 (documents) et §22.7
 - **Autonomie complète.** Enchaîner les lots sans demander de validation. Ne
   poser une question au mainteneur (commentaire sur #980) que pour un vrai
   changement de design ou une ambiguïté que ce document ne tranche pas. Une
-  décision du §2 ne se rediscute pas. **Seule Q1 attend le mainteneur** : les
-  lots B et D ne commencent pas avant sa réponse.
+  décision du §2 ne se rediscute pas. Q1, seule question posée au
+  mainteneur, est tranchée (§2.6).
 - **Un lot = une branche = une PR.** Rebaser sur `main` avant la fusion. Suite
   complète (PHPUnit sur MariaDB, `tests/Modules`, `tests/Core`,
   `tests/Security`, `tests/Architecture` entiers ; Vitest ; PHPStan ;
@@ -228,9 +228,11 @@ rapprochement.md`, `controle-des-creances.md` ; `core/View/rgpd_default.html`
 
 ### 2.6 Rapprocher à la main un virement sans communication
 
-- **Q1 — en attente du mainteneur.** Peut-on rapprocher à la main un virement
-  entrant **au-delà de ce qui reste dû** (contraire à la règle 1 de
-  `ARCHITECTURE.md` §8.81) ? **Les lots B et D attendent la réponse.**
+- **Q1 — tranchée par le mainteneur le 21/10.** Un virement entrant rapproché
+  à la main s'impute **en entier, même au-delà de ce qui reste dû** : l'excédent
+  se lit en trop-perçu jusqu'à la validation du décompte, qui le fait compter
+  sur le dégât. C'est une exception écrite à la règle 1 de `ARCHITECTURE.md`
+  §8.81, limitée au rapprochement manuel d'un paiement entrant (lot B l'écrit).
 - Candidats : virements entrants non rapprochés du compte du bien, de ce
   **montant exact** ; nom du payeur facultatif, comparé en sous-chaîne,
   insensible à la casse et aux accents (Q9). Jamais la liste complète du
@@ -304,7 +306,7 @@ rapprochement.md`, `controle-des-creances.md` ; `core/View/rgpd_default.html`
 
 ```
 Vague 0 : [0 Document de chantier]
-Vague 1 : [A Trois états + conversion] [B API Finances, entrées — ATTEND Q1] [H Contrat type]
+Vague 1 : [A Trois états + conversion] [B API Finances, entrées] [H Contrat type]
 Vague 2 : [C L'évaluation bloque ◄ A] [D « Rapprocher un virement » ◄ B] [E Suivi du locataire ◄ A]
 Vague 3 : [F Décision après validation + facture complémentaire ◄ A, C] [G Clôtures ◄ A, C]
 Vague 4 : [I Bout en bout, documentation, clôture de #980 ◄ tous]
@@ -363,7 +365,7 @@ autre.
   façon `NothingInClear` ; `RentalStayServiceTest` ; contrôleur et
   `RentalRbacTest` ; gabarit par `TestTwig` ; enums lus par les gabarits.
 
-### Lot B — API Finances, côté entrées (vague 1, ATTEND Q1)
+### Lot B — API Finances, côté entrées (vague 1)
 
 - `findPaymentCandidates(sourceModule, receivableId, amountCents,
   ?counterpartyContains, since)`, `reconcilePayment(...)`,
@@ -461,7 +463,8 @@ autre.
 
 ## 4. Pièges
 
-- **L'argent.** Q1 (imputation au-delà du dû) ; un candidat qui porte la
+- **L'argent.** L'exception de Q1 (imputation au-delà du dû) ne vaut que pour le
+  rapprochement manuel d'un paiement entrant ; un candidat qui porte la
   communication d'une autre créance ; la validation d'une version périmée
   (empreinte des incidents) ; le montant non recouvré recalculé sous verrou.
   Un ancien `WITHHOLD` était plafonné à la caution, un `CHARGE` ne l'est
@@ -499,7 +502,7 @@ autre.
    départ, un point d'attention le dit.
 4. Un virement sans communication se rapproche à la main depuis la
    réservation, parmi les seuls candidats du §2.6, et se détache tant que le
-   §2.6 le permet (selon la réponse à Q1).
+   §2.6 le permet ; il s'impute en entier, même au-delà du dû (Q1).
 5. Le locataire voit les incidents tranchés et la seule phrase d'un incident
    en évaluation ; jamais un motif.
 6. Une décision après validation propose une nouvelle version ; la facture
@@ -516,5 +519,5 @@ autre.
 
 | Lot | PR | Livré | Écarts / notes |
 |---|---|---|---|
-| 0 — Document de chantier | #? | Ce document : état des lieux au commit `066bfc05`, décisions du ticket et réponses aux questions Q2 à Q19 (Q1 en attente du mainteneur), lots et propriété des fichiers, pièges, critères d'acceptation. | Les lots B et D attendent la réponse à Q1. |
+| 0 — Document de chantier | #? | Ce document : état des lieux au commit `066bfc05`, décisions du ticket et réponses aux questions Q1 à Q19 (Q1 tranchée par le mainteneur), lots et propriété des fichiers, pièges, critères d'acceptation. | — |
 | A — Trois états, conversion, calcul | #? | `IncidentDecision` à trois états (`PENDING` sélectionnable, `consequence()`, `fromStored()` qui lit `withhold` comme `CHARGE`) ; `Incident` gagne `awaiting`, `reference`, `waiveReason` (colonnes `*_encrypted`, un contexte de chiffrement chacune) ; `IncidentDecisionMigration::runOnce()` (drapeau `rental_incident_withhold_migrated`, `RentalStayRepository::convertWithheldIncidentsToCharges()`) câblée dans `public/index.php` ; `SettlementCalculator` sans retenue d'incident, `securityDepositAtSettlement()` (§2.3) ; `validateSettlement()` dérive les champs de caution de l'argent au moment de la validation et les écrit dans le compare-and-set ; « Trancher » en boutons radio avec l'état actuel, la conséquence de chaque choix et les champs du choix (`rental-inventory.js`, `data-incident-field`), ancre `#incident-{id}` ; aide `locations-incidents.md` (nouveau sujet), `locations-etat-des-lieux.md`, `gerer-les-locations.md`, une ligne de `locations-facture.md` ; spec §22.7, ARCHITECTURE §8.56 et §8.54 (`settleAmount()`), `rgpd_default.html` (« Incidents et dégâts »). | Colonne `rental_settlements.kept_cents` ajoutée (hors plan) : `Settlement::keptCents()` la lit, et une version enregistrée avant le lot (NULL) garde « total + retenue » — ainsi une version validée ne change pas de sens et une version non validée d'avant la conversion se valide au bon montant. Sans Finances, la caution est rendue entière (le dégât est dans le solde). Le motif d'un « Ne pas facturer » n'est gardé qu'avec ce choix ; « En attente de… » et « Référence » restent quel que soit l'état. Limites : 200, 100 et 500 caractères. Sujet d'aide séparé : `locations-etat-des-lieux.md` dépassait les 500 mots. Phrase de conséquence de « En cours d'évaluation » limitée à ce qui est vrai après A (le blocage du décompte vient avec C). |
