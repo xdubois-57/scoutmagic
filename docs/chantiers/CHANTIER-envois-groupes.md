@@ -155,6 +155,14 @@ Comportement existant, inchangé ici.
   schéma décrit le jeton tel qu'il est réellement haché
   (`Core\Security\CapabilityToken`, SHA-256), pas `password_hash()` comme
   l'ancien.
+- **Gel atomique et unique.** Le gel écrit messages et cibles dans la même
+  transaction que le passage `test` → `sending` (règle actuelle,
+  `MassMailService::startSending()` L878-888) : un second gel de la même
+  communication est impossible, et c'est cette transition qui garantit
+  l'unicité. **Aucun index unique ne doit inclure `audience_row_id` sur
+  `mass_mail_deliveries` ni `mass_mail_targets`** : la purge le met à NULL
+  (`SET NULL`), ce qui ferait se confondre deux lignes du fichier vers la même
+  adresse ou du même Tiers et ferait échouer la purge.
 - `mass_mail_targets` : `id`, `email_id` (CASCADE), `member_id`,
   `scout_year_id`, `audience_row_id` (NULL ; SET NULL à la purge). Liste : une
   cible par animé et par communication (vérifié par le service). Publipostage :
@@ -290,7 +298,8 @@ Comportement existant, inchangé ici.
   que ce compte peut voir (`canAccess()`), la première par nom d'animé ; les
   autres sont atteintes par « concerne aussi ». Sans `member_years`, pas de lien
   (règle actuelle).
-- Corps : l'objet tel qu'envoyé (personnalisé en publipostage), règle actuelle.
+- Texte de la notification : l'objet du message, personnalisé en publipostage
+  comme dans l'e-mail envoyé (règle actuelle).
 - Purge : `PurgeMergeAudiencesHandler` reconstruit les URL des cibles de
   l'audience purgée et supprime les notifications correspondantes, comme
   aujourd'hui ; une seule fonction construit ces URL.
@@ -370,7 +379,9 @@ dans un ordre ou dans l'autre.
   même adresse. Les doublures de test qui implémentent l'interface
   (`CampaignReminderServiceTest` L421, `LeadershipRbacTest` L830) suivent la
   nouvelle forme.
-- Tests : `AudienceImportServiceTest` (alias, membre fusionné, avertissements),
+- Tests : `AudienceImportServiceTest` (alias, membre fusionné, avertissements,
+  fichier refusé en entier quand une ligne porte un Tiers inconnu à côté d'une
+  ligne valide),
   `MergeDraftServiceTest` (deux réponses de même adresse = deux lignes ; ligne
   avec `member_id`).
 - Aide Actualités (`modules/news/help/reponses-au-formulaire.md`,
