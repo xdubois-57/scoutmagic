@@ -115,7 +115,12 @@ class RentalRequestController extends AbstractController
          * How to pay, with the SEPA QR (chantier #927, §2.4), once the
          * booking has a receivable. Null shows no payment block.
          */
-        private ?\Modules\Rental\Service\RentalPaymentService $paymentService = null
+        private ?\Modules\Rental\Service\RentalPaymentService $paymentService = null,
+        /**
+         * « Incidents et dégâts » (#980): the decided incidents and whether
+         * one is still being assessed. Null shows no such section.
+         */
+        private ?\Modules\Rental\Service\RentalStayService $stayService = null
     ) {
         parent::__construct($twig);
     }
@@ -524,6 +529,10 @@ class RentalRequestController extends AbstractController
                 $booking,
                 $this->paymentService->settingsFor($asset->id)
             ),
+            // « Incidents et dégâts » (#980): the decided ones, and only the
+            // fact that one is being assessed — its description and amount
+            // are never built for this page, and a waive reason never is.
+            'renter_incidents' => $this->stayService?->renterIncidents($booking->id),
             // Echoed back so this page's own forms post to a URL that still
             // carries the capability. It is already in the address bar; it
             // is never journaled and never leaves this page.

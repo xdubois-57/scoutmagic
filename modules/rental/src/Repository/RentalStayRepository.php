@@ -17,6 +17,8 @@ use Modules\Rental\Stay\MeterKind;
 use Modules\Rental\Stay\MeterReading;
 use Modules\Rental\Stay\ReadingPhase;
 use Modules\Rental\Stay\RentalMeter;
+use Modules\Rental\Stay\RenterIncident;
+use Modules\Rental\Stay\RenterIncidents;
 use Modules\Rental\Stay\Settlement;
 use Modules\Rental\Stay\SettlementLine;
 
@@ -695,6 +697,57 @@ class RentalStayRepository
         $stmt->execute([$bookingId]);
 
         return array_map(fn(array $row) => $this->hydrateIncident($row), $stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
+    /**
+     * The incidents as the renter's tracking page may show them (#980).
+     *
+     * **An assessment in progress never leaves the database for this
+     * page**: the query hands back its decision and nothing else — no
+     * ciphertext, no amount — so its description is never decrypted and
+     * there is nothing a template could print (ARCHITECTURE.md §7.6, rule
+     * 3). Only the values that read as decided carry their columns, the
+     * retired `withhold` among them; an unknown one reads as pending, as
+     * `IncidentDecision::fromStored()` reads it. The internal texts
+     * (awaiting, reference, waive reason) are not selected at all.
+     */
+    public function findRenterIncidents(int $bookingId): RenterIncidents
+    {
+        $decided = [IncidentDecision::LEGACY_WITHHOLD];
+        foreach (IncidentDecision::cases() as $case) {
+            if ($case->isVisibleToRenter()) {
+                $decided[] = $case->value;
+            }
+        }
+        $in = implode(', ', array_fill(0, count($decided), '?'));
+
+        $stmt = $this->pdo->prepare(
+            "SELECT decision,
+                    CASE WHEN decision IN ($in) THEN description_encrypted END AS description_encrypted,
+                    CASE WHEN decision IN ($in)
+                         THEN COALESCE(decided_amount_cents, proposed_amount_cents) END AS amount_cents,
+                    CASE WHEN decision IN ($in) THEN created_at END AS reported_at
+             FROM rental_incidents WHERE booking_id = ? ORDER BY created_at ASC, id ASC"
+        );
+        $stmt->execute([...$decided, ...$decided, ...$decided, $bookingId]);
+
+        $visible = [];
+        $assessmentInProgress = false;
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $decision = IncidentDecision::fromStored((string) $row['decision']);
+            if (!$decision->isVisibleToRenter()) {
+                $assessmentInProgress = true;
+                continue;
+            }
+
+            $visible[] = new RenterIncident(
+                description: $this->encryption->decrypt((string) $row['description_encrypted'], self::CTX_INCIDENT),
+                reportedAt: DateInput::requireFromStorage((string) $row['reported_at'], 'created_at'),
+                chargedCents: $decision->entersSettlement() ? (int) ($row['amount_cents'] ?? 0) : null
+            );
+        }
+
+        return new RenterIncidents($visible, $assessmentInProgress);
     }
 
     public function deleteIncident(int $incidentId): void

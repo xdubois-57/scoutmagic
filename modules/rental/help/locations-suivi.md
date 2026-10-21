@@ -44,6 +44,13 @@ Utilisez toujours la même communication, pour l'acompte, le solde et la
 caution. Après le séjour, l'unité vous rembourse par virement ce que
 vous avez versé en plus, la caution par exemple.
 
+## Incidents et dégâts
+
+Si un dégât est constaté pendant le séjour, « Incidents et dégâts » le
+décrit, avec sa date et le montant facturé, ou « Non facturé ». Tant
+qu'un dégât est en cours d'évaluation, la page le dit sans détail : la
+caution reste retenue jusqu'à son règlement.
+
 ## Changer vos dates ou annuler
 
 La page ne modifie rien : pour changer vos dates, votre nombre de
