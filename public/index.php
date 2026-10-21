@@ -12208,7 +12208,10 @@ if ($isEnabled('rental')) {
         $financeExpectedReceivableForOthers,
         $financeStructuredCommunicationForOthers,
         $financeSepaQrCodeForOthers,
-        $financeAccountForOthers
+        $financeAccountForOthers,
+        // How far the account is known: « Rapprocher un virement » says
+        // when no statement was imported since its search starts (#980).
+        $financeStatementStatusForOthers
     );
 
     $frontController->registerController(

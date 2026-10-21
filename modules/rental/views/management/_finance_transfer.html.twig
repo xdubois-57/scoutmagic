@@ -1,0 +1,71 @@
+{#
+  « Rapprocher un virement » — the dialog of « Finances » for a payment
+  that came in without the booking's communication: a renter's insurer
+  settling a damage, a relative paying for them (#980, chantier §2.6).
+
+  The manager types the amount received — mandatory — and, if they know
+  it, the payer's name. The search posts it (POST, never in a URL) and
+  the list comes back rendered by `_finance_transfer_candidates.html.twig`,
+  placed in `[data-transfer-results]` by
+  public/assets/js/rental-transfer-reconcile.js: only the unreconciled
+  credits of the asset's account, since the first contract went out, of
+  that exact amount. **Never the account's whole list**: a manager is not
+  a treasurer, and every candidate is somebody's money.
+
+  The dialog says how far the account is known: with no statement
+  imported since the search starts, nothing that came in since can be
+  found, and the page says so rather than letting an empty list read as
+  « nothing arrived ».
+
+  Requires `asset`, `booking`, `booking_page`, `transfer_available`,
+  `transfer_since` and `transfer_statement_at`
+  (RentalManagementController::transferContext()).
+#}
+<div data-booking-panel="payment-transfer">
+    {% if transfer_available|default(false) %}
+        {% embed 'partials/modal.html.twig' with {
+            id: 'rapprocher-virement',
+            title: 'Rapprocher un virement',
+            size: 'lg',
+            asset: asset, booking: booking, booking_page: booking_page,
+            transfer_since: transfer_since, transfer_statement_at: transfer_statement_at,
+        } only %}
+            {% block body %}
+                <p class="small">
+                    Le site cherche parmi les virements entrants du compte de ce bien qui ne sont rapprochés de
+                    rien, reçus depuis le {{ transfer_since|date_fr }}, ceux du montant exact que vous indiquez.
+                    Celui que vous choisissez compte en entier comme un paiement de {{ booking.reference }}.
+                </p>
+                {% include '@rental/management/_finance_transfer_statement.html.twig' %}
+                <form method="post" action="/mes-locations/virement-chercher" id="transfer-search-form"
+                      data-transfer-search data-async="off">
+                    {{ csrf_field()|raw }}
+                    <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                    <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                    <input type="hidden" name="booking_page" value="{{ booking_page.value }}">
+                    <div class="row g-2 align-items-end">
+                        <div class="col-sm-4">
+                            <label class="form-label" for="transfer-amount">Montant reçu (€)</label>
+                            <input type="text" class="form-control" id="transfer-amount" name="amount"
+                                   inputmode="decimal" autocomplete="off" required>
+                        </div>
+                        <div class="col-sm-5">
+                            <label class="form-label" for="transfer-payer">
+                                Nom du payeur <span class="text-body-secondary">(facultatif)</span>
+                            </label>
+                            <input type="text" class="form-control" id="transfer-payer" name="payer_name"
+                                   maxlength="100" autocomplete="off">
+                        </div>
+                        <div class="col-sm-3">
+                            <button type="submit" class="btn btn-primary w-100 w-sm-auto">Chercher</button>
+                        </div>
+                    </div>
+                </form>
+                <div class="mt-3" data-transfer-results aria-live="polite"></div>
+            {% endblock %}
+            {% block footer %}
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Fermer</button>
+            {% endblock %}
+        {% endembed %}
+    {% endif %}
+</div>

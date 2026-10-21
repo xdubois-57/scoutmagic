@@ -24,6 +24,10 @@
   followed outside the site, with the deposit's return recorded here by
   hand (§2.6).
 
+  « Rapprocher un virement » (#980, chantier §2.6) is offered from
+  « Mouvements du compte » and its dialog follows the three cards
+  (`_finance_transfer.html.twig`).
+
   Requires the context of RentalManagementController::financesContext().
 #}
 {% block booking_content %}
@@ -32,6 +36,7 @@
             {% include '@rental/management/_finance_summary.html.twig' %}
             {% include '@rental/management/_finance_movements.html.twig' %}
             {% include '@rental/management/_finance_instructions.html.twig' %}
+            {% include '@rental/management/_finance_transfer.html.twig' %}
         {% else %}
             {% include '@rental/management/_finance_off.html.twig' %}
         {% endif %}
@@ -41,4 +46,6 @@
 {% block booking_scripts %}
     {# Keeps the screen awake while the enlarged QR is on it. #}
     <script src="{{ asset('/assets/js/payment-qr.js') }}" defer></script>
+    {# « Rapprocher un virement »: places the search's answer in its dialog. #}
+    <script src="{{ asset('/assets/js/rental-transfer-reconcile.js') }}" defer></script>
 {% endblock %}

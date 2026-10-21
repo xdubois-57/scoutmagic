@@ -1,0 +1,21 @@
+{#
+  How far the account is known, for « Rapprocher un virement » (#980,
+  chantier §2.6): a credit is found only once the statement carrying it
+  has been imported into Finances. With no statement imported since the
+  search starts, the dialog and an empty search say so; otherwise the
+  date of the last import, so an empty list is read for what it is.
+
+  Requires `transfer_since` and `transfer_statement_at` (or null: none
+  ever imported, or nothing to say it).
+#}
+{% if transfer_statement_at is null or transfer_statement_at < transfer_since %}
+    <p class="alert alert-warning small" data-transfer-no-statement>
+        Aucun extrait importé depuis le {{ transfer_since|date_fr }} : un virement reçu depuis n'apparaît
+        qu'après l'import, dans les Finances, de l'extrait bancaire qui le contient.
+    </p>
+{% else %}
+    <p class="small text-body-secondary" data-transfer-statement>
+        Dernier extrait bancaire importé le {{ transfer_statement_at|date_fr }} : un virement reçu après
+        n'apparaît pas encore.
+    </p>
+{% endif %}

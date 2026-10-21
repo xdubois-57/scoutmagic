@@ -2435,13 +2435,14 @@ class RentalManagementController extends AbstractController
         $settings = $this->paymentService?->settingsFor($asset->id);
         $settlement = $this->stayService?->latestSettlement($booking->id);
         $overpaid = (int) ($payment['overpaid_cents'] ?? 0);
+        $movements = $this->paymentService?->movementsFor($booking) ?? [];
 
         return [
             'payment' => $payment,
             'settlement' => $settlement !== null && $settlement->isValidated ? $settlement : null,
             // The deposit stays held while a damage is assessed (#980).
             'damage_under_assessment' => $this->stayService?->hasIncidentUnderAssessment($booking->id) ?? false,
-            'movements' => $this->paymentService?->movementsFor($booking) ?? [],
+            'movements' => $movements,
             'instructions' => $settings !== null
                 ? $this->paymentService->paymentInstructions($booking, $settings, $payment)
                 : null,
@@ -2451,7 +2452,7 @@ class RentalManagementController extends AbstractController
             'refund_candidates' => $overpaid > 0
                 ? $this->paymentService?->refundCandidates($booking, $this->refundSince($booking)) ?? []
                 : [],
-        ];
+        ] + $this->transferContext($booking, $payment, $settings, $movements);
     }
 
     /**
@@ -2499,6 +2500,197 @@ class RentalManagementController extends AbstractController
             );
 
             FlashMessage::set('success', 'Remboursement rapproché.');
+        });
+    }
+
+    // ── « Rapprocher un virement » (#980, chantier §2.6) ────────────────
+
+    /**
+     * What « Rapprocher un virement » and the movements' « Détacher » need
+     * on « Finances »: since when a credit can be the booking's payment,
+     * how far the account is known, who reconciled each movement by hand,
+     * and which of them may still be detached (Q11). Nothing is searched
+     * here — the candidates are somebody's money, and only a manager who
+     * typed an amount is shown any (searchTransfer()).
+     *
+     * @param array<string, mixed> $payment
+     * @param list<\Modules\Finance\Api\ReceivableMovement> $movements
+     * @return array{
+     *   transfer_available: bool, transfer_since: ?\DateTimeImmutable,
+     *   transfer_statement_at: ?\DateTimeImmutable, movement_authors: array<int, string>,
+     *   detachable_transactions: list<int>
+     * }
+     */
+    private function transferContext(
+        RentalBooking $booking,
+        array $payment,
+        ?\Modules\Rental\Payment\PaymentSettings $settings,
+        array $movements
+    ): array {
+        $available = $this->paymentService !== null && ($payment['tracked'] ?? false) === true;
+        $lastValidatedAt = $available ? $this->lastSettlementValidatedAt($booking) : null;
+
+        $authors = [];
+        $detachable = [];
+        foreach ($movements as $movement) {
+            if ($movement->transactionId === null) {
+                continue;
+            }
+            if ($movement->reconciledAt !== null) {
+                $authors[$movement->transactionId] = $this->signerName?->forAccount($movement->reconciledBy)
+                    ?? 'un gestionnaire';
+            }
+            if ($available && RentalPaymentService::canDetach($movement, $lastValidatedAt)) {
+                $detachable[] = $movement->transactionId;
+            }
+        }
+
+        $payments = $available ? $this->paymentService : null;
+
+        return [
+            'transfer_available' => $available,
+            'transfer_since' => $payments?->transferSince($booking),
+            'transfer_statement_at' => $settings !== null ? $payments?->lastStatementImportedAt($settings) : null,
+            'movement_authors' => $authors,
+            'detachable_transactions' => $detachable,
+        ];
+    }
+
+    /**
+     * When the most recent of the booking's validated settlements was
+     * validated — what « Détacher » is measured against (Q11) — or null
+     * while none is.
+     */
+    private function lastSettlementValidatedAt(RentalBooking $booking): ?\DateTimeImmutable
+    {
+        $last = null;
+        foreach ($this->stayService?->settlementsFor($booking->id) ?? [] as $settlement) {
+            if ($settlement->isValidated && $settlement->validatedAt !== null
+                && ($last === null || $settlement->validatedAt > $last)) {
+                $last = $settlement->validatedAt;
+            }
+        }
+
+        return $last;
+    }
+
+    /**
+     * POST /mes-locations/virement-chercher — the search of « Rapprocher
+     * un virement »: the credits of the asset's account, reconciled with
+     * nothing, since the first contract went out, of exactly the amount
+     * typed and, with a payer name, from a counterparty containing it.
+     *
+     * **POST and JSON only.** The amount and the name never travel in a
+     * URL (a history, a log, a referrer), and the answer is the dialog's
+     * list, rendered from Twig like every other panel of the page and
+     * placed by public/assets/js/rental-transfer-reconcile.js. A browser
+     * posting the form itself is told the search needs that script.
+     *
+     * @param array<string, string> $params
+     */
+    public function searchTransfer(Request $request, array $params): Response
+    {
+        return $this->bookingAction($request, function (
+            RentalBooking $booking,
+            RentalAsset $asset
+        ) use ($request): array {
+            if ($this->paymentService === null) {
+                throw new RentalException("Le module « Finances » n'est pas actif.");
+            }
+            if (!self::wantsJson($request)) {
+                throw new RentalException(
+                    'La recherche d\'un virement a besoin de JavaScript : activez-le et réessayez.'
+                );
+            }
+
+            $amount = (string) $request->getBody('amount', '');
+            $amountCents = RentalPricingService::parseAmountToCents($amount);
+            if ($amountCents === null || $amountCents <= 0) {
+                throw new RentalException('Indiquez le montant reçu, par exemple 1000 ou 1000,50.');
+            }
+            $since = $this->paymentService->transferSince($booking);
+            $candidates = $this->paymentService->paymentCandidates(
+                $booking,
+                $amountCents,
+                Support::optionalString($request->getBody('payer_name')),
+                $since
+            );
+
+            return ['html' => $this->renderToString('@rental/management/_finance_transfer_candidates.html.twig', [
+                'asset' => $asset,
+                'booking' => $booking,
+                'booking_page' => BookingPage::FINANCES,
+                'amount_cents' => $amountCents,
+                'candidates' => $candidates,
+                'transfer_since' => $since,
+                'transfer_statement_at' => $this->paymentService->lastStatementImportedAt(
+                    $this->paymentService->settingsFor($asset->id)
+                ),
+            ])];
+        });
+    }
+
+    /**
+     * POST /mes-locations/virement-rapprocher — « Rapprocher un virement »:
+     * the credit a manager picked becomes a payment of the booking, whole,
+     * even beyond what is due (Q1). The date is worked out again here and
+     * Finance re-checks the credit under its locks; no e-mail is sent.
+     *
+     * @param array<string, string> $params
+     */
+    public function reconcileTransfer(Request $request, array $params): Response
+    {
+        return $this->bookingAction($request, function (RentalBooking $booking) use ($request): void {
+            if ($this->paymentService === null) {
+                throw new RentalException("Le module « Finances » n'est pas actif.");
+            }
+
+            $transactionId = (int) $request->getBody('transaction_id', 0);
+            $amountCents = (int) $request->getBody('amount_cents', 0);
+            if ($transactionId <= 0 || $amountCents <= 0) {
+                throw new RentalException('Choisissez le virement à rapprocher.');
+            }
+
+            $this->paymentService->reconcilePayment(
+                $booking,
+                $transactionId,
+                $amountCents,
+                $this->paymentService->transferSince($booking),
+                AuthSession::getUserAccountId(),
+                $this->actorMemberId()
+            );
+
+            FlashMessage::set('success', 'Virement rapproché.');
+        });
+    }
+
+    /**
+     * POST /mes-locations/virement-detacher — « Détacher »: a credit
+     * attached by hand by mistake goes back to the account's unreconciled
+     * credits, unless a settlement validated since has counted it (Q11).
+     *
+     * @param array<string, string> $params
+     */
+    public function detachTransfer(Request $request, array $params): Response
+    {
+        return $this->bookingAction($request, function (RentalBooking $booking) use ($request): void {
+            if ($this->paymentService === null) {
+                throw new RentalException("Le module « Finances » n'est pas actif.");
+            }
+
+            $transactionId = (int) $request->getBody('transaction_id', 0);
+            if ($transactionId <= 0) {
+                throw new RentalException('Choisissez le virement à détacher.');
+            }
+
+            $this->paymentService->detachPayment(
+                $booking,
+                $transactionId,
+                $this->lastSettlementValidatedAt($booking),
+                $this->actorMemberId()
+            );
+
+            FlashMessage::set('success', 'Virement détaché.');
         });
     }
 
@@ -4226,9 +4418,10 @@ class RentalManagementController extends AbstractController
      *
      * `$work` may return where to go back to — a URL this controller
      * built, never one from the request — for a form that does not sit on
-     * one of the booking's pages (a modification's own page).
+     * one of the booking's pages (a modification's own page) — or, for
+     * the page's own fetch, an array added to the JSON answer.
      *
-     * @param callable(RentalBooking, RentalAsset): (string|null|void) $work
+     * @param callable(RentalBooking, RentalAsset): (string|array<string, mixed>|null|void) $work
      */
     private function bookingAction(Request $request, callable $work): Response
     {
@@ -4262,7 +4455,10 @@ class RentalManagementController extends AbstractController
         }
 
         if (self::wantsJson($request)) {
-            return $this->json(self::flashAsJson());
+            // A handler answering with more than a flash — the list of
+            // « Rapprocher un virement » — returns it as an array, added to
+            // the flash's three keys.
+            return $this->json(is_array($back) ? self::flashAsJson() + $back : self::flashAsJson());
         }
         if (is_string($back)) {
             return $this->redirect($back);
