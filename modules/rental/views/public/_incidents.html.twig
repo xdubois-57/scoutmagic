@@ -20,7 +20,11 @@
             {% if renter_incidents.assessmentInProgress %}
                 <p class="alert alert-info small {{ renter_incidents.decided is empty ? 'mb-0' : 'mb-3' }}"
                    data-renter-incident-assessment>
-                    Un dégât est en cours d'évaluation ; la caution reste retenue jusqu'à son règlement.
+                    {% if renter_incidents_deposit ?? false %}
+                        Un dégât est en cours d'évaluation ; la caution reste retenue jusqu'à son règlement.
+                    {% else %}
+                        Un dégât constaté pendant votre séjour est en cours d'évaluation.
+                    {% endif %}
                 </p>
             {% endif %}
             {% if renter_incidents.decided is not empty %}

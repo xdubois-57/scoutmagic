@@ -295,10 +295,13 @@ class RentalTrackingIncidentsTest extends TestCase
 
         $body = $this->track($created);
 
+        // This asset takes no deposit (no payment settings here), so the
+        // sentence does not claim one is held.
         $this->assertStringContainsString(
-            'Un dégât est en cours d\'évaluation ; la caution reste retenue jusqu\'à son règlement.',
+            'Un dégât constaté pendant votre séjour est en cours d\'évaluation.',
             $body
         );
+        $this->assertStringNotContainsString('caution', $body);
         $this->assertSame(1, substr_count($body, 'data-renter-incident-assessment'));
         // Neither its description, nor an amount, nor what it waits for.
         $this->assertStringNotContainsString('Infiltration', $body);

@@ -533,6 +533,10 @@ class RentalRequestController extends AbstractController
             // fact that one is being assessed — its description and amount
             // are never built for this page, and a waive reason never is.
             'renter_incidents' => $this->stayService?->renterIncidents($booking->id),
+            // Whether the asset takes a deposit at all: « la caution reste
+            // retenue » would be false on a booking that never had one.
+            'renter_incidents_deposit' => $this->paymentService?->settingsFor($asset->id)
+                ->securityDepositAmount() !== null,
             // Echoed back so this page's own forms post to a URL that still
             // carries the capability. It is already in the address bar; it
             // is never journaled and never leaves this page.
