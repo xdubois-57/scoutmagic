@@ -272,7 +272,12 @@ class RentalManagementController extends AbstractController
          * inventory is named on it: by their account, never by a totem
          * (issue #825). Null names them « un gestionnaire ».
          */
-        private ?\Modules\Rental\Document\SignerName $signerName = null
+        private ?\Modules\Rental\Document\SignerName $signerName = null,
+        /**
+         * Why « Clôturer la location » is refused, and « Clôturer avec un
+         * solde non recouvré » (#980, CHANTIER-locations-incidents.md §2.9). Null offers neither.
+         */
+        private ?\Modules\Rental\Service\RentalClosureService $closureService = null
     ) {
         parent::__construct($twig);
     }
@@ -1602,6 +1607,12 @@ class RentalManagementController extends AbstractController
             ),
             'audit_labels' => BookingAudit::FIELD_LABELS,
             'contract_step' => $this->contractStep($booking, $asset, $documents, $now),
+            // What still stands in the way of « Clôturer la location », and
+            // the amount an unrecovered closure would write off (#980).
+            'closure' => $this->closureService?->check($booking),
+            // Said once the stay is over: before it, money still due is the
+            // ordinary state of a booking, not a reason a closure waits.
+            'closure_refusal_shown' => $now->format('Y-m-d') >= substr($booking->departureDate, 0, 10),
         ];
     }
 
@@ -3859,7 +3870,39 @@ class RentalManagementController extends AbstractController
         });
     }
 
-    /** `467,50 €` — for a flash message a human reads, never for arithmetic. */
+    /**
+     * POST /mes-locations/cloturer-non-recouvre — « Clôturer avec un solde
+     * non recouvré » (#980, CHANTIER-locations-incidents.md §2.9).
+     *
+     * The amount is the one the dialog showed: the service reads it again
+     * under the asset's lock and refuses when it moved. The reason is
+     * required. No e-mail leaves, and the flash says so.
+     *
+     * @param array<string, string> $params
+     */
+    public function closeUnrecovered(Request $request, array $params): Response
+    {
+        return $this->bookingAction($request, function (RentalBooking $booking) use ($request): void {
+            if ($this->closureService === null) {
+                throw new RentalException("La clôture avec un solde non recouvré n'est pas disponible ici.");
+            }
+
+            $settlement = $this->closureService->closeUnrecovered(
+                $booking,
+                (int) $request->getBody('unrecovered_cents', 0),
+                Support::optionalString($request->getBody('reason')),
+                $this->actorMemberId(),
+                new \DateTimeImmutable()
+            );
+
+            FlashMessage::set(
+                'success',
+                'Réservation clôturée avec un solde non recouvré de '
+                . Support::euros($settlement->unrecoveredCents ?? 0) . ' (décompte v' . $settlement->version
+                . '). Aucun e-mail n\'a été envoyé au locataire.'
+            );
+        });
+    }
 
     /**
      * The sentence a manager needs about the money when a booking ends.
@@ -3867,37 +3910,22 @@ class RentalManagementController extends AbstractController
      * Refused, cancelled or expired, its receivable has just been brought
      * to 0 and kept (issue #927): said, because what the renter already
      * paid is now theirs to get back, and nothing computes a refund for
-     * the unit (§6.17). Closed while still owed money, it says how much —
-     * "Réservation « Clôturée »." alone reads as "everything is settled".
+     * the unit (§6.17). A booking is no longer closed while money is still
+     * due: `RentalClosureService` refuses it first (#980).
      */
     private function outstandingMoneyWarning(
         RentalBooking $booking,
         RentalAsset $asset,
         BookingStatus $target
     ): string {
-        if (!$target->isFinal() || $this->paymentService === null) {
+        if (!$target->isAbandoned() || $this->paymentService === null) {
             return '';
         }
 
-        $status = $this->paymentStatus($booking, $asset);
-        if ($target->isAbandoned()) {
-            return ($status['communication'] ?? null) !== null
-                ? ' La créance de cette réservation est ramenée à 0 € : un paiement déjà reçu apparaît en '
-                    . 'trop-perçu dans les Finances.'
-                : '';
-        }
-
-        $due = (int) ($status['total_cents'] ?? 0);
-        $received = (int) ($status['received_cents'] ?? 0);
-        if ($due <= 0 || $received >= $due) {
-            return '';
-        }
-
-        return $received > 0
-            ? ' Attention : ' . Support::euros($due - $received) . ' restent attendus sur cette réservation'
-                . ' — décidez ce qu\'il advient de la créance dans les Finances.'
-            : ' Attention : la créance de ' . Support::euros($due)
-                . ' est toujours ouverte dans les Finances.';
+        return ($this->paymentStatus($booking, $asset)['communication'] ?? null) !== null
+            ? ' La créance de cette réservation est ramenée à 0 € : un paiement déjà reçu apparaît en '
+                . 'trop-perçu dans les Finances.'
+            : '';
     }
 
     /**

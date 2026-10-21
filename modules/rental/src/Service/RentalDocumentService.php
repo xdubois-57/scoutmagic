@@ -528,7 +528,9 @@ class RentalDocumentService
                 $latest = $settlement;
             }
         }
-        if ($latest === null) {
+        // A version closing the booking with an unrecovered balance (#980)
+        // writes the debt off; it bills nothing, in either direction.
+        if ($latest === null || $latest->isUnrecovered()) {
             return null;
         }
 

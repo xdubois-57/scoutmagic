@@ -32,9 +32,10 @@ use Modules\Rental\Stay\SettlementLine;
  * them would mean five constructor arguments everywhere for no boundary
  * anybody draws.
  *
- * **Only incident descriptions are encrypted.** They are written by a
- * manager about what a renter's group did, so they carry the same
- * protection as the renter's own fields. A meter comment and an inventory
+ * **Only incident texts are encrypted**, with the reason a balance was
+ * not recovered (#980). They are written by a manager about what a
+ * renter's group did or owes, so they carry the same protection as the
+ * renter's own fields. A meter comment and an inventory
  * note are about a device and a piece of furniture, and stay plain — the
  * same rule, and the same responsibility on the interface, as
  * `rental_blocks.reason`.
@@ -48,6 +49,7 @@ class RentalStayRepository
     private const CTX_INCIDENT_AWAITING = 'rental_incidents.awaiting';
     private const CTX_INCIDENT_REFERENCE = 'rental_incidents.reference';
     private const CTX_INCIDENT_WAIVE_REASON = 'rental_incidents.waive_reason';
+    private const CTX_UNRECOVERED_REASON = 'rental_settlements.unrecovered_reason';
 
     public function __construct(
         private \PDO $pdo,
@@ -971,6 +973,32 @@ class RentalStayRepository
         return $stmt->rowCount() > 0;
     }
 
+    /**
+     * Writes what an unrecovered closure gave up on onto the version it has
+     * just recorded (#980, CHANTIER-locations-incidents.md §2.9) — before that version is
+     * validated, in the same transaction: a validated version is never
+     * written again. The reason is encrypted; blank, it is refused by the
+     * caller, never stored as the ciphertext of nothing.
+     */
+    public function markUnrecovered(
+        int $settlementId,
+        int $unrecoveredCents,
+        string $reason,
+        \DateTimeImmutable $at
+    ): void {
+        $stmt = $this->pdo->prepare(
+            'UPDATE rental_settlements
+                SET unrecovered_cents = ?, unrecovered_reason_encrypted = ?, unrecovered_at = ?
+              WHERE id = ? AND is_validated = 0'
+        );
+        $stmt->execute([
+            max(0, $unrecoveredCents),
+            $this->encryptOptional($reason, self::CTX_UNRECOVERED_REASON),
+            $at->format('Y-m-d H:i:s'),
+            $settlementId,
+        ]);
+    }
+
     public function findSettlement(int $settlementId): ?Settlement
     {
         $stmt = $this->pdo->prepare('SELECT * FROM rental_settlements WHERE id = ?');
@@ -1104,7 +1132,15 @@ class RentalStayRepository
             createdByMemberId: $row['created_by_member_id'] !== null ? (int) $row['created_by_member_id'] : null,
             createdAt: DateInput::requireFromStorage((string) $row['created_at'], 'created_at'),
             recordedKeptCents: isset($row['kept_cents']) ? (int) $row['kept_cents'] : null,
-            incidentBasisHash: isset($row['incident_basis_hash']) ? (string) $row['incident_basis_hash'] : null
+            incidentBasisHash: isset($row['incident_basis_hash']) ? (string) $row['incident_basis_hash'] : null,
+            unrecoveredCents: isset($row['unrecovered_cents']) ? (int) $row['unrecovered_cents'] : null,
+            unrecoveredReason: $this->decryptOptional(
+                $row['unrecovered_reason_encrypted'] ?? null,
+                self::CTX_UNRECOVERED_REASON
+            ),
+            unrecoveredAt: DateInput::fromStorage(
+                isset($row['unrecovered_at']) ? (string) $row['unrecovered_at'] : null
+            )
         );
     }
 

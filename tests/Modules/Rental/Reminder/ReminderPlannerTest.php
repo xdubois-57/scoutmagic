@@ -690,6 +690,38 @@ class ReminderPlannerTest extends TestCase
         $this->assertContains(ReminderKind::SETTLEMENT_DUE->value, self::kinds($due));
     }
 
+    /**
+     * A closed booking is chased for nothing any more (#980): a balance written off, a deposit, a settlement or an
+     * inventory still missing — closing is the unit saying it is over.
+     */
+    public function testAClosedBookingIsNeverChased(): void
+    {
+        $outstanding = $this->payment([
+            'deposit_due_date' => '2027-05-01',
+            'balance_due_date' => '2027-06-17',
+            'security_deposit' => [
+                'amount_cents' => 30000,
+                'received_cents' => 30000,
+                'due_date' => '2027-06-17',
+                'returned_at' => null,
+            ],
+        ]);
+
+        $confirmed = $this->plan($this->booking(), '2027-07-20', $outstanding, false, false, false, false);
+        $this->assertContains(ReminderKind::SECURITY_DEPOSIT_TO_RETURN->value, self::kinds($confirmed));
+        $this->assertContains(ReminderKind::SETTLEMENT_DUE->value, self::kinds($confirmed));
+
+        $this->assertSame([], $this->plan(
+            $this->booking(BookingStatus::CLOSED),
+            '2027-07-20',
+            $outstanding,
+            false,
+            false,
+            false,
+            false
+        ));
+    }
+
     public function testTheSettlementIsNotChasedTheDayAfterTheStay(): void
     {
         $due = $this->plan($this->booking(), '2027-07-05', hasSettlement: false);

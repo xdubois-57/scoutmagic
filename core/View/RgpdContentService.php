@@ -859,7 +859,9 @@ paramétrage et **jamais un conseil juridique** ; (b) que la suppression est **t
 documents, jetons, relevés, état des lieux, incidents, décompte et emails rattachés, fichiers compris — et qu'elle
 s'applique de la même manière à une demande refusée, annulée ou restée sans suite ; (c) qu'il ne subsiste qu'**une
 ligne anonyme** (bien, mois, nombre de jours, montant), sans identifiant, sans jeton, sans fichier et sans rien de
-rattachable à une personne, servant uniquement à ce que les totaux annuels restent justes. **IA** : si "llm_connector"
+rattachable à une personne, servant uniquement à ce que les totaux annuels restent justes ; (d) qu'un solde auquel
+l'unité renonce est clôturé en « montant non recouvré », avec un motif écrit par un gestionnaire, **chiffré**,
+interne à l'unité, jamais montré au locataire, et sans aucun e-mail envoyé. **IA** : si "llm_connector"
 est également actif, conserve les deux paragraphes sur l'assistance par intelligence artificielle et **traite
 explicitement le fournisseur d'IA comme un sous-traitant à part entière** — il reçoit la photo d'un compteur, un nom
 de fichier, un objet d'email ou le texte d'un échange, ce qui suffit à en faire un sous-traitant, indépendamment du

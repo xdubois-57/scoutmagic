@@ -1,0 +1,62 @@
+{#
+  Closing the booking (#980, CHANTIER-locations-incidents.md §2.9), under « Prochaine action »:
+  why « Clôturer la location » is refused while something is outstanding —
+  the same sentence the server answers with — and, when only an amount the
+  unit gives up on remains, « Clôturer avec un solde non recouvré ».
+
+  Its dialog is the question: the amount, the required reason, and that no
+  e-mail leaves. The form posts without the page's fetch
+  (`data-async="off"`): an open dialog would not survive the panels being
+  swapped under it. The amount travels with it so the server can refuse a
+  figure that moved since the page was rendered.
+
+  Requires `closure` (Booking\ClosureCheck, or null where nothing checks),
+  `asset` and `booking`; `refusal_shown` once the stay is over — before
+  it, money still due is the ordinary state of a booking.
+#}
+{% if closure and closure.refusal and refusal_shown|default(false) %}
+    <p class="small text-warning-emphasis mt-2 mb-0" data-closure-refusal>{{ closure.refusal }}</p>
+{% endif %}
+{% if closure and closure.offersUnrecovered %}
+    <button type="button" class="btn btn-outline-danger btn-sm mt-2" data-bs-toggle="modal"
+            data-bs-target="#close-unrecovered">
+        Clôturer avec un solde non recouvré
+    </button>
+    {% embed 'partials/modal.html.twig' with {
+        id: 'close-unrecovered', title: 'Clôturer avec un solde non recouvré',
+        closure: closure, asset: asset, booking: booking,
+    } only %}
+        {% block body %}
+            <form method="post" action="/mes-locations/cloturer-non-recouvre" id="close-unrecovered-form"
+                  data-async="off">
+                {{ csrf_field()|raw }}
+                <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                <input type="hidden" name="unrecovered_cents" value="{{ closure.unrecoveredCents }}">
+                <p>
+                    Montant non recouvré :
+                    <strong data-unrecovered-amount>{{ closure.unrecoveredCents|money_cents }}</strong>.
+                </p>
+                <p class="small">
+                    La créance est ramenée à ce qui a été reçu, une ligne « Montant non recouvré » s'ajoute au
+                    décompte dans une version validée, les rappels s'arrêtent et la réservation est clôturée. Un
+                    paiement qui arriverait ensuite apparaît en trop-perçu dans les Finances.
+                </p>
+                <label class="form-label" for="close-unrecovered-reason">Motif</label>
+                <textarea class="form-control" id="close-unrecovered-reason" name="reason" rows="3" required
+                          maxlength="500" aria-describedby="close-unrecovered-reason-help"></textarea>
+                <p class="form-text" id="close-unrecovered-reason-help">
+                    Obligatoire : assurance refusée, locataire injoignable… Il reste interne et n'est jamais
+                    montré au locataire.
+                </p>
+                <p class="mb-0 fw-semibold">Aucun e-mail n'est envoyé au locataire.</p>
+            </form>
+        {% endblock %}
+        {% block footer %}
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Annuler</button>
+            <button type="submit" class="btn btn-danger" form="close-unrecovered-form">
+                Clôturer et renoncer au solde
+            </button>
+        {% endblock %}
+    {% endembed %}
+{% endif %}

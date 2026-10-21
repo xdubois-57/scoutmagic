@@ -1880,7 +1880,8 @@ class RentalDocumentServiceTest extends TestCase
         array $lines,
         bool $validated = true,
         int $balanceCents = 0,
-        int $bookingId = 0
+        int $bookingId = 0,
+        ?int $unrecoveredCents = null
     ): \Modules\Rental\Stay\Settlement {
         $settlementLines = [];
         $total = 0;
@@ -1906,7 +1907,10 @@ class RentalDocumentServiceTest extends TestCase
             createdByMemberId: 1,
             createdAt: new \DateTimeImmutable('2027-07-20 09:00:00'),
             recordedKeptCents: $total,
-            incidentBasisHash: str_repeat('a', 64)
+            incidentBasisHash: str_repeat('a', 64),
+            unrecoveredCents: $unrecoveredCents,
+            unrecoveredReason: $unrecoveredCents !== null ? 'Locataire injoignable' : null,
+            unrecoveredAt: $unrecoveredCents !== null ? new \DateTimeImmutable('2027-09-01 10:00:00') : null
         );
     }
 
@@ -2048,6 +2052,41 @@ class RentalDocumentServiceTest extends TestCase
         $this->service->markSent($invoice->id, new \DateTimeImmutable());
 
         $this->assertNull($this->service->supplementOffer($booking, [$validated]));
+    }
+
+    /**
+     * A closure with an unrecovered balance (#980) writes the debt off in
+     * a version of its own: it lowers what is kept, and it bills nothing —
+     * no supplementary invoice is offered in the renter's favour.
+     */
+    public function testAnUnrecoveredClosureOffersNoSupplement(): void
+    {
+        $booking = $this->createBooking();
+        $validated = $this->settlement(7, 1, self::stayWithBrokenWindow(), bookingId: $booking->id);
+        $invoice = $this->service->generate(
+            $booking,
+            $this->asset(),
+            DocumentType::INVOICE,
+            $this->settings(),
+            null,
+            1,
+            $validated
+        );
+        $this->service->markSent($invoice->id, new \DateTimeImmutable());
+
+        $closing = $this->settlement(
+            8,
+            2,
+            [...self::stayWithBrokenWindow(), [
+                \Modules\Rental\Stay\SettlementLine::UNRECOVERED_LABEL,
+                -20000,
+                \Modules\Rental\Stay\SettlementLine::ORIGIN_UNRECOVERED,
+            ]],
+            bookingId: $booking->id,
+            unrecoveredCents: 20000
+        );
+
+        $this->assertNull($this->service->supplementOffer($booking, [$validated, $closing]));
     }
 
     /**

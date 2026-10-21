@@ -29,9 +29,18 @@ final class SettlementLine
      * the settlement, never on the agreed price, and with no new contract.
      */
     public const ORIGIN_GESTURE = 'gesture';
+    /**
+     * What the unit gave up recovering when it closed the booking anyway
+     * (#980, CHANTIER-locations-incidents.md §2.9): always negative, and only ever on a version
+     * written by `RentalClosureService::closeUnrecovered()`.
+     */
+    public const ORIGIN_UNRECOVERED = 'unrecovered';
 
     /** What a gesture is called when the manager names it nothing else. */
     public const GESTURE_LABEL = 'Geste commercial';
+
+    /** The line an unrecovered closure adds. */
+    public const UNRECOVERED_LABEL = 'Montant non recouvré';
 
     public function __construct(
         public readonly string $label,

@@ -48,8 +48,23 @@ final class Settlement
          * The fingerprint of the incidents it was computed from
          * (`IncidentBasis`, #980). Null on a version recorded before it.
          */
-        public readonly ?string $incidentBasisHash = null
+        public readonly ?string $incidentBasisHash = null,
+        /**
+         * What the unit gave up recovering on this version (#980), its
+         * « Montant non recouvré » line as a positive figure; null on
+         * every other version.
+         */
+        public readonly ?int $unrecoveredCents = null,
+        /** Why, decrypted — written by a manager, never shown to the renter. */
+        public readonly ?string $unrecoveredReason = null,
+        public readonly ?\DateTimeImmutable $unrecoveredAt = null
     ) {
+    }
+
+    /** Whether this version closed the booking with a balance written off. */
+    public function isUnrecovered(): bool
+    {
+        return $this->unrecoveredCents !== null && $this->unrecoveredCents > 0;
     }
 
     /**

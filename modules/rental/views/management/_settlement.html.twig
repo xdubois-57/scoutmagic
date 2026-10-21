@@ -167,6 +167,14 @@
                                     · {{ settlement.finalPersons }} participants
                                 {% endif %}
                             </span>
+                            {# Written by an unrecovered closure (#980): the date and
+                               the reason, for the unit's managers only. #}
+                            {% if settlement.isUnrecovered %}
+                                <span class="small d-block" data-settlement-unrecovered>
+                                    Montant non recouvré : {{ settlement.unrecoveredCents|money_cents }},
+                                    le {{ settlement.unrecoveredAt|date_fr }} — {{ settlement.unrecoveredReason }}
+                                </span>
+                            {% endif %}
                         </span>
                         {% if settlement.isValidated %}
                             {% include 'partials/status_badge.html.twig' with { status: 'done', label: 'Validé' } only %}
