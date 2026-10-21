@@ -472,9 +472,10 @@ dans un ordre ou dans l'autre.
    entrée sur chacune des deux fiches.
 3. Un animé non ciblé n'a aucune entrée, même s'il partage une adresse avec un
    animé ciblé.
-4. Un message part toujours à une seule adresse ; une ligne de publipostage =
-   une entrée sur la fiche, un message par adresse ; deux lignes = deux
-   entrées, même vers les mêmes adresses.
+4. Un message part toujours à une seule adresse ; une ligne de publipostage
+   **avec Tiers** (ou rattachée à un animé par un module) = une entrée sur la
+   fiche, un message par adresse ; deux telles lignes = deux entrées, même vers
+   les mêmes adresses ; une ligne sans Tiers = des messages, aucune entrée.
 5. Au plus une notification par compte et par communication (liste) ou par
    ligne (publipostage), jamais rétroactive.
 6. Un animé vers qui rien n'est parti voit l'entrée « Non envoyée », sans
