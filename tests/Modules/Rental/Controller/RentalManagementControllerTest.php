@@ -111,6 +111,7 @@ class RentalManagementControllerTest extends TestCase
     private \Modules\Rental\Service\RentalDocumentService $documentService;
     private \Modules\Rental\Service\RentalStayService $stayService;
     private RentalPaymentService $paymentService;
+    private \Modules\Rental\Service\RentalClosureService $closureService;
     private int $financeAccountId;
     private int $financeCategoryId;
     /** Every decision email the controller asked for, in order. */
@@ -205,6 +206,18 @@ class RentalManagementControllerTest extends TestCase
             $this->paymentService
         );
 
+        // The guarded closure and the unrecovered one (#980), as
+        // public/index.php wires them.
+        $this->closureService = new \Modules\Rental\Service\RentalClosureService(
+            $this->bookingRepository,
+            new \Modules\Rental\Repository\RentalStayRepository($this->pdo, $this->encryption),
+            $this->stayService,
+            $this->modificationRepository,
+            $bookingAudit,
+            $journal,
+            $this->paymentService
+        );
+
         $this->operationsService = new RentalOperationsService(
             $this->bookingRepository,
             $bookingAudit,
@@ -217,7 +230,8 @@ class RentalManagementControllerTest extends TestCase
             // Wired exactly as public/index.php does, so the inventory
             // snapshot at confirmation is genuinely covered here rather
             // than only in production.
-            $this->stayService
+            $this->stayService,
+            $this->closureService
         );
 
         $this->twig = TwigFactory::create(
@@ -376,7 +390,8 @@ class RentalManagementControllerTest extends TestCase
             // Who signs a document is named by their account (#825).
             new \Modules\Rental\Document\SignerName(
                 new \Core\Security\UserAccountRepository($this->pdo, $this->encryption)
-            )
+            ),
+            $this->closureService
         );
 
         $this->assetId = $this->createAsset('Local Saint-Georges', 'local-saint-georges');
@@ -1610,6 +1625,11 @@ class RentalManagementControllerTest extends TestCase
             ['/mes-locations/virement-chercher', 'searchTransfer', ['amount' => '300']],
             ['/mes-locations/virement-rapprocher', 'reconcileTransfer', ['transaction_id' => '1', 'amount_cents' => '1']],
             ['/mes-locations/virement-detacher', 'detachTransfer', ['transaction_id' => '1']],
+            [
+                '/mes-locations/cloturer-non-recouvre',
+                'closeUnrecovered',
+                ['unrecovered_cents' => '100', 'reason' => 'Locataire injoignable'],
+            ],
         ];
 
         foreach ($actions as [$path, $action, $body]) {
@@ -7661,5 +7681,165 @@ class RentalManagementControllerTest extends TestCase
         ]);
         $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
         $this->assertSame([], $this->supplements($booking));
+    }
+
+    // ── The guarded closure and the unrecovered one (#980) ───────
+
+    /**
+     * A confirmed booking whose damage outgrew the deposit: 467,50 € and a
+     * 150 € deposit paid, 800 € of damage charged and the settlement
+     * validated — 650 € remain due on the receivable.
+     */
+    private function bookingWithABalanceDue(): RentalBooking
+    {
+        $booking = $this->bookingOwedFor(46750, 15000);
+        $this->bookingRepository->setStatus($booking->id, BookingStatus::CONFIRMED, new \DateTimeImmutable());
+        $this->payOnReceivable($booking, 617.50);
+        $fresh = fn(): RentalBooking => $this->bookingRepository->findById($booking->id) ?? $booking;
+        $incident = $this->stayService->reportIncident($fresh(), 'Châssis brisé', 80000, null, null);
+        $this->stayService->decideIncident(
+            $fresh(),
+            $incident,
+            \Modules\Rental\Stay\IncidentDecision::CHARGE,
+            null,
+            null
+        );
+        $settlement = $this->stayService->recordSettlement($fresh(), $this->assetId, null, [], null);
+        $this->stayService->validateSettlement($fresh(), $settlement->id, null);
+
+        return $fresh();
+    }
+
+    /**
+     * @param array<string, string> $body
+     */
+    private function closeUnrecoveredPost(RentalBooking $booking, array $body = []): Response
+    {
+        return $this->post('/mes-locations/cloturer-non-recouvre', 'closeUnrecovered', $body + [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'unrecovered_cents' => '65000',
+            'reason' => 'Assurance refusée',
+        ]);
+    }
+
+    public function testClosingWhileMoneyIsDueIsRefusedAndPointsToTheUnrecoveredClosure(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->bookingWithABalanceDue();
+
+        $this->post('/mes-locations/statut', 'changeStatus', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'status' => 'closed',
+        ]);
+
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertSame('error', $flash['type'] ?? null);
+        $this->assertStringContainsString('650,00 € restent dus', $flash['message'] ?? '');
+        $this->assertStringContainsString('« Clôturer avec un solde non recouvré »', $flash['message'] ?? '');
+        $this->assertSame(BookingStatus::CONFIRMED, $this->bookingRepository->findById($booking->id)?->status);
+    }
+
+    public function testTheDashboardOffersTheUnrecoveredClosureWithItsDialog(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->bookingWithABalanceDue();
+
+        $body = (string) $this->bookingPage('local-saint-georges', $booking->id)->getBody();
+
+        // The stay (July 2027) is still ahead: the refusal is not said yet.
+        $this->assertStringNotContainsString('data-closure-refusal', $body);
+        $this->assertStringContainsString('Clôturer avec un solde non recouvré', $body);
+        $this->assertStringContainsString('action="/mes-locations/cloturer-non-recouvre"', $body);
+        $this->assertStringContainsString('name="unrecovered_cents" value="65000"', $body);
+        $this->assertMatchesRegularExpression('/<textarea[^>]*name="reason"[^>]*required/', $body);
+        $this->assertStringContainsString("Aucun e-mail n'est envoyé au locataire.", $body);
+        $this->assertStringContainsString('650,00', $body);
+    }
+
+    public function testOnceTheStayIsOverTheDashboardSaysWhyTheClosureWaits(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->bookingWithABalanceDue();
+        $this->pdo->prepare('UPDATE rental_bookings SET arrival_date = ?, departure_date = ? WHERE id = ?')
+            ->execute(['2026-01-02', '2026-01-05', $booking->id]);
+
+        $body = (string) $this->bookingPage('local-saint-georges', $booking->id)->getBody();
+
+        $this->assertMatchesRegularExpression('/data-closure-refusal>\s*650,00\s€ restent dus/u', $body);
+    }
+
+    public function testASettledBookingOffersNoUnrecoveredClosure(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->bookingOwedFor(46750);
+        $this->bookingRepository->setStatus($booking->id, BookingStatus::CONFIRMED, new \DateTimeImmutable());
+        $this->payOnReceivable($booking, 467.50);
+
+        $body = (string) $this->bookingPage('local-saint-georges', $booking->id)->getBody();
+
+        $this->assertStringNotContainsString('data-closure-refusal', $body);
+        $this->assertStringNotContainsString('cloturer-non-recouvre', $body);
+    }
+
+    public function testAManagerClosesWithAnUnrecoveredBalanceAndNoEmailLeaves(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->bookingWithABalanceDue();
+
+        $response = $this->closeUnrecoveredPost($booking);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertSame('success', $flash['type'] ?? null);
+        $this->assertStringContainsString("Aucun e-mail n'a été envoyé au locataire", $flash['message'] ?? '');
+        $this->assertSame(BookingStatus::CLOSED, $this->bookingRepository->findById($booking->id)?->status);
+        $status = $this->paymentService->statusFor($booking, $this->paymentService->settingsFor($this->assetId));
+        $this->assertSame(61750, $status['total_cents']);
+        $this->assertSame(0, $status['remaining_cents']);
+        $latest = $this->stayService->latestSettlement($booking->id);
+        $this->assertTrue($latest?->isValidated);
+        $this->assertSame(65000, $latest?->unrecoveredCents);
+        // Nothing reached the renter, by any of the mail service's doors.
+        $this->assertSame([], $this->renterEmails);
+        $this->assertSame([], $this->documentEmails);
+        $this->assertSame([], $this->trackingLinkEmails);
+        $this->assertSame([], $this->cancellationEmails);
+        $this->assertSame([], $this->resends);
+    }
+
+    public function testTheUnrecoveredClosureRequiresAReason(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->bookingWithABalanceDue();
+
+        $this->closeUnrecoveredPost($booking, ['reason' => '  ']);
+
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertSame('error', $flash['type'] ?? null);
+        $this->assertStringContainsString('Indiquez pourquoi', $flash['message'] ?? '');
+        $this->assertSame(BookingStatus::CONFIRMED, $this->bookingRepository->findById($booking->id)?->status);
+    }
+
+    public function testTheUnrecoveredClosureIsItsManagersAlone(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->bookingWithABalanceDue();
+
+        // Anonymous: refused, nothing written.
+        AuthSession::logout();
+        $this->assertContains($this->closeUnrecoveredPost($booking)->getStatusCode(), [302, 401, 403]);
+        $this->assertSame(BookingStatus::CONFIRMED, $this->bookingRepository->findById($booking->id)?->status);
+
+        // An identified member who manages nothing: a 404, nothing written.
+        AuthSession::login(1, 'nobody@test.be', 'identified');
+        $this->assertSame(404, $this->closeUnrecoveredPost($booking)->getStatusCode());
+        $this->assertSame(BookingStatus::CONFIRMED, $this->bookingRepository->findById($booking->id)?->status);
+
+        // The asset's manager, at the route's role_min: allowed.
+        AuthSession::login(1, 'manager@test.be', 'identified');
+        $this->assertSame(302, $this->closeUnrecoveredPost($booking)->getStatusCode());
+        $this->assertSame(BookingStatus::CLOSED, $this->bookingRepository->findById($booking->id)?->status);
     }
 }

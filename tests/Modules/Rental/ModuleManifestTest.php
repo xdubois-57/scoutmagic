@@ -168,6 +168,7 @@ class ModuleManifestTest extends TestCase
     {
         $writePaths = [
             '/mes-locations/statut',
+            '/mes-locations/cloturer-non-recouvre',
             '/mes-locations/option',
             '/mes-locations/commentaire',
             '/mes-locations/modification',

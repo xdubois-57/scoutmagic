@@ -64,6 +64,15 @@ class ReminderPlanner
         ?ReminderSchedule $schedule = null,
         bool $awaitsSignedCopy = false
     ): array {
+        // A closed booking is over (#980, CHANTIER-locations-incidents.md §2.9): whatever it
+        // still owes was settled or written off on its closure, and a
+        // reminder after it — about a balance given up on, a deposit or a
+        // settlement — would chase what the unit has decided to stop
+        // chasing.
+        if ($booking->status === BookingStatus::CLOSED) {
+            return [];
+        }
+
         $schedule ??= ReminderSchedule::shipped();
         $due = [];
         $arrival = DateInput::requireFromStorage($booking->arrivalDate, 'rental_bookings.arrival_date');
@@ -134,7 +143,7 @@ class ReminderPlanner
             );
         }
 
-        if ($booking->status !== BookingStatus::CONFIRMED && $booking->status !== BookingStatus::CLOSED) {
+        if ($booking->status !== BookingStatus::CONFIRMED) {
             // Nothing below concerns a stay that is not going ahead.
             return $due;
         }

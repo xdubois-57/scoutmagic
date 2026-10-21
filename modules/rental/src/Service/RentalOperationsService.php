@@ -102,7 +102,14 @@ class RentalOperationsService
          * is always wired. Confirmation is when the inventory checklist is
          * copied into the booking (§6.23).
          */
-        private ?RentalStayService $stayService = null
+        private ?RentalStayService $stayService = null,
+        /**
+         * The guard on « Clôturer la location » (#980, CHANTIER-locations-incidents.md §2.9):
+         * refused while a damage is assessed, a deposit is still to give
+         * back or money is still due. Null only where nothing wires it — a
+         * fixture with no money and no stay to look at.
+         */
+        private ?RentalClosureService $closureService = null
     ) {
         $this->occupancy = new RentalOccupancyGuard($bookingRepository, $availabilityService, $pricingService);
     }
@@ -131,6 +138,11 @@ class RentalOperationsService
      * it is the one transition that has to re-check availability inside the
      * same transaction as the write.
      *
+     * Closing is guarded (#980, CHANTIER-locations-incidents.md §2.9): `RentalClosureService`
+     * says, under the same lock as the write, whether anything is still
+     * outstanding, and its sentence is the refusal. Closing with a balance
+     * the unit gives up on is `RentalClosureService::closeUnrecovered()`.
+     *
      * @throws RentalException
      */
     public function changeStatus(
@@ -158,6 +170,17 @@ class RentalOperationsService
             $actorMemberId,
             $now
         ): void {
+            // Read again under the lock: a payment, a refund or a decision
+            // since the page was rendered decides, not the copy it showed.
+            if ($target === BookingStatus::CLOSED && $this->closureService !== null) {
+                $refusal = $this->closureService->whyNotClosable(
+                    $this->bookingRepository->findById($booking->id) ?? $booking
+                );
+                if ($refusal !== null) {
+                    throw new RentalException($refusal);
+                }
+            }
+
             if (!$this->bookingRepository->compareAndSetStatus($booking->id, $booking->status, $target, $now)) {
                 // Somebody else moved it between the page render and this
                 // click. Saying so is far better than silently applying the

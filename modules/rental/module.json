@@ -138,6 +138,15 @@
       "label": ""
     },
     {
+      "path": "/mes-locations/cloturer-non-recouvre",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "closeUnrecovered",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
       "path": "/mes-locations/option",
       "method": "POST",
       "controller": "Modules\\Rental\\Controller\\RentalManagementController",

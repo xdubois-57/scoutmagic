@@ -28,7 +28,7 @@
 
   Requires `journey`, `asset`, `booking`, `booking_url` and
   `renter_decisions`; `contract_step` for the contract's steps (#708,
-  IT-16).
+  IT-16); `closure` for what the closure waits on (#980).
 #}
 <div class="card mb-4" id="prochaine-action">
     <div data-booking-panel="next-step">
@@ -89,6 +89,12 @@
                     précision.
                 </p>
             {% endif %}
+            {# What still stands in the way of the closure, and closing with a
+               balance written off (#980, CHANTIER-locations-incidents.md §2.9). #}
+            {% include '@rental/management/_closure.html.twig' with {
+                closure: closure|default(null), asset: asset, booking: booking,
+                refusal_shown: closure_refusal_shown|default(false),
+            } only %}
         </div>
     </div>
 

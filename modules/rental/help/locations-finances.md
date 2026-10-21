@@ -37,6 +37,10 @@ virements l'atteignent. Une réservation refusée, annulée ou expirée
 garde sa créance, ramenée à 0 € ; le décompte final validé la ramène au
 montant conservé. Ce qui a été versé en plus apparaît en trop-perçu.
 
+Clôturée avec « Clôturer avec un solde non recouvré », la réservation
+garde aussi sa créance, ramenée à ce qui a été reçu : les rappels
+s'arrêtent, et un paiement arrivé ensuite apparaît en trop-perçu.
+
 « Mouvements du compte » liste les virements rapprochés de cette
 réservation, après l'import d'un extrait bancaire. Un paiement arrivé
 sans la communication s'y ajoute avec « Rapprocher un virement ».

@@ -12535,6 +12535,18 @@ if ($isEnabled('rental')) {
         ));
     }
 
+    // « Clôturer la location » is refused while anything is outstanding,
+    // and « Clôturer avec un solde non recouvré » writes a balance off
+    // (#980).
+    $rentalClosureService = new \Modules\Rental\Service\RentalClosureService(
+        $rentalBookingRepository,
+        $rentalStayRepository,
+        $rentalStayService,
+        $rentalModificationRepository,
+        $rentalBookingAudit,
+        $journalService,
+        $rentalPaymentService
+    );
     $rentalOperationsService = new \Modules\Rental\Service\RentalOperationsService(
         $rentalBookingRepository,
         $rentalBookingAudit,
@@ -12544,7 +12556,8 @@ if ($isEnabled('rental')) {
         $rentalPricingService,
         $journalService,
         $rentalPaymentService,
-        $rentalStayService
+        $rentalStayService,
+        $rentalClosureService
     );
     $rentalBlockService = new \Modules\Rental\Service\RentalBlockService(
         $rentalBlockRepository,
@@ -12626,7 +12639,9 @@ if ($isEnabled('rental')) {
             // What the site sent the renter, on « Courrier » (#720, step 2).
             new \Modules\Rental\Repository\RentalSentEmailRepository($pdo, $encryptionService),
             // A signer is named by their account, not by a totem (#825).
-            new \Modules\Rental\Document\SignerName($userAccountRepo)
+            new \Modules\Rental\Document\SignerName($userAccountRepo),
+            // The guarded closure and the unrecovered one (#980).
+            $rentalClosureService
         )
     );
     $frontController->registerController(

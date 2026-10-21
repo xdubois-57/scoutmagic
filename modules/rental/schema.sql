@@ -1282,6 +1282,13 @@ CREATE TABLE IF NOT EXISTS rental_settlements (
     -- validates only while it still matches them (#980); NULL on a version
     -- recorded before, which has nothing to compare.
     incident_basis_hash CHAR(64) NULL,
+    -- A version written by « Clôturer avec un solde non recouvré » (#980):
+    -- what the unit gave up recovering (its « Montant non recouvré » line,
+    -- positive here), when, and why. The reason is written by a manager
+    -- about a renter's debt, so it is encrypted, and never shown to them.
+    unrecovered_cents INT UNSIGNED NULL,
+    unrecovered_reason_encrypted BLOB NULL,
+    unrecovered_at DATETIME NULL,
 
     is_validated TINYINT(1) NOT NULL DEFAULT 0,
     validated_at DATETIME NULL,
