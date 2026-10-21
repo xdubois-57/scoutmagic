@@ -12425,11 +12425,13 @@ if ($isEnabled('rental')) {
     );
 
     // An asset whose landlord address is empty, an expired compliance
-    // entry: on the attention page, only while the module is on (#718 § C).
+    // entry: on the attention page, only while the module is on (#718 § C)...
     $attentionProviders[] = new \Modules\Rental\Service\RentalAttentionProvider(
         $rentalAssetRepository,
         new \Modules\Rental\Repository\RentalComplianceRepository($pdo),
-        $settingService
+        $settingService,
+        // ...and a damage still assessed a month after the departure (#980).
+        $rentalStayRepository
     );
 
     // Its documents follow the same rule as a booking's: readable only by

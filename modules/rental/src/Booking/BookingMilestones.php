@@ -117,6 +117,8 @@ final class BookingMilestones
      *   this booking, and therefore ticked by hand (Booking\MilestoneEvidence)
      * @param list<string> $manual the keys done because a manager ticked them
      *   by hand (#708, IT-14)
+     * @param list<string> $awaitingAssessment the keys a damage still being
+     *   assessed holds back (#980, Booking\MilestoneEvidence)
      * @return list<BookingMilestone>
      */
     public static function for(
@@ -125,7 +127,8 @@ final class BookingMilestones
         array $extras = [],
         array $details = [],
         array $offsite = [],
-        array $manual = []
+        array $manual = [],
+        array $awaitingAssessment = []
     ): array {
         $milestones = [
             new BookingMilestone(
@@ -256,7 +259,8 @@ final class BookingMilestones
                 $offsite,
                 $booking->lapseEndsTheBooking(),
                 in_array($m->key, $manual, true),
-                $firm
+                $firm,
+                !$abandoned && in_array($m->key, $awaitingAssessment, true)
             ),
             $milestones
         );
@@ -283,7 +287,8 @@ final class BookingMilestones
                 $m->isState,
                 $m->warning,
                 $m->actor,
-                $m->isManual
+                $m->isManual,
+                $m->awaitsAssessment
             ),
             $shaped
         );
@@ -304,7 +309,8 @@ final class BookingMilestones
         array $offsite,
         bool $lapseEndsTheBooking = false,
         bool $isManual = false,
-        bool $holdsFirmly = false
+        bool $holdsFirmly = false,
+        bool $awaitsAssessment = false
     ): BookingMilestone {
         $kind = MilestoneKind::DERIVED;
         $explanation = null;
@@ -375,11 +381,25 @@ final class BookingMilestones
                 break;
             case self::FINAL_SETTLEMENT:
                 $kind = MilestoneKind::HERE;
-                $explanation = "Le décompte s'établit et se valide sur la page Facture.";
+                // A damage still assessed (#980): the settlement records,
+                // and validates once the incident is decided.
+                $explanation = $awaitsAssessment
+                    ? "Un dégât est en cours d'évaluation : le décompte s'enregistre sur la page Facture, mais "
+                        . "ne se valide qu'une fois l'incident tranché."
+                    : "Le décompte s'établit et se valide sur la page Facture.";
                 $action = MilestoneAction::openBox('Établir le décompte', BookingBox::INVOICE);
                 break;
             case self::SECURITY_DEPOSIT_RETURNED:
                 $kind = MilestoneKind::HERE;
+                if ($awaitsAssessment) {
+                    // Held until the damage is decided (#980, chantier
+                    // §2.4): the step waits and says why, and leads to the
+                    // incident rather than to the refund.
+                    $explanation = "Un dégât est en cours d'évaluation : la caution reste retenue jusqu'à son "
+                        . "règlement. Tranchez l'incident sur la page État des lieux, puis validez le décompte.";
+                    $action = MilestoneAction::openBox("Trancher l'incident", BookingBox::INVENTORY);
+                    break;
+                }
                 // With Finances the refund is a bank transfer carrying the
                 // booking's communication, and the step ticks when the
                 // account shows nothing owed back any more (#927, §2.6).
@@ -407,7 +427,8 @@ final class BookingMilestones
             $m->isState,
             $m->warning,
             self::ACTORS[$m->key] ?? throw new \LogicException('No actor declared for step « ' . $m->key . ' ».'),
-            $isManual
+            $isManual,
+            $awaitsAssessment
         );
     }
 

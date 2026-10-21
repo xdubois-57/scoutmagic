@@ -697,6 +697,84 @@ class RentalStayRepository
         return array_map(fn(array $row) => $this->hydrateIncident($row), $stmt->fetchAll(\PDO::FETCH_ASSOC));
     }
 
+    /**
+     * The booking's incidents still being assessed, oldest first — ids
+     * only, so asking whether a settlement may validate or a deposit be
+     * given back decrypts nothing (#980). Read again after a refused write,
+     * to say why it was refused: never a value to remember.
+     *
+     * @phpstan-impure
+     * @return list<int>
+     */
+    public function pendingIncidentIds(int $bookingId): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT id FROM rental_incidents WHERE booking_id = ? AND decision = ? ORDER BY created_at ASC, id ASC'
+        );
+        $stmt->execute([$bookingId, IncidentDecision::PENDING->value]);
+
+        return array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN));
+    }
+
+    /**
+     * The incidents still being assessed on a booking that left on or
+     * before $departedBy and was not abandoned (#980, chantier §2.4) — the
+     * attention page's bounded read: one row per incident, with only what
+     * the point shows. No renter name is read.
+     *
+     * $departedBy is worked out by the caller, so the date arithmetic is
+     * PHP's on every engine.
+     *
+     * @param list<string> $abandonedStatuses
+     * @return list<array{
+     *     incident_id: int,
+     *     booking_id: int,
+     *     asset_id: int,
+     *     reference: string,
+     *     departure_date: string,
+     *     awaiting: ?string,
+     *     file_reference: ?string
+     * }>
+     */
+    public function findPendingIncidentsDepartedBy(string $departedBy, array $abandonedStatuses): array
+    {
+        $params = [IncidentDecision::PENDING->value, $departedBy];
+        $notAbandoned = '';
+        if ($abandonedStatuses !== []) {
+            $notAbandoned = ' AND b.status NOT IN (' . implode(', ', array_fill(0, count($abandonedStatuses), '?'))
+                . ')';
+            $params = array_merge($params, $abandonedStatuses);
+        }
+
+        $stmt = $this->pdo->prepare(
+            'SELECT i.id AS incident_id, i.booking_id, i.awaiting_encrypted, i.reference_encrypted,
+                    b.asset_id, b.reference, b.departure_date
+               FROM rental_incidents i
+               JOIN rental_bookings b ON b.id = i.booking_id
+              WHERE i.decision = ? AND b.departure_date <= ?' . $notAbandoned . '
+              ORDER BY b.departure_date ASC, i.id ASC'
+        );
+        $stmt->execute($params);
+
+        $rows = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $rows[] = [
+                'incident_id' => (int) $row['incident_id'],
+                'booking_id' => (int) $row['booking_id'],
+                'asset_id' => (int) $row['asset_id'],
+                'reference' => (string) $row['reference'],
+                'departure_date' => substr((string) $row['departure_date'], 0, 10),
+                'awaiting' => $this->decryptOptional($row['awaiting_encrypted'] ?? null, self::CTX_INCIDENT_AWAITING),
+                'file_reference' => $this->decryptOptional(
+                    $row['reference_encrypted'] ?? null,
+                    self::CTX_INCIDENT_REFERENCE
+                ),
+            ];
+        }
+
+        return $rows;
+    }
+
     public function deleteIncident(int $incidentId): void
     {
         $stmt = $this->pdo->prepare('DELETE FROM rental_incidents WHERE id = ?');
@@ -743,14 +821,15 @@ class RentalStayRepository
         ?int $withheldCents,
         ?int $returnCents,
         ?int $createdByMemberId,
-        ?int $keptCents = null
+        ?int $keptCents = null,
+        ?string $incidentBasisHash = null
     ): int {
         $stmt = $this->pdo->prepare(
             'INSERT INTO rental_settlements
                 (booking_id, version, final_persons, lines_snapshot, total_cents, already_paid_cents,
                  balance_cents, security_deposit_withheld_cents, security_deposit_return_cents,
-                 created_by_member_id, created_at, kept_cents)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                 created_by_member_id, created_at, kept_cents, incident_basis_hash)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
             $bookingId,
@@ -768,6 +847,7 @@ class RentalStayRepository
             $createdByMemberId,
             (new \DateTimeImmutable())->format('Y-m-d H:i:s'),
             $keptCents,
+            $incidentBasisHash,
         ]);
 
         return (int) $this->pdo->lastInsertId();
@@ -786,6 +866,11 @@ class RentalStayRepository
      * the version was recorded with, in the same statement — so a version
      * already validated is never rewritten.
      *
+     * Never while one of the booking's incidents is still being assessed
+     * (#980, chantier §2.4), checked by the write itself like
+     * createIncident(): one sent back to its assessment between the
+     * service's check and this statement leaves the version unvalidated.
+     *
      * @param array{withheld_cents: int, return_cents: int}|null $securityDeposit
      * @param int|null $keptCents The kept amount read before validation, stored when the version has none
      */
@@ -801,19 +886,21 @@ class RentalStayRepository
         // kept amount as « total + withheld », and validation rewrites the
         // withheld figure from the money — without this, its kept amount
         // would silently change the moment it was validated.
+        $noAssessment = 'NOT EXISTS (SELECT 1 FROM rental_incidents i
+                                      WHERE i.booking_id = rental_settlements.booking_id AND i.decision = ?)';
         if ($securityDeposit === null) {
             $stmt = $this->pdo->prepare(
                 'UPDATE rental_settlements SET is_validated = 1, validated_at = ?, validated_by_member_id = ?,
                         kept_cents = COALESCE(kept_cents, ?)
-                 WHERE id = ? AND is_validated = 0'
+                 WHERE id = ? AND is_validated = 0 AND ' . $noAssessment
             );
-            $stmt->execute([$now, $validatedByMemberId, $keptCents, $settlementId]);
+            $stmt->execute([$now, $validatedByMemberId, $keptCents, $settlementId, IncidentDecision::PENDING->value]);
         } else {
             $stmt = $this->pdo->prepare(
                 'UPDATE rental_settlements SET is_validated = 1, validated_at = ?, validated_by_member_id = ?,
                         security_deposit_withheld_cents = ?, security_deposit_return_cents = ?,
                         kept_cents = COALESCE(kept_cents, ?)
-                 WHERE id = ? AND is_validated = 0'
+                 WHERE id = ? AND is_validated = 0 AND ' . $noAssessment
             );
             $stmt->execute([
                 $now,
@@ -822,6 +909,7 @@ class RentalStayRepository
                 max(0, $securityDeposit['return_cents']),
                 $keptCents,
                 $settlementId,
+                IncidentDecision::PENDING->value,
             ]);
         }
 
@@ -962,7 +1050,8 @@ class RentalStayRepository
                 : null,
             createdByMemberId: $row['created_by_member_id'] !== null ? (int) $row['created_by_member_id'] : null,
             createdAt: DateInput::requireFromStorage((string) $row['created_at'], 'created_at'),
-            recordedKeptCents: isset($row['kept_cents']) ? (int) $row['kept_cents'] : null
+            recordedKeptCents: isset($row['kept_cents']) ? (int) $row['kept_cents'] : null,
+            incidentBasisHash: isset($row['incident_basis_hash']) ? (string) $row['incident_basis_hash'] : null
         );
     }
 

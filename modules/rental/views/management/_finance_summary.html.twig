@@ -13,7 +13,8 @@
   beyond it, less what already went back, reads « Trop-perçu ».
 
   Requires `booking`, `payment` and `settlement` (the validated one, or
-  null).
+  null). Optional: `damage_under_assessment`, whether an incident is still
+  assessed (#980).
 #}
 {% set security = payment.security_deposit %}
 {% set overpaid = payment.overpaid_cents|default(0) %}
@@ -53,6 +54,13 @@
                     <dd class="col-sm-7">
                         {{ security.amount_cents|money_cents }}
                         <span class="badge text-bg-secondary ms-1">{{ security.status.label }}</span>
+                        {# Held until the damage is decided (#980), whatever
+                           the money says — unless it already went back. #}
+                        {% if damage_under_assessment|default(false) and not security.status.isSettled %}
+                            <span class="small d-block" data-security-deposit-held>
+                                Caution retenue : dégât en cours d'évaluation
+                            </span>
+                        {% endif %}
                     </dd>
                 {% endif %}
 

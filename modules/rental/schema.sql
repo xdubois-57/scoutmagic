@@ -1265,6 +1265,11 @@ CREATE TABLE IF NOT EXISTS rental_settlements (
     -- #980, whose kept amount is the total plus its withholding — a
     -- validated version never changes meaning (Stay\Settlement::keptCents()).
     kept_cents INT NULL,
+    -- The SHA-256 of the incidents this version was computed from: each
+    -- one's id, state and charged amount (Stay\IncidentBasis). A version
+    -- validates only while it still matches them (#980); NULL on a version
+    -- recorded before, which has nothing to compare.
+    incident_basis_hash CHAR(64) NULL,
 
     is_validated TINYINT(1) NOT NULL DEFAULT 0,
     validated_at DATETIME NULL,

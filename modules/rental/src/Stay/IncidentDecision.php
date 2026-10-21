@@ -67,8 +67,8 @@ enum IncidentDecision: string
     public function consequence(): string
     {
         return match ($this) {
-            self::PENDING => "Rien n'est facturé tant que l'évaluation est en cours. Le locataire n'en voit "
-                . 'ni la description ni le montant.',
+            self::PENDING => "Rien n'est facturé tant que l'évaluation est en cours : le décompte ne se valide "
+                . "pas et la caution reste retenue. Le locataire n'en voit ni la description ni le montant.",
             self::CHARGE => "Le montant s'ajoute au décompte. S'il dépasse la caution, le surplus est demandé "
                 . 'au locataire.',
             self::WAIVE => "Rien n'est facturé pour cet incident. Le motif reste interne : le locataire ne le "

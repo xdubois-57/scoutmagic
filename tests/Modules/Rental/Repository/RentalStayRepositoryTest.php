@@ -723,6 +723,94 @@ class RentalStayRepositoryTest extends TestCase
         $this->assertSame(7, $settlement->validatedByMemberId);
     }
 
+    public function testAVersionKeepsTheFingerprintOfItsIncidents(): void
+    {
+        $hash = hash('sha256', 'incidents');
+        $id = $this->repository->createSettlement(
+            $this->bookingId, 1, null, [], 45000, 0, 45000, null, null, 7, 45000, $hash
+        );
+        $legacy = $this->settlement(2);
+
+        $this->assertSame($hash, $this->repository->findSettlement($id)?->incidentBasisHash);
+        $this->assertFalse($this->repository->findSettlement($id)?->isOutdatedFor($hash));
+        $this->assertTrue($this->repository->findSettlement($id)?->isOutdatedFor(hash('sha256', 'other')));
+        // Recorded before the fingerprint: nothing to compare, not outdated.
+        $this->assertNull($this->repository->findSettlement($legacy)?->incidentBasisHash);
+        $this->assertFalse($this->repository->findSettlement($legacy)?->isOutdatedFor($hash));
+    }
+
+    /**
+     * The write itself refuses while one of the booking's incidents is
+     * still assessed (#980): one sent back to its assessment after the
+     * service looked leaves the version unvalidated.
+     */
+    public function testTheWriteRefusesToValidateWhileADamageIsAssessed(): void
+    {
+        $plain = $this->settlement(1);
+        $withDeposit = $this->settlement(2);
+        $incident = $this->repository->createIncident($this->bookingId, 'Porte fendue', 30000, null, 7);
+        $this->assertNotNull($incident);
+
+        $this->assertFalse($this->repository->validateSettlement($plain, 7));
+        $this->assertFalse(
+            $this->repository->validateSettlement($withDeposit, 7, ['withheld_cents' => 0, 'return_cents' => 0])
+        );
+        $this->assertFalse($this->repository->findSettlement($plain)?->isValidated);
+
+        $this->repository->decideIncident($incident, IncidentDecision::WAIVE, null, 7);
+
+        $this->assertTrue($this->repository->validateSettlement($plain, 7));
+    }
+
+    public function testAnotherBookingsAssessmentHoldsNothingHere(): void
+    {
+        $other = $this->booking('LOC-A2B3C5', '2027-08-01', '2027-08-03');
+        $this->repository->createIncident($other, 'Porte fendue', 30000, null, 7);
+
+        $this->assertTrue($this->repository->validateSettlement($this->settlement(1), 7));
+    }
+
+    public function testThePendingIncidentIdsAreTheAssessedOnesOldestFirst(): void
+    {
+        $first = $this->repository->createIncident($this->bookingId, 'Porte fendue', 30000, null, 7);
+        $decided = $this->repository->createIncident($this->bookingId, 'Vitre cassée', 5000, null, 7);
+        $second = $this->repository->createIncident($this->bookingId, 'Tache', null, null, 7);
+        $this->repository->decideIncident((int) $decided, IncidentDecision::CHARGE, null, 7);
+
+        $this->assertSame([$first, $second], $this->repository->pendingIncidentIds($this->bookingId));
+        $this->assertSame([], $this->repository->pendingIncidentIds(999999));
+    }
+
+    public function testThePendingIncidentsOfBookingsGoneByADateCarryOnlyWhatThePointShows(): void
+    {
+        // Left on 20/07: on the bound, then a day after it.
+        $pending = $this->repository->createIncident($this->bookingId, 'Porte fendue', 30000, null, 7);
+        $this->repository->decideIncident(
+            (int) $pending, IncidentDecision::PENDING, null, 7, "le devis du menuisier", 'DOS-42'
+        );
+        $decided = $this->repository->createIncident($this->bookingId, 'Vitre cassée', 5000, null, 7);
+        $this->repository->decideIncident((int) $decided, IncidentDecision::CHARGE, null, 7);
+        $later = $this->booking('LOC-A2B3C5', '2027-07-20', '2027-07-21');
+        $this->repository->createIncident($later, 'Rayure', null, null, 7);
+        $cancelled = $this->booking('LOC-A2B3C6', '2027-07-10', '2027-07-12');
+        $this->repository->createIncident($cancelled, 'Rayure', null, null, 7);
+        $this->pdo->prepare('UPDATE rental_bookings SET status = ? WHERE id = ?')->execute(['cancelled', $cancelled]);
+
+        $rows = $this->repository->findPendingIncidentsDepartedBy('2027-07-20', ['refused', 'cancelled', 'expired']);
+
+        $this->assertSame([[
+            'incident_id' => $pending,
+            'booking_id' => $this->bookingId,
+            'asset_id' => $this->assetId,
+            'reference' => 'LOC-A2B3C4',
+            'departure_date' => '2027-07-20',
+            'awaiting' => 'le devis du menuisier',
+            'file_reference' => 'DOS-42',
+        ]], $rows);
+        $this->assertCount(2, $this->repository->findPendingIncidentsDepartedBy('2027-07-21', ['cancelled']));
+        $this->assertSame([], $this->repository->findPendingIncidentsDepartedBy('2027-07-19', ['cancelled']));
+    }
+
     public function testSettlementsComeBackNewestVersionFirst(): void
     {
         $this->settlement(1);

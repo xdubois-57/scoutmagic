@@ -66,12 +66,15 @@ final class MilestoneEvidence
      *   because the site keeps nothing they could be derived from
      * @param list<string> $manual the keys done because a manager ticked them
      *   by hand (#708, IT-14) — the only done steps that reopen
+     * @param list<string> $awaitingAssessment the keys still to do that a
+     *   damage being assessed holds back (#980)
      */
     private function __construct(
         public readonly array $done,
         public readonly array $details,
         public readonly array $offsite = [],
-        public readonly array $manual = []
+        public readonly array $manual = [],
+        public readonly array $awaitingAssessment = []
     ) {
     }
 
@@ -101,6 +104,9 @@ final class MilestoneEvidence
      *   null leaves the payment lines without one
      * @param ?ConditionsVersion $acceptedConditions the archived version of the
      *   conditions the renter accepted with the request, when it is found
+     * @param bool $damageUnderAssessment whether one of the booking's
+     *   incidents is still being assessed (#980): the settlement does not
+     *   validate and the security deposit stays held until it is decided
      */
     public static function collect(
         RentalBooking $booking,
@@ -111,7 +117,8 @@ final class MilestoneEvidence
         bool $assetKeepsInventory = true,
         array $marks = [],
         ?\DateTimeImmutable $today = null,
-        ?ConditionsVersion $acceptedConditions = null
+        ?ConditionsVersion $acceptedConditions = null,
+        bool $damageUnderAssessment = false
     ): self {
         $done = [];
         $details = [];
@@ -328,7 +335,19 @@ final class MilestoneEvidence
             $later = $done[$key];
         }
 
-        return new self($done, $details, $offsite, $manual);
+        // A damage still being assessed holds the settlement and the
+        // security deposit (#980, chantier §2.4): their lines, while still
+        // to do, wait for it and say so.
+        $awaitingAssessment = [];
+        if ($damageUnderAssessment) {
+            foreach ([BookingMilestones::FINAL_SETTLEMENT, BookingMilestones::SECURITY_DEPOSIT_RETURNED] as $key) {
+                if (array_key_exists($key, $done) && !$done[$key]) {
+                    $awaitingAssessment[] = $key;
+                }
+            }
+        }
+
+        return new self($done, $details, $offsite, $manual, $awaitingAssessment);
     }
 
     /**

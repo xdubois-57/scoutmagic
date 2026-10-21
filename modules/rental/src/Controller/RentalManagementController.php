@@ -2439,6 +2439,8 @@ class RentalManagementController extends AbstractController
         return [
             'payment' => $payment,
             'settlement' => $settlement !== null && $settlement->isValidated ? $settlement : null,
+            // The deposit stays held while a damage is assessed (#980).
+            'damage_under_assessment' => $this->stayService?->hasIncidentUnderAssessment($booking->id) ?? false,
             'movements' => $this->paymentService?->movementsFor($booking) ?? [],
             'instructions' => $settings !== null
                 ? $this->paymentService->paymentInstructions($booking, $settings, $payment)
@@ -3241,11 +3243,19 @@ class RentalManagementController extends AbstractController
         // The page that changes a decision exists wherever the stay
         // features do (bookingPagesOffered()): the incidents live there.
         $keepsInventory = $this->stayService !== null;
+        $settlements = $this->stayService?->settlementsFor($booking->id) ?? [];
+        // A damage still assessed holds every version back (#980): « Valider »
+        // gives way to a link to the oldest one, on « État des lieux ».
+        $pendingIncidentId = $this->stayService?->pendingIncidentIds($booking->id)[0] ?? null;
 
         return [
             'billing' => $this->operationsService->billingIdentity($booking->id),
             'on_site_contact' => $this->operationsService->onSiteContact($booking->id),
-            'settlements' => $this->stayService?->settlementsFor($booking->id) ?? [],
+            'settlements' => $settlements,
+            'pending_incident_url' => $pendingIncidentId !== null
+                ? BookingPage::INVENTORY->url($this->bookingUrl($asset, $booking)) . '#incident-' . $pendingIncidentId
+                : null,
+            'outdated_settlement_ids' => $this->stayService?->outdatedSettlementIds($booking->id, $settlements) ?? [],
             'final_persons' => $finalPersons,
             'gesture' => $gesture,
             // Recomputed live, so the figure a manager sees is the one the
