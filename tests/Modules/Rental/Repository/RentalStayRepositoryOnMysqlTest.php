@@ -333,6 +333,24 @@ final class RentalStayRepositoryOnMysqlTest extends TestCase
         $this->assertSame('Geste envers le groupe', $incident->waiveReason);
     }
 
+    public function testTheRenterViewDecryptsOnlyTheDecidedIncidents(): void
+    {
+        // The ciphertext goes through a CASE on this engine (#980): a decided
+        // one must still decrypt, one under assessment must not come back.
+        $charged = $this->repository->createIncident($this->bookingId, 'Vitre cassée', 4500, null, 7);
+        $this->repository->createIncident($this->bookingId, 'Infiltration au dortoir', 80000, null, 7);
+        $this->assertNotNull($charged);
+        $this->repository->decideIncident($charged, IncidentDecision::CHARGE, 6000, 9, null, null, null);
+
+        $incidents = $this->repository->findRenterIncidents($this->bookingId);
+
+        $this->assertTrue($incidents->assessmentInProgress);
+        $this->assertCount(1, $incidents->decided);
+        $this->assertSame('Vitre cassée', $incidents->decided[0]->description);
+        $this->assertSame(6000, $incidents->decided[0]->chargedCents);
+        $this->assertStringNotContainsString('Infiltration', serialize($incidents));
+    }
+
     /**
      * Validation is a compare-and-set decided on `rowCount()`: here it
      * counts the rows CHANGED, and `is_validated` going from 0 to 1 is a

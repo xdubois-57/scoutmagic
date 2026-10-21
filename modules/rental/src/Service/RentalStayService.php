@@ -21,6 +21,7 @@ use Modules\Rental\Stay\MeterConsumption;
 use Modules\Rental\Stay\MeterKind;
 use Modules\Rental\Stay\MeterReading;
 use Modules\Rental\Stay\ReadingPhase;
+use Modules\Rental\Stay\RenterIncidents;
 use Modules\Rental\Stay\Settlement;
 use Modules\Rental\Stay\SettlementCalculator;
 use Modules\Rental\Stay\SettlementLine;
@@ -633,17 +634,18 @@ class RentalStayService
     }
 
     /**
-     * Incidents a renter may see (§6.26) — everything except an assessment
-     * still in progress, which they would read as a demand.
+     * « Incidents et dégâts » on the renter's tracking page (#980, §22.5):
+     * the decided incidents — what was observed, when, billed or not — and
+     * whether one is still being assessed.
      *
-     * @return Incident[]
+     * Built by its own query rather than filtered from `incidentsFor()`,
+     * which decrypts every description: an assessment in progress must
+     * never be constructed for this page, not merely left out of it
+     * (ARCHITECTURE.md §7.6, rule 3). Nor does a waive reason travel.
      */
-    public function incidentsVisibleToRenter(int $bookingId): array
+    public function renterIncidents(int $bookingId): RenterIncidents
     {
-        return array_values(array_filter(
-            $this->stayRepository->findIncidents($bookingId),
-            static fn(Incident $incident) => $incident->decision->isVisibleToRenter()
-        ));
+        return $this->stayRepository->findRenterIncidents($bookingId);
     }
 
     /**

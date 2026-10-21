@@ -8,8 +8,9 @@
   breakdown (every line, every change, immediately), the flagged managers'
   contact details, and the emergency number.
 
-  What it must NEVER show: internal comments, or notes on a damage still
-  being assessed. Nor does it let the renter change anything of their
+  What it must NEVER show: internal comments, anything of a damage still
+  being assessed beyond the fact that one is, or why a damage is not
+  billed (_incidents.html.twig). Nor does it let the renter change anything of their
   booking — dates, participants, a cancellation (#927, chantier §2.2): for
   that they contact the unit, whose contacts are at the bottom. The ONE file it offers is the contract signed by both
   parties (#708, IT-16), once there is one — served only for this booking,
@@ -154,6 +155,8 @@
         {% endif %}
 
         {% include '@rental/public/_payment.html.twig' %}
+
+        {% include '@rental/public/_incidents.html.twig' %}
 
         <div class="card mb-4">
             <div class="card-body">
