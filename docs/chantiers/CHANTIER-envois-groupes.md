@@ -161,9 +161,14 @@ Comportement existant, inchangé ici.
   une cible par ligne du fichier qui a un Tiers (deux lignes du même Tiers =
   deux cibles).
 - `mass_mail_delivery_targets` : `(delivery_id, target_id)`, clé primaire.
-- `mass_mail_notified_accounts` : `email_id`, `audience_row_id` (NULL),
-  `user_account_id` ; unicité garantie par le service (une colonne générée
-  `COALESCE(audience_row_id, 0)` dans un index unique est acceptable).
+- `mass_mail_notified_accounts` : `email_id` (CASCADE), `audience_row_id`
+  (NULL, **`ON DELETE CASCADE`** — contrairement aux deux tables ci-dessus),
+  `user_account_id` (CASCADE) ; unique sur (`email_id`, `COALESCE(audience_row_id,
+  0)`, `user_account_id`) par une colonne générée. La cascade est obligatoire :
+  avec `SET NULL`, purger une audience ramènerait à NULL les lignes de plusieurs
+  enfants notifiés au même compte et violerait l'index unique, faisant échouer
+  la purge. Rien n'est perdu : une audience n'est purgée qu'une fois tous ses
+  envois terminés, et ses notifications sont supprimées dans la même passe.
 - Toutes les clés étrangères pointent vers des tables du module ou du cœur
   (`members`, `member_emails`, `scout_years`, `user_accounts`) ; aucun autre
   module ne référence ces tables.
@@ -457,6 +462,9 @@ dans un ordre ou dans l'autre.
 - La notification et la purge se retrouvent par l'**URL exacte** : toute
   construction du lien passe par une seule fonction partagée.
 - `{id}` de `/members/{id}/…` est un `member_years`, jamais un `members`.
+- `mass_mail_notified_accounts.audience_row_id` est en `ON DELETE CASCADE`, pas
+  `SET NULL` comme ailleurs dans le module (§2.1) ; un test de purge avec deux
+  lignes d'une même famille notifiées au même compte le vérifie.
 - `UxConventionsTest` : confirmations (« Renvoyer » renvoie un e-mail), icônes
   du jeu vendu, pas de script dans les gabarits.
 - Jamais de lecture d'une table `mass_mail_*` hors du module ; le cœur passe par
