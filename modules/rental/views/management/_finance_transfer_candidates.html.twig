@@ -1,0 +1,72 @@
+{#
+  The answer of « Rapprocher un virement »'s search (#980, chantier
+  §2.6), rendered by RentalManagementController::searchTransfer() and
+  placed in the dialog by public/assets/js/rental-transfer-reconcile.js.
+
+  Each candidate says when, how much, from whom and what the payer wrote
+  (Finance\Api\PaymentCandidate), nothing else. Each is its own form,
+  asking first with the transfer it names; it posts without JavaScript's
+  help (`data-async="off"`), so the page comes back whole, the dialog
+  closed. The amount travels back as the search found it: Finance checks
+  again that the credit is of exactly that amount, and attaches it whole
+  (Q1).
+
+  Requires `asset`, `booking`, `booking_page`, `amount_cents`,
+  `candidates` (list<Finance\Api\PaymentCandidate>), `transfer_since`
+  and `transfer_statement_at`.
+#}
+{% if candidates is empty %}
+    <p class="mb-2" data-transfer-candidates-empty>
+        Aucun virement entrant de {{ amount_cents|money_cents }}, non rapproché, sur le compte de ce bien depuis
+        le {{ transfer_since|date_fr }}. Vérifiez le montant, ou retirez le nom du payeur : il est comparé à
+        celui que la banque indique.
+    </p>
+    {% include '@rental/management/_finance_transfer_statement.html.twig' %}
+{% else %}
+    <p class="small mb-2">
+        Virements entrants de {{ amount_cents|money_cents }}, non rapprochés, depuis le
+        {{ transfer_since|date_fr }}. Aucun e-mail n'est envoyé.
+    </p>
+    <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0" data-transfer-candidates>
+            <caption class="visually-hidden">Virements entrants candidats</caption>
+            <thead>
+                <tr>
+                    <th scope="col">Date</th>
+                    <th scope="col" class="text-end">Montant</th>
+                    <th scope="col">Contrepartie</th>
+                    <th scope="col">Communication libre</th>
+                    <th scope="col"><span class="visually-hidden">Action</span></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for candidate in candidates %}
+                    {% set question = 'Rapprocher ce virement de ' ~ candidate.amountCents|money_cents ~ ' ('
+                        ~ (candidate.counterpartyName ? candidate.counterpartyName ~ ', ' : '')
+                        ~ candidate.date|date_fr ~ ') de ' ~ booking.reference
+                        ~ ' ? Il compte en entier comme un paiement de la réservation, même au-delà de ce qui '
+                        ~ 'reste dû. Aucun e-mail n\'est envoyé.' %}
+                    <tr data-transfer-candidate>
+                        <td class="text-nowrap">{{ candidate.date|date_fr }}</td>
+                        <td class="text-end text-nowrap">+{{ candidate.amountCents|money_cents }}</td>
+                        <td class="text-break">{{ candidate.counterpartyName ?? '—' }}</td>
+                        <td class="text-break small">{{ candidate.label }}</td>
+                        <td class="text-end">
+                            <form method="post" action="/mes-locations/virement-rapprocher" data-async="off"
+                                  data-confirm="{{ question }}" data-confirm-variant="primary"
+                                  data-confirm-label="Rapprocher">
+                                {{ csrf_field()|raw }}
+                                <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                                <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                                <input type="hidden" name="booking_page" value="{{ booking_page.value }}">
+                                <input type="hidden" name="transaction_id" value="{{ candidate.transactionId }}">
+                                <input type="hidden" name="amount_cents" value="{{ amount_cents }}">
+                                <button type="submit" class="btn btn-sm btn-outline-secondary">Rapprocher</button>
+                            </form>
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+{% endif %}

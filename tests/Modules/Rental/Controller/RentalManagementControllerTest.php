@@ -1607,6 +1607,9 @@ class RentalManagementControllerTest extends TestCase
             ['/mes-locations/decompte-valider', 'validateSettlement', ['settlement_id' => '1']],
             ['/mes-locations/decompte-actualiser', 'recordSettlementFromValidated', []],
             ['/mes-locations/facture-complementaire', 'generateSupplementaryInvoice', []],
+            ['/mes-locations/virement-chercher', 'searchTransfer', ['amount' => '300']],
+            ['/mes-locations/virement-rapprocher', 'reconcileTransfer', ['transaction_id' => '1', 'amount_cents' => '1']],
+            ['/mes-locations/virement-detacher', 'detachTransfer', ['transaction_id' => '1']],
         ];
 
         foreach ($actions as [$path, $action, $body]) {
@@ -5812,6 +5815,351 @@ class RentalManagementControllerTest extends TestCase
         AuthSession::login(1, 'manager@test.be', 'identified');
         $this->assertSame(302, $this->reconcileRefundPost($booking, $debitId)->getStatusCode());
         $this->assertSame(0, $overpaid());
+    }
+
+    // ── « Rapprocher un virement » (#980, chantier §2.6) ────────────────
+
+    /** A credit of the unit's account carrying no communication — an insurer paying a damage. */
+    private function creditWithoutCommunication(float $amount, string $counterparty = 'ETHIAS SA'): int
+    {
+        return (new TransactionRepository($this->pdo, $this->encryption))->create(
+            $this->financeAccountId,
+            FinanceTestHelper::createScoutYear($this->pdo, 'Exercice ' . bin2hex(random_bytes(3)), '2030-09-01', '2031-08-31'),
+            null,
+            '2030-10-05',
+            'Sinistre 2030/118',
+            $amount,
+            null,
+            null,
+            'import',
+            null,
+            $counterparty
+        );
+    }
+
+    /** A manager whose account carries a name, the way « rapproché à la main par … » reads it. */
+    private function loginAsNamedManager(): void
+    {
+        $this->addManager($this->assetId, 'manager@test.be');
+        $accounts = new \Core\Security\UserAccountRepository($this->pdo, $this->encryption);
+        $account = $accounts->create('manager@test.be');
+        $accounts->updateProfile($account->id, 'Marie', 'Dubois');
+        AuthSession::login($account->id, 'manager@test.be', 'identified');
+    }
+
+    /** @param array<string, string> $body */
+    private function transferPost(string $path, string $action, RentalBooking $booking, array $body): Response
+    {
+        return $this->post($path, $action, $body + [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'booking_page' => 'finances',
+        ]);
+    }
+
+    /** @return array<string, mixed> */
+    private function searchTransfer(RentalBooking $booking, string $amount, string $payer = ''): array
+    {
+        $response = $this->postAsync('/mes-locations/virement-chercher', 'searchTransfer', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'booking_page' => 'finances',
+            'amount' => $amount,
+            'payer_name' => $payer,
+        ]);
+        $this->assertSame(200, $response->getStatusCode());
+        /** @var array<string, mixed> $data */
+        $data = json_decode((string) $response->getBody(), true);
+
+        return $data;
+    }
+
+    private function remainingCents(RentalBooking $booking): int
+    {
+        return (int) $this->paymentService->statusFor(
+            $booking,
+            $this->paymentService->settingsFor($this->assetId)
+        )['remaining_cents'];
+    }
+
+    public function testTheFinancesPageOffersToReconcileATransferWithoutListingTheAccount(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->bookingOwedFor(46750, 15000);
+        $this->creditWithoutCommunication(617.50);
+
+        $body = $this->financesPage($booking);
+
+        $this->assertStringContainsString('data-bs-target="#rapprocher-virement"', $body);
+        $this->assertStringContainsString('id="rapprocher-virement"', $body);
+        $this->assertStringContainsString('action="/mes-locations/virement-chercher"', $body);
+        $this->assertStringContainsString('name="amount"', $body);
+        $this->assertStringContainsString('name="payer_name"', $body);
+        $this->assertStringContainsString('rental-transfer-reconcile.js', $body);
+        // No statement status is wired here: the dialog says nothing is known.
+        $this->assertStringContainsString('Aucun extrait importé depuis le', $body);
+        // The account's unreconciled credits are never on the page itself.
+        $this->assertStringNotContainsString('ETHIAS', $body);
+        $this->assertStringNotContainsString('action="/mes-locations/virement-rapprocher"', $body);
+    }
+
+    public function testABookingWithoutAReceivableOffersNoTransferToReconcile(): void
+    {
+        $this->loginAsManager();
+        $this->paymentService->saveSettings($this->assetId, new \Modules\Rental\Payment\PaymentSettings(
+            enabled: true,
+            financeAccountId: $this->financeAccountId,
+            financeCategoryId: $this->financeCategoryId
+        ));
+
+        $body = $this->financesPage($this->createBooking());
+
+        $this->assertStringNotContainsString('Rapprocher un virement', $body);
+        $this->assertStringNotContainsString('id="rapprocher-virement"', $body);
+    }
+
+    public function testTheSearchAnswersTheCandidatesOfThatExactAmountAsJson(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->bookingOwedFor(46750, 15000);
+        $insurer = $this->creditWithoutCommunication(617.50);
+        $this->creditWithoutCommunication(617.51);
+        $this->creditWithoutCommunication(617.50, 'J. LAMBERT');
+
+        $data = $this->searchTransfer($booking, '617,50', 'ethias');
+
+        $this->assertTrue($data['success']);
+        $html = (string) preg_replace('/\s+/', ' ', (string) $data['html']);
+        $this->assertSame(1, substr_count($html, 'data-transfer-candidate>'));
+        $this->assertStringContainsString('value="' . $insurer . '"', $html);
+        $this->assertStringContainsString('name="amount_cents" value="61750"', $html);
+        $this->assertStringContainsString('Sinistre 2030/118', $html);
+        $this->assertStringNotContainsString('J. LAMBERT', $html);
+        $this->assertStringContainsString(
+            'data-confirm="Rapprocher ce virement de 617,50 € (ETHIAS SA, 05/10/2030) de LOC-A2B3C4 ?',
+            $html
+        );
+        $this->assertStringContainsString('Aucun e-mail n&#039;est envoyé.', $html);
+        // The journal: ids and a count, never the name or the amount.
+        $context = (string) $this->fetchScalar(
+            'SELECT context FROM event_log WHERE event_type = ? ORDER BY id DESC LIMIT 1',
+            ['rental_transfer_searched']
+        );
+        $this->assertSame(['booking_id' => $booking->id, 'candidates' => 1], json_decode($context, true));
+    }
+
+    public function testASearchWithNothingFoundSaysSoAndAMissingAmountIsRefused(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->bookingOwedFor(46750, 15000);
+
+        $empty = $this->searchTransfer($booking, '1000');
+        $this->assertTrue($empty['success']);
+        $this->assertStringContainsString('data-transfer-candidates-empty', (string) $empty['html']);
+        $this->assertStringContainsString('Aucun extrait importé depuis le', (string) $empty['html']);
+
+        $refused = $this->searchTransfer($booking, '');
+        $this->assertFalse($refused['success']);
+        $this->assertStringContainsString('Indiquez le montant reçu', (string) $refused['message']);
+        $this->assertArrayNotHasKey('html', $refused);
+    }
+
+    public function testTheSearchIsNeverAnsweredToAPlainFormPost(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->bookingOwedFor(46750, 15000);
+        $this->creditWithoutCommunication(617.50);
+
+        $response = $this->transferPost('/mes-locations/virement-chercher', 'searchTransfer', $booking, [
+            'amount' => '617,50',
+        ]);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertStringNotContainsString('ETHIAS', (string) $response->getBody());
+        $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
+        $this->assertSame(0, (int) $this->fetchScalar(
+            'SELECT COUNT(*) FROM event_log WHERE event_type = ?',
+            ['rental_transfer_searched']
+        ));
+    }
+
+    public function testATransferReconciledFromTheBookingPaysItAndCanBeDetached(): void
+    {
+        $this->loginAsNamedManager();
+        $booking = $this->bookingOwedFor(46750, 15000);
+        $this->payOnReceivable($booking, 250.00);
+        $insurer = $this->creditWithoutCommunication(367.50);
+
+        $response = $this->transferPost('/mes-locations/virement-rapprocher', 'reconcileTransfer', $booking, [
+            'transaction_id' => (string) $insurer,
+            'amount_cents' => '36750',
+        ]);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertStringEndsWith('/finances', (string) $response->getHeaders()['Location']);
+        $this->assertSame('Virement rapproché.', \Core\Http\FlashMessage::get()['message'] ?? null);
+        $this->assertSame(0, $this->remainingCents($booking));
+        $page = $this->financesPage($booking);
+        $this->assertStringContainsString('Rapproché à la main par Marie Dubois, le', $page);
+        $this->assertStringContainsString('action="/mes-locations/virement-detacher"', $page);
+        $this->assertStringContainsString(
+            'data-confirm="Détacher ce virement de 367,50 € (ETHIAS SA, 05/10/2030) de LOC-A2B3C4 ?',
+            $page
+        );
+        // The automatic payment carries no « Détacher ».
+        $this->assertSame(1, substr_count($page, 'action="/mes-locations/virement-detacher"'));
+
+        $this->transferPost('/mes-locations/virement-detacher', 'detachTransfer', $booking, [
+            'transaction_id' => (string) $insurer,
+        ]);
+
+        $this->assertSame('Virement détaché.', \Core\Http\FlashMessage::get()['message'] ?? null);
+        $this->assertSame(36750, $this->remainingCents($booking));
+        $this->assertStringNotContainsString('Rapproché à la main', $this->financesPage($booking));
+    }
+
+    public function testATransferIsAttachedWholeEvenBeyondWhatIsDue(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->bookingOwedFor(46750, 15000);
+        $this->payOnReceivable($booking, 617.50);
+        $insurer = $this->creditWithoutCommunication(1000.00);
+
+        $this->transferPost('/mes-locations/virement-rapprocher', 'reconcileTransfer', $booking, [
+            'transaction_id' => (string) $insurer,
+            'amount_cents' => '100000',
+        ]);
+
+        $this->assertSame('Virement rapproché.', \Core\Http\FlashMessage::get()['message'] ?? null);
+        $this->assertSame(100000, (int) $this->paymentService->statusFor(
+            $booking,
+            $this->paymentService->settingsFor($this->assetId)
+        )['overpaid_cents']);
+    }
+
+    public function testATransferOfAnotherAmountIsRefusedWithFinancesOwnReason(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->bookingOwedFor(46750, 15000);
+        $insurer = $this->creditWithoutCommunication(367.50);
+
+        $this->transferPost('/mes-locations/virement-rapprocher', 'reconcileTransfer', $booking, [
+            'transaction_id' => (string) $insurer,
+            'amount_cents' => '36700',
+        ]);
+
+        $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
+        $this->assertSame(61750, $this->remainingCents($booking));
+    }
+
+    public function testATransferASettlementValidatedSinceCountedIsNotDetached(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->bookingOwedFor(46750, 15000);
+        $insurer = $this->creditWithoutCommunication(617.50);
+        $this->transferPost('/mes-locations/virement-rapprocher', 'reconcileTransfer', $booking, [
+            'transaction_id' => (string) $insurer,
+            'amount_cents' => '61750',
+        ]);
+        \Core\Http\FlashMessage::get();
+        $this->runStatement(
+            'UPDATE finance_receivable_allocations SET created_at = ? WHERE transaction_id = ?',
+            ['2026-01-05 09:00:00', $insurer]
+        );
+        $fresh = $this->bookingRepository->findById($booking->id);
+        $this->assertNotNull($fresh);
+        $settlement = $this->stayService->recordSettlement($fresh, $this->assetId, null, [], null);
+        $this->stayService->validateSettlement($fresh, $settlement->id, null);
+
+        $this->assertStringNotContainsString('action="/mes-locations/virement-detacher"', $this->financesPage($booking));
+
+        $this->transferPost('/mes-locations/virement-detacher', 'detachTransfer', $booking, [
+            'transaction_id' => (string) $insurer,
+        ]);
+
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertSame('error', $flash['type'] ?? null);
+        $this->assertStringContainsString('tient compte de ce virement', (string) ($flash['message'] ?? ''));
+        $this->assertSame(1, (int) $this->fetchScalar(
+            'SELECT COUNT(*) FROM finance_receivable_allocations WHERE transaction_id = ? AND amount_cents > 0',
+            [$insurer]
+        ));
+    }
+
+    public function testReconcilingADetachingAndSearchingATransferAreItsManagersAlone(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->bookingOwedFor(46750, 15000);
+        $insurer = $this->creditWithoutCommunication(617.50);
+        $reconcile = fn(): Response => $this->transferPost(
+            '/mes-locations/virement-rapprocher',
+            'reconcileTransfer',
+            $booking,
+            ['transaction_id' => (string) $insurer, 'amount_cents' => '61750']
+        );
+        $detach = fn(): Response => $this->transferPost(
+            '/mes-locations/virement-detacher',
+            'detachTransfer',
+            $booking,
+            ['transaction_id' => (string) $insurer]
+        );
+        $search = fn(): Response => $this->postAsync('/mes-locations/virement-chercher', 'searchTransfer', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'amount' => '617,50',
+        ]);
+
+        // Anonymous: refused, nothing found, nothing written.
+        AuthSession::logout();
+        foreach ([$search, $reconcile, $detach] as $call) {
+            $this->assertContains($call()->getStatusCode(), [302, 401, 403]);
+        }
+        $this->assertSame(61750, $this->remainingCents($booking));
+
+        // An identified member who manages nothing: a 404 every time.
+        AuthSession::login(1, 'nobody@test.be', 'identified');
+        foreach ([$search, $reconcile, $detach] as $call) {
+            $this->assertSame(404, $call()->getStatusCode());
+        }
+        $this->assertSame(61750, $this->remainingCents($booking));
+        $this->assertSame(0, (int) $this->fetchScalar(
+            'SELECT COUNT(*) FROM event_log WHERE event_type = ?',
+            ['rental_transfer_searched']
+        ));
+
+        // A manager of another asset, through the booking of this one: a 404.
+        $this->addManager($this->otherAssetId, 'other@test.be');
+        AuthSession::login(1, 'other@test.be', 'identified');
+        $this->assertSame(404, $this->post('/mes-locations/virement-rapprocher', 'reconcileTransfer', [
+            'asset_id' => (string) $this->otherAssetId,
+            'booking_id' => (string) $booking->id,
+            'transaction_id' => (string) $insurer,
+            'amount_cents' => '61750',
+        ])->getStatusCode());
+        $this->assertSame(61750, $this->remainingCents($booking));
+
+        // The asset's manager, at the routes' role_min: allowed.
+        AuthSession::login(1, 'manager@test.be', 'identified');
+        $this->assertSame(200, $search()->getStatusCode());
+        $this->assertSame(302, $reconcile()->getStatusCode());
+        $this->assertSame(0, $this->remainingCents($booking));
+        $this->assertSame(302, $detach()->getStatusCode());
+        $this->assertSame(61750, $this->remainingCents($booking));
+    }
+
+    public function testATransferPostWithoutAValidCsrfTokenIsRefused(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->bookingOwedFor(46750, 15000);
+        $insurer = $this->creditWithoutCommunication(617.50);
+
+        $this->transferPost('/mes-locations/virement-rapprocher', 'reconcileTransfer', $booking, [
+            '_csrf_token' => 'forged',
+            'transaction_id' => (string) $insurer,
+            'amount_cents' => '61750',
+        ]);
+
+        $this->assertSame(61750, $this->remainingCents($booking));
     }
 
     public function testWithoutFinancesThePageSaysSoAndKeepsTheManualReturn(): void

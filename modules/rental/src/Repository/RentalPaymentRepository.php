@@ -310,4 +310,23 @@ class RentalPaymentRepository
                 : null,
         ];
     }
+
+    /**
+     * When a contract of this booking first went out to the renter
+     * (`Y-m-d H:i:s`), a replaced one included — null while none was
+     * sent. Since when a transfer can be this booking's payment
+     * (#980, chantier §2.6, Q10): nobody pays a rental before being
+     * asked to.
+     */
+    public function firstContractSentAt(int $bookingId): ?string
+    {
+        $stmt = $this->pdo->prepare(
+            "SELECT MIN(sent_at) FROM rental_documents
+             WHERE booking_id = ? AND document_type = 'contract' AND sent_at IS NOT NULL"
+        );
+        $stmt->execute([$bookingId]);
+        $sentAt = $stmt->fetchColumn();
+
+        return is_string($sentAt) && $sentAt !== '' ? $sentAt : null;
+    }
 }

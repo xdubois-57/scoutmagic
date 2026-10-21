@@ -8,7 +8,7 @@ discovery: 3
 question: Où trouver les paiements d'une réservation ?
 question: Comment rembourser la caution au locataire ?
 paths: /mes-locations/*/reservations/*/finances
-related: locations-reservation, locations-modifications, locations-reglages, locations-documents
+related: locations-reservation, locations-modifications, locations-reglages, locations-documents, locations-virement
 ---
 
 La page « Finances » d'une réservation montre, dans l'ordre, le
@@ -38,7 +38,8 @@ garde sa créance, ramenée à 0 € ; le décompte final validé la ramène au
 montant conservé. Ce qui a été versé en plus apparaît en trop-perçu.
 
 « Mouvements du compte » liste les virements rapprochés de cette
-réservation, après l'import d'un extrait bancaire.
+réservation, après l'import d'un extrait bancaire. Un paiement arrivé
+sans la communication s'y ajoute avec « Rapprocher un virement ».
 
 « Informations de paiement » reprend le bénéficiaire, l'IBAN, la
 communication et le montant à verser maintenant, avec son QR code

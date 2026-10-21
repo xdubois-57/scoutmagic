@@ -273,6 +273,33 @@
       "label": ""
     },
     {
+      "path": "/mes-locations/virement-chercher",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "searchTransfer",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/mes-locations/virement-rapprocher",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "reconcileTransfer",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/mes-locations/virement-detacher",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "detachTransfer",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
       "path": "/mes-locations/gabarit",
       "method": "POST",
       "controller": "Modules\\Rental\\Controller\\RentalManagementController",
