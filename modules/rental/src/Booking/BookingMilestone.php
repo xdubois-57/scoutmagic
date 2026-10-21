@@ -56,7 +56,12 @@ final class BookingMilestone
          * Done because a manager ticked it by hand, not because the site
          * saw it (#708, IT-14) — the one kind of done step that reopens.
          */
-        public readonly bool $isManual = false
+        public readonly bool $isManual = false,
+        /**
+         * Held back by a damage still being assessed (#980, chantier §2.4):
+         * the line waits, and says so, until the incident is decided.
+         */
+        public readonly bool $awaitsAssessment = false
     ) {
     }
 

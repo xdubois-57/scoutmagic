@@ -24,9 +24,11 @@ final que si un gestionnaire le décide.
 « Trancher » propose les trois états d'un incident, chacun avec sa
 conséquence sous le choix, et dit lequel est l'état actuel :
 
-- « En cours d'évaluation » : rien n'est facturé. Notez ce que vous
-  attendez dans « En attente de… » — un devis, une expertise, l'assurance
-  du locataire — et son numéro de dossier dans « Référence ».
+- « En cours d'évaluation » : rien n'est facturé, le décompte ne se
+  valide pas et la caution reste retenue. Notez ce que vous attendez dans
+  « En attente de… » — un devis, une expertise, l'assurance du
+  locataire — et son numéro de dossier dans « Référence ». Plus d'un mois
+  après le départ, un point d'attention le rappelle aux administrateurs.
 - « Facturer » : le « Montant (€) » devient une ligne du décompte final.
   Laissé tel quel, c'est le montant estimé qui compte.
 - « Ne pas facturer » : un « Motif » facultatif, qui reste interne et

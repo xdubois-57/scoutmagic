@@ -708,6 +708,92 @@ class MilestoneEvidenceTest extends TestCase
         $this->assertFalse($byKey[BookingMilestones::SECURITY_DEPOSIT_RECEIVED]->isApplicable);
     }
 
+    // ── A damage under assessment (#980, lot C) ─────────────────────────
+
+    /**
+     * @return array<string, \Modules\Rental\Booking\BookingMilestone>
+     */
+    private function heldBack(
+        bool $damageUnderAssessment,
+        SecurityDepositStatus $deposit = SecurityDepositStatus::RECEIVED,
+        ?Settlement $settlement = null
+    ): array {
+        $evidence = MilestoneEvidence::collect(
+            $this->booking(),
+            [],
+            $this->payment(['security_deposit' => ['status' => $deposit, 'amount_cents' => 50000]]),
+            [],
+            $settlement,
+            true,
+            [],
+            null,
+            null,
+            $damageUnderAssessment
+        );
+
+        $byKey = [];
+        foreach (BookingMilestones::for(
+            $this->booking(),
+            new \DateTimeImmutable('2027-07-10 09:00:00'),
+            $evidence->done,
+            $evidence->details,
+            $evidence->offsite,
+            $evidence->manual,
+            $evidence->awaitingAssessment
+        ) as $milestone) {
+            $byKey[$milestone->key] = $milestone;
+        }
+
+        return $byKey;
+    }
+
+    public function testADamageUnderAssessmentHoldsTheSettlementAndTheDepositBack(): void
+    {
+        $byKey = $this->heldBack(true);
+
+        $deposit = $byKey[BookingMilestones::SECURITY_DEPOSIT_RETURNED];
+        $this->assertFalse($deposit->isDone);
+        $this->assertTrue($deposit->awaitsAssessment);
+        $this->assertStringContainsString("dégât est en cours d'évaluation", (string) $deposit->explanation);
+        $this->assertStringContainsString(
+            "la caution reste retenue jusqu'à son règlement",
+            (string) $deposit->explanation
+        );
+        // It leads to the incident, never to the refund.
+        $this->assertSame("Trancher l'incident", $deposit->action?->label);
+        $this->assertSame(\Modules\Rental\Booking\BookingBox::INVENTORY, $deposit->action->box);
+
+        $settlement = $byKey[BookingMilestones::FINAL_SETTLEMENT];
+        $this->assertTrue($settlement->awaitsAssessment);
+        $this->assertStringContainsString(
+            "ne se valide qu'une fois l'incident tranché",
+            (string) $settlement->explanation
+        );
+        $this->assertSame('Établir le décompte', $settlement->action?->label);
+    }
+
+    public function testWithoutADamageUnderAssessmentTheStepsAskWhatTheyAlwaysAsked(): void
+    {
+        $byKey = $this->heldBack(false);
+
+        $deposit = $byKey[BookingMilestones::SECURITY_DEPOSIT_RETURNED];
+        $this->assertFalse($deposit->awaitsAssessment);
+        $this->assertSame('Rendre la caution', $deposit->action?->label);
+        $this->assertFalse($byKey[BookingMilestones::FINAL_SETTLEMENT]->awaitsAssessment);
+    }
+
+    public function testAStepAlreadyDoneIsNotHeldBack(): void
+    {
+        // A damage sent back to its assessment after the settlement was
+        // validated and the deposit given back: what is done stays done.
+        $byKey = $this->heldBack(true, SecurityDepositStatus::RETURNED, $this->settlement(true));
+
+        $this->assertTrue($byKey[BookingMilestones::SECURITY_DEPOSIT_RETURNED]->isDone);
+        $this->assertFalse($byKey[BookingMilestones::SECURITY_DEPOSIT_RETURNED]->awaitsAssessment);
+        $this->assertTrue($byKey[BookingMilestones::FINAL_SETTLEMENT]->isDone);
+        $this->assertFalse($byKey[BookingMilestones::FINAL_SETTLEMENT]->awaitsAssessment);
+    }
+
     private function settlement(bool $validated): Settlement
     {
         return new Settlement(

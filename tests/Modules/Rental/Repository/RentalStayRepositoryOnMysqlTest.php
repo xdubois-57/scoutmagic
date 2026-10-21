@@ -358,6 +358,58 @@ final class RentalStayRepositoryOnMysqlTest extends TestCase
         $this->assertSame(7, $settlement->validatedByMemberId);
     }
 
+    /**
+     * The validation refuses itself while one of the booking's incidents is
+     * still assessed (#980): a correlated `NOT EXISTS` on another table in
+     * the UPDATE's WHERE, which this engine must accept and honour — and
+     * the hash column holds a SHA-256 whole.
+     */
+    public function testAValidationIsRefusedByTheWriteWhileADamageIsAssessed(): void
+    {
+        $hash = hash('sha256', 'incidents');
+        $id = $this->repository->createSettlement(
+            $this->bookingId, 1, null, [], 41000, 0, 41000, null, null, 7, 41000, $hash
+        );
+        $incident = $this->repository->createIncident($this->bookingId, 'Porte fendue', 30000, null, 7);
+        $this->assertNotNull($incident);
+
+        $this->assertFalse($this->repository->validateSettlement($id, 7));
+        $this->assertFalse(
+            $this->repository->validateSettlement($id, 7, ['withheld_cents' => 0, 'return_cents' => 15000])
+        );
+
+        $this->repository->decideIncident($incident, IncidentDecision::CHARGE, null, 7);
+
+        $this->assertTrue(
+            $this->repository->validateSettlement($id, 7, ['withheld_cents' => 0, 'return_cents' => 15000])
+        );
+        $this->assertSame($hash, $this->repository->findSettlement($id)?->incidentBasisHash);
+    }
+
+    /**
+     * The attention page's read (#980): a DATE column compared with the
+     * bound PHP computed, the abandoned statuses left out, and the two
+     * texts decrypted.
+     */
+    public function testThePendingIncidentsOfBookingsGoneByADateAreReadOnThisEngine(): void
+    {
+        $id = $this->repository->createIncident($this->bookingId, 'Porte fendue', 30000, null, 7);
+        $this->assertNotNull($id);
+        $this->repository->decideIncident($id, IncidentDecision::PENDING, null, 7, 'le devis', 'DOS-42');
+
+        $rows = $this->repository->findPendingIncidentsDepartedBy('2027-07-20', ['refused', 'cancelled', 'expired']);
+
+        $this->assertCount(1, $rows);
+        $this->assertSame('2027-07-20', $rows[0]['departure_date']);
+        $this->assertSame('le devis', $rows[0]['awaiting']);
+        $this->assertSame('DOS-42', $rows[0]['file_reference']);
+        $this->assertSame([], $this->repository->findPendingIncidentsDepartedBy('2027-07-19', ['cancelled']));
+
+        $this->pdo->prepare('UPDATE rental_bookings SET status = ? WHERE id = ?')
+            ->execute(['cancelled', $this->bookingId]);
+        $this->assertSame([], $this->repository->findPendingIncidentsDepartedBy('2027-07-20', ['cancelled']));
+    }
+
     private function inventoryLine(): int
     {
         $this->repository->createInventoryItem($this->assetId, 'Trousseau de clés', InventoryKind::QUANTITY, 4);

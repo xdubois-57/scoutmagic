@@ -31,6 +31,10 @@ use Core\Service\DateInput;
  */
 final class RenterNextStep
 {
+    /** While a damage is assessed: the one thing the renter is told of it (#980). */
+    public const DAMAGE_UNDER_ASSESSMENT = "Rien à faire de votre côté pour l'instant : un dégât est en cours "
+        . "d'évaluation ; la caution reste retenue jusqu'à son règlement.";
+
     public function __construct(
         public readonly string $sentence,
         /** Whether what the renter has to do is done on their tracking page. */
@@ -72,6 +76,13 @@ final class RenterNextStep
         $next = $journey->next();
         if ($next === null) {
             return new self('Rien à faire de votre côté : tout est en ordre.');
+        }
+
+        // A damage still assessed holds the settlement and the security
+        // deposit (#980, chantier §2.7): the renter reads that sentence and
+        // nothing more — never what the damage is nor what it may cost.
+        if ($next->awaitsAssessment) {
+            return new self(self::DAMAGE_UNDER_ASSESSMENT);
         }
 
         return self::forStep($next->key, $booking, $now, $payment);

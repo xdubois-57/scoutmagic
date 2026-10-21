@@ -6456,6 +6456,62 @@ class RentalManagementControllerTest extends TestCase
         $this->assertStringNotContainsString('action="/mes-locations/incident-decision"', $body);
     }
 
+    /**
+     * A damage under assessment holds the settlement (#980): « Facture »
+     * shows a sentence and a link to the incident instead of « Valider »,
+     * and a POST that skips the page is refused with the same reason.
+     */
+    public function testADamageUnderAssessmentHoldsTheSettlementOnThePageAndOnThePost(): void
+    {
+        $this->loginAsManager();
+        $this->stayService->addInventoryItem($this->assetId, 'Clés');
+        $booking = $this->createBooking();
+        $incident = $this->stayService->reportIncident($booking, 'Porte fendue', 30000, null, 1);
+        $settlement = $this->stayService->recordSettlement($booking, $this->assetId, 28, [], 1);
+
+        $body = $this->invoicePage($booking);
+
+        $this->assertStringContainsString('data-settlement-waits="assessment"', $body);
+        $this->assertStringContainsString('/etat-des-lieux#incident-' . $incident . '"', $body);
+        $this->assertStringNotContainsString('action="/mes-locations/decompte-valider"', $body);
+
+        $this->post('/mes-locations/decompte-valider', 'validateSettlement', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'settlement_id' => (string) $settlement->id,
+        ]);
+
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertSame('error', $flash['type'] ?? null);
+        $this->assertSame(
+            \Modules\Rental\Service\RentalStayService::SETTLEMENT_WAITS_FOR_ASSESSMENT,
+            $flash['message'] ?? null
+        );
+        $this->assertFalse($this->stayService->latestSettlement($booking->id)?->isValidated);
+    }
+
+    public function testAVersionOutdatedByADecisionSaysToRecordANewOne(): void
+    {
+        $this->loginAsManager();
+        $this->stayService->addInventoryItem($this->assetId, 'Clés');
+        $booking = $this->createBooking();
+        $incident = $this->stayService->reportIncident($booking, 'Porte fendue', 30000, null, 1);
+        $this->stayService->recordSettlement($booking, $this->assetId, 28, [], 1);
+        $this->stayService->decideIncident(
+            $booking,
+            $incident,
+            \Modules\Rental\Stay\IncidentDecision::CHARGE,
+            null,
+            1
+        );
+
+        $body = $this->invoicePage($booking);
+
+        $this->assertStringContainsString('data-settlement-waits="outdated"', $body);
+        $this->assertStringNotContainsString('data-settlement-waits="assessment"', $body);
+        $this->assertStringNotContainsString('action="/mes-locations/decompte-valider"', $body);
+    }
+
     public function testASettlementLandsBackOnTheInvoicePage(): void
     {
         $this->loginAsManager();
