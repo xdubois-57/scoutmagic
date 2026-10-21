@@ -8,7 +8,7 @@ question: Comment facturer un dégât à un locataire ?
 question: Comment attendre l'assurance du locataire pour un dégât ?
 question: Que se passe-t-il si un dégât coûte plus que la caution ?
 paths: /mes-locations/*/reservations/*/etat-des-lieux
-related: locations-etat-des-lieux, locations-facture, locations-finances
+related: locations-etat-des-lieux, locations-facture, locations-finances, locations-virement, locations-facture-complementaire
 ---
 
 Un incident se constate sur la page « État des lieux » d'une réservation :
@@ -35,7 +35,9 @@ conséquence sous le choix, et dit lequel est l'état actuel :
   n'est jamais montré au locataire.
 
 Une décision se change à tout moment, et un incident tranché peut
-repasser en évaluation, par exemple quand l'assurance conteste.
+repasser en évaluation, par exemple quand l'assurance conteste. Après la
+validation du décompte, voir « Une décision après le décompte validé, et
+la facture complémentaire ».
 
 ## Un dégât plus cher que la caution
 
@@ -43,3 +45,6 @@ Le montant facturé n'est pas plafonné à la caution. Avec Finances, la
 validation du décompte ramène la créance au montant conservé : la caution
 couvre d'abord le dégât, et ce qui dépasse ce qui a déjà été payé reste
 dû, à payer avec la même communication que le reste de la réservation.
+Le paiement de l'assurance du locataire, arrivé sans cette communication,
+se rapproche à la main : voir « Rapprocher un virement sans
+communication ».

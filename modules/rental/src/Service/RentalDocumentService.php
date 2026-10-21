@@ -773,8 +773,9 @@ class RentalDocumentService
                 $settlement,
                 $instructions,
                 // Q13: thirty days from the validation, never the
-                // balance date of a stay that is over.
-                $validatedAt->add(new \DateInterval('P30D'))
+                // balance date of a stay that is over — the same rule as
+                // RentalPaymentService::statusFor().
+                Settlement::balanceDueAfter($validatedAt)
             ),
         ];
     }

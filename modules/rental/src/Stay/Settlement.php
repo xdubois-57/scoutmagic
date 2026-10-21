@@ -19,6 +19,13 @@ namespace Modules\Rental\Stay;
 final class Settlement
 {
     /**
+     * Days the balance a validated settlement leaves is due in (#980,
+     * chantier §2.5, Q13): by then the settings' balance date, counted
+     * before the arrival, has long gone.
+     */
+    public const BALANCE_DUE_DAYS = 30;
+
+    /**
      * @param SettlementLine[] $lines
      */
     public function __construct(
@@ -59,6 +66,16 @@ final class Settlement
         public readonly ?string $unrecoveredReason = null,
         public readonly ?\DateTimeImmutable $unrecoveredAt = null
     ) {
+    }
+
+    /**
+     * The day the balance falls due once a settlement was validated at
+     * $validatedAt — the one rule the payment status, the renter's page,
+     * the reminders and the supplementary invoice all read.
+     */
+    public static function balanceDueAfter(\DateTimeImmutable $validatedAt): \DateTimeImmutable
+    {
+        return $validatedAt->setTime(0, 0)->add(new \DateInterval('P' . self::BALANCE_DUE_DAYS . 'D'));
     }
 
     /** Whether this version closed the booking with a balance written off. */

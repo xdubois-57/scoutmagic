@@ -312,6 +312,25 @@ class RentalPaymentRepository
     }
 
     /**
+     * When the booking's latest validated settlement — the highest version
+     * validated — was validated (`Y-m-d H:i:s`), or null while none is.
+     * What the balance falls due from once the stay is settled (#980,
+     * chantier §2.5, Q13): a later version validated moves it.
+     */
+    public function latestSettlementValidatedAt(int $bookingId): ?string
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT validated_at FROM rental_settlements
+             WHERE booking_id = ? AND is_validated = 1 AND validated_at IS NOT NULL
+             ORDER BY version DESC LIMIT 1'
+        );
+        $stmt->execute([$bookingId]);
+        $validatedAt = $stmt->fetchColumn();
+
+        return is_string($validatedAt) && $validatedAt !== '' ? $validatedAt : null;
+    }
+
+    /**
      * When a contract of this booking first went out to the renter
      * (`Y-m-d H:i:s`), a replaced one included — null while none was
      * sent. Since when a transfer can be this booking's payment

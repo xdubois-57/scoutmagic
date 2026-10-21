@@ -1,5 +1,6 @@
 // End-to-end: one booking, from the request to the security deposit coming
-// back — through a modification made after the contract went out (#927).
+// back — through a modification made after the contract went out (#927) —
+// and on to a damage settled after the stay and its closure (#980).
 //
 // WHY THIS SCENARIO EXISTS
 // ----------------------------------------------------------------------------
@@ -29,6 +30,22 @@
 // replacement contract and not to the one in force — is decidable only
 // here.
 //
+// Then the damage of #980, on the same booking, because each of its steps
+// moves the money the steps above set up: a damage seen during the stay
+// stays « En cours d'évaluation » — the renter reads one fixed sentence and
+// nothing of it, the settlement records but does not validate; the renter's
+// insurer pays without the communication and the manager reconciles it by
+// hand from the booking, in full beyond what is due; billed, the damage
+// enters the settlement, and what goes back is still the deposit, through
+// the communication; a decision taken after the validation offers a new
+// version, and the invoice already sent is completed by a supplementary
+// invoice for the difference alone; what the renter still owes is given up
+// by « Clôturer avec un solde non recouvré », with a reason and no e-mail.
+// Whether those agree with each other — the hand-reconciled credit counted
+// by the settlement, the refund still found by the import, the supplement
+// measured against the invoice actually sent, the amount given up the one
+// the receivable still lacks — is again decidable only here.
+//
 // And, at its start, the race #927 opened with: two visitors asking for the
 // same dates at the same moment. Exactly one of them gets the week.
 // `php -S` serves one request at a time, so the browser cannot make the two
@@ -56,6 +73,7 @@ import { inflateSync } from 'node:zlib';
 import { answerCookieBanner } from '../support/cookie-banner.js';
 import { autoConfirm } from '../support/confirm-dialog.js';
 import { loginAsAdmin } from '../support/admin-login.js';
+import { openModal } from '../support/modal.js';
 import { openSectionEditor } from '../support/section-editor.js';
 import { pngBuffer } from '../support/png.js';
 import { giveAssetAddress, giveRenterAddress } from '../support/rental-contract.js';
@@ -100,17 +118,27 @@ const SECURITY_DEPOSIT = '150,00';
 
 const INVENTORY_KEYS = 'Trousseau de clés';
 
+// The damage of #980: assessed by the renter's insurer, which pays part of
+// it without the booking's communication. The texts are the unit's own:
+// the renter's page never shows them.
+const DAMAGE = 'Vitre de la cuisine brisée';
+const DAMAGE_AWAITING = "Expertise de l'assurance du locataire";
+const DAMAGE_REFERENCE = 'SIN-2026-4471';
+const INSURER = 'Assurances du Lac';
+const UNRECOVERED_REASON = 'Assurance refusée pour le surplus, locataire injoignable.';
+
 /** The three states one line of the checklist can be rendered in. */
 const DONE = 'Fait :';
 const TODO = 'À faire :';
 
 test.describe('Rentals — one booking from the request to the deposit back', () => {
     const title = 'a request, a contract, a replacement contract, a stay and the deposit refunded '
-        + 'through one communication';
+        + 'through one communication, then a damage assessed, billed and partly written off';
     test(title, async ({ page, browser }) => {
         // Long by nature: an asset, a Finance account and a manager to build,
-        // three PDFs rendered, two statements imported, two renters. Nothing
-        // waits on a timer but the anti-robot delay of the public form.
+        // contracts, inventories and invoices rendered, three statements
+        // imported, two renters. Nothing waits on a timer but the anti-robot
+        // delay of the public form.
         test.setTimeout(scaled(300_000));
 
         /** @type {string[]} */
@@ -367,30 +395,125 @@ test.describe('Rentals — one booking from the request to the deposit back', ()
         await expect(milestone(page, 'Solde reçu')).toContainText(DONE);
         await expect(milestone(page, 'Caution reçue')).toContainText(DONE);
 
-        // ── 10. The stay ─────────────────────────────────────────────────
+        // ── 10. The stay, and a damage under assessment ──────────────────
         await page.goto(`${dashboard}/etat-des-lieux`, { waitUntil: 'load' });
         await takeReference(page, INVENTORY_KEYS);
         await validateInventory(page, "Valider l'état des lieux d'entrée");
+
+        // Seen during the stay, its price not known yet: the renter's
+        // insurer sends an expert. It stays « En cours d'évaluation », with
+        // what it waits for and the insurer's file number (#980, §2.1).
+        const reportForm = page.locator('form[action="/mes-locations/incident"]');
+        await reportForm.locator('#incident-description').fill(DAMAGE);
+        await reportForm.locator('#incident-amount').fill('250,00');
+        await submitAndRefresh(page, '/mes-locations/incident',
+            () => reportForm.getByRole('button', { name: 'Ajouter', exact: true }).click());
+        const incident = page.locator('li[id^="incident-"]', { hasText: DAMAGE });
+        const incidentAnchor = await incident.getAttribute('id');
+        await incident.locator('input[name="awaiting"]').fill(DAMAGE_AWAITING);
+        await incident.locator('input[name="reference"]').fill(DAMAGE_REFERENCE);
+        await submitAndRefresh(page, '/mes-locations/incident-decision',
+            () => incident.getByRole('button', { name: 'Trancher' }).click());
+        await expect(incident).toContainText(`En attente de : ${DAMAGE_AWAITING}`);
+        await expect(incident.getByLabel("En cours d'évaluation")).toBeChecked();
+
         await takeReference(page, INVENTORY_KEYS);
         await validateInventory(page, "Valider l'état des lieux de sortie");
         await expect(page.locator('[data-booking-panel="inventory"]'))
             .toContainText('Les deux états des lieux sont validés');
 
-        // ── 11. The settlement: the unit keeps the rent ──────────────────
+        // The renter is told one fixed sentence about it, and nothing else:
+        // neither what was seen, nor an amount, nor what it waits for — the
+        // page never builds them (§2.7).
+        await renter.goto(trackingUrl, { waitUntil: 'load' });
+        const renterIncidents = renter.locator('#incidents');
+        await expect(renterIncidents.locator('[data-renter-incident-assessment]'))
+            .toHaveText("Un dégât est en cours d'évaluation ; la caution reste retenue jusqu'à son règlement.");
+        await expect(renterIncidents.locator('[data-renter-incident]')).toHaveCount(0);
+        const renterMain = renter.locator('#main-content');
+        for (const internal of [DAMAGE, DAMAGE_AWAITING, DAMAGE_REFERENCE, '250,00']) {
+            await expect(renterMain).not.toContainText(internal);
+        }
+
+        // ── 11. The invoice goes out before the damage is settled ────────
         await page.goto(`${dashboard}/facture`, { waitUntil: 'load' });
+        await submitAndRefresh(page, '/mes-locations/document-generer',
+            () => page.getByRole('button', { name: 'Générer la facture' }).click());
+        await submitAndRefresh(page, '/mes-locations/document-envoyer',
+            () => page.getByRole('button', { name: 'Envoyer la facture' }).click());
+        await expect(page.locator('[data-invoice]')).toContainText('Envoyée le');
+
+        // ── 12. A settlement recorded, which does not validate yet ───────
         await page.locator('#final-persons').fill('28');
+        await submitAndRefresh(page, '/mes-locations/decompte',
+            () => page.getByRole('button', { name: 'Enregistrer un décompte' }).click());
+        const waitsForAssessment = page.locator('[data-settlement-waits="assessment"]');
+        await expect(waitsForAssessment).toContainText("Un dégât est en cours d'évaluation");
+        await expect(waitsForAssessment.getByRole('link', { name: "Voir l'incident" }))
+            .toHaveAttribute('href', new RegExp(`#${incidentAnchor}$`));
+        await expect(page.getByRole('button', { name: 'Valider', exact: true })).toHaveCount(0);
+
+        // ── 13. The insurer pays, without the communication ──────────────
+        // Nothing reconciles it on its own: it is found from the booking,
+        // by its exact amount and part of the payer's name (§2.6), and
+        // counts in full even beyond what is due (Q1).
+        await importStatement(page, [
+            statementLine('2026000103', 0, '250,00', INSURER, `Sinistre ${DAMAGE_REFERENCE}`),
+        ]);
+
+        await page.goto(`${dashboard}/finances`, { waitUntil: 'load' });
+        const movements = page.locator('[data-finance-movements]');
+        await expect(movements).not.toContainText(INSURER);
+        const transfer = await openModal(page, 'rapprocher-virement',
+            () => page.getByRole('button', { name: 'Rapprocher un virement' }).click());
+        await expect(transfer.locator('[data-transfer-statement]')).toBeVisible();
+        await transfer.locator('#transfer-amount').fill('250,00');
+        await transfer.locator('#transfer-payer').fill('assurances du lac');
+        await transfer.getByRole('button', { name: 'Chercher' }).click();
+        const candidate = transfer.locator('[data-transfer-results] [data-transfer-candidate]');
+        await expect(candidate).toHaveCount(1);
+        await expect(candidate).toContainText(INSURER);
+        // Its form asks first, then posts the whole page: it comes back with
+        // the dialog closed and the credit among the booking's movements.
+        await candidate.getByRole('button', { name: 'Rapprocher' }).click();
+        await expect(movements.locator('[data-movement-reconciled-by]')).toContainText('Rapproché à la main par');
+        await expect(movements).toContainText(INSURER);
+        await expect(movements.locator('[data-finance-movement-beyond]')).toContainText('250,00');
+        await expect(movements.locator('[data-movement-detach]')).toHaveCount(1);
+
+        // ── 14. Billed, then the settlement: the unit keeps rent and damage
+        await page.goto(`${dashboard}/etat-des-lieux`, { waitUntil: 'load' });
+        await incident.getByLabel('Facturer', { exact: true }).check();
+        await submitAndRefresh(page, '/mes-locations/incident-decision',
+            () => incident.getByRole('button', { name: 'Trancher' }).click());
+        await expect(incident.locator('[data-incident-amount]')).toHaveText('250,00 €');
+
+        // The version recorded before the decision no longer validates; one
+        // recorded after it does.
+        await page.goto(`${dashboard}/facture`, { waitUntil: 'load' });
+        await expect(page.locator('[data-settlement-waits="outdated"]')).toBeVisible();
         await submitAndRefresh(page, '/mes-locations/decompte',
             () => page.getByRole('button', { name: 'Enregistrer un décompte' }).click());
         await submitAndRefresh(page, '/mes-locations/decompte-valider',
             () => page.getByRole('button', { name: 'Valider', exact: true }).click());
         await expect(page.getByRole('button', { name: 'Valider', exact: true })).toHaveCount(0);
 
+        await renter.goto(trackingUrl, { waitUntil: 'load' });
+        await expect(renterIncidents.locator('[data-renter-incident-assessment]')).toHaveCount(0);
+        await expect(renterIncidents.locator('[data-renter-incident]')).toContainText(DAMAGE);
+        await expect(renterIncidents.locator('[data-renter-incident]')).toContainText('Facturé : 250,00 €');
+        await expect(renterMain).not.toContainText(DAMAGE_AWAITING);
+
+        // 300 € of rent and 250 € of damage kept, 700 € received with the
+        // insurer's: the security deposit is what goes back.
         await page.goto(`${dashboard}/finances`, { waitUntil: 'load' });
         const refund = page.locator('[data-finance-refund]');
         await expect(refund).toContainText('À rembourser au locataire : 150,00');
         await expect(refund).toContainText(communication);
+        // A settlement validated after the reconciliation has counted it.
+        await expect(movements.locator('[data-movement-detach]')).toHaveCount(0);
 
-        // ── 12. The refund leaves the bank with the communication ─────────
+        // ── 15. The refund leaves the bank with the communication ─────────
         await importStatement(page, [
             statementLine('2026000102', 0, '-150,00', 'Claire ou Marc', communication),
         ]);
@@ -406,6 +529,77 @@ test.describe('Rentals — one booking from the request to the deposit back', ()
         await renter.goto(trackingUrl, { waitUntil: 'load' });
         await expect(renter.locator('[data-renter-payment-nothing-due]')).toBeVisible();
         await expectNoRenterChangeAction(renter);
+
+        // ── 16. The repair costs more: a decision after the validation ────
+        await page.goto(`${dashboard}/etat-des-lieux`, { waitUntil: 'load' });
+        await incident.locator('input[name="amount"]').fill('400,00');
+        await submitAndRefresh(page, '/mes-locations/incident-decision',
+            () => incident.getByRole('button', { name: 'Trancher' }).click());
+        await expect(incident.locator('[data-incident-amount]')).toHaveText('400,00 €');
+
+        // The validated version stays as it was; the page offers the next.
+        await page.goto(`${dashboard}/facture`, { waitUntil: 'load' });
+        const revision = page.locator('[data-settlement-revision]');
+        await expect(revision).toContainText('Le décompte validé (v2) ne tient pas compte de la décision du');
+        await submitAndRefresh(page, '/mes-locations/decompte-actualiser',
+            () => revision.getByRole('button', { name: 'Enregistrer un nouveau décompte' }).click());
+        await expect(revision).toHaveCount(0);
+        await submitAndRefresh(page, '/mes-locations/decompte-valider',
+            () => page.getByRole('button', { name: 'Valider', exact: true }).click());
+        await expect(page.getByRole('button', { name: 'Valider', exact: true })).toHaveCount(0);
+
+        // ── 17. The supplementary invoice bills the difference only ───────
+        // 700 € kept against the 300 € the invoice billed; it refers to that
+        // invoice, which is never touched.
+        const offer = page.locator('[data-supplement-offer]');
+        await expect(offer).toContainText('400,00 € de plus');
+        await submitAndRefresh(page, '/mes-locations/facture-complementaire',
+            () => offer.getByRole('button', { name: 'Générer la facture complémentaire' }).click());
+        await expect(offer).toHaveCount(0);
+        const supplement = page.locator('[data-supplementary-invoice]');
+        await expect(supplement).toContainText('Pas encore envoyée');
+        const supplementText = await pdfText(page, supplement.getByRole('link').first());
+        expect(supplementText, 'the supplement refers to the original invoice').toContain(`${reference}-v1`);
+        await submitAndRefresh(page, '/mes-locations/document-envoyer',
+            () => supplement.getByRole('button', { name: 'Envoyer la facture complémentaire' }).click());
+        await expect(supplement).toContainText('Envoyée le');
+        await expect(page.locator('[data-invoice]')).toContainText('Envoyée le');
+
+        // What is still due falls due thirty days after the validation —
+        // not on the settings' date, counted before an arrival long past in
+        // a real stay (Q13).
+        await renter.goto(trackingUrl, { waitUntil: 'load' });
+        await expect(renter.locator('#paiement')).toContainText('150,00');
+        await expect(renter.locator('#paiement')).toContainText(`avant le ${brusselsDateIn(30)}`);
+
+        // ── 18. Closing with what will not be recovered ───────────────────
+        // 150 € remain due, which the ordinary closure refuses (its sentence
+        // waits for the departure date, months away in this spec): the unit
+        // can give the balance up, with a reason and no e-mail.
+        await page.goto(dashboard, { waitUntil: 'load' });
+        const closure = await openModal(page, 'close-unrecovered',
+            () => page.getByRole('button', { name: 'Clôturer avec un solde non recouvré' }).click());
+        await expect(closure.locator('[data-unrecovered-amount]')).toHaveText('150,00 €');
+        await expect(closure).toContainText("Aucun e-mail n'est envoyé au locataire.");
+        await closure.locator('#close-unrecovered-reason').fill(UNRECOVERED_REASON);
+        await closure.getByRole('button', { name: 'Clôturer et renoncer au solde' }).click();
+
+        await expect(milestone(page, 'Location clôturée')).toContainText(DONE);
+        await expect(page.locator('[data-booking-panel="next-step"]'))
+            .toContainText('Cette location est clôturée : il ne reste rien à faire.');
+        await expect(page.getByRole('alert').filter({ hasText: 'solde non recouvré de 150,00' }))
+            .toContainText("Aucun e-mail n'a été envoyé au locataire.");
+
+        // The reason is on the version it wrote, for the unit's managers.
+        await page.goto(`${dashboard}/facture`, { waitUntil: 'load' });
+        const unrecovered = page.locator('[data-settlement-unrecovered]');
+        await expect(unrecovered).toContainText('Montant non recouvré : 150,00 €');
+        await expect(unrecovered).toContainText(UNRECOVERED_REASON);
+
+        // The renter sees the damage billed in full, never the reason.
+        await renter.goto(trackingUrl, { waitUntil: 'load' });
+        await expect(renterIncidents.locator('[data-renter-incident]')).toContainText('Facturé : 400,00 €');
+        await expect(renterMain).not.toContainText(UNRECOVERED_REASON);
 
         await renter.context().close();
         expect(serverErrors, 'the application returned a server error').toEqual([]);
@@ -549,6 +743,22 @@ function statementDate(daysAgo) {
     const [y, m, d] = (wanted < yearStart ? yearStart : wanted).split('-');
 
     return `${d}/${m}/${y}`;
+}
+
+/**
+ * The day `days` after today in Brussels, as `|date_fr` prints it — the
+ * clock the server stamps a validation with.
+ *
+ * @param {number} days
+ */
+function brusselsDateIn(days) {
+    const today = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Europe/Brussels', year: 'numeric', month: '2-digit', day: '2-digit',
+    }).format(new Date());
+    const date = new Date(`${today}T12:00:00Z`);
+    date.setUTCDate(date.getUTCDate() + days);
+
+    return frenchDate(date.toISOString().slice(0, 10));
 }
 
 /**
