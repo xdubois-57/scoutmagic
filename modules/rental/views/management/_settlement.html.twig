@@ -6,7 +6,9 @@
   Requires `asset`, `booking`, `settlements`, `final_persons`, `preview`,
   `decided_incidents` and `inventory_url` (null where the asset keeps no
   inventory page). Optional: `gesture`, the « Geste commercial » line of the
-  latest version, carried into the form (issue #927).
+  latest version, carried into the form (issue #927); `pending_incident_url`,
+  the oldest incident still assessed, and `outdated_settlement_ids`, the
+  versions computed from other decisions — neither validates (#980).
 #}
 <div class="card mb-3">
     <div class="card-body">
@@ -168,6 +170,19 @@
                         </span>
                         {% if settlement.isValidated %}
                             {% include 'partials/status_badge.html.twig' with { status: 'done', label: 'Validé' } only %}
+                        {% elseif pending_incident_url|default(null) %}
+                            {# A damage still assessed holds the settlement (#980):
+                               the sentence says why, the link leads to it. #}
+                            <span class="small text-body-secondary text-end" data-settlement-waits="assessment">
+                                Un dégât est en cours d'évaluation : le décompte se valide une fois l'incident
+                                tranché.
+                                <a href="{{ pending_incident_url }}">Voir l'incident</a>
+                            </span>
+                        {% elseif settlement.id in outdated_settlement_ids|default([]) %}
+                            <span class="small text-body-secondary text-end" data-settlement-waits="outdated">
+                                Ce décompte ne reflète pas les incidents tels qu'ils sont tranchés : enregistrez-en
+                                un nouveau pour le valider.
+                            </span>
                         {% else %}
                             <form method="post" action="/mes-locations/decompte-valider"
                                   data-confirm="{{ 'Valider ce décompte ? Il ne pourra plus être modifié, '

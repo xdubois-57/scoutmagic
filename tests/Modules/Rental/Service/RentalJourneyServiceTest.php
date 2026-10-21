@@ -34,12 +34,16 @@ final class RentalJourneyServiceTest extends TestCase
     private RentalAsset $asset;
     private RentalJourneyService $service;
     private RentalModificationRepository $modifications;
+    private \PDO $pdo;
+    private EncryptionService $encryption;
 
     protected function setUp(): void
     {
         $pdo = DatabaseTestHelper::createTestDatabase();
+        $this->pdo = $pdo;
         RentalTestHelper::createTables($pdo);
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $this->encryption = $encryption;
         $assets = new RentalAssetRepository($pdo, $encryption);
         $assetId = $assets->create('Local', 'Local Saint-Georges', 'local-saint-georges', 60, 1, null, null, null, true);
         $asset = $assets->findById($assetId);
@@ -153,5 +157,51 @@ final class RentalJourneyServiceTest extends TestCase
         $payment = $this->service->payment($this->booking(), $this->asset);
 
         $this->assertFalse($payment['enabled']);
+    }
+
+    /**
+     * A damage still assessed holds the settlement back (#980): the shared
+     * checklist says so on the step, and the renter reads the one sentence.
+     */
+    public function testADamageUnderAssessmentHoldsTheSettlementStepForEveryReader(): void
+    {
+        $journal = new \Core\Journal\JournalService(new \Core\Journal\JournalRepository($this->pdo));
+        $stayRepository = new \Modules\Rental\Repository\RentalStayRepository($this->pdo, $this->encryption);
+        $stay = new \Modules\Rental\Service\RentalStayService(
+            $stayRepository,
+            RentalTestHelper::bookingAudit($this->pdo, $this->encryption),
+            new \Modules\Rental\Service\RentalPricingService(
+                new \Modules\Rental\Repository\RentalPricingRepository($this->pdo),
+                new \Modules\Rental\Pricing\RentalPricingEngine(),
+                $journal
+            ),
+            new \Modules\Rental\Stay\SettlementCalculator(),
+            $journal
+        );
+        $service = new RentalJourneyService($this->bookings, $stay, modifications: $this->modifications);
+        $booking = $this->booking();
+        $now = new \DateTimeImmutable('2027-07-10');
+
+        $before = $this->settlementStep($service->milestones($booking, $this->asset, $now));
+        $this->assertFalse($before->awaitsAssessment);
+
+        $stay->reportIncident($booking, 'Porte fendue', 30000, null, 1);
+        $after = $this->settlementStep($service->milestones($booking, $this->asset, $now));
+
+        $this->assertTrue($after->awaitsAssessment);
+        $this->assertStringContainsString("dégât est en cours d'évaluation", (string) $after->explanation);
+    }
+
+    /**
+     * @param list<\Modules\Rental\Booking\BookingMilestone> $milestones
+     */
+    private function settlementStep(array $milestones): \Modules\Rental\Booking\BookingMilestone
+    {
+        foreach ($milestones as $milestone) {
+            if ($milestone->key === \Modules\Rental\Booking\BookingMilestones::FINAL_SETTLEMENT) {
+                return $milestone;
+            }
+        }
+        $this->fail('No settlement step.');
     }
 }

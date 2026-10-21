@@ -14,6 +14,7 @@ use Modules\Rental\Booking\RentalBooking;
 use Modules\Rental\Payment\PaymentSettings;
 use Modules\Rental\Repository\RentalStayRepository;
 use Modules\Rental\Stay\Incident;
+use Modules\Rental\Stay\IncidentBasis;
 use Modules\Rental\Stay\IncidentDecision;
 use Modules\Rental\Stay\InventoryKind;
 use Modules\Rental\Stay\MeterConsumption;
@@ -56,6 +57,13 @@ class RentalStayService
     public const INCIDENT_REFERENCE_MAX = 100;
     /** The longest reason for not billing a damage. */
     public const INCIDENT_WAIVE_REASON_MAX = 500;
+
+    /** Why a settlement does not validate while a damage is assessed (#980). */
+    public const SETTLEMENT_WAITS_FOR_ASSESSMENT = "Un dégât est en cours d'évaluation : le décompte se valide "
+        . "une fois l'incident tranché, sur la page État des lieux.";
+    /** Why a version computed from other decisions does not validate (#980). */
+    public const SETTLEMENT_OUTDATED = 'Ce décompte ne reflète pas les incidents tels qu\'ils sont tranchés : '
+        . 'enregistrez-en un nouveau pour le valider.';
 
     public function __construct(
         private RentalStayRepository $stayRepository,
@@ -640,6 +648,58 @@ class RentalStayService
         return $this->stayRepository->findRenterIncidents($bookingId);
     }
 
+    /**
+     * The booking's incidents still being assessed, oldest first (#980):
+     * while there is one, the settlement does not validate and the
+     * security deposit stays held. Ids only — nothing is decrypted.
+     *
+     * @return list<int>
+     */
+    public function pendingIncidentIds(int $bookingId): array
+    {
+        return $this->stayRepository->pendingIncidentIds($bookingId);
+    }
+
+    public function hasIncidentUnderAssessment(int $bookingId): bool
+    {
+        return $this->stayRepository->pendingIncidentIds($bookingId) !== [];
+    }
+
+    /**
+     * The fingerprint of the booking's incidents as they stand
+     * (`Stay\IncidentBasis`): what a settlement version records, and what
+     * it must still match to validate (#980). A caller that writes a
+     * version by other means records this too.
+     */
+    public function incidentBasisHash(int $bookingId): string
+    {
+        return IncidentBasis::hashOf($this->stayRepository->findIncidents($bookingId));
+    }
+
+    /**
+     * The unvalidated versions of this booking that no longer match its
+     * incidents — the ones whose « Valider » gives way to a sentence (#980).
+     *
+     * @param Settlement[] $settlements
+     * @return list<int> their ids
+     */
+    public function outdatedSettlementIds(int $bookingId, array $settlements): array
+    {
+        $current = null;
+        $outdated = [];
+        foreach ($settlements as $settlement) {
+            if ($settlement->isValidated || $settlement->bookingId !== $bookingId) {
+                continue;
+            }
+            $current ??= $this->incidentBasisHash($bookingId);
+            if ($settlement->isOutdatedFor($current)) {
+                $outdated[] = $settlement->id;
+            }
+        }
+
+        return $outdated;
+    }
+
     // ── The final settlement (§6.21) ────────────────────────────────────
 
     /**
@@ -724,6 +784,11 @@ class RentalStayService
         }
 
         $paymentSettings ??= $this->paymentService?->settingsFor($assetId) ?? new PaymentSettings();
+        // Read BEFORE the lines are computed (#980): a decision landing in
+        // between then outdates the version, which is refused at
+        // validation — never the other way round, a fingerprint newer than
+        // the lines it vouches for.
+        $incidentBasisHash = $this->incidentBasisHash($booking->id);
         $computed = $this->previewSettlement($booking, $assetId, $finalPersons, $manualLines, $paymentSettings);
 
         $version = $this->stayRepository->claimNextSettlementVersion($booking->id);
@@ -740,7 +805,8 @@ class RentalStayService
             $computed['security_deposit_withheld_cents'],
             $computed['security_deposit_return_cents'],
             $actorMemberId,
-            $computed['kept_cents']
+            $computed['kept_cents'],
+            $incidentBasisHash
         );
 
         $this->bookingAudit->record(
@@ -815,6 +881,19 @@ class RentalStayService
             }
         }
 
+        // A damage still being assessed holds the settlement — and with it
+        // the security deposit — until it is decided (#980, chantier §2.4);
+        // so does a decision taken since this version was recorded, whose
+        // figures it does not carry (Settlement::isOutdatedFor()).
+        if (!$settlement->isValidated) {
+            if ($this->stayRepository->pendingIncidentIds($booking->id) !== []) {
+                throw new RentalException(self::SETTLEMENT_WAITS_FOR_ASSESSMENT);
+            }
+            if ($settlement->isOutdatedFor($this->incidentBasisHash($booking->id))) {
+                throw new RentalException(self::SETTLEMENT_OUTDATED);
+            }
+        }
+
         // The security deposit's share, derived from the money as it
         // stands now (#980, chantier §2.3): the refund owed comes first out
         // of the deposit. Only on the booking's single receivable — without
@@ -827,6 +906,11 @@ class RentalStayService
             $securityDeposit,
             $settlement->keptCents()
         )) {
+            // Sent back to its assessment since the check above: the write
+            // itself refused it.
+            if (!$settlement->isValidated && $this->stayRepository->pendingIncidentIds($booking->id) !== []) {
+                throw new RentalException(self::SETTLEMENT_WAITS_FOR_ASSESSMENT);
+            }
             // Already validated: saying so beats silently re-stamping a
             // document somebody may already have acted on.
             throw new RentalException('Ce décompte est déjà validé. Enregistrez-en un nouveau pour le corriger.');

@@ -29,6 +29,12 @@ Finances, la validation ramène la créance au montant conservé — location,
 consommations et dégâts facturés, moins le geste — et ce qui a été payé en plus,
 la caution à rendre d'abord, apparaît en trop-perçu.
 
+**Un dégât en cours d'évaluation retient le décompte.** Tant qu'un
+incident est « En cours d'évaluation », le décompte s'enregistre mais ne
+se valide pas : « Valider » est remplacé par une phrase et le lien
+« Voir l'incident ». Une version enregistrée avant une décision sur un
+incident ne se valide pas non plus : enregistrez-en une nouvelle.
+
 Les incidents tranchés s'affichent avec leur montant, en lecture seule.
 Une décision se change sur la page « État des lieux ».
 

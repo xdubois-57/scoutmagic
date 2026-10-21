@@ -55,6 +55,10 @@ réservation** : il est rapproché tout seul à l'import de l'extrait, et
 l'étape « Caution restituée » se coche quand plus rien n'est dû au
 locataire.
 
+Tant qu'un dégât est en cours d'évaluation, le « Résumé » dit « Caution
+retenue : dégât en cours d'évaluation » et l'étape « Caution restituée »
+attend : tranchez l'incident, puis validez le décompte.
+
 Parti sans la communication, le virement se retrouve avec « Rapprocher
 le remboursement » : choisissez le débit dans la liste, puis
 « Rapprocher ». Aucun e-mail n'est envoyé.

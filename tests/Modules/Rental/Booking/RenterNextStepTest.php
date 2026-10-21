@@ -14,6 +14,7 @@ use Modules\Rental\Booking\BookingStatus;
 use Modules\Rental\Booking\HoldOrigin;
 use Modules\Rental\Booking\RentalBooking;
 use Modules\Rental\Booking\RenterNextStep;
+use Modules\Rental\Payment\SecurityDepositStatus;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -289,6 +290,55 @@ final class RenterNextStepTest extends TestCase
         $step = RenterNextStep::of($booking, $journey, $this->now());
 
         $this->assertStringContainsString("l'état des lieux de sortie", $step->sentence);
+    }
+
+    /**
+     * A damage still assessed holds the settlement and the deposit (#980,
+     * chantier §2.7): the renter reads the fixed sentence, and nothing of
+     * the damage itself.
+     */
+    public function testADamageUnderAssessmentIsTheOneSentenceTheRenterReads(): void
+    {
+        $booking = $this->booking(BookingStatus::CONFIRMED);
+        $extras = [
+            BookingMilestones::CONTRACT_GENERATED => true,
+            BookingMilestones::CONTRACT_SENT => true,
+            BookingMilestones::SIGNED_COPY_RECEIVED => true,
+            BookingMilestones::CONTRACT_COUNTERSIGNED => true,
+            BookingMilestones::ARRIVAL_INVENTORY => true,
+            BookingMilestones::DEPARTURE_INVENTORY => true,
+            BookingMilestones::FINAL_SETTLEMENT => false,
+            BookingMilestones::SECURITY_DEPOSIT_RETURNED => false,
+        ];
+        $held = [BookingMilestones::FINAL_SETTLEMENT, BookingMilestones::SECURITY_DEPOSIT_RETURNED];
+
+        $journey = BookingJourney::of(
+            BookingMilestones::for($booking, $this->now(), $extras, [], [], [], $held),
+            $booking->status
+        );
+
+        $depositHeld = ['security_deposit' => ['status' => SecurityDepositStatus::RECEIVED]];
+        $this->assertSame(
+            RenterNextStep::DAMAGE_UNDER_ASSESSMENT,
+            RenterNextStep::of($booking, $journey, $this->now(), $depositHeld)->sentence
+        );
+        $this->assertStringContainsString(
+            "un dégât est en cours d'évaluation ; la caution reste retenue jusqu'à son règlement",
+            RenterNextStep::DAMAGE_UNDER_ASSESSMENT
+        );
+        // No deposit held — none asked, or asked and never received: the
+        // sentence never says one stays held.
+        foreach ([[], ['security_deposit' => ['status' => SecurityDepositStatus::NONE]],
+            ['security_deposit' => ['status' => SecurityDepositStatus::TO_RECEIVE]]] as $payment) {
+            $sentence = RenterNextStep::of($booking, $journey, $this->now(), $payment)->sentence;
+            $this->assertSame(RenterNextStep::DAMAGE_UNDER_ASSESSMENT_NO_DEPOSIT, $sentence);
+            $this->assertStringNotContainsString('caution', $sentence);
+        }
+        // Without it, the settlement step speaks as before.
+        $this->assertStringContainsString(
+            'décompte final',
+            RenterNextStep::of($booking, $this->journey($booking, $extras), $this->now())->sentence
+        );
     }
 
     public function testAnInvoiceCallsForItsPayment(): void

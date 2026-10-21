@@ -1329,6 +1329,162 @@ class RentalStayServiceTest extends TestCase
         $this->assertSame(43000, $this->stayRepository->findSettlement($legacy->id)?->recordedKeptCents);
     }
 
+    // ── A damage under assessment holds the settlement (#980, lot C) ─────
+
+    public function testASettlementDoesNotValidateWhileADamageIsAssessed(): void
+    {
+        $booking = $this->createBooking();
+        $this->service->reportIncident($booking, 'Porte fendue, devis demandé', 30000, null, 1);
+        $settlement = $this->service->recordSettlement($booking, $this->assetId, 28, [], 1);
+
+        try {
+            $this->service->validateSettlement($booking, $settlement->id, 1);
+            $this->fail('A settlement must not validate while a damage is assessed.');
+        } catch (RentalException $e) {
+            $this->assertSame(RentalStayService::SETTLEMENT_WAITS_FOR_ASSESSMENT, $e->getMessage());
+        }
+
+        $this->assertFalse($this->stayRepository->findSettlement($settlement->id)?->isValidated);
+    }
+
+    public function testTheVersionRecordedWhileAssessingIsOutdatedOnceTheDamageIsDecided(): void
+    {
+        $booking = $this->createBooking();
+        $incident = $this->service->reportIncident($booking, 'Porte fendue', 30000, null, 1);
+        $before = $this->service->recordSettlement($booking, $this->assetId, 28, [], 1);
+        $this->service->decideIncident($booking, $incident, IncidentDecision::CHARGE, null, 1);
+
+        try {
+            $this->service->validateSettlement($booking, $before->id, 1);
+            $this->fail('A version computed before the decision must not validate.');
+        } catch (RentalException $e) {
+            $this->assertSame(RentalStayService::SETTLEMENT_OUTDATED, $e->getMessage());
+        }
+        $this->assertSame(
+            [$before->id],
+            $this->service->outdatedSettlementIds($booking->id, $this->service->settlementsFor($booking->id))
+        );
+
+        $after = $this->service->recordSettlement($booking, $this->assetId, 28, [], 1);
+        $this->service->validateSettlement($booking, $after->id, 1);
+
+        $this->assertTrue($this->stayRepository->findSettlement($after->id)?->isValidated);
+        $this->assertSame($before->totalCents + 30000, $after->totalCents);
+    }
+
+    public function testAChargedAmountChangedSinceTheVersionOutdatesIt(): void
+    {
+        $booking = $this->createBooking();
+        $incident = $this->service->reportIncident($booking, 'Vitre cassée', 5000, null, 1);
+        $this->service->decideIncident($booking, $incident, IncidentDecision::CHARGE, null, 1);
+        $settlement = $this->service->recordSettlement($booking, $this->assetId, 28, [], 1);
+
+        $this->service->decideIncident($booking, $incident, IncidentDecision::CHARGE, 6000, 1);
+
+        $this->expectException(RentalException::class);
+        $this->expectExceptionMessage(RentalStayService::SETTLEMENT_OUTDATED);
+
+        $this->service->validateSettlement($booking, $settlement->id, 1);
+    }
+
+    public function testATextThatMovesNoMoneyLeavesTheVersionValid(): void
+    {
+        $booking = $this->createBooking();
+        $incident = $this->service->reportIncident($booking, 'Rayure au sol', 4000, null, 1);
+        $this->service->decideIncident($booking, $incident, IncidentDecision::WAIVE, null, 1, null, null, 'Usure');
+        $settlement = $this->service->recordSettlement($booking, $this->assetId, 28, [], 1);
+
+        // Another reason, a reference: nothing the settlement says changes.
+        $this->service->decideIncident(
+            $booking,
+            $incident,
+            IncidentDecision::WAIVE,
+            null,
+            1,
+            null,
+            'DOS-1',
+            'Usure normale'
+        );
+
+        $this->assertSame([], $this->service->outdatedSettlementIds($booking->id, [$settlement]));
+        $this->service->validateSettlement($booking, $settlement->id, 1);
+        $this->assertTrue($this->stayRepository->findSettlement($settlement->id)?->isValidated);
+    }
+
+    public function testAVersionRecordsTheFingerprintOfTheIncidentsItWasComputedFrom(): void
+    {
+        $booking = $this->createBooking();
+        $incident = $this->service->reportIncident($booking, 'Vitre cassée', 5000, null, 1);
+        $this->service->decideIncident($booking, $incident, IncidentDecision::CHARGE, null, 1);
+
+        $settlement = $this->service->recordSettlement($booking, $this->assetId, 28, [], 1);
+
+        $this->assertSame($this->service->incidentBasisHash($booking->id), $settlement->incidentBasisHash);
+        $this->assertSame(64, strlen((string) $settlement->incidentBasisHash));
+    }
+
+    public function testAVersionRecordedWithoutAFingerprintStillWaitsForAnAssessment(): void
+    {
+        // Recorded before #980 lot C: nothing to compare its incidents
+        // with, so it validates as lot A lets it — but never while a damage
+        // is still assessed.
+        $booking = $this->createBooking();
+        $this->pdo->prepare(
+            'INSERT INTO rental_settlements
+                (booking_id, version, lines_snapshot, total_cents, already_paid_cents, balance_cents,
+                 kept_cents, is_validated, created_at)
+             VALUES (?, 1, ?, 40000, 0, 40000, 40000, 0, ?)'
+        )->execute([$booking->id, '[]', '2027-07-05 10:00:00']);
+        $legacy = $this->service->latestSettlement($booking->id);
+        $this->assertNotNull($legacy);
+        $this->assertNull($legacy->incidentBasisHash);
+        $this->assertSame([], $this->service->outdatedSettlementIds($booking->id, [$legacy]));
+        $incident = $this->service->reportIncident($booking, 'Porte fendue', 30000, null, 1);
+
+        try {
+            $this->service->validateSettlement($booking, $legacy->id, 1);
+            $this->fail('A damage under assessment holds every version back.');
+        } catch (RentalException $e) {
+            $this->assertSame(RentalStayService::SETTLEMENT_WAITS_FOR_ASSESSMENT, $e->getMessage());
+        }
+
+        $this->service->decideIncident($booking, $incident, IncidentDecision::WAIVE, null, 1);
+        $this->service->validateSettlement($booking, $legacy->id, 1);
+        $this->assertTrue($this->stayRepository->findSettlement($legacy->id)?->isValidated);
+    }
+
+    public function testADamageSentBackToItsAssessmentLeavesAValidatedVersionAsItIs(): void
+    {
+        $booking = $this->createBooking();
+        $incident = $this->service->reportIncident($booking, 'Vitre cassée', 5000, null, 1);
+        $this->service->decideIncident($booking, $incident, IncidentDecision::CHARGE, null, 1);
+        $settlement = $this->service->recordSettlement($booking, $this->assetId, 28, [], 1);
+        $this->service->validateSettlement($booking, $settlement->id, 1);
+
+        $this->service->decideIncident($booking, $incident, IncidentDecision::PENDING, null, 1, 'Assurance');
+
+        $this->assertTrue($this->stayRepository->findSettlement($settlement->id)?->isValidated);
+        $this->assertSame(
+            [],
+            $this->service->outdatedSettlementIds($booking->id, $this->service->settlementsFor($booking->id))
+        );
+        $this->expectExceptionMessageMatches('/déjà validé/');
+        $this->service->validateSettlement($booking, $settlement->id, 1);
+    }
+
+    public function testThePendingIncidentsAreListedOldestFirstAndOnlyThem(): void
+    {
+        $booking = $this->createBooking();
+        $first = $this->service->reportIncident($booking, 'Porte fendue', 30000, null, 1);
+        $decided = $this->service->reportIncident($booking, 'Vitre cassée', 5000, null, 1);
+        $second = $this->service->reportIncident($booking, 'Tache au plafond', null, null, 1);
+        $this->service->decideIncident($booking, $decided, IncidentDecision::CHARGE, null, 1);
+
+        $this->assertSame([$first, $second], $this->service->pendingIncidentIds($booking->id));
+        $this->assertTrue($this->service->hasIncidentUnderAssessment($booking->id));
+        $this->assertFalse($this->service->hasIncidentUnderAssessment($this->createBooking('LOC-A2B3C5')->id));
+    }
+
     /**
      * The newest history entry of a booking: [old value, new value, summary].
      *

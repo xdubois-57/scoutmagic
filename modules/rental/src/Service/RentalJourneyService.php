@@ -125,7 +125,10 @@ class RentalJourneyService
             $this->stay === null || $this->stay->keepsInventoryFor($booking),
             $marks,
             $now,
-            $acceptedConditions
+            $acceptedConditions,
+            // A damage still assessed holds the settlement and the deposit
+            // back (#980): their steps wait, and say why.
+            $this->stay?->hasIncidentUnderAssessment($booking->id) ?? false
         );
 
         return BookingMilestones::for(
@@ -134,7 +137,8 @@ class RentalJourneyService
             $evidence->done,
             $evidence->details,
             $evidence->offsite,
-            $evidence->manual
+            $evidence->manual,
+            $evidence->awaitingAssessment
         );
     }
 
