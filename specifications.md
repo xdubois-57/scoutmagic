@@ -3952,6 +3952,17 @@ Chantier : `docs/chantiers/CHANTIER-locations-modifications.md`, §2.6 (issue #9
 - Un remboursement automatique et un remboursement rapproché à la main en même temps ne rendent jamais, ensemble, plus que le trop-perçu.
 - Le site ne déplace pas d'argent : le virement se fait à la banque.
 
-### 48.8 Hors périmètre
+### 48.8 Le paiement entrant rapproché à la main
+
+Chantier : `docs/chantiers/CHANTIER-locations-incidents.md`, §2.6 (issue #980). Vaut pour toutes les créances ; le module Locations est le premier à s'en servir, pour le paiement d'un tiers (l'assureur du locataire) arrivé sans la communication de la réservation.
+
+- **Le module qui a créé la créance cherche le crédit**, jamais la liste du compte : des crédits du compte de la créance, **du montant exact** saisi, depuis une date, rapprochés de rien. Le nom du payeur, facultatif, les restreint encore (sous-chaîne, sans tenir compte de la casse ni des accents). Pour chacun : la date, le montant, le nom de la contrepartie et le texte libre du virement, rien d'autre.
+- **Sont toujours écartés** : un crédit qui porte la communication d'une créance, quelle qu'elle soit et sur quelque compte que ce soit (il se rapproche tout seul, ou il est signalé sur le mauvais compte) ; un crédit qu'un trésorier a déclaré ne correspondre à aucune créance ; un crédit déjà déclaré étranger à cette créance.
+- **Le crédit choisi s'impute en entier, même au-delà de ce que la créance attend encore** : l'excédent se lit en trop-perçu jusqu'à ce que le montant de la créance le prenne en compte (le décompte validé qui facture le dégât). C'est la seule exception à la règle « une créance n'absorbe jamais plus que ce qu'elle doit ». Le rapprochement automatique la garde autour de cette exception : sa propre part sur la même créance fait de la place, puis la reprend quand le montant monte, et il ne touche jamais à la ligne posée à la main.
+- **Tout est revérifié au moment de rapprocher** — compte, sens, montant, date, absence de communication, crédit rapproché de rien — et un même crédit ne paie jamais deux créances, même demandé deux fois au même instant.
+- **Détacher** reprend un crédit rapproché à la main par erreur : seulement une ligne posée à la main, sur un crédit sans communication de créance. Le crédit redevient candidat, pour cette créance ou une autre. Ce qu'un module ajoute à cette règle (un décompte validé depuis) est le sien.
+- Chaque mouvement d'une créance dit s'il a été rapproché à la main, par qui et quand, et s'il peut être détaché.
+
+### 48.9 Hors périmètre
 
 **Ponto** (téléchargement automatique des extraits via l'API d'Isabel) : tarif non publié, liaison DSP2 à refaire tous les 90 jours, et surtout le certificat client Ibanity, incompatible avec un logiciel libre auto-hébergé. Il fait l'objet d'une issue distincte. Écartés aussi : créer une année scoute ou un compte depuis un relevé, un récapitulatif à valider avant écriture, et un choix de compte ou de format toujours affiché.

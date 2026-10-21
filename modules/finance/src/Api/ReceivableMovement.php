@@ -24,6 +24,11 @@ namespace Modules\Finance\Api;
  * The label and the counterparty are the bank's own text for that
  * movement, decrypted — what the payer (or, for a refund, the unit) wrote
  * on the transfer, for the screen that shows the payer their own money.
+ *
+ * The last four fields came with the manual reconciliation of incoming
+ * transfers (issue #980), at the end and with defaults so that every
+ * existing construction keeps its meaning: which movement it is, when and
+ * by whom a person reconciled it, and whether it can be detached again.
  */
 final class ReceivableMovement
 {
@@ -35,7 +40,20 @@ final class ReceivableMovement
         /** This receivable's share, in cents: positive paid it, negative refunded its surplus. */
         public readonly int $amountCents,
         /** True when the site matched it by its communication, false when a person did. */
-        public readonly bool $automatic
+        public readonly bool $automatic,
+        /** The movement's id — what ExpectedReceivableInterface::detachPayment() takes back. */
+        public readonly ?int $transactionId = null,
+        /** When a person reconciled it (`Y-m-d H:i:s`); null when the site matched it. */
+        public readonly ?string $reconciledAt = null,
+        /** Who did (`user_accounts.id`); null when the site matched it, or nobody was signed in. */
+        public readonly ?int $reconciledBy = null,
+        /**
+         * Whether ExpectedReceivableInterface::detachPayment() would take it
+         * off this receivable: a credit a person attached that carries no
+         * receivable's communication. Whatever else the consuming module's
+         * own rules say about undoing it is theirs to add.
+         */
+        public readonly bool $detachable = false
     ) {
     }
 

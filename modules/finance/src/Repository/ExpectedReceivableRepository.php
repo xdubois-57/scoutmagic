@@ -165,7 +165,9 @@ class ExpectedReceivableRepository
      * (Service\ReceivableAllocationService::refundFromCandidate()): the
      * surplus it checks against cannot shrink between the check and the
      * write, because a second decision on the same receivable waits for
-     * the first one to commit. Joins a transaction already open on the
+     * the first one to commit. A person's payment attached or detached
+     * (paymentFromCandidate(), detachPayment()) takes it too, first, in
+     * the same order. Joins a transaction already open on the
      * connection rather than nesting one. SQLite, the ordinary test
      * engine, serialises writers on its own and has no `FOR UPDATE`.
      *

@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\Finance\Service;
 
 use Core\Security\Role;
+use Core\Service\TextNormalizerService;
 use Modules\Finance\Api\FinanceException;
 use Modules\Finance\Api\ReceivableMovement;
 use Modules\Finance\Repository\AccountRepository;
@@ -38,7 +39,11 @@ use Modules\Finance\Repository\TransactionRepository;
  *    instalments that overshoot, and paying twice a month apart — not
  *    three cases, one. The surplus stays unallocated rather than being
  *    hidden inside a receivable that reads "paid" for more than it was
- *    ever worth.
+ *    ever worth. **One written exception**: a credit a person attaches
+ *    from the module that raised the receivable (paymentFromCandidate())
+ *    counts in full, even beyond what is due — the insurer paying a
+ *    damage before the settlement that charges it. The automatic pass
+ *    keeps the rule, and counts that row as already absorbed.
  * 2. **Re-importing a statement doubles nothing.** finance_transactions
  *    already refuses a line it has seen (its unique account +
  *    bank_reference index), so the second import inserts no movement to
@@ -976,6 +981,261 @@ class ReceivableAllocationService
     }
 
     /**
+     * The credits that could be a payment of this receivable made without
+     * its communication (chantier #980, §2.6): on its own account, of
+     * exactly $amountCents, booked on or after $sinceDate, reconciled with
+     * nothing — and, with $counterpartyContains, whose counterparty name
+     * contains it, case and accents ignored. Oldest first.
+     *
+     * Left out, because each is somebody's already: a credit carrying the
+     * communication of ANY receivable (the import matches it to that one,
+     * or « Paiements à traiter » reports it on the wrong account), a credit
+     * a treasurer declared no payment for any receivable, and one a person
+     * said pays nothing towards this receivable. The name is compared in
+     * PHP: it is encrypted at rest, and only the credits of that amount
+     * are ever decrypted.
+     *
+     * Reached through Api\ExpectedReceivableInterface by the module that
+     * raised the receivable, like refundCandidatesFor(): no finance viewer
+     * to check, which is why the list is this narrow and a candidate
+     * carries so little (Api\PaymentCandidate). Nothing is reconciled
+     * first: a credit the automatic pass could match carries a
+     * communication, and is left out anyway.
+     *
+     * @return list<Transaction>
+     * @throws FinanceException when $amountCents is not positive
+     */
+    public function paymentCandidatesFor(
+        ExpectedReceivable $receivable,
+        int $amountCents,
+        ?string $counterpartyContains,
+        string $sinceDate
+    ): array {
+        if ($amountCents <= 0) {
+            throw new FinanceException('Indiquez le montant reçu : il doit être positif.');
+        }
+
+        $credits = $this->transactionRepository->findCreditsOfAmountSince(
+            $receivable->accountId,
+            $amountCents,
+            $sinceDate
+        );
+        $allocations = $this->allocationRepository->findByTransactionIds(
+            array_map(static fn(Transaction $credit): int => $credit->id, $credits)
+        );
+        $needle = TextNormalizerService::fold($counterpartyContains);
+
+        $candidates = [];
+        foreach ($credits as $credit) {
+            if ($this->paymentRefusal($credit, $receivable, $amountCents, $sinceDate, $allocations[$credit->id] ?? [])
+                !== null
+            ) {
+                continue;
+            }
+            if ($needle !== ''
+                && !str_contains(TextNormalizerService::fold($credit->counterpartyName), $needle)
+            ) {
+                continue;
+            }
+            $candidates[] = $credit;
+        }
+
+        return $candidates;
+    }
+
+    /**
+     * Records a candidate credit as a payment of this receivable — **its
+     * whole amount, even beyond what is still due**, as a person's
+     * decision the automatic pass never revises.
+     *
+     * The exception to rule 1 of this class, and the only one (maintainer's
+     * decision, chantier #980 §2.6): the transfer a manager points at is
+     * typically a renter's insurer paying a damage that the final
+     * settlement has not charged yet. Cutting it at what is due would leave
+     * the rest lying on the account as nobody's money, and the settlement
+     * raising the amount later would find nothing to take in. Whole, the
+     * excess reads as this receivable's overpayment until then. The
+     * automatic pass keeps rule 1 around it: this row counts as absorbed,
+     * so an automatic share of the same receivable makes room and takes it
+     * back when the amount due rises.
+     *
+     * **Everything paymentCandidatesFor() filtered on is checked again,
+     * under a lock**: the receivable's row first, then the movement's, the
+     * order refundFromCandidate() takes. The second stops one credit from
+     * becoming the payment of two receivables at once.
+     *
+     * @return int the cents attached
+     * @throws FinanceException
+     */
+    public function paymentFromCandidate(
+        ExpectedReceivable $receivable,
+        int $transactionId,
+        int $amountCents,
+        string $sinceDate,
+        ?int $actorUserAccountId
+    ): int {
+        return $this->receivableRepository->withReceivableLocked(
+            $receivable->id,
+            function () use ($receivable, $transactionId, $amountCents, $sinceDate, $actorUserAccountId): int {
+                $this->transactionRepository->lockForUpdate($transactionId);
+
+                $current = $this->receivableRepository->findById($receivable->id);
+                if ($current === null) {
+                    throw new FinanceException("Cette créance n'existe pas.");
+                }
+                $credit = $this->transactionRepository->findById($transactionId);
+                if ($credit === null) {
+                    throw new FinanceException("Ce virement n'est pas un mouvement du compte de cette créance.");
+                }
+                $refusal = $this->paymentRefusal(
+                    $credit,
+                    $current,
+                    $amountCents,
+                    $sinceDate,
+                    $this->allocationRepository->findByTransactionId($credit->id)
+                );
+                if ($refusal !== null) {
+                    throw new FinanceException($refusal);
+                }
+
+                $this->allocationRepository->create(
+                    $credit->id,
+                    $current->id,
+                    $amountCents,
+                    ReceivableAllocation::SOURCE_MANUAL,
+                    $actorUserAccountId
+                );
+                $this->recategorize([$credit->id]);
+                // The automatic shares make room for it now rather than at
+                // the next read (rule 1 counts this row as absorbed).
+                $this->reconcileReceivable($current);
+
+                return $amountCents;
+            }
+        );
+    }
+
+    /**
+     * Takes back a credit a person attached to this receivable by mistake
+     * — paymentFromCandidate()'s undo — under the same locks, in the same
+     * order. Only a row ReceivableMovement::$detachable says so of
+     * (isDetachable() and no receivable's communication on the credit).
+     *
+     * **The row is deleted, not turned into a zero-amount tombstone.** A
+     * tombstone exists so the automatic pass does not put a removed
+     * allocation straight back (rule 3); a credit carrying no receivable's
+     * communication is one the pass can never match, so there is nothing
+     * to guard against — and a tombstone would keep the credit off this
+     * receivable's candidates for good, when the person may only have
+     * picked the wrong one of two identical transfers. Deleted, the credit
+     * is a candidate again, exactly as before it was attached.
+     *
+     * @return int the cents detached
+     * @throws FinanceException
+     */
+    public function detachPayment(ExpectedReceivable $receivable, int $transactionId): int
+    {
+        return $this->receivableRepository->withReceivableLocked(
+            $receivable->id,
+            function () use ($receivable, $transactionId): int {
+                $this->transactionRepository->lockForUpdate($transactionId);
+
+                $current = $this->receivableRepository->findById($receivable->id);
+                if ($current === null) {
+                    throw new FinanceException("Cette créance n'existe pas.");
+                }
+                $credit = $this->transactionRepository->findById($transactionId);
+                $pair = $this->allocationRepository->findPair($transactionId, $current->id);
+                if ($credit === null || $pair === null || $credit->accountId !== $current->accountId
+                    || !self::isDetachable($pair, $credit)
+                ) {
+                    throw new FinanceException("Ce virement n'est pas rapproché à la main de cette créance.");
+                }
+                if ($this->carriesAReceivableCommunication($credit)) {
+                    throw new FinanceException(
+                        'Ce virement porte la communication d\'une créance : il se rapproche tout seul et ne se '
+                        . 'détache pas d\'ici.'
+                    );
+                }
+
+                $this->allocationRepository->delete($pair->id);
+                $this->recategorize([$credit->id]);
+                $this->reconcileReceivable($current);
+
+                return $pair->amountCents;
+            }
+        );
+    }
+
+    /**
+     * Why a credit is not (any more) a candidate payment of this
+     * receivable, as the French sentence the person reads — or null when
+     * it is one. The single list of filters paymentCandidatesFor() applies
+     * and paymentFromCandidate() applies again under its lock.
+     *
+     * @param ReceivableAllocation[] $allocations the credit's
+     */
+    private function paymentRefusal(
+        Transaction $credit,
+        ExpectedReceivable $receivable,
+        int $amountCents,
+        string $sinceDate,
+        array $allocations
+    ): ?string {
+        if ($credit->accountId !== $receivable->accountId) {
+            return "Ce virement n'est pas un mouvement du compte de cette créance.";
+        }
+        if ($credit->amount <= 0) {
+            return "Ce mouvement est un débit : il ne peut pas régler une créance.";
+        }
+        if (self::toCents($credit->amount) !== $amountCents) {
+            return sprintf("Ce virement n'est pas de %s €.", self::euros($amountCents));
+        }
+        if ($credit->transactionDate < $sinceDate) {
+            return 'Ce virement est antérieur à la date à partir de laquelle un paiement est cherché.';
+        }
+        if ($credit->notAReceivableAt !== null) {
+            return 'Un trésorier a indiqué que ce virement ne correspond à aucune créance.';
+        }
+        if (!self::isUnreconciledFor($allocations, $receivable->id)) {
+            return 'Ce virement est déjà rapproché.';
+        }
+        if ($this->carriesAReceivableCommunication($credit)) {
+            return "Ce virement porte la communication d'une créance : il se rapproche tout seul.";
+        }
+
+        return null;
+    }
+
+    /**
+     * Whether an allocation is a person's attachment of a credit — the
+     * kind detachPayment() takes back: manual, of a positive amount, on a
+     * movement that came in. Whether the credit also carries no
+     * receivable's communication is the other half, which needs a query.
+     */
+    private static function isDetachable(ReceivableAllocation $allocation, Transaction $transaction): bool
+    {
+        return $allocation->isManual() && $allocation->amountCents > 0 && $transaction->amount > 0;
+    }
+
+    /**
+     * Whether a movement's text carries the communication of a receivable
+     * — on any account, raised by any module. Such a credit is somebody's
+     * payment the import recognises on its own (or reports on the wrong
+     * account); it is never a candidate for a person to point at.
+     */
+    private function carriesAReceivableCommunication(Transaction $transaction): bool
+    {
+        foreach ($this->communicationsOf($transaction) as $communication) {
+            if ($this->receivableRepository->findByCommunication($communication) !== null) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * Moves a receivable's surplus onto another receivable of the same
      * household, in one gesture.
      *
@@ -1403,7 +1663,12 @@ class ReceivableAllocationService
                 label: $transaction->label,
                 counterpartyName: $transaction->counterpartyName,
                 amountCents: $allocation->amountCents,
-                automatic: !$allocation->isManual()
+                automatic: !$allocation->isManual(),
+                transactionId: $transaction->id,
+                reconciledAt: $allocation->isManual() ? $allocation->createdAt : null,
+                reconciledBy: $allocation->isManual() ? $allocation->createdBy : null,
+                detachable: self::isDetachable($allocation, $transaction)
+                    && !$this->carriesAReceivableCommunication($transaction)
             );
         }
 
