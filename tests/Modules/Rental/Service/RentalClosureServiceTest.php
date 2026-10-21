@@ -335,6 +335,54 @@ final class RentalClosureServiceTest extends TestCase
         $this->assertClosingIsRefused($booking, 'La caution reste à rendre');
     }
 
+    public function testMoneyOwedBackWithoutADepositHeldRefusesTheClosure(): void
+    {
+        // No deposit on this hall, and 50 € paid twice: nothing is held,
+        // and the renter is still owed 50 € once the stay is settled.
+        $settings = $this->payments->settingsFor($this->assetId);
+        $this->payments->saveSettings($this->assetId, new PaymentSettings(
+            enabled: true,
+            financeAccountId: $this->accountId,
+            depositMode: DepositMode::FIXED,
+            depositAmountCents: 25000,
+            depositDueDays: 15,
+            balanceDueDays: 14,
+            securityDepositEnabled: false,
+            securityDepositAmountCents: null,
+            financeCategoryId: $settings->financeCategoryId
+        ));
+        $booking = $this->confirmedBooking();
+        $this->pay($booking, 718.00);
+        $settlement = $this->stay->recordSettlement($this->reload($booking->id), $this->assetId, null, [], 1);
+        $this->stay->validateSettlement($this->reload($booking->id), $settlement->id, 1);
+        $this->assertSame(SecurityDepositStatus::NONE, $this->moneyOf($booking)['security_deposit']['status']);
+        $this->assertSame(5000, $this->moneyOf($booking)['overpaid_cents']);
+
+        $this->assertClosingIsRefused($booking, '50,00 € sont à rembourser au locataire');
+        $this->assertFalse($this->closure->check($this->reload($booking->id))->offersUnrecovered());
+    }
+
+    /**
+     * The figure written off is the validated settlement's, the sentence
+     * the receivable's: when the receivable was moved since, they part,
+     * and nothing is offered — on the page or under the lock.
+     */
+    public function testAReceivableThatNoLongerMatchesTheSettlementIsNotWrittenOff(): void
+    {
+        $booking = $this->bookingWithABalanceDue();
+        $this->payments->settleAmount($this->reload($booking->id), 140000);
+        $this->assertSame(58200, $this->moneyOf($booking)['remaining_cents']);
+
+        $check = $this->closure->check($this->reload($booking->id));
+        $this->assertFalse($check->offersUnrecovered());
+        $this->assertStringContainsString('582,00 € restent dus', (string) $check->refusal);
+        $this->assertStringContainsString(RentalClosureService::REFUSED_RECEIVABLE_DIFFERS, (string) $check->refusal);
+
+        $this->expectException(RentalException::class);
+        $this->expectExceptionMessage(RentalClosureService::REFUSED_RECEIVABLE_DIFFERS);
+        $this->closure->closeUnrecovered($this->reload($booking->id), 65000, 'Locataire injoignable', 1, new \DateTimeImmutable());
+    }
+
     public function testAnAmountStillDuePointsToTheUnrecoveredClosure(): void
     {
         $booking = $this->bookingWithABalanceDue();

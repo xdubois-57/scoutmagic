@@ -40,10 +40,11 @@ Poser une **option** bloque les dates jusqu'à une échéance : dépassée,
 la réservation expire. Le formulaire est dans la phase « La demande ».
 
 **Clôturer la location** est refusé, avec une phrase qui dit quoi faire,
-tant qu'un dégât est en évaluation, qu'une caution reste à rendre ou
-qu'un montant reste dû. Pour renoncer à ce montant, « Clôturer avec un
-solde non recouvré » demande un motif, ramène la créance à ce qui a été
-reçu, ajoute « Montant non recouvré » au décompte et clôture, sans e-mail.
+tant qu'un dégât est en évaluation, que de l'argent reste à rendre
+(caution, trop-perçu) ou qu'un montant reste dû. Pour y renoncer,
+« Clôturer avec un solde non recouvré » demande un motif, ramène la
+créance à ce qui a été reçu, ajoute « Montant non recouvré » au décompte
+et clôture, sans e-mail.
 
 Une copie signée du contrat que vous n'avez pas refusée bloque les dates
 **fermement** : plus d'échéance, rien ne les libère, sans pour autant

@@ -37,7 +37,8 @@ incident ne se valide pas non plus : enregistrez-en une nouvelle.
 
 « Clôturer avec un solde non recouvré », sur le tableau de bord, ajoute
 une version validée : les lignes du décompte validé plus « Montant non
-recouvré », avec sa date et son motif.
+recouvré », avec sa date et son motif. Elle ne donne jamais de facture
+complémentaire.
 
 Les incidents tranchés s'affichent avec leur montant, en lecture seule.
 Une décision se change sur la page « État des lieux ».

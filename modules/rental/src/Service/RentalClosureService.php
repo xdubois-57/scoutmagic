@@ -58,6 +58,9 @@ class RentalClosureService
         . 'sur la page Facture, puis rendez au locataire ce qui lui revient, avant de clôturer la location.';
     public const REFUSED_DEPOSIT_TO_REFUND = 'La caution reste à rendre : faites le virement avec la communication '
         . 'de la réservation et rapprochez-le sur la page Finances avant de clôturer la location.';
+    /** The receivable no longer asks what the validated settlement kept: no figure to write off. */
+    public const REFUSED_RECEIVABLE_DIFFERS = 'La créance ne demande plus ce que le décompte validé a conservé : '
+        . 'vérifiez-la sur la page Finances, ou enregistrez et validez un nouveau décompte, avant de clôturer.';
     public const REFUSED_DEPOSIT_BY_HAND = "La restitution de la caution n'est pas enregistrée : notez-la sur la "
         . 'page Finances avant de clôturer la location.';
 
@@ -101,6 +104,15 @@ class RentalClosureService
             $remaining = $status['remaining_cents'];
             if ($remaining > 0) {
                 $unrecovered = $this->unrecoveredFrom($booking, $status);
+                // The write-off is the settlement's figure and the sentence
+                // the receivable's: offered only when they are one amount,
+                // so a manager never agrees to a sum the page did not say.
+                if ($unrecovered !== null && $unrecovered !== $remaining) {
+                    return new ClosureCheck(
+                        Support::euros($remaining) . ' restent dus sur cette réservation. '
+                            . self::REFUSED_RECEIVABLE_DIFFERS
+                    );
+                }
 
                 return new ClosureCheck(
                     $unrecovered !== null
@@ -120,6 +132,17 @@ class RentalClosureService
                     $this->lastValidatedSettlement($booking->id) === null
                         ? self::REFUSED_DEPOSIT_BEFORE_SETTLEMENT
                         : self::REFUSED_DEPOSIT_TO_REFUND
+                );
+            }
+
+            // Money owed back without any deposit held — a payment made
+            // twice, a deposit fully withheld beside an overpaid rental: a
+            // closed booking is never chased again, so it would stay owed.
+            if ($status['overpaid_cents'] > 0) {
+                return new ClosureCheck(
+                    Support::euros($status['overpaid_cents']) . ' sont à rembourser au locataire : faites le '
+                        . 'virement avec la communication de la réservation et rapprochez-le sur la page Finances '
+                        . 'avant de clôturer la location.'
                 );
             }
 
@@ -220,6 +243,9 @@ class RentalClosureService
                 throw new RentalException(
                     'Rien ne reste dû sur cette réservation : clôturez-la avec « Clôturer la location ».'
                 );
+            }
+            if ($unrecovered !== $status['remaining_cents']) {
+                throw new RentalException(self::REFUSED_RECEIVABLE_DIFFERS);
             }
             if ($unrecovered !== $shownCents) {
                 throw new RentalException(
@@ -403,7 +429,7 @@ class RentalClosureService
     /**
      * @return array{
      *   available: bool, enabled: bool, tracked: bool,
-     *   remaining_cents: int, received_cents: int, refunded_cents: int,
+     *   remaining_cents: int, overpaid_cents: int, received_cents: int, refunded_cents: int,
      *   security_deposit: array{status: SecurityDepositStatus, amount_cents: ?int}
      * }|null
      */
@@ -420,6 +446,7 @@ class RentalClosureService
             'enabled' => $status['enabled'],
             'tracked' => $status['tracked'],
             'remaining_cents' => $status['remaining_cents'],
+            'overpaid_cents' => $status['overpaid_cents'],
             'received_cents' => $status['received_cents'],
             'refunded_cents' => $status['refunded_cents'],
             'security_deposit' => [
