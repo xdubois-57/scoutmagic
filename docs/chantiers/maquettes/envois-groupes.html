@@ -1,0 +1,281 @@
+<title>Envois groupés #999</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* Mise en page : planche de maquettes — cadres de 390 px côte à côte, zones étiquetées nouveau / modifié / inchangé. */
+:root{
+  --bg:#eef1f4; --surface:#ffffff; --sunken:#f6f7f9; --fg:#1d2329; --muted:#5c6670; --line:#d9dee3;
+  --accent:#0d6efd; --accent-fg:#ffffff; --accent-soft:#e7f0ff;
+  --danger:#c62f3d; --new:#1f7a4c; --new-soft:#e3f4ea; --mod:#9a5b00; --mod-soft:#fff1d6; --same:#59626b; --same-soft:#eceff2;
+  --font:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#13171b; --surface:#1c2227; --sunken:#232a30; --fg:#e6eaee; --muted:#9aa5af; --line:#333c44;
+  --accent:#5b9bff; --accent-fg:#0b1220; --accent-soft:#1d2c44;
+  --danger:#ff7b86; --new:#6fd29d; --new-soft:#173327; --mod:#f0b45a; --mod-soft:#3a2a10; --same:#a7b0b8; --same-soft:#2a3036; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#13171b; --surface:#1c2227; --sunken:#232a30; --fg:#e6eaee; --muted:#9aa5af; --line:#333c44;
+  --accent:#5b9bff; --accent-fg:#0b1220; --accent-soft:#1d2c44;
+  --danger:#ff7b86; --new:#6fd29d; --new-soft:#173327; --mod:#f0b45a; --mod-soft:#3a2a10; --same:#a7b0b8; --same-soft:#2a3036; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--font);font-size:14px;line-height:1.45}
+.planche{max-width:1240px;margin:0 auto;padding-block:24px 64px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+h1{font-size:26px;margin:0 0 8px;text-wrap:balance}
+.lede{color:var(--muted);max-width:72ch;margin:0 0 10px}
+.sommaire{display:flex;flex-wrap:wrap;gap:8px;list-style:none;padding:0;margin:16px 0 32px}
+.sommaire a{display:inline-block;padding:6px 12px;border:1px solid var(--line);border-radius:999px;background:var(--surface);color:var(--fg);text-decoration:none;font-size:13px}
+.legende{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 8px}
+.ecrans{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(390px,100%),1fr));gap:32px 24px;align-items:start}
+.ecran{min-width:0}
+.ecran>h2{font-size:17px;margin:0 0 4px}
+.ecran>p{color:var(--muted);margin:0 0 12px;font-size:13px}
+.cadre{max-width:390px;background:var(--surface);border:1px solid var(--line);border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.dialogue{max-width:390px;background:var(--surface);border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.18)}
+.dlg-h{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid var(--line);font-weight:600;font-size:16px}
+.dlg-b{padding:16px;display:flex;flex-direction:column;gap:12px}
+.dlg-f{display:flex;justify-content:flex-end;gap:8px;padding:12px 16px;border-top:1px solid var(--line)}
+.nav{background:#1f3a5f;color:#fff;padding:10px 16px;font-weight:600;font-size:14px}
+.corps{padding:16px;display:flex;flex-direction:column;gap:14px}
+.ariane{font-size:12px;color:var(--muted)}
+.ariane a{color:var(--accent);text-decoration:none}
+.titre{display:flex;align-items:flex-start;gap:8px}
+.titre h3{margin:0;font-size:21px;flex:1;text-wrap:balance}
+.sous{color:var(--muted);font-size:13px;margin:2px 0 0}
+.zone{position:relative;border:1px dashed var(--line);border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:10px}
+.zone.nouveau{border-color:var(--new)} .zone.modifie{border-color:var(--mod)} .zone.inchange{border-color:var(--same)}
+.etq{align-self:flex-start;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;padding:2px 8px;border-radius:999px}
+.etq.nouveau{background:var(--new-soft);color:var(--new)} .etq.modifie{background:var(--mod-soft);color:var(--mod)} .etq.inchange{background:var(--same-soft);color:var(--same)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:36px;padding:6px 12px;border-radius:6px;border:1px solid var(--line);background:var(--surface);color:var(--fg);font:inherit;font-size:13px;cursor:pointer}
+.btn.pri{background:var(--accent);border-color:var(--accent);color:var(--accent-fg)}
+.btn.dgr{border-color:var(--danger);color:var(--danger)}
+.btn.plein-dgr{background:var(--danger);border-color:var(--danger);color:#fff}
+.btn.ico{width:36px;padding:0}
+.btn[disabled]{opacity:.5;cursor:not-allowed}
+.btn.large{width:100%;min-height:44px}
+.carte{border:1px solid var(--line);border-radius:8px;padding:12px;display:flex;flex-direction:column;gap:6px;background:var(--surface)}
+.carte .ligne{display:flex;align-items:center;gap:8px}
+.carte .nom{font-weight:600;flex:1}
+.carte .nom a{color:var(--accent);text-decoration:none}
+.p{margin:0;font-size:13px;color:var(--muted)}
+.fort{color:var(--fg)}
+.total{background:var(--accent-soft);border-radius:8px;padding:12px;display:flex;flex-direction:column;gap:6px}
+.total .chiffre{font-size:22px;font-weight:700;font-variant-numeric:tabular-nums}
+.plus{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.06em}
+.plus::before,.plus::after{content:"";flex:1;height:1px;background:var(--line)}
+.bloc{border:1px solid var(--line);border-radius:8px;padding:12px;display:flex;flex-direction:column;gap:8px}
+.bloc .tete{display:flex;align-items:center;gap:8px}
+.bloc .type{font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);flex:1}
+.phrase{font-size:15px;margin:0}
+.phrase b{font-weight:600}
+.compte{font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}
+.selbar{border:1px solid var(--line);border-radius:6px;background:var(--sunken);padding:8px 12px;display:flex;align-items:center;min-height:52px}
+.selbar .lbl{font-size:11px;color:var(--muted)}
+.selbar .val{font-size:15px}
+.selbar .chev{margin-left:auto;color:var(--muted)}
+.champ{display:flex;flex-direction:column;gap:4px}
+.champ label{font-size:12px;color:var(--muted)}
+.input{border:1px solid var(--line);border-radius:6px;padding:8px 10px;font:inherit;background:var(--surface);color:var(--fg);min-height:38px;width:100%}
+.rangee{display:flex;flex-wrap:wrap;gap:8px}
+.rangee .input{flex:1 1 140px;width:auto}
+.personnes{list-style:none;margin:0;padding:0;border-top:1px solid var(--line)}
+.personnes li{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--line)}
+.personnes .qui{flex:1;min-width:0}
+.personnes .qui > span{display:block}
+.personnes .qui .mail{font-size:12px;color:var(--muted);overflow-wrap:anywhere}
+.tag{font-size:11px;padding:1px 7px;border-radius:999px;background:var(--same-soft);color:var(--same);white-space:nowrap}
+.tag.membre{background:var(--accent-soft);color:var(--accent)}
+.grise{color:var(--muted)}
+.vide{text-align:center;padding:20px 8px;display:flex;flex-direction:column;gap:10px;align-items:center}
+.alerte{border-radius:6px;padding:10px 12px;font-size:13px;background:var(--mod-soft);color:var(--fg)}
+.note{font-size:12px;color:var(--muted);margin:0}
+.ico-svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.decisions{margin-top:48px;max-width:80ch}
+.decisions h2{font-size:18px;margin:0 0 8px}
+.decisions li{margin-bottom:6px}
+code{font-family:var(--mono);font-size:12px}
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6"/></symbol>
+  <symbol id="i-pen" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16v4zM13 7l4 4"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+  <symbol id="i-down" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></symbol>
+</svg>
+
+
+<style>
+.type-grille{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.type-choix{border:1px solid var(--line);border-radius:8px;padding:12px;display:flex;flex-direction:column;gap:4px;background:var(--surface);text-align:left;font:inherit;color:var(--fg);cursor:pointer;min-height:44px}
+.type-choix b{font-size:14px}
+.type-choix span{font-size:12px;color:var(--muted)}
+.axes{display:grid;grid-template-columns:auto 1fr 1fr;gap:4px 8px;font-size:11px;color:var(--muted);align-items:center}
+.axes .h{font-weight:700;text-transform:uppercase;letter-spacing:.05em}
+.rubrique{display:flex;align-items:baseline;gap:8px;margin-top:4px}
+.rubrique h4{margin:0;font-size:13px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);flex:1}
+.rubrique .n{font-size:12px;color:var(--muted)}
+.ligne-bloc{display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:8px;padding:8px 8px 8px 12px}
+.ligne-bloc .qui{flex:1;min-width:0}
+.ligne-bloc .qui > span{display:block}
+.ligne-bloc .qui .mail{font-size:12px;color:var(--muted);overflow-wrap:anywhere}
+.ligne-bloc.grise{color:var(--muted)}
+</style>
+
+<style>
+.tbl{width:100%;border-collapse:collapse;font-size:13px}
+.tbl th{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);text-align:left;padding:6px 4px;border-bottom:1px solid var(--line)}
+.tbl td{padding:8px 4px;border-bottom:1px solid var(--line);vertical-align:top}
+.tbl td .mail{display:block;font-size:12px;color:var(--muted);overflow-wrap:anywhere}
+.pill{display:inline-block;font-size:11px;padding:1px 8px;border-radius:999px;white-space:nowrap}
+.pill.ok{background:var(--new-soft);color:var(--new)}
+.pill.ko{background:color-mix(in srgb,var(--danger) 14%,transparent);color:var(--danger)}
+.hist{list-style:none;margin:0;padding:0}
+.hist li{display:flex;justify-content:space-between;gap:8px;padding:8px 0;border-bottom:1px solid var(--line);font-size:13px}
+.hist li a{color:var(--accent);text-decoration:none}
+.hist .meta{color:var(--muted);white-space:nowrap}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:4px 10px;font-size:13px}
+.kv .k{color:var(--muted)}
+</style>
+
+<div class="planche">
+<h1>Envois groupés : un message par adresse, un historique par animé (#999)</h1>
+<p class="lede">Maquette de référence du chantier <code>CHANTIER-envois-groupes.md</code>. Elle fait foi pour la hiérarchie des écrans, les libellés français et les états d'interaction, et pour rien d'autre : le produit est en Bootstrap 5 et suit <code>design.md</code> §7. Largeur de référence : 390 px. Aucun script.</p>
+<p class="lede">Exemple suivi d'un écran à l'autre : Alice et Bob Dupont sont tous deux ciblés par l'e-mail « Week-end de section ». Alice a l'adresse <i>alice.dupont@…</i>, Bob <i>bob.dupont@…</i>, et tous deux partagent <i>famille.dupont@…</i>. Résultat : <b>3 messages</b>, <b>1 entrée</b> sur la fiche d'Alice, <b>1 entrée</b> sur celle de Bob. Charlie Martin est ciblé mais n'a aucune adresse valide.</p>
+<div class="legende">
+  <span class="etq nouveau">Nouveau</span><span class="etq modifie">Modifié</span><span class="etq inchange">Inchangé</span>
+</div>
+<p class="note">Ce qui n'est pas dessiné ne change pas : la composition d'un e-mail, le choix de la liste et des années, la page des listes de diffusion (#729), la page de désinscription et le bouton « Se désabonner » des messageries, les réglages. Un message part toujours à une seule adresse.</p>
+
+<ul class="sommaire">
+  <li><a href="#e1">1. Communications récentes</a></li>
+  <li><a href="#e2">2. Détail d'une communication</a></li>
+  <li><a href="#e3">3. Suivi de l'envoi</a></li>
+  <li><a href="#e4">4. Aperçu du publipostage</a></li>
+  <li><a href="#e5">5. Import du fichier</a></li>
+</ul>
+
+<div class="ecrans">
+
+<!-- 1 -->
+<section class="ecran" id="e1">
+<h2>1. Fiche d'un animé — « Communications récentes »</h2>
+<p>Une ligne par communication distincte, quel que soit le nombre d'adresses ; les 10 dernières. Une communication qui n'a pu partir vers aucune adresse de l'animé reste visible, marquée « Non envoyée ».</p>
+<div class="cadre">
+  <div class="nav">25 SV</div>
+  <div class="corps">
+    <div class="zone modifie"><span class="etq modifie">Modifié</span>
+      <p class="p fort"><b>Communications récentes</b></p>
+      <ul class="hist">
+        <li><a href="#e2">Week-end de section</a><span class="meta">Louveteaux · 18 oct. 2026</span></li>
+        <li><span><a href="#e2">Cotisation 2026-2027 — Alice</a></span><span class="meta">Unité · 12 oct. 2026</span></li>
+        <li><span><a href="#e2">Réunion des parents</a> <span class="pill ko">Non envoyée</span></span><span class="meta">Unité · 3 oct. 2026</span></li>
+        <li><span><a href="#e2">Camp de {{Prenom}}</a> <span class="grise" style="font-style:italic">— personnalisation effacée</span></span><span class="meta">Louveteaux · 2 mars 2025</span></li>
+      </ul>
+      <p class="note">« Non envoyée » : l'e-mail n'a pu partir vers aucune adresse de l'animé (erreurs, ou aucune adresse valide). Le contenu reste lisible ici. Une communication encore en cours d'envoi n'apparaît qu'une fois une copie partie, ou toutes en échec.</p>
+      <p class="note">La mention « — personnalisation effacée » est inchangée.</p>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- 2 -->
+<section class="ecran" id="e2">
+<h2>2. Détail d'une communication — <code>/members/{id}/emails/{n}</code></h2>
+<p>Le lien d'une notification mène ici. Quand la communication concerne aussi d'autres animés <b>que la personne connectée peut déjà voir</b>, la page les nomme, avec un lien vers leur propre entrée. Les autres animés ciblés ne sont jamais nommés.</p>
+<div class="cadre">
+  <div class="nav">25 SV</div>
+  <div class="corps">
+    <div class="ariane">Alice Dupont / Communications</div>
+    <div class="zone inchange"><span class="etq inchange">Inchangé</span>
+      <div class="titre"><h3>Week-end de section</h3></div>
+      <p class="sous">Envoyé le 18 octobre 2026 · Louveteaux</p>
+    </div>
+    <div class="zone nouveau"><span class="etq nouveau">Nouveau</span>
+      <p class="p">Cette communication concerne aussi <a href="#e2" style="color:var(--accent)">Bob Dupont</a>.</p>
+      <p class="note">Absente quand la personne connectée n'a accès à aucun autre animé ciblé.</p>
+    </div>
+    <div class="zone modifie"><span class="etq modifie">Modifié</span>
+      <div class="alerte">Cet e-mail n'a pas pu être envoyé aux adresses de cet animé. Son contenu est reproduit ci-dessous.</div>
+      <p class="note">Seulement pour une entrée « Non envoyée ».</p>
+    </div>
+    <div class="zone inchange"><span class="etq inchange">Inchangé</span>
+      <div class="carte"><p class="p fort">Bonjour à tous, le week-end de section aura lieu du 7 au 9 novembre…</p></div>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- 3 -->
+<section class="ecran" id="e3">
+<h2>3. Suivi de l'envoi — onglet « Suivi » d'un e-mail</h2>
+<p>Une ligne par <b>message</b>, c'est-à-dire par adresse, plus une ligne par animé ciblé resté sans adresse. Chaque message dit quels animés il concerne. « Renvoyer » renvoie ce message à son adresse, avec confirmation.</p>
+<div class="cadre">
+  <div class="nav">25 SV — Espace animateurs</div>
+  <div class="corps">
+    <div class="zone modifie"><span class="etq modifie">Modifié</span>
+      <p class="p fort"><b>3 messages : 2 envoyés, 1 en erreur · 3 animés ciblés, dont 1 sans adresse</b></p>
+      <table class="tbl">
+        <thead><tr><th>Destinataires</th><th>Statut</th><th></th></tr></thead>
+        <tbody>
+          <tr><td>famille.dupont@…<span class="mail">Alice Dupont, Bob Dupont</span></td><td><span class="pill ok">Envoyé</span><span class="mail">18 oct. 10:02</span></td><td><button class="btn" style="min-height:32px">Renvoyer</button></td></tr>
+          <tr><td>alice.dupont@…<span class="mail">Alice Dupont</span></td><td><span class="pill ok">Envoyé</span><span class="mail">18 oct. 10:02</span></td><td><button class="btn" style="min-height:32px">Renvoyer</button></td></tr>
+          <tr><td>bob.dupont@…<span class="mail">Bob Dupont</span></td><td><span class="pill ko">Erreur</span><span class="mail">Boîte pleine</span></td><td><button class="btn" style="min-height:32px">Renvoyer</button></td></tr>
+          <tr><td class="grise">Charlie Martin<span class="mail">Aucune adresse valide</span></td><td><span class="pill ko">Non envoyée</span></td><td></td></tr>
+        </tbody>
+      </table>
+      <p class="note">Publipostage : une ligne par message, comme ici, avec en plus le numéro de la ligne du fichier sous l'adresse (« Ligne 4 · Alice Dupont »). Une ligne à deux adresses donne deux lignes de suivi ; une ligne du fichier restée sans aucune adresse valide apparaît comme Charlie, « Ligne 7 · Aucune adresse valide ».</p>
+      <p class="note">La recherche existante filtre aussi sur les noms d'animés.</p>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- 4 -->
+<section class="ecran" id="e4">
+<h2>4. Aperçu du publipostage (mode test)</h2>
+<p>La ligne affiche les adresses auxquelles elle partira : <b>un message distinct à chacune</b>, avec les mêmes valeurs.</p>
+<div class="cadre">
+  <div class="nav">25 SV — Espace animateurs</div>
+  <div class="corps">
+    <div class="zone modifie"><span class="etq modifie">Modifié</span>
+      <div class="kv">
+        <span class="k">Ligne</span><span>4 sur 38</span>
+        <span class="k">À</span><span>papa.dupont@gmail.com<span class="mail grise" style="display:block;font-size:12px">et séparément à maman.dupont@outlook.be — 2 messages, adresses connues d'Alice Dupont (Tiers 1203456)</span></span>
+        <span class="k">Objet</span><span>Cotisation 2026-2027 — Alice</span>
+      </div>
+      <p class="note">Ligne sans Tiers : mêmes mentions avec les adresses de la colonne Email, sans doublon, et « adresses du fichier — rattachée à aucune fiche ».</p>
+      <p class="note">Aucune adresse n'est jamais visible d'une autre.</p>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- 5 -->
+<section class="ecran" id="e5">
+<h2>5. Import du fichier de publipostage</h2>
+<p>Deux avertissements nouveaux, non bloquants, à côté de ceux qui existent déjà (même Tiers ou même adresse sur plusieurs lignes).</p>
+<div class="zone nouveau"><span class="etq nouveau">Nouveau</span>
+  <div class="alerte">
+    <p style="margin:0 0 6px"><b>38 lignes importées.</b></p>
+    <p style="margin:0 0 4px">Lignes 4, 9 : la colonne Email est ignorée, les messages partent aux adresses connues de l'animé (Tiers).</p>
+    <p style="margin:0">Ligne 12 : « a@x.be ; a@x.be » — l'adresse en double ne recevra qu'un message pour cette ligne.</p>
+  </div>
+  <p class="note">Un Tiers qui est un ancien identifiant Desk ou celui d'un membre fusionné est reconnu et mène à l'animé actuel ; un Tiers inconnu refuse toujours le fichier.</p>
+</div>
+</section>
+
+</div>
+
+<section class="decisions">
+<h2>Ce que la maquette fixe</h2>
+<ul>
+  <li>Historique : une entrée par communication et par animé ciblé (liste) ou par ligne du fichier (publipostage avec Tiers) ; « Non envoyée » quand rien n'est parti vers l'animé.</li>
+  <li>Détail : « concerne aussi » ne nomme que les animés que la personne connectée peut déjà voir.</li>
+  <li>Suivi : une ligne par message (une adresse) et les animés qu'il concerne ; une ligne pour chaque animé ciblé sans adresse.</li>
+  <li>Publipostage : une ligne du fichier = une entrée sur la fiche, un message par adresse ; désinscription inchangée.</li>
+</ul>
+</section>
+</div>
