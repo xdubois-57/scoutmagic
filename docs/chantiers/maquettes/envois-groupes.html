@@ -131,32 +131,29 @@ code{font-family:var(--mono);font-size:12px}
 .pill{display:inline-block;font-size:11px;padding:1px 8px;border-radius:999px;white-space:nowrap}
 .pill.ok{background:var(--new-soft);color:var(--new)}
 .pill.ko{background:color-mix(in srgb,var(--danger) 14%,transparent);color:var(--danger)}
-.pill.wait{background:var(--same-soft);color:var(--same)}
 .hist{list-style:none;margin:0;padding:0}
 .hist li{display:flex;justify-content:space-between;gap:8px;padding:8px 0;border-bottom:1px solid var(--line);font-size:13px}
 .hist li a{color:var(--accent);text-decoration:none}
 .hist .meta{color:var(--muted);white-space:nowrap}
 .kv{display:grid;grid-template-columns:auto 1fr;gap:4px 10px;font-size:13px}
 .kv .k{color:var(--muted)}
-.check{display:flex;gap:8px;align-items:center;font-size:14px;min-height:44px}
 </style>
 
 <div class="planche">
-<h1>Envois groupés : une remise par adresse, un historique par animé (#999)</h1>
+<h1>Envois groupés : un message par adresse, un historique par animé (#999)</h1>
 <p class="lede">Maquette de référence du chantier <code>CHANTIER-envois-groupes.md</code>. Elle fait foi pour la hiérarchie des écrans, les libellés français et les états d'interaction, et pour rien d'autre : le produit est en Bootstrap 5 et suit <code>design.md</code> §7. Largeur de référence : 390 px. Aucun script.</p>
 <p class="lede">Exemple suivi d'un écran à l'autre : Alice et Bob Dupont sont tous deux ciblés par l'e-mail « Week-end de section ». Alice a l'adresse <i>alice.dupont@…</i>, Bob <i>bob.dupont@…</i>, et tous deux partagent <i>famille.dupont@…</i>. Résultat : <b>3 messages</b>, <b>1 entrée</b> sur la fiche d'Alice, <b>1 entrée</b> sur celle de Bob. Charlie Martin est ciblé mais n'a aucune adresse valide.</p>
 <div class="legende">
   <span class="etq nouveau">Nouveau</span><span class="etq modifie">Modifié</span><span class="etq inchange">Inchangé</span>
 </div>
-<p class="note">Ce qui n'est pas dessiné ne change pas : la composition d'un e-mail, le choix de la liste et des années, la page des listes de diffusion (#729), les réglages.</p>
+<p class="note">Ce qui n'est pas dessiné ne change pas : la composition d'un e-mail, le choix de la liste et des années, la page des listes de diffusion (#729), la page de désinscription et le bouton « Se désabonner » des messageries, les réglages. Un message part toujours à une seule adresse.</p>
 
 <ul class="sommaire">
   <li><a href="#e1">1. Communications récentes</a></li>
   <li><a href="#e2">2. Détail d'une communication</a></li>
   <li><a href="#e3">3. Suivi de l'envoi</a></li>
-  <li><a href="#e4">4. Désinscription</a></li>
-  <li><a href="#e5">5. Aperçu du publipostage</a></li>
-  <li><a href="#e6">6. Import du fichier</a></li>
+  <li><a href="#e4">4. Aperçu du publipostage</a></li>
+  <li><a href="#e5">5. Import du fichier</a></li>
 </ul>
 
 <div class="ecrans">
@@ -213,7 +210,7 @@ code{font-family:var(--mono);font-size:12px}
 <!-- 3 -->
 <section class="ecran" id="e3">
 <h2>3. Suivi de l'envoi — onglet « Suivi » d'un e-mail</h2>
-<p>Une ligne par <b>message</b> envoyé, plus une ligne par animé ciblé resté sans adresse. Chaque message dit à quelles adresses il part et quels animés il concerne. « Renvoyer » renvoie le message entier.</p>
+<p>Une ligne par <b>message</b>, c'est-à-dire par adresse, plus une ligne par animé ciblé resté sans adresse. Chaque message dit quels animés il concerne. « Renvoyer » renvoie ce message à son adresse, avec confirmation.</p>
 <div class="cadre">
   <div class="nav">25 SV — Espace animateurs</div>
   <div class="corps">
@@ -225,10 +222,10 @@ code{font-family:var(--mono);font-size:12px}
           <tr><td>famille.dupont@…<span class="mail">Alice Dupont, Bob Dupont</span></td><td><span class="pill ok">Envoyé</span><span class="mail">18 oct. 10:02</span></td><td><button class="btn" style="min-height:32px">Renvoyer</button></td></tr>
           <tr><td>alice.dupont@…<span class="mail">Alice Dupont</span></td><td><span class="pill ok">Envoyé</span><span class="mail">18 oct. 10:02</span></td><td><button class="btn" style="min-height:32px">Renvoyer</button></td></tr>
           <tr><td>bob.dupont@…<span class="mail">Bob Dupont</span></td><td><span class="pill ko">Erreur</span><span class="mail">Boîte pleine</span></td><td><button class="btn" style="min-height:32px">Renvoyer</button></td></tr>
-          <tr><td class="grise">Charlie Martin<span class="mail">Aucune adresse valide</span></td><td><span class="pill ko">Non envoyé</span></td><td></td></tr>
+          <tr><td class="grise">Charlie Martin<span class="mail">Aucune adresse valide</span></td><td><span class="pill ko">Non envoyée</span></td><td></td></tr>
         </tbody>
       </table>
-      <p class="note">Publipostage : une ligne par ligne du fichier, toutes ses adresses dans la même cellule (« papa@… ; maman@… »). Si le relais refuse une seule des adresses, le message est « Envoyé » et l'adresse refusée est signalée sous les autres, barrée.</p>
+      <p class="note">Publipostage : une ligne par message, comme ici, avec en plus le numéro de la ligne du fichier sous l'adresse (« Ligne 4 · Alice Dupont »). Une ligne à deux adresses donne deux lignes de suivi ; une ligne du fichier restée sans aucune adresse valide apparaît comme Charlie, « Ligne 7 · Aucune adresse valide ».</p>
       <p class="note">La recherche existante filtre aussi sur les noms d'animés.</p>
     </div>
   </div>
@@ -237,22 +234,19 @@ code{font-family:var(--mono);font-size:12px}
 
 <!-- 4 -->
 <section class="ecran" id="e4">
-<h2>4. Désinscription — <code>/mass-mail/unsubscribe/{id}</code></h2>
-<p>Pour un message parti à une seule adresse, la page actuelle ne change pas. Pour un message à plusieurs adresses (publipostage), la page les liste et la personne coche celles à désinscrire. Le bouton « Se désabonner » de la messagerie ouvre cette page, sans désinscrire en un clic.</p>
+<h2>4. Aperçu du publipostage (mode test)</h2>
+<p>La ligne affiche les adresses auxquelles elle partira : <b>un message distinct à chacune</b>, avec les mêmes valeurs.</p>
 <div class="cadre">
-  <div class="nav">25 SV</div>
+  <div class="nav">25 SV — Espace animateurs</div>
   <div class="corps">
-    <div class="zone nouveau"><span class="etq nouveau">Nouveau</span>
-      <div class="titre"><h3>Désinscription des emails groupés</h3></div>
-      <p class="p fort">Ce message a été envoyé à plusieurs adresses. Cochez celles qui ne doivent plus recevoir d'emails groupés de l'unité.</p>
-      <label class="check"><input type="checkbox" checked> papa.dupont@gmail.com</label>
-      <label class="check"><input type="checkbox"> maman.dupont@outlook.be</label>
-      <p class="note">Vous pourrez vous réinscrire à tout moment depuis votre espace animés.</p>
-      <button class="btn dgr large">Désinscrire l'adresse cochée</button>
-      <p class="note">Le libellé suit le nombre de cases cochées ; désactivé tant qu'aucune ne l'est. Une adresse déjà désinscrite apparaît grisée, cochée et désactivée.</p>
-    </div>
-    <div class="zone inchange"><span class="etq inchange">Inchangé</span>
-      <p class="p">Message à une seule adresse : « Voulez-vous vraiment vous désinscrire des emails groupés envoyés à cette adresse ? » et le bouton « Se désinscrire ».</p>
+    <div class="zone modifie"><span class="etq modifie">Modifié</span>
+      <div class="kv">
+        <span class="k">Ligne</span><span>4 sur 38</span>
+        <span class="k">À</span><span>papa.dupont@gmail.com<span class="mail grise" style="display:block;font-size:12px">et séparément à maman.dupont@outlook.be — 2 messages, adresses connues d'Alice Dupont (Tiers 1203456)</span></span>
+        <span class="k">Objet</span><span>Cotisation 2026-2027 — Alice</span>
+      </div>
+      <p class="note">Ligne sans Tiers : mêmes mentions avec les adresses de la colonne Email, sans doublon, et « adresses du fichier — rattachée à aucune fiche ».</p>
+      <p class="note">Aucune adresse n'est jamais visible d'une autre.</p>
     </div>
   </div>
 </div>
@@ -260,33 +254,13 @@ code{font-family:var(--mono);font-size:12px}
 
 <!-- 5 -->
 <section class="ecran" id="e5">
-<h2>5. Aperçu du publipostage (mode test)</h2>
-<p>L'en-tête « À » montre les adresses réelles de la ligne, telles qu'elles partiront ensemble dans un seul message.</p>
-<div class="cadre">
-  <div class="nav">25 SV — Espace animateurs</div>
-  <div class="corps">
-    <div class="zone modifie"><span class="etq modifie">Modifié</span>
-      <div class="kv">
-        <span class="k">Ligne</span><span>4 sur 38</span>
-        <span class="k">À</span><span>papa.dupont@gmail.com, maman.dupont@outlook.be<span class="mail grise" style="display:block;font-size:12px">Adresses connues d'Alice Dupont (Tiers 1203456)</span></span>
-        <span class="k">Objet</span><span>Cotisation 2026-2027 — Alice</span>
-      </div>
-      <p class="note">Ligne sans Tiers : « À » liste les adresses de la colonne Email, sans doublon, et la mention dit « Adresses du fichier — rattachée à aucune fiche ».</p>
-      <p class="note">Un message à plusieurs adresses les montre toutes à chacun : c'est voulu pour le publipostage, et l'aide le dit.</p>
-    </div>
-  </div>
-</div>
-</section>
-
-<!-- 6 -->
-<section class="ecran" id="e6">
-<h2>6. Import du fichier de publipostage</h2>
+<h2>5. Import du fichier de publipostage</h2>
 <p>Deux avertissements nouveaux, non bloquants, à côté de ceux qui existent déjà (même Tiers ou même adresse sur plusieurs lignes).</p>
 <div class="zone nouveau"><span class="etq nouveau">Nouveau</span>
   <div class="alerte">
     <p style="margin:0 0 6px"><b>38 lignes importées.</b></p>
     <p style="margin:0 0 4px">Lignes 4, 9 : la colonne Email est ignorée, les messages partent aux adresses connues de l'animé (Tiers).</p>
-    <p style="margin:0">Ligne 12 : « a@x.be ; a@x.be » — l'adresse en double ne recevra le message qu'une fois.</p>
+    <p style="margin:0">Ligne 12 : « a@x.be ; a@x.be » — l'adresse en double ne recevra qu'un message pour cette ligne.</p>
   </div>
   <p class="note">Un Tiers qui est un ancien identifiant Desk ou celui d'un membre fusionné est reconnu et mène à l'animé actuel ; un Tiers inconnu refuse toujours le fichier.</p>
 </div>
@@ -299,9 +273,8 @@ code{font-family:var(--mono);font-size:12px}
 <ul>
   <li>Historique : une entrée par communication et par animé ciblé (liste) ou par ligne du fichier (publipostage avec Tiers) ; « Non envoyée » quand rien n'est parti vers l'animé.</li>
   <li>Détail : « concerne aussi » ne nomme que les animés que la personne connectée peut déjà voir.</li>
-  <li>Suivi : une ligne par message réel, avec ses adresses et les animés qu'il concerne ; une ligne pour chaque animé ciblé sans adresse.</li>
-  <li>Désinscription : page à cases pour un message à plusieurs adresses, sans un clic depuis la messagerie ; page actuelle pour une adresse.</li>
-  <li>Publipostage : une ligne = un message, toutes ses adresses dans « À ».</li>
+  <li>Suivi : une ligne par message (une adresse) et les animés qu'il concerne ; une ligne pour chaque animé ciblé sans adresse.</li>
+  <li>Publipostage : une ligne du fichier = une entrée sur la fiche, un message par adresse ; désinscription inchangée.</li>
 </ul>
 </section>
 </div>

@@ -1,4 +1,4 @@
-# Chantier — Envois groupés : une remise par adresse, un historique par animé, une notification par compte (#999)
+# Chantier — Envois groupés : un message par adresse, un historique par animé, une notification par compte (#999)
 
 Document de chantier. Il complète `AGENTS.md`, `ARCHITECTURE.md` (§8.61,
 §8.62, §8.71 à §8.71decies, §8.96), `SECURITY.md` (§4, §5), `design.md` (§7)
@@ -7,14 +7,14 @@ Il ne les recopie pas. Il suppose le chantier #729 livré
 (`CHANTIER-listes-de-diffusion-blocs.md` : listes en blocs, groupes de membres
 et groupes de contacts).
 
-Maquette qui fait foi : `docs/chantiers/maquettes/envois-groupes.html` (six
+Maquette qui fait foi : `docs/chantiers/maquettes/envois-groupes.html` (cinq
 écrans à 390 px). Chaque zone y est étiquetée **nouveau / modifié /
 inchangé** ; ce qui n'est pas dessiné ne change pas.
 
-L'issue #999 ne contient que des spécifications fonctionnelles. L'analyse
-ci-dessous a été menée contre le code, et les points ambigus ont été tranchés
-avec le mainteneur le 21/10/2026 (§2.8). Là où le texte de l'issue diffère de
-ce document, **ce document l'emporte**.
+L'issue #999 décrivait le comportement attendu. Elle a été analysée contre le
+code, ses points ambigus ont été tranchés avec le mainteneur le 21/10/2026
+(§2.7), et ses spécifications ont été mises à jour en conséquence. Là où le
+texte de l'issue diffère de ce document, **ce document l'emporte**.
 
 ---
 
@@ -47,13 +47,14 @@ ce document, **ce document l'emporte**.
 
 ## 1. État des lieux (vérifié dans le code au commit `b48bbf8`)
 
-**Une seule table pour trois notions.** `mass_mail_recipients` porte une ligne
-par couple (animé, adresse) — « deliberately NOT unique per email_id »
-(`schema.sql` L301-316). Chaque ligne est un message SMTP à une seule adresse
-(`SendBatchHandler` L203, `MailService::send(string $to, …)` L183), porte son
-propre jeton de désinscription (L186-200), alimente l'historique de la fiche et
-déclenche la notification. L'envoi, l'historique et la notification ne
-peuvent donc pas être comptés séparément.
+**Une seule table pour trois notions.** `mass_mail_recipients` (`schema.sql`
+L317-371) porte une ligne par couple (animé, adresse) ; son commentaire le dit
+(« deliberately NOT unique per email_id », L307). Chaque ligne est un message
+SMTP à une seule adresse (`SendBatchHandler` L203,
+`Core\Mail\MailService::send(string $to, …)` L183), porte son propre jeton de
+désinscription (L186-200), alimente l'historique de la fiche et déclenche la
+notification. L'envoi, l'historique et la notification ne peuvent donc pas être
+comptés séparément.
 
 **Liste classique** (`MassMailService::freezeListRecipients()` L929,
 `MailingListService::resolveMembersForYears()` L637).
@@ -62,90 +63,110 @@ peuvent donc pas être comptés séparément.
   si Alice et Bob partagent l'adresse Desk familiale, **Bob est retiré
   entièrement** — pas de message, pas d'historique, pas de notification.
 - Chaque animé gardé s'étend ensuite à toutes ses adresses valides
-  (`MemberEmailService::resolveValidAddressesForMassMail()` L403 : adresse Desk
-  si sa ligne `desk` est valide, adresses secondaires `manual` confirmées, moins
-  les adresses bloquées après rebonds), **sans dédoublonnage entre animés** : une
-  adresse secondaire familiale présente sur deux fiches reçoit deux messages.
+  (`Core\Member\MemberEmailService::resolveValidAddressesForMassMail()` L403 :
+  adresse Desk si sa ligne `desk` est valide, adresses secondaires `manual`
+  confirmées, moins les adresses bloquées après rebonds), **sans dédoublonnage
+  entre animés** : une adresse secondaire familiale présente sur deux fiches
+  reçoit deux messages.
 - `mass_mail_suppressed_addresses` n'est pas lue pour les adresses d'animés,
   seulement pour les contacts et le publipostage.
 
 **Publipostage** (`freezeMergeRecipients()` L1136-1278,
 `AudienceImportService`).
-- Une ligne avec Tiers produit **un message par adresse** de l'animé ; une
-  ligne sans Tiers, un message par adresse de la cellule Email (séparateur `;`
-  au gel, `;` ou `,` à l'import).
+- Une ligne avec Tiers produit un message par adresse de l'animé ; une ligne
+  sans Tiers, un message par adresse de la cellule Email (séparateur `;` au gel,
+  `;` ou `,` à l'import). Aucun dédoublonnage entre lignes. C'est déjà le
+  découpage voulu (§2.3) ; ce qui manque, c'est le rattachement par ligne
+  (historique, notification).
 - Avec un Tiers, la colonne Email est ignorée (L104-111) ; un Tiers inconnu
-  refuse le fichier (L107, L143-145). Conforme au ticket.
+  refuse le fichier (L107, L143-145).
 - La recherche du Tiers (`MemberResolutionRepository::findMemberIdsByDeskIds()`
   L395-411) ignore `member_desk_id_aliases` et `merged_into_member_id` ;
-  `Core\Import\MemberRepository::findByDeskId()` les gère.
+  `Core\Import\MemberRepository::findByDeskId()` (L50) les gère.
 - Les autres modules passent par `MergeDraftService` /
   `Api\MassMailDraftInterface::createMergeDraft()` avec des lignes
   `{email, values}` sans animé ; le service **fusionne les lignes de même
-  adresse** (L137-155) et perd les valeurs de la seconde. Appelants : Actualités
-  (une ligne par réponse), Finances (`CampaignReminderService` : une ligne par
-  adresse familiale, jusqu'à 6 enfants en blocs `{{#Prénom N}}`), Encadrement
-  (une ligne par animateur).
+  adresse** (L137-155) et perd les valeurs de la seconde. Appelants :
+  - Actualités (`FormController` L625, L716-735) : une ligne par réponse ;
+  - Finances (`CampaignReminderService`) : une ligne par adresse familiale,
+    jusqu'à 6 enfants en blocs `{{#Prénom N}}` ; **au-delà du sixième, les
+    enfants suivants sont omis sans le dire** (`continue`, L225) ;
+  - Encadrement (`LeadershipController::draft()` L289-322) : une ligne par
+    animateur, depuis `PersonLine`, qui ne porte que `memberYearId`.
 
 **Historique** (`RecipientRepository::findRecentSentForMember()` L239,
 `findSentDetailForMember()` L288, via `Api\MassMailQueryInterface`).
 `WHERE member_id = ? AND status = 'sent'`, sans regroupement par e-mail : un
 animé à 3 adresses voit 3 fois la même communication, et la limite de 10 compte
-des lignes. Le détail (`GET /members/{id}/emails/{recipient_id}`,
-`MemberEmailController`) contrôle `MemberService::canAccess()` puis
-l'appartenance de la ligne à l'animé. Une adresse secondaire confirmée
-**après** l'envoi voit déjà tout l'historique, sans renvoi ni notification :
-conforme.
+des lignes. Le détail (`GET /members/{id}/emails/{recipient_id}`, où `{id}` est
+un **identifiant de `member_years`**, `MemberEmailController` L50-85) contrôle
+`MemberService::canAccess(email, memberYearId, …)` (L325) puis l'appartenance de
+la ligne à l'animé. Une adresse secondaire confirmée **après** l'envoi voit déjà
+tout l'historique, sans renvoi ni notification : conforme.
 
 **Notification** `mass_mail.email_received` : une par ligne envoyée
 (`SendBatchHandler::dispatchEmailReceivedNotification()` L492), au compte dont
-l'identifiant égale l'adresse de la ligne, lien `RecipientEmailLink::url()`.
-Aucun dédoublonnage (`NotificationService::dispatch()`).
+l'identifiant égale l'adresse de la ligne, lien `RecipientEmailLink::url()` ; pas
+de lien quand la ligne `member_years` de l'année n'existe plus (L515-520). Aucun
+dédoublonnage (`NotificationService::dispatch()`).
 
 **Purge** (`PurgeMergeAudiencesHandler`) : 18 mois après le dernier envoi,
 efface les lignes de fichier, met `audience_row_id` à NULL et supprime les
 notifications par leur URL exacte.
 
 **Suivi** (`tracking.html.twig`, `getTrackingData()` L1369) : une ligne par
-ligne de destinataire ; « Renvoyer » par ligne (`resendToRecipient()` L1331).
-Aucun statut de rebond sur la ligne ; aucune relance automatique.
+ligne de destinataire ; « Renvoyer » par ligne (`resendToRecipient()` L1331,
+`POST /mass-mail/recipients/{id}/resend`). Aucune relance automatique.
 
-**Observé, hors périmètre.** `MemberEmailService::unsubscribe()` (L493) passe en
+**Désinscription** : jeton par ligne, `GET`/`POST /mass-mail/unsubscribe/{id}`,
+en-têtes `List-Unsubscribe` et `List-Unsubscribe-Post` (RFC 8058). Effets :
+`mass_mail_suppressed_addresses`, `ListBlockService::unsubscribeEverywhere()`,
+et `MemberEmailService::unsubscribe()` (L493) quand la ligne porte un
+`member_email_id`.
+
+**Observé, hors périmètre.** `MemberEmailService::unsubscribe()` passe en
 `inactive` toutes les lignes `member_emails` de l'adresse : une adresse
-secondaire désinscrite perd aussi l'accès aux fiches qu'elle ouvrait. Comportement
-existant, inchangé ici ; à reprendre dans un ticket dédié si ce n'est pas voulu.
+secondaire désinscrite perd aussi l'accès aux fiches qu'elle ouvrait.
+Comportement existant, inchangé ici.
 
 ---
 
 ## 2. Décisions verrouillées
 
-### 2.1 Trois notions, trois tables
+### 2.1 Trois notions, quatre tables
 
 `mass_mail_recipients` est **remplacée** (`DROP TABLE` dans `drops.sql`) par :
 
 | Table | Une ligne = | Sert à |
 |---|---|---|
-| `mass_mail_deliveries` | **un message** réellement expédié | envoi, suivi, renvoi, désinscription |
-| `mass_mail_delivery_addresses` | une adresse dans le « À » d'un message | qui a reçu, refus par adresse, désinscription |
-| `mass_mail_targets` | **un animé ciblé** par une communication (liste) ou par une ligne du fichier | historique, notification |
+| `mass_mail_deliveries` | **un message**, toujours à **une seule adresse** | envoi, suivi, renvoi, désinscription |
+| `mass_mail_targets` | **un animé ciblé** par une communication (liste) ou par une ligne du fichier (publipostage) | historique, notification |
 | `mass_mail_delivery_targets` | le lien message ↔ animé ciblé | « Non envoyée », suivi, « concerne aussi » |
+| `mass_mail_notified_accounts` | un compte déjà notifié pour une communication ou une ligne | une notification au plus |
 
-- `mass_mail_deliveries` : `id`, `email_id` (CASCADE), `audience_row_id` (NULL,
-  SET NULL à la purge), `status` (`pending` / `sent` / `error`),
+- `mass_mail_deliveries` : `id`, `email_id` (CASCADE), `audience_row_id` (NULL ;
+  SET NULL à la purge), `email_address_encrypted` (chiffrée, déchiffrée
+  uniquement dans son repository — SECURITY §5), `email_blind_index`,
+  `member_email_id` (NULL), `status` (`pending` / `sent` / `error`),
   `error_message`, `sent_at`, `attempts`, `unsubscribe_token_hash`,
-  `created_at` ; index `(status, id)` et `(email_id)` comme aujourd'hui.
-- `mass_mail_delivery_addresses` : `id`, `delivery_id` (CASCADE),
-  `email_address_encrypted` (chiffrée, déchiffrée uniquement dans son
-  repository — SECURITY §5), `email_blind_index` (unique avec `delivery_id`),
-  `member_email_id` (NULL), `refused_at` / `refused_reason` (refus du relais pour
-  cette adresse seule), `unsubscribed_at`.
+  `created_at`. Index `(status, id)`, `(email_id)`, `(email_blind_index)` ;
+  **noms d'index nouveaux** (le comparateur de schéma les apparie par nom —
+  AGENTS.md § Database ; ne pas réutiliser `idx_mmr_*`). Le commentaire du
+  schéma décrit le jeton tel qu'il est réellement haché
+  (`Core\Security\CapabilityToken`, SHA-256), pas `password_hash()` comme
+  l'ancien.
 - `mass_mail_targets` : `id`, `email_id` (CASCADE), `member_id`,
-  `scout_year_id`, `audience_row_id` (NULL ; SET NULL à la purge) ; unique
-  `(email_id, member_id)` **pour une liste** ; pour le publipostage, une ligne
-  par ligne du fichier (deux lignes du même Tiers = deux cibles) — l'unicité se
-  vérifie dans le service, la contrainte SQL ne pouvant pas exprimer « unique si
-  `audience_row_id` est NULL ».
+  `scout_year_id`, `audience_row_id` (NULL ; SET NULL à la purge). Liste : une
+  cible par animé et par communication (vérifié par le service). Publipostage :
+  une cible par ligne du fichier qui a un Tiers (deux lignes du même Tiers =
+  deux cibles).
 - `mass_mail_delivery_targets` : `(delivery_id, target_id)`, clé primaire.
+- `mass_mail_notified_accounts` : `email_id`, `audience_row_id` (NULL),
+  `user_account_id` ; unicité garantie par le service (une colonne générée
+  `COALESCE(audience_row_id, 0)` dans un index unique est acceptable).
+- Toutes les clés étrangères pointent vers des tables du module ou du cœur
+  (`members`, `member_emails`, `scout_years`, `user_accounts`) ; aucun autre
+  module ne référence ces tables.
 
 ### 2.2 Liste classique
 
@@ -157,10 +178,12 @@ existant, inchangé ici ; à reprendre dans un ticket dédié si ce n'est pas vo
 - **Adresses éligibles d'un animé** : celles de
   `resolveValidAddressesForMassMail()` (Desk valide + secondaires confirmées,
   moins les rebonds bloqués), **moins** les adresses présentes dans
-  `mass_mail_suppressed_addresses`.
+  `mass_mail_suppressed_addresses`. Ce filtre se fait au gel, dans le module :
+  la garde du cœur (`vouchesForRecipient`) ne connaît que les rebonds et ne
+  peut pas lire une table du module.
 - **Messages** : **un message par adresse distincte** (comparée en minuscules)
   parmi toutes les cibles et tous les groupes de contacts de la liste. Un
-  message est lié à toutes les cibles dont l'adresse fait partie ; un message
+  message est lié à toutes les cibles dont il porte une adresse ; un message
   dont l'adresse ne vient que d'un groupe de contacts n'est lié à aucune cible.
 - **Partager une adresse ne rend pas destinataire.** Une adresse de Bob atteinte
   parce qu'elle est aussi celle d'Alice ne crée pas de cible Bob si Bob n'est
@@ -174,69 +197,53 @@ existant, inchangé ici ; à reprendre dans un ticket dédié si ce n'est pas vo
 
 ### 2.3 Publipostage
 
-- **Une ligne du fichier = une cible au plus = un message**, toutes ses
-  adresses dans le « À ». Les adresses sont dédoublonnées **dans la ligne**,
-  jamais entre lignes : deux lignes vers la même adresse font deux messages.
+- **Une ligne du fichier = une communication** : au plus une cible, et **un
+  message par adresse distincte de la ligne**. Les adresses sont dédoublonnées
+  **dans la ligne**, jamais entre lignes : deux lignes vers la même adresse font
+  deux messages, chacun avec ses propres valeurs. Aucune adresse n'est jamais
+  visible d'une autre.
 - **Ligne avec Tiers reconnu** : adresses = adresses éligibles de l'animé
-  (§2.2) ; une cible pour cet animé, liée au message. La colonne Email de la
-  ligne est **ignorée** et l'import l'annonce en avertissement (maquette,
-  écran 6) ; elle reste utilisable comme variable.
-- **Recherche du Tiers** par `Core\Import\MemberRepository::findByDeskId()` (ou
-  une variante groupée de même règle) : un ancien identifiant (alias) ou celui
-  d'un membre fusionné mène à l'animé actuel. Un Tiers inconnu refuse toujours
-  le fichier.
+  (§2.2) ; une cible pour cet animé, liée à chacun des messages de la ligne. La
+  colonne Email de la ligne est **ignorée**, et l'import le signale en
+  avertissement (maquette, écran 5) ; elle reste utilisable comme variable.
+- **Recherche du Tiers** par la règle de
+  `Core\Import\MemberRepository::findByDeskId()` (une variante groupée est
+  bienvenue) : un ancien identifiant (alias) ou celui d'un membre fusionné mène
+  à l'animé actuel. Un Tiers inconnu refuse toujours le fichier.
 - **Ligne sans Tiers** : adresses de la cellule Email (`;` ou `,`), moins les
   adresses supprimées et bloquées ; **aucune cible**, donc ni historique ni
   notification, même si une adresse appartient à un animé ou à un compte.
-- Une ligne qui n'a plus aucune adresse donne un message en `error`
-  (« Aucune adresse valide »), comme aujourd'hui.
-- **Plusieurs adresses visibles entre elles** : accepté pour le publipostage.
-  Une ligne avec Tiers ne réunit que les adresses d'un même animé ; une ligne
-  sans Tiers réunit ce que le chef a écrit dans sa cellule. L'aide
-  `publipostage.md` le dit.
+- Une ligne qui n'a plus aucune adresse ne produit **aucun message** (un message
+  a toujours une adresse) : avec un Tiers, sa cible est « Non envoyée » ; avec ou
+  sans Tiers, le suivi montre la ligne du fichier avec « Aucune adresse valide »
+  (§2.4).
 - `MassMailDraftInterface::createMergeDraft()` : chaque ligne accepte un
   `member_id` facultatif, qui a exactement la sémantique d'un Tiers (adresses de
   l'animé, `email` ignoré). `MergeDraftService` **ne fusionne plus** les lignes
   de même adresse.
 
-### 2.4 Envoi d'un message à plusieurs adresses
+### 2.4 Envoi, suivi, renvoi, désinscription
 
-- `Core\Mail\MailService::send()` accepte une liste d'adresses en « À » (une
-  chaîne reste acceptée). La garde de suppression et de rebonds
-  (`vouchesForRecipient`) s'applique **à chaque adresse** ; une adresse refusée
-  par la garde est retirée du « À » et marquée `refused_at` ; si aucune ne reste,
-  le message est en `error`.
-- **Refus partiel du relais** : si le relais refuse certaines adresses (`RCPT`)
-  et accepte les autres, le message est `sent`, les adresses refusées sont
-  marquées `refused_at` / `refused_reason`. **Ne jamais traiter un refus partiel
-  comme un échec du message** : un « Renvoyer » renverrait aux adresses qui l'ont
-  déjà reçu. PHPMailer lève une exception **après** avoir envoyé `DATA` aux
-  adresses acceptées : le vérifier dans la version utilisée (7.1.1) et le
-  couvrir par un test avec un faux relais. Voir aussi #916 (garde sur le
-  premier essai).
-- Rebonds asynchrones : `BounceStateRepository::recordSend()` est appelé pour
-  chaque adresse acceptée.
-- « Renvoyer » (`POST /mass-mail/recipients/{id}/resend`, renommé
-  `/mass-mail/deliveries/{id}/resend`) renvoie le message entier à ses adresses
-  non refusées.
+- **Un message = une adresse**, exactement comme aujourd'hui : `MailService`,
+  la chaîne de relais, la file différée et la garde des destinataires ne
+  changent pas.
+- **Suivi** (maquette, écran 3) : une ligne par message (son adresse, les animés
+  qu'il concerne, en publipostage le numéro de ligne du fichier), plus une ligne
+  par cible restée sans aucun message et, en publipostage, par ligne du fichier
+  restée sans aucun message. Les compteurs comptent des messages et nomment le
+  nombre d'animés ciblés.
+- « Renvoyer » : `POST /mass-mail/deliveries/{id}/resend` (remplace
+  `/mass-mail/recipients/{id}/resend`), même règle qu'aujourd'hui, ne renotifie
+  personne (§2.6).
+- **Désinscription inchangée** pour la personne : un jeton par message, la page
+  actuelle, `List-Unsubscribe` et `List-Unsubscribe-Post` (un clic). Les routes
+  gardent leur forme (`/mass-mail/unsubscribe/{id}`), `{id}` désignant
+  désormais un message. SECURITY.md §4 (liste des exceptions CSRF) : « jeton par
+  destinataire » devient « jeton par message ».
+- « Voir les destinataires » (#729) et `estimateRecipientCount()` comptent des
+  messages (adresses distinctes) et nomment le nombre d'animés ciblés.
 
-### 2.5 Désinscription
-
-- Un jeton par **message** (`mass_mail_deliveries.unsubscribe_token_hash`),
-  régénéré à chaque envoi comme aujourd'hui (`Core\Security\CapabilityToken`).
-- **Message à une adresse** : page et en-têtes actuels inchangés, y compris
-  `List-Unsubscribe-Post` (RFC 8058, un clic).
-- **Message à plusieurs adresses** : `List-Unsubscribe` pointe vers la page,
-  **sans** `List-Unsubscribe-Post`. `GET` affiche la page à cases (maquette,
-  écran 4) ; `POST` reçoit les adresses cochées (identifiants des lignes de
-  `mass_mail_delivery_addresses`, jamais des adresses en clair) et applique à
-  **chacune** les effets actuels : `mass_mail_suppressed_addresses`,
-  `ListBlockService::unsubscribeEverywhere()`, et
-  `MemberEmailService::unsubscribe()` quand la ligne porte un
-  `member_email_id`. `POST` sans case cochée : refusé. Idempotent.
-- SECURITY.md §4 : décrire la variante à cases du point d'entrée public.
-
-### 2.6 Historique de la fiche
+### 2.5 Historique de la fiche
 
 - Une entrée = une cible (`mass_mail_targets`) de l'animé dont la communication
   est en `sending` ou `sent` :
@@ -246,64 +253,73 @@ existant, inchangé ici ; à reprendre dans un ticket dédié si ce n'est pas vo
     notification ;
   - sinon (encore en attente) → pas encore affichée.
 - « Communications récentes » : les 10 dernières **entrées**, triées par date
-  d'envoi de la communication (date du premier message `sent`, à défaut date de
-  lancement). Liste classique : une entrée par communication. Publipostage avec
-  Tiers : une entrée par ligne du fichier.
-- Détail : `GET /members/{id}/emails/{target_id}` (le paramètre change de nom et
-  de sens). Contrôles : `MemberService::canAccess()` sur l'animé, puis la cible
-  appartient à cet animé. Le contenu est rendu comme aujourd'hui (gabarit, ou
-  personnalisation relue depuis la ligne du fichier, ou « personnalisation
-  effacée »). Pour une entrée « Non envoyée », un bandeau le dit.
+  d'envoi (premier message `sent` de la cible, à défaut lancement de la
+  communication). Liste classique : une entrée par communication. Publipostage
+  avec Tiers : une entrée par ligne du fichier.
+- Détail : `GET /members/{id}/emails/{target_id}` — `{id}` reste un identifiant
+  de `member_years`, le second paramètre change de sens. Contrôles :
+  `MemberService::canAccess()` sur ce `member_years`, puis la cible appartient à
+  son animé. **Aucune nouvelle sous-route** sous `/members/{id}/emails/…` : le
+  cœur y possède déjà `resend`, `delete`, `reactivate`, `bounce-unblock` pour
+  les adresses (`MemberEmailAddressController` L88-183).
+- Le contenu est rendu comme aujourd'hui (gabarit, ou personnalisation relue
+  depuis la ligne du fichier, ou « personnalisation effacée »). Pour une entrée
+  « Non envoyée », un bandeau le dit.
 - **« Concerne aussi »** (maquette, écran 2), liste classique seulement : les
   autres cibles de la **même communication** dont l'animé passe `canAccess()`
   pour la personne connectée, avec un lien vers leur entrée. Aucun autre animé
-  n'est nommé. En publipostage, une ligne n'a qu'une cible : le bloc n'apparaît
-  pas.
+  n'est nommé. Le lien d'une cible passe par son `member_years`
+  (`member_id`, `scout_year_id`) ; sans cette ligne, l'animé est nommé sans
+  lien. En publipostage, une ligne n'a qu'une cible : le bloc n'apparaît pas.
 - Accès des adresses ajoutées plus tard : inchangé (déjà conforme).
 
-### 2.7 Notification « Nouvel email »
+### 2.6 Notification « Nouvel email »
 
 - **Au plus une par compte et par communication (liste) ou par ligne
-  (publipostage).** Compte concerné = compte dont l'identifiant égale une
-  adresse **acceptée** d'un message `sent` lié à au moins une cible.
-- Mémorisée dans `mass_mail_notified_accounts` (`email_id`, `audience_row_id`
-  NULL, `user_account_id`, unique sur les trois — NULL traité comme 0 par une
-  colonne générée ou par le service), écrite dans la même transaction que la
-  notification : un renvoi ou un second message ne renotifie pas.
-- Lien : l'entrée (§2.6) d'une cible liée au message qui a atteint ce compte et
-  que ce compte peut voir (`canAccess()`), la première par nom d'animé. Les
-  autres sont atteintes par « concerne aussi ».
+  (publipostage).** Compte concerné = compte dont l'identifiant égale l'adresse
+  d'un message `sent` lié à au moins une cible.
+- `mass_mail_notified_accounts` est écrite dans la même transaction que la
+  notification : un second message de la même communication (ou ligne) vers une
+  autre adresse du même compte, ou un renvoi, ne renotifie pas.
+- Lien : l'entrée (§2.5) d'une cible liée au message qui a atteint ce compte et
+  que ce compte peut voir (`canAccess()`), la première par nom d'animé ; les
+  autres sont atteintes par « concerne aussi ». Sans `member_years`, pas de lien
+  (règle actuelle).
 - Corps : l'objet tel qu'envoyé (personnalisé en publipostage), règle actuelle.
 - Purge : `PurgeMergeAudiencesHandler` reconstruit les URL des cibles de
-  l'audience purgée (le lien change de forme, §2.6) et supprime les
-  notifications correspondantes, comme aujourd'hui.
+  l'audience purgée et supprime les notifications correspondantes, comme
+  aujourd'hui ; une seule fonction construit ces URL.
 - Aucune notification rétroactive pour une adresse ajoutée après l'envoi
   (inchangé : la notification n'est émise qu'à l'envoi).
 
-### 2.8 Décisions prises avec le mainteneur (21/10/2026)
+### 2.7 Décisions prises avec le mainteneur (21/10/2026)
 
-1. Désinscription d'un message à plusieurs adresses : **page à cases**.
-2. Bouton « un clic » des messageries sur un tel message : **ouvre la page**,
-   sans désinscrire.
-3. Tiers et Email sur une même ligne : **Email ignoré**, avertissement à
+1. **Un message par adresse**, publipostage compris. Écarté : un message par
+   ligne avec plusieurs adresses en « À ». Raisons : chaque parent verrait
+   l'adresse des autres (parents séparés), le « Répondre à tous » et la
+   désinscription en un clic ne tiendraient plus, et l'envoi multi-adresses
+   aurait demandé de reprendre les trois couches du courrier sortant (chaîne de
+   relais, garde des destinataires refusés, file différée) pour un gain de
+   quota incertain selon le fournisseur. La vraie économie vient du
+   dédoublonnage par adresse des listes classiques (§2.2).
+2. Tiers et Email sur une même ligne : **Email ignoré**, avertissement à
    l'import.
-4. Échec total pour un animé : **affiché « Non envoyée »** sur sa fiche.
-5. Ligne sans Tiers : **aucune notification**, aucune fiche.
-6. Rappels Finances : **une ligne par enfant (créance), avec son Tiers**, au
+3. Échec total pour un animé : **affiché « Non envoyée »** sur sa fiche.
+4. Ligne sans Tiers : **aucune notification**, aucune fiche.
+5. Rappels Finances : **une ligne par enfant (créance), avec son animé**, au
    lieu d'une ligne par adresse familiale regroupant les enfants. Encadrement :
-   une ligne par animateur, avec son Tiers. Actualités : inchangé (réponses sans
-   Tiers).
-7. Réponses à un formulaire d'actualité : **un e-mail par réponse**, plus de
+   une ligne par animateur, avec son animé. Actualités : réponses toujours sans
+   animé.
+6. Réponses à un formulaire d'actualité : **un e-mail par réponse**, plus de
    fusion par adresse.
 
-### 2.9 Écarté
+### 2.8 Écarté
 
 - Reprise des envois passés (site en test).
+- Plusieurs adresses dans un même message, copie cachée (`Bcc`).
 - Notification ou page « mes e-mails » pour une ligne sans Tiers.
-- Copie cachée (`Bcc`) ou un message par adresse en publipostage.
 - Relance automatique des messages en erreur.
-- Le sort de l'accès aux fiches après désinscription d'une adresse secondaire
-  (§1, observé).
+- L'accès aux fiches après désinscription d'une adresse secondaire (§1).
 - Fusion de membres : l'historique d'un membre absorbé reste sur l'ancien
   identifiant (`MemberMergeRepository` ne déplace pas les tables des modules) —
   voir #914.
@@ -316,111 +332,110 @@ Trois vagues, **une PR par lot**. Les lots d'une vague tournent **en
 parallèle** — les lancer en même temps.
 
 ```
-Vague 1 :  [A Envoi à plusieurs adresses (cœur)]   [C Fichier et brouillons des modules]
-                        │                              │            │
-Vague 2 :  [B Messages, cibles, historique, notifications ◄─ A, C]   [E Finances et Encadrement ◄─ C]
-                        └───────────────────┬───────────────────────┘
-Vague 3 :                    [D Bout en bout, aide, docs, clôture]
+Vague 1 :  [A Fichier et brouillons des modules]   [B Messages, cibles, historique, notifications]
+                        │                                          │
+Vague 2 :  [C Finances et Encadrement ◄─ A]                        │
+                        └──────────────────┬───────────────────────┘
+Vague 3 :                 [D Bout en bout, aide, docs, clôture]
 ```
 
-**Propriété des fichiers.** A ne touche qu'au cœur (`core/Mail/*`). C possède
-`AudienceImportService`, `MergeDraftService`, `Api\MassMailDraftInterface` et
-la recherche du Tiers. B possède tout le reste de `modules/mass_mail` et le
-cœur de la fiche (`MemberPageService`, `members/show.html.twig`,
-`members/email_detail.html.twig`). E ne touche qu'à `modules/finance` et
-`modules/leadership`.
+**Propriété des fichiers.**
+- A possède `AudienceImportService`, `MergeDraftService`,
+  `Api\MassMailDraftInterface`, et dans `MemberResolutionRepository` la seule
+  méthode `findMemberIdsByDeskIds()`.
+- B possède tout le reste de `modules/mass_mail` et, dans le cœur, la fiche
+  (`MemberPageService`, `members/show.html.twig`,
+  `members/email_detail.html.twig`), plus le commentaire de
+  `modules/registration/src/Service/ExternalMailingListService.php` (L30) qui
+  cite `mass_mail_recipients`.
+- C ne touche qu'à `modules/finance` et `modules/leadership`.
 
-**Entre C et B**, `MergeDraftService` peut produire des lignes avec `member_id`
-que l'ancien gel traite comme des lignes avec Tiers (`audience_rows.member_id`
-existe déjà) : rien ne casse. **Entre A et B**, rien n'appelle encore la forme à
-plusieurs adresses.
+**A et B sont indépendants** : le gel de B lit déjà `audience_rows.member_id`,
+que A remplit désormais aussi pour les brouillons des modules. Rien ne casse
+dans un ordre ou dans l'autre.
 
-### Lot A — Envoi à plusieurs adresses (vague 1)
-
-- `MailService::send()` : « À » en liste ; garde de suppression et de rebonds
-  par adresse ; résultat par adresse (acceptée / refusée par la garde / refusée
-  par le relais) rendu à l'appelant ; refus partiel du relais = envoi réussi
-  avec adresses refusées (§2.4). Les appelants actuels (une adresse) ne
-  changent pas de comportement.
-- Tests : faux relais qui refuse une adresse sur deux ; toutes refusées ; garde
-  qui retire une adresse supprimée ; domaine internationalisé (lien avec #916,
-  sans le corriger ici).
-- ARCHITECTURE.md : la section du `MailService` décrit la liste et le résultat
-  par adresse.
-
-### Lot B — Messages, cibles, historique, notifications (vague 2, après A et C)
-
-- Schéma du §2.1, `drops.sql` (`mass_mail_recipients`), version de
-  `module.json` montée.
-- Gel liste classique (§2.2) et publipostage (§2.3) ; « Voir les destinataires »
-  de #729 et `estimateRecipientCount()` comptent des **messages** (adresses
-  distinctes) et nomment le nombre d'animés ciblés.
-- `SendBatchHandler` : un message par `mass_mail_deliveries`, « À » multiple,
-  jeton par message, en-têtes de désinscription selon §2.5, notification selon
-  §2.7, fin d'envoi quand plus aucun message n'est `pending`.
-- Suivi (maquette, écran 3), « Renvoyer » par message, page de désinscription
-  (écran 4), aperçu du publipostage (écran 5).
-- Historique et détail (écrans 1 et 2) via `Api\MassMailQueryInterface` (les
-  méthodes gardent leur rôle, la forme des entrées change), `MemberPageService`.
-- Purge : `PurgeMergeAudiencesHandler`, `RecipientEmailLink` (renommé selon le
-  nouveau sens), `AudienceRepository::deleteById()`.
-- `RgpdContentService` (règle 10bis, point c) : décrire messages, adresses et
-  cibles au lieu des « destinataires ».
-- Tests : tous les scénarios du §5 du ticket, plus : deux groupes de membres
-  désignant le même animé ; contact égal à l'adresse d'un animé ciblé et d'un
-  animé non ciblé ; « Anciens » ; liste externe d'Inscriptions ; plusieurs
-  années ; adresse supprimée exclue ; refus partiel ; renvoi sans renotification ;
-  désinscription à cases (une, deux, aucune, jeton invalide) ; en-tête
-  `List-Unsubscribe-Post` présent pour une adresse et absent pour plusieurs ;
-  « concerne aussi » qui ne nomme pas un animé inaccessible ; purge qui
-  supprime les notifications des cibles purgées. Vitest pour le suivi et la page
-  de désinscription si du JavaScript change.
-- Aide : `envoi-de-mails.md`, `publipostage.md`, `se-desinscrire.md`,
-  `docs/help/page-membre.md`. ARCHITECTURE.md §8.61, §8.71, §8.71octies, §8.96 ;
-  SECURITY.md §4.
-
-### Lot C — Fichier et brouillons des modules (vague 1)
+### Lot A — Fichier et brouillons des modules (vague 1)
 
 - Recherche du Tiers par alias et membre fusionné (§2.3).
 - Avertissements d'import : Email ignoré à côté d'un Tiers ; adresse en double
-  dans une cellule (maquette, écran 6).
+  dans une cellule (maquette, écran 5).
 - `MassMailDraftInterface::createMergeDraft()` : `member_id` facultatif par
-  ligne ; `MergeDraftService` écrit `audience_rows.member_id` quand il est donné
-  et ne fusionne plus les lignes de même adresse.
-- Tests : `AudienceImportServiceTest` (alias, fusionné, avertissements),
+  ligne (phpdoc de la forme des lignes) ; `MergeDraftService` écrit
+  `audience_rows.member_id` quand il est donné et ne fusionne plus les lignes de
+  même adresse. Les doublures de test qui implémentent l'interface
+  (`CampaignReminderServiceTest` L421, `LeadershipRbacTest` L830) suivent la
+  nouvelle forme.
+- Tests : `AudienceImportServiceTest` (alias, membre fusionné, avertissements),
   `MergeDraftServiceTest` (deux réponses de même adresse = deux lignes ; ligne
   avec `member_id`).
-- Aide Actualités (`reponses-au-formulaire.md`, `suivi-apres-un-evenement.md`)
-  et ARCHITECTURE.md §8.71 : « deux réponses d'une même famille sont deux
-  e-mails ».
+- Aide Actualités (`modules/news/help/reponses-au-formulaire.md`,
+  `suivi-apres-un-evenement.md`) et ARCHITECTURE.md §8.71 : « deux réponses
+  d'une même famille sont deux e-mails » ; `modules/mass_mail/help/publipostage.md`
+  (Email ignoré à côté d'un Tiers, séparateurs `;` et `,`).
 
-### Lot E — Finances et Encadrement (vague 2, après C)
+### Lot B — Messages, cibles, historique, notifications (vague 1)
+
+- Schéma du §2.1, `drops.sql` (`mass_mail_recipients`), version de
+  `module.json` montée.
+- Gel liste classique (§2.2) et publipostage (§2.3) ; au gel, la cellule Email
+  se découpe sur `;` **et** `,`, comme à l'import.
+- `SendBatchHandler` : un message par `mass_mail_deliveries` (inchangé côté
+  transport), notification selon §2.6, fin d'envoi quand plus aucun message n'est
+  `pending`.
+- Suivi et « Renvoyer » (§2.4, maquette écran 3), aperçu du publipostage
+  (écran 4), désinscription sur la nouvelle table (comportement inchangé).
+- Historique et détail (§2.5, écrans 1 et 2) via `Api\MassMailQueryInterface`
+  (les méthodes gardent leur rôle, la forme des entrées change),
+  `MemberPageService`.
+- Purge : `PurgeMergeAudiencesHandler`, `RecipientEmailLink` (renommé selon le
+  nouveau sens), `AudienceRepository::deleteById()` et
+  `findRecipientEmailLinksForAudiences()`.
+- `core/View/RgpdContentService.php` (règle 10bis, point c) : décrire messages
+  et cibles au lieu des « destinataires ».
+- Tests : chaque ligne du tableau §5 de l'issue #999, plus : deux groupes de
+  membres désignant le même animé ; contact égal à l'adresse d'un animé ciblé et
+  d'un animé non ciblé ; « Anciens » ; liste externe d'Inscriptions ; plusieurs
+  années ; adresse supprimée exclue d'un animé ; renvoi sans renotification ;
+  deux adresses d'un même compte dans une communication → une notification ;
+  « concerne aussi » qui ne nomme pas un animé inaccessible ; cible sans
+  `member_years` (pas de lien) ; purge qui supprime les notifications des cibles
+  purgées ; désinscription par message (un clic, page, jeton invalide). Vitest
+  pour le suivi si son JavaScript change.
+- Aide : `modules/mass_mail/help/envoi-de-mails.md`, `publipostage.md` (un
+  message par adresse, une entrée par ligne sur la fiche), `se-desinscrire.md`,
+  `docs/help/page-membre.md`. ARCHITECTURE.md §8.61, §8.71, §8.71octies, §8.96 ;
+  SECURITY.md §4.
+
+### Lot C — Finances et Encadrement (vague 2, après A)
 
 - `CampaignReminderService` : **une ligne par créance**, avec le `member_id` de
   l'animé ; un seul bloc de paiement par message (prénom, montant,
-  communication, QR) ; plus de blocs `{{#Prénom N}}` ni de `MAX_BLOCKS`. La
-  règle « un virement par enfant » est tenue par construction. Le marquage
-  « familles notifiées » reste un geste explicite, inchangé.
-- `LeadershipController::draft()` : `member_id` de l'animateur sur chaque ligne.
+  communication, QR) ; plus de blocs `{{#Prénom N}}` ni de `MAX_BLOCKS` — plus
+  aucun enfant omis. La règle « un virement par enfant » est tenue par
+  construction. Le marquage « familles notifiées » reste un geste explicite,
+  inchangé.
+- `LeadershipController::draft()` : `member_id` de l'animateur sur chaque ligne,
+  obtenu depuis `PersonLine::memberYearId` (une lecture groupée des
+  `member_years`, pas une requête par ligne).
 - Tests : `CampaignReminderServiceTest` (une ligne par créance, deux enfants
-  d'une famille = deux lignes, gabarit sans sections) ; test du brouillon
-  Encadrement.
+  d'une famille = deux lignes, sept enfants = sept lignes, gabarit sans
+  sections) ; test du brouillon Encadrement.
 - Aide : `modules/finance/help/rappels.md` (« Un bloc par enfant » devient « un
   e-mail par enfant ») et `modules/leadership/help/encadrement.md`.
   ARCHITECTURE.md, section des rappels de campagne.
 
 ### Lot D — Bout en bout, aide et clôture (vague 3)
 
-- Playwright (`tests/e2e/specs/mass-mail.spec.js` et `mass-mail-merge.spec.js`,
-  ou une spec nouvelle) : liste avec deux animés partageant une adresse → 3
-  messages capturés par le bac à sable, une entrée sur chaque fiche, une
-  notification pour le compte de l'adresse commune ; publipostage d'une ligne à
-  deux adresses → un message capturé avec deux adresses en « À », page de
-  désinscription à cases.
+- Playwright (`tests/e2e/specs/mass-mail.spec.js`,
+  `mass-mail-merge.spec.js`, ou une spec nouvelle) : liste avec deux animés
+  partageant une adresse et ayant chacun la leur → 3 messages capturés par le
+  bac à sable, une entrée sur chaque fiche, une notification pour le compte de
+  l'adresse commune ; publipostage de deux lignes du même Tiers → deux messages
+  par adresse, deux entrées sur la fiche.
 - Jeu de données de référence : une fratrie partageant une adresse familiale et
   une adresse secondaire, pour que l'instance de test montre ces cas.
 - Relecture de `specifications.md` §8 et §24, d'`ARCHITECTURE.md` (§8.61 à
-  §8.71decies, §8.96) et des sujets d'aide touchés par B, C et E.
+  §8.71decies, §8.96) et des sujets d'aide touchés par A, B et C.
 - Ligne de la maquette dans `docs/chantiers/maquettes/README.md` passée à
   « livré ».
 - **Commenter #999** avec ce qui a été livré (lots, PR, écarts), **puis la
@@ -433,16 +448,15 @@ plusieurs adresses.
 - Le dédoublonnage se fait **sur l'adresse pour les messages** et **sur l'animé
   pour les cibles** : ne jamais déduire une cible d'une adresse, ni retirer une
   cible parce que son adresse est déjà prise.
+- En publipostage, ne **jamais** dédoublonner entre lignes : deux lignes vers la
+  même adresse portent des valeurs différentes.
 - Pas d'`ORDER BY` ni de comparaison SQL sur une adresse chiffrée : comparer en
   PHP sur l'adresse normalisée, ou sur l'index aveugle.
-- Un refus partiel du relais n'est pas un échec (§2.4).
 - `IN ()` est refusé par MySQL et MariaDB mais toléré par SQLite : garder chaque
   liste d'identifiants vide avant la requête.
 - La notification et la purge se retrouvent par l'**URL exacte** : toute
   construction du lien passe par une seule fonction partagée.
-- Le jeton de désinscription ne dit jamais quelles adresses existent à qui ne
-  le présente pas : un jeton absent ou faux donne la réponse « lien plus
-  valide », la même dans les deux cas.
+- `{id}` de `/members/{id}/…` est un `member_years`, jamais un `members`.
 - `UxConventionsTest` : confirmations (« Renvoyer » renvoie un e-mail), icônes
   du jeu vendu, pas de script dans les gabarits.
 - Jamais de lecture d'une table `mass_mail_*` hors du module ; le cœur passe par
@@ -452,20 +466,20 @@ plusieurs adresses.
 
 ## 5. Critères d'acceptation
 
-1. Tous les scénarios du tableau §5 de l'issue #999 sont couverts par des tests
-   et passent, avec les précisions du §2.8.
+1. Tous les scénarios du tableau §5 de l'issue #999 (version mise à jour) sont
+   couverts par des tests et passent.
 2. Deux animés ciblés partageant une adresse : un message à cette adresse, une
    entrée sur chacune des deux fiches.
 3. Un animé non ciblé n'a aucune entrée, même s'il partage une adresse avec un
    animé ciblé.
-4. Une ligne de publipostage = un message, toutes ses adresses en « À » ; deux
-   lignes = deux messages, même vers les mêmes adresses.
+4. Un message part toujours à une seule adresse ; une ligne de publipostage =
+   une entrée sur la fiche, un message par adresse ; deux lignes = deux
+   entrées, même vers les mêmes adresses.
 5. Au plus une notification par compte et par communication (liste) ou par
    ligne (publipostage), jamais rétroactive.
 6. Un animé vers qui rien n'est parti voit l'entrée « Non envoyée », sans
    notification.
-7. Un message à plusieurs adresses ne se désinscrit jamais en un clic ; la page
-   à cases désinscrit exactement les adresses cochées.
+7. Désinscription inchangée pour la personne, un clic compris.
 8. Rappels Finances et brouillons Encadrement apparaissent sur la fiche de
    l'animé concerné ; deux réponses d'actualité de même adresse donnent deux
    e-mails.
