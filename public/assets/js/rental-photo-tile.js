@@ -268,6 +268,12 @@ export async function addFiles(tile, picked) {
     const form = tile.closest('form');
     if (form && form.dataset.photoAutosubmit !== undefined && stateOf(tile).files.length > 0) {
         form.requestSubmit();
+        // The submission read the form's entries synchronously — through
+        // rental-booking.js's FormData, or the browser's own — so the tile
+        // can forget them now: kept, they would ride along with the next
+        // photo if the panel did not reload, and be stored twice.
+        stateOf(tile).files = [];
+        render(tile);
     }
 }
 

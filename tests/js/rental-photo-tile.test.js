@@ -258,12 +258,22 @@ describe('rental-photo-tile', () => {
         build({ autosubmit: true, attached: 2 });
         await load();
         const form = document.getElementById('host');
-        const submit = vi.spyOn(form, 'requestSubmit').mockImplementation(() => {});
+        /** @type {string[][]} */
+        const sent = [];
+        const submit = vi.spyOn(form, 'requestSubmit').mockImplementation(() => {
+            sent.push(carried().map((file) => file.name));
+        });
 
         await pick('camera', photo('gros-plan.jpg'));
 
         expect(submit).toHaveBeenCalledTimes(1);
-        expect(carried().map((file) => file.name)).toEqual(['gros-plan.jpg']);
+        expect(sent).toEqual([['gros-plan.jpg']]);
+        expect(carried()).toEqual([]);
+
+        // The panel did not reload: the next photo goes alone, never with
+        // the one already sent.
+        await pick('camera', photo('vue.jpg'));
+        expect(sent).toEqual([['gros-plan.jpg'], ['vue.jpg']]);
     });
 
     it('waits for « Ajouter » on the report form', async () => {
