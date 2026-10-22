@@ -6113,6 +6113,70 @@ Issue #757, `docs/chantiers/CHANTIER-telephone.md`. Three pieces, each the only 
 
 **The RGPD page names both services and says they are not sub-processors** (section 2.15 of `core/View/rgpd_default.html`, rule 36 of the generation prompt): the site sends them nothing, and a member who follows the link hands the number over from their own phone. A call and a text go through no server and are not mentioned as third parties. `Core\Phone\MessagingApps` names the two hosts once, and `Tests\Core\Phone\MessagingAppsTest` checks that the script, the default text and the prompt still agree — the arrangement of `Core\Geo\MapTiles` (§8.119).
 
+### 8.125 Personal signature (`Core\Signature`)
+
+Issue #926, `docs/chantiers/CHANTIER-signature-personnelle.md`. The
+signature a person keeps for signing documents, in any module, used to
+belong to Locations (`rental_manager_signatures`, #708 IT-16) and could
+countersign a contract there and nowhere else. It is a capability of the
+core now, and this section grows lot by lot; lot A is the storage and the
+image, with nothing yet reading it.
+
+**It belongs to the ACCOUNT, never to a member.** `user_account_signatures`
+is keyed by `user_account_id`, the login an address authenticates as
+(§4) — the same half of the identity model as the account photo (§8.10).
+One login may stand for a parent and their two children, or for a
+leader's own record and a sibling's: no member decides whose signature
+it is, and nothing here takes a `member_id`. The name that later goes
+under a signature is the account's own first and last name.
+
+**Owner-only, by construction rather than by check.** Every method of
+`PersonalSignatureService` and `PersonalSignatureRepository` takes the
+account asking and answers about that account alone; there is no listing,
+no read by another id, no administrator path, and the caller establishes
+the account from the authenticated session (`AuthSession::
+getUserAccountId()`), never from a posted value (SECURITY.md §5). The one
+method acting on another account is `eraseOnDeactivation()`, reached from
+`Core\Security\SuperAdminService::deactivate()` and from nothing else.
+
+**`SignatureImage` is the only way in** — moved from
+`Modules\Rental\Document\SignatureImage`, which stays in place until lot C2
+moves Locations onto this API. A drawing (`fromDataUrl()`, the
+`data:image/png` a canvas exports), an imported PNG, JPEG or WebP
+(`fromUploadedFile()`, size judged on disk before a byte is read;
+`fromBytes()`): each is decoded and **re-encoded** to a fresh PNG fitting
+1200 × 400, so no metadata of the original survives, and refused with a
+French `SignatureException` (a `UserFacingException`) when it is not an
+accepted image, past 5 MB, or past 25 megapixels — stricter than
+`ImageDimensionGuard`'s 50, which is checked too (SECURITY.md §25). It
+reads pixels and nothing else: **the dynamics of the stroke** (speed,
+pressure, order of the lines) **are never collected**, which is what keeps
+a signature an image rather than biometric data (ticket §6c). What comes
+out is a `SignaturePng`, a readonly value whose constructor checks the PNG
+header and whose `__debugInfo()` shows the size and never the bytes — a
+signature in a log is a signature anyone reading the log could apply.
+
+**Stored once, replaced whole, encrypted.** `image_encrypted` is a
+MEDIUMBLOB under the context `user_account_signature`; `save()` is one
+upsert per dialect (a delete-then-insert raced into a duplicate key on a
+double click), opens no transaction of its own so that a caller signing a
+document can run it inside its own and have a failed signing roll the
+remembering back, and `PersonalSignatureRepositoryOnMysqlTest` runs the
+`ON DUPLICATE KEY UPDATE` spelling and the cascade on the production
+engine. Save, deletion and erasure are journaled at `security` level with
+the account id only.
+
+**When it goes.** At its owner's request; at the account's deactivation
+(decision Q4 — an account is never deleted, `user_accounts.is_active`, so
+the foreign key's `ON DELETE CASCADE` alone would never run), and not given
+back by a reactivation; and with the account, by that cascade, on a manual
+erasure. `Tests\Core\Signature\AccountDeactivationErasesTheSignatureTest`
+fails on a second caller of `UserAccountRepository::deactivate()` that
+would skip the erasure. **A document already signed is never touched**:
+it carries the copy it was signed with, as Locations' countersignature page
+already does (§8.55), and follows its module's retention — the RGPD page
+says so (rule 37, sections 2.1 and 3.1).
+
 ## 9. Installation / bootstrap
 
 ### 9.1 First install: bootstrap.php
@@ -6236,6 +6300,8 @@ core/
                  exports stay on Member/Export/ and nobody hand-rolls PhpSpreadsheet again
                  (§8.62)
   Image/         ImageDimensionGuard — the pixel-count ceiling every decode passes (SECURITY.md §25)
+  Signature/     PersonalSignatureService, PersonalSignatureRepository, SignatureImage,
+                 SignaturePng — an account's own signature, kept for signing documents (§8.125)
   System/        ExecutableLocator, ShellExecutor
   Debug/         RequestTimeline — opt-in `?debug=1` per-request timing/memory checkpoints, each
                  stamped with the running SQL statement count (one per module block of index.php);

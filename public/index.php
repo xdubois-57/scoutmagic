@@ -2573,12 +2573,21 @@ $memberYearRepo = new MemberYearRepository($pdo);
 $importJournalRepo = new ImportJournalRepository($pdo);
 $userAccountRepo = new UserAccountRepository($pdo, $encryptionService);
 
+// The personal signature of an account (Core\Signature, issue #926,
+// ARCHITECTURE.md §8.125): kept by its owner alone, erased when the account
+// is deactivated — which is why it is built before the service below.
+$personalSignatureService = new \Core\Signature\PersonalSignatureService(
+    new \Core\Signature\PersonalSignatureRepository($pdo, $encryptionService),
+    $journalService
+);
+
 // Configuration > Comptes superadmin (Core\Security\SuperAdminService):
 // granting/withdrawing the flag and deactivating/reactivating an account,
 // with the journal entries and the server-side refusals those changes owe.
 $superAdminService = new SuperAdminService(
     $userAccountRepo,
     $journalService,
+    $personalSignatureService,
     new SuperAdminMailer(
         $mailService,
         $emailTemplateRenderer,

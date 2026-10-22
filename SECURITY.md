@@ -121,7 +121,7 @@ Everything else in that table follows the ordinary rules: the **recipient** is p
 
 All fields identifying a natural person are encrypted (AES-256-GCM) as BLOB:
 
-**Encrypted**: name, surname, totem, quali, date of birth, gender, street, number, box, complement, postal code, city, country, phone, mobile, email, departure comment (`member_years.leaving_comment_encrypted` — often a sensitive reason: conflict, family situation, health), staff notes about a member (`member_notes.body`, see below).
+**Encrypted**: name, surname, totem, quali, date of birth, gender, street, number, box, complement, postal code, city, country, phone, mobile, email, departure comment (`member_years.leaving_comment_encrypted` — often a sensitive reason: conflict, family situation, health), staff notes about a member (`member_notes.body`, see below), an account's personal signature (`user_account_signatures.image_encrypted`, see below).
 
 **In clear**: all IDs, FKs, timestamps, flags, module/role references.
 
@@ -134,6 +134,15 @@ All fields identifying a natural person are encrypted (AES-256-GCM) as BLOB:
 - **Never exported, and never shown to the member or their parents.** `MemberSearchController::export()` must not gain this column even though all its readers are chefs d'unité: an exported file leaves the site's protections, travels by e-mail, lands in a shared folder and outlives whoever produced it.
 
 There is no blind index on it: nothing searches these notes, and giving them one would create an exact-match oracle over the most sensitive text on the site for no feature anybody asked for.
+
+### A personal signature is read by its owner, and by nobody else
+
+`user_account_signatures` (ARCHITECTURE.md §8.125, issue #926) holds the image an account keeps for signing documents — the one thing that would let somebody forge a signed document in that person's name. It is a MEDIUMBLOB encrypted under the context `user_account_signature`, decrypted only in `Core\Signature\PersonalSignatureRepository`, and it carries rules beyond the ordinary ones:
+
+- **Keyed by the account, and that key is the whole access rule.** Every method takes the account asking and answers about that account alone: there is no listing, no read by another id, and **no administrator path** — a superadmin cannot see, replace or apply anybody's signature through the site. The account is established from the authenticated session (`AuthSession::getUserAccountId()`), **never from a posted `user_account_id`** or any other value a form can carry. A module's right to have a document signed is the module's own; it never widens who may read the image.
+- **An image, never a stroke.** `Core\Signature\SignatureImage` re-encodes what arrives into a fresh PNG (no EXIF, no trailing bytes) and the client sends nothing but that PNG — no points, no timings, no pressure — so nothing biometric is collected (RGPD art. 9).
+- **Never in the journal, a log or a trace.** Save, deletion and erasure are journaled at `security` level with the account id only; `SignaturePng::__debugInfo()` shows the byte length and never the bytes.
+- **Gone with the access.** Deactivating an account erases it (`SuperAdminService::deactivate()`), and the foreign key's cascade erases it with the account. A document already signed keeps its own copy.
 
 ### Implementation
 

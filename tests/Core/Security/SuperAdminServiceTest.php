@@ -9,6 +9,9 @@ use Core\Journal\JournalService;
 use Core\Security\EncryptionService;
 use Core\Security\SuperAdminService;
 use Core\Security\UserAccountRepository;
+use Core\Signature\PersonalSignatureRepository;
+use Core\Signature\PersonalSignatureService;
+use Core\Signature\SignaturePng;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 
@@ -21,16 +24,16 @@ class SuperAdminServiceTest extends TestCase
     private \PDO $pdo;
     private UserAccountRepository $userRepo;
     private SuperAdminService $service;
+    private PersonalSignatureService $signatures;
 
     protected function setUp(): void
     {
         $this->pdo = DatabaseTestHelper::createTestDatabase();
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $this->userRepo = new UserAccountRepository($this->pdo, $encryption);
-        $this->service = new SuperAdminService(
-            $this->userRepo,
-            new JournalService(new JournalRepository($this->pdo))
-        );
+        $journal = new JournalService(new JournalRepository($this->pdo));
+        $this->signatures = new PersonalSignatureService(new PersonalSignatureRepository($this->pdo, $encryption), $journal);
+        $this->service = new SuperAdminService($this->userRepo, $journal, $this->signatures);
     }
 
     public function testDeactivateWithdrawsAccessAndJournalsIt(): void
@@ -46,6 +49,60 @@ class SuperAdminServiceTest extends TestCase
         $this->assertSame('super_admin_deactivated', $entry['event_type']);
         $this->assertSame('security', $entry['level']);
         $this->assertSame($actor->id, (int) $entry['user_account_id']);
+    }
+
+    /**
+     * Issue #926, decision Q4: an account is never deleted, only
+     * deactivated, so the foreign key's cascade never runs — the signature
+     * it kept goes with its access, here, and does not come back with a
+     * reactivation. The other account's signature is untouched.
+     */
+    public function testDeactivatingAnAccountErasesItsPersonalSignatureAndOnlyItsOwn(): void
+    {
+        $account = $this->userRepo->create('admin@test.com', true);
+        $actor = $this->userRepo->create('actor@test.com', true);
+        $png = new SignaturePng(self::png());
+        $this->signatures->save($account->id, $png, new \DateTimeImmutable());
+        $this->signatures->save($actor->id, $png, new \DateTimeImmutable());
+
+        $this->service->deactivate($account->id, $actor->id);
+
+        $this->assertFalse($this->signatures->has($account->id));
+        $this->assertTrue($this->signatures->has($actor->id));
+
+        $erased = $this->pdo->query(
+            "SELECT user_account_id, context FROM event_log WHERE event_type = 'personal_signature_erased'"
+        )->fetchAll();
+        $this->assertCount(1, $erased);
+        $this->assertSame($actor->id, (int) $erased[0]['user_account_id']);
+        $this->assertSame(['user_account_id' => $account->id], json_decode((string) $erased[0]['context'], true));
+
+        $this->service->reactivate($account->id, $actor->id);
+        $this->assertFalse($this->signatures->has($account->id));
+    }
+
+    /** A deactivation of an account with no signature erases nothing and journals no erasure. */
+    public function testDeactivatingAnAccountWithoutASignatureJournalsNoErasure(): void
+    {
+        $account = $this->userRepo->create('admin@test.com', true);
+        $this->userRepo->create('other-admin@test.com', true);
+
+        $this->service->deactivate($account->id, null);
+
+        $this->assertSame(
+            0,
+            (int) $this->pdo->query("SELECT COUNT(*) FROM event_log WHERE event_type = 'personal_signature_erased'")
+                ->fetchColumn()
+        );
+    }
+
+    private static function png(): string
+    {
+        $image = imagecreatetruecolor(4, 2);
+        ob_start();
+        imagepng($image);
+
+        return (string) ob_get_clean();
     }
 
     public function testReactivateRestoresAccessAndJournalsIt(): void

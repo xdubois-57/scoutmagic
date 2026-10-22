@@ -141,6 +141,11 @@ final class EncryptedCoreColumnsAreAccountedForTest extends TestCase
         // the page.
         'member_section_totems' => [6, 'the page\'s opening sections (what the unit collects about a member)'],
         'user_accounts' => [17, 'the page\'s opening sections (a member\'s or a leader\'s account)'],
+        // Issue #926: the signature an account keeps for signing documents
+        // in any module. The image only — never the stroke's dynamics — and
+        // readable by its owner alone; rule 37 holds sections 2.1 and 3.1 to
+        // saying so, with its consent basis and its erasure at deactivation.
+        'user_account_signatures' => [3, 'rule 37 « Signature personnelle »'],
 
         // Encrypted, and NOT the reader's personal data. Each of these is a
         // secret or an address the unit itself owns, and the reason is the

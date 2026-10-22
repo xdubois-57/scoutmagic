@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Core\Security;
 
 use Core\Journal\JournalService;
+use Core\Signature\PersonalSignatureService;
 
 /**
  * Granting, withdrawing, deactivating and reactivating the super-admin
@@ -31,6 +32,13 @@ class SuperAdminService
     public function __construct(
         private UserAccountRepository $userAccountRepo,
         private JournalService $journalService,
+        /**
+         * Required, not optional: a deactivation that left the account's
+         * personal signature behind would be silent (issue #926, decision
+         * Q4 — an account is never deleted, so the foreign key's cascade
+         * never runs).
+         */
+        private PersonalSignatureService $personalSignatures,
         /**
          * Optional so a caller with no mail transport to hand — a test,
          * a CLI path — still gets the flag changes and the journal
@@ -137,6 +145,11 @@ class SuperAdminService
      *
      * $actorId is the account that performed it, for the journal entry's
      * user column — null when nothing identified is behind the change.
+     *
+     * The account's personal signature goes with its access (issue #926):
+     * erased right after the withdrawal, which is the act that matters
+     * first, and not given back by reactivate(). Documents it already
+     * signed keep their copy.
      */
     public function deactivate(int $userAccountId, ?int $actorId): void
     {
@@ -146,6 +159,7 @@ class SuperAdminService
         $target = $this->userAccountRepo->findById($userAccountId);
 
         $this->userAccountRepo->deactivate($userAccountId);
+        $this->personalSignatures->eraseOnDeactivation($userAccountId, $actorId);
 
         $this->journalService->log(
             'core',

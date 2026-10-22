@@ -62,6 +62,7 @@ final class UserFacingExceptionInventoryTest extends TestCase
         \Core\Security\SsrfValidationException::class,
         \Core\Geo\GeoPointException::class,
         \Core\Security\SuperAdminException::class,
+        \Core\Signature\SignatureException::class,
         \Core\Storage\InsufficientDiskSpaceException::class,
         \Core\Support\SupportPackageException::class,
         \Core\View\EditableContentForbiddenException::class,
