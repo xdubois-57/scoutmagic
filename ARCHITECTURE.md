@@ -2346,6 +2346,8 @@ What does protect the files is the ordinary mechanism: `File\RentalDocumentOwner
 
 **An incident keeps up to five photos, a reading one** (#989, `rental_incident_photos`; `rental_incidents.file_id` is dropped). `RentalStayRepository::addIncidentPhotos()` is an INSERT selecting from the table it writes, behind a `NOT EXISTS` on the departure validation, an `EXISTS` on the incident being the booking's and a count under the limit — bound as an integer, because SQLite compares a `COUNT(*)` with a text-bound value by type and the limit never held; the unique `(incident_id, position)` makes two simultaneous additions collide instead of both passing it. Photos are added and removed until the departure inventory is validated, a reading's until its own phase is (`RentalStayService::addIncidentPhotos()`, `removeIncidentPhoto()`, `removeReadingPhoto()`, decision Q5), each refusal read by the write itself. A reading's new photo replaces the old, whose file `recordReading()` deletes. Removing a photo deletes its file and its thumbnail (`AttachedFileRemover::removeOrphan()`, which takes a file's `ImageVariantService::derivativeRelativePaths()` along), and `RentalRetentionService::purgeBooking()` deletes every photo file of the stay (`RentalStayRepository::photoFileIds()`), which no `rental_documents` row points at.
 
+**The inventory's PDF carries the photos in an annex** (#989, lot C). `Stay\InventoryPhotoAnnex` is pure: `fileIds()` and `photos()` decide the order — meters first, in the asset's order, each meter's arrival photo beside its departure photo at the departure, then the incidents' in the order they were reported (`findIncidents()`, `created_at, id`) — and number them, so the number under a picture and the one an incident line cites (`numbersOf()`, `reference()`: « photos 3 et 4 ») are the same by construction; `html()` lays them out for dompdf, which honours `page-break-inside` on table rows and `max-height` badly: one `table-layout: fixed` table of three rows of two `width: 50%` cells per page, `page-break-after: always` between tables, each image's `width`/`height` computed server-side as attributes (`fit()`, a 300 × 190 px box, measured so that three rows with four-line captions fit under the heading), an empty cell put before a meter's pair rather than letting it straddle two rows, and the frame's `.body td` border and justified text undone inline on every cell. Captions are escaped and shortened (`SUBJECT_MAX_CHARACTERS`); an image is printed only as a `data:image/jpeg;base64,` URI checked by a regular expression after a JPEG magic-number check, like `DocumentPdfService::paymentQrHtml()`. JPEG only: dompdf embeds a JPEG as it is, where a PNG or a WebP would go through GD. The copies are `Service\InventoryPhotoRenderer`'s: the stored photo read through `FileRepository`, run again through `PhotoNormalizer::normalize()` with a 1 600 px bound and quality 80 (the same guard, canvas and absence of metadata), **in memory and never stored**; a file gone or undecodable yields no copy and the annex leaves it out. `InventoryReport::html()` takes the `InventoryPhoto` list, writes each incident as « 12/07 à 18 h 40 — description (photos 3 et 4) » and the « Validé par » line in `AppClock::zone()` (`InventoryPhotoAnnex::moment()`), since `created_at` comes from the database and the validation's instant from PHP, and appends the annex. `RentalInventoryValidationService::validate()` renders the copies **before** it records the validation — the CPU work never runs with the phase frozen — and, after the re-read that follows the freeze, renders only a photo added in between; one removed in between is simply not in the re-read. `RentalInventoryValidationServiceTest` measures the real dompdf output: ten 2 400 px photos stay under 4 Mo and take two annex pages after the text.
+
 ### 8.57 Publishing rental occupancy onto the calendar (`Modules\Rental\Calendar`)
 
 **Nothing is ever written to `calendar_events`.** Occupancy is computed from the bookings on every generation (`RentalVirtualEventProvider`, the §7.6 pattern), so the booking stays the single source of truth and the two can never disagree. A copied event would survive a cancellation, a date change and the deletion of the booking itself; a computed one cannot. Turning publication off for an asset removes its occupancy from the calendar with no cleanup pass and no orphans.
@@ -6230,7 +6232,8 @@ import or the stored mode is refused —, a name of 1 to 120 characters,
 and a `WitnessSignature` that nothing can keep. `recordSigning()` writes
 the act to the journal (`personal_signature_document_signed`, `security`):
 module, document type and id, owning entity, origin, whether it was
-remembered, the time, and the session's account — no pixel, no size.
+remembered, the time, the signed file's SHA-256 when the module gives it
+(lot D of #989, below), and the session's account — no pixel, no size.
 **Telling the signer is the module's**, through its own declared
 notification type and `NotificationService::dispatch()` (§8.24) to the
 `AccountSignature`'s account alone, after the commit, and never able to
@@ -6306,6 +6309,45 @@ the manager's session, never the image or the typed name. Tests:
 `PersonalSignatureSigningTest` (witness and `witnessFromRequest()`),
 `SignatureDialogTest` (witness mode), `tests/js/signature-dialog.test.js`
 (« a signer without an account »).
+
+**Two signers on one document (issue #989, lot D).** The inventory is
+signed on the manager's phone by the renter, as a witness, and by the
+manager, with the account's signature or a new one — in one form of the
+page, not in a dialog, since a dialog is one signer. The dialog's body is
+therefore `partials/signature_fields.html.twig`, the fields of **one**
+signer in a `[data-signature-field]` container; the dialog includes it
+without a prefix and renders as before, and a page signing for two
+includes it twice, with `name_prefix` (`renter_`) on one of them, so that
+every field name of that signer is prefixed: `renter_signature_source`,
+`renter_signature_data`, `renter_signer_name`, … The server reads each
+signer under the same prefix — `SignatureSubmission::fromRequest($request,
+$allowImport, $allowRemember, $prefix)`, `uploadedPath($request,
+$prefix)`, `witnessFromRequest($request, $prefix)` — and **a prefixed read
+never falls back on the unprefixed fields, nor the reverse**, so the
+renter's drawing can never be taken for the manager's (which, with the
+fixed names of lot C1, it would have overwritten). The prefix is the
+module's constant, lowercase letters and one underscore or empty
+(`SignatureSubmission::PREFIX_PATTERN`); any other shape is an
+`InvalidArgumentException`, never a read. In the browser,
+`signature-pad.js` wires one pad and one hidden field per container (a
+form without containers, « Ma signature », is still one pad), and
+`signature-dialog.js` gives a `form[data-signature-inline-form]` what it
+gives a dialog, signer by signer: the wipe once it is sent and on a page
+restored from the back-forward cache (leaving the page is its
+« Annuler »), « Tracez… » in place under the frame left empty, the stored
+signature's preview fetched into that signer's own container — and
+nothing asked of a container the page set aside, which only a disabled
+fieldset does (a renter who is absent): it also takes the signer's fields
+out of the browser's validation and out of the request, where `[hidden]`
+alone would leave the required typed name blocking the form. `recordSigning(…,
+$documentSha256)` adds `document_sha256` to the journal line when the
+module gives it — the SHA-256 of the file as filed, 64 lowercase
+hexadecimal characters, any other shape refused before anything is
+written —, so the act names the bytes signed and not only a document id;
+without it the line is unchanged. Tests: `PersonalSignatureSigningTest`
+(« Two signers in one form »), `SignatureFieldsTest`,
+`tests/js/signature-pad.test.js` and `tests/js/signature-dialog.test.js`
+(« two signers … »).
 
 ## 9. Installation / bootstrap
 

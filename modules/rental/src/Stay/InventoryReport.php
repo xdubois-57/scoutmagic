@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Modules\Rental\Stay;
 
+use Core\Config\AppClock;
+
 /**
  * What an inventory says, read off its values (#708, IT-17) — the
  * reference each line is checked against, what is still unchecked, the
@@ -144,11 +146,17 @@ final class InventoryReport
     }
 
     /**
-     * The body of the PDF a validated inventory produces.
+     * The body of the PDF a validated inventory produces, its photos in
+     * an annex after the text (#989).
+     *
+     * Every time is on the application clock (`AppClock::zone()`): an
+     * incident's `created_at` comes from the database and the validation's
+     * instant from PHP, and both must read the hour the renter lived.
      *
      * @param list<Line> $lines
      * @param MeterConsumption[] $meters
      * @param Incident[] $incidents only on the departure's
+     * @param list<InventoryPhoto> $photos numbered by `InventoryPhotoAnnex::photos()`
      */
     public static function html(
         ReadingPhase $phase,
@@ -156,7 +164,8 @@ final class InventoryReport
         array $meters,
         array $incidents,
         string $validatedBy,
-        \DateTimeImmutable $validatedAt
+        \DateTimeImmutable $validatedAt,
+        array $photos = []
     ): string {
         $e = static fn(?string $text): string => htmlspecialchars((string) $text, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
         $isArrival = $phase === ReadingPhase::ARRIVAL;
@@ -210,13 +219,29 @@ final class InventoryReport
         if (!$isArrival) {
             $html .= '<h2>Incidents et dégâts</h2>';
             $html .= self::bulletList(
-                array_map(static fn(Incident $incident): string => $incident->description, $incidents),
+                array_map(static fn(Incident $incident): string => self::incidentLine($incident, $photos), $incidents),
                 $e
             );
         }
 
         return $html . '<p class="validated">Validé par ' . $e($validatedBy) . ' le '
-            . $e($validatedAt->format('d/m/Y à H:i')) . '.</p>';
+            . $e($validatedAt->setTimezone(AppClock::zone())->format('d/m/Y à H:i')) . '.</p>'
+            . InventoryPhotoAnnex::html($photos);
+    }
+
+    /**
+     * « 12/07 à 18 h 40 — Porte du réfectoire forcée (photos 3 et 4) »:
+     * when it was reported, what, and where its photos are in the annex.
+     * Unescaped: bulletList() escapes it.
+     *
+     * @param list<InventoryPhoto> $photos
+     */
+    private static function incidentLine(Incident $incident, array $photos): string
+    {
+        $reference = InventoryPhotoAnnex::reference(InventoryPhotoAnnex::numbersOf($photos, $incident->id));
+
+        return InventoryPhotoAnnex::moment($incident->createdAt) . ' — ' . $incident->description
+            . ($reference !== null ? ' (' . $reference . ')' : '');
     }
 
     /**

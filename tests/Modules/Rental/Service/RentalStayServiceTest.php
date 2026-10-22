@@ -646,7 +646,11 @@ class RentalStayServiceTest extends TestCase
             $this->createStub(\Modules\Rental\Service\RentalBookingMailService::class),
             $pdf ?? $this->createStub(\Core\Pdf\DocumentPdfService::class),
             $this->createStub(\Core\Config\SettingService::class),
-            RentalTestHelper::bookingAudit($this->pdo, $this->encryption)
+            RentalTestHelper::bookingAudit($this->pdo, $this->encryption),
+            new \Modules\Rental\Service\InventoryPhotoRenderer(
+                new \Core\File\FileRepository($this->pdo),
+                sys_get_temp_dir()
+            )
         );
     }
 

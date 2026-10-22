@@ -275,16 +275,24 @@ class PersonalSignatureService
      * the module takes any lock, like {@see forSigning()}; it writes
      * nothing, to the database or the journal.
      *
+     * `$prefix` reads the witness among two signers of one form
+     * (`partials/signature_fields.html.twig` with that `name_prefix`,
+     * issue #989 lot D): `renter_signer_name`, `renter_signature_data`, …
+     * and never the unprefixed fields, which are the other signer's —
+     * see {@see SignatureSubmission::fromRequest()}.
+     *
      * @throws SignatureException
+     * @throws \InvalidArgumentException when `$prefix` is not {@see SignatureSubmission::PREFIX_PATTERN}
      */
-    public function witnessFromRequest(Request $request): WitnessSignature
+    public function witnessFromRequest(Request $request, string $prefix = ''): WitnessSignature
     {
+        SignatureSubmission::assertPrefix($prefix);
         // A forged `signer_name[]` arrives as an array: read as no name at
         // all, never cast to « Array ».
-        $name = $request->getBody(self::WITNESS_NAME_FIELD, '');
+        $name = $request->getBody($prefix . self::WITNESS_NAME_FIELD, '');
 
         return $this->witness(
-            SignatureSubmission::fromRequest($request, true, false),
+            SignatureSubmission::fromRequest($request, true, false, $prefix),
             is_string($name) ? $name : ''
         );
     }
@@ -304,6 +312,19 @@ class PersonalSignatureService
      * still visible to whoever reads the server's log.
      *
      * The account is the signature's, i.e. the session's.
+     *
+     * `$documentSha256`, when given, is the SHA-256 of the signed file as
+     * filed (issue #989, lot D): 64 lowercase hexadecimal characters, the
+     * shape `hash('sha256', …)` returns. It goes in the line as
+     * `document_sha256`, so the journal can later tell the document that
+     * was signed from another that carries its name; without it, the
+     * line is the same as before. A value of another shape is the
+     * caller's bug, refused before anything is written — it is the one
+     * error of this method that is not swallowed, because it would sign
+     * every document of that module with a fingerprint that proves
+     * nothing.
+     *
+     * @throws \InvalidArgumentException when `$documentSha256` is not 64 lowercase hex characters
      */
     public function recordSigning(
         AccountSignature $signature,
@@ -311,23 +332,32 @@ class PersonalSignatureService
         string $documentType,
         int $documentId,
         ?int $ownerEntityId,
-        \DateTimeImmutable $at
+        \DateTimeImmutable $at,
+        ?string $documentSha256 = null
     ): void {
+        if ($documentSha256 !== null && preg_match('/^[0-9a-f]{64}$/D', $documentSha256) !== 1) {
+            throw new \InvalidArgumentException('A document fingerprint is a SHA-256 in 64 lowercase hexadecimal characters.');
+        }
+        $context = [
+            'module' => $module,
+            'document_type' => $documentType,
+            'document_id' => $documentId,
+            'owner_entity_id' => $ownerEntityId,
+            'origin' => $signature->origin->value,
+            'remembered' => $signature->willBeRemembered(),
+            'signed_at' => $at->format('Y-m-d H:i:s'),
+        ];
+        if ($documentSha256 !== null) {
+            $context['document_sha256'] = $documentSha256;
+        }
+
         try {
             $this->journal->log(
                 'core',
                 'personal_signature_document_signed',
                 'security',
                 'Document signé avec la signature personnelle du compte',
-                [
-                    'module' => $module,
-                    'document_type' => $documentType,
-                    'document_id' => $documentId,
-                    'owner_entity_id' => $ownerEntityId,
-                    'origin' => $signature->origin->value,
-                    'remembered' => $signature->willBeRemembered(),
-                    'signed_at' => $at->format('Y-m-d H:i:s'),
-                ],
+                $context,
                 $signature->accountId
             );
         } catch (\Throwable $e) {

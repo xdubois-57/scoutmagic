@@ -62,9 +62,18 @@ final class PersonalSignatureSigningTest extends TestCase
         return (string) ob_get_clean();
     }
 
-    private static function drawing(): string
+    private static function drawing(int $width = 300, int $height = 100): string
     {
-        return 'data:image/png;base64,' . base64_encode(self::pngBytes());
+        return 'data:image/png;base64,' . base64_encode(self::pngBytes($width, $height));
+    }
+
+    /** The width of a signature, which tells two drawings of different sizes apart. */
+    private static function widthOf(string $png): int
+    {
+        $size = getimagesizefromstring($png);
+        self::assertIsArray($size);
+
+        return $size[0];
     }
 
     /**
@@ -493,5 +502,174 @@ final class PersonalSignatureSigningTest extends TestCase
         $submission = new SignatureSubmission(false, self::drawing(), null, true);
 
         $this->assertStringNotContainsString('base64', print_r($submission, true));
+    }
+
+    // ── Two signers in one form (issue #989, lot D) ─────────────────────
+
+    /**
+     * The renter's witness fields and the manager's own, posted together
+     * — what the inventory's signing screen sends, every field filled so
+     * that a read taking the wrong one would show.
+     *
+     * @return array<string, mixed>
+     */
+    private static function twoSigners(): array
+    {
+        return [
+            'signature_source' => 'new',
+            'signature_data' => self::drawing(40, 40),
+            'remember_signature' => '1',
+            PersonalSignatureService::WITNESS_NAME_FIELD => 'Paul Gestionnaire',
+            'renter_signature_source' => 'new',
+            'renter_signature_data' => self::drawing(300, 100),
+            'renter_remember_signature' => '',
+            'renter_' . PersonalSignatureService::WITNESS_NAME_FIELD => 'Jeanne Martin',
+        ];
+    }
+
+    public function testAPrefixReadsThatSignersFieldsAndNeverTheOthers(): void
+    {
+        $renter = SignatureSubmission::fromRequest(self::request(self::twoSigners()), true, true, 'renter_');
+        $manager = SignatureSubmission::fromRequest(self::request(self::twoSigners()));
+
+        $this->assertFalse($renter->rememberRequested, 'the manager’s box is not the renter’s');
+        $this->assertTrue($manager->rememberRequested);
+        $this->assertSame(300, self::widthOf(SignatureImage::fromDataUrl((string) $renter->drawing)->bytes()));
+        $this->assertSame(40, self::widthOf(SignatureImage::fromDataUrl((string) $manager->drawing)->bytes()));
+    }
+
+    /** A prefixed read never falls back on the unprefixed fields, nor the other way round. */
+    public function testAPrefixedReadFindsNothingInTheOtherSignersFields(): void
+    {
+        $unprefixedOnly = self::request([
+            'signature_source' => 'stored',
+            'signature_data' => self::drawing(),
+            'remember_signature' => '1',
+        ]);
+        $prefixedOnly = self::request([
+            'renter_signature_source' => 'stored',
+            'renter_signature_data' => self::drawing(),
+            'renter_remember_signature' => '1',
+        ]);
+
+        $this->assertTrue(SignatureSubmission::fromRequest($unprefixedOnly, true, true, 'renter_')->isEmpty());
+        $this->assertFalse(SignatureSubmission::fromRequest($unprefixedOnly, true, true, 'renter_')->rememberRequested);
+        $this->assertTrue(SignatureSubmission::fromRequest($prefixedOnly)->isEmpty());
+        $this->assertFalse(SignatureSubmission::fromRequest($prefixedOnly)->rememberRequested);
+        $this->assertTrue(SignatureSubmission::fromRequest($prefixedOnly, true, true, 'renter_')->useStored);
+        $this->assertFalse(SignatureSubmission::fromRequest($prefixedOnly, true, true, 'manager_')->useStored);
+    }
+
+    /** The file is one signer's too: a heavy image refused for one is never the other's error. */
+    public function testThePrefixedFileIsThatSignersOnly(): void
+    {
+        $_FILES['renter_signature_file'] = ['tmp_name' => '', 'name' => 'sig.png', 'error' => UPLOAD_ERR_INI_SIZE, 'size' => 0, 'type' => ''];
+        try {
+            $this->assertNull(SignatureSubmission::uploadedPath(self::request([])));
+            $this->assertNull(SignatureSubmission::fromRequest(self::request([]))->uploadedPath);
+            $this->expectException(SignatureException::class);
+            $this->expectExceptionMessage(SignatureSubmission::TOO_HEAVY_TO_SEND);
+            SignatureSubmission::fromRequest(self::request([]), true, true, 'renter_');
+        } finally {
+            unset($_FILES['renter_signature_file']);
+        }
+    }
+
+    public function testTheWitnessIsReadUnderItsPrefixAndNeverFromTheOtherSigner(): void
+    {
+        $witness = $this->service->witnessFromRequest(self::request(self::twoSigners()), 'renter_');
+
+        $this->assertSame('Jeanne Martin', $witness->typedName);
+        $this->assertSame(300, self::widthOf($witness->png->bytes()));
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM user_account_signatures')->fetchColumn());
+
+        // The manager's fields alone are no witness under the renter's prefix.
+        $body = self::twoSigners();
+        unset($body['renter_signature_data'], $body['renter_' . PersonalSignatureService::WITNESS_NAME_FIELD]);
+        try {
+            $this->service->witnessFromRequest(self::request($body), 'renter_');
+            $this->fail('the manager’s name was read as the witness’s');
+        } catch (SignatureException $e) {
+            $this->assertSame('Indiquez le nom de la personne qui signe.', $e->getMessage());
+        }
+        $body['renter_' . PersonalSignatureService::WITNESS_NAME_FIELD] = 'Jeanne Martin';
+        $this->expectException(SignatureException::class);
+        $this->expectExceptionMessage('Tracez la signature dans le cadre.');
+        $this->service->witnessFromRequest(self::request($body), 'renter_');
+    }
+
+    /** A prefixed witness refuses an import of its own, as the unprefixed one does. */
+    public function testAPrefixedWitnessCannotImportAnImage(): void
+    {
+        $_FILES['renter_signature_file'] = ['tmp_name' => '', 'name' => 'sig.png', 'error' => UPLOAD_ERR_FORM_SIZE, 'size' => 0, 'type' => ''];
+        try {
+            $this->expectException(SignatureException::class);
+            $this->service->witnessFromRequest(self::request(self::twoSigners()), 'renter_');
+        } finally {
+            unset($_FILES['renter_signature_file']);
+        }
+    }
+
+    /**
+     * The prefix is the module's constant, so a shape it could not have is
+     * refused rather than read: built from a posted value, it could point
+     * the read at any field of the form.
+     */
+    #[\PHPUnit\Framework\Attributes\TestWith(['renter'])]
+    #[\PHPUnit\Framework\Attributes\TestWith(['Renter_'])]
+    #[\PHPUnit\Framework\Attributes\TestWith(["renter_\n"])]
+    #[\PHPUnit\Framework\Attributes\TestWith(['_'])]
+    #[\PHPUnit\Framework\Attributes\TestWith(['renter_signer_'])]
+    #[\PHPUnit\Framework\Attributes\TestWith(['../'])]
+    #[\PHPUnit\Framework\Attributes\TestWith(['renter[x]_'])]
+    public function testAPrefixOfAnotherShapeIsRefused(string $prefix): void
+    {
+        $readers = [
+            'fromRequest' => fn() => SignatureSubmission::fromRequest(self::request(self::twoSigners()), true, true, $prefix),
+            'uploadedPath' => fn() => SignatureSubmission::uploadedPath(self::request([]), $prefix),
+            'witnessFromRequest' => fn() => $this->service->witnessFromRequest(self::request(self::twoSigners()), $prefix),
+        ];
+        foreach ($readers as $name => $read) {
+            try {
+                $read();
+                $this->fail($name . '() read under the prefix ' . json_encode($prefix));
+            } catch (\InvalidArgumentException) {
+                $this->addToAssertionCount(1);
+            }
+        }
+    }
+
+    public function testTheSignedDocumentsFingerprintGoesInTheJournalWhenGiven(): void
+    {
+        $signature = $this->service->forSigning($this->account, new SignatureSubmission(false, self::drawing()));
+        $sha256 = hash('sha256', '%PDF-1.7 the inventory');
+
+        $this->service->recordSigning($signature, 'rental', 'inventory', 41, 12, new \DateTimeImmutable('2026-10-22 10:15:00'), $sha256);
+
+        $entries = $this->journal('personal_signature_document_signed');
+        $this->assertCount(1, $entries);
+        $context = json_decode((string) $entries[0]['context'], true);
+        $this->assertIsArray($context);
+        $this->assertSame($sha256, $context['document_sha256']);
+        $this->assertSame('inventory', $context['document_type']);
+        $this->assertSame(41, $context['document_id']);
+    }
+
+    /** A fingerprint of another shape is the caller's bug: refused, and nothing is written. */
+    #[\PHPUnit\Framework\Attributes\TestWith([''])]
+    #[\PHPUnit\Framework\Attributes\TestWith(['abc'])]
+    #[\PHPUnit\Framework\Attributes\TestWith(['ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789'])]
+    #[\PHPUnit\Framework\Attributes\TestWith(["0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\n"])]
+    #[\PHPUnit\Framework\Attributes\TestWith(['0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdeg'])]
+    public function testAFingerprintOfAnotherShapeIsRefused(string $sha256): void
+    {
+        $signature = $this->service->forSigning($this->account, new SignatureSubmission(false, self::drawing()));
+
+        try {
+            $this->service->recordSigning($signature, 'rental', 'inventory', 41, 12, new \DateTimeImmutable(), $sha256);
+            $this->fail('a fingerprint of another shape was journaled');
+        } catch (\InvalidArgumentException) {
+            $this->assertSame([], $this->journal('personal_signature_document_signed'));
+        }
     }
 }

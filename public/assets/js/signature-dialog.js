@@ -25,6 +25,23 @@
  * Wired at load and, again, whenever a dialog opens: a page whose panels
  * are re-rendered under a fetch (rental-booking.js) brings a fresh copy of
  * the dialog that nothing has wired yet. Wiring twice does nothing.
+ *
+ * **A form of the page signs too** (issue #989, lot D): a
+ * `form[data-signature-inline-form]`, not in a dialog, carrying one
+ * `[data-signature-field]` container per signer
+ * (partials/signature_fields.html.twig) — the renter as a witness and the
+ * manager, on one inventory. It gets the same care, container by
+ * container: emptied once it is sent and on a page restored from the
+ * back-forward cache, each signer told in place when they left their
+ * frame empty, the stored signature's preview fetched into its own
+ * container when the page shows it. There is no closing to hook: leaving
+ * the page is the « Annuler » of such a form, and the back-forward cache
+ * is what could bring it back. A container inside a disabled fieldset
+ * is a signer the page has set aside (a renter who is absent) and is not
+ * asked for anything — and only a disabled fieldset sets one aside: it
+ * also takes the signer's fields out of the browser's own validation and
+ * out of what is sent, where `[hidden]` alone would leave the required
+ * name blocking the form.
  */
 
 (function () {
@@ -33,35 +50,67 @@
     /** The owner's own signature, answered `no-store` (AccountSignatureController::image()). */
     const PREVIEW_URL = '/account/signature/image';
 
+    /** The forms this file cares for: a dialog's, or one of the page signing in place. */
+    const FORMS = 'form[data-signature-dialog-form], form[data-signature-inline-form]';
+
     /**
-     * Empties everything the dialog's form could still hold.
+     * The signers of a form: its `[data-signature-field]` containers, or
+     * the form itself when it has none (markup written before them).
+     *
+     * @param {HTMLFormElement} form
+     * @returns {HTMLElement[]}
+     */
+    function signersOf(form) {
+        const containers = /** @type {HTMLElement[]} */ (Array.from(form.querySelectorAll('[data-signature-field]')));
+
+        return containers.length > 0 ? containers : [form];
+    }
+
+    /**
+     * The mode of one signer: its container's, else the form's.
+     *
+     * @param {HTMLElement} signer
+     * @returns {string}
+     */
+    function modeOf(signer) {
+        return signer.dataset.signatureMode
+            ?? /** @type {HTMLElement|null} */ (signer.closest('form'))?.dataset.signatureMode
+            ?? '';
+    }
+
+    /**
+     * Empties everything the form could still hold, signer by signer —
+     * and nothing of the form outside its signers' containers.
      *
      * @param {HTMLFormElement} form
      */
     function wipe(form) {
         form.dispatchEvent(new CustomEvent('signature-pad:reset'));
-        form.querySelectorAll('input[name="signature_data"], input[name="signer_name"], input[type="file"]')
-            .forEach((input) => {
-                /** @type {HTMLInputElement} */ (input).value = '';
+        signersOf(form).forEach((signer) => {
+            signer.querySelectorAll('input[name$="signature_data"], input[name$="signer_name"], input[type="file"]')
+                .forEach((input) => {
+                    /** @type {HTMLInputElement} */ (input).value = '';
+                });
+            signer.querySelectorAll('input[name$="remember_signature"]').forEach((box) => {
+                /** @type {HTMLInputElement} */ (box).checked = false;
             });
-        form.querySelectorAll('input[name="remember_signature"]').forEach((box) => {
-            /** @type {HTMLInputElement} */ (box).checked = false;
+            const missing = /** @type {HTMLElement|null} */ (signer.querySelector('[data-signature-missing]'));
+            if (missing !== null) {
+                missing.hidden = true;
+            }
         });
-        const missing = /** @type {HTMLElement|null} */ (form.querySelector('[data-signature-missing]'));
-        if (missing !== null) {
-            missing.hidden = true;
-        }
     }
 
     /**
-     * Shows the stored signature in the dialog's preview, from the owner's
-     * route — or empties the preview, when `show` is false.
+     * Shows the stored signature in the preview of one signer (or of the
+     * whole form), from the owner's route — or empties the preview, when
+     * `show` is false.
      *
-     * @param {HTMLFormElement} form
+     * @param {HTMLElement} signer
      * @param {boolean} show
      */
-    function preview(form, show) {
-        const frame = form.querySelector('[data-signature-preview]');
+    function preview(signer, show) {
+        const frame = signer.querySelector('[data-signature-preview]');
         if (frame === null) {
             return;
         }
@@ -78,36 +127,76 @@
     }
 
     /**
-     * Whether a dialog asking for a new signature was sent with nothing
-     * to sign with. Read after signature-pad.js has filled the hidden
-     * field, which it does on the same submit, registered first.
+     * The preview of every signer of the form signing with the stored
+     * signature — shown, or dropped when `show` is false.
+     *
+     * @param {HTMLFormElement} form
+     * @param {boolean} show
+     */
+    function previews(form, show) {
+        signersOf(form).forEach((signer) => preview(signer, show && modeOf(signer) === 'stored'));
+    }
+
+    /**
+     * Whether a signer was set aside by the page — inside a disabled
+     * fieldset, the one way to do it (see the header) — and so is not
+     * asked for a signature.
+     *
+     * @param {HTMLElement} signer
+     * @returns {boolean}
+     */
+    function setAside(signer) {
+        return signer.closest('fieldset[disabled]') !== null;
+    }
+
+    /**
+     * The signers of the form asked for a new signature who were sent
+     * with nothing to sign with. Read after signature-pad.js has filled
+     * the hidden fields, which it does on the same submit, registered
+     * first.
+     *
+     * @param {HTMLFormElement} form
+     * @returns {HTMLElement[]}
+     */
+    function emptySigners(form) {
+        return signersOf(form).filter((signer) => {
+            if (modeOf(signer) === 'stored' || setAside(signer)) {
+                return false;
+            }
+            const field = /** @type {HTMLInputElement|null} */ (signer.querySelector('input[name$="signature_data"]'));
+            const file = /** @type {HTMLInputElement|null} */ (signer.querySelector('input[type="file"]'));
+            const drawn = field !== null && field.value !== '';
+            const chosen = file !== null && file.files !== null && file.files.length > 0;
+
+            return !drawn && !chosen;
+        });
+    }
+
+    /**
+     * Whether a form asking for a new signature was sent with nothing to
+     * sign with, for one of its signers at least.
      *
      * @param {HTMLFormElement} form
      * @returns {boolean}
      */
     function isEmpty(form) {
-        if (form.dataset.signatureMode === 'stored') {
-            return false;
-        }
-        const field = /** @type {HTMLInputElement|null} */ (form.querySelector('input[name="signature_data"]'));
-        const file = /** @type {HTMLInputElement|null} */ (form.querySelector('input[type="file"]'));
-        const drawn = field !== null && field.value !== '';
-        const chosen = file !== null && file.files !== null && file.files.length > 0;
-
-        return !drawn && !chosen;
+        return emptySigners(form).length > 0;
     }
 
     /**
-     * Wires one dialog: its pad (signature-pad.js, first, so its submit
-     * listener fills the field before this one reads it), the wipe on
-     * close, and the wipe after send. Idempotent.
+     * Wires one dialog, or one form of the page signing in place: its pads
+     * (signature-pad.js, first, so its submit listener fills the fields
+     * before this one reads them), the wipe on close (a dialog), the
+     * preview (a form of the page, now), and the wipe after send.
+     * Idempotent.
      *
      * @param {HTMLFormElement} form
-     * @returns {boolean} whether the form sat in a dialog, wired now or before
+     * @returns {boolean} whether the form is one this file cares for, wired now or before
      */
     function wire(form) {
         const modal = form.closest('.modal');
-        if (modal === null) {
+        const inline = modal === null && form.hasAttribute('data-signature-inline-form');
+        if (modal === null && !inline) {
             return false;
         }
         if (form.dataset.signatureDialogWired === '1') {
@@ -118,18 +207,25 @@
         const pad = /** @type {any} */ (globalThis).ScoutMagicSignaturePad;
         pad?.wire(form);
 
-        modal.addEventListener('hidden.bs.modal', () => {
-            preview(form, false);
-            wipe(form);
-        });
+        if (modal !== null) {
+            modal.addEventListener('hidden.bs.modal', () => {
+                previews(form, false);
+                wipe(form);
+            });
+        } else {
+            previews(form, true);
+        }
 
         form.addEventListener('submit', (event) => {
-            if (isEmpty(form)) {
-                event.preventDefault();
-                const missing = /** @type {HTMLElement|null} */ (form.querySelector('[data-signature-missing]'));
+            const empty = emptySigners(form);
+            signersOf(form).forEach((signer) => {
+                const missing = /** @type {HTMLElement|null} */ (signer.querySelector('[data-signature-missing]'));
                 if (missing !== null) {
-                    missing.hidden = false;
+                    missing.hidden = !empty.includes(signer);
                 }
+            });
+            if (empty.length > 0) {
+                event.preventDefault();
                 return;
             }
             // The browser has already gathered what it sends by the time
@@ -165,28 +261,33 @@
         if (form === null || !wire(form)) {
             return;
         }
-        preview(form, form.dataset.signatureMode === 'stored');
+        previews(form, true);
     }
 
     /**
-     * Closes and empties every dialog on the page, for a page restored
-     * from the back-forward cache: it comes back as it was left, dialog
-     * open and pad traced.
+     * Closes and empties every dialog on the page, and empties every form
+     * of the page signing in place, for a page restored from the
+     * back-forward cache: it comes back as it was left, dialog open and
+     * pad traced. A form of the page fetches its preview again, the
+     * page being shown again.
      */
     function restore() {
         const bootstrap = /** @type {any} */ (window).bootstrap;
-        document.querySelectorAll('form[data-signature-dialog-form]').forEach((element) => {
+        document.querySelectorAll(FORMS).forEach((element) => {
             const form = /** @type {HTMLFormElement} */ (element);
-            preview(form, false);
+            previews(form, false);
             wipe(form);
             const modal = form.closest('.modal');
             if (modal !== null && bootstrap?.Modal) {
                 bootstrap.Modal.getInstance(modal)?.hide();
             }
+            if (modal === null && form.dataset.signatureDialogWired === '1') {
+                previews(form, true);
+            }
         });
     }
 
-    document.querySelectorAll('form[data-signature-dialog-form]').forEach((element) => {
+    document.querySelectorAll(FORMS).forEach((element) => {
         wire(/** @type {HTMLFormElement} */ (element));
     });
     // Bootstrap's modal events bubble: one listener serves every dialog,
@@ -210,6 +311,7 @@
         wipe: wipe,
         preview: preview,
         isEmpty: isEmpty,
+        emptySigners: emptySigners,
         wire: wire,
         restore: restore,
     };

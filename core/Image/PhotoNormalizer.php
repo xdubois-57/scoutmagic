@@ -97,10 +97,18 @@ final class PhotoNormalizer
     /**
      * The photo, as the JPEG the site keeps.
      *
+     * The bound and the quality default to what is stored; a caller that
+     * needs a smaller copy of a stored photo for one use — the 1 600 px
+     * JPEG an inventory's PDF embeds and never keeps (#989) — passes its
+     * own, and gets the same decode, guard, orientation and fresh canvas.
+     *
      * @throws PhotoNormalizationException
      */
-    public function normalize(string $bytes): string
-    {
+    public function normalize(
+        string $bytes,
+        int $maxLongSide = self::MAX_LONG_SIDE,
+        int $quality = self::JPEG_QUALITY
+    ): string {
         $mimeType = (string) (new \finfo(FILEINFO_MIME_TYPE))->buffer($bytes);
 
         if (in_array($mimeType, self::HEIC_MIMES, true)) {
@@ -141,7 +149,7 @@ final class PhotoNormalizer
 
         $width = imagesx($image);
         $height = imagesy($image);
-        $scale = min(1.0, self::MAX_LONG_SIDE / max($width, $height));
+        $scale = min(1.0, max(1, $maxLongSide) / max($width, $height));
         $targetWidth = max(1, (int) round($width * $scale));
         $targetHeight = max(1, (int) round($height * $scale));
 
@@ -154,7 +162,7 @@ final class PhotoNormalizer
         imagedestroy($image);
 
         ob_start();
-        $written = imagejpeg($canvas, null, self::JPEG_QUALITY);
+        $written = imagejpeg($canvas, null, max(1, min(100, $quality)));
         $jpeg = (string) ob_get_clean();
         imagedestroy($canvas);
 

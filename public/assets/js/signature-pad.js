@@ -23,9 +23,15 @@
  * the page says both ways, and the server accepts either.
  *
  * It wires every `form[data-signature-form]`: « Ma signature » under Mon
- * compte, and the signature dialog modules open to sign a document
- * (partials/signature_dialog.html.twig), which empties the pad by sending
- * its form a `signature-pad:reset` event.
+ * compte, the signature dialog modules open to sign a document
+ * (partials/signature_dialog.html.twig), and a form of the page that signs
+ * for two people at once (issue #989, lot D). A form whose signers are
+ * `[data-signature-field]` containers (partials/signature_fields.html.twig)
+ * gets one pad per container, each exporting into the hidden
+ * `…signature_data` field of its own container — the renter's drawing
+ * never lands in the manager's field; a form without one is one pad, as
+ * « Ma signature » is. Sending the form a `signature-pad:reset` event
+ * empties every pad it holds, a container that event empties its own.
  */
 
 (function () {
@@ -54,27 +60,29 @@
      * Wires one pad: drawing, « Effacer », and the PNG put into the hidden
      * field on submit — only when something was drawn.
      *
-     * Wiring a form twice does nothing: a dialog re-rendered under a
-     * fetch is wired when it opens (signature-dialog.js), and may already
-     * have been at load.
+     * `root` is the form itself (one signer, « Ma signature ») or one
+     * `[data-signature-field]` container of it (one signer among two);
+     * `form` is the form whose submit fills the field.
      *
+     * @param {HTMLElement} root
      * @param {HTMLFormElement} form
+     * @param {string} fieldSelector the hidden field, within `root`
      * @returns {(() => void)|null} what empties the pad and the field, or
-     *          null when the form carries no pad or was wired already
+     *          null when `root` carries no pad or was wired already
      */
-    function wirePad(form) {
-        if (form.dataset.signaturePadWired === '1') {
+    function wireOne(root, form, fieldSelector) {
+        if (root.dataset.signaturePadWired === '1') {
             return null;
         }
-        const canvas = /** @type {HTMLCanvasElement|null} */ (form.querySelector('[data-signature-pad]'));
-        const field = /** @type {HTMLInputElement|null} */ (form.querySelector('input[name="signature_data"]'));
-        const clear = form.querySelector('[data-signature-clear]');
+        const canvas = /** @type {HTMLCanvasElement|null} */ (root.querySelector('[data-signature-pad]'));
+        const field = /** @type {HTMLInputElement|null} */ (root.querySelector(fieldSelector));
+        const clear = root.querySelector('[data-signature-clear]');
         const context = canvas ? canvas.getContext('2d') : null;
         if (canvas === null || field === null || context === null) {
             return null;
         }
 
-        form.dataset.signaturePadWired = '1';
+        root.dataset.signaturePadWired = '1';
         canvas.style.touchAction = 'none';
         context.lineWidth = 3;
         context.lineCap = 'round';
@@ -88,6 +96,15 @@
         const point = (event) => canvasPoint(event, canvas.getBoundingClientRect(), canvas);
 
         canvas.addEventListener('pointerdown', (event) => {
+            // A canvas is not a form control, so a disabled fieldset — a
+            // signer the page set aside — does not stop it taking ink that
+            // could be neither erased (« Effacer » is disabled) nor sent
+            // (the hidden field is). Read when the stroke starts, not when
+            // the pad is wired: the page may set the signer aside and bring
+            // them back (« absent », then « signe ici »).
+            if (canvas.closest('fieldset[disabled]') !== null) {
+                return;
+            }
             drawing = true;
             canvas.setPointerCapture?.(event.pointerId);
             const at = point(event);
@@ -121,16 +138,56 @@
             field.value = '';
         };
         clear?.addEventListener('click', reset);
-        // The signature dialog (signature-dialog.js) empties its pad when
-        // it closes and once it has been sent, through this event rather
-        // than by reaching into this file.
+        // signature-dialog.js empties the pads when a dialog closes and
+        // once a form has been sent, through this event rather than by
+        // reaching into this file: sent to the form, it empties every pad
+        // the form holds; sent to a container, that container's.
         form.addEventListener('signature-pad:reset', reset);
+        if (root !== form) {
+            root.addEventListener('signature-pad:reset', reset);
+        }
 
         form.addEventListener('submit', () => {
             field.value = drawn ? canvas.toDataURL('image/png') : '';
         });
 
         return reset;
+    }
+
+    /**
+     * Wires the pads of one form: one per `[data-signature-field]`
+     * container when it has any, each with the `…signature_data` field of
+     * its own container (prefixed or not), or the form as one pad with its
+     * `signature_data` field otherwise.
+     *
+     * Wiring a form twice does nothing: a dialog re-rendered under a
+     * fetch is wired when it opens (signature-dialog.js), and may already
+     * have been at load.
+     *
+     * @param {HTMLFormElement} form
+     * @returns {(() => void)|null} what empties every pad wired now, or
+     *          null when the form carries no pad or was wired already
+     */
+    function wirePad(form) {
+        const containers = /** @type {HTMLElement[]} */ (Array.from(form.querySelectorAll('[data-signature-field]')));
+        if (containers.length === 0) {
+            return wireOne(form, form, 'input[name="signature_data"]');
+        }
+
+        /** @type {Array<() => void>} */
+        const wired = [];
+        containers.forEach((container) => {
+            const reset = wireOne(container, form, 'input[type="hidden"][name$="signature_data"]');
+            if (reset !== null) {
+                wired.push(reset);
+            }
+        });
+        if (wired.length === 0) {
+            return null;
+        }
+        form.dataset.signaturePadWired = '1';
+
+        return () => wired.forEach((reset) => reset());
     }
 
     /** @type {Array<() => void>} */
@@ -160,12 +217,13 @@
     // --- Test seam (no behavioural effect) ---------------------------------
     // A classic script (AGENTS.md § CSS / frontend): everything above is
     // private to this IIFE. ONE namespaced global lets
-    // tests/js/signature-pad.test.js reach the two functions directly —
+    // tests/js/signature-pad.test.js reach its functions directly —
     // same precedent as auth.js's ScoutMagicAuthInternals.
     //
     // Test-only: nothing in production reads this.
     globalThis.ScoutMagicSignaturePadInternals = {
         canvasPoint: canvasPoint,
         wirePad: wirePad,
+        wireOne: wireOne,
     };
 })();

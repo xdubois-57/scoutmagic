@@ -1,0 +1,117 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{#
+  The fields of ONE signer (issue #989, lot D; ARCHITECTURE.md §8.125):
+  what the signature dialog (partials/signature_dialog.html.twig) shows in
+  its body, and what a page signing a document in the page itself — not
+  in a dialog — renders once per signer inside its own form. Two signers
+  on one document, the renter as a witness and the manager with the
+  account's signature, are two includes with two prefixes in one form:
+
+      <form method="post" action="…" enctype="multipart/form-data"
+            data-signature-form data-signature-inline-form>
+          {{ csrf_field()|raw }}
+          {% include 'partials/signature_fields.html.twig' with {
+              id: 'inventory-renter', name_prefix: 'renter_', witness: true,
+          } only %}
+          {% include 'partials/signature_fields.html.twig' with {
+              id: 'inventory-manager', has_stored_signature: true,
+              manage_return: '/mes-locations/…',
+          } only %}
+          <button type="submit" class="btn btn-primary">…</button>
+      </form>
+
+  `name_prefix` (default '', which is the dialog's) goes in front of every
+  field name — `signature_source`, `signature_data`, `signature_file`,
+  `remember_signature`, `signer_name` —, so that one signer's drawing never
+  lands in the other's field; the server reads it back with the same
+  prefix (SignatureSubmission::fromRequest(), PersonalSignatureService::
+  witnessFromRequest()), which accepts lowercase letters followed by one
+  underscore and nothing else. `id` prefixes the element ids, and must
+  differ between the two includes of one page.
+
+  The modes are the dialog's — stored (`has_stored_signature`), new (with
+  `allow_import` and `allow_remember`, both default true), witness
+  (`witness: true`) —, and so is `consequence`, the module's sentence. The
+  container, `[data-signature-field]`, is what signature-pad.js wires: one
+  pad and one hidden field each, so two of them in one form draw apart.
+  The page loads signature-pad.js then signature-dialog.js, which empties
+  every container of a form once it is sent and on a page restored from
+  the back-forward cache, and fetches the stored signature's preview into
+  `[data-signature-preview]` — never written into this page, which may be
+  cached (decision Q5).
+
+  Never an account id among the fields: whose signature it is, is the
+  session's to say (Core\Signature\SignatureSubmission).
+#}
+{% set name_prefix = name_prefix|default('') %}
+{% set witness = witness|default(false) %}
+{% set stored = not witness and has_stored_signature|default(false) %}
+{% set allow_import = not witness and (allow_import is defined ? allow_import : true) %}
+{% set allow_remember = not witness and (allow_remember is defined ? allow_remember : true) %}
+{% set consequence = consequence|default('') %}
+{% set manage_return = manage_return|default('') %}
+<div data-signature-field data-signature-mode="{{ witness ? 'witness' : (stored ? 'stored' : 'new') }}">
+    <input type="hidden" name="{{ name_prefix }}signature_source" value="{{ stored ? 'stored' : 'new' }}">
+
+    {% if stored %}
+        <p>Ce document sera signé avec la signature enregistrée dans votre compte. Vérifiez son contenu avant de confirmer.</p>
+        {% if consequence %}<p>{{ consequence }}</p>{% endif %}
+        {# Filled by signature-dialog.js when the dialog opens (or the page shows a form of its own), emptied when it closes. #}
+        <div class="border rounded bg-white p-2 mb-2 text-center" data-signature-preview
+             style="min-height: 4rem;"></div>
+        <p class="small mb-0">
+            <a href="/account/signature{{ manage_return ? '?retour=' ~ manage_return|url_encode : '' }}">Gérer ma signature</a>
+        </p>
+    {% else %}
+        {% if consequence %}<p>{{ consequence }}</p>{% endif %}
+        {% if witness %}
+            <div class="mb-3">
+                <label class="form-label" for="{{ id }}-signer-name">Nom de la personne qui signe</label>
+                <input type="text" class="form-control" id="{{ id }}-signer-name" name="{{ name_prefix }}signer_name"
+                       maxlength="120" required autocomplete="off">
+            </div>
+        {% endif %}
+        <input type="hidden" name="{{ name_prefix }}signature_data" value="">
+
+        <p class="form-label mb-1" id="{{ id }}-pad-label">{{ witness ? 'Signature' : 'Tracez votre signature' }}</p>
+        {#
+          Traced with a pointer, so no role of its own: « img »
+          would tell assistive technology there is nothing to do
+          here. Without a pointer, the import below is the way in.
+        #}
+        <canvas data-signature-pad width="900" height="300"
+                aria-labelledby="{{ id }}-pad-label"
+                class="border rounded bg-white w-100 d-block" style="aspect-ratio: 3 / 1;"></canvas>
+        <button type="button" class="btn btn-sm btn-outline-secondary mt-2" data-signature-clear>Effacer</button>
+        {% if witness %}
+            <p class="form-text mb-0">La signature est ajoutée à ce document seulement : elle n'est gardée nulle part ailleurs, et le cadre est effacé dès que vous signez ou annulez.</p>
+        {% endif %}
+
+        {% if allow_import %}
+            <div class="mt-3">
+                <label class="form-label" for="{{ id }}-file">Ou importez une image de votre signature</label>
+                <input type="file" class="form-control" id="{{ id }}-file" name="{{ name_prefix }}signature_file"
+                       accept="image/png,image/jpeg,image/webp" aria-describedby="{{ id }}-file-help">
+                <p class="form-text" id="{{ id }}-file-help">PNG, JPEG ou WebP, 5 Mo au plus.</p>
+            </div>
+        {% endif %}
+
+        {% if allow_remember %}
+            <div class="form-check mt-3">
+                <input class="form-check-input" type="checkbox" name="{{ name_prefix }}remember_signature" value="1"
+                       id="{{ id }}-remember" aria-describedby="{{ id }}-remember-help">
+                <label class="form-check-label" for="{{ id }}-remember">Mémoriser ma signature dans mon compte pour une utilisation future</label>
+                <p class="form-text mb-0" id="{{ id }}-remember-help">
+                    Sans cette case, la signature sert à ce document seulement et n'est pas gardée.
+                </p>
+            </div>
+        {% endif %}
+
+        <p class="text-danger small mt-2 mb-0" data-signature-missing hidden role="alert">
+            {{ allow_import ? "Tracez votre signature ou importez-en l'image." : 'Tracez la signature dans le cadre.' }}
+        </p>
+    {% endif %}
+</div>

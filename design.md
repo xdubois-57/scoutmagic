@@ -616,6 +616,11 @@ helpers; a page-level primary action that happens to call an AI
   same question twice; « Annuler » posts nothing and empties the pad.
   The trigger button names the act (« Contresigner »), the dialog's
   title says it in full.
+  **Two people signing one document** (the renter and the manager, on
+  an inventory — issue #989) sign in one form of the page rather than a
+  dialog: one block per signer, the same fields as the dialog's
+  (`partials/signature_fields.html.twig`, each signer under its own
+  prefix), and the page's own submit button, which names the act.
 - Never `on*=` attributes in templates — the CSP (`script-src 'self'
   'nonce-…'`) makes inline handlers dead code, silently.
 - **Behaviour lives in `public/assets/js/`, never in a template's own
