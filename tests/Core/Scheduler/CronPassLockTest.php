@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Tests\Core\Scheduler;
 
+use Core\Database\AdvisoryLock;
+use Core\Maintenance\InstallLock;
 use Core\Scheduler\CronPassLock;
 use PHPUnit\Framework\TestCase;
 use Tests\UsesProductionEngine;
@@ -127,13 +129,13 @@ class CronPassLockTest extends TestCase
      */
     public function testItDoesNotCollideWithTheOtherNamedLocksInThisCodebase(): void
     {
-        $this->first->query("SELECT GET_LOCK('scoutmagic_schema_migration', 0)")->closeCursor();
-        $this->first->query("SELECT GET_LOCK('scoutmagic_update_install', 0)")->closeCursor();
+        $this->assertTrue(AdvisoryLock::acquire($this->first, 'scoutmagic_schema_migration'));
+        $this->assertTrue(InstallLock::acquire($this->first));
 
         $this->assertTrue(CronPassLock::acquire($this->second));
 
-        $this->first->query("SELECT RELEASE_LOCK('scoutmagic_schema_migration')")->closeCursor();
-        $this->first->query("SELECT RELEASE_LOCK('scoutmagic_update_install')")->closeCursor();
+        AdvisoryLock::release($this->first, 'scoutmagic_schema_migration');
+        InstallLock::release($this->first);
     }
 
     /**

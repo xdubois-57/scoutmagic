@@ -39,10 +39,12 @@ class SupportReportRateLimitRepository
 
     /**
      * The advisory-lock name a reservation for $ipHash is serialised
-     * under. `GET_LOCK()` names are capped at 64 characters, so the name
-     * carries a prefix of the 64-character blind index rather than all of
-     * it: a collision between two addresses only makes them take turns
-     * once, and the full index is what gets COUNTED, never the lock name.
+     * under. It carries a prefix of the 64-character blind index rather
+     * than all of it — written when the name itself had to fit
+     * `GET_LOCK()`'s 64 characters, which no longer binds it since
+     * Core\Database\AdvisoryLock hashes every name. Harmless either way: a
+     * collision between two addresses only makes them take turns once,
+     * and the full index is what gets COUNTED, never the lock name.
      */
     public static function reservationLockName(string $ipHash): string
     {

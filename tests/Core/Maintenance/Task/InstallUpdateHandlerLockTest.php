@@ -64,9 +64,12 @@ class InstallUpdateHandlerLockTest extends TestCase
         $this->history = new UpdateHistoryRepository($pdo);
 
         // A second connection is a second MySQL session, which is what the
-        // named lock belongs to. The lock is server-wide, so which database
-        // it opens on does not matter.
-        $this->rival = self::productionEngineConnection()->getPdo();
+        // named lock belongs to — on the handler's own database, since
+        // Core\Database\AdvisoryLock scopes a lock to its database: a rival
+        // elsewhere would hold nothing the handler can see.
+        $this->rival = self::productionEngineConnection(
+            (string) $pdo->query('SELECT DATABASE()')->fetchColumn()
+        )->getPdo();
 
         // A throwaway install root, NOT a bare temp dir: the handler's
         // safety backup zips dirname(storagePath), and pointing that at

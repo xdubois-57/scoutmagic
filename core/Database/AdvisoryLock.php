@@ -49,6 +49,19 @@ namespace Core\Database;
  * for. Prepared statement, bound parameter, no exception for "it is only
  * a lock name".
  *
+ * **A name holds for its own database, not for the whole server.**
+ * `GET_LOCK()` names are SERVER-wide, and shared hosting puts many
+ * customers' databases on one MySQL server — so two ScoutMagic sites there
+ * took the same `scoutmagic_cron_pass` or `scoutmagic_schema_migration`,
+ * and one site's cron pass or migration made the other stand down. Every
+ * lock here guards work of one site, so the name the server sees is the
+ * caller's name scoped to the connection's current database, hashed:
+ * {@see SCOPED_NAME} computes it in the same statement (no extra round
+ * trip), and the hash keeps it at 51 characters, under the server's cap of
+ * 64, however long the caller's name and the database's are. Callers and
+ * tests never spell that name out: they take the lock through here, which
+ * is what makes them hold the very same one.
+ *
  * **The cursor is closed explicitly.** `GET_LOCK()`/`RELEASE_LOCK()` return
  * a result set, and leaving one open breaks the very next query on the
  * connection with "Cannot execute queries while other unbuffered queries
@@ -57,13 +70,24 @@ namespace Core\Database;
 final class AdvisoryLock
 {
     /**
-     * True when this connection now holds $name, false when another
-     * connection does.
+     * The name the server sees for the bound `?`: `scoutmagic:` and the
+     * SHA-1 of « current database, NUL, caller's name » — 51 characters.
+     * NUL cannot occur in a database name, so no pair of (database, name)
+     * spells another's. `CHAR(0)` is a binary string, which makes the whole
+     * CONCAT binary and so free of any mix of collations between
+     * `DATABASE()` and the connection's character set. COALESCE covers a
+     * connection with no database selected, which the site never opens.
+     */
+    private const SCOPED_NAME = "CONCAT('scoutmagic:', SHA1(CONCAT(COALESCE(DATABASE(), ''), CHAR(0), ?)))";
+
+    /**
+     * True when this connection now holds $name for its current database,
+     * false when another connection to that database does.
      */
     public static function acquire(\PDO $pdo, string $name): bool
     {
         try {
-            $stmt = $pdo->prepare('SELECT GET_LOCK(?, 0)');
+            $stmt = $pdo->prepare('SELECT GET_LOCK(' . self::SCOPED_NAME . ', 0)');
             if ($stmt === false) {
                 return false;
             }
@@ -87,7 +111,7 @@ final class AdvisoryLock
     public static function release(\PDO $pdo, string $name): void
     {
         try {
-            $stmt = $pdo->prepare('SELECT RELEASE_LOCK(?)');
+            $stmt = $pdo->prepare('SELECT RELEASE_LOCK(' . self::SCOPED_NAME . ')');
             if ($stmt !== false) {
                 $stmt->execute([$name]);
                 $stmt->closeCursor();
