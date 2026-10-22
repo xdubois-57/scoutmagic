@@ -81,6 +81,33 @@ class PhotoNormalizerTest extends TestCase
         $this->assertSame([2400, 1800], [$width, $height]);
     }
 
+    /**
+     * A smaller copy for one use — the PDF of an inventory embeds 1 600 px
+     * (#989) — goes through the same pipeline with its own bound and
+     * quality, the orientation still applied and no metadata kept.
+     */
+    public function testACallerMayAskForASmallerBoundAndItsOwnQuality(): void
+    {
+        $normalizer = new PhotoNormalizer();
+
+        $turned = $normalizer->normalize($this->jpegWithExif(2400, 1800, 6), 1600);
+        [$width, $height] = (array) getimagesizefromstring($turned);
+        $this->assertSame([1200, 1600], [$width, $height]);
+        $this->assertStringNotContainsString('ScoutCam', $turned);
+
+        $image = imagecreatetruecolor(400, 300);
+        for ($x = 0; $x < 400; $x += 4) {
+            imagefilledrectangle($image, $x, 0, $x + 3, 299, (int) imagecolorallocate($image, $x % 256, ($x * 7) % 256, 90));
+        }
+        ob_start();
+        imagepng($image);
+        $source = (string) ob_get_clean();
+        $this->assertLessThan(
+            strlen($normalizer->normalize($source, 1600, 95)),
+            strlen($normalizer->normalize($source, 1600, 30))
+        );
+    }
+
     public function testASmallPhotoKeepsItsSize(): void
     {
         $jpeg = (new PhotoNormalizer())->normalize($this->jpegWithExif(300, 200, 1));

@@ -389,7 +389,8 @@ class RentalManagementControllerTest extends TestCase
                 $this->recordingMailService(),
                 new \Core\Pdf\DocumentPdfService(),
                 $settingService,
-                $bookingAudit
+                $bookingAudit,
+                new \Modules\Rental\Service\InventoryPhotoRenderer($this->fileRepository, $this->storagePath)
             ),
             // What the site sent the renter, on « Courrier » (#720, step 2).
             null,

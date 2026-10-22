@@ -16,6 +16,7 @@ use Modules\Rental\Booking\RentalBooking;
 use Modules\Rental\Document\DocumentType;
 use Modules\Rental\Document\RentalDocument;
 use Modules\Rental\Repository\RentalAsset;
+use Modules\Rental\Stay\InventoryPhotoAnnex;
 use Modules\Rental\Stay\InventoryReport;
 use Modules\Rental\Stay\ReadingPhase;
 
@@ -32,6 +33,11 @@ use Modules\Rental\Stay\ReadingPhase;
  * looked at is printed « non vérifié », which is an honest record; a meter
  * with no reading would leave the settlement with no consumption, and a
  * validated inventory can no longer be completed.
+ *
+ * **The photos go in an annex** (#989): the meters' and, at the departure,
+ * the incidents' — 1 600 px copies `InventoryPhotoRenderer` makes in
+ * memory before the phase is frozen, never stored, numbered by
+ * `Stay\InventoryPhotoAnnex` so each incident line names its photos.
  */
 class RentalInventoryValidationService
 {
@@ -41,7 +47,8 @@ class RentalInventoryValidationService
         private RentalBookingMailService $mail,
         private DocumentPdfService $pdf,
         private SettingService $settings,
-        private BookingAudit $bookingAudit
+        private BookingAudit $bookingAudit,
+        private InventoryPhotoRenderer $photoRenderer
     ) {
     }
 
@@ -107,28 +114,46 @@ class RentalInventoryValidationService
             );
         }
 
+        // The photos' copies are made before anything is written: ten
+        // decodes and resamples are the slow part, and they must not run
+        // with the phase frozen and another manager waiting on it.
+        $isDeparture = $phase === ReadingPhase::DEPARTURE;
+        $images = $this->photoRenderer->render(InventoryPhotoAnnex::fileIds(
+            $phase,
+            $meters,
+            $isDeparture ? $this->stay->incidentsFor($booking->id) : []
+        ));
+
         if (!$this->stay->recordInventoryValidation($booking, $phase, $now, $actorMemberId)) {
             throw new RentalException('Cet état des lieux est déjà validé.');
         }
         // Read again now that the phase is frozen: a line saved by another
         // manager between the reads above and the validation is in, and
         // none can land after this read (the writes refuse a validated
-        // phase), so the PDF holds exactly what stays stored.
+        // phase), so the PDF holds exactly what stays stored. A photo
+        // added in between gets its copy now; one removed is simply not
+        // in what is read.
         $lines = $this->stay->inventoryFor($booking->id);
         $meters = $this->stay->consumptionsFor($booking, $asset->id);
+        $incidents = $isDeparture ? $this->stay->incidentsFor($booking->id) : [];
 
         $label = $phase === ReadingPhase::ARRIVAL ? "État des lieux d'entrée" : 'État des lieux de sortie';
         $document = null;
         try {
+            $fileIds = InventoryPhotoAnnex::fileIds($phase, $meters, $incidents);
+            $images += $this->photoRenderer->render(array_values(array_diff($fileIds, array_keys($images))));
+            $photos = InventoryPhotoAnnex::photos($phase, $meters, $incidents, $images);
+            unset($images);
             $pdf = $this->pdf->generate(
                 $label . ' — ' . $booking->reference,
                 InventoryReport::html(
                     $phase,
                     $lines,
                     $meters,
-                    $phase === ReadingPhase::DEPARTURE ? $this->stay->incidentsFor($booking->id) : [],
+                    $incidents,
                     $actorName,
-                    $now
+                    $now,
+                    $photos
                 ),
                 (string) ($this->settings->get('site_name') ?: 'Unité scoute'),
                 [

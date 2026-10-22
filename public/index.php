@@ -12687,7 +12687,9 @@ if ($isEnabled('rental')) {
                 $rentalBookingMailService,
                 new \Core\Pdf\DocumentPdfService(),
                 $settingService,
-                $rentalBookingAudit
+                $rentalBookingAudit,
+                // The photos' 1 600 px copies its PDF embeds, never stored (#989).
+                new \Modules\Rental\Service\InventoryPhotoRenderer($fileRepository, $storagePath)
             ),
             // What the site sent the renter, on « Courrier » (#720, step 2).
             new \Modules\Rental\Repository\RentalSentEmailRepository($pdo, $encryptionService),

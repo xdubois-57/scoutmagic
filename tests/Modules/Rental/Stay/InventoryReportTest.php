@@ -6,8 +6,14 @@ namespace Tests\Modules\Rental\Stay;
 
 use Modules\Rental\Stay\Incident;
 use Modules\Rental\Stay\IncidentDecision;
+use Modules\Rental\Stay\IncidentPhoto;
+use Modules\Rental\Stay\InventoryPhotoAnnex;
 use Modules\Rental\Stay\InventoryKind;
 use Modules\Rental\Stay\InventoryReport;
+use Modules\Rental\Stay\MeterConsumption;
+use Modules\Rental\Stay\MeterKind;
+use Modules\Rental\Stay\MeterReading;
+use Modules\Rental\Stay\RentalMeter;
 use Modules\Rental\Stay\ReadingPhase;
 use PHPUnit\Framework\TestCase;
 
@@ -160,7 +166,7 @@ final class InventoryReportTest extends TestCase
             new \DateTimeImmutable('2027-07-04 11:30:00')
         );
 
-        $this->assertStringContainsString('<li>Vitre cassée</li>', $html);
+        $this->assertStringContainsString('<li>04/07 à 10 h 00 — Vitre cassée</li>', $html);
         $this->assertStringNotContainsString('123,45', $html);
         $this->assertStringNotContainsString('12345', $html);
     }
@@ -178,5 +184,94 @@ final class InventoryReportTest extends TestCase
 
         $this->assertStringContainsString('Écarts avec le modèle</h2><p>Aucun.</p>', $html);
         $this->assertStringNotContainsString('Incidents', $html);
+    }
+
+    /**
+     * Every time on the PDF is Brussels time (#989): an incident's
+     * `created_at` and the validation's instant arrive in UTC here, and the
+     * renter reads the hour they lived — two hours later in July.
+     */
+    public function testTimesAreReadInBrusselsTimeWhateverZoneTheyCameIn(): void
+    {
+        $utc = new \DateTimeZone('UTC');
+
+        $html = InventoryReport::html(
+            ReadingPhase::DEPARTURE,
+            [],
+            [],
+            [new Incident(
+                1, 1, 'Porte du réfectoire forcée', null, IncidentDecision::PENDING, null, null, null, null,
+                new \DateTimeImmutable('2027-07-12 16:40:00', $utc)
+            )],
+            'Anne Dupont',
+            new \DateTimeImmutable('2027-07-13 08:05:00', $utc)
+        );
+
+        $this->assertStringContainsString('<li>12/07 à 18 h 40 — Porte du réfectoire forcée</li>', $html);
+        $this->assertStringContainsString('Validé par Anne Dupont le 13/07/2027 à 10:05.', $html);
+    }
+
+    /**
+     * Each incident names its photos by their number in the annex, which
+     * counts the meters' first; an incident without one names none.
+     */
+    public function testEachIncidentNamesItsPhotosInTheAnnex(): void
+    {
+        $at = new \DateTimeImmutable('2027-07-12 18:40:00');
+        $photo = static fn(int $id, int $incidentId): IncidentPhoto => new IncidentPhoto($id, $incidentId, 1, $id, 1, $at);
+        $incidents = [
+            new Incident(
+                7, 1, 'Porte du réfectoire forcée', null, IncidentDecision::PENDING, null, null, null, null, $at,
+                photos: [$photo(71, 7), $photo(72, 7)]
+            ),
+            new Incident(
+                8, 1, 'Vitre <cassée>', null, IncidentDecision::PENDING, null, null, null, null, $at,
+                photos: [$photo(81, 8)]
+            ),
+            new Incident(9, 1, 'Rayure', null, IncidentDecision::PENDING, null, null, null, null, $at),
+        ];
+        $image = imagecreatetruecolor(8, 6);
+        ob_start();
+        imagejpeg($image);
+        $jpeg = ['jpeg' => (string) ob_get_clean(), 'width' => 8, 'height' => 6];
+        // A meter's two photos come first: the incidents' start at 3.
+        $meter = new RentalMeter(1, 1, 'Électricité', MeterKind::ELECTRICITY, 'kWh', null);
+        $reading = static fn(ReadingPhase $phase, int $fileId): MeterReading
+            => new MeterReading($fileId, 1, 1, $phase, 1_000_000, $at, $fileId, null, 1);
+        $meters = [MeterConsumption::of(
+            $meter, $reading(ReadingPhase::ARRIVAL, 11), $reading(ReadingPhase::DEPARTURE, 12), null
+        )];
+        $photos = InventoryPhotoAnnex::photos(
+            ReadingPhase::DEPARTURE,
+            $meters,
+            $incidents,
+            array_fill_keys([11, 12, 71, 72, 81], $jpeg)
+        );
+
+        $html = InventoryReport::html(
+            ReadingPhase::DEPARTURE, [], $meters, $incidents, 'Anne Dupont', $at, $photos
+        );
+
+        $this->assertStringContainsString('<li>12/07 à 18 h 40 — Porte du réfectoire forcée (photos 3 et 4)</li>', $html);
+        $this->assertStringContainsString('<li>12/07 à 18 h 40 — Vitre &lt;cassée&gt; (photo 5)</li>', $html);
+        $this->assertStringContainsString('<li>12/07 à 18 h 40 — Rayure</li>', $html);
+        // The annex follows the line that closes the text.
+        $this->assertGreaterThan(strpos($html, 'Validé par'), strpos($html, 'Annexe : photos'));
+        $this->assertStringContainsString('<strong>Photo 5</strong> — Incident : Vitre &lt;cassée&gt;', $html);
+    }
+
+    /** Without a photo, the PDF has no annex. */
+    public function testNoPhotoNoAnnex(): void
+    {
+        $html = InventoryReport::html(
+            ReadingPhase::ARRIVAL,
+            [self::line('Chaises', InventoryKind::QUANTITY, 40, '40')],
+            [],
+            [],
+            'Anne Dupont',
+            new \DateTimeImmutable('2027-07-01 15:00:00')
+        );
+
+        $this->assertStringNotContainsString('Annexe', $html);
     }
 }

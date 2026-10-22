@@ -733,9 +733,12 @@ class RentalStayRepository
                 // value bound as text by type, not by number, and every
                 // integer sorts below any text — the limit never held.
                 foreach ($values as $index => $value) {
-                    $stmt->bindValue($index + 1, $value, is_int($value) ? \PDO::PARAM_INT : (
-                        $value === null ? \PDO::PARAM_NULL : \PDO::PARAM_STR
-                    ));
+                    $type = match (true) {
+                        is_int($value) => \PDO::PARAM_INT,
+                        $value === null => \PDO::PARAM_NULL,
+                        default => \PDO::PARAM_STR,
+                    };
+                    $stmt->bindValue($index + 1, $value, $type);
                 }
                 $stmt->execute();
                 // An INSERT reports the rows it inserted on every engine.
