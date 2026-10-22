@@ -6164,13 +6164,17 @@ document can run it inside its own and have a failed signing roll the
 remembering back, and `PersonalSignatureRepositoryOnMysqlTest` runs the
 `ON DUPLICATE KEY UPDATE` spelling and the cascade on the production
 engine. Save, deletion and erasure are journaled at `security` level with
-the account id only.
+account ids only: the account concerned in the context and, for an erasure
+at deactivation, the administrator who deactivated it as the author.
 
 **When it goes.** At its owner's request; at the account's deactivation
 (decision Q4 — an account is never deleted, `user_accounts.is_active`, so
-the foreign key's `ON DELETE CASCADE` alone would never run), and not given
-back by a reactivation; and with the account, by that cascade, on a manual
-erasure. `Tests\Core\Signature\AccountDeactivationErasesTheSignatureTest`
+the foreign key's `ON DELETE CASCADE` alone would never run):
+`SuperAdminService::deactivate()` calls
+`PersonalSignatureService::eraseOnDeactivation()` **before** withdrawing the
+access, so a failure in between never leaves a deactivated account holding
+one, and a reactivation does not give it back. The cascade remains for an
+account row erased by hand. `Tests\Core\Signature\AccountDeactivationErasesTheSignatureTest`
 fails on a second caller of `UserAccountRepository::deactivate()` that
 would skip the erasure. **A document already signed is never touched**:
 it carries the copy it was signed with, as Locations' countersignature page

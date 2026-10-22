@@ -52,6 +52,29 @@ class SuperAdminServiceTest extends TestCase
     }
 
     /**
+     * The signature is erased before the access is withdrawn (#926): an
+     * erasure that fails stops the deactivation, so no step failing in
+     * between leaves a deactivated account still holding a signature.
+     */
+    public function testAnErasureThatFailsLeavesTheAccountActive(): void
+    {
+        $account = $this->userRepo->create('admin@test.com', true);
+        $actor = $this->userRepo->create('actor@test.com', true);
+        $failing = $this->createStub(PersonalSignatureService::class);
+        $failing->method('eraseOnDeactivation')->willThrowException(new \PDOException('disk full'));
+        $journal = new JournalService(new JournalRepository($this->pdo));
+        $service = new SuperAdminService($this->userRepo, $journal, $failing);
+
+        try {
+            $service->deactivate($account->id, $actor->id);
+            $this->fail('the deactivation went through');
+        } catch (\PDOException) {
+        }
+
+        $this->assertTrue($this->userRepo->findById($account->id)?->isActive);
+    }
+
+    /**
      * Issue #926, decision Q4: an account is never deleted, only
      * deactivated, so the foreign key's cascade never runs — the signature
      * it kept goes with its access, here, and does not come back with a

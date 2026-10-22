@@ -146,10 +146,13 @@ class SuperAdminService
      * $actorId is the account that performed it, for the journal entry's
      * user column — null when nothing identified is behind the change.
      *
-     * The account's personal signature goes with its access (issue #926):
-     * erased right after the withdrawal, which is the act that matters
-     * first, and not given back by reactivate(). Documents it already
-     * signed keep their copy.
+     * The account's personal signature goes with its access (issue #926),
+     * and is not given back by reactivate(). It is erased **before** the
+     * withdrawal, so no step failing in between can leave a deactivated
+     * account still holding one: the worst a failure leaves is an active
+     * account whose owner records it again, and running the deactivation
+     * again erases whatever is there. Documents it already signed keep
+     * their copy.
      */
     public function deactivate(int $userAccountId, ?int $actorId): void
     {
@@ -158,8 +161,8 @@ class SuperAdminService
 
         $target = $this->userAccountRepo->findById($userAccountId);
 
-        $this->userAccountRepo->deactivate($userAccountId);
         $this->personalSignatures->eraseOnDeactivation($userAccountId, $actorId);
+        $this->userAccountRepo->deactivate($userAccountId);
 
         $this->journalService->log(
             'core',

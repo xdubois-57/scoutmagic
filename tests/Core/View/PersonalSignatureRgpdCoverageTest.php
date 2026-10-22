@@ -28,6 +28,28 @@ final class PersonalSignatureRgpdCoverageTest extends TestCase
     }
 
     /**
+     * Only the text that speaks of the personal signature, so a fact found
+     * elsewhere in the document — « consentement » is in many paragraphs —
+     * cannot stand in for it: on the page, the list items that name it;
+     * in the prompt, rule 37 up to the next rule.
+     */
+    private static function disclosure(string $path): string
+    {
+        $content = self::read($path);
+        if ($path === self::NOTICE) {
+            preg_match_all('#<li><strong>Signature personnelle</strong>.*?</li>#s', $content, $items);
+
+            return implode(' ', $items[0]);
+        }
+
+        // Rule 37 is the last one today: the heredoc's end closes it too.
+        $rule = (string) strstr((string) strstr($content, '37. **Signature personnelle'), 'PROMPT;', true);
+        $end = preg_match('/ 38\. \*\*/', $rule, $next, PREG_OFFSET_CAPTURE) === 1 ? $next[0][1] : null;
+
+        return $end !== null ? substr($rule, 0, $end) : $rule;
+    }
+
+    /**
      * @return array<string, array{list<string>}>
      */
     public static function factProvider(): array
@@ -51,7 +73,7 @@ final class PersonalSignatureRgpdCoverageTest extends TestCase
     public function testBothDocumentsCarryTheFact(array $needles): void
     {
         foreach ([self::NOTICE, self::PROMPT] as $path) {
-            $content = self::read($path);
+            $content = self::disclosure($path);
             foreach ($needles as $needle) {
                 // A needle may name alternatives (« votre compte » on the
                 // page, « le compte » in the prompt), separated by « | ».

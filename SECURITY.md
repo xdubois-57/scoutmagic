@@ -141,7 +141,7 @@ There is no blind index on it: nothing searches these notes, and giving them one
 
 - **Keyed by the account, and that key is the whole access rule.** Every method takes the account asking and answers about that account alone: there is no listing, no read by another id, and **no administrator path** — a superadmin cannot see, replace or apply anybody's signature through the site. The account is established from the authenticated session (`AuthSession::getUserAccountId()`), **never from a posted `user_account_id`** or any other value a form can carry. A module's right to have a document signed is the module's own; it never widens who may read the image.
 - **An image, never a stroke.** `Core\Signature\SignatureImage` re-encodes what arrives into a fresh PNG (no EXIF, no trailing bytes) and the client sends nothing but that PNG — no points, no timings, no pressure — so nothing biometric is collected (RGPD art. 9).
-- **Never in the journal, a log or a trace.** Save, deletion and erasure are journaled at `security` level with the account id only; `SignaturePng::__debugInfo()` shows the byte length and never the bytes.
+- **Never in the journal, a log or a trace.** Save, deletion and erasure are journaled at `security` level with account ids only — the account concerned in the entry's context and, for an erasure at deactivation, the administrator who deactivated it as the entry's author; `SignaturePng::__debugInfo()` shows the byte length and never the bytes.
 - **Gone with the access.** Deactivating an account erases it (`SuperAdminService::deactivate()`), and the foreign key's cascade erases it with the account. A document already signed keeps its own copy.
 
 ### Implementation
