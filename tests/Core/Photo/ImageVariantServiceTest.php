@@ -78,6 +78,18 @@ class ImageVariantServiceTest extends TestCase
         $this->assertFileExists($this->storagePath . '/core/member_photos/abc123.thumb.webp');
     }
 
+    /** Every derivative's place, so that deleting an original can find them. */
+    public function testDerivativePathsNameEverySiblingOfAnOriginal(): void
+    {
+        $fileId = $this->storeOriginal('rental/documents/abc123.jpg', $this->jpegBytes(800, 600));
+        $this->service->generate($fileId, 'thumb');
+
+        $paths = ImageVariantService::derivativeRelativePaths('rental/documents/abc123.jpg');
+
+        $this->assertSame(['rental/documents/abc123.thumb.webp', 'rental/documents/abc123.md.webp'], $paths);
+        $this->assertFileExists($this->storagePath . '/' . $paths[0]);
+    }
+
     public function testGenerateWritesAnMdSiblingNextToTheOriginal(): void
     {
         $fileId = $this->storeOriginal('core/section_photos/xyz789.jpg', $this->jpegBytes(800, 600));

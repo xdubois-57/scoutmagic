@@ -91,6 +91,13 @@ final class AttachedFileRemover
 
         if ($this->storagePath !== '') {
             @unlink($this->storagePath . '/' . $file->relativePath);
+            // A photo's derivatives (its thumbnail) are siblings with no
+            // row of their own: left here, nothing would ever find them.
+            foreach (\Core\Photo\ImageVariantService::derivativeRelativePaths($file->relativePath) as $derivative) {
+                if (is_file($this->storagePath . '/' . $derivative)) {
+                    @unlink($this->storagePath . '/' . $derivative);
+                }
+            }
         }
 
         $this->files->delete($fileId);

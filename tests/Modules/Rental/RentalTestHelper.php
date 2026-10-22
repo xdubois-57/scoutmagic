@@ -367,9 +367,21 @@ class RentalTestHelper
             awaiting_encrypted BLOB,
             reference_encrypted BLOB,
             waive_reason_encrypted BLOB,
-            file_id INTEGER,
             created_by_member_id INTEGER,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (booking_id) REFERENCES rental_bookings(id) ON DELETE CASCADE
+        )');
+
+        $pdo->exec('CREATE TABLE rental_incident_photos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            incident_id INTEGER NOT NULL,
+            booking_id INTEGER NOT NULL,
+            file_id INTEGER NOT NULL,
+            position INTEGER NOT NULL,
+            created_by_member_id INTEGER,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE (incident_id, position),
+            FOREIGN KEY (incident_id) REFERENCES rental_incidents(id) ON DELETE CASCADE,
             FOREIGN KEY (booking_id) REFERENCES rental_bookings(id) ON DELETE CASCADE
         )');
 

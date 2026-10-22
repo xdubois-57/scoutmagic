@@ -146,7 +146,6 @@ class SettlementCalculatorTest extends TestCase
             $decision === IncidentDecision::PENDING ? null : new \DateTimeImmutable(),
             null,
             null,
-            null,
             new \DateTimeImmutable()
         );
     }

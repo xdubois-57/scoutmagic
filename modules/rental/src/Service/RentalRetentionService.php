@@ -11,6 +11,7 @@ namespace Modules\Rental\Service;
 use Core\Config\SettingService;
 use Core\File\FileRepository;
 use Core\Journal\JournalService;
+use Core\Photo\ImageVariantService;
 use Core\Service\DateInput;
 use Modules\InboundMail\Api\InboundMailInterface;
 use Modules\Rental\Audit\BookingAudit;
@@ -20,6 +21,7 @@ use Modules\Rental\Repository\RentalAggregateRepository;
 use Modules\Rental\Repository\RentalBookingRepository;
 use Modules\Rental\Repository\RentalDocumentRepository;
 use Modules\Rental\Repository\RentalReminderRepository;
+use Modules\Rental\Repository\RentalStayRepository;
 
 /**
  * Deleting a booking once its retention has run out (§6.35).
@@ -66,7 +68,14 @@ class RentalRetentionService
         private ?InboundMailInterface $inboundMail = null,
         private string $storagePath = '',
         private ?RentalPaymentService $payments = null,
-        private ?BookingAudit $bookingAudit = null
+        private ?BookingAudit $bookingAudit = null,
+        /**
+         * The stay's photos (#989): an incident's and a reading's photo is
+         * a `files` row with no `rental_documents` row, so the document
+         * loop below never sees it. Null forgets them, which is why the
+         * scheduled task always passes it.
+         */
+        private ?RentalStayRepository $stayRepository = null
     ) {
     }
 
@@ -180,6 +189,13 @@ class RentalRetentionService
             $this->documentRepository->delete($document->id);
         }
 
+        // The photos of its incidents and of its meter readings (#989),
+        // which are files without a document row. Their own rows cascade
+        // with the booking below; the files and their thumbnails would not.
+        foreach ($this->stayRepository?->photoFileIds($booking->id) ?? [] as $fileId) {
+            $this->deleteStoredFile($fileId);
+        }
+
         $this->reminderRepository->forgetSubject('booking', $booking->id);
 
         // Finance lives in its own tables, so nothing about this booking
@@ -221,6 +237,12 @@ class RentalRetentionService
             $path = $this->storagePath . '/' . $record->relativePath;
             if (is_file($path)) {
                 @unlink($path);
+            }
+            // A photo's thumbnail has no row of its own (#989).
+            foreach (ImageVariantService::derivativeRelativePaths($record->relativePath) as $derivative) {
+                if (is_file($this->storagePath . '/' . $derivative)) {
+                    @unlink($this->storagePath . '/' . $derivative);
+                }
             }
         }
 

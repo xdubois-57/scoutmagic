@@ -856,8 +856,11 @@ facultative des commentaires par une IA », qui décrirait alors une fonctionnal
 édulcorer : (a) que le délai de conservation d'une réservation se compte **depuis la clôture de l'exercice comptable
 contenant le séjour**, jamais depuis le séjour lui-même, et que la valeur par défaut de 7 ans est une aide au
 paramétrage et **jamais un conseil juridique** ; (b) que la suppression est **totale** — réservation, lignes de prix,
-documents, jetons, relevés, état des lieux, incidents, décompte et emails rattachés, fichiers compris — et qu'elle
-s'applique de la même manière à une demande refusée, annulée ou restée sans suite ; (c) qu'il ne subsiste qu'**une
+documents, jetons, relevés, état des lieux, incidents, photos des relevés et des incidents, décompte et emails
+rattachés, fichiers compris — et qu'elle s'applique de la même manière à une demande refusée, annulée ou restée sans
+suite ; (b bis) que les photos des relevés et des incidents sont **réencodées par le site** avant d'être enregistrées,
+réduites et **sans aucune métadonnée** (ni position GPS, ni date de prise de vue, ni appareil), et qu'une photo que
+le serveur ne sait pas relire est **refusée**, jamais enregistrée telle quelle ; (c) qu'il ne subsiste qu'**une
 ligne anonyme** (bien, mois, nombre de jours, montant), sans identifiant, sans jeton, sans fichier et sans rien de
 rattachable à une personne, servant uniquement à ce que les totaux annuels restent justes ; (d) qu'un solde auquel
 l'unité renonce est clôturé en « montant non recouvré », avec un motif écrit par un gestionnaire, **chiffré**,

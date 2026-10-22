@@ -1083,8 +1083,11 @@ CREATE TABLE IF NOT EXISTS rental_meter_readings (
     phase VARCHAR(20) NOT NULL,
     value_milli BIGINT NOT NULL,
     read_at DATETIME NOT NULL,
-    -- Optional photo of the dial. Goes through UploadHandler and is served
-    -- only through FileAccessGuard, like every other rental file.
+    -- Optional photo of the dial, one per reading: normalised by
+    -- Core\Image\PhotoNormalizer (no EXIF, no GPS), stored through
+    -- UploadHandler and served only through FileAccessGuard, like every
+    -- other rental file. Replacing or removing it deletes the old file;
+    -- the retention purge deletes it with the booking (#989).
     file_id INT UNSIGNED NULL,
     -- Free text about the READING — "compteur difficile à lire", "cadran
     -- remplacé". Same rule as `rental_blocks.reason`: it is about a device,
@@ -1221,13 +1224,48 @@ CREATE TABLE IF NOT EXISTS rental_incidents (
     reference_encrypted BLOB NULL,
     waive_reason_encrypted BLOB NULL,
 
-    -- Optional photo, through UploadHandler and FileAccessGuard.
-    file_id INT UNSIGNED NULL,
+    -- The photos are rows of rental_incident_photos (#989), up to five.
     created_by_member_id INT UNSIGNED NULL,
+    -- When the damage was observed: the date the departure PDF prints.
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     KEY idx_rental_incidents_booking (booking_id, created_at),
     CONSTRAINT fk_rental_incidents_booking
+        FOREIGN KEY (booking_id) REFERENCES rental_bookings (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- The photos of an incident (#989): an overall view, then a close-up —
+-- up to five (`RentalStayService::MAX_INCIDENT_PHOTOS`), added and removed
+-- until the departure inventory is validated, and frozen with it.
+--
+-- Each `file_id` is a JPEG `Core\Image\PhotoNormalizer` produced — 2 400 px
+-- at most, no EXIF and no GPS position — stored through UploadHandler with
+-- `owner_type = 'rental_document'` and the booking as owner, so it is
+-- served only through FileAccessGuard to the asset's managers. Its
+-- thumbnail is the `thumb` derivative beside it. Neither cascades from
+-- here: removing a photo and the retention purge delete the file
+-- themselves (`files` is outside this module).
+--
+-- `booking_id` is redundant with the incident's on purpose: a write is
+-- refused by the departure validation of THIS booking, read in the same
+-- statement, and the purge finds the files without a join.
+--
+-- `position` orders the photos as they were added; the unique key makes
+-- two simultaneous additions collide rather than both pass the limit.
+CREATE TABLE IF NOT EXISTS rental_incident_photos (
+    id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    incident_id INT UNSIGNED NOT NULL,
+    booking_id INT UNSIGNED NOT NULL,
+    file_id INT UNSIGNED NOT NULL,
+    position SMALLINT UNSIGNED NOT NULL,
+    created_by_member_id INT UNSIGNED NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    UNIQUE KEY uq_rental_incident_photos_position (incident_id, position),
+    KEY idx_rental_incident_photos_booking (booking_id),
+    CONSTRAINT fk_rental_incident_photos_incident
+        FOREIGN KEY (incident_id) REFERENCES rental_incidents (id) ON DELETE CASCADE,
+    CONSTRAINT fk_rental_incident_photos_booking
         FOREIGN KEY (booking_id) REFERENCES rental_bookings (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

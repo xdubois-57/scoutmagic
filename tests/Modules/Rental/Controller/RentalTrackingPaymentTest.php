@@ -320,7 +320,7 @@ class RentalTrackingPaymentTest extends TestCase
         $this->raiseReceivable($created['id']);
         $booking = $this->bookingRepository->findById($created['id']);
         $this->assertNotNull($booking);
-        $incident = $stay->reportIncident($booking, 'Vitre brisée', 12000, null, 1);
+        $incident = $stay->reportIncident($booking, 'Vitre brisée', 12000, [], 1);
         $stay->decideIncident($booking, $incident, IncidentDecision::PENDING, 12000, 1);
 
         $body = $this->track($created, null, $stay);

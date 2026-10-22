@@ -16,6 +16,12 @@ une description, un montant estimé, une photo si besoin. Il se constate
 jusqu'à la validation de l'état des lieux de sortie ; ensuite, ceux déjà
 constatés se tranchent toujours.
 
+Le site réduit chaque photo et l'enregistre sans sa position GPS ni
+aucune autre information de l'appareil. Une photo que le serveur ne sait
+pas lire est refusée, avec ce qu'il faut changer : pour une photo HEIC
+d'iPhone, réglez l'appareil photo sur le format le plus compatible, ou
+choisissez une autre photo.
+
 **Rien n'est facturé automatiquement.** Un incident n'entre au décompte
 final que si un gestionnaire le décide.
 

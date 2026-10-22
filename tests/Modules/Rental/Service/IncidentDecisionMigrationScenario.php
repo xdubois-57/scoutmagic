@@ -163,7 +163,7 @@ trait IncidentDecisionMigrationScenario
 
     private function incident(string $description, int $proposed, string $decision, ?int $decided): int
     {
-        $id = $this->stay->createIncident($this->bookingId, $description, $proposed, null, 7);
+        $id = $this->stay->createIncident($this->bookingId, $description, $proposed, [], 7);
         $this->assertNotNull($id);
         $this->pdo->prepare('UPDATE rental_incidents SET decision = ?, decided_amount_cents = ? WHERE id = ?')
             ->execute([$decision, $decided, $id]);

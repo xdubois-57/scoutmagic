@@ -116,3 +116,9 @@ DROP TABLE IF EXISTS rental_change_requests;
 -- records it again in Mon compte. Contracts already countersigned keep the
 -- page they carry.
 DROP TABLE IF EXISTS rental_manager_signatures;
+
+-- An incident's single photo (#989). An incident keeps up to five, as
+-- rows of `rental_incident_photos`. The site is in test: nothing is
+-- carried over, and a photo stored for the old column stays a `files`
+-- row nothing points at.
+ALTER TABLE rental_incidents DROP COLUMN file_id;

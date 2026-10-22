@@ -39,7 +39,6 @@ final class IncidentBasisTest extends TestCase
             null,
             null,
             null,
-            null,
             new \DateTimeImmutable('2027-07-04 10:00:00'),
             $awaiting,
             $reference,

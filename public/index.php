@@ -12372,7 +12372,10 @@ if ($isEnabled('rental')) {
         $rentalPricingService,
         new \Modules\Rental\Stay\SettlementCalculator(),
         $journalService,
-        $rentalPaymentService
+        $rentalPaymentService,
+        // A photo taken off a reading or an incident leaves no file behind,
+        // nor its thumbnail (#989).
+        $attachedFileRemover
     );
 
     // « Marquer comme fait » on the steps the site cannot derive — the
@@ -12691,7 +12694,12 @@ if ($isEnabled('rental')) {
             // A signer is named by their account, not by a totem (#825).
             new \Modules\Rental\Document\SignerName($userAccountRepo),
             // The guarded closure and the unrecovered one (#980).
-            $rentalClosureService
+            $rentalClosureService,
+            // Every reading and incident photo is re-encoded before it is
+            // stored — no EXIF, no GPS, HEIC read only where Imagick can —
+            // and gets its thumbnail (#989).
+            \Core\Image\PhotoNormalizer::forThisServer(),
+            $imageVariantService
         )
     );
     $frontController->registerController(

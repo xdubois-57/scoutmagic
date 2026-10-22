@@ -115,7 +115,9 @@ class RentalRetentionServiceTest extends TestCase
             null,
             $this->storagePath,
             $this->payments,
-            RentalTestHelper::bookingAudit($this->pdo, $this->encryption)
+            RentalTestHelper::bookingAudit($this->pdo, $this->encryption),
+            // As the scheduled task wires it: the stay's photos (#989).
+            new \Modules\Rental\Repository\RentalStayRepository($this->pdo, $this->encryption)
         );
 
         $this->assetId = (new RentalAssetRepository($this->pdo, $this->encryption))
@@ -279,6 +281,50 @@ class RentalRetentionServiceTest extends TestCase
         $this->service->purge(new \DateTimeImmutable('2026-01-01'));
 
         $this->assertFileDoesNotExist($path);
+    }
+
+    /**
+     * The photos of the incidents and of the meter readings are files with
+     * no document row: the purge finds them all the same, thumbnails
+     * included (#989) — the RGPD page says « fichiers compris ».
+     */
+    public function testTheStaysPhotosGoWithTheBooking(): void
+    {
+        $booking = $this->createBooking('LOC-2A3B4C', '2018-07-01', '2018-07-04');
+        $recent = $this->createBooking('LOC-3B4C5D', '2025-07-01', '2025-07-04');
+        $stay = new \Modules\Rental\Repository\RentalStayRepository($this->pdo, $this->encryption);
+        $meterId = $stay->createMeter($this->assetId, 'Électricité', \Modules\Rental\Stay\MeterKind::ELECTRICITY, 'kWh', null);
+
+        $incidentPhotos = [$this->storePhoto(), $this->storePhoto()];
+        $stay->createIncident($booking->id, 'Vitre cassée', null, $incidentPhotos, null);
+        $readingPhoto = $this->storePhoto();
+        $stay->saveReading(
+            $booking->id, $meterId, \Modules\Rental\Stay\ReadingPhase::ARRIVAL, 1000, new \DateTimeImmutable('2018-07-01 18:00:00'),
+            $readingPhoto, null, null
+        );
+        $kept = $this->storePhoto();
+        $stay->createIncident($recent->id, 'Rayure', null, [$kept], null);
+
+        $this->service->purge(new \DateTimeImmutable('2026-01-01'));
+
+        foreach ([...$incidentPhotos, $readingPhoto] as $fileId) {
+            $this->assertNull($this->fileRepository->findById($fileId));
+        }
+        $this->assertSame([$kept], array_map('intval', $this->pdo->query('SELECT id FROM files')->fetchAll(\PDO::FETCH_COLUMN)));
+        $left = glob($this->storagePath . '/rental/documents/*') ?: [];
+        $this->assertCount(2, $left, 'the recent booking\'s photo and its thumbnail, nothing else');
+    }
+
+    /** A photo, as the controller stores one: a JPEG and its thumbnail beside it. */
+    private function storePhoto(): int
+    {
+        $name = bin2hex(random_bytes(8));
+        file_put_contents($this->storagePath . '/rental/documents/' . $name . '.jpg', 'jpeg');
+        file_put_contents($this->storagePath . '/rental/documents/' . $name . '.thumb.webp', 'thumb');
+
+        return $this->fileRepository->create(
+            'rental/documents/' . $name . '.jpg', 'photo.jpg', 'image/jpeg', 4, 'identified', 'rental', null
+        );
     }
 
     public function testARecentBookingIsUntouched(): void

@@ -142,19 +142,17 @@ class RentalManagementController extends AbstractController
     private const MAX_DOCUMENT_BYTES = 15 * 1024 * 1024;
 
     /**
-     * Meter and damage photos: images only, no PDF.
+     * Meter and damage photos, once `Core\Image\PhotoNormalizer` made them
+     * a JPEG: that is the only type stored (#989).
      *
-     * Narrower than the document list on purpose — a photo of a dial is a
-     * photo, and every one of these types has its EXIF stripped by
-     * `UploadHandler`, which matters more here than anywhere else in the
-     * module: a phone photograph taken inside somebody's rented hall
-     * carries GPS coordinates.
+     * The phone may send JPEG, PNG, WebP or HEIC; the normaliser re-encodes
+     * every one into fresh pixels with no metadata, and refuses what it
+     * cannot read rather than storing it as it came. That matters more here
+     * than anywhere else in the module: a phone photograph taken inside
+     * somebody's rented hall carries GPS coordinates.
      */
     private const ALLOWED_PHOTO_MIMES = [
         'image/jpeg',
-        'image/png',
-        'image/webp',
-        'image/heic',
     ];
 
     /** Built on first use (journeyService()). */
@@ -281,7 +279,16 @@ class RentalManagementController extends AbstractController
          * Why « Clôturer la location » is refused, and « Clôturer avec un
          * solde non recouvré » (#980, CHANTIER-locations-incidents.md §2.9). Null offers neither.
          */
-        private ?\Modules\Rental\Service\RentalClosureService $closureService = null
+        private ?\Modules\Rental\Service\RentalClosureService $closureService = null,
+        /**
+         * Every reading and incident photo goes through it before it is
+         * stored (#989). Null builds the one this server can offer
+         * (`PhotoNormalizer::forThisServer()`): there is no path that stores
+         * a photo without it.
+         */
+        private ?\Core\Image\PhotoNormalizer $photoNormalizer = null,
+        /** Writes each photo's `thumb` derivative (#989, decision Q8). */
+        private ?\Core\Photo\ImageVariantService $imageVariants = null
     ) {
         parent::__construct($twig);
     }
@@ -609,64 +616,112 @@ class RentalManagementController extends AbstractController
     }
 
     /**
-     * The optional photo carried by a meter reading or an incident report,
-     * stored through `UploadHandler` like every other file in this module.
+     * The photos a form posted: `photos[]` (several, #989) and `photo` (one)
+     * alike, in that order.
      *
      * A browser posts an untouched file input all the same — as an
      * UPLOAD_ERR_NO_FILE entry. That is "no photo", not a failed upload;
      * without that test the whole reading or incident was refused and lost.
      * Same guard as uploadComplianceFile() above.
      *
-     * @throws RentalException
+     * @return list<array<string, mixed>>
      */
-    private function uploadOptionalPhoto(Request $request, RentalBooking $booking): ?int
+    private static function postedPhotos(Request $request): array
     {
-        $uploaded = $request->getFile('photo');
-        if (
-            $this->uploadHandler === null
-            || $uploaded === null
-            || ($uploaded['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE
+        $photos = $request->getFiles('photos');
+        $single = $request->getFile('photo');
+        if (is_array($single) && !is_array($single['name'] ?? null)
+            && (int) ($single['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE
         ) {
-            return null;
+            $photos[] = $single;
         }
 
-        try {
-            return $this->uploadHandler->handle(
-                $uploaded,
-                RentalDocumentService::STORAGE_SUBDIRECTORY,
-                self::ALLOWED_PHOTO_MIMES,
-                self::MAX_DOCUMENT_BYTES,
-                RentalDocumentService::FILE_ROLE_MIN,
-                'rental',
-                AuthSession::getUserAccountId(),
-                RentalDocumentService::OWNER_TYPE,
-                $booking->id
-            );
-        } catch (UploadException $e) {
-            // Narrow on purpose — see the identical catch in
-            // uploadDocument() above.
-            throw new RentalException($e->getMessage(), 0, $e);
-        }
+        return array_values($photos);
     }
 
     /**
-     * Stores the optional photo, then writes what it illustrates — and
-     * takes the photo back when that write is refused (a frozen phase, a
-     * value that does not parse): nothing would ever reference it.
+     * Stores the photos a reading or an incident report carries (#989):
+     * each one normalised by `Core\Image\PhotoNormalizer` (a JPEG of 2 400
+     * px at most, no EXIF, no GPS), stored through `UploadHandler` like
+     * every other file in this module, and given its `thumb` derivative.
+     * All or none: one refused photo takes back those already stored.
      *
-     * @param callable(?int): mixed $write
+     * @return list<int> the stored file ids
      * @throws RentalException
      */
-    private function withOptionalPhoto(Request $request, RentalBooking $booking, callable $write): void
+    private function storePostedPhotos(Request $request, RentalBooking $booking, int $max): array
     {
-        $fileId = $this->uploadOptionalPhoto($request, $booking);
-        try {
-            $write($fileId);
-        } catch (\Throwable $e) {
-            if ($fileId !== null) {
-                $this->documentService?->discardUnusedUpload($fileId);
+        $photos = self::postedPhotos($request);
+        if ($photos === [] || $this->uploadHandler === null) {
+            return [];
+        }
+        if (count($photos) > $max) {
+            throw new RentalException(
+                $max === 1
+                    ? 'Une seule photo à la fois ici.'
+                    : 'Un incident garde ' . $max . ' photos au plus.'
+            );
+        }
+
+        $normalizer = $this->photoNormalizer ??= \Core\Image\PhotoNormalizer::forThisServer();
+        $stored = [];
+        foreach ($photos as $photo) {
+            $normalized = null;
+            try {
+                $normalized = $normalizer->normalizeUpload($photo, self::MAX_DOCUMENT_BYTES);
+                $fileId = $this->uploadHandler->handle(
+                    $normalized,
+                    RentalDocumentService::STORAGE_SUBDIRECTORY,
+                    self::ALLOWED_PHOTO_MIMES,
+                    self::MAX_DOCUMENT_BYTES,
+                    RentalDocumentService::FILE_ROLE_MIN,
+                    'rental',
+                    AuthSession::getUserAccountId(),
+                    RentalDocumentService::OWNER_TYPE,
+                    $booking->id
+                );
+                $stored[] = $fileId;
+                $this->imageVariants?->generate($fileId, 'thumb');
+            } catch (UploadException $e) {
+                $this->discardUploads($stored);
+                // Narrow on purpose — see the identical catch in
+                // uploadDocument() above. A refused photo's sentence is
+                // the normaliser's, written for the person who took it.
+                throw new RentalException($e->getMessage(), 0, $e);
+            } finally {
+                if ($normalized !== null) {
+                    \Core\Image\PhotoNormalizer::discard($normalized);
+                }
             }
+        }
+
+        return $stored;
+    }
+
+    /**
+     * Stores the posted photos, then writes what they illustrate — and
+     * takes the photos back when that write is refused (a frozen phase, a
+     * value that does not parse): nothing would ever reference them.
+     *
+     * @param callable(list<int>): mixed $write
+     * @throws RentalException
+     */
+    private function withPhotos(Request $request, RentalBooking $booking, int $max, callable $write): void
+    {
+        $fileIds = $this->storePostedPhotos($request, $booking, $max);
+        try {
+            $write($fileIds);
+        } catch (\Throwable $e) {
+            $this->discardUploads($fileIds);
             throw $e;
+        }
+    }
+
+    /** @param list<int> $fileIds */
+    private function discardUploads(array $fileIds): void
+    {
+        foreach ($fileIds as $fileId) {
+            $this->documentService?->discardUnusedUpload($fileId);
         }
     }
 
@@ -3506,45 +3561,115 @@ class RentalManagementController extends AbstractController
             $readAt = DateInput::parse(DateInput::ISO_DATETIME_LOCAL, (string) $request->getBody('read_at', ''))
                 ?? new \DateTimeImmutable();
 
-            $record = fn(?int $fileId) => $this->stayService?->recordReading(
+            $record = fn(array $fileIds) => $this->stayService?->recordReading(
                 $booking,
                 $asset->id,
                 (int) $request->getBody('meter_id', 0),
                 $phase,
                 Support::optionalString($request->getBody('value')),
                 $readAt,
-                $fileId,
+                $fileIds[0] ?? null,
                 Support::optionalString($request->getBody('comment')),
                 $this->actorMemberId(),
                 $this->arrivalTickedByHand($booking)
             );
-            $this->withOptionalPhoto($request, $booking, $record);
+            // One photo per reading (#989): a new one replaces the old.
+            $this->withPhotos($request, $booking, 1, $record);
 
             FlashMessage::set('success', 'Relevé enregistré.');
         });
     }
 
     /**
-     * POST /mes-locations/incident — report a damage (§6.23).
+     * POST /mes-locations/releve/photo/retirer — takes the photo off a
+     * reading (#989), until its phase is validated.
+     *
+     * @param array<string, string> $params
+     */
+    public function removeReadingPhoto(Request $request, array $params): Response
+    {
+        return $this->bookingAction($request, function (
+            RentalBooking $booking,
+            RentalAsset $asset
+        ) use ($request): void {
+            $phase = ReadingPhase::tryFrom((string) $request->getBody('phase', ''));
+            if ($phase === null) {
+                throw new RentalException("Cette phase n'existe pas.");
+            }
+
+            $this->requireStayService()->removeReadingPhoto(
+                $booking,
+                $asset->id,
+                (int) $request->getBody('meter_id', 0),
+                $phase,
+                $this->arrivalTickedByHand($booking)
+            );
+
+            FlashMessage::set('success', 'Photo du relevé retirée.');
+        });
+    }
+
+    /**
+     * POST /mes-locations/incident — report a damage (§6.23), with up to
+     * five photos (#989).
      *
      * @param array<string, string> $params
      */
     public function reportIncident(Request $request, array $params): Response
     {
         return $this->bookingAction($request, function (RentalBooking $booking) use ($request): void {
-            $report = fn(?int $fileId) => $this->stayService?->reportIncident(
+            $report = fn(array $fileIds) => $this->stayService?->reportIncident(
                 $booking,
                 (string) $request->getBody('description', ''),
                 RentalPricingService::parseAmountToCents((string) $request->getBody('amount', '')),
-                $fileId,
+                $fileIds,
                 $this->actorMemberId()
             );
-            $this->withOptionalPhoto($request, $booking, $report);
+            $this->withPhotos($request, $booking, RentalStayService::MAX_INCIDENT_PHOTOS, $report);
 
             FlashMessage::set(
                 'success',
                 'Incident enregistré. Rien n\'est facturé tant que vous n\'avez pas tranché.'
             );
+        });
+    }
+
+    /**
+     * POST /mes-locations/incident/photo — adds photos to an incident
+     * already observed (#989, decision Q5), until the departure inventory
+     * is validated, five in all.
+     *
+     * @param array<string, string> $params
+     */
+    public function addIncidentPhotos(Request $request, array $params): Response
+    {
+        return $this->bookingAction($request, function (RentalBooking $booking) use ($request): void {
+            $stay = $this->requireStayService();
+            $add = fn(array $fileIds) => $stay->addIncidentPhotos(
+                $booking,
+                (int) $request->getBody('incident_id', 0),
+                $fileIds,
+                $this->actorMemberId()
+            );
+            $this->withPhotos($request, $booking, RentalStayService::MAX_INCIDENT_PHOTOS, $add);
+
+            FlashMessage::set('success', 'Photo ajoutée à l\'incident.');
+        });
+    }
+
+    /**
+     * POST /mes-locations/incident/photo/retirer — removes one photo of an
+     * incident (#989, decision Q5), until the departure inventory is
+     * validated.
+     *
+     * @param array<string, string> $params
+     */
+    public function removeIncidentPhoto(Request $request, array $params): Response
+    {
+        return $this->bookingAction($request, function (RentalBooking $booking) use ($request): void {
+            $this->requireStayService()->removeIncidentPhoto($booking, (int) $request->getBody('photo_id', 0));
+
+            FlashMessage::set('success', 'Photo retirée de l\'incident.');
         });
     }
 

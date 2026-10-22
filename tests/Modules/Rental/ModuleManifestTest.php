@@ -160,10 +160,14 @@ class ModuleManifestTest extends TestCase
      *
      * 1.50.0 declares `rental.document_signed`, the notification the
      * signing account receives (issue #926, decision Q1) — no schema change.
+     *
+     * 1.51.0 keeps up to five photos per incident (`rental_incident_photos`,
+     * `rental_incidents.file_id` dropped) and declares the three routes that
+     * add and remove them (#989, lot A).
      */
     public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
     {
-        $this->assertSame('1.50.0', $this->manifest->version);
+        $this->assertSame('1.51.0', $this->manifest->version);
     }
 
     /**
@@ -206,6 +210,9 @@ class ModuleManifestTest extends TestCase
             '/mes-locations/etat-des-lieux/ligne',
             '/mes-locations/etat-des-lieux/valider',
             '/mes-locations/incident',
+            '/mes-locations/incident/photo',
+            '/mes-locations/incident/photo/retirer',
+            '/mes-locations/releve/photo/retirer',
             '/mes-locations/incident-decision',
             '/mes-locations/decompte',
             '/mes-locations/decompte-valider',

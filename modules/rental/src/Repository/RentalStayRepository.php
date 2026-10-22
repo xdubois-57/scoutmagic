@@ -12,6 +12,7 @@ use Core\Security\EncryptionService;
 use Core\Service\DateInput;
 use Modules\Rental\Stay\Incident;
 use Modules\Rental\Stay\IncidentDecision;
+use Modules\Rental\Stay\IncidentPhoto;
 use Modules\Rental\Stay\InventoryKind;
 use Modules\Rental\Stay\MeterKind;
 use Modules\Rental\Stay\MeterReading;
@@ -220,6 +221,28 @@ class RentalStayRepository
             ...self::frozenByValues($phase),
         ]);
 
+        return $stmt->rowCount() > 0;
+    }
+
+    /**
+     * Takes the photo off a reading (#989) — never on a validated phase,
+     * read by the UPDATE itself, like saveReading(). False when nothing
+     * changed: the phase was validated in between, or the photo is no
+     * longer this one. The file is the caller's to delete.
+     */
+    public function clearReadingPhoto(int $readingId, int $bookingId, int $fileId, ReadingPhase $phase): bool
+    {
+        $stmt = $this->pdo->prepare(
+            'UPDATE rental_meter_readings SET file_id = NULL
+              WHERE id = ? AND booking_id = ? AND file_id = ?
+                AND NOT EXISTS (SELECT 1 FROM rental_inventory_validations v
+                                 WHERE v.booking_id = ? AND v.phase IN (' . self::placeholders($phase) . '))'
+        );
+        $stmt->execute([$readingId, $bookingId, $fileId, $bookingId, ...self::frozenByValues($phase)]);
+
+        // A non-null file_id becomes NULL: the row CHANGES whenever it
+        // matches, so MySQL's changed-rows count and SQLite's matched-rows
+        // count agree here.
         return $stmt->rowCount() > 0;
     }
 
@@ -592,36 +615,212 @@ class RentalStayRepository
      * while missing from what the renter received.
      *
      * Null when the departure was validated in between: nothing inserted.
+     *
+     * Its photos (#989) are written with it, in one transaction: an
+     * incident never exists without the photos it was reported with.
+     *
+     * @param list<int> $fileIds
      */
     public function createIncident(
         int $bookingId,
         string $description,
         ?int $proposedAmountCents,
-        ?int $fileId,
+        array $fileIds,
         ?int $createdByMemberId
     ): ?int {
+        return $this->inTransaction(function () use (
+            $bookingId,
+            $description,
+            $proposedAmountCents,
+            $fileIds,
+            $createdByMemberId
+        ): ?int {
+            $now = (new \DateTimeImmutable())->format('Y-m-d H:i:s');
+            $stmt = $this->pdo->prepare(
+                'INSERT INTO rental_incidents
+                    (booking_id, description_encrypted, proposed_amount_cents, decision, created_by_member_id, '
+                    . 'created_at)
+                 SELECT ?, ?, ?, ?, ?, ? FROM (SELECT 1 AS one) AS single_row
+                  WHERE NOT EXISTS (SELECT 1 FROM rental_inventory_validations v
+                                     WHERE v.booking_id = ? AND v.phase = ?)'
+            );
+            $stmt->execute([
+                $bookingId,
+                $this->encryption->encrypt(trim($description), self::CTX_INCIDENT),
+                $proposedAmountCents,
+                IncidentDecision::PENDING->value,
+                $createdByMemberId,
+                $now,
+                $bookingId,
+                ReadingPhase::DEPARTURE->value,
+            ]);
+
+            // An INSERT reports the rows it inserted on every engine alike.
+            if ($stmt->rowCount() === 0) {
+                return null;
+            }
+            $id = (int) $this->pdo->lastInsertId();
+
+            $photo = $this->pdo->prepare(
+                'INSERT INTO rental_incident_photos
+                    (incident_id, booking_id, file_id, position, created_by_member_id, created_at)
+                 VALUES (?, ?, ?, ?, ?, ?)'
+            );
+            foreach ($fileIds as $index => $fileId) {
+                $photo->execute([$id, $bookingId, $fileId, $index + 1, $createdByMemberId, $now]);
+            }
+
+            return $id;
+        });
+    }
+
+    // ── Incident photos (#989) ──────────────────────────────────────────
+
+    /**
+     * Adds photos to an incident of this booking, all or none.
+     *
+     * Refused — false, nothing written — when the incident is not this
+     * booking's, when the departure inventory is validated (its PDF lists
+     * the incidents, frozen with it), or when the photos would go past
+     * `$max`. Each condition is read by the INSERT itself, so a validation
+     * or another addition landing in between cannot slip past it; two
+     * simultaneous additions that computed the same position collide on
+     * the unique key and the second is refused the same way.
+     *
+     * @param list<int> $fileIds
+     */
+    public function addIncidentPhotos(
+        int $incidentId,
+        int $bookingId,
+        array $fileIds,
+        ?int $createdByMemberId,
+        int $max
+    ): bool {
+        $ownTransaction = !$this->pdo->inTransaction();
+        if ($ownTransaction) {
+            $this->pdo->beginTransaction();
+        }
+
+        try {
+            $now = (new \DateTimeImmutable())->format('Y-m-d H:i:s');
+            $stmt = $this->pdo->prepare(
+                'INSERT INTO rental_incident_photos
+                    (incident_id, booking_id, file_id, position, created_by_member_id, created_at)
+                 SELECT ?, ?, ?, stats.next_position, ?, ?
+                   FROM (SELECT COALESCE(MAX(p.position), 0) + 1 AS next_position, COUNT(*) AS photo_count
+                           FROM rental_incident_photos p
+                          WHERE p.incident_id = ?) AS stats
+                  WHERE stats.photo_count < ?
+                    AND EXISTS (SELECT 1 FROM rental_incidents i WHERE i.id = ? AND i.booking_id = ?)
+                    AND NOT EXISTS (SELECT 1 FROM rental_inventory_validations v
+                                     WHERE v.booking_id = ? AND v.phase = ?)'
+            );
+            foreach ($fileIds as $fileId) {
+                $values = [
+                    $incidentId,
+                    $bookingId,
+                    $fileId,
+                    $createdByMemberId,
+                    $now,
+                    $incidentId,
+                    $max,
+                    $incidentId,
+                    $bookingId,
+                    $bookingId,
+                    ReadingPhase::DEPARTURE->value,
+                ];
+                // Bound with their types: SQLite compares a COUNT(*) with a
+                // value bound as text by type, not by number, and every
+                // integer sorts below any text — the limit never held.
+                foreach ($values as $index => $value) {
+                    $stmt->bindValue($index + 1, $value, is_int($value) ? \PDO::PARAM_INT : (
+                        $value === null ? \PDO::PARAM_NULL : \PDO::PARAM_STR
+                    ));
+                }
+                $stmt->execute();
+                // An INSERT reports the rows it inserted on every engine.
+                if ($stmt->rowCount() === 0) {
+                    if ($ownTransaction) {
+                        $this->pdo->rollBack();
+                    }
+
+                    return false;
+                }
+            }
+
+            if ($ownTransaction) {
+                $this->pdo->commit();
+            }
+
+            return true;
+        } catch (\PDOException $e) {
+            if ($ownTransaction) {
+                $this->pdo->rollBack();
+            }
+            // Two additions that read the same next position: the unique
+            // key refused the second, which is a refusal, not a crash.
+            if ((string) $e->getCode() === '23000') {
+                return false;
+            }
+            throw $e;
+        }
+    }
+
+    public function findIncidentPhoto(int $photoId): ?IncidentPhoto
+    {
+        $stmt = $this->pdo->prepare('SELECT * FROM rental_incident_photos WHERE id = ?');
+        $stmt->execute([$photoId]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+        return $row === false ? null : self::hydrateIncidentPhoto($row);
+    }
+
+    public function countIncidentPhotos(int $incidentId): int
+    {
+        $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM rental_incident_photos WHERE incident_id = ?');
+        $stmt->execute([$incidentId]);
+
+        return (int) $stmt->fetchColumn();
+    }
+
+    /**
+     * Removes one photo of this booking's incidents — never once the
+     * departure inventory is validated, read by the DELETE itself. False
+     * when nothing was removed. The file is the caller's to delete.
+     */
+    public function deleteIncidentPhoto(int $photoId, int $bookingId): bool
+    {
         $stmt = $this->pdo->prepare(
-            'INSERT INTO rental_incidents
-                (booking_id, description_encrypted, proposed_amount_cents, decision, file_id, created_by_member_id, '
-                . 'created_at)
-             SELECT ?, ?, ?, ?, ?, ?, ? FROM (SELECT 1 AS one) AS single_row
-              WHERE NOT EXISTS (SELECT 1 FROM rental_inventory_validations v
+            'DELETE FROM rental_incident_photos
+              WHERE id = ? AND booking_id = ?
+                AND NOT EXISTS (SELECT 1 FROM rental_inventory_validations v
                                  WHERE v.booking_id = ? AND v.phase = ?)'
         );
-        $stmt->execute([
-            $bookingId,
-            $this->encryption->encrypt(trim($description), self::CTX_INCIDENT),
-            $proposedAmountCents,
-            IncidentDecision::PENDING->value,
-            $fileId,
-            $createdByMemberId,
-            (new \DateTimeImmutable())->format('Y-m-d H:i:s'),
-            $bookingId,
-            ReadingPhase::DEPARTURE->value,
-        ]);
+        $stmt->execute([$photoId, $bookingId, $bookingId, ReadingPhase::DEPARTURE->value]);
 
-        // An INSERT reports the rows it inserted on every engine alike.
-        return $stmt->rowCount() > 0 ? (int) $this->pdo->lastInsertId() : null;
+        return $stmt->rowCount() > 0;
+    }
+
+    /**
+     * Every file this booking's stay holds outside `rental_documents`:
+     * its incidents' photos and its readings' photos (#989) — what the
+     * retention purge deletes with the booking.
+     *
+     * @return list<int>
+     */
+    public function photoFileIds(int $bookingId): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT file_id FROM rental_incident_photos WHERE booking_id = ?
+             UNION
+             SELECT file_id FROM rental_meter_readings WHERE booking_id = ? AND file_id IS NOT NULL'
+        );
+        $stmt->execute([$bookingId, $bookingId]);
+
+        $ids = array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN));
+        sort($ids);
+
+        return $ids;
     }
 
     /**
@@ -684,8 +883,11 @@ class RentalStayRepository
         $stmt = $this->pdo->prepare('SELECT * FROM rental_incidents WHERE id = ?');
         $stmt->execute([$incidentId]);
         $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+        if ($row === false) {
+            return null;
+        }
 
-        return $row === false ? null : $this->hydrateIncident($row);
+        return $this->hydrateIncident($row, $this->incidentPhotos((int) $row['booking_id'])[$incidentId] ?? []);
     }
 
     /**
@@ -697,8 +899,33 @@ class RentalStayRepository
             'SELECT * FROM rental_incidents WHERE booking_id = ? ORDER BY created_at ASC, id ASC'
         );
         $stmt->execute([$bookingId]);
+        $photos = $this->incidentPhotos($bookingId);
 
-        return array_map(fn(array $row) => $this->hydrateIncident($row), $stmt->fetchAll(\PDO::FETCH_ASSOC));
+        return array_map(
+            fn(array $row) => $this->hydrateIncident($row, $photos[(int) $row['id']] ?? []),
+            $stmt->fetchAll(\PDO::FETCH_ASSOC)
+        );
+    }
+
+    /**
+     * A booking's incident photos, one query, grouped by incident and in
+     * the order they were added.
+     *
+     * @return array<int, list<IncidentPhoto>>
+     */
+    private function incidentPhotos(int $bookingId): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT * FROM rental_incident_photos WHERE booking_id = ? ORDER BY incident_id ASC, position ASC'
+        );
+        $stmt->execute([$bookingId]);
+
+        $grouped = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $grouped[(int) $row['incident_id']][] = self::hydrateIncidentPhoto($row);
+        }
+
+        return $grouped;
     }
 
     /**
@@ -1034,6 +1261,33 @@ class RentalStayRepository
         $stmt->execute([$settlementId]);
     }
 
+    /**
+     * @template T
+     * @param callable(): T $work
+     * @return T
+     */
+    private function inTransaction(callable $work): mixed
+    {
+        $ownTransaction = !$this->pdo->inTransaction();
+        if ($ownTransaction) {
+            $this->pdo->beginTransaction();
+        }
+
+        try {
+            $result = $work();
+            if ($ownTransaction) {
+                $this->pdo->commit();
+            }
+
+            return $result;
+        } catch (\Throwable $e) {
+            if ($ownTransaction) {
+                $this->pdo->rollBack();
+            }
+            throw $e;
+        }
+    }
+
     // ── Hydration ───────────────────────────────────────────────────────
 
     /**
@@ -1057,7 +1311,23 @@ class RentalStayRepository
     /**
      * @param array<string, mixed> $row
      */
-    private function hydrateIncident(array $row): Incident
+    private static function hydrateIncidentPhoto(array $row): IncidentPhoto
+    {
+        return new IncidentPhoto(
+            id: (int) $row['id'],
+            incidentId: (int) $row['incident_id'],
+            bookingId: (int) $row['booking_id'],
+            fileId: (int) $row['file_id'],
+            position: (int) $row['position'],
+            createdAt: DateInput::requireFromStorage((string) $row['created_at'], 'created_at')
+        );
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @param list<IncidentPhoto> $photos
+     */
+    private function hydrateIncident(array $row, array $photos = []): Incident
     {
         return new Incident(
             id: (int) $row['id'],
@@ -1070,7 +1340,6 @@ class RentalStayRepository
             decidedAmountCents: $row['decided_amount_cents'] !== null ? (int) $row['decided_amount_cents'] : null,
             decidedAt: DateInput::fromStorage($row['decided_at'] === null ? null : (string) $row['decided_at']),
             decidedByMemberId: $row['decided_by_member_id'] !== null ? (int) $row['decided_by_member_id'] : null,
-            fileId: $row['file_id'] !== null ? (int) $row['file_id'] : null,
             createdByMemberId: $row['created_by_member_id'] !== null ? (int) $row['created_by_member_id'] : null,
             createdAt: DateInput::requireFromStorage((string) $row['created_at'], 'created_at'),
             awaiting: $this->decryptOptional($row['awaiting_encrypted'] ?? null, self::CTX_INCIDENT_AWAITING),
@@ -1078,7 +1347,8 @@ class RentalStayRepository
             waiveReason: $this->decryptOptional(
                 $row['waive_reason_encrypted'] ?? null,
                 self::CTX_INCIDENT_WAIVE_REASON
-            )
+            ),
+            photos: $photos
         );
     }
 

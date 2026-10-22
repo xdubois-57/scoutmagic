@@ -100,7 +100,9 @@ class PurgeRentalBookingsHandler implements TaskHandlerInterface
             $context->getOptional(\Modules\InboundMail\Api\InboundMailInterface::class),
             $context->storagePath,
             $payments,
-            $bookingAudit
+            $bookingAudit,
+            // The photos of its incidents and readings (#989).
+            new \Modules\Rental\Repository\RentalStayRepository($pdo, $context->encryption)
         );
     }
 

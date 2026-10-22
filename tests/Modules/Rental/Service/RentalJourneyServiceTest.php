@@ -185,7 +185,7 @@ final class RentalJourneyServiceTest extends TestCase
         $before = $this->settlementStep($service->milestones($booking, $this->asset, $now));
         $this->assertFalse($before->awaitsAssessment);
 
-        $stay->reportIncident($booking, 'Porte fendue', 30000, null, 1);
+        $stay->reportIncident($booking, 'Porte fendue', 30000, [], 1);
         $after = $this->settlementStep($service->milestones($booking, $this->asset, $now));
 
         $this->assertTrue($after->awaitsAssessment);
