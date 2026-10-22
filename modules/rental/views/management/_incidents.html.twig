@@ -11,12 +11,22 @@
   the current state; rental-inventory.js shows them as the choice changes.
   Hidden fields still post, so switching back and forth loses nothing.
 
+  Photos (#989, lot B): a row of thumbnails ending with the « + Photo »
+  tile (`_photo_tile.html.twig`). On an incident already observed, a photo
+  picked is sent at once (`data-photo-autosubmit`) and each thumbnail has
+  its cross, a form of its own behind `data-confirm`; on the report form,
+  they wait for « Ajouter ». Both stop with the departure inventory's
+  validation, like the report itself.
+
   Requires `incidents`, `incident_decisions`, `incidents_open`, `asset` and
-  `booking`.
+  `booking`, and `max_incident_photos` (RentalStayService::MAX_INCIDENT_PHOTOS).
 #}
         <div class="card mb-4">
             <div class="card-body">
-                <h2 class="h5 mb-2">Incidents et dégâts</h2>
+                <h2 class="h5 mb-1">Incidents et dégâts</h2>
+                <p class="small mb-2" data-incident-photo-help>
+                    <i class="bi bi-camera me-1" aria-hidden="true"></i>Une vue d'ensemble, puis un gros plan.
+                </p>
                 <p class="text-body-secondary small">
                     Rien n'est facturé automatiquement. Vous constatez, puis vous tranchez : en cours
                     d'évaluation, facturer, ou ne pas facturer. Tant que rien n'est facturé, aucun montant
@@ -37,13 +47,6 @@
                                 <div class="d-flex justify-content-between align-items-start gap-2">
                                     <span>
                                         {{ incident.description }}
-                                        {% if incident.photos is not empty %}
-                                            <span class="small d-block">
-                                                {% for photo in incident.photos %}
-                                                    <a href="{{ file_url(photo.fileId) }}">Photo {{ loop.index }}</a>{% if not loop.last %} · {% endif %}
-                                                {% endfor %}
-                                            </span>
-                                        {% endif %}
                                         {% if incident.awaiting or incident.reference %}
                                             <span class="small text-body-secondary d-block">
                                                 {% if incident.awaiting %}
@@ -76,6 +79,54 @@
                                         {% endif %}
                                     </span>
                                 </div>
+                                {% set photo_items = [] %}
+                                {% for photo in incident.photos %}
+                                    {% set photo_items = photo_items|merge([{
+                                        file_id: photo.fileId,
+                                        remove_form: incidents_open ? 'incident-photo-remove-' ~ photo.id : null,
+                                    }]) %}
+                                {% endfor %}
+                                {% set photo_tile = {
+                                    tile_id: 'incident-' ~ incident.id ~ '-photos',
+                                    max: max_incident_photos,
+                                    field: 'photos[]',
+                                    photos: photo_items,
+                                    open: incidents_open,
+                                    label: incident.description,
+                                    hint: "Jusqu'à " ~ max_incident_photos ~ ' photos. Photographiez le dégât, pas les personnes.',
+                                } %}
+                                {% if incidents_open %}
+                                    <form method="post" action="/mes-locations/incident/photo" enctype="multipart/form-data"
+                                          class="mt-2" data-photo-autosubmit>
+                                        {{ csrf_field()|raw }}
+                                        <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                                        <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                                        <input type="hidden" name="booking_page" value="inventory">
+                                        <input type="hidden" name="incident_id" value="{{ incident.id }}">
+                                        {% include '@rental/management/_photo_tile.html.twig' with photo_tile only %}
+                                        {% if photo_items|length < max_incident_photos %}
+                                            <button type="submit" class="btn btn-sm btn-outline-secondary mt-1 photo-tile-nojs">
+                                                Ajouter la photo
+                                            </button>
+                                        {% endif %}
+                                    </form>
+                                    {% for photo in incident.photos %}
+                                        <form method="post" action="/mes-locations/incident/photo/retirer"
+                                              id="incident-photo-remove-{{ photo.id }}"
+                                              data-confirm="Retirer la photo {{ loop.index }} de cet incident ? Elle est supprimée et ne se récupère pas."
+                                              data-confirm-label="Retirer">
+                                            {{ csrf_field()|raw }}
+                                            <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                                            <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                                            <input type="hidden" name="booking_page" value="inventory">
+                                            <input type="hidden" name="photo_id" value="{{ photo.id }}">
+                                        </form>
+                                    {% endfor %}
+                                {% elseif photo_items is not empty %}
+                                    <div class="mt-2">
+                                        {% include '@rental/management/_photo_tile.html.twig' with photo_tile only %}
+                                    </div>
+                                {% endif %}
                                 <form method="post" action="/mes-locations/incident-decision" class="mt-2"
                                       data-incident-decision>
                                     {{ csrf_field()|raw }}
@@ -160,28 +211,36 @@
                 {% endif %}
 
                 {% if incidents_open %}
+                {# Description, then the estimated amount on its own line, then
+                   the photos, on a phone; side by side from md up. #}
                 <form method="post" action="/mes-locations/incident" enctype="multipart/form-data"
-                      class="row g-2 align-items-end mt-2">
+                      class="row g-2 mt-2" data-incident-report>
                     {{ csrf_field()|raw }}
                     <input type="hidden" name="asset_id" value="{{ asset.id }}">
                     <input type="hidden" name="booking_id" value="{{ booking.id }}">
                     <input type="hidden" name="booking_page" value="inventory">
-                    <div class="col-12 col-md-5">
+                    <div class="col-12 col-md-8">
                         <label class="form-label" for="incident-description">Constater un incident</label>
                         <input type="text" class="form-control form-control-sm" id="incident-description"
                                name="description" required>
                     </div>
-                    <div class="col-6 col-md-2">
+                    <div class="col-12 col-md-4">
                         <label class="form-label" for="incident-amount">Montant estimé (€)</label>
                         <input type="text" inputmode="decimal" class="form-control form-control-sm"
                                id="incident-amount" name="amount">
                     </div>
-                    <div class="col-6 col-md-3">
-                        <label class="form-label" for="incident-photo">Photo</label>
-                        <input type="file" class="form-control form-control-sm" id="incident-photo"
-                               name="photo" accept="image/jpeg,image/png,image/webp">
+                    <div class="col-12">
+                        {% include '@rental/management/_photo_tile.html.twig' with {
+                            tile_id: 'incident-new-photos',
+                            max: max_incident_photos,
+                            field: 'photos[]',
+                            photos: [],
+                            open: true,
+                            label: "l'incident constaté",
+                            hint: "Jusqu'à " ~ max_incident_photos ~ ' photos. Photographiez le dégât, pas les personnes.',
+                        } only %}
                     </div>
-                    <div class="col-12 col-md-2">
+                    <div class="col-12 col-md-3">
                         <button type="submit" class="btn btn-sm btn-outline-secondary w-100">Ajouter</button>
                     </div>
                 </form>

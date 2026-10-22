@@ -440,18 +440,20 @@ test.describe('Rentals — one booking from the request to the deposit back', ()
         const reportForm = page.locator('form[action="/mes-locations/incident"]');
         await reportForm.locator('#incident-description').fill(DAMAGE);
         await reportForm.locator('#incident-amount').fill('250,00');
-        // With a photo of it, which the server re-encodes before storing
-        // it — no EXIF, no GPS (#989): it comes back as a link on the
-        // incident, through FileAccessGuard.
-        await reportForm.locator('#incident-photo').setInputFiles({
-            name: 'degat.png',
-            mimeType: 'image/png',
-            buffer: pngBuffer(800, 600),
-        });
+        // With two photos from the gallery, through the « + Photo » tile
+        // (#989): reduced in the browser, waiting as thumbnails, then
+        // re-encoded by the server — no EXIF, no GPS — and shown on the
+        // incident as their `thumb` derivative, through FileAccessGuard.
+        await reportForm.locator('[data-photo-source="gallery"]').setInputFiles([
+            { name: 'vue.png', mimeType: 'image/png', buffer: pngBuffer(800, 600) },
+            { name: 'gros-plan.png', mimeType: 'image/png', buffer: pngBuffer(600, 800) },
+        ]);
+        await expect(reportForm.locator('[data-photo-pending]')).toHaveCount(2);
         await submitAndRefresh(page, '/mes-locations/incident',
             () => reportForm.getByRole('button', { name: 'Ajouter', exact: true }).click());
         const incident = page.locator('li[id^="incident-"]', { hasText: DAMAGE });
         const incidentAnchor = await incident.getAttribute('id');
+        await expect(incident.locator('figure img[src$="/thumb"]')).toHaveCount(2);
         await expect(incident.getByRole('link', { name: 'Photo 1' })).toHaveAttribute('href', /\/files\/\d+$/);
         await incident.locator('input[name="awaiting"]').fill(DAMAGE_AWAITING);
         await incident.locator('input[name="reference"]').fill(DAMAGE_REFERENCE);

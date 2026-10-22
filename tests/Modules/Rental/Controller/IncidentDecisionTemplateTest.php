@@ -28,6 +28,7 @@ final class IncidentDecisionTemplateTest extends TestCase
             'incidents' => $incidents,
             'incident_decisions' => IncidentDecision::decidable(),
             'incidents_open' => true,
+            'max_incident_photos' => \Modules\Rental\Service\RentalStayService::MAX_INCIDENT_PHOTOS,
             'asset' => ['id' => 3],
             'booking' => ['id' => 9],
         ]);

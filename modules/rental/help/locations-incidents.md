@@ -7,23 +7,36 @@ role_min: identified
 question: Comment facturer un dégât à un locataire ?
 question: Comment attendre l'assurance du locataire pour un dégât ?
 question: Que se passe-t-il si un dégât coûte plus que la caution ?
+question: Comment ajouter ou retirer une photo d'un incident ?
 paths: /mes-locations/*/reservations/*/etat-des-lieux
 related: locations-etat-des-lieux, locations-facture, locations-finances, locations-virement, locations-facture-complementaire
 ---
 
 Un incident se constate sur la page « État des lieux » d'une réservation :
-une description, un montant estimé, une photo si besoin. Il se constate
+une description, un montant estimé et jusqu'à cinq photos. Il se constate
 jusqu'à la validation de l'état des lieux de sortie ; ensuite, ceux déjà
 constatés se tranchent toujours.
 
-Le site réduit chaque photo et l'enregistre sans sa position GPS ni
-aucune autre information de l'appareil. Une photo que le serveur ne sait
-pas lire est refusée, avec ce qu'il faut changer : pour une photo HEIC
-d'iPhone, réglez l'appareil photo sur le format le plus compatible, ou
-choisissez une autre photo.
-
 **Rien n'est facturé automatiquement.** Un incident n'entre au décompte
 final que si un gestionnaire le décide.
+
+## Les photos
+
+La tuile « + Photo » propose « Prendre une photo » ou « Choisir dans la
+galerie ». Une vue d'ensemble, puis un gros plan : photographiez le dégât,
+pas les personnes. Chaque photo apparaît en miniature avant d'être envoyée
+avec « Ajouter » ; sa croix l'écarte.
+
+Sur un incident déjà constaté, une photo choisie s'ajoute aussitôt, et la
+croix d'une miniature retire la photo après confirmation. Les deux restent
+possibles jusqu'à la validation de l'état des lieux de sortie. Le relevé
+d'un compteur garde une photo, envoyée avec « Enregistrer ».
+
+Le téléphone réduit chaque photo avant de l'envoyer, et le site
+l'enregistre sans sa position GPS ni aucune autre information de
+l'appareil. Une photo que le serveur ne sait pas lire est refusée, avec ce
+qu'il faut changer : pour une photo HEIC d'iPhone, réglez l'appareil photo
+sur le format le plus compatible, ou choisissez une autre photo.
 
 ## Trancher
 

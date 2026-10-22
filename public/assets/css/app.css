@@ -1223,6 +1223,58 @@ body.cookie-banner-visible {
     display: none;
 }
 
+/* The « + Photo » tile (#989, design.md §7.10): a row of square
+   thumbnails ending with a dashed square of the same size. Until
+   rental-photo-tile.js has run (`photo-tile-ready` on <html>), the plain
+   file field and its button are what a browser without JavaScript uses,
+   and the tile — which would do nothing — is hidden. */
+.photo-tiles {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 0.5rem;
+}
+.photo-thumb {
+    position: relative;
+    width: 72px;
+    height: 72px;
+    margin: 0;
+}
+.photo-thumb img {
+    display: block;
+    width: 72px;
+    height: 72px;
+    object-fit: cover;
+    border-radius: var(--bs-border-radius);
+}
+.photo-thumb-remove {
+    position: absolute;
+    top: -0.5rem;
+    right: -0.5rem;
+    width: 1.75rem;
+    height: 1.75rem;
+    padding: 0;
+    line-height: 1;
+    border-radius: 50%;
+    background-color: var(--bs-body-bg);
+    box-shadow: var(--bs-box-shadow-sm);
+}
+.photo-tile {
+    width: 72px;
+    height: 72px;
+    padding: 0.25rem;
+    border-style: dashed;
+}
+.photo-tiles-status {
+    flex-basis: 100%;
+}
+.photo-tiles-status:empty,
+html:not(.photo-tile-ready) .photo-tile-add,
+.photo-tile-ready .photo-tile-carrier,
+.photo-tile-ready .photo-tile-nojs {
+    display: none;
+}
+
 /* ---------------------------------------------------------------------
    Solid state badges (partials/status_badge.html.twig's `solid`).
 
