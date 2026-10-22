@@ -9,7 +9,7 @@ question: Comment enregistrer ma signature dans mon compte ?
 question: Comment remplacer ou supprimer ma signature enregistrée ?
 question: Un administrateur peut-il utiliser ma signature ?
 paths: /account/signature
-related: mon-compte, donnees-personnelles
+related: mon-compte, donnees-personnelles, locations-signatures
 ---
 
 Depuis « Mon compte », « Gérer ma signature » ouvre la page « Ma
@@ -42,6 +42,16 @@ confirmation.
 
 Un document que vous avez déjà signé n'est jamais modifié : il garde
 la signature qui y a été apposée au moment de signer.
+
+## Où elle sert
+
+Quand le site vous propose de signer un document — par exemple un
+contrat de location que vous contresignez —, une fenêtre vous montre
+votre signature enregistrée et vous demande de confirmer, document par
+document, avec « Signer le document ». Sans signature enregistrée, vous
+en tracez ou en importez une pour ce seul document : elle n'est gardée
+dans votre compte que si vous cochez « Mémoriser ma signature dans mon
+compte pour une utilisation future ».
 
 ## Qui la voit
 

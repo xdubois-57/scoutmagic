@@ -96,6 +96,30 @@ class BookingAuditTest extends TestCase
         $this->assertFalse($entry->isAutomatic());
     }
 
+    /**
+     * The account the caller knows from the session wins over the one a
+     * member's address would resolve to (issue #926: the account that
+     * countersigned is the one the history names).
+     */
+    public function testTheSessionsAccountIsRecordedInPlaceOfTheResolvedOne(): void
+    {
+        $memberId = RentalTestHelper::insertMember($this->pdo, 'D-SHARED');
+        RentalTestHelper::insertMemberYear(
+            $this->pdo, $this->encryption, $memberId, $this->scoutYearId, 'famille@test.be'
+        );
+        $accounts = new UserAccountRepository($this->pdo, $this->encryption);
+        $family = $accounts->create('famille@test.be', false);
+        $signer = $accounts->create('marie@test.be', false);
+
+        $this->bookingAuditWithResolver()->record(7, BookingAudit::STATUS_CHANGED, 'A', 'B', null, $memberId, $signer->id);
+        (new BookingAudit($this->audit))->record(8, BookingAudit::STATUS_CHANGED, 'A', 'B', null, null, $signer->id);
+
+        $this->assertSame($signer->id, $this->onlyEntry(7)->actorUserAccountId);
+        $this->assertNotSame($family->id, $this->onlyEntry(7)->actorUserAccountId);
+        $this->assertSame($signer->id, $this->onlyEntry(8)->actorUserAccountId);
+        $this->assertSame(AuditSource::Human, $this->onlyEntry(8)->source);
+    }
+
     public function testTheValuesSurviveEncryptionUnchanged(): void
     {
         (new BookingAudit($this->audit))->record(

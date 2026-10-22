@@ -110,6 +110,13 @@ final class BookingAudit
      * different address in Desk) still records as `Human`: the honest
      * reading is "a person did this and we can no longer say who", which
      * is exactly what a deleted account produces too.
+     *
+     * `$actorAccountId`, when the caller knows it from the session, is the
+     * account recorded — in place of the member → address → account
+     * resolution, which picks one account for an address several people
+     * share, or none for a member whose address is not their login. A
+     * countersignature passes it (issue #926): the account that signed is
+     * the one the history must name.
      */
     public function record(
         int $bookingId,
@@ -117,7 +124,8 @@ final class BookingAudit
         ?string $fromValue = null,
         ?string $toValue = null,
         ?string $summary = null,
-        ?int $actorMemberId = null
+        ?int $actorMemberId = null,
+        ?int $actorAccountId = null
     ): void {
         $this->audit->record(
             self::ENTITY_TYPE,
@@ -125,10 +133,10 @@ final class BookingAudit
             $fieldKey,
             $fromValue,
             $toValue,
-            $actorMemberId !== null ? AuditSource::Human : AuditSource::System,
+            $actorMemberId !== null || $actorAccountId !== null ? AuditSource::Human : AuditSource::System,
             $summary,
             null,
-            $this->actorAccounts?->accountIdFor($actorMemberId)
+            $actorAccountId ?? $this->actorAccounts?->accountIdFor($actorMemberId)
         );
     }
 

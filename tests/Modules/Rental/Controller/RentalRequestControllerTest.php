@@ -238,7 +238,10 @@ class RentalRequestControllerTest extends TestCase
         $this->signedContractService = new \Modules\Rental\Service\RentalSignedContractService(
             $this->documentService,
             $documentRepository,
-            new \Modules\Rental\Repository\RentalManagerSignatureRepository($this->pdo, $this->encryption),
+            new \Core\Signature\PersonalSignatureService(
+                new \Core\Signature\PersonalSignatureRepository($this->pdo, $this->encryption),
+                $journalService
+            ),
             RentalTestHelper::bookingAudit($this->pdo, $this->encryption),
             $mailService,
             new \Core\Pdf\PdfCompressor($this->storagePath . '/temp'),

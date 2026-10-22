@@ -597,6 +597,22 @@ helpers; a page-level primary action that happens to call an AI
     `/finance/campaigns/{id}/reminder` says « rappel » and only prepares a
     draft — « il n'a pas été envoyé ». That is why the exceptions are a
     named list and not a longer pattern.
+- **Signing a document is a dialog of its own, not a `data-confirm`.**
+  `partials/signature_dialog.html.twig` (issue #926, ARCHITECTURE.md
+  §8.125) is opened by the module's button and holds its own form: with
+  the account's stored signature, the sentence « Ce document sera signé
+  avec la signature enregistrée dans votre compte. Vérifiez son contenu
+  avant de confirmer. », the module's consequence (written like a
+  `data-confirm` message: what happens, to whom), a preview loaded when
+  it opens and « Gérer ma signature »; without one, the pad, the import
+  and « Mémoriser ma signature dans mon compte pour une utilisation
+  future », never pre-ticked. The buttons are always « Annuler »
+  (`btn btn-outline-secondary`) and « Signer le document »
+  (`btn-primary`: nothing is destroyed). **The dialog is the
+  confirmation**: never a `data-confirm` on its form, which would ask the
+  same question twice; « Annuler » posts nothing and empties the pad.
+  The trigger button names the act (« Contresigner »), the dialog's
+  title says it in full.
 - Never `on*=` attributes in templates — the CSP (`script-src 'self'
   'nonce-…'`) makes inline handlers dead code, silently.
 - **Behaviour lives in `public/assets/js/`, never in a template's own

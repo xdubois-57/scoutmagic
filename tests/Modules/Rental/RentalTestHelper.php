@@ -277,12 +277,6 @@ class RentalTestHelper
             FOREIGN KEY (booking_id) REFERENCES rental_bookings(id) ON DELETE CASCADE
         )');
 
-        $pdo->exec('CREATE TABLE rental_manager_signatures (
-            user_account_id INTEGER PRIMARY KEY,
-            image_encrypted BLOB NOT NULL,
-            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-        )');
-
         $pdo->exec('CREATE TABLE rental_booking_document_texts (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             booking_id INTEGER NOT NULL,

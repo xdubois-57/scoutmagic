@@ -3,8 +3,8 @@
  * Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
  *
  * The drawing pad of a personal signature (issue #926; generalised from
- * rental-signature.js, #708 IT-16): a canvas traced with a finger, a
- * stylus or a mouse, posted as the PNG it draws.
+ * Locations' own pad, #708 IT-16, which it replaced): a canvas traced with
+ * a finger, a stylus or a mouse, posted as the PNG it draws.
  *
  * Pointer events, so one code path serves touch and mouse alike, and
  * `touch-action: none` on the canvas (set here) so tracing on a phone draws
@@ -21,6 +21,11 @@
  *
  * Without this script the pad is inert and the import field still works:
  * the page says both ways, and the server accepts either.
+ *
+ * It wires every `form[data-signature-form]`: « Ma signature » under Mon
+ * compte, and the signature dialog modules open to sign a document
+ * (partials/signature_dialog.html.twig), which empties the pad by sending
+ * its form a `signature-pad:reset` event.
  */
 
 (function () {
@@ -49,11 +54,18 @@
      * Wires one pad: drawing, « Effacer », and the PNG put into the hidden
      * field on submit — only when something was drawn.
      *
+     * Wiring a form twice does nothing: a dialog re-rendered under a
+     * fetch is wired when it opens (signature-dialog.js), and may already
+     * have been at load.
+     *
      * @param {HTMLFormElement} form
      * @returns {(() => void)|null} what empties the pad and the field, or
-     *          null when the form carries no pad
+     *          null when the form carries no pad or was wired already
      */
     function wirePad(form) {
+        if (form.dataset.signaturePadWired === '1') {
+            return null;
+        }
         const canvas = /** @type {HTMLCanvasElement|null} */ (form.querySelector('[data-signature-pad]'));
         const field = /** @type {HTMLInputElement|null} */ (form.querySelector('input[name="signature_data"]'));
         const clear = form.querySelector('[data-signature-clear]');
@@ -62,6 +74,7 @@
             return null;
         }
 
+        form.dataset.signaturePadWired = '1';
         canvas.style.touchAction = 'none';
         context.lineWidth = 3;
         context.lineCap = 'round';
@@ -108,6 +121,10 @@
             field.value = '';
         };
         clear?.addEventListener('click', reset);
+        // The signature dialog (signature-dialog.js) empties its pad when
+        // it closes and once it has been sent, through this event rather
+        // than by reaching into this file.
+        form.addEventListener('signature-pad:reset', reset);
 
         form.addEventListener('submit', () => {
             field.value = drawn ? canvas.toDataURL('image/png') : '';
@@ -132,6 +149,13 @@
             resets.forEach((reset) => reset());
         }
     });
+
+    // The one thing other scripts may call: signature-dialog.js wires a
+    // dialog that arrived after this file ran — a panel re-rendered by
+    // rental-booking.js brings a fresh copy of its form.
+    globalThis.ScoutMagicSignaturePad = {
+        wire: wirePad,
+    };
 
     // --- Test seam (no behavioural effect) ---------------------------------
     // A classic script (AGENTS.md § CSS / frontend): everything above is

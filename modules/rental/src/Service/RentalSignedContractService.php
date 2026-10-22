@@ -11,6 +11,8 @@ namespace Modules\Rental\Service;
 use Core\Journal\JournalService;
 use Core\Notification\NotificationService;
 use Core\Pdf\PdfCompressor;
+use Core\Signature\AccountSignature;
+use Core\Signature\PersonalSignatureService;
 use Modules\Rental\Audit\BookingAudit;
 use Modules\Rental\Booking\RentalBooking;
 use Modules\Rental\Document\CountersignedContract;
@@ -18,7 +20,6 @@ use Modules\Rental\Document\DocumentType;
 use Modules\Rental\Document\RentalDocument;
 use Modules\Rental\Repository\RentalAsset;
 use Modules\Rental\Repository\RentalDocumentRepository;
-use Modules\Rental\Repository\RentalManagerSignatureRepository;
 
 /**
  * The contract's two signatures (#708, IT-16).
@@ -35,8 +36,12 @@ use Modules\Rental\Repository\RentalManagerSignatureRepository;
  *    both parties, and mails it to the renter.
  *
  * **The manager's signature is applied here and nowhere else**: never on a
- * copy the renter has not signed, never by anyone but its owner — the
- * account countersigning is the account whose signature is read.
+ * copy the renter has not signed, never by anyone but its owner. It comes
+ * from the core (`Core\Signature`, issue #926): the signature the
+ * countersigning account keeps in Mon compte, or one it traced or imported
+ * in the signature dialog for this contract alone — and, when it ticked
+ * « Mémoriser », kept in its account in the same transaction as the signed
+ * contract, so a countersignature that fails keeps nothing.
  */
 class RentalSignedContractService
 {
@@ -55,7 +60,7 @@ class RentalSignedContractService
     public function __construct(
         private RentalDocumentService $documents,
         private RentalDocumentRepository $documentRepository,
-        private RentalManagerSignatureRepository $signatures,
+        private PersonalSignatureService $signatures,
         private BookingAudit $bookingAudit,
         private RentalBookingMailService $mail,
         private PdfCompressor $pdfRewriter,
@@ -467,8 +472,15 @@ class RentalSignedContractService
     }
 
     /**
-     * Countersigns a copy with this account's own signature, files the
+     * Countersigns a copy with the signature of the account signing — the
+     * session's, already read and decoded by
+     * `PersonalSignatureService::forSigning()` before any lock — files the
      * contract signed by both parties and mails it to the renter.
+     *
+     * When the signature was given for this contract with « Mémoriser »
+     * ticked, it is kept in the account inside the booking's transaction,
+     * before anything is assembled: a copy that cannot be countersigned
+     * rolls the remembering back with everything else.
      *
      * @throws RentalException
      */
@@ -476,18 +488,13 @@ class RentalSignedContractService
         RentalBooking $booking,
         RentalAsset $asset,
         int $documentId,
-        int $userAccountId,
+        AccountSignature $signature,
         ?int $actorMemberId,
-        string $actorName,
         \DateTimeImmutable $now
     ): RentalDocument {
-        $signature = $this->signatures->findPng($userAccountId);
-        if ($signature === null) {
-            throw new RentalException(
-                "Enregistrez d'abord votre signature : elle est apposée sur la page ajoutée au contrat."
-            );
-        }
-
+        // The account's own name, never a totem (issue #825); « un
+        // gestionnaire » when the account has none.
+        $actorName = $signature->signerName ?? 'un gestionnaire';
         $fileName = 'contrat-signe-' . $booking->reference . '.pdf';
 
         // Decided, assembled and filed under the booking's lock: a second
@@ -510,6 +517,10 @@ class RentalSignedContractService
                 $fileName
             ): RentalDocument {
                 $copy = $this->pendingCopyOf($booking, $documentId);
+                // « Signer et mémoriser » is one act: kept here, in this
+                // transaction, so that anything failing below — a file
+                // gone, a PDF that cannot be read — keeps nothing.
+                $this->signatures->rememberIfAsked($signature, $now);
                 $path = $this->documents->absolutePath($copy);
                 if ($path === null) {
                     throw new RentalException(
@@ -533,7 +544,7 @@ class RentalSignedContractService
                     )
                     : $booking;
 
-                $pdf = $this->assemble($path, $signed, $asset, $copy, $signature, $actorName, $now);
+                $pdf = $this->assemble($path, $signed, $asset, $copy, $signature->png->bytes(), $actorName, $now);
                 $final = $this->documents->attachPdf(
                     $booking,
                     $pdf,
@@ -551,7 +562,10 @@ class RentalSignedContractService
                     DocumentType::SIGNED_COPY->label(),
                     DocumentType::SIGNED_CONTRACT->label(),
                     $modification !== null ? 'Contrat de remplacement contresigné' : 'Contrat contresigné',
-                    $actorMemberId
+                    $actorMemberId,
+                    // The account that signed, the session's — not the one
+                    // a member's address would resolve to.
+                    $signature->accountId
                 );
 
                 // **The countersignature finalises the modification**, in this
@@ -571,6 +585,16 @@ class RentalSignedContractService
             }
         );
         $final = $this->occupancy !== null ? $this->occupancy->onAsset($asset->id, $countersign) : $countersign();
+        // The act, in the core's journal, once the contract exists: which
+        // document, by which account, never a pixel.
+        $this->signatures->recordSigning(
+            $signature,
+            'rental',
+            DocumentType::SIGNED_CONTRACT->value,
+            $final->id,
+            $booking->id,
+            $now
+        );
         // The renter's e-mail says the booking as it now stands.
         $booking = $this->occupancy?->fresh($booking) ?? $booking;
 

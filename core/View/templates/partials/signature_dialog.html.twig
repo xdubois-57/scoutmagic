@@ -1,0 +1,146 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{#
+  The signature dialog, shared by every module that signs a document
+  (issue #926, lot C1; ARCHITECTURE.md §8.125, design.md §7.5). The page
+  renders it once per document to sign, and a button of its own opens it:
+
+      <button type="button" class="btn btn-sm btn-primary"
+              data-bs-toggle="modal" data-bs-target="#countersign-12">Contresigner</button>
+      {% include 'partials/signature_dialog.html.twig' with {
+          id: 'countersign-12',
+          title: 'Contresigner le contrat',
+          action: '/mes-locations/contrat-contresigner',
+          fields: { booking_id: 12, document_id: 40 },
+          consequence: 'Votre signature est ajoutée sur une dernière page…',
+          has_stored_signature: true,
+          manage_return: '/mes-locations/chalet/reservations/12',
+      } only %}
+
+  **The dialog is the confirmation.** Nothing is signed until « Signer le
+  document »; « Annuler » posts nothing. So the form carries no
+  data-confirm: a second question after this one would teach the reader
+  to dismiss both.
+
+  Three modes:
+  - stored (`has_stored_signature`): the ticket's sentence, the module's
+    consequence, a small preview of the signature — fetched from
+    /account/signature/image by signature-dialog.js when the dialog opens
+    (decision Q5), never written into this page, which may be cached —
+    and « Gérer ma signature » for whoever wants another one (decision Q3:
+    no other drawing for one document);
+  - new: the pad, an optional import (`allow_import`, default true) and
+    « Mémoriser ma signature dans mon compte pour une utilisation
+    future » (`allow_remember`, default true), never rendered checked;
+  - witness (`witness: true`, ticket §6a): a person without an account,
+    their typed name (`signer_name`, required), drawing only — no import,
+    no box, nothing kept.
+
+  Parameters: `id`, `title`, `action`, `consequence` (the module's own
+  sentence: what signing does), `fields` (hidden fields, name → value),
+  and the mode options above. `manage_return` is where « Gérer ma
+  signature » brings the visitor back to. `form_attributes` (name → value)
+  adds attributes to the form — a page whose script turns forms into
+  fetches passes what makes it stand aside (Locations: `data-async: 'off'`),
+  since an open dialog does not survive its panels being re-rendered. The
+  page loads signature-pad.js then signature-dialog.js, which wires a
+  dialog again when it opens — a re-rendered panel brings a fresh copy.
+
+  Never an account id among the fields: whose signature it is, is the
+  session's to say (Core\Signature\SignatureSubmission).
+#}
+{% set witness = witness|default(false) %}
+{% set stored = not witness and has_stored_signature|default(false) %}
+{% set allow_import = not witness and (allow_import is defined ? allow_import : true) %}
+{% set allow_remember = not witness and (allow_remember is defined ? allow_remember : true) %}
+{% set form_id = id ~ '-form' %}
+{% embed 'partials/modal.html.twig' with {
+    id: id,
+    title: title,
+    static_backdrop: true,
+    form_id: form_id,
+    stored: stored,
+    witness: witness,
+    allow_import: allow_import,
+    allow_remember: allow_remember,
+    action: action,
+    fields: fields|default({}),
+    consequence: consequence|default(''),
+    manage_return: manage_return|default(''),
+    form_attributes: form_attributes|default({}),
+} only %}
+    {% block body %}
+        <form method="post" action="{{ action }}" id="{{ form_id }}" enctype="multipart/form-data"
+              data-signature-form data-signature-dialog-form
+              data-signature-mode="{{ witness ? 'witness' : (stored ? 'stored' : 'new') }}"
+              {%- for name, value in form_attributes %} {{ name|e('html_attr') }}="{{ value }}"{% endfor %}>
+            {{ csrf_field()|raw }}
+            {% for name, value in fields %}
+                <input type="hidden" name="{{ name }}" value="{{ value }}">
+            {% endfor %}
+            <input type="hidden" name="signature_source" value="{{ stored ? 'stored' : 'new' }}">
+
+            {% if stored %}
+                <p>Ce document sera signé avec la signature enregistrée dans votre compte. Vérifiez son contenu avant de confirmer.</p>
+                {% if consequence %}<p>{{ consequence }}</p>{% endif %}
+                {# Filled by signature-dialog.js when the dialog opens, emptied when it closes. #}
+                <div class="border rounded bg-white p-2 mb-2 text-center" data-signature-preview
+                     style="min-height: 4rem;"></div>
+                <p class="small mb-0">
+                    <a href="/account/signature{{ manage_return ? '?retour=' ~ manage_return|url_encode : '' }}">Gérer ma signature</a>
+                </p>
+            {% else %}
+                {% if consequence %}<p>{{ consequence }}</p>{% endif %}
+                {% if witness %}
+                    <div class="mb-3">
+                        <label class="form-label" for="{{ id }}-signer-name">Nom de la personne qui signe</label>
+                        <input type="text" class="form-control" id="{{ id }}-signer-name" name="signer_name"
+                               maxlength="120" required autocomplete="off">
+                    </div>
+                {% endif %}
+                <input type="hidden" name="signature_data" value="">
+
+                <p class="form-label mb-1" id="{{ id }}-pad-label">{{ witness ? 'Signature' : 'Tracez votre signature' }}</p>
+                {#
+                  Traced with a pointer, so no role of its own: « img »
+                  would tell assistive technology there is nothing to do
+                  here. Without a pointer, the import below is the way in.
+                #}
+                <canvas data-signature-pad width="900" height="300"
+                        aria-labelledby="{{ id }}-pad-label"
+                        class="border rounded bg-white w-100 d-block" style="aspect-ratio: 3 / 1;"></canvas>
+                <button type="button" class="btn btn-sm btn-outline-secondary mt-2" data-signature-clear>Effacer</button>
+
+                {% if allow_import %}
+                    <div class="mt-3">
+                        <label class="form-label" for="{{ id }}-file">Ou importez une image de votre signature</label>
+                        <input type="file" class="form-control" id="{{ id }}-file" name="signature_file"
+                               accept="image/png,image/jpeg,image/webp" aria-describedby="{{ id }}-file-help">
+                        <p class="form-text" id="{{ id }}-file-help">PNG, JPEG ou WebP, 5 Mo au plus.</p>
+                    </div>
+                {% endif %}
+
+                {% if allow_remember %}
+                    <div class="form-check mt-3">
+                        <input class="form-check-input" type="checkbox" name="remember_signature" value="1"
+                               id="{{ id }}-remember" aria-describedby="{{ id }}-remember-help">
+                        <label class="form-check-label" for="{{ id }}-remember">Mémoriser ma signature dans mon compte pour une utilisation future</label>
+                        <p class="form-text mb-0" id="{{ id }}-remember-help">
+                            Sans cette case, la signature sert à ce document seulement et n'est pas gardée.
+                        </p>
+                    </div>
+                {% endif %}
+
+                <p class="text-danger small mt-2 mb-0" data-signature-missing hidden role="alert">
+                    {{ allow_import ? "Tracez votre signature ou importez-en l'image." : 'Tracez la signature dans le cadre.' }}
+                </p>
+            {% endif %}
+        </form>
+    {% endblock %}
+    {% block footer %}
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Annuler</button>
+        <button type="submit" class="btn btn-primary" form="{{ form_id }}">Signer le document</button>
+    {% endblock %}
+{% endembed %}

@@ -21,7 +21,12 @@
 //   - the receivable follows the countersignature, the settlement brings it
 //     down to what the unit keeps, and the security deposit the renter is
 //     owed back is a debit the bank import reconciles on its own, through
-//     the same communication — « Caution restituée » ticks without a form.
+//     the same communication — « Caution restituée » ticks without a form;
+//   - both countersignatures go through the core's signature dialog
+//     (issue #926): the first with an image imported for that contract
+//     alone, the box unticked, and Mon compte still says no signature is
+//     kept; the second traced on the pad with « Mémoriser » ticked, and
+//     Mon compte keeps it.
 //
 // Each of those is unit-tested on its own. Whether they agree with each
 // other on a running install — the communication Finance stores is the one
@@ -127,6 +132,9 @@ const DAMAGE_REFERENCE = 'SIN-2026-4471';
 const INSURER = 'Assurances du Lac';
 const UNRECOVERED_REASON = 'Assurance refusée pour le surplus, locataire injoignable.';
 
+/** The signature dialog's box (partials/signature_dialog.html.twig, issue #926). */
+const REMEMBER = 'Mémoriser ma signature dans mon compte pour une utilisation future';
+
 /** The three states one line of the checklist can be rendered in. */
 const DONE = 'Fait :';
 const TODO = 'À faire :';
@@ -222,17 +230,6 @@ test.describe('Rentals — one booking from the request to the deposit back', ()
         await inventory.getByRole('button', { name: 'Ajouter', exact: true }).click();
         await expect(inventory.locator('.list-editor-item', { hasText: INVENTORY_KEYS })).toBeVisible();
 
-        // The manager's signature, which the countersignatures put on the
-        // renter's copy. Imported as an image rather than traced.
-        await page.goto('/mes-locations/ma-signature', { waitUntil: 'load' });
-        await page.locator('#signature-file').setInputFiles({
-            name: 'signature.png',
-            mimeType: 'image/png',
-            buffer: pngBuffer(600, 200),
-        });
-        await page.getByRole('button', { name: 'Enregistrer ma signature' }).click();
-        await expect(page.getByRole('button', { name: 'Supprimer ma signature' })).toBeVisible();
-
         // ── 1. Two visitors, the same dates, the same moment ──────────────
         const visitors = [
             await openRequestForm(browser, 'Claire Dumont', 'claire.dumont@example.be'),
@@ -308,10 +305,25 @@ test.describe('Rentals — one booking from the request to the deposit back', ()
         await expect(milestone(page, 'Réservation confirmée')).toContainText(TODO);
 
         // ── 4. Countersigned, then confirmed ─────────────────────────────
-        await page.getByRole('button', { name: 'Valider et contresigner' }).click();
+        // The manager's account keeps no signature: the dialog asks for one
+        // for this contract alone (issue #926) — imported here, the
+        // « Mémoriser » box left as it comes, unticked.
+        const countersign = await openSignatureDialog(page,
+            page.getByRole('button', { name: 'Valider et contresigner' }));
+        await expect(countersign.getByLabel(REMEMBER)).not.toBeChecked();
+        await countersign.locator('input[name="signature_file"]').setInputFiles({
+            name: 'signature.png',
+            mimeType: 'image/png',
+            buffer: pngBuffer(600, 200),
+        });
+        await countersign.getByRole('button', { name: 'Signer le document' }).click();
         await expect(milestone(page, 'Contrat contresigné')).toContainText(DONE);
         await page.getByRole('button', { name: 'Confirmer la réservation' }).first().click();
         await expect(milestone(page, 'Réservation confirmée')).toContainText(DONE);
+
+        // Signed for that contract alone: nothing was kept in Mon compte.
+        await page.goto('/account', { waitUntil: 'load' });
+        await expect(page.getByText('Aucune signature enregistrée.')).toBeVisible();
 
         // ── 5. A modification after the contract: a project ───────────────
         await page.goto(`${dashboard}/modifications`, { waitUntil: 'load' });
@@ -369,9 +381,19 @@ test.describe('Rentals — one booking from the request to the deposit back', ()
         // ── 8. The countersignature applies the modification ──────────────
         await page.goto(`${dashboard}/documents`, { waitUntil: 'load' });
         await expect(replacement).toContainText('à vérifier');
-        await replacement.getByRole('button', { name: 'Contresigner' }).click();
+        // Traced on the pad this time, and remembered: the signature the
+        // manager's account keeps from now on.
+        const replacementSign = await openSignatureDialog(page,
+            replacement.getByRole('button', { name: 'Contresigner' }));
+        await trace(page, replacementSign.locator('canvas[data-signature-pad]'));
+        await replacementSign.getByLabel(REMEMBER).check();
+        await replacementSign.getByRole('button', { name: 'Signer le document' }).click();
         await expect(page.locator('[data-modification-banner]')).toHaveCount(0);
         await expect(page.locator('[data-contract-in-force]')).toContainText(frenchDate(NEW_DEPARTURE));
+        await expect(page.getByText('Votre signature est enregistrée dans Mon compte.').first()).toBeVisible();
+
+        await page.goto('/account', { waitUntil: 'load' });
+        await expect(page.getByText(/Signature enregistrée le/)).toBeVisible();
 
         await page.goto(`${dashboard}/modifications`, { waitUntil: 'load' });
         await expect(page.getByText('Appliquée', { exact: true }).first()).toBeVisible();
@@ -617,6 +639,38 @@ test.describe('Rentals — one booking from the request to the deposit back', ()
 function milestone(page, label) {
     return page.locator('[data-booking-panel="milestones"] li')
         .filter({ has: page.getByText(label, { exact: true }) });
+}
+
+/**
+ * Opens the core's signature dialog from the button that targets it, and
+ * returns it once Bootstrap says it is open.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {import('@playwright/test').Locator} trigger
+ * @returns {Promise<import('@playwright/test').Locator>}
+ */
+async function openSignatureDialog(page, trigger) {
+    const target = await trigger.getAttribute('data-bs-target');
+    expect(target, 'the button opens a dialog').toMatch(/^#countersign-\d+$/);
+
+    return openModal(page, String(target).slice(1), () => trigger.click());
+}
+
+/**
+ * A stroke across the pad, the way a finger or a mouse draws one.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {import('@playwright/test').Locator} canvas
+ */
+async function trace(page, canvas) {
+    const box = await canvas.boundingBox();
+    expect(box, 'the pad is on screen').not.toBeNull();
+    const at = (/** @type {number} */ x, /** @type {number} */ y) => [box.x + box.width * x, box.y + box.height * y];
+    await page.mouse.move(...at(0.2, 0.6));
+    await page.mouse.down();
+    await page.mouse.move(...at(0.5, 0.3), { steps: 8 });
+    await page.mouse.move(...at(0.8, 0.6), { steps: 8 });
+    await page.mouse.up();
 }
 
 /**

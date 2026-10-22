@@ -1078,7 +1078,7 @@ One modal in `base.html.twig` (`#offline-dialog`), two French messages depending
 
 **Write policy — installed app only (Lot 4).** Personal data (Mon compte, member pages) is cacheable, so the service worker **writes** to the content cache, on an ordinary page navigation, only when the delivering page reported `standalone: true` in the same config blob (`offline-cache.js` reads it from `display-mode.js`'s `window.ScoutMagicDisplayMode.isStandalone()` — `matchMedia('(display-mode: standalone)')` with the iOS `navigator.standalone` fallback, kept in that one file since issue #842 — and folds it into the same `postMessage` payload as everything else, never a second message; with `display-mode.js` absent the answer is `false`, the safe side of a write gate). **Reads stay unconditional**: a single visit from a normal browser tab must never blind the installed app's already-cached copy until its next page load — only the *write* on that tab's own navigation is suppressed, `caches.match()` on a cache-miss fallback is untouched either way. The pass checks the same flag itself before it starts (above).
 
-**Pull to refresh, installed app only (issue #842 — `public/assets/js/pull-to-refresh.js`).** The installed app has no address bar and no reload button, so from the very top of a page (`scrollY === 0`) a vertical pull down shows a small round indicator (`#pull-to-refresh` in `base.html.twig`, styled in `app.css`) that follows the finger at half its speed; released past the threshold it reloads the current page, released short of it the indicator retracts, and a pull brought back above where the finger landed gives the touch back to the browser so the page scrolls again. Never in a browser tab, on a phone or a desktop: the script returns before registering a single listener unless `display-mode.js`'s `window.ScoutMagicDisplayMode.isStandalone()` says this window is the installed app — the one detection (media query plus the iOS `navigator.standalone` fallback) that `offline-cache.js` reads too. A mostly horizontal or upward movement, a pull from a page already scrolled or from inside a scrolled list, from inside a modal/offcanvas/dropdown or an overlay marked `data-no-pull-to-refresh` (the gallery lightbox, `file-viewer.js`), or while one is open over the page, does nothing; nor does a stroke on a widget that handles the vertical finger itself — an element (or ancestor) whose computed `touch-action` leaves no vertical pan (`none`, `pan-x`…, like `rental-signature.js`'s canvas), or a move whose `defaultPrevented` a widget's own handler already set (`rental-block-days.js`'s drag selection; the listeners here are on the document, so they run after it); so does a second pull while a refresh is under way, until the page navigates or comes back to rest (a bfcache `pageshow` resets it). The browser's own pull-to-refresh, where an installed app has one, cannot reload a second time: the script `preventDefault()`s the moves it claims, and `app.css` sets `overscroll-behavior-y: contain` on `html`/`body` inside `@media (display-mode: standalone)` only, and only under `html.has-pull-to-refresh`, which `base.html.twig` sets — the offline fallback page (`pwa/offline.html.twig`) loads `app.css` without the script and keeps the native gesture. A reload that has not taken the page away after 8 s re-arms the gesture: a standalone iOS window can drop a navigation issued from a promise, which is how the offline branch reloads. Under `prefers-reduced-motion: reduce` the indicator appears in place instead of following the finger and does not spin; its colours are Bootstrap's variables, so the dark theme needs nothing of its own. The round indicator is `aria-hidden`; a visually hidden `<output>` next to it (implicit `status` role) announces « Actualisation… », once, when a refresh starts, and « Actualisation impossible : toujours hors ligne. » when the offline re-check finds the network still away — the banner does not change then, so without it a screen reader would hear the refresh start and nothing after.
+**Pull to refresh, installed app only (issue #842 — `public/assets/js/pull-to-refresh.js`).** The installed app has no address bar and no reload button, so from the very top of a page (`scrollY === 0`) a vertical pull down shows a small round indicator (`#pull-to-refresh` in `base.html.twig`, styled in `app.css`) that follows the finger at half its speed; released past the threshold it reloads the current page, released short of it the indicator retracts, and a pull brought back above where the finger landed gives the touch back to the browser so the page scrolls again. Never in a browser tab, on a phone or a desktop: the script returns before registering a single listener unless `display-mode.js`'s `window.ScoutMagicDisplayMode.isStandalone()` says this window is the installed app — the one detection (media query plus the iOS `navigator.standalone` fallback) that `offline-cache.js` reads too. A mostly horizontal or upward movement, a pull from a page already scrolled or from inside a scrolled list, from inside a modal/offcanvas/dropdown or an overlay marked `data-no-pull-to-refresh` (the gallery lightbox, `file-viewer.js`), or while one is open over the page, does nothing; nor does a stroke on a widget that handles the vertical finger itself — an element (or ancestor) whose computed `touch-action` leaves no vertical pan (`none`, `pan-x`…, like `signature-pad.js`'s canvas), or a move whose `defaultPrevented` a widget's own handler already set (`rental-block-days.js`'s drag selection; the listeners here are on the document, so they run after it); so does a second pull while a refresh is under way, until the page navigates or comes back to rest (a bfcache `pageshow` resets it). The browser's own pull-to-refresh, where an installed app has one, cannot reload a second time: the script `preventDefault()`s the moves it claims, and `app.css` sets `overscroll-behavior-y: contain` on `html`/`body` inside `@media (display-mode: standalone)` only, and only under `html.has-pull-to-refresh`, which `base.html.twig` sets — the offline fallback page (`pwa/offline.html.twig`) loads `app.css` without the script and keeps the native gesture. A reload that has not taken the page away after 8 s re-arms the gesture: a standalone iOS window can drop a navigation issued from a promise, which is how the offline branch reloads. Under `prefers-reduced-motion: reduce` the indicator appears in place instead of following the finger and does not spin; its colours are Bootstrap's variables, so the dark theme needs nothing of its own. The round indicator is `aria-hidden`; a visually hidden `<output>` next to it (implicit `status` role) announces « Actualisation… », once, when a refresh starts, and « Actualisation impossible : toujours hors ligne. » when the offline re-check finds the network still away — the banner does not change then, so without it a screen reader would hear the refresh start and nothing after.
 
 The gesture never decides connectivity itself. **While the page is not in the confirmed offline state, it reloads at once** — a probe first would slow every refresh for nothing, and a navigation that fails is the service worker's to catch. **While it is**, a reload would only land on `/offline`, so it calls `offline-nav.js`'s `window.ScoutMagicConnectivity.recheck()` instead: the very probe of issue #353 (`confirmConnectivity()` — HEAD `/api/version`, its `probeSequence` ordering protection, then `applyState()`), exposed with `isOfflineConfirmed()` (the same `isOffline()` every layer already acts on) rather than copied. `recheck()` resolves with the verdict the page now shows — waiting for a newer probe when one overtook its own, since the page ignores the older answer too. Unreachable: no reload, the indicator retracts, and the banner, the greyed links and the disabled submit controls stand as the fresh verdict painted them. Reachable, even with iOS still reporting `navigator.onLine === false`: the page has already been repainted online by `applyState()`, then reloads exactly once. So the gesture doubles as « re-check now » for someone who believes the network is back. The script is in `public/sw.js`'s `APP_SHELL_BASE_URLS`, as `Tests\Core\View\AppShellCoverageTest` requires of every script `base.html.twig` loads; no cache name changes by hand, since the shell cache is named after `Core\Maintenance\AssetVersion`'s fingerprint of the files on disk.
 
@@ -2317,6 +2317,8 @@ against it.
 **Sending is what makes a document read-only** (`specifications.md` §22.6). Until a document of a type has gone out, its text is a draft a manager may rework freely; afterwards the renter holds a copy, and silently changing what that copy was made from is precisely the confusion versioning exists to prevent. `RentalDocumentService::textIsLocked()` decides it from `rental_documents.sent_at` — any version, not just the latest — the editor renders the text without offering to edit it, and `saveBookingText()` refuses on the server, because a page that merely hides a form is not a rule. The confirmation on « Envoyer » says so before it happens: a button that quietly makes a page read-only is a button nobody expects. Regenerating still never overwrites — what the lock stops is the SOURCE moving under a version that has already been read and possibly signed.
 
 **`is_for_renter` is an email flag, not an access right** (`specifications.md` §22.6). An external renter has no account, and the tracking token is a capability for *their own page*, not a file credential: their contract and invoice reach them by email; a lost email is resent by a manager, which is why resending is a first-class action. **One file is the exception**, the contract signed by both parties (#708, IT-16): `/locations/suivi/{id}/{token}/contrat-signe.pdf` checks the same token and serves that booking's countersigned contract in force and nothing else — never `/files/{id}`, so the token never becomes a credential for the file store (SECURITY.md §6).
+
+**The countersignature signs with the core's personal signature** (issue #926, §8.125). Locations keeps no signature of its own any more. Both entry points — the dashboard's « Contrat contresigné » step (`_countersign_step.html.twig`) and the replacement contract on « Documents » (`_contracts.html.twig`) — open `partials/signature_dialog.html.twig` with their own consequence sentence, `data-async="off"` so `rental-booking.js` leaves the post to the browser (an open dialog does not survive the panels re-rendering). `RentalManagementController::countersignContract()` builds the `SignatureSubmission` and calls `PersonalSignatureService::forSigning()` with the session's account inside its `bookingAction()` closure, **before** `countersign()` takes the asset's and the booking's locks, and turns a `SignatureException` into the `RentalException` that `bookingAction()` catches. `RentalSignedContractService::countersign(…, AccountSignature, …)` runs `rememberIfAsked()` inside `withBookingLocked()`, right after `pendingCopyOf()` and before the file is read or anything assembled — same PDO, same transaction, so a copy that cannot be countersigned keeps nothing remembered —; the added page names the account's own name (« un gestionnaire » without one, #825); `BookingAudit::record()` takes the signing account (`$actorAccountId`, which wins over the member → address → account resolution); and after the commit, `recordSigning()` writes the act to the core's journal. The flash adds « Votre signature est enregistrée dans Mon compte. » when the box was ticked. « Gérer mes locations » links to « Gérer ma signature » under Mon compte.
 
 What does protect the files is the ordinary mechanism: `File\RentalDocumentOwnershipChecker` in `Core\File\FileAccessGuard`'s `owner_type` registry (§8.3/§7.4), resolving file → booking → asset and answering "may this person manage it?" through `RentalAuthorizationService`. The file's own `role_min` is `identified`, which alone would let any logged-in visitor at every contract in the unit; there is no role bypass, so a chief with no grant is refused like anyone else, and a file whose booking is gone is refused because there is nobody left to check against.
 
@@ -6119,8 +6121,11 @@ Issue #926, `docs/chantiers/CHANTIER-signature-personnelle.md`. The
 signature a person keeps for signing documents, in any module, used to
 belong to Locations (`rental_manager_signatures`, #708 IT-16) and could
 countersign a contract there and nowhere else. It is a capability of the
-core now, and this section grows lot by lot; lot A is the storage and the
-image, with nothing yet reading it.
+core now, and this section grows lot by lot: lot A is the storage and the
+image, lot B the owner's page under Mon compte, lot C1 the API a module
+signs with and the dialog it opens, lot C2 Locations' countersignature on
+it (§8.55) — `rental_manager_signatures`, its repository, its page and its
+four routes are gone (`modules/rental/drops.sql`, nothing carried over).
 
 **It belongs to the ACCOUNT, never to a member.** `user_account_signatures`
 is keyed by `user_account_id`, the login an address authenticates as
@@ -6140,8 +6145,8 @@ method acting on another account is `eraseOnDeactivation()`, reached from
 `Core\Security\SuperAdminService::deactivate()` and from nothing else.
 
 **`SignatureImage` is the only way in** — moved from
-`Modules\Rental\Document\SignatureImage`, which stays in place until lot C2
-moves Locations onto this API. A drawing (`fromDataUrl()`, the
+`Modules\Rental\Document\SignatureImage`, deleted with the rest of
+Locations' own storage in lot C2. A drawing (`fromDataUrl()`, the
 `data:image/png` a canvas exports), an imported PNG, JPEG or WebP
 (`fromUploadedFile()`, size judged on disk before a byte is read;
 `fromBytes()`): each is decoded and **re-encoded** to a fresh PNG fitting
@@ -6195,12 +6200,72 @@ names the page itself), `POST /account/signature/delete` (behind
 signature is kept and since when, and links to « Gérer ma signature »; the
 image never appears there. The page is answered `no-store` as well. The
 pad is `public/assets/js/signature-pad.js`, generalised from Locations'
-`rental-signature.js` (which stays until lot C2): pointer events, the
+`rental-signature.js` (deleted in lot C2): pointer events, the
 canvas exported with `toDataURL()` into `signature_data` only when
 something was drawn — so an untouched pad leaves room for an import — and
 emptied when the page comes back from the back-forward cache; no point,
 timing or pressure is ever kept. A file is read only when
 `is_uploaded_file()` says PHP received it with this request.
+
+**Signing a document (lot C1).** A module that signs one of its documents
+with the signer's signature uses four values and four methods, and never
+the repository. `SignatureSubmission::fromRequest($request, $allowImport,
+$allowRemember)` reads what the dialog posted — `signature_source`
+(`stored` or `new`), `signature_data` (the pad's PNG), `signature_file`
+(only when `is_uploaded_file()` vouches for it) and `remember_signature` —
+and **never an account id**: the account is the one the caller passes,
+from the session. `PersonalSignatureService::forSigning($sessionAccountId,
+$submission)` turns it into an `AccountSignature` (the account, the
+`SignaturePng`, its `SignatureOrigin` — `Stored`, `DrawnNow`,
+`ImportedNow` —, whether « Mémoriser » was ticked, and the account's own
+first and last name, read through the optional `UserAccountRepository`),
+or refuses in French: nothing traced nor imported, or a stored signature
+deleted since the dialog opened. `witness($submission, $typedName)` is the
+same for a person without an account (ticket §6a): a drawing only — an
+import or the stored mode is refused —, a name of 1 to 120 characters,
+and a `WitnessSignature` that nothing can keep. `recordSigning()` writes
+the act to the journal (`personal_signature_document_signed`, `security`):
+module, document type and id, owning entity, origin, whether it was
+remembered, the time, and the session's account — no pixel, no size.
+
+**The transaction rule.** The order is fixed, and each step is where it is
+for a reason: `forSigning()` **before** any lock of the module, because
+decoding an image is CPU work and under a lock it holds every other
+manager waiting; `rememberIfAsked($signature, $at)` **inside** the
+module's own transaction, beside the writes that file the signed
+document — it is one upsert (`PersonalSignatureRepository::save()`, which
+opens no transaction of its own) and the journal line a save writes, a
+no-op for a `Stored` signature or an unticked box, so that a signing that
+fails rolls the remembering back and « sign and remember » is one act or
+nothing; `recordSigning()` **after** the commit, so it names a document
+that exists.
+
+**The dialog** is `core/View/templates/partials/signature_dialog.html.twig`,
+on `partials/modal.html.twig` with a static backdrop, and it **is** the
+confirmation (design.md §7.5): no `data-confirm` on top of it. Stored mode
+says « Ce document sera signé avec la signature enregistrée dans votre
+compte. Vérifiez son contenu avant de confirmer. », then the module's own
+consequence, a preview and « Gérer ma signature » (to `/account/signature`
+with a `retour`, decision Q3: no other drawing for one document); new
+mode is the pad, the optional import and the « Mémoriser ma signature dans
+mon compte pour une utilisation future » box, never rendered checked;
+witness mode asks for the typed name and a drawing, nothing else. Both
+buttons are « Annuler » and « Signer le document ». **The preview is not
+in the page**: `public/assets/js/signature-dialog.js` creates the image
+from `/account/signature/image` (`no-store`, owner only, an address
+constant to the script) when the dialog opens and removes it when it
+closes (decision Q5), so a cached page never holds a signature. The same
+script empties the pad (through a `signature-pad:reset` event to
+`signature-pad.js`), the hidden field, the file, the typed name and the
+box when the dialog closes, once it is sent, and on a page restored from
+the back-forward cache, which also closes it; and it says « Tracez votre
+signature ou importez-en l'image. » in place for a dialog sent empty. It
+wires a dialog again when it opens (Bootstrap's `show.bs.modal`, delegated
+on the document; `ScoutMagicSignaturePad.wire()` for the pad, idempotent),
+because a panel re-rendered under a fetch brings a fresh, unwired copy.
+`form_attributes` lets a page whose own script turns forms into fetches
+tell it to stand aside (Locations' `data-async="off"`): an open dialog does
+not survive the panels under it being re-rendered.
 
 ## 9. Installation / bootstrap
 
