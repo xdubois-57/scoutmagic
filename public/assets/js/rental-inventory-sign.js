@@ -15,8 +15,9 @@
  *
  * « Signé sur papier » (#989, lot F, decision Q3) sets BOTH signatures
  * aside — the renter's and the manager's fieldsets disabled, and hidden —
- * and enables the paper fieldset, whose photo of the signed sheet is
- * required: both parties signed the printed sheet, nobody signs here.
+ * and enables the paper fieldset, whose photo of the signed sheet the
+ * form will not send without: both parties signed the printed sheet,
+ * nobody signs here.
  *
  * The pads, the wipe after sending and on a back-forward restore, and the
  * « Tracez… » message are signature-pad.js's and signature-dialog.js's;
@@ -70,6 +71,35 @@ export function applyRenterChoice(form) {
     });
 }
 
+/** What the form says when « Signé sur papier » is sent without the sheet. */
+export const PAPER_SHEET_MISSING = 'Ajoutez la photo de la feuille signée.';
+
+/**
+ * On paper, whether the photo of the sheet is there to send. The tile's
+ * carrier is hidden once the tile runs, so it cannot be `required`: a
+ * hidden required field blocks the form without a word. This says it
+ * instead, in the tile's own status line; the server refuses it absent all
+ * the same.
+ *
+ * @param {HTMLFormElement} form
+ * @returns {boolean} true when the form may be sent
+ */
+export function paperSheetReady(form) {
+    const fieldset = /** @type {HTMLFieldSetElement|null} */ (form.querySelector('fieldset[data-paper-sheet]'));
+    if (fieldset === null || fieldset.disabled) {
+        return true;
+    }
+    const carrier = /** @type {HTMLInputElement|null} */ (fieldset.querySelector('input[name="paper_sheet"]'));
+    if (carrier !== null && (carrier.files?.length ?? 0) > 0) {
+        return true;
+    }
+    const status = fieldset.querySelector('[data-photo-status]');
+    if (status !== null) {
+        status.textContent = PAPER_SHEET_MISSING;
+    }
+    return false;
+}
+
 /**
  * @param {Document} doc
  * @returns {void}
@@ -93,6 +123,13 @@ export function wire(doc) {
         const form = target.closest('form[data-inventory-signing-form]');
         if (form !== null) {
             applyRenterChoice(/** @type {HTMLFormElement} */ (form));
+        }
+    });
+
+    doc.addEventListener('submit', (event) => {
+        const form = /** @type {HTMLElement} */ (event.target);
+        if (form.matches?.('form[data-inventory-signing-form]') && !paperSheetReady(/** @type {HTMLFormElement} */ (form))) {
+            event.preventDefault();
         }
     });
 

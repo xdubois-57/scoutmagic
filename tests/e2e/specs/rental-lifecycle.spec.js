@@ -90,7 +90,7 @@ import { openSectionEditor } from '../support/section-editor.js';
 import { pngBuffer } from '../support/png.js';
 import { giveAssetAddress, giveRenterAddress } from '../support/rental-contract.js';
 import { scaled } from '../support/timeouts.js';
-import { signInventory } from '../support/inventory-signing.js';
+import { signInventory, signInventoryOnPaper } from '../support/inventory-signing.js';
 import { waitOutHumanCheckDelay } from '../support/human-check.js';
 import { waitForServerResponse } from '../support/response.js';
 
@@ -379,8 +379,10 @@ test.describe('Rentals — the milestones after a confirmation', () => {
         // A « non » IS a completed observation — the inventory asks what
         // was found, not whether everything was fine.
         await saveLine(page, page.getByLabel(INVENTORY_KITCHEN, { exact: true }), (field) => field.selectOption('no'));
-        // The renter is there this time, and signs with a finger.
-        await signInventory(page, "Signer l'état des lieux de sortie", { renter: 'Paul Locataire' });
+        // No network on site this time: both sign the printed list, and the
+        // photo of the sheet goes through the tile (#989, lot F). The renter
+        // signing with a finger is rental-journey's.
+        await signInventoryOnPaper(page, "Signer l'état des lieux de sortie");
         await expect(page.locator('[data-booking-panel="inventory"]'))
             .toContainText('Les deux états des lieux sont validés');
 

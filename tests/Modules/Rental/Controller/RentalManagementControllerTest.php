@@ -5668,7 +5668,10 @@ class RentalManagementControllerTest extends TestCase
         $this->assertStringContainsString('value="paper"', $body);
         $this->assertStringContainsString('Signé sur papier', $body);
         $this->assertMatchesRegularExpression('#<fieldset data-paper-sheet disabled hidden>.*?name="paper_sheet"#', $body);
-        $this->assertStringContainsString('accept="image/jpeg,image/png,image/webp" required', $body);
+        // The « + Photo » tile, with the camera, and its script on the page.
+        $this->assertMatchesRegularExpression('#<fieldset data-paper-sheet disabled hidden>.*?data-photo-tile data-photo-max="1"#', $body);
+        $this->assertMatchesRegularExpression('#<fieldset data-paper-sheet disabled hidden>.*?capture="environment"#', $body);
+        $this->assertStringContainsString('/assets/js/rental-photo-tile.js', $body);
         $this->assertStringContainsString('<fieldset data-manager-signature>', $body);
     }
 

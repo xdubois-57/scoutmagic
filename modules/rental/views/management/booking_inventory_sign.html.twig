@@ -141,12 +141,20 @@
                             Vous avez signé tous les deux la liste imprimée : personne ne signe à l'écran. Le PDF
                             reprend la photo de la feuille, et il est envoyé au locataire.
                         </p>
-                        <label class="form-label" for="inventory-paper-sheet">Photo de la feuille signée</label>
-                        <input type="file" class="form-control" id="inventory-paper-sheet" name="paper_sheet"
-                               accept="image/jpeg,image/png,image/webp" required aria-describedby="inventory-paper-sheet-help">
-                        <p class="form-text mb-0" id="inventory-paper-sheet-help">
-                            La feuille entière, lisible, avec les deux signatures.
-                        </p>
+                        <p class="form-label mb-1" id="inventory-paper-sheet-title">Photo de la feuille signée</p>
+                        {# The « + Photo » tile (lot B): taken with the camera, reduced in
+                           the browser, carried by `paper_sheet`. Its carrier is hidden once
+                           the tile runs, so it is never `required`: the form checks it on
+                           submit (rental-inventory-sign.js), the server refuses it absent. #}
+                        {% include '@rental/management/_photo_tile.html.twig' with {
+                            tile_id: 'inventory-paper-sheet',
+                            max: 1,
+                            field: 'paper_sheet',
+                            photos: [],
+                            open: true,
+                            label: 'feuille signée',
+                            hint: 'La feuille entière, lisible, avec les deux signatures.',
+                        } only %}
                     </fieldset>
                     <fieldset data-renter-signature>
                         <legend class="visually-hidden">Signature du locataire</legend>
@@ -192,4 +200,5 @@
     <script src="{{ asset('/assets/js/signature-pad.js') }}" defer></script>
     <script src="{{ asset('/assets/js/signature-dialog.js') }}" defer></script>
     <script type="module" src="{{ asset('/assets/js/rental-inventory-sign.js') }}"></script>
+    <script type="module" src="{{ asset('/assets/js/rental-photo-tile.js') }}"></script>
 {% endblock %}

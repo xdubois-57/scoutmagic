@@ -5,7 +5,7 @@
 // says what the inventory loses without it; « Signé sur papier » (lot F)
 // sets both signatures aside and asks for the photo of the signed sheet.
 import { afterEach, describe, expect, it } from 'vitest';
-import { applyRenterChoice, wire } from '../../public/assets/js/rental-inventory-sign.js';
+import { applyRenterChoice, paperSheetReady, PAPER_SHEET_MISSING, wire } from '../../public/assets/js/rental-inventory-sign.js';
 
 function page(checked = 'on_site') {
     document.body.innerHTML = `
@@ -16,7 +16,10 @@ function page(checked = 'on_site') {
             <input type="radio" name="renter_signing" value="paper" ${checked === 'paper' ? 'checked' : ''}>
             <p data-renter-unsigned-warning hidden>Sans la signature du locataire…</p>
             <fieldset data-paper-sheet disabled hidden>
-                <input type="file" name="paper_sheet" required>
+                <div data-photo-tile>
+                    <input type="file" name="paper_sheet" data-photo-carrier>
+                    <output data-photo-status></output>
+                </div>
             </fieldset>
             <fieldset data-renter-signature>
                 <div data-signature-field data-signature-mode="witness">
@@ -132,5 +135,50 @@ describe('the page', () => {
         globalThis.dispatchEvent(new Event('pageshow'));
 
         expect(fieldset().disabled).toBe(true);
+    });
+});
+
+describe('paperSheetReady()', () => {
+    /** @param {HTMLFormElement} form @param {number} count */
+    function carry(form, count) {
+        const carrier = /** @type {HTMLInputElement} */ (form.querySelector('[name="paper_sheet"]'));
+        Object.defineProperty(carrier, 'files', { configurable: true, value: { length: count } });
+    }
+    const status = () => /** @type {HTMLElement} */ (document.querySelector('[data-photo-status]'));
+
+    it('lets an electronic signing through: the sheet is not asked for', () => {
+        const form = page('on_site');
+        applyRenterChoice(form);
+
+        expect(paperSheetReady(form)).toBe(true);
+        expect(status().textContent).toBe('');
+    });
+
+    it('holds a paper signing without the sheet and says so in the tile', () => {
+        const form = page('paper');
+        applyRenterChoice(form);
+        carry(form, 0);
+
+        expect(paperSheetReady(form)).toBe(false);
+        expect(status().textContent).toBe(PAPER_SHEET_MISSING);
+    });
+
+    it('lets a paper signing through once the sheet is carried', () => {
+        const form = page('paper');
+        applyRenterChoice(form);
+        carry(form, 1);
+
+        expect(paperSheetReady(form)).toBe(true);
+    });
+
+    it('stops the submit itself when wired', () => {
+        const form = page('paper');
+        wire(document);
+        carry(form, 0);
+        const event = new Event('submit', { bubbles: true, cancelable: true });
+        form.dispatchEvent(event);
+
+        expect(event.defaultPrevented).toBe(true);
+        expect(status().textContent).toBe(PAPER_SHEET_MISSING);
     });
 });
