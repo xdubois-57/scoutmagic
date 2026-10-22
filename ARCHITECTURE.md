@@ -6228,7 +6228,8 @@ import or the stored mode is refused —, a name of 1 to 120 characters,
 and a `WitnessSignature` that nothing can keep. `recordSigning()` writes
 the act to the journal (`personal_signature_document_signed`, `security`):
 module, document type and id, owning entity, origin, whether it was
-remembered, the time, and the session's account — no pixel, no size.
+remembered, the time, the signed file's SHA-256 when the module gives it
+(lot D of #989, below), and the session's account — no pixel, no size.
 **Telling the signer is the module's**, through its own declared
 notification type and `NotificationService::dispatch()` (§8.24) to the
 `AccountSignature`'s account alone, after the commit, and never able to
@@ -6304,6 +6305,43 @@ the manager's session, never the image or the typed name. Tests:
 `PersonalSignatureSigningTest` (witness and `witnessFromRequest()`),
 `SignatureDialogTest` (witness mode), `tests/js/signature-dialog.test.js`
 (« a signer without an account »).
+
+**Two signers on one document (issue #989, lot D).** The inventory is
+signed on the manager's phone by the renter, as a witness, and by the
+manager, with the account's signature or a new one — in one form of the
+page, not in a dialog, since a dialog is one signer. The dialog's body is
+therefore `partials/signature_fields.html.twig`, the fields of **one**
+signer in a `[data-signature-field]` container; the dialog includes it
+without a prefix and renders as before, and a page signing for two
+includes it twice, with `name_prefix` (`renter_`) on one of them, so that
+every field name of that signer is prefixed: `renter_signature_source`,
+`renter_signature_data`, `renter_signer_name`, … The server reads each
+signer under the same prefix — `SignatureSubmission::fromRequest($request,
+$allowImport, $allowRemember, $prefix)`, `uploadedPath($request,
+$prefix)`, `witnessFromRequest($request, $prefix)` — and **a prefixed read
+never falls back on the unprefixed fields, nor the reverse**, so the
+renter's drawing can never be taken for the manager's (which, with the
+fixed names of lot C1, it would have overwritten). The prefix is the
+module's constant, lowercase letters and one underscore or empty
+(`SignatureSubmission::PREFIX_PATTERN`); any other shape is an
+`InvalidArgumentException`, never a read. In the browser,
+`signature-pad.js` wires one pad and one hidden field per container (a
+form without containers, « Ma signature », is still one pad), and
+`signature-dialog.js` gives a `form[data-signature-inline-form]` what it
+gives a dialog, signer by signer: the wipe once it is sent and on a page
+restored from the back-forward cache (leaving the page is its
+« Annuler »), « Tracez… » in place under the frame left empty, the stored
+signature's preview fetched into that signer's own container — and
+nothing asked of a container the page set aside (inside `[hidden]` or a
+disabled fieldset: a renter who is absent). `recordSigning(…,
+$documentSha256)` adds `document_sha256` to the journal line when the
+module gives it — the SHA-256 of the file as filed, 64 lowercase
+hexadecimal characters, any other shape refused before anything is
+written —, so the act names the bytes signed and not only a document id;
+without it the line is unchanged. Tests: `PersonalSignatureSigningTest`
+(« Two signers in one form »), `SignatureFieldsTest`,
+`tests/js/signature-pad.test.js` and `tests/js/signature-dialog.test.js`
+(« two signers … »).
 
 ## 9. Installation / bootstrap
 

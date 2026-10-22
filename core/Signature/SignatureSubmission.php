@@ -12,7 +12,9 @@ use Core\Http\Request;
 
 /**
  * What the signature dialog posted (issue #926, lot C1;
- * `partials/signature_dialog.html.twig`), read once and not yet decoded:
+ * `partials/signature_dialog.html.twig`) — or one signer's fields among
+ * two in a form of the page (issue #989, lot D;
+ * `partials/signature_fields.html.twig`) —, read once and not yet decoded:
  * whether to sign with the signature the account keeps, or with the one
  * traced or imported in the dialog, and whether to remember that one.
  *
@@ -43,6 +45,13 @@ final readonly class SignatureSubmission
     }
 
     /**
+     * What a field prefix may be (issue #989, lot D): empty — the dialog's
+     * own fields — or lowercase letters and one underscore (`renter_`).
+     * The prefix is the module's constant, never the request's.
+     */
+    public const PREFIX_PATTERN = '/^(?:[a-z]+_)?$/D';
+
+    /**
      * Reads the dialog's fields: `signature_source` (`stored` or `new`),
      * `signature_data` (the PNG the pad exported), `signature_file` (an
      * import) and `remember_signature` (the « Mémoriser » box).
@@ -53,30 +62,45 @@ final readonly class SignatureSubmission
      * A file is read only when `is_uploaded_file()` says PHP received it
      * with this request: a path is never taken from anywhere else.
      *
+     * `$prefix` reads the fields of one signer among two in the same form
+     * (`partials/signature_fields.html.twig` with that `name_prefix`):
+     * `renter_signature_data`, `renter_signature_source`, … — and only
+     * those. A prefixed read never falls back on the unprefixed fields,
+     * and the unprefixed read never sees a prefixed one, so one signer's
+     * drawing can never be taken for the other's.
+     *
      * @throws SignatureException when PHP refused the file for its size
+     * @throws \InvalidArgumentException when `$prefix` is not {@see self::PREFIX_PATTERN}
      */
-    public static function fromRequest(Request $request, bool $allowImport = true, bool $allowRemember = true): self
-    {
-        if ((string) $request->getBody('signature_source', '') === 'stored') {
+    public static function fromRequest(
+        Request $request,
+        bool $allowImport = true,
+        bool $allowRemember = true,
+        string $prefix = ''
+    ): self {
+        self::assertPrefix($prefix);
+
+        if ((string) $request->getBody($prefix . 'signature_source', '') === 'stored') {
             return new self(true);
         }
 
-        $drawing = trim((string) $request->getBody('signature_data', ''));
+        $drawing = trim((string) $request->getBody($prefix . 'signature_data', ''));
 
-        $uploaded = $allowImport ? self::uploadedPath($request) : null;
+        $uploaded = $allowImport ? self::uploadedPath($request, $prefix) : null;
 
         return new self(
             false,
             $drawing !== '' ? $drawing : null,
             $uploaded,
-            $allowRemember && (string) $request->getBody('remember_signature', '') === '1'
+            $allowRemember && (string) $request->getBody($prefix . 'remember_signature', '') === '1'
         );
     }
 
     /**
-     * The temporary path of the image posted as `signature_file`, or null
-     * when none was sent — and only when `is_uploaded_file()` says PHP
-     * received it with this request.
+     * The temporary path of the image posted as `signature_file` (after
+     * `$prefix`, see {@see self::fromRequest()}), or null when none was
+     * sent — and only when `is_uploaded_file()` says PHP received it with
+     * this request.
      *
      * A file PHP refused for its size arrives with an error and no path:
      * read as « nothing sent », the visitor who chose a heavy photo would
@@ -85,10 +109,13 @@ final readonly class SignatureSubmission
      * below the 5 MB this site accepts, so the sentence names none.
      *
      * @throws SignatureException when PHP refused the file for its size
+     * @throws \InvalidArgumentException when `$prefix` is not {@see self::PREFIX_PATTERN}
      */
-    public static function uploadedPath(Request $request): ?string
+    public static function uploadedPath(Request $request, string $prefix = ''): ?string
     {
-        $file = $request->getFile('signature_file');
+        self::assertPrefix($prefix);
+
+        $file = $request->getFile($prefix . 'signature_file');
         if (!is_array($file)) {
             return null;
         }
@@ -99,6 +126,20 @@ final readonly class SignatureSubmission
         $path = (string) ($file['tmp_name'] ?? '');
 
         return $path !== '' && is_uploaded_file($path) ? $path : null;
+    }
+
+    /**
+     * Refuses a prefix that is not the module's own constant shape: a
+     * prefix built from what a visitor posted could point the read at any
+     * field of the form.
+     *
+     * @throws \InvalidArgumentException
+     */
+    public static function assertPrefix(string $prefix): void
+    {
+        if (preg_match(self::PREFIX_PATTERN, $prefix) !== 1) {
+            throw new \InvalidArgumentException('A signature field prefix is lowercase letters and one underscore, or empty.');
+        }
     }
 
     /** Whether the dialog sent anything to sign with. */

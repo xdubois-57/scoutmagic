@@ -8,7 +8,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import '../../public/assets/js/signature-pad.js';
 import '../../public/assets/js/signature-dialog.js';
 
-const { PREVIEW_URL, wipe, preview, isEmpty, wire, restore } = /** @type {any} */ (globalThis).ScoutMagicSignatureDialogInternals;
+const { PREVIEW_URL, wipe, preview, isEmpty, emptySigners, wire, restore } = /** @type {any} */ (globalThis).ScoutMagicSignatureDialogInternals;
 
 /**
  * The dialog as the partial renders it, in one mode — wired as the page
@@ -296,5 +296,194 @@ describe('a dialog sent with nothing to sign with', () => {
         document.body.innerHTML = '<form data-signature-dialog-form></form>';
 
         expect(wire(document.querySelector('form'))).toBe(false);
+    });
+});
+
+describe('the dialog as the partial renders it, its fields in a container', () => {
+    it('is wired, empties its signer when cancelled, and blocks a dialog sent empty', () => {
+        document.body.innerHTML = `
+            <div class="modal">
+                <form data-signature-form data-signature-dialog-form data-signature-mode="new">
+                    <input type="hidden" name="booking_id" value="12">
+                    <div data-signature-field data-signature-mode="new">
+                        <input type="hidden" name="signature_source" value="new">
+                        <input type="hidden" name="signature_data" value="">
+                        <canvas data-signature-pad width="900" height="300"></canvas>
+                        <input type="file" name="signature_file">
+                        <input type="checkbox" name="remember_signature" value="1">
+                        <p data-signature-missing hidden></p>
+                    </div>
+                </form>
+            </div>`;
+        const form = /** @type {HTMLFormElement} */ (document.querySelector('form'));
+        const modal = /** @type {HTMLElement} */ (document.querySelector('.modal'));
+        const canvas = /** @type {HTMLCanvasElement} */ (form.querySelector('canvas'));
+        const context = { beginPath: vi.fn(), moveTo: vi.fn(), lineTo: vi.fn(), stroke: vi.fn(), clearRect: vi.fn() };
+        canvas.getContext = /** @type {any} */ (() => context);
+        canvas.toDataURL = () => 'data:image/png;base64,AAAA';
+        wire(form);
+
+        const event = submit(form);
+        expect(event.defaultPrevented).toBe(true);
+        expect(/** @type {HTMLElement} */ (form.querySelector('[data-signature-missing]')).hidden).toBe(false);
+
+        trace(canvas);
+        field(form, 'remember_signature').checked = true;
+        modal.dispatchEvent(new Event('hidden.bs.modal'));
+
+        expect(context.clearRect).toHaveBeenCalledWith(0, 0, 900, 300);
+        expect(field(form, 'remember_signature').checked).toBe(false);
+        expect(field(form, 'booking_id').value).toBe('12');
+        expect(/** @type {HTMLElement} */ (form.querySelector('[data-signature-missing]')).hidden).toBe(true);
+    });
+});
+
+describe('two signers in a form of the page (issue #989, lot D)', () => {
+    /**
+     * The inventory's signing form, as partials/signature_fields.html.twig
+     * renders it twice: the renter as a witness under `renter_`, the
+     * manager with the account's signature or a new one — and a field of
+     * the page's own beside them.
+     *
+     * @param {'stored'|'new'} manager
+     */
+    function page(manager) {
+        document.body.innerHTML = `
+            <form data-signature-form data-signature-inline-form>
+                <input type="text" name="note" value="Rien à signaler">
+                <input type="file" name="photo">
+                <fieldset id="renter-block">
+                    <div data-signature-field data-signature-mode="witness" id="renter">
+                        <input type="hidden" name="renter_signature_source" value="new">
+                        <input type="text" name="renter_signer_name">
+                        <input type="hidden" name="renter_signature_data" value="">
+                        <canvas data-signature-pad width="600" height="200"></canvas>
+                        <p data-signature-missing hidden></p>
+                    </div>
+                </fieldset>
+                <div data-signature-field data-signature-mode="${manager}" id="manager">
+                    <input type="hidden" name="signature_source" value="${manager}">
+                    ${manager === 'stored' ? '<div data-signature-preview></div>' : `
+                        <input type="hidden" name="signature_data" value="">
+                        <canvas data-signature-pad width="900" height="300"></canvas>
+                        <input type="file" name="signature_file">
+                        <input type="checkbox" name="remember_signature" value="1">
+                        <p data-signature-missing hidden></p>`}
+                </div>
+            </form>`;
+        const form = /** @type {HTMLFormElement} */ (document.querySelector('form'));
+        /** @type {Record<string, {canvas: HTMLCanvasElement, context: any}>} */
+        const pads = {};
+        form.querySelectorAll('[data-signature-field]').forEach((container) => {
+            const canvas = /** @type {HTMLCanvasElement|null} */ (container.querySelector('canvas'));
+            if (canvas === null) {
+                return;
+            }
+            const context = { beginPath: vi.fn(), moveTo: vi.fn(), lineTo: vi.fn(), stroke: vi.fn(), clearRect: vi.fn() };
+            canvas.getContext = /** @type {any} */ (() => context);
+            canvas.toDataURL = () => `data:image/png;base64,${container.id.toUpperCase()}`;
+            pads[container.id] = { canvas, context };
+        });
+        /** @param {string} id */
+        const missing = (id) => /** @type {HTMLElement} */ (form.querySelector(`#${id} [data-signature-missing]`));
+
+        return { form, pads, missing };
+    }
+
+    it('is wired although it sits in no dialog', () => {
+        const { form } = page('new');
+
+        expect(wire(form)).toBe(true);
+        expect(form.dataset.signatureDialogWired).toBe('1');
+    });
+
+    it('fetches the stored signature into the manager’s own block when the page shows it', () => {
+        const { form } = page('stored');
+        wire(form);
+
+        const image = /** @type {HTMLImageElement} */ (form.querySelector('#manager [data-signature-preview] img'));
+        expect(image.getAttribute('src')).toBe(PREVIEW_URL);
+        expect(form.querySelectorAll('img')).toHaveLength(1);
+    });
+
+    it('tells the signer who left their frame empty, and only them', () => {
+        const { form, pads, missing } = page('new');
+        wire(form);
+        trace(pads.manager.canvas);
+
+        const event = submit(form);
+
+        expect(event.defaultPrevented).toBe(true);
+        expect(missing('renter').hidden).toBe(false);
+        expect(missing('manager').hidden).toBe(true);
+        expect(emptySigners(form).map((/** @type {HTMLElement} */ signer) => signer.id)).toEqual(['renter']);
+
+        trace(pads.renter.canvas);
+        expect(submit(form).defaultPrevented).toBe(false);
+        expect(missing('renter').hidden).toBe(true);
+    });
+
+    it('asks nothing of a signer the page set aside — a renter who is absent', () => {
+        const { form, pads } = page('new');
+        wire(form);
+        /** @type {HTMLFieldSetElement} */ (form.querySelector('#renter-block')).disabled = true;
+        trace(pads.manager.canvas);
+
+        expect(submit(form).defaultPrevented).toBe(false);
+        // Read on the same submit, the pad having filled the manager's field.
+        expect(isEmpty(form)).toBe(false);
+    });
+
+    it('sends each signer’s PNG in its own field, then empties both signers and nothing else', async () => {
+        vi.useFakeTimers();
+        const { form, pads } = page('new');
+        wire(form);
+        field(form, 'renter_signer_name').value = 'Jeanne Martin';
+        trace(pads.renter.canvas);
+        trace(pads.manager.canvas);
+        field(form, 'remember_signature').checked = true;
+
+        const event = submit(form);
+
+        expect(event.defaultPrevented).toBe(false);
+        expect(field(form, 'renter_signature_data').value).toBe('data:image/png;base64,RENTER');
+        expect(field(form, 'signature_data').value).toBe('data:image/png;base64,MANAGER');
+
+        await vi.runAllTimersAsync();
+        expect(field(form, 'renter_signature_data').value).toBe('');
+        expect(field(form, 'renter_signer_name').value).toBe('');
+        expect(field(form, 'signature_data').value).toBe('');
+        expect(field(form, 'remember_signature').checked).toBe(false);
+        expect(pads.renter.context.clearRect).toHaveBeenCalledWith(0, 0, 600, 200);
+        expect(pads.manager.context.clearRect).toHaveBeenCalledWith(0, 0, 900, 300);
+        // The page's own fields are the page's.
+        expect(field(form, 'note').value).toBe('Rien à signaler');
+    });
+
+    it('empties both signers of a page restored from the back-forward cache, and fetches the preview again', () => {
+        const { form, pads } = page('stored');
+        wire(form);
+        field(form, 'renter_signer_name').value = 'Jeanne Martin';
+        trace(pads.renter.canvas);
+
+        const persisted = new Event('pageshow');
+        Object.defineProperty(persisted, 'persisted', { value: true });
+        window.dispatchEvent(persisted);
+
+        expect(pads.renter.context.clearRect).toHaveBeenCalled();
+        expect(field(form, 'renter_signer_name').value).toBe('');
+        expect(form.querySelector('#manager [data-signature-preview] img')?.getAttribute('src')).toBe(PREVIEW_URL);
+    });
+
+    it('leaves the page alone on an ordinary pageshow', () => {
+        const { form, pads } = page('new');
+        wire(form);
+        field(form, 'renter_signer_name').value = 'Jeanne Martin';
+        trace(pads.renter.canvas);
+
+        window.dispatchEvent(new Event('pageshow'));
+
+        expect(pads.renter.context.clearRect).not.toHaveBeenCalled();
+        expect(field(form, 'renter_signer_name').value).toBe('Jeanne Martin');
     });
 });
