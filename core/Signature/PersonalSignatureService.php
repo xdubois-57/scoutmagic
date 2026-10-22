@@ -250,7 +250,9 @@ class PersonalSignatureService
             );
         }
         if ($submission->useStored) {
-            throw new SignatureException('Cette signature se trace sur place : une signature enregistrée ne convient pas.');
+            throw new SignatureException(
+                'Cette signature se trace sur place : une signature enregistrée ne convient pas.'
+            );
         }
         if ($submission->uploadedPath !== null) {
             throw new SignatureException('Cette signature se trace sur place : une image importée ne convient pas.');
