@@ -930,6 +930,26 @@ phone's browser (`installed-app-links.js`). The `/files/…` link rule
 (`partials/file_link.html.twig`, `UxConventionsTest`) stays: it is what
 still serves a browser tab, where nothing is intercepted.
 
+**A photo taken on the spot is a tile, not a drop zone** (#989). Where a
+manager photographs what is in front of them — an incident, a meter —
+the photos are a row of 72 px square thumbnails ending with a dashed
+« + Photo » square of the same size
+(`modules/rental/views/management/_photo_tile.html.twig`). The tile opens
+a two-choice menu, « Prendre une photo » (`capture="environment"`, the
+rear camera) and « Choisir dans la galerie », both
+`accept="image/jpeg,image/png,image/webp"` — no HEIC, so that iOS
+converts the photo itself. Each photo is reduced in the browser
+(`photo-reduce.js`: 2 400 px on the longest side, JPEG 0.85, the original
+sent as it was on any failure — the server normalises anyway) and waits
+as a thumbnail before the tile; its cross takes it back without a
+question, since nothing has left the phone. An attached photo's cross is
+a form of its own behind `data-confirm` (§7.5). The limit is said under
+the row and held by the tile, which disappears once it is reached.
+Thumbnails are the `thumb` derivative (`file_url(id, 'thumb')`), never a
+photo embedded in the page. Without JavaScript the row's plain file field
+is shown instead. The drop zone above stays the component for a document
+picked from the phone's files.
+
 ### 7.10.1 Selection: the two components
 
 The site has exactly two selection components, and §1.4 states the rule for

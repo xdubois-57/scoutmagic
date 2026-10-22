@@ -172,6 +172,16 @@ interface Window {
             options?: { input?: HTMLInputElement | null, pickOnClick?: boolean }
         ) => void;
     };
+    // public/assets/js/photo-reduce.js — a photo reduced in the browser
+    // before it is sent (2 400 px, JPEG 0.85), the original file given back
+    // on any failure; loaded by the pages that show a photo tile (#989).
+    ScoutMagicPhotoReduce?: {
+        MAX_EDGE: number;
+        QUALITY: number;
+        reducePhoto: (file: File) => Promise<File>;
+        targetSize: (width: number, height: number) => { width: number, height: number };
+        jpegName: (name: string) => string;
+    };
     // public/assets/js/upload-drop-zone.js — a drop_zone whose file rides
     // the surrounding form's own multipart POST; loaded by the pages that
     // show one (design.md §7.10).

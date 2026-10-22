@@ -1,0 +1,79 @@
+{#
+  A row of photos ending with the « + Photo » tile (#989, lot B): the
+  photos already attached as thumbnails — the `thumb` derivative served
+  through FileAccessGuard, never embedded in the page — each with its
+  cross when it can still be removed, then the tile, whose menu offers
+  « Prendre une photo » or « Choisir dans la galerie ».
+
+  The behaviour is public/assets/js/rental-photo-tile.js: each photo picked
+  is reduced in the browser, shown before the tile, and carried by the one
+  named file field, which the surrounding form posts. Without JavaScript
+  that field is a plain visible file field and the tile is hidden (app.css,
+  `photo-tile-ready`).
+
+  The cross is a submit button of a SEPARATE form, named by its `form`
+  attribute: a form cannot sit inside another, and the removal posts on its
+  own, behind its `data-confirm` (design.md §7.5). The caller renders those
+  forms, outside its own.
+
+  Parameters:
+    tile_id   prefix of the ids, unique on the page
+    max       how many photos this takes (5 per incident, 1 per reading)
+    field     the name the photos post under (`photos[]` or `photo`)
+    photos    the photos attached: [{file_id, remove_form}], `remove_form`
+              the id of the form that removes it, or null when it can no
+              longer be removed
+    open      whether photos can still be added
+    label     what the photos are of, for the accessible names
+    hint      the line under the row: the limit, and what to photograph
+#}
+{% set attached = photos|length %}
+<div class="photo-tiles" data-photo-tile data-photo-max="{{ max }}" data-photo-attached="{{ attached }}">
+    {% for photo in photos %}
+        <figure class="photo-thumb">
+            <a href="{{ file_url(photo.file_id) }}" data-file-viewer="{{ file_url(photo.file_id) }}"
+               data-file-name="Photo {{ loop.index }}" data-file-image="1"
+               download="photo-{{ loop.index }}.jpg" target="_blank" rel="noopener">
+                <img src="{{ file_url(photo.file_id, 'thumb') }}" alt="Photo {{ loop.index }}"
+                     width="72" height="72" loading="lazy" decoding="async">
+            </a>
+            {% if photo.remove_form %}
+                <button type="submit" form="{{ photo.remove_form }}" class="btn btn-sm btn-outline-danger photo-thumb-remove"
+                        aria-label="Retirer la photo {{ loop.index }} — {{ label }}"
+                        title="Retirer la photo {{ loop.index }}">×</button>
+            {% endif %}
+        </figure>
+    {% endfor %}
+    {% if open and attached < max %}
+        <div class="dropdown photo-tile-add" data-photo-add>
+            <button type="button" class="btn btn-outline-secondary photo-tile" id="{{ tile_id }}-add"
+                    data-bs-toggle="dropdown" aria-expanded="false">+ Photo</button>
+            <ul class="dropdown-menu" aria-labelledby="{{ tile_id }}-add">
+                <li>
+                    <button type="button" class="dropdown-item" data-photo-pick="camera">
+                        <i class="bi bi-camera me-1" aria-hidden="true"></i>Prendre une photo
+                    </button>
+                </li>
+                <li>
+                    <button type="button" class="dropdown-item" data-photo-pick="gallery">
+                        <i class="bi bi-images me-1" aria-hidden="true"></i>Choisir dans la galerie
+                    </button>
+                </li>
+            </ul>
+        </div>
+        <label class="visually-hidden" for="{{ tile_id }}-camera">Prendre une photo — {{ label }}</label>
+        <input type="file" hidden id="{{ tile_id }}-camera" data-photo-source="camera"
+               accept="image/jpeg,image/png,image/webp" capture="environment">
+        <label class="visually-hidden" for="{{ tile_id }}-gallery">Choisir dans la galerie — {{ label }}</label>
+        <input type="file" hidden id="{{ tile_id }}-gallery" data-photo-source="gallery"
+               accept="image/jpeg,image/png,image/webp" {{ max > 1 ? 'multiple' : '' }}>
+        <label class="visually-hidden" for="{{ tile_id }}-carrier">Photos — {{ label }}</label>
+        <input type="file" class="form-control form-control-sm photo-tile-carrier" id="{{ tile_id }}-carrier"
+               name="{{ field }}" accept="image/jpeg,image/png,image/webp" {{ max > 1 ? 'multiple' : '' }}
+               data-photo-carrier>
+    {% endif %}
+    <output class="photo-tiles-status small text-danger" data-photo-status aria-live="polite"></output>
+</div>
+{% if hint and open and attached < max %}
+    <p class="small text-body-secondary mb-0 mt-1">{{ hint }}</p>
+{% endif %}

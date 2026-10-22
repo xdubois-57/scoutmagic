@@ -5565,7 +5565,7 @@ class RentalManagementControllerTest extends TestCase
     /**
      * Several photos come with one report, and each is stored as the site
      * keeps a photo: a JPEG with no EXIF, served through FileAccessGuard,
-     * its thumbnail beside it. The incident page links to each.
+     * its thumbnail beside it. The incident page shows each.
      */
     public function testAnIncidentIsReportedWithSeveralNormalisedPhotos(): void
     {
@@ -5594,9 +5594,14 @@ class RentalManagementControllerTest extends TestCase
             );
         }
 
+        // Each shows as its thumbnail, served by the variant route, with
+        // the « + Photo » tile after them and the scripts behind it (lot B).
         $body = $this->inventoryPage($booking);
         $this->assertStringContainsString('/files/' . $photos[0]->fileId . '"', $body);
-        $this->assertStringContainsString('Photo 2</a>', $body);
+        $this->assertStringContainsString('src="/files/' . $photos[1]->fileId . '/thumb" alt="Photo 2"', $body);
+        $this->assertStringContainsString('data-photo-max="5" data-photo-attached="2"', $body);
+        $this->assertStringContainsString('/assets/js/photo-reduce.js?v=', $body);
+        $this->assertStringContainsString('/assets/js/rental-photo-tile.js?v=', $body);
     }
 
     /** The single `photo` field the page posts today works the same way. */

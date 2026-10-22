@@ -170,7 +170,7 @@
 
             {% include '@rental/management/_incidents.html.twig' with {
                 incidents: incidents, incident_decisions: incident_decisions, incidents_open: incidents_open,
-                asset: asset, booking: booking,
+                max_incident_photos: max_incident_photos, asset: asset, booking: booking,
             } only %}
         </div>
     </div>
@@ -178,4 +178,6 @@
 
 {% block booking_scripts %}
     <script type="module" src="{{ asset('/assets/js/rental-inventory.js') }}"></script>
+    <script src="{{ asset('/assets/js/photo-reduce.js') }}" defer></script>
+    <script type="module" src="{{ asset('/assets/js/rental-photo-tile.js') }}"></script>
 {% endblock %}
