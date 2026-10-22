@@ -1009,13 +1009,11 @@ class RentalDocumentService
                 $modificationId
             );
         } catch (\Throwable $e) {
-            // The bytes go with the row that was refused: under a caller's
-            // transaction the `files` row rolls back, and the file on disk
-            // would be left for nobody to find (#989, lot E).
-            $file = $this->fileRepository->findById($fileId);
-            if ($file !== null) {
-                @unlink($this->storagePath . '/' . $file->relativePath);
-            }
+            // The bytes and the `files` row go with the document row that was
+            // refused: under a caller's transaction the row rolls back anyway,
+            // without one it would stay behind, and the file on disk would be
+            // left for nobody to find either way (#989, lot E).
+            $this->fileRemover->removeOrphan($fileId);
             throw $e;
         }
 

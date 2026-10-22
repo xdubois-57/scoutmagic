@@ -610,6 +610,44 @@ class RentalDocumentServiceTest extends TestCase
     }
 
     /**
+     * A document row refused outside any transaction leaves neither the
+     * stored PDF nor its `files` row behind: nothing would ever reference
+     * them again (#989, lot E).
+     */
+    public function testAnAttachedPdfWhoseRowIsRefusedLeavesNoFileBehind(): void
+    {
+        $booking = $this->createBooking();
+
+        $repository = $this->createStub(RentalDocumentRepository::class);
+        $repository->method('create')->willThrowException(new \RuntimeException('refused'));
+
+        $service = new RentalDocumentService(
+            $repository,
+            $this->bookingRepository,
+            RentalTestHelper::bookingAudit($this->pdo, $this->encryption),
+            $this->editableContentService,
+            $this->fileRepository,
+            new \Core\File\AttachedFileRemover($this->fileRepository, $this->storagePath),
+            new DocumentPdfService(),
+            new HtmlSanitizer(),
+            new SettingService(new SettingRepository($this->pdo)),
+            new JournalService(new JournalRepository($this->pdo)),
+            $this->storagePath
+        );
+        $filesBefore = (int) $this->pdo->query('SELECT COUNT(*) FROM files')->fetchColumn();
+
+        try {
+            $service->attachPdf($booking, '%PDF-1.4 test', DocumentType::INVENTORY, 'etat-des-lieux.pdf', true);
+            $this->fail('the refused row must surface');
+        } catch (\RuntimeException $e) {
+            $this->assertSame('refused', $e->getMessage());
+        }
+
+        $this->assertSame($filesBefore, (int) $this->pdo->query('SELECT COUNT(*) FROM files')->fetchColumn());
+        $this->assertSame([], glob($this->storagePath . '/rental/documents/*') ?: []);
+    }
+
+    /**
      * The same write, before the send, still lands.
      *
      * Without this the fix above could be « refuse everything », which no

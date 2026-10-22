@@ -92,7 +92,7 @@
                                     {% if incident.photo_file_ids is not empty %}
                                         <span class="d-flex flex-wrap gap-2 mt-2">
                                             {% for file_id in incident.photo_file_ids %}
-                                                <img src="{{ file_url(file_id, 'thumb') }}" alt="Photo {{ loop.index }} de l'incident"
+                                                <img src="{{ file_url(file_id, 'thumb') }}" alt="Constat {{ loop.index }} de l'incident"
                                                      width="96" height="96" loading="lazy" decoding="async" class="rounded border">
                                             {% endfor %}
                                         </span>

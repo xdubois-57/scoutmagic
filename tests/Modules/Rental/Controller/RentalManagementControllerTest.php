@@ -5601,7 +5601,7 @@ class RentalManagementControllerTest extends TestCase
         [$booking] = $this->bookingWithAnInventory();
         $this->validateInventoryPhase($booking, 'arrival');
         $documentId = (int) ($this->stayService->inventoryValidations($booking->id)['arrival']['document_id'] ?? 0);
-        $this->pdo->exec('UPDATE rental_documents SET sent_at = NULL WHERE id = ' . $documentId);
+        $this->pdo->prepare('UPDATE rental_documents SET sent_at = NULL WHERE id = ?')->execute([$documentId]);
 
         $this->post('/mes-locations/document-supprimer', 'deleteDocument', [
             'asset_id' => (string) $this->assetId,
