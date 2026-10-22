@@ -96,6 +96,15 @@
         const point = (event) => canvasPoint(event, canvas.getBoundingClientRect(), canvas);
 
         canvas.addEventListener('pointerdown', (event) => {
+            // A canvas is not a form control, so a disabled fieldset — a
+            // signer the page set aside — does not stop it taking ink that
+            // could be neither erased (« Effacer » is disabled) nor sent
+            // (the hidden field is). Read when the stroke starts, not when
+            // the pad is wired: the page may set the signer aside and bring
+            // them back (« absent », then « signe ici »).
+            if (canvas.closest('fieldset[disabled]') !== null) {
+                return;
+            }
             drawing = true;
             canvas.setPointerCapture?.(event.pointerId);
             const at = point(event);

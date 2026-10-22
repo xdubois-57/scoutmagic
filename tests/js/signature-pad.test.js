@@ -214,6 +214,24 @@ describe('two signers in one form (issue #989, lot D)', () => {
         expect(field('signature_data').value).toBe('data:image/png;base64,MANAGER');
     });
 
+    it('takes no ink from a signer set aside, and takes it again once they are back', () => {
+        const { element, renter, field } = form();
+        const fieldset = document.createElement('fieldset');
+        renter.container.replaceWith(fieldset);
+        fieldset.append(renter.container);
+        fieldset.disabled = true;
+        wirePad(element);
+
+        trace(renter.canvas);
+        expect(renter.context.lineTo).not.toHaveBeenCalled();
+
+        fieldset.disabled = false;
+        trace(renter.canvas);
+        expect(renter.context.lineTo).toHaveBeenCalled();
+        element.dispatchEvent(new Event('submit'));
+        expect(field('renter_signature_data').value).toBe('data:image/png;base64,RENTER');
+    });
+
     it('lets « Effacer » forget one signer’s drawing and keep the other’s', () => {
         const { element, renter, manager, field } = form();
         wirePad(element);
