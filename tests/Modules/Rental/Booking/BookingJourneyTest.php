@@ -927,14 +927,18 @@ class BookingJourneyTest extends TestCase
             $byKey[$milestone->key] = $milestone;
         }
 
-        foreach (['arrival' => BookingMilestones::ARRIVAL_INVENTORY, 'departure' => BookingMilestones::DEPARTURE_INVENTORY] as $phase => $key) {
-            $step = $byKey[$key];
-            $this->assertSame(MilestoneKind::HERE, $step->kind, $key);
-            $this->assertFalse($step->canBeCompletedByHand(), $key);
-            $this->assertSame(\Modules\Rental\Booking\BookingPage::INVENTORY, $step->action?->page, $key);
-            $this->assertSame('/signer?phase=' . $phase, $step->action->pathSuffix, $key);
-        }
-        $this->assertSame("Signer l'état des lieux d'entrée", $byKey[BookingMilestones::ARRIVAL_INVENTORY]->action?->label);
+        $arrival = $byKey[BookingMilestones::ARRIVAL_INVENTORY];
+        $this->assertSame(MilestoneKind::HERE, $arrival->kind);
+        $this->assertFalse($arrival->canBeCompletedByHand());
+        $this->assertSame(\Modules\Rental\Booking\BookingPage::INVENTORY, $arrival->action?->page);
+        $this->assertSame('/signer?phase=arrival', $arrival->action->pathSuffix);
+        $this->assertSame("Signer l'état des lieux d'entrée", $arrival->action->label);
+        // The departure waits for the arrival: no way in that would only
+        // bounce back to « État des lieux », and the line says why.
+        $departure = $byKey[BookingMilestones::DEPARTURE_INVENTORY];
+        $this->assertFalse($departure->canBeCompletedByHand());
+        $this->assertNull($departure->action);
+        $this->assertSame("L'état des lieux de sortie se signe une fois celui d'entrée signé.", $departure->explanation);
         // Any other step still to do is ticked by hand as before (IT-14).
         $this->assertTrue($byKey[BookingMilestones::DEPOSIT_RECEIVED]->canBeCompletedByHand());
 
@@ -963,6 +967,21 @@ class BookingJourneyTest extends TestCase
             if ($milestone->key === BookingMilestones::ARRIVAL_INVENTORY) {
                 $this->assertTrue($milestone->isDone);
                 $this->assertFalse($milestone->canBeReopened());
+            }
+        }
+
+        // The arrival signed, the departure's step leads to its signing.
+        $next = BookingMilestones::for(
+            $this->booking(BookingStatus::CONFIRMED),
+            new \DateTimeImmutable('2027-01-10 12:00:00'),
+            [BookingMilestones::ARRIVAL_INVENTORY => true] + $extras,
+            [],
+            [BookingMilestones::ARRIVAL_INVENTORY, BookingMilestones::DEPARTURE_INVENTORY]
+        );
+        foreach ($next as $milestone) {
+            if ($milestone->key === BookingMilestones::DEPARTURE_INVENTORY) {
+                $this->assertSame('/signer?phase=departure', $milestone->action?->pathSuffix);
+                $this->assertSame("Signer l'état des lieux de sortie", $milestone->action->label);
             }
         }
     }

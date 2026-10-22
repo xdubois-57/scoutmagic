@@ -254,6 +254,12 @@ final class BookingMilestones
         // What each line asks and how it gets ticked is decided once, over
         // the finished list, so that the facts above stay the only thing
         // each constructor call is about.
+        $arrivalSigned = false;
+        foreach ($milestones as $milestone) {
+            if ($milestone->key === self::ARRIVAL_INVENTORY) {
+                $arrivalSigned = $milestone->isDone;
+            }
+        }
         $shaped = array_map(
             static fn(BookingMilestone $m): BookingMilestone => self::shaped(
                 $m,
@@ -262,7 +268,8 @@ final class BookingMilestones
                 $booking->lapseEndsTheBooking(),
                 in_array($m->key, $manual, true),
                 $firm,
-                !$abandoned && in_array($m->key, $awaitingAssessment, true)
+                !$abandoned && in_array($m->key, $awaitingAssessment, true),
+                $arrivalSigned
             ),
             $milestones
         );
@@ -312,7 +319,8 @@ final class BookingMilestones
         bool $lapseEndsTheBooking = false,
         bool $isManual = false,
         bool $holdsFirmly = false,
-        bool $awaitsAssessment = false
+        bool $awaitsAssessment = false,
+        bool $arrivalSigned = false
     ): BookingMilestone {
         $kind = MilestoneKind::DERIVED;
         $explanation = null;
@@ -375,6 +383,13 @@ final class BookingMilestones
                 $kind = MilestoneKind::HERE;
                 if (in_array($m->key, $minimal, true)) {
                     $isArrival = $m->key === self::ARRIVAL_INVENTORY;
+                    if (!$isArrival && !$m->isDone && !$arrivalSigned) {
+                        // The departure opens once the arrival is signed
+                        // (RentalStayService::assertPhaseOpen): no way in
+                        // that would only bounce back.
+                        $explanation = "L'état des lieux de sortie se signe une fois celui d'entrée signé.";
+                        break;
+                    }
                     $explanation = "Ce bien n'a ni éléments ni compteurs : l'état des lieux est minimal, une "
                         . 'phrase ou votre remarque, signée avec le locataire. Le PDF lui est envoyé.';
                     $action = MilestoneAction::openPage(
