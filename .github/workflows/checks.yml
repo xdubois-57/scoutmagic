@@ -372,7 +372,12 @@ jobs:
     # 2 on a quiet one. 9.1 minutes of tests on a quiet runner and 15.4 on a
     # busy one: the bound has to cover the busy one, or a green suite reads
     # as a red job.
-    timeout-minutes: ${{ inputs.evidence && 45 || 30 }}
+    #
+    # 40, raised from 30, when it happened again: #1004's run passed all 76
+    # tests in 19.9 minutes, after 8 of setup, and was cancelled at 30 while
+    # stopping its server (the coverage merge). The same job on main took 16
+    # to 26 minutes that day, so 30 was already the busy case with no room.
+    timeout-minutes: ${{ inputs.evidence && 45 || 40 }}
     services:
       mysql:
         image: mysql:8.0
