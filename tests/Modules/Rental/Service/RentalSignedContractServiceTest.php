@@ -720,6 +720,39 @@ class RentalSignedContractServiceTest extends TestCase
         $this->assertStringNotContainsString('jeanne', strtolower(json_encode($entries, JSON_THROW_ON_ERROR)));
     }
 
+    /**
+     * A notification that fails while the journal fails too: the second
+     * error goes to the server's log, never up to countersign(), which
+     * still mails the renter the contract that is signed.
+     */
+    public function testANotificationAndItsJournalLineBothFailingStillMailTheRenter(): void
+    {
+        $sent = [];
+        $service = $this->buildService($this->notifications($sent, true));
+        $booking = $this->booking();
+        $copy = $service->receiveCopy($booking, $this->asset(), $this->storedFile(self::photo(), 'jpg', 'image/jpeg'));
+        $account = $this->account();
+        $this->pdo->exec('DROP TABLE event_log');
+        $log = (string) tempnam(sys_get_temp_dir(), 'notiflog');
+        $previous = ini_set('error_log', $log);
+
+        try {
+            $final = $service->countersign($booking, $this->asset(), $copy->id, $this->drawnNow($account, false), null, new \DateTimeImmutable());
+            $written = (string) file_get_contents($log);
+        } finally {
+            ini_set('error_log', (string) $previous);
+            @unlink($log);
+        }
+
+        $this->assertNotNull($final->sentAt, 'the renter still receives the signed contract');
+        $this->assertStringContainsString(
+            'a signer notification failed (RuntimeException) and so did its journal line',
+            $written
+        );
+        $this->assertStringContainsString('booking #' . $booking->id . ', document #' . $final->id, $written);
+        $this->assertStringNotContainsString('jeanne', strtolower($written));
+    }
+
     /** The renter's e-mail failing does not keep the signer from being told. */
     public function testTheRentersEmailFailingStillNotifiesTheSigner(): void
     {

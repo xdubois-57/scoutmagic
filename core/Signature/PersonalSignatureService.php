@@ -277,9 +277,13 @@ class PersonalSignatureService
      */
     public function witnessFromRequest(Request $request): WitnessSignature
     {
+        // A forged `signer_name[]` arrives as an array: read as no name at
+        // all, never cast to « Array ».
+        $name = $request->getBody(self::WITNESS_NAME_FIELD, '');
+
         return $this->witness(
             SignatureSubmission::fromRequest($request, true, false),
-            (string) $request->getBody(self::WITNESS_NAME_FIELD, '')
+            is_string($name) ? $name : ''
         );
     }
 

@@ -880,7 +880,8 @@ class RentalSignedContractService
                 self::SIGNED_NOTIFICATION,
                 [['userAccountId' => $signature->accountId, 'memberId' => null]],
                 [
-                    'title' => ($replacement ? 'Contrat de remplacement signé' : 'Contrat signé') . ' — ' . $asset->name,
+                    'title' => ($replacement ? 'Contrat de remplacement signé' : 'Contrat signé')
+                        . ' — ' . $asset->name,
                     'body' => 'Vous avez contresigné ' . ($replacement ? 'le contrat de remplacement' : 'le contrat')
                         . ' de ' . $booking->reference . ' avec votre signature, le ' . $at
                         . '. Il est rangé dans les Documents de la réservation.',
@@ -888,15 +889,41 @@ class RentalSignedContractService
                 ]
             );
         } catch (\Throwable $e) {
+            $this->noteSignerNotificationFailure($e, $signature, $booking, $final);
+        }
+    }
+
+    /**
+     * The journal line of a signer notification that failed — and, should
+     * the journal fail too, the server's log instead: this runs after the
+     * commit, before the renter's e-mail, and an error escaping here would
+     * keep the renter from receiving a contract that is signed.
+     */
+    private function noteSignerNotificationFailure(
+        \Throwable $e,
+        AccountSignature $signature,
+        RentalBooking $booking,
+        RentalDocument $final
+    ): void {
+        $cause = (new \ReflectionClass($e))->getShortName();
+        try {
             $this->journal->log(
                 'rental',
                 'rental_signer_notification_failed',
                 'warning',
-                "La notification au signataire d'un contrat n'a pas pu être créée ("
-                    . (new \ReflectionClass($e))->getShortName() . ').',
+                "La notification au signataire d'un contrat n'a pas pu être créée (" . $cause . ').',
                 ['booking_id' => $booking->id, 'document_id' => $final->id],
                 $signature->accountId
             );
+        } catch (\Throwable $journalError) {
+            error_log(sprintf(
+                'ScoutMagic: a signer notification failed (%s) and so did its journal line (%s):'
+                    . ' booking #%d, document #%d',
+                $cause,
+                $journalError::class,
+                $booking->id,
+                $final->id
+            ));
         }
     }
 

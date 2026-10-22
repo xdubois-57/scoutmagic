@@ -287,6 +287,18 @@ final class PersonalSignatureSigningTest extends TestCase
         ));
     }
 
+    /** A forged `signer_name[]` is no name at all, never the word « Array ». */
+    public function testANameSentAsAnArrayIsRefusedAsNoName(): void
+    {
+        $this->expectException(SignatureException::class);
+        $this->expectExceptionMessage('Indiquez le nom de la personne qui signe.');
+        $this->service->witnessFromRequest(self::request([
+            'signature_source' => 'new',
+            'signature_data' => self::drawing(),
+            PersonalSignatureService::WITNESS_NAME_FIELD => ['Jeanne'],
+        ]));
+    }
+
     /** The stored mode is the account's signature, and a witness has no account. */
     public function testTheWitnessDialogRefusesTheStoredMode(): void
     {
