@@ -33,9 +33,9 @@ class RateLimitReservationLockTest extends TestCase
      * database of this class's own and emptied before every test
      * (`Tests\UsesProductionEngine`) — so the count reserve() reads is
      * never one another class left behind. The holder is a second session
-     * on that same database, as a concurrent request would be; a named
-     * lock is server-wide, so what it proves does not depend on which
-     * database the session sits in.
+     * on that same database, as a concurrent request would be — and it
+     * has to be that one: Core\Database\AdvisoryLock scopes a name to the
+     * connection's database, so a holder elsewhere would hold nothing.
      */
     protected function setUp(): void
     {

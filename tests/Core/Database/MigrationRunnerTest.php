@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Core\Database;
 
+use Core\Database\AdvisoryLock;
 use Core\Database\Connection;
 use Core\Database\MigrationRunner;
 use Core\Database\SchemaComparator;
@@ -651,11 +652,10 @@ class MigrationRunnerTest extends TestCase
     {
         // A second connection is a second MySQL session, which is what
         // GET_LOCK() is scoped to — the same connection would just be
-        // granted the lock it already holds.
+        // granted the lock it already holds. Taken through AdvisoryLock, so
+        // under the very name the runner scopes to this database.
         $other = self::productionEngineConnection();
-        $holder = $other->getPdo()->query("SELECT GET_LOCK('scoutmagic_schema_migration', 0)");
-        $this->assertSame(1, (int) $holder->fetchColumn());
-        $holder->closeCursor();
+        $this->assertTrue(AdvisoryLock::acquire($other->getPdo(), 'scoutmagic_schema_migration'));
 
         try {
             $runner = new MigrationRunner($this->connection, $this->introspector, new SchemaComparator(), new SqlParser());
@@ -667,10 +667,7 @@ class MigrationRunnerTest extends TestCase
             // Nothing was created: the lock holder is the one doing the work.
             $this->assertNotContains('members', $this->introspector->getTables());
         } finally {
-            $release = $other->getPdo()->query("SELECT RELEASE_LOCK('scoutmagic_schema_migration')");
-            if ($release !== false) {
-                $release->closeCursor();
-            }
+            AdvisoryLock::release($other->getPdo(), 'scoutmagic_schema_migration');
         }
     }
 

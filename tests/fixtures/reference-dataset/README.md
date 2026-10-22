@@ -371,7 +371,8 @@ une cible pour ce script.
 > **Ces chiffres sont maintenant constatés, et ils le restent.**
 > Ce lot n'avait jamais pu être construit : `build.php` rejoue toute
 > l'application contre une vraie base et prend `GET_LOCK('scoutmagic_schema_
-> migration')`, un verrou **serveur** MySQL, ce que la machine de
+> migration')`, un verrou alors **serveur** MySQL (il ne vaut plus que pour
+> sa base depuis `Core\Database\AdvisoryLock`), ce que la machine de
 > développement partagée sur laquelle il a été écrit ne permettait pas — et
 > la première construction réelle s'est arrêtée sur deux erreurs fatales
 > (§8.2.1). `Tests\Integration\ReferenceDatasetBuildTest` construit
@@ -993,8 +994,11 @@ se vérifie par le rapport du builder, pas au navigateur).
 ### 12.1 Ce qui n'a pas pu être vérifié
 
 `build.php` rejoue toute l'application contre une vraie base et prend
-`GET_LOCK('scoutmagic_schema_migration')`, un verrou **serveur** MySQL.
-Sur une machine partagée, le lancer casse la suite de tests de tout le monde.
+`GET_LOCK('scoutmagic_schema_migration')`, un verrou qui était alors
+**serveur** MySQL. Sur une machine partagée, le lancer cassait la suite de
+tests de tout le monde ; depuis que `Core\Database\AdvisoryLock` restreint
+chaque verrou à la base de sa connexion, il ne gêne plus que les exécutions
+sur la même base.
 Le lot IT-18 a donc été écrit sans jamais être construit, et c'est une limite
 assumée de cette voie : le builder « se vérifie sur une instance jetable,
 jamais sur celle qui sert à valider les autres voies ». Ce qui tient la ligne
