@@ -1246,6 +1246,21 @@ et le SMS ne passent par aucun serveur ; que suivre « WhatsApp » ou « Signal 
 signal.me **par l'appareil de la personne qui choisit de suivre le lien**, jamais par le site, et seulement à ce
 moment-là ; et que le lien n'indique pas de quelle page il a été suivi. WhatsApp et Signal ne sont **PAS des
 sous-traitants** : ne les place jamais en section 4 ni en section 5.2.
+37. **Signature personnelle (fonctionnalité du cœur du site, PAS un module)** : Comme les notifications push (règle
+23), la puce « Signature personnelle » des sections 2.1 et 3.1 concerne une fonctionnalité présente sur toute
+installation ScoutMagic, indépendamment de {$modulesText}. Conserve-la TOUJOURS intégralement, sans l'édulcorer.
+Conserve en particulier : (a) qu'elle est **facultative** et enregistrée par la personne elle-même ; (b) que le site
+n'en garde que l'**image**, réencodée en PNG, et **jamais la dynamique du tracé** (vitesse, pression, ordre des
+traits), de sorte qu'elle n'est pas une donnée biométrique — ne la présente jamais comme une signature électronique
+qualifiée ni comme une donnée biométrique ; (c) qu'elle est **chiffrée au repos**, rattachée au compte et jamais à une
+fiche de membre, et que **seul son titulaire** peut la voir, la remplacer, la supprimer ou l'utiliser — aucun
+administrateur ne peut la lire ni l'apposer à sa place ; (d) qu'elle n'est apposée sur un document qu'après une
+confirmation explicite, document par document ; (e) que sa **base légale est le consentement**, retiré à tout moment
+en la supprimant ; (f) qu'elle est effacée à sa suppression, **quand le compte est désactivé** et avec le compte ; (g)
+qu'un document déjà signé garde la signature qui y a été incorporée et suit la durée de conservation du module qui
+l'a produit (pour Locations, celle des réservations, règle 30), sans être modifié par le remplacement ou la
+suppression de la signature ; (h) que le journal d'audit n'en retient que des identifiants et une date, jamais
+l'image.
 Rappel final — instructions de l'administrateur à intégrer intégralement, point par point (voir règle 18) :
 {$userPrompt}
 

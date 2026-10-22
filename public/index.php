@@ -2573,12 +2573,21 @@ $memberYearRepo = new MemberYearRepository($pdo);
 $importJournalRepo = new ImportJournalRepository($pdo);
 $userAccountRepo = new UserAccountRepository($pdo, $encryptionService);
 
+// The personal signature of an account (Core\Signature, issue #926,
+// ARCHITECTURE.md §8.125): kept by its owner alone, erased when the account
+// is deactivated — which is why it is built before the service below.
+$personalSignatureService = new \Core\Signature\PersonalSignatureService(
+    new \Core\Signature\PersonalSignatureRepository($pdo, $encryptionService),
+    $journalService
+);
+
 // Configuration > Comptes superadmin (Core\Security\SuperAdminService):
 // granting/withdrawing the flag and deactivating/reactivating an account,
 // with the journal entries and the server-side refusals those changes owe.
 $superAdminService = new SuperAdminService(
     $userAccountRepo,
     $journalService,
+    $personalSignatureService,
     new SuperAdminMailer(
         $mailService,
         $emailTemplateRenderer,
@@ -4258,6 +4267,43 @@ $router->addRoute(
     \Core\Contact\Controller\DeviceCredentialController::class,
     'revoke',
     'admin'
+);
+// « Ma signature » (Core\Signature, issue #926, ARCHITECTURE.md §8.125):
+// the personal signature an account keeps for signing documents. Every
+// route `identified` — any account may keep one, whatever its role — and
+// every one acts on the session's own account, never on an id from the
+// request. A page of its own rather than a card of /account, which is
+// cached for offline reading; the image has its own `no-store` route
+// (SECURITY.md §6).
+$router->addRoute(
+    'GET',
+    '/account/signature',
+    \Core\Signature\Controller\AccountSignatureController::class,
+    'index',
+    'identified',
+    ['label' => 'Ma signature', 'parents' => [],
+        'ancestors' => [['label' => 'Mon compte', 'path' => '/account']]]
+);
+$router->addRoute(
+    'POST',
+    '/account/signature',
+    \Core\Signature\Controller\AccountSignatureController::class,
+    'save',
+    'identified'
+);
+$router->addRoute(
+    'POST',
+    '/account/signature/delete',
+    \Core\Signature\Controller\AccountSignatureController::class,
+    'delete',
+    'identified'
+);
+$router->addRoute(
+    'GET',
+    '/account/signature/image',
+    \Core\Signature\Controller\AccountSignatureController::class,
+    'image',
+    'identified'
 );
 // « Revoir les astuces » — forgets every discovery tip this account was
 // shown and releases any delay (§8.95). On HelpDiscoveryController rather
@@ -6665,8 +6711,13 @@ $frontController->registerController(
         $webAuthnCredentialRepo,
         $webAuthnService,
         $accountPhotoService,
-        $seenHelpTopicRepository
+        $seenHelpTopicRepository,
+        $personalSignatureService
     )
+);
+$frontController->registerController(
+    \Core\Signature\Controller\AccountSignatureController::class,
+    new \Core\Signature\Controller\AccountSignatureController($twig, $personalSignatureService)
 );
 // Contact synchronisation: the credentials an address-book client
 // authenticates with (Core\Contact\Device, ARCHITECTURE.md §8.117). One

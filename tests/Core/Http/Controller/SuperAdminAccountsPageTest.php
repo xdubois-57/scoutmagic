@@ -40,7 +40,12 @@ class SuperAdminAccountsPageTest extends TestCase
 
         $pdo = DatabaseTestHelper::createTestDatabase();
         $users = new UserAccountRepository($pdo, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)));
-        $service = new SuperAdminService($users, new JournalService(new JournalRepository($pdo)));
+        $journal = new JournalService(new JournalRepository($pdo));
+        $service = new SuperAdminService(
+            $users,
+            $journal,
+            new \Core\Signature\PersonalSignatureService(new \Core\Signature\PersonalSignatureRepository($pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32))), $journal)
+        );
         $this->selfId = $service->grant('moi@example.com', null)['account']->id;
         $this->otherId = $service->grant('autre@example.com', null)['account']->id;
         AuthSession::login($this->selfId, 'moi@example.com', 'superadmin');

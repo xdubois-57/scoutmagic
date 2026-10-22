@@ -176,6 +176,31 @@
         </div>
     </div>
 
+    {#
+      The personal signature (issue #926, Core\Signature): whether there is
+      one, and a link to the page that manages it. Never the image — this
+      page is cached for offline reading (Core\Offline\OfflineWhitelist),
+      and a signature must never rest in that cache; /account/signature
+      and its image are both answered no-store. Absent when the service is
+      not wired (has_personal_signature is then null).
+    #}
+    {% if has_personal_signature is defined and has_personal_signature is not null %}
+        <div class="card mb-3">
+            <div class="card-body">
+                <h2 class="h5 mb-3">Ma signature</h2>
+                <p class="text-body-secondary small mb-3">
+                    {% if has_personal_signature %}
+                        Signature enregistrée{% if personal_signature_saved_at|default(null) %} le {{ personal_signature_saved_at|date_fr }}{% endif %}.
+                        Vous seul pouvez la voir et l'utiliser.
+                    {% else %}
+                        Aucune signature enregistrée.
+                    {% endif %}
+                </p>
+                <a href="/account/signature" class="btn btn-outline-secondary">Gérer ma signature</a>
+            </div>
+        </div>
+    {% endif %}
+
     {# Push notifications section #}
     <div class="card mb-3">
         <div class="card-body">

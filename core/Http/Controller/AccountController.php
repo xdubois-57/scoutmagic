@@ -20,6 +20,7 @@ use Core\Security\ProfileCompletionGate;
 use Core\Security\UserAccountRepository;
 use Core\Security\WebAuthnCredentialRepository;
 use Core\Security\WebAuthnService;
+use Core\Signature\PersonalSignatureService;
 use Twig\Environment;
 
 class AccountController extends AbstractController
@@ -37,7 +38,11 @@ class AccountController extends AbstractController
         // offered. The reset itself lives on
         // Core\Http\Controller\HelpDiscoveryController — this page only
         // needs to know whether there is anything to reset.
-        private ?SeenTopicRepository $seenHelpTopics = null
+        private ?SeenTopicRepository $seenHelpTopics = null,
+        // Same rule: with none, the « Ma signature » card is not offered.
+        // Only whether there is one, and since when — never the image,
+        // since this page is cached for offline reading (issue #926).
+        private ?PersonalSignatureService $personalSignatures = null
     ) {
     }
 
@@ -74,6 +79,9 @@ class AccountController extends AbstractController
             // at all (ARCHITECTURE.md §8.95) — a button proposing to undo
             // nothing is a button that reads as broken.
             'discovery_tips_seen' => $this->seenHelpTopics?->countSeen($userId) ?? 0,
+            // Null without the service, which hides the card.
+            'has_personal_signature' => $this->personalSignatures?->has($userId),
+            'personal_signature_saved_at' => $this->personalSignatures?->savedAt($userId),
         ]);
     }
 

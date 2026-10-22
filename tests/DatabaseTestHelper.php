@@ -529,6 +529,14 @@ class DatabaseTestHelper
             FOREIGN KEY (file_id) REFERENCES files(id)
         )');
 
+        // Core\Signature\PersonalSignatureRepository (issue #926).
+        $pdo->exec('CREATE TABLE user_account_signatures (
+            user_account_id INTEGER NOT NULL PRIMARY KEY,
+            image_encrypted BLOB NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (user_account_id) REFERENCES user_accounts(id) ON DELETE CASCADE
+        )');
+
         $pdo->exec('CREATE TABLE member_photos (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             member_id INTEGER NOT NULL,

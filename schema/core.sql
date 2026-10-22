@@ -872,6 +872,34 @@ CREATE TABLE user_account_photos (
     CONSTRAINT fk_uap_file FOREIGN KEY (file_id) REFERENCES files(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- The personal signature of an identified LOGIN (issue #926,
+-- Core\Signature\PersonalSignatureService, ARCHITECTURE.md §8.125): the
+-- image its owner chose to keep for signing documents in any module.
+--
+-- Keyed by the account and never by a member: one login may stand for
+-- several members (a parent, their children, a leader's own record), and
+-- none of them decides whose signature this is. One row per account,
+-- replaced whole.
+--
+-- It would let anyone forge a signed document, so it is the most sensitive
+-- thing an account keeps: a PNG re-encoded on the way in (no metadata of
+-- the original survives, and never the dynamics of the stroke — speed,
+-- pressure, order — which would make it biometric data), encrypted at rest
+-- under its own context, never under a public address, read only by its
+-- owner. Erased when they delete it, when the account is deactivated
+-- (Core\Security\SuperAdminService::deactivate()) and, by the cascade,
+-- with the account. A document already signed carries its own copy and is
+-- never touched by any of these.
+--
+-- updated_at has no default: the repository always writes it, from PHP.
+CREATE TABLE user_account_signatures (
+    user_account_id INT UNSIGNED NOT NULL PRIMARY KEY,
+    image_encrypted MEDIUMBLOB NOT NULL,
+    updated_at DATETIME NOT NULL,
+    CONSTRAINT fk_user_account_signatures_account
+        FOREIGN KEY (user_account_id) REFERENCES user_accounts(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- Generic "photo per person per year" core component (ARCHITECTURE.md §8):
 -- one row per (member, scout_year). Reused anywhere a person's photo needs to
 -- track the site's current scout year — not specific to any one module.

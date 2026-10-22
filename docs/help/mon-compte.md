@@ -10,7 +10,7 @@ question: Comment définir un mot de passe pour me connecter ?
 question: Comment se connecter avec l'empreinte ou le visage ?
 question: Comment revoir les astuces du site ?
 paths: /account
-related: se-connecter, envoyer-une-photo, notifications-preferences, cookies
+related: se-connecter, envoyer-une-photo, notifications-preferences, cookies, ma-signature
 ---
 
 La page « Mon compte » rassemble ce qui appartient à votre connexion —

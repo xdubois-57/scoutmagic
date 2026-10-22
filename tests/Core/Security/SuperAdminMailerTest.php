@@ -49,7 +49,11 @@ class SuperAdminMailerTest extends TestCase
 
         $this->service = new SuperAdminService(
             $this->userRepo,
-            new JournalService(new JournalRepository($this->pdo)),
+            $journal = new JournalService(new JournalRepository($this->pdo)),
+            new \Core\Signature\PersonalSignatureService(
+                new \Core\Signature\PersonalSignatureRepository($this->pdo, $encryption),
+                $journal
+            ),
             new SuperAdminMailer(
                 $this->mailService,
                 new \Core\Mail\Template\EmailTemplateRenderer(

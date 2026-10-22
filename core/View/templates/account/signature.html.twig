@@ -1,0 +1,105 @@
+{% extends 'base.html.twig' %}
+{% block title %}Ma signature — {{ site_name }}{% endblock %}
+{#
+  « Ma signature », under Mon compte (issue #926, lot B,
+  Core\Signature\Controller\AccountSignatureController).
+
+  It would let anyone sign in this person's name, and the page says so: it
+  is kept encrypted, shown to its owner alone — the image below comes from
+  a route that reads the account asking, with no id to change — and
+  deleted whenever they ask. A page of its own because /account is cached
+  for offline reading and a signature must never be; this page and the
+  image are both answered no-store.
+
+  Two ways to record it, one form: trace it on the pad, or import an image
+  of it. An untouched pad posts nothing, so an import is never overwritten
+  by an empty drawing (signature-pad.js).
+
+  Requires `has_signature`, `saved_at` (a date or null) and `return_to`
+  (an internal path to go back to after saving, or null).
+#}
+{% block content %}
+    <div class="page-medium">
+        {% include 'partials/page_header.html.twig' with { title: 'Ma signature' } only %}
+
+        <div class="card mb-4">
+            <div class="card-body">
+                <p>
+                    Votre signature sert à signer les documents que le site vous propose de signer. Elle n'est
+                    jamais apposée sans votre confirmation, document par document.
+                </p>
+                <p class="text-body-secondary small mb-0">
+                    Elle permettrait de signer en votre nom : elle est chiffrée, vous seul pouvez la voir et
+                    l'utiliser — personne d'autre, administrateur compris — et vous pouvez la remplacer ou la
+                    supprimer à tout moment. Le site n'en garde que l'image, jamais la manière dont elle a été
+                    tracée. Les documents déjà signés gardent la signature qu'ils portent.
+                </p>
+            </div>
+        </div>
+
+        {% if has_signature %}
+            <div class="card mb-4">
+                <div class="card-body">
+                    <h2 class="h5 mb-3">Votre signature enregistrée</h2>
+                    <img src="/account/signature/image" alt="Votre signature enregistrée"
+                         class="img-fluid border rounded bg-white p-2 mb-2" style="max-height: 160px;">
+                    {% if saved_at %}
+                        <p class="text-body-secondary small">Enregistrée le {{ saved_at|datetime_fr }}.</p>
+                    {% endif %}
+                    <form method="post" action="/account/signature/delete"
+                          data-confirm="Supprimer votre signature ? Les documents déjà signés la gardent ; pour en signer d'autres, il faudra la tracer ou l'importer à nouveau."
+                          data-confirm-label="Supprimer">
+                        {{ csrf_field()|raw }}
+                        <button type="submit" class="btn btn-sm btn-outline-danger">Supprimer ma signature</button>
+                    </form>
+                </div>
+            </div>
+        {% endif %}
+
+        <div class="card">
+            <div class="card-body">
+                <h2 class="h5 mb-3">{{ has_signature ? 'Remplacer ma signature' : 'Enregistrer ma signature' }}</h2>
+                <form method="post" action="/account/signature" enctype="multipart/form-data"
+                      data-signature-form>
+                    {{ csrf_field()|raw }}
+                    {% if return_to %}
+                        <input type="hidden" name="retour" value="{{ return_to }}">
+                    {% endif %}
+                    <input type="hidden" name="signature_data" value="">
+
+                    <p class="form-label mb-1" id="signature-pad-label">Tracez votre signature</p>
+                    {#
+                      Traced with a pointer, so no role of its own: « img »
+                      would tell assistive technology there is nothing to
+                      do here. The import below is the way in without one.
+                    #}
+                    <canvas data-signature-pad width="900" height="300"
+                            aria-labelledby="signature-pad-label" aria-describedby="signature-file-help"
+                            class="border rounded bg-white w-100 d-block"
+                            style="max-width: 600px; aspect-ratio: 3 / 1;"></canvas>
+                    <button type="button" class="btn btn-sm btn-outline-secondary mt-2" data-signature-clear>Effacer</button>
+
+                    <div class="mt-3">
+                        <label class="form-label" for="signature-file">Ou importez une image de votre signature</label>
+                        <input type="file" class="form-control" id="signature-file" name="signature_file"
+                               accept="image/png,image/jpeg,image/webp" aria-describedby="signature-file-help">
+                        <p class="form-text" id="signature-file-help">
+                            PNG, JPEG ou WebP, 5 Mo au plus — de préférence sur fond blanc ou transparent.
+                        </p>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary">
+                        {{ has_signature ? 'Remplacer ma signature' : 'Enregistrer ma signature' }}
+                    </button>
+                    {% if return_to %}
+                        <a class="ms-2" href="{{ return_to }}">Continuer sans modifier ma signature</a>
+                    {% endif %}
+                </form>
+            </div>
+        </div>
+    </div>
+{% endblock %}
+
+{% block scripts %}
+    <script src="{{ asset('/assets/js/signature-pad.js') }}"></script>
+{% endblock %}

@@ -58,7 +58,11 @@ class SuperAdminAccountsControllerTest extends TestCase
         $this->controller = new SuperAdminAccountsController(
             $twig,
             $this->userRepo,
-            new SuperAdminService($this->userRepo, new JournalService(new JournalRepository($this->pdo)))
+            new SuperAdminService(
+                $this->userRepo,
+                $journal = new JournalService(new JournalRepository($this->pdo)),
+                new \Core\Signature\PersonalSignatureService(new \Core\Signature\PersonalSignatureRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32))), $journal)
+            )
         );
 
         $this->csrfToken = CsrfGuard::generateToken();

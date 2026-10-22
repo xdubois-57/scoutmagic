@@ -61,7 +61,7 @@ Three-tab segmented control: "Lien magique" (default), "Mot de passe", "Clé num
 - Passkey: fingerprint icon + button (no email field).
 
 ### 1.6 Account page ("Mon compte")
-Name/surname. Password section (status + set/change). Passkey section (list + add). Cookie preferences link/section.
+Name/surname. Password section (status + set/change). Passkey section (list + add). « Ma signature »: a card stating only whether a personal signature is kept, and since when, with « Gérer ma signature » leading to `/account/signature` (draw or import, preview, replace, delete) — never the image itself, since `/account` is cached for offline reading (ARCHITECTURE.md §8.125). Cookie preferences link/section.
 
 ### 1.7 Cookie consent banner
 Fixed at the bottom of the screen while no consent has been given — except on the /cookies page itself, where the server never includes it (it would cover the very preferences it links to). Actions, in this exact order: "Tout refuser" then "Tout accepter", two identical primary (`btn-primary`) buttons — refusing is exactly as prominent as accepting — then "Personnaliser", a discreet link (`btn-link`) to /cookies. Does not block content: the page body is padded by the banner's height so everything below stays reachable. Disappears after choice.
