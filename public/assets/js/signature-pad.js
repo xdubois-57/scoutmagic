@@ -76,7 +76,6 @@
 
         canvas.addEventListener('pointerdown', (event) => {
             drawing = true;
-            drawn = true;
             canvas.setPointerCapture?.(event.pointerId);
             const at = point(event);
             context.beginPath();
@@ -87,6 +86,9 @@
             if (!drawing) {
                 return;
             }
+            // Only a stroke draws: a tap paints nothing, and counting it
+            // would post a blank picture over an imported one.
+            drawn = true;
             const at = point(event);
             context.lineTo(at.x, at.y);
             context.stroke();

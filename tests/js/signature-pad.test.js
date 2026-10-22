@@ -64,6 +64,17 @@ describe('wirePad()', () => {
         expect(field.value).toBe('');
     });
 
+    it('posts nothing after a tap that drew nothing, so an imported image still counts', () => {
+        const { element, canvas, field } = form();
+        wirePad(element);
+
+        canvas.dispatchEvent(new MouseEvent('pointerdown', { clientX: 1, clientY: 1 }));
+        canvas.dispatchEvent(new MouseEvent('pointerup'));
+        element.dispatchEvent(new Event('submit'));
+
+        expect(field.value).toBe('');
+    });
+
     it('posts the drawing as a PNG once something was traced, and « Effacer » forgets it', () => {
         const { element, canvas, field } = form();
         wirePad(element);
