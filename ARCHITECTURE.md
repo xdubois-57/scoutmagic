@@ -6238,7 +6238,8 @@ opens no transaction of its own) and the journal line a save writes, a
 no-op for a `Stored` signature or an unticked box, so that a signing that
 fails rolls the remembering back and « sign and remember » is one act or
 nothing; `recordSigning()` **after** the commit, so it names a document
-that exists.
+that exists — and, the document being signed by then, a journal that fails
+there goes to `error_log()` (ids only) instead of failing the signing.
 
 **The dialog** is `core/View/templates/partials/signature_dialog.html.twig`,
 on `partials/modal.html.twig` with a static backdrop, and it **is** the

@@ -256,6 +256,13 @@ class PersonalSignatureService
      * once the module's transaction has committed, so it records a
      * document that exists.
      *
+     * **A failure here never fails the signing.** The document is already
+     * signed and committed by then: letting the journal's error escape
+     * would show the signer an error for a signature that stands, and a
+     * retry would find nothing left to sign. It goes to `error_log()`
+     * instead, with the same ids and no pixel, so the missing line is
+     * still visible to whoever reads the server's log.
+     *
      * The account is the signature's, i.e. the session's.
      */
     public function recordSigning(
@@ -266,22 +273,33 @@ class PersonalSignatureService
         ?int $ownerEntityId,
         \DateTimeImmutable $at
     ): void {
-        $this->journal->log(
-            'core',
-            'personal_signature_document_signed',
-            'security',
-            'Document signé avec la signature personnelle du compte',
-            [
-                'module' => $module,
-                'document_type' => $documentType,
-                'document_id' => $documentId,
-                'owner_entity_id' => $ownerEntityId,
-                'origin' => $signature->origin->value,
-                'remembered' => $signature->willBeRemembered(),
-                'signed_at' => $at->format('Y-m-d H:i:s'),
-            ],
-            $signature->accountId
-        );
+        try {
+            $this->journal->log(
+                'core',
+                'personal_signature_document_signed',
+                'security',
+                'Document signé avec la signature personnelle du compte',
+                [
+                    'module' => $module,
+                    'document_type' => $documentType,
+                    'document_id' => $documentId,
+                    'owner_entity_id' => $ownerEntityId,
+                    'origin' => $signature->origin->value,
+                    'remembered' => $signature->willBeRemembered(),
+                    'signed_at' => $at->format('Y-m-d H:i:s'),
+                ],
+                $signature->accountId
+            );
+        } catch (\Throwable $e) {
+            error_log(sprintf(
+                'ScoutMagic: the journal line of a signed document was not written (module %s, %s #%d, account #%d): %s',
+                $module,
+                $documentType,
+                $documentId,
+                $signature->accountId,
+                $e::class
+            ));
+        }
     }
 
     /** The account's own first and last name, or null when it has none. */

@@ -539,7 +539,14 @@ class RentalSignedContractServiceTest extends TestCase
         $this->assertSame('drawn_now', $context['origin']);
         $this->assertTrue($context['remembered']);
 
-        $everything = json_encode($this->pdo->query('SELECT * FROM event_log')->fetchAll(), JSON_THROW_ON_ERROR);
+        // Every column as stored, never re-encoded: a context is JSON, which
+        // may escape the slashes of a base64 string, and the slash-free
+        // start of every base64 PNG is searched for as well.
+        $everything = '';
+        foreach ($this->pdo->query('SELECT * FROM event_log')->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $everything .= implode("\n", array_map(static fn(mixed $value): string => (string) $value, $row)) . "\n";
+        }
+        $this->assertStringNotContainsString('iVBORw0KGgo', $everything);
         $this->assertStringNotContainsString(base64_encode($signature->png->bytes()), $everything);
         $this->assertStringNotContainsString(base64_encode(self::signaturePng()), $everything);
 

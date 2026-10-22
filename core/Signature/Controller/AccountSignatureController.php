@@ -18,6 +18,7 @@ use Core\Signature\PersonalSignatureService;
 use Core\Signature\SignatureException;
 use Core\Signature\SignatureImage;
 use Core\Signature\SignaturePng;
+use Core\Signature\SignatureSubmission;
 use Twig\Environment;
 
 /**
@@ -167,9 +168,8 @@ class AccountSignatureController extends AbstractController
             return SignatureImage::fromDataUrl($drawn);
         }
 
-        $file = $request->getFile('signature_file');
-        $path = is_array($file) ? (string) ($file['tmp_name'] ?? '') : '';
-        if ($path !== '' && is_uploaded_file($path)) {
+        $path = SignatureSubmission::uploadedPath($request);
+        if ($path !== null) {
             return SignatureImage::fromUploadedFile($path);
         }
 

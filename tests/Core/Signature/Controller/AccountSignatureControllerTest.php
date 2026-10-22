@@ -18,6 +18,7 @@ use Core\Signature\Controller\AccountSignatureController;
 use Core\Signature\PersonalSignatureRepository;
 use Core\Signature\PersonalSignatureService;
 use Core\Signature\SignatureImage;
+use Core\Signature\SignatureSubmission;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\RequestWithInput;
@@ -198,6 +199,34 @@ final class AccountSignatureControllerTest extends TestCase
         $this->post('/account/signature', ['signature_data' => 'data:text/html;base64,PHA+']);
 
         $this->assertSame('error', FlashMessage::get()['type'] ?? null);
+        $this->assertFalse($this->signatures->has(self::OWNER));
+    }
+
+    /**
+     * PHP refused the file for its size: it arrives with an error and no
+     * path, and the visitor is told the image is too heavy — not to draw
+     * or choose one, which is what they just did.
+     */
+    #[\PHPUnit\Framework\Attributes\TestWith([UPLOAD_ERR_INI_SIZE])]
+    #[\PHPUnit\Framework\Attributes\TestWith([UPLOAD_ERR_FORM_SIZE])]
+    public function testAnImageTooHeavyForTheHostIsRefusedAsSuch(int $error): void
+    {
+        $request = new RequestWithInput(
+            'POST',
+            '/account/signature',
+            [],
+            ['_csrf_token' => $this->csrfToken()],
+            [],
+            [],
+            '',
+            ['name' => 'signature.png', 'tmp_name' => '', 'error' => $error, 'size' => 0, 'type' => '']
+        );
+        $this->controller->save($request, []);
+
+        $this->assertSame(
+            ['type' => 'error', 'message' => SignatureSubmission::TOO_HEAVY_TO_SEND],
+            FlashMessage::get()
+        );
         $this->assertFalse($this->signatures->has(self::OWNER));
     }
 

@@ -275,9 +275,47 @@ final class PersonalSignatureSigningTest extends TestCase
             'remembered' => true,
             'signed_at' => '2026-10-22 10:15:00',
         ], json_decode((string) $entries[0]['context'], true));
-        $everything = json_encode($this->pdo->query('SELECT * FROM event_log')->fetchAll(), JSON_THROW_ON_ERROR);
+        $everything = self::rawJournal($this->pdo);
+        // The slash-free start of every base64 PNG: a stored context is
+        // JSON, which may escape the slashes of a full base64 string.
+        $this->assertStringNotContainsString('iVBORw0KGgo', $everything);
         $this->assertStringNotContainsString(base64_encode($signature->png->bytes()), $everything);
         $this->assertStringNotContainsString((string) $signature->png->byteLength(), (string) $entries[0]['context']);
+    }
+
+    /** Every column of every journal row, as stored — never re-encoded. */
+    private static function rawJournal(\PDO $pdo): string
+    {
+        $raw = '';
+        foreach ($pdo->query('SELECT * FROM event_log')->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $raw .= implode("\n", array_map(static fn(mixed $value): string => (string) $value, $row)) . "\n";
+        }
+
+        return $raw;
+    }
+
+    /**
+     * The document is signed and committed when the act is journaled: a
+     * journal that fails then is reported to the server's log, with the
+     * ids and never a pixel, and never turns the signing into an error.
+     */
+    public function testAJournalThatFailsNeverFailsTheSigning(): void
+    {
+        $signature = $this->service->forSigning($this->account, new SignatureSubmission(false, self::drawing()));
+        $this->pdo->exec('DROP TABLE event_log');
+        $log = (string) tempnam(sys_get_temp_dir(), 'siglog');
+        $previous = ini_set('error_log', $log);
+
+        try {
+            $this->service->recordSigning($signature, 'rental', 'signed_contract', 40, 12, new \DateTimeImmutable());
+            $written = (string) file_get_contents($log);
+        } finally {
+            ini_set('error_log', (string) $previous);
+            @unlink($log);
+        }
+
+        $this->assertStringContainsString('module rental, signed_contract #40, account #' . $this->account, $written);
+        $this->assertStringNotContainsString('iVBORw0KGgo', $written);
     }
 
     // ── SignatureSubmission::fromRequest() ──────────────────────────────
@@ -349,6 +387,26 @@ final class PersonalSignatureSigningTest extends TestCase
         } finally {
             unset($_FILES['signature_file']);
             @unlink($path);
+        }
+    }
+
+    /**
+     * PHP refused the file for its size: the visitor is told so, rather
+     * than asked to draw or import a signature they just chose. A witness,
+     * who never imports, is not concerned.
+     */
+    #[\PHPUnit\Framework\Attributes\TestWith([UPLOAD_ERR_INI_SIZE])]
+    #[\PHPUnit\Framework\Attributes\TestWith([UPLOAD_ERR_FORM_SIZE])]
+    public function testAnImageTooHeavyForTheHostIsRefusedAsSuch(int $error): void
+    {
+        $_FILES['signature_file'] = ['tmp_name' => '', 'name' => 'sig.png', 'error' => $error, 'size' => 0, 'type' => ''];
+        try {
+            $this->assertNull(SignatureSubmission::fromRequest(self::request([]), false)->uploadedPath);
+            $this->expectException(SignatureException::class);
+            $this->expectExceptionMessage(SignatureSubmission::TOO_HEAVY_TO_SEND);
+            SignatureSubmission::fromRequest(self::request([]));
+        } finally {
+            unset($_FILES['signature_file']);
         }
     }
 
