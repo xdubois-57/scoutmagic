@@ -1,6 +1,7 @@
 // Isolated JavaScript unit test — jsdom DOM only. Exercises the REAL
 // implementation in public/assets/js/signature-pad.js: the drawing pad of
-// « Ma signature » under Mon compte (issue #926).
+// « Ma signature » under Mon compte (issue #926), and the two pads of one
+// form signed by two people (issue #989, lot D).
 //
 // A classic script: its two functions are reached through the namespaced
 // globalThis.ScoutMagicSignaturePadInternals test seam it exposes.
@@ -144,5 +145,156 @@ describe('wirePad()', () => {
         wirePad(element);
 
         expect(canvas.style.touchAction).toBe('none');
+    });
+});
+
+describe('two signers in one form (issue #989, lot D)', () => {
+    /**
+     * A form as partials/signature_fields.html.twig renders it twice: the
+     * renter as a witness under `renter_`, the manager without a prefix.
+     */
+    function form() {
+        document.body.innerHTML = `
+            <form data-signature-form data-signature-inline-form>
+                <div data-signature-field data-signature-mode="witness" id="renter">
+                    <input type="hidden" name="renter_signature_source" value="new">
+                    <input type="text" name="renter_signer_name">
+                    <input type="hidden" name="renter_signature_data" value="">
+                    <canvas data-signature-pad width="600" height="200"></canvas>
+                    <button type="button" data-signature-clear>Effacer</button>
+                </div>
+                <div data-signature-field data-signature-mode="new" id="manager">
+                    <input type="hidden" name="signature_source" value="new">
+                    <input type="hidden" name="signature_data" value="">
+                    <canvas data-signature-pad width="900" height="300"></canvas>
+                    <button type="button" data-signature-clear>Effacer</button>
+                    <input type="file" name="signature_file">
+                </div>
+            </form>`;
+        const element = /** @type {HTMLFormElement} */ (document.querySelector('form'));
+        /** @param {string} id @param {string} png */
+        const pad = (id, png) => {
+            const container = /** @type {HTMLElement} */ (element.querySelector('#' + id));
+            const canvas = /** @type {HTMLCanvasElement} */ (container.querySelector('canvas'));
+            const context = {
+                beginPath: vi.fn(), moveTo: vi.fn(), lineTo: vi.fn(), stroke: vi.fn(), clearRect: vi.fn(),
+            };
+            canvas.getContext = /** @type {any} */ (() => context);
+            canvas.toDataURL = () => png;
+            return { container, canvas, context };
+        };
+        const renter = pad('renter', 'data:image/png;base64,RENTER');
+        const manager = pad('manager', 'data:image/png;base64,MANAGER');
+        /** @param {string} name */
+        const field = (name) => /** @type {HTMLInputElement} */ (element.querySelector(`input[name="${name}"]`));
+        return { element, renter, manager, field };
+    }
+
+    /** @param {HTMLCanvasElement} canvas */
+    function trace(canvas) {
+        canvas.dispatchEvent(new MouseEvent('pointerdown', { clientX: 1, clientY: 1 }));
+        canvas.dispatchEvent(new MouseEvent('pointermove', { clientX: 5, clientY: 5 }));
+        canvas.dispatchEvent(new MouseEvent('pointerup'));
+    }
+
+    it('gives each signer a pad of its own, exported into its own hidden field', () => {
+        const { element, renter, manager, field } = form();
+        wirePad(element);
+
+        trace(renter.canvas);
+        element.dispatchEvent(new Event('submit'));
+
+        expect(field('renter_signature_data').value).toBe('data:image/png;base64,RENTER');
+        expect(field('signature_data').value).toBe('');
+        expect(manager.context.lineTo).not.toHaveBeenCalled();
+
+        trace(manager.canvas);
+        element.dispatchEvent(new Event('submit'));
+        expect(field('renter_signature_data').value).toBe('data:image/png;base64,RENTER');
+        expect(field('signature_data').value).toBe('data:image/png;base64,MANAGER');
+    });
+
+    it('takes no ink from a signer set aside, and takes it again once they are back', () => {
+        const { element, renter, field } = form();
+        const fieldset = document.createElement('fieldset');
+        renter.container.replaceWith(fieldset);
+        fieldset.append(renter.container);
+        fieldset.disabled = true;
+        wirePad(element);
+
+        trace(renter.canvas);
+        expect(renter.context.lineTo).not.toHaveBeenCalled();
+
+        fieldset.disabled = false;
+        trace(renter.canvas);
+        expect(renter.context.lineTo).toHaveBeenCalled();
+        element.dispatchEvent(new Event('submit'));
+        expect(field('renter_signature_data').value).toBe('data:image/png;base64,RENTER');
+    });
+
+    it('lets « Effacer » forget one signer’s drawing and keep the other’s', () => {
+        const { element, renter, manager, field } = form();
+        wirePad(element);
+        trace(renter.canvas);
+        trace(manager.canvas);
+
+        /** @type {HTMLElement} */ (renter.container.querySelector('[data-signature-clear]')).click();
+        element.dispatchEvent(new Event('submit'));
+
+        expect(field('renter_signature_data').value).toBe('');
+        expect(field('signature_data').value).toBe('data:image/png;base64,MANAGER');
+        expect(manager.context.clearRect).not.toHaveBeenCalled();
+    });
+
+    it('empties every pad when the form is sent signature-pad:reset, one pad when its container is', () => {
+        const { element, renter, manager, field } = form();
+        wirePad(element);
+        trace(renter.canvas);
+        trace(manager.canvas);
+
+        renter.container.dispatchEvent(new CustomEvent('signature-pad:reset'));
+        element.dispatchEvent(new Event('submit'));
+        expect(field('renter_signature_data').value).toBe('');
+        expect(field('signature_data').value).toBe('data:image/png;base64,MANAGER');
+
+        element.dispatchEvent(new CustomEvent('signature-pad:reset'));
+        expect(renter.context.clearRect).toHaveBeenCalledWith(0, 0, 600, 200);
+        expect(manager.context.clearRect).toHaveBeenCalledWith(0, 0, 900, 300);
+        element.dispatchEvent(new Event('submit'));
+        expect(field('signature_data').value).toBe('');
+    });
+
+    it('hands back what empties both pads, for a page restored from the back-forward cache', () => {
+        const { element, renter, manager, field } = form();
+        const reset = wirePad(element);
+        trace(renter.canvas);
+        trace(manager.canvas);
+        element.dispatchEvent(new Event('submit'));
+
+        reset();
+
+        expect(field('renter_signature_data').value).toBe('');
+        expect(field('signature_data').value).toBe('');
+        expect(renter.context.clearRect).toHaveBeenCalled();
+        expect(manager.context.clearRect).toHaveBeenCalled();
+    });
+
+    it('wires each container once, however often the form is asked', () => {
+        const { element, renter, manager } = form();
+
+        expect(wirePad(element)).not.toBeNull();
+        expect(wirePad(element)).toBeNull();
+        expect(renter.container.dataset.signaturePadWired).toBe('1');
+        expect(manager.container.dataset.signaturePadWired).toBe('1');
+        trace(renter.canvas);
+        expect(renter.context.lineTo).toHaveBeenCalledOnce();
+    });
+
+    it('wires only the signer that has a pad: a stored signature has none', () => {
+        const { element, manager } = form();
+        manager.container.innerHTML = '<input type="hidden" name="signature_source" value="stored"><div data-signature-preview></div>';
+
+        expect(wirePad(element)).not.toBeNull();
+        expect(manager.container.dataset.signaturePadWired).toBeUndefined();
     });
 });
