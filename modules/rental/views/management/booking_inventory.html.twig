@@ -126,21 +126,20 @@
                             </output>
                         {% endif %}
 
-                        {% set base_question = 'Valider et envoyer au locataire ? Un PDF sera ajouté aux documents de la location et envoyé à ' ~ booking.renterEmail ~ ". L'état des lieux ne pourra plus être modifié." %}
-                        <form method="post" action="/mes-locations/etat-des-lieux/valider" class="mt-3"
-                              data-inventory-validate
-                              data-confirm-base="{{ base_question }}"
-                              data-confirm="{{ base_question }}{% if unchecked_count > 0 %} {{ unchecked_count }} élément{{ unchecked_count > 1 ? 's' : '' }} sans valeur : le PDF {{ unchecked_count > 1 ? 'les' : 'le' }} marquera « non vérifié ».{% endif %}"
-                              data-confirm-label="Valider et envoyer">
-                            {{ csrf_field()|raw }}
-                            <input type="hidden" name="asset_id" value="{{ asset.id }}">
-                            <input type="hidden" name="booking_id" value="{{ booking.id }}">
-                            <input type="hidden" name="booking_page" value="inventory">
-                            <input type="hidden" name="phase" value="{{ phase.value }}">
-                            <button type="submit" class="btn btn-primary" {{ missing_readings is not empty ? 'disabled' : '' }}>
-                                Valider l'état des lieux {{ phase_name }}
-                            </button>
-                        </form>
+                        {# The signing screen is the confirmation (#989, lot E): a
+                           link, not a form behind data-confirm. A phase still
+                           missing a reading has nothing to sign yet. #}
+                        <p class="mt-3 mb-0">
+                            {% if missing_readings is not empty %}
+                                <button type="button" class="btn btn-primary" disabled>Signer l'état des lieux {{ phase_name }}</button>
+                            {% else %}
+                                <a href="{{ booking_url }}/etat-des-lieux/signer?phase={{ phase.value }}" class="btn btn-primary"
+                                   data-inventory-sign>Signer l'état des lieux {{ phase_name }}</a>
+                            {% endif %}
+                        </p>
+                        <p class="form-text mb-0">
+                            Le locataire et vous signez sur l'écran suivant ; le PDF signé lui est envoyé par e-mail.
+                        </p>
                     </div>
                 </div>
             {% endif %}

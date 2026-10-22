@@ -8,26 +8,45 @@ declare(strict_types=1);
 
 namespace Modules\Rental\Service;
 
+use Core\Config\AppClock;
 use Core\Config\SettingService;
+use Core\Journal\JournalService;
+use Core\Notification\NotificationService;
 use Core\Pdf\DocumentPdfService;
 use Core\Service\DateInput;
+use Core\Signature\AccountSignature;
+use Core\Signature\PersonalSignatureService;
+use Core\View\DateFilterExtension;
 use Modules\Rental\Audit\BookingAudit;
+use Modules\Rental\Booking\BookingPage;
 use Modules\Rental\Booking\RentalBooking;
 use Modules\Rental\Document\DocumentType;
 use Modules\Rental\Document\RentalDocument;
 use Modules\Rental\Repository\RentalAsset;
+use Modules\Rental\Repository\RentalDocumentRepository;
 use Modules\Rental\Stay\InventoryPhotoAnnex;
 use Modules\Rental\Stay\InventoryReport;
+use Modules\Rental\Stay\InventorySignatureBlock;
+use Modules\Rental\Stay\InventorySigning;
 use Modules\Rental\Stay\ReadingPhase;
 
 /**
- * « Valider l'état des lieux » (#708, IT-17): the phase frozen, its PDF
- * filed with the booking's documents and sent to the renter.
+ * « Valider, signer et envoyer » (#708, IT-17; #989, lot E): the phase
+ * frozen, its PDF signed by the manager and — when they are there and
+ * willing — by the renter, filed with the booking's documents and sent to
+ * the renter.
  *
- * **Frozen first, then produced.** The validation row is written before
- * anything else — its unique key is what stops two managers producing two
- * PDFs — and taken back if the PDF cannot be made, so a failure leaves the
- * inventory open rather than validated with nothing to show for it.
+ * **Frozen first, then produced, in one transaction.** The validation row
+ * is written first under the booking's lock — its unique key is what stops
+ * two managers producing two PDFs — and everything after it commits with
+ * it or not at all, so a failure leaves the inventory open rather than
+ * validated with nothing to show for it, and keeps no signature
+ * « remembered » for a document that does not exist.
+ *
+ * **The renter's signature is never stored.** Their typed name and their
+ * drawing go into the PDF and nowhere else: the row says only what they
+ * did (`Stay\RenterSigning`), the history the same and the fingerprint,
+ * the journal the manager's act (`recordSigning()`).
  *
  * **A missing reading blocks; an unchecked line does not.** An item nobody
  * looked at is printed « non vérifié », which is an honest record; a meter
@@ -44,11 +63,15 @@ class RentalInventoryValidationService
     public function __construct(
         private RentalStayService $stay,
         private RentalDocumentService $documents,
+        private RentalDocumentRepository $documentRepository,
         private RentalBookingMailService $mail,
         private DocumentPdfService $pdf,
         private SettingService $settings,
         private BookingAudit $bookingAudit,
-        private InventoryPhotoRenderer $photoRenderer
+        private InventoryPhotoRenderer $photoRenderer,
+        private PersonalSignatureService $signatures,
+        private JournalService $journal,
+        private ?NotificationService $notifications = null
     ) {
     }
 
@@ -84,7 +107,21 @@ class RentalInventoryValidationService
     }
 
     /**
-     * @return array{document: RentalDocument, sent: bool}
+     * Validates the phase, signed on the spot: by the session's account
+     * (`$manager`, from `PersonalSignatureService::forSigning()`) and by
+     * the renter unless they were absent or refused (`$renter`, from
+     * `witnessFromRequest()`) — both decoded by the caller before this
+     * takes any lock.
+     *
+     * **One transaction, under the booking's lock** (the rule of #926):
+     * the freeze, the re-read, « Mémoriser », the PDF, its filing, its
+     * SHA-256 and the history line commit together or not at all, and a
+     * PDF already written to disk when anything fails is deleted. After
+     * the commit, and never able to undo it: the journal line of the
+     * signing, the signer's notification, then the e-mail to the renter
+     * — sent whatever the renter did, absent and refusal included.
+     *
+     * @return array{document: RentalDocument, sent: bool, sha256: string}
      * @throws RentalException
      */
     public function validate(
@@ -92,7 +129,8 @@ class RentalInventoryValidationService
         RentalAsset $asset,
         ReadingPhase $phase,
         ?int $actorMemberId,
-        string $actorName,
+        InventorySigning $renter,
+        AccountSignature $manager,
         \DateTimeImmutable $now,
         bool $arrivalTickedByHand = false
     ): array {
@@ -114,9 +152,9 @@ class RentalInventoryValidationService
             );
         }
 
-        // The photos' copies are made before anything is written: ten
+        // The photos' copies are made before anything is locked: ten
         // decodes and resamples are the slow part, and they must not run
-        // with the phase frozen and another manager waiting on it.
+        // with the booking held and another manager waiting on it.
         $isDeparture = $phase === ReadingPhase::DEPARTURE;
         $images = $this->photoRenderer->render(InventoryPhotoAnnex::fileIds(
             $phase,
@@ -124,90 +162,140 @@ class RentalInventoryValidationService
             $isDeparture ? $this->stay->incidentsFor($booking->id) : []
         ));
 
-        if (!$this->stay->recordInventoryValidation($booking, $phase, $now, $actorMemberId)) {
-            throw new RentalException('Cet état des lieux est déjà validé.');
-        }
-        // Read again now that the phase is frozen: a line saved by another
-        // manager between the reads above and the validation is in, and
-        // none can land after this read (the writes refuse a validated
-        // phase), so the PDF holds exactly what stays stored. A photo
-        // added in between gets its copy now; one removed is simply not
-        // in what is read.
-        $lines = $this->stay->inventoryFor($booking->id);
-        $meters = $this->stay->consumptionsFor($booking, $asset->id);
-        $incidents = $isDeparture ? $this->stay->incidentsFor($booking->id) : [];
-
         $label = $phase === ReadingPhase::ARRIVAL ? "État des lieux d'entrée" : 'État des lieux de sortie';
-        $document = null;
+        $signatures = new InventorySignatureBlock($renter, $manager, $asset->name, $asset->address, $now);
+        // The PDF on disk, deleted if the transaction does not commit.
+        $writtenPath = null;
+
         try {
-            $fileIds = InventoryPhotoAnnex::fileIds($phase, $meters, $incidents);
-            $images += $this->photoRenderer->render(array_values(array_diff($fileIds, array_keys($images))));
-            $photos = InventoryPhotoAnnex::photos($phase, $meters, $incidents, $images);
-            unset($images);
-            $pdf = $this->pdf->generate(
-                $label . ' — ' . $booking->reference,
-                InventoryReport::html(
+            [$document, $sha256] = $this->documentRepository->withBookingLocked(
+                $booking->id,
+                function () use (
+                    $booking,
+                    $asset,
                     $phase,
-                    $lines,
-                    $meters,
-                    $incidents,
-                    $actorName,
+                    $actorMemberId,
+                    $renter,
+                    $manager,
                     $now,
-                    $photos
-                ),
-                (string) ($this->settings->get('site_name') ?: 'Unité scoute'),
-                [
-                    'Bien : ' . $asset->name,
-                    'Séjour : du ' . self::frenchDate($booking->arrivalDate) . ' au '
-                        . self::frenchDate($booking->departureDate),
-                    'Locataire : ' . $booking->renterName,
-                ]
-            );
-            $document = $this->documents->attachPdf(
-                $booking,
-                $pdf,
-                DocumentType::INVENTORY,
-                ($phase === ReadingPhase::ARRIVAL ? 'etat-des-lieux-entree-' : 'etat-des-lieux-sortie-')
-                    . $booking->reference . '.pdf',
-                true,
-                $actorMemberId
-            );
-            $this->stay->attachInventoryDocument($booking, $phase, $document->id);
-        } catch (\Throwable $e) {
-            // Taken back: an inventory validated with no PDF would be
-            // frozen with nothing to show for it. And a PDF filed for a
-            // validation that is taken back goes with it: left in
-            // Documents, it could still be sent to the renter as if the
-            // inventory had been validated.
-            if ($document !== null) {
-                try {
-                    $this->documents->delete($document, $actorMemberId);
-                } catch (\Throwable) {
-                    // The validation is taken back regardless; a stray
-                    // unsent PDF is the lesser fault.
+                    $isDeparture,
+                    $label,
+                    $signatures,
+                    $images,
+                    &$writtenPath
+                ): array {
+                    if (!$this->stay->recordInventoryValidation(
+                        $booking,
+                        $phase,
+                        $now,
+                        $actorMemberId,
+                        $manager->accountId,
+                        $renter->choice
+                    )) {
+                        throw new RentalException('Cet état des lieux est déjà validé.');
+                    }
+                    // Read again now that the phase is frozen: a line saved
+                    // by another manager between the reads above and the
+                    // validation is in, and none can land after this read
+                    // (the writes refuse a validated phase), so the PDF
+                    // holds exactly what stays stored. A photo added in
+                    // between gets its copy now; one removed is simply not
+                    // in what is read.
+                    $lines = $this->stay->inventoryFor($booking->id);
+                    $meters = $this->stay->consumptionsFor($booking, $asset->id);
+                    $incidents = $isDeparture ? $this->stay->incidentsFor($booking->id) : [];
+
+                    // « Valider, signer et mémoriser » is one act: kept here,
+                    // in this transaction, so that anything failing below
+                    // keeps nothing.
+                    $this->signatures->rememberIfAsked($manager, $now);
+
+                    $fileIds = InventoryPhotoAnnex::fileIds($phase, $meters, $incidents);
+                    $images += $this->photoRenderer->render(array_values(array_diff($fileIds, array_keys($images))));
+                    $photos = InventoryPhotoAnnex::photos($phase, $meters, $incidents, $images);
+                    unset($images);
+
+                    $document = $this->documents->attachPdf(
+                        $booking,
+                        $this->pdf->generate(
+                            $label . ' — ' . $booking->reference,
+                            InventoryReport::html($phase, $lines, $meters, $incidents, $signatures, $photos),
+                            (string) ($this->settings->get('site_name') ?: 'Unité scoute'),
+                            [
+                                'Bien : ' . $asset->name,
+                                'Séjour : du ' . self::frenchDate($booking->arrivalDate) . ' au '
+                                    . self::frenchDate($booking->departureDate),
+                                'Locataire : ' . $booking->renterName,
+                            ]
+                        ),
+                        DocumentType::INVENTORY,
+                        ($phase === ReadingPhase::ARRIVAL ? 'etat-des-lieux-entree-' : 'etat-des-lieux-sortie-')
+                            . $booking->reference . '.pdf',
+                        true,
+                        $actorMemberId
+                    );
+                    $writtenPath = $this->documents->absolutePath($document);
+                    // The fingerprint of the bytes as filed — the very file
+                    // the renter is sent.
+                    $sha256 = $writtenPath !== null ? hash_file('sha256', $writtenPath) : false;
+                    if ($sha256 === false) {
+                        throw new RentalException(
+                            "Le PDF de l'état des lieux n'a pas pu être relu. Rien n'a été validé ni signé."
+                        );
+                    }
+                    $this->stay->attachInventoryDocument($booking, $phase, $document->id, $sha256);
+
+                    // What the renter did and the fingerprint, never their
+                    // typed name: the history is the unit's, the name the
+                    // renter's, and it lives in the PDF alone.
+                    $this->bookingAudit->record(
+                        $booking->id,
+                        BookingAudit::STATUS_CHANGED,
+                        null,
+                        $label . ' — ' . $renter->choice->historyLabel() . ' — SHA-256 ' . $sha256,
+                        'État des lieux signé',
+                        $actorMemberId,
+                        // The account that signed, the session's.
+                        $manager->accountId
+                    );
+
+                    return [$document, $sha256];
                 }
+            );
+        } catch (\Throwable $e) {
+            // Rolled back: no validation, no document row, nothing
+            // remembered. The bytes on disk are not part of the
+            // transaction, and they carry both signatures.
+            if ($writtenPath !== null && is_file($writtenPath)) {
+                @unlink($writtenPath);
             }
-            $this->stay->forgetInventoryValidation($booking, $phase);
             throw $e instanceof RentalException
                 ? $e
                 : new RentalException(
-                    "Le PDF de l'état des lieux n'a pas pu être produit. Rien n'a été validé.",
+                    "Le PDF de l'état des lieux n'a pas pu être produit. Rien n'a été validé ni signé.",
                     0,
                     $e
                 );
         }
 
-        $this->bookingAudit->record(
+        // The act, in the core's journal, once the document exists: which
+        // document, which bytes, by which account — never a pixel, and
+        // nothing of the renter.
+        $this->signatures->recordSigning(
+            $manager,
+            'rental',
+            DocumentType::INVENTORY->value,
+            $document->id,
             $booking->id,
-            BookingAudit::STATUS_CHANGED,
-            null,
-            $label,
-            'État des lieux validé',
-            $actorMemberId
+            $now,
+            $sha256
         );
+        // The signer's own trace, whatever becomes of the renter's e-mail.
+        $this->notifySigner($manager, $booking, $asset, $phase, $document, $now);
 
-        // Sent like any document (§6.24). Validated either way: the PDF is
-        // filed, and Documents resends it.
+        // Sent like any document (§6.24), whatever the renter did: absent
+        // or refusing, they still receive what was recorded. Validated
+        // either way: the PDF is filed, and Documents resends it.
         $sent = false;
         $path = $this->documents->absolutePath($document);
         if ($path !== null) {
@@ -237,7 +325,69 @@ class RentalInventoryValidationService
             }
         }
 
-        return ['document' => $document, 'sent' => $sent];
+        return ['document' => $document, 'sent' => $sent, 'sha256' => $sha256];
+    }
+
+    /**
+     * Tells the signing account — `AccountSignature::$accountId`, the
+     * session's, and nobody else — that its signature went on this
+     * inventory (decision Q1 of #989, as #926's countersignature does):
+     * which one, the reference and the time on the application clock, a
+     * link to the booking's Documents; no renter data, no file.
+     *
+     * Dispatched without marking the signer as its actor, so the push goes
+     * out with the in-app row. A failure is journaled with ids only and
+     * changes nothing of the committed signing.
+     */
+    private function notifySigner(
+        AccountSignature $signature,
+        RentalBooking $booking,
+        RentalAsset $asset,
+        ReadingPhase $phase,
+        RentalDocument $document,
+        \DateTimeImmutable $now
+    ): void {
+        if ($this->notifications === null) {
+            return;
+        }
+
+        $which = $phase === ReadingPhase::ARRIVAL ? "d'entrée" : 'de sortie';
+        $at = DateFilterExtension::datetimeFr($now->setTimezone(AppClock::zone()));
+        $bookingUrl = '/mes-locations/' . rawurlencode($asset->slug) . '/reservations/' . $booking->id;
+
+        try {
+            $this->notifications->dispatch(
+                RentalSignedContractService::SIGNED_NOTIFICATION,
+                [['userAccountId' => $signature->accountId, 'memberId' => null]],
+                [
+                    'title' => 'État des lieux ' . $which . ' signé — ' . $asset->name,
+                    'body' => "Vous avez signé l'état des lieux " . $which . ' de ' . $booking->reference
+                        . ' le ' . $at . ', avec votre signature. Il est rangé dans les Documents de la réservation.',
+                    'url' => BookingPage::DOCUMENTS->url($bookingUrl),
+                ]
+            );
+        } catch (\Throwable $e) {
+            $cause = (new \ReflectionClass($e))->getShortName();
+            try {
+                $this->journal->log(
+                    'rental',
+                    'rental_signer_notification_failed',
+                    'warning',
+                    "La notification au signataire d'un état des lieux n'a pas pu être créée (" . $cause . ').',
+                    ['booking_id' => $booking->id, 'document_id' => $document->id],
+                    $signature->accountId
+                );
+            } catch (\Throwable $journalError) {
+                error_log(sprintf(
+                    'ScoutMagic: a signer notification failed (%s) and so did its journal line (%s):'
+                        . ' booking #%d, document #%d',
+                    $cause,
+                    $journalError::class,
+                    $booking->id,
+                    $document->id
+                ));
+            }
+        }
     }
 
     private static function frenchDate(string $isoDate): string

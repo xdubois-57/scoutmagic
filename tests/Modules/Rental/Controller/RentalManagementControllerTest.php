@@ -382,15 +382,20 @@ class RentalManagementControllerTest extends TestCase
                 new \Modules\Rental\Repository\RentalMilestoneMarkRepository($this->pdo),
                 new \Modules\Rental\Repository\RentalReminderRepository($this->pdo)
             ),
-            // « Valider l'état des lieux » (#708, IT-17).
+            // « Valider, signer et envoyer » (#708, IT-17; #989, lot E), as
+            // public/index.php wires it.
             new \Modules\Rental\Service\RentalInventoryValidationService(
                 $this->stayService,
                 $this->documentService,
+                new \Modules\Rental\Repository\RentalDocumentRepository($this->pdo),
                 $this->recordingMailService(),
                 new \Core\Pdf\DocumentPdfService(),
                 $settingService,
                 $bookingAudit,
-                new \Modules\Rental\Service\InventoryPhotoRenderer($this->fileRepository, $this->storagePath)
+                new \Modules\Rental\Service\InventoryPhotoRenderer($this->fileRepository, $this->storagePath),
+                $this->personalSignatures,
+                $journal,
+                $this->recordingNotifications()
             ),
             // What the site sent the renter, on « Courrier » (#720, step 2).
             null,
@@ -3266,7 +3271,7 @@ class RentalManagementControllerTest extends TestCase
         $this->assertStringNotContainsString('Léa', $text);
     }
 
-    /** « Validé par » on the inventory says the same, for the same reader (#825). */
+    /** The inventory's signature frame says the same, for the same reader (#825). */
     public function testTheInventoryValidationNamesTheAccountNotTheTotem(): void
     {
         $this->loginAsManagerKnownByATotem();
@@ -3281,7 +3286,7 @@ class RentalManagementControllerTest extends TestCase
         $document = $this->documentService->find((int) $validation['document_id']);
         $this->assertNotNull($document);
         $text = $this->renderedTextOf($document);
-        $this->assertStringContainsString('Validé par Marie Dupont le ', $text);
+        $this->assertStringContainsString('Signé au doigt par Marie Dupont', $text);
         $this->assertStringNotContainsString('Loutre', $text);
         $this->assertStringNotContainsString('Léa', $text);
     }
@@ -5415,14 +5420,207 @@ class RentalManagementControllerTest extends TestCase
         return json_decode((string) $response->getBody(), true);
     }
 
-    private function validateInventoryPhase(RentalBooking $booking, string $phase): Response
+    /**
+     * « Valider, signer et envoyer » as the signing screen posts it (#989,
+     * lot E): the renter absent unless `$renter` says more, the manager's
+     * signature traced on the spot.
+     *
+     * @param array<string, string> $renter
+     */
+    private function validateInventoryPhase(RentalBooking $booking, string $phase, array $renter = []): Response
     {
-        return $this->post('/mes-locations/etat-des-lieux/valider', 'validateInventory', [
+        return $this->post('/mes-locations/etat-des-lieux/valider', 'validateInventory', $renter + [
             'asset_id' => (string) $this->assetId,
             'booking_id' => (string) $booking->id,
             'booking_page' => 'inventory',
             'phase' => $phase,
+            'renter_signing' => 'absent',
+            'signature_source' => 'new',
+            'signature_data' => self::signatureDataUrl(),
         ]);
+    }
+
+    /** GET the signing screen of one phase (#989, lot E). */
+    private function signingPage(RentalBooking $booking, string $phase): Response
+    {
+        return $this->get(
+            '/mes-locations/{slug}/reservations/{id}/etat-des-lieux/signer',
+            '/mes-locations/local-saint-georges/reservations/' . $booking->id . '/etat-des-lieux/signer',
+            'signInventory',
+            ['phase' => $phase]
+        );
+    }
+
+    // ── « Valider, signer et envoyer » (#989, lot E) ────────────────────
+
+    /**
+     * The renter reads the signing screen: it shows the incidents with
+     * their date and photos, and never what a manager decided about them —
+     * no amount, no « En attente de », no reference, no reason. Answered
+     * `no-store`, like every page carrying a signature's fields.
+     */
+    public function testTheSigningScreenShowsWhatWasSeenNeverAnAmountAReferenceOrAReason(): void
+    {
+        $this->loginAsManager();
+        [$booking] = $this->bookingWithAnInventory();
+        $this->validateInventoryPhase($booking, 'arrival');
+        $photo = $this->fileRepository->create('rental/photo.jpg', 'photo.jpg', 'image/jpeg', 10, 'identified', 'rental', null);
+        $assessed = $this->stayService->reportIncident($booking, 'Porte du réfectoire forcée', 12345, [$photo], 1);
+        $this->stayService->decideIncident(
+            $booking, $assessed, \Modules\Rental\Stay\IncidentDecision::PENDING, 12345, 1,
+            'Le passage de l\'expert', 'SIN-2027-0042'
+        );
+        $waived = $this->stayService->reportIncident($booking, 'Rayure sur la table', 6789, [], 1);
+        $this->stayService->decideIncident(
+            $booking, $waived, \Modules\Rental\Stay\IncidentDecision::WAIVE, null, 1, null, null, 'Geste pour le groupe'
+        );
+
+        $response = $this->signingPage($booking, 'departure');
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame('private, no-store', $response->getHeaders()['Cache-Control'] ?? null);
+        $body = (string) preg_replace('/\s+/', ' ', (string) $response->getBody());
+        $main = substr($body, (int) strpos($body, 'data-inventory-signing'));
+        $this->assertStringContainsString('Porte du réfectoire forcée', $main);
+        $this->assertStringContainsString('Rayure sur la table', $main);
+        $this->assertStringContainsString('src="/files/' . $photo . '/thumb"', $main);
+        foreach (['123,45', '12345', '67,89', 'expert', 'SIN-2027-0042', 'Geste pour le groupe', 'En attente', 'Trancher', 'Facturer'] as $internal) {
+            $this->assertStringNotContainsString($internal, $main, $internal . ' is for the manager, not the renter');
+        }
+        // The two signers, in one form of the page, the renter's prefixed.
+        $this->assertStringContainsString('name="renter_signer_name"', $main);
+        $this->assertStringContainsString('name="renter_signature_data"', $main);
+        $this->assertStringContainsString('name="signature_data"', $main);
+        $this->assertStringContainsString('Sans la signature du locataire, cet état des lieux prouve moins.', $main);
+        $this->assertStringContainsString('Valider, signer et envoyer', $main);
+        $this->assertStringNotContainsString('data-confirm', $main);
+        $this->assertStringNotContainsString('name="signature_file"', $main, 'no import on the spot');
+    }
+
+    /** A manager of another asset, or nobody's, is refused the screen. */
+    public function testANonManagerIsRefusedTheSigningScreen(): void
+    {
+        $booking = $this->createBooking();
+        AuthSession::login(1, 'nobody@test.be', 'identified');
+
+        $this->assertSame(404, $this->signingPage($booking, 'arrival')->getStatusCode());
+    }
+
+    /** A phase that is not the one open goes back to « État des lieux ». */
+    public function testAPhaseNotOpenGoesBackToTheInventoryPage(): void
+    {
+        $this->loginAsManager();
+        [$booking] = $this->bookingWithAnInventory();
+
+        $response = $this->signingPage($booking, 'departure');
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertStringEndsWith('/reservations/' . $booking->id . '/etat-des-lieux', (string) $response->getHeaders()['Location']);
+    }
+
+    /**
+     * The renter signs on the spot: their name and drawing go into the PDF,
+     * the row says « on_site » and names the session's account — never the
+     * account a posted `user_account_id` names, and the notification goes
+     * to the session's account alone.
+     */
+    public function testTheRenterSignsHereAndThePostedAccountIdIsIgnored(): void
+    {
+        $accounts = new \Core\Security\UserAccountRepository($this->pdo, $this->encryption);
+        $session = $accounts->create('session@test.be');
+        $accounts->updateProfile($session->id, 'Anne', 'Dupont');
+        $other = $accounts->create('autre@test.be');
+        $accounts->updateProfile($other->id, 'Paul', 'Autre');
+        $this->addManager($this->assetId, 'session@test.be');
+        AuthSession::login($session->id, 'session@test.be', 'identified');
+        [$booking] = $this->bookingWithAnInventory();
+        $this->notified = [];
+
+        $this->validateInventoryPhase($booking, 'arrival', [
+            'renter_signing' => 'on_site',
+            'renter_signer_name' => 'Jeanne Martin',
+            'renter_signature_data' => self::signatureDataUrl(),
+            'user_account_id' => (string) $other->id,
+        ]);
+
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertSame('success', $flash['type'] ?? null, (string) ($flash['message'] ?? ''));
+        $validation = $this->stayService->inventoryValidations($booking->id)['arrival'] ?? null;
+        $this->assertNotNull($validation);
+        $this->assertSame(\Modules\Rental\Stay\RenterSigning::ON_SITE, $validation['renter_signing']);
+        $this->assertSame($session->id, $validation['validated_by_account_id']);
+        $document = $this->documentService->find((int) $validation['document_id']);
+        $this->assertNotNull($document);
+        $text = $this->renderedTextOf($document);
+        $this->assertStringContainsString('Accepté sur place par Jeanne Martin, signé au doigt', $text);
+        $this->assertStringContainsString('Signé au doigt par Anne Dupont', $text);
+        $this->assertStringNotContainsString('Paul', $text);
+        $this->assertCount(1, $this->notified);
+        $this->assertSame([['userAccountId' => $session->id, 'memberId' => null]], $this->notified[0]['recipients']);
+    }
+
+    /**
+     * « Le locataire signe ici » with nothing traced in the renter's frame
+     * goes back to the signing screen, and nothing is validated.
+     */
+    public function testARenterSigningHereWithoutADrawingGoesBackToTheScreen(): void
+    {
+        $this->loginAsManager();
+        [$booking] = $this->bookingWithAnInventory();
+
+        $response = $this->validateInventoryPhase($booking, 'arrival', [
+            'renter_signing' => 'on_site',
+            'renter_signer_name' => 'Jeanne Martin',
+        ]);
+
+        $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
+        $this->assertStringEndsWith('/etat-des-lieux/signer?phase=arrival', (string) $response->getHeaders()['Location']);
+        $this->assertSame([], $this->stayService->inventoryValidations($booking->id));
+        $this->assertSame([], $this->documentEmails);
+    }
+
+    /** A renter's choice the screen does not offer is refused. */
+    public function testARenterChoiceOutsideTheThreeIsRefused(): void
+    {
+        $this->loginAsManager();
+        [$booking] = $this->bookingWithAnInventory();
+
+        $this->validateInventoryPhase($booking, 'arrival', ['renter_signing' => 'paper']);
+
+        $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
+        $this->assertSame([], $this->stayService->inventoryValidations($booking->id));
+    }
+
+    /**
+     * A signed inventory is never deleted from Documents, sent or not: the
+     * page does not offer it, and the server refuses it.
+     */
+    public function testASignedInventoryCannotBeDeletedEvenUnsent(): void
+    {
+        $this->loginAsManager();
+        [$booking] = $this->bookingWithAnInventory();
+        $this->validateInventoryPhase($booking, 'arrival');
+        $documentId = (int) ($this->stayService->inventoryValidations($booking->id)['arrival']['document_id'] ?? 0);
+        $this->pdo->prepare('UPDATE rental_documents SET sent_at = NULL WHERE id = ?')->execute([$documentId]);
+
+        $this->post('/mes-locations/document-supprimer', 'deleteDocument', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'document_id' => (string) $documentId,
+        ]);
+
+        $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
+        $this->assertNotNull($this->documentService->find($documentId));
+        $documents = (string) $this->filePage(BookingPage::DOCUMENTS, 'local-saint-georges', $booking->id)->getBody();
+        $this->assertStringNotContainsString('name="document_id" value="' . $documentId . '"', $this->deleteFormsOf($documents));
+    }
+
+    /** The « Supprimer » forms of a page, and nothing else of it. */
+    private function deleteFormsOf(string $body): string
+    {
+        preg_match_all('#<form method="post" action="/mes-locations/document-supprimer".*?</form>#s', $body, $forms);
+
+        return implode("\n", $forms[0]);
     }
 
     /** An asset with nothing to walk has no such page, nor a chip for it. */
@@ -5857,7 +6055,7 @@ class RentalManagementControllerTest extends TestCase
         $body = $this->inventoryPage($booking);
         $this->assertStringContainsString("ni éléments d'état des lieux ni compteurs", $body);
         $this->assertStringContainsString('action="/mes-locations/incident"', $body);
-        $this->assertStringNotContainsString('data-inventory-validate', $body);
+        $this->assertStringNotContainsString('data-inventory-sign', $body);
         $this->assertStringNotContainsString('data-inventory-line', $body);
     }
 
@@ -5875,14 +6073,14 @@ class RentalManagementControllerTest extends TestCase
             $this->stayService->removeInventoryItem($this->assetId, $item['id']);
         }
 
-        $this->assertStringContainsString('data-inventory-validate', $this->inventoryPage($booking));
+        $this->assertStringContainsString('data-inventory-sign', $this->inventoryPage($booking));
 
         $empty = $this->createBooking(null, 'LOC-K7Q2M4');
         $this->stayService->snapshotInventory($empty, $this->assetId);
         $this->stayService->addInventoryItem($this->assetId, 'Clés');
 
         $body = $this->inventoryPage($empty);
-        $this->assertStringNotContainsString('data-inventory-validate', $body);
+        $this->assertStringNotContainsString('data-inventory-sign', $body);
         $this->assertStringContainsString("ni éléments d'état des lieux ni compteurs", $body);
     }
 
@@ -5906,7 +6104,8 @@ class RentalManagementControllerTest extends TestCase
         $this->assertStringNotContainsString('type="checkbox"', $body);
         $this->assertStringContainsString('data-inventory-copy="40"', $body);
         $this->assertStringContainsString('aria-label="Reprendre la référence pour Chaises"', $body);
-        $this->assertStringContainsString('2 éléments sans valeur', $body);
+        // Counted on the signing screen, from the lines as they are then.
+        $this->assertStringContainsString('2 éléments sans valeur', $this->signingPage($booking, 'arrival')->getBody());
     }
 
     public function testALineIsSavedAsItIsTypedAndANonsenseValueIsRefused(): void
@@ -5944,7 +6143,11 @@ class RentalManagementControllerTest extends TestCase
 
         $body = $this->inventoryPage($booking);
         $this->assertStringContainsString('Il manque le relevé de : Eau', $body);
-        $this->assertMatchesRegularExpression("#<button type=\"submit\" class=\"btn btn-primary\" disabled> Valider l'état des lieux d&\#039;entrée#", $body);
+        $this->assertStringContainsString(
+            '<button type="button" class="btn btn-primary" disabled>Signer l\'état des lieux d&#039;entrée</button>',
+            $body
+        );
+        $this->assertStringNotContainsString('data-inventory-sign', $body);
 
         $this->validateInventoryPhase($booking, 'arrival');
 
@@ -6048,7 +6251,7 @@ class RentalManagementControllerTest extends TestCase
         $this->markStep($booking, 'arrival_inventory', false);
 
         $body = $this->inventoryPage($booking);
-        $this->assertStringNotContainsString("Valider l'état des lieux d'entrée", $body);
+        $this->assertStringNotContainsString('etat-des-lieux/signer?phase=arrival', $body);
         $this->assertStringNotContainsString('data-inventory-line', $body);
         $this->assertStringContainsString('État des lieux validé', $body);
     }

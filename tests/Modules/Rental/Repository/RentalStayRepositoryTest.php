@@ -436,9 +436,29 @@ class RentalStayRepositoryTest extends TestCase
         $this->assertSame(['arrival'], array_keys($validations));
         $this->assertSame(7, $validations['arrival']['document_id']);
         $this->assertSame('2027-07-01 10:00', $validations['arrival']['validated_at']->format('Y-m-d H:i'));
+    }
 
-        $this->repository->forgetInventoryValidation($this->bookingId, ReadingPhase::ARRIVAL);
-        $this->assertSame([], $this->repository->findInventoryValidations($this->bookingId));
+    /**
+     * A signed validation (#989, lot E) keeps what the renter did, the
+     * account that signed and the fingerprint of its PDF — and nothing of
+     * the renter beyond that choice.
+     */
+    public function testASignedValidationKeepsTheRentersChoiceTheAccountAndTheFingerprint(): void
+    {
+        $at = new \DateTimeImmutable('2027-07-01 10:00:00');
+        $sha256 = hash('sha256', 'le PDF');
+
+        $this->assertTrue($this->repository->recordInventoryValidation(
+            $this->bookingId, ReadingPhase::DEPARTURE, $at, 3, 12, \Modules\Rental\Stay\RenterSigning::REFUSED
+        ));
+        $this->repository->setInventoryValidationDocument($this->bookingId, ReadingPhase::DEPARTURE, 7, $sha256);
+
+        $validation = $this->repository->findInventoryValidations($this->bookingId)['departure'];
+        $this->assertSame(\Modules\Rental\Stay\RenterSigning::REFUSED, $validation['renter_signing']);
+        $this->assertSame(12, $validation['validated_by_account_id']);
+        $this->assertSame(3, $validation['validated_by_member_id']);
+        $this->assertSame(7, $validation['document_id']);
+        $this->assertSame($sha256, $validation['document_sha256']);
     }
 
     /**

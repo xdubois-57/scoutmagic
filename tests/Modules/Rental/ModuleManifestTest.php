@@ -164,10 +164,16 @@ class ModuleManifestTest extends TestCase
      * 1.51.0 keeps up to five photos per incident (`rental_incident_photos`,
      * `rental_incidents.file_id` dropped) and declares the three routes that
      * add and remove them (#989, lot A).
+     *
+     * 1.52.0 signs the inventory on the spot (#989, lot E):
+     * `rental_inventory_validations` gains `renter_signing`,
+     * `validated_by_account_id` and `document_sha256`, the signing screen
+     * gets its route, and `rental.document_signed` reads « Document signé
+     * avec votre signature ».
      */
     public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
     {
-        $this->assertSame('1.51.0', $this->manifest->version);
+        $this->assertSame('1.52.0', $this->manifest->version);
     }
 
     /**
@@ -484,6 +490,25 @@ class ModuleManifestTest extends TestCase
         $this->assertSame('Locations', $type['group']);
         $this->assertSame('default_on', $type['channels']['in_app']);
         $this->assertSame('default_off', $type['channels']['email']);
+        // The contract and, since #989 (lot E), the inventory: a label that
+        // names one of them only would misname the other.
+        $this->assertSame('Document signé avec votre signature', $type['label']);
+    }
+
+    /**
+     * The signing screen of the inventory (#989, lot E) is a page of the
+     * managed space, readable only by those `bookingAction()`'s manager
+     * check lets through — `identified` here, the asset's managers there.
+     */
+    public function testTheInventorySigningScreenIsDeclared(): void
+    {
+        $routes = array_column($this->manifest->routes, null, 'path');
+        $route = $routes['/mes-locations/{slug}/reservations/{id}/etat-des-lieux/signer'] ?? null;
+
+        $this->assertNotNull($route);
+        $this->assertSame('GET', $route['method']);
+        $this->assertSame('signInventory', $route['action']);
+        $this->assertSame('identified', $route['role_min']);
     }
 
     /**

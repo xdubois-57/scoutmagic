@@ -33,7 +33,7 @@ copie reçue, puis choisissez :
   signature, la référence de la réservation. Vous y êtes désigné par le
   nom de votre compte, jamais par votre totem. Le locataire reçoit le
   contrat signé par les deux parties par e-mail, et peut le télécharger
-  depuis sa page de suivi. Vous seul recevez la notification « Contrat
+  depuis sa page de suivi. Vous seul recevez la notification « Document
   signé avec votre signature » : quel contrat, quand, et un lien vers la
   page « Documents ». « Annuler » ne signe rien.
 - **« Refuser la copie »** : écrivez un court motif, 300 caractères au

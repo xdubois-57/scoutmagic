@@ -27,7 +27,12 @@
 //     alone, the box unticked, and Mon compte still says no signature is
 //     kept; the second traced on the pad with « Mémoriser » ticked, and
 //     Mon compte keeps it. The signing manager's notification centre holds
-//     « Contrat signé », which opens the booking's Documents page.
+//     « Contrat signé », which opens the booking's Documents page;
+//   - both inventories are signed on their own screen (#989, lot E): the
+//     arrival by the renter on the spot — their typed name and their finger
+//     — and by the manager with the signature Mon compte now keeps; the
+//     departure with the renter absent, the warning shown and their frame
+//     set aside. Each one's notification opens the booking's Documents.
 //
 // Each of those is unit-tested on its own. Whether they agree with each
 // other on a running install — the communication Finance stores is the one
@@ -82,6 +87,7 @@ import { loginAsAdmin } from '../support/admin-login.js';
 import { openModal } from '../support/modal.js';
 import { openSectionEditor } from '../support/section-editor.js';
 import { pngBuffer } from '../support/png.js';
+import { signInventory } from '../support/inventory-signing.js';
 import { giveAssetAddress, giveRenterAddress } from '../support/rental-contract.js';
 import { scaled } from '../support/timeouts.js';
 import { waitOutHumanCheckDelay } from '../support/human-check.js';
@@ -132,6 +138,9 @@ const DAMAGE_AWAITING = "Expertise de l'assurance du locataire";
 const DAMAGE_REFERENCE = 'SIN-2026-4471';
 const INSURER = 'Assurances du Lac';
 const UNRECOVERED_REASON = 'Assurance refusée pour le surplus, locataire injoignable.';
+
+/** The renter's name, typed under their signature on the inventory (#989, lot E). */
+const RENTER_SIGNER = 'Jeanne Martin';
 
 /** The signature dialog's box (partials/signature_dialog.html.twig, issue #926). */
 const REMEMBER = 'Mémoriser ma signature dans mon compte pour une utilisation future';
@@ -432,7 +441,15 @@ test.describe('Rentals — one booking from the request to the deposit back', ()
         // ── 10. The stay, and a damage under assessment ──────────────────
         await page.goto(`${dashboard}/etat-des-lieux`, { waitUntil: 'load' });
         await takeReference(page, INVENTORY_KEYS);
-        await validateInventory(page, "Valider l'état des lieux d'entrée");
+        // Signed on its own screen, by the renter on the spot and by the
+        // manager with the signature Mon compte now keeps (#989, lot E).
+        await signInventory(page, "Signer l'état des lieux d'entrée", { renter: RENTER_SIGNER });
+        await expect(page.locator('[data-booking-panel="inventory"]')).toContainText("État des lieux d'entrée, validé le");
+        // The signing account is told, and the notification opens Documents.
+        await openSignedNotice(page, `État des lieux d'entrée signé — ${ASSET_NAME}`,
+            `Vous avez signé l'état des lieux d'entrée de ${reference}`);
+        await page.waitForURL(`${dashboard}/documents`, { waitUntil: 'load' });
+        await page.goto(`${dashboard}/etat-des-lieux`, { waitUntil: 'load' });
 
         // Seen during the stay, its price not known yet: the renter's
         // insurer sends an expert. It stays « En cours d'évaluation », with
@@ -463,7 +480,12 @@ test.describe('Rentals — one booking from the request to the deposit back', ()
         await expect(incident.getByLabel("En cours d'évaluation")).toBeChecked();
 
         await takeReference(page, INVENTORY_KEYS);
-        await validateInventory(page, "Valider l'état des lieux de sortie");
+        // The renter has left: the manager signs alone, warned first.
+        await signInventory(page, "Signer l'état des lieux de sortie", { renterChoice: 'Le locataire est absent' });
+        await openSignedNotice(page, `État des lieux de sortie signé — ${ASSET_NAME}`,
+            `Vous avez signé l'état des lieux de sortie de ${reference}`);
+        await page.waitForURL(`${dashboard}/documents`, { waitUntil: 'load' });
+        await page.goto(`${dashboard}/etat-des-lieux`, { waitUntil: 'load' });
         await expect(page.locator('[data-booking-panel="inventory"]'))
             .toContainText('Les deux états des lieux sont validés');
 
@@ -686,6 +708,7 @@ async function openSignatureDialog(page, trigger) {
  * @param {import('@playwright/test').Locator} canvas
  */
 async function trace(page, canvas) {
+    await canvas.scrollIntoViewIfNeeded();
     const box = await canvas.boundingBox();
     expect(box, 'the pad is on screen').not.toBeNull();
     const at = (/** @type {number} */ x, /** @type {number} */ y) => [box.x + box.width * x, box.y + box.height * y];
@@ -932,12 +955,19 @@ async function takeReference(page, item) {
 }
 
 /**
+ * The signing account's notification, found in its centre and opened.
+ *
  * @param {import('@playwright/test').Page} page
- * @param {string} label the validation button's label
+ * @param {string} title
+ * @param {string} body the start of its text
  */
-async function validateInventory(page, label) {
-    await submitAndRefresh(page, '/mes-locations/etat-des-lieux/valider',
-        () => page.getByRole('button', { name: label }).click());
+async function openSignedNotice(page, title, body) {
+    await page.goto('/notifications', { waitUntil: 'load' });
+    // The bell's dropdown carries hidden copies of the same rows.
+    const notice = page.locator('form[action$="/read"]', { hasText: title }).filter({ visible: true });
+    await expect(notice).toHaveCount(1);
+    await expect(notice).toContainText(body);
+    await notice.getByRole('button').click();
 }
 
 /**

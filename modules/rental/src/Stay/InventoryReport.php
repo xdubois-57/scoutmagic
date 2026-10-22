@@ -8,8 +8,6 @@ declare(strict_types=1);
 
 namespace Modules\Rental\Stay;
 
-use Core\Config\AppClock;
-
 /**
  * What an inventory says, read off its values (#708, IT-17) — the
  * reference each line is checked against, what is still unchecked, the
@@ -146,11 +144,12 @@ final class InventoryReport
     }
 
     /**
-     * The body of the PDF a validated inventory produces, its photos in
-     * an annex after the text (#989).
+     * The body of the PDF a validated inventory produces: the findings,
+     * then the two signatures (`InventorySignatureBlock`, #989 lot E),
+     * then its photos in an annex.
      *
      * Every time is on the application clock (`AppClock::zone()`): an
-     * incident's `created_at` comes from the database and the validation's
+     * incident's `created_at` comes from the database and the signing's
      * instant from PHP, and both must read the hour the renter lived.
      *
      * @param list<Line> $lines
@@ -163,8 +162,7 @@ final class InventoryReport
         array $lines,
         array $meters,
         array $incidents,
-        string $validatedBy,
-        \DateTimeImmutable $validatedAt,
+        InventorySignatureBlock $signatures,
         array $photos = []
     ): string {
         $e = static fn(?string $text): string => htmlspecialchars((string) $text, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
@@ -224,9 +222,7 @@ final class InventoryReport
             );
         }
 
-        return $html . '<p class="validated">Validé par ' . $e($validatedBy) . ' le '
-            . $e($validatedAt->setTimezone(AppClock::zone())->format('d/m/Y à H:i')) . '.</p>'
-            . InventoryPhotoAnnex::html($photos);
+        return $html . $signatures->html() . InventoryPhotoAnnex::html($photos);
     }
 
     /**

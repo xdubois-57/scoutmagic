@@ -44,8 +44,7 @@ du groupe sur place. La section « Contrat » des réglages du bien règle son
 adresse et la « Date limite de désistement sans indemnité ».
 
 Le compte imprimé est celui du bien dans Finances ; sans compte, le contrat
-dit que le bailleur le communique. Le lien vers les conditions acceptées
-est cliquable.
+dit que le bailleur le communique.
 
 ## Générer, puis envoyer
 
@@ -56,8 +55,7 @@ paiements. Cette page-ci les liste avec les autres documents et les
 renvoie.
 
 Chaque génération crée une version de plus **sans écraser la
-précédente**. Le contrat renvoie à la version des conditions acceptée avec
-la demande, jamais à celle en vigueur.
+précédente**. Le contrat renvoie aux conditions acceptées avec la demande.
 
 > **« Envoyer » verrouille.** Tant que rien n'est parti, le texte reste
 > modifiable ; une fois envoyé, il passe en lecture seule : le locataire en
@@ -68,6 +66,7 @@ modifiable tant qu'elle n'est pas partie elle-même.
 
 Le locataire ne télécharge que le contrat signé par les deux parties : ses
 autres documents lui parviennent par e-mail, et un e-mail perdu se renvoie.
+Un état des lieux signé ne se supprime pas.
 
 ## Le contrat de remplacement
 

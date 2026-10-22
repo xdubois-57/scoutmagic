@@ -1,0 +1,170 @@
+{% extends 'base.html.twig' %}
+{#
+  « Valider, signer et envoyer » (#989, lot E; ARCHITECTURE.md §8.56): the
+  screen an inventory is signed on, on the manager's phone, by the renter
+  and by the manager. Reached from « État des lieux », and nothing else.
+
+  **The renter reads this page.** It shows what the PDF will say about the
+  phase — the gaps or the differences, the readings, at the departure the
+  incidents with their date and photos — and never an amount, a decision,
+  what an assessment waits for, its reference or a reason: the controller
+  hands the incidents over as a date, a description and photo ids, so the
+  template cannot print the rest.
+
+  **The page is the confirmation** (design.md §7.5): the form carries no
+  data-confirm, the button names the act, and « Annuler » is a plain link
+  back to « État des lieux » — leaving the page is the cancel of a form
+  signing in place.
+
+  Two signers in one form (partials/signature_fields.html.twig, lot D): the
+  renter as a witness under the `renter_` prefix, inside a fieldset that
+  rental-inventory-sign.js DISABLES when the renter is absent or refuses —
+  the only way a signer is set aside —, and the manager with the account's
+  signature or a new one, « Mémoriser » offered, no import on the spot.
+  signature-dialog.js empties both once sent and on a back-forward restore,
+  and fetches the stored signature's preview; nothing of either signature
+  is written into this page.
+
+  Answered `private, no-store`, and not in the offline list.
+
+  Requires the context of RentalManagementController::signInventory().
+#}
+{% set is_arrival = phase.value == 'arrival' %}
+{% set phase_name = is_arrival ? "d'entrée" : 'de sortie' %}
+{% block title %}Signer l'état des lieux {{ phase_name }} — {{ asset.name }} — {{ site_name }}{% endblock %}
+{% block content %}
+    <div class="page-medium" data-inventory-signing>
+        {% include 'partials/page_header.html.twig' with {
+            title: "Signer l'état des lieux " ~ phase_name,
+            subtitle: asset.name ~ ' · du ' ~ booking.arrivalDate|date_fr ~ ' au ' ~ booking.departureDate|date_fr,
+        } only %}
+
+        <div class="alert alert-secondary small">
+            <strong>Cette page ne fonctionne qu'en ligne.</strong> Relisez ensemble ce qui suit, puis signez
+            chacun dans votre cadre.
+        </div>
+
+        <section class="card mb-3" aria-labelledby="inventory-summary-title" data-inventory-summary>
+            <div class="card-body">
+                <h2 class="h5 mb-3" id="inventory-summary-title">Ce que dit l'état des lieux {{ phase_name }}</h2>
+
+                {% if has_lines %}
+                    <h3 class="h6">{{ is_arrival ? 'Écarts avec le modèle' : "Différences avec l'entrée" }}</h3>
+                    {% if findings is empty %}
+                        <p>Aucun.</p>
+                    {% else %}
+                        <ul>
+                            {% for finding in findings %}
+                                <li>{{ finding }}</li>
+                            {% endfor %}
+                        </ul>
+                    {% endif %}
+                    {% if unchecked_count > 0 %}
+                        <p class="small text-body-secondary">
+                            {{ unchecked_count }} élément{{ unchecked_count > 1 ? 's' : '' }} sans valeur : le PDF
+                            {{ unchecked_count > 1 ? 'les' : 'le' }} marquera « non vérifié ».
+                        </p>
+                    {% endif %}
+                {% endif %}
+
+                {% if readings is not empty %}
+                    <h3 class="h6">Compteurs</h3>
+                    <ul>
+                        {% for reading in readings %}
+                            <li>
+                                {{ reading.label }} : entrée {{ reading.arrival ?? '—' }}
+                                {%- if not is_arrival %}, sortie {{ reading.departure ?? '—' }}{% endif %}
+                            </li>
+                        {% endfor %}
+                    </ul>
+                {% endif %}
+
+                {% if not is_arrival %}
+                    <h3 class="h6">Incidents et dégâts</h3>
+                    {% if incidents is empty %}
+                        <p class="mb-0">Aucun.</p>
+                    {% else %}
+                        <ul class="list-unstyled mb-0">
+                            {% for incident in incidents %}
+                                <li class="py-2{{ not loop.last ? ' border-bottom' : '' }}">
+                                    <span class="small text-body-secondary">{{ incident.reported_at|datetime_fr }}</span> —
+                                    {{ incident.description }}
+                                    {% if incident.photo_file_ids is not empty %}
+                                        <span class="d-flex flex-wrap gap-2 mt-2">
+                                            {% for file_id in incident.photo_file_ids %}
+                                                <img src="{{ file_url(file_id, 'thumb') }}" alt="Constat {{ loop.index }} de l'incident"
+                                                     width="96" height="96" loading="lazy" decoding="async" class="rounded border">
+                                            {% endfor %}
+                                        </span>
+                                    {% endif %}
+                                </li>
+                            {% endfor %}
+                        </ul>
+                    {% endif %}
+                {% endif %}
+            </div>
+        </section>
+
+        <form method="post" action="/mes-locations/etat-des-lieux/valider" enctype="multipart/form-data"
+              data-signature-form data-signature-inline-form data-inventory-signing-form>
+            {{ csrf_field()|raw }}
+            <input type="hidden" name="asset_id" value="{{ asset.id }}">
+            <input type="hidden" name="booking_id" value="{{ booking.id }}">
+            <input type="hidden" name="booking_page" value="inventory">
+            <input type="hidden" name="phase" value="{{ phase.value }}">
+
+            <section class="card mb-3" aria-labelledby="inventory-renter-title">
+                <div class="card-body">
+                    <h2 class="h5 mb-3" id="inventory-renter-title">Le locataire</h2>
+                    <fieldset class="mb-3">
+                        <legend class="form-label fs-6">Le locataire est-il là pour signer ?</legend>
+                        {% for choice in renter_choices %}
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="renter_signing"
+                                       id="renter-signing-{{ choice.value }}" value="{{ choice.value }}"
+                                       {{ choice.value == 'on_site' ? 'checked' : '' }} required>
+                                <label class="form-check-label" for="renter-signing-{{ choice.value }}">{{ choice.choice }}</label>
+                            </div>
+                        {% endfor %}
+                    </fieldset>
+                    <p class="alert alert-warning small" data-renter-unsigned-warning hidden>
+                        Sans la signature du locataire, cet état des lieux prouve moins. Joignez des photos de ce qui compte.
+                    </p>
+                    <fieldset data-renter-signature>
+                        <legend class="visually-hidden">Signature du locataire</legend>
+                        {% include 'partials/signature_fields.html.twig' with {
+                            id: 'inventory-renter',
+                            name_prefix: renter_prefix,
+                            witness: true,
+                            consequence: 'En signant, le locataire accepte cet état des lieux. Il le reçoit par e-mail.',
+                        } only %}
+                    </fieldset>
+                </div>
+            </section>
+
+            <section class="card mb-3" aria-labelledby="inventory-manager-title">
+                <div class="card-body">
+                    <h2 class="h5 mb-3" id="inventory-manager-title">Votre signature</h2>
+                    {% include 'partials/signature_fields.html.twig' with {
+                        id: 'inventory-manager',
+                        has_stored_signature: has_stored_signature,
+                        allow_import: false,
+                        manage_return: signing_url,
+                        consequence: "Le PDF signé est rangé dans les documents de la location et envoyé à " ~ booking.renterEmail ~ ". L'état des lieux ne pourra plus être modifié.",
+                    } only %}
+                </div>
+            </section>
+
+            <div class="d-flex flex-wrap gap-2 mb-3">
+                <button type="submit" class="btn btn-primary">Valider, signer et envoyer</button>
+                <a href="{{ inventory_url }}" class="btn btn-outline-secondary">Annuler</a>
+            </div>
+        </form>
+    </div>
+{% endblock %}
+
+{% block scripts %}
+    <script src="{{ asset('/assets/js/signature-pad.js') }}" defer></script>
+    <script src="{{ asset('/assets/js/signature-dialog.js') }}" defer></script>
+    <script type="module" src="{{ asset('/assets/js/rental-inventory-sign.js') }}"></script>
+{% endblock %}

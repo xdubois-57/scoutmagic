@@ -1170,7 +1170,9 @@ CREATE TABLE IF NOT EXISTS rental_booking_inventory (
 -- (#708, IT-17). Validating produces the PDF the renter is sent, and from
 -- that moment the phase is frozen — it is what they hold. One row per
 -- phase, which the unique key enforces: two managers pressing « Valider »
--- at once produce one PDF, not two.
+-- at once produce one PDF, not two. Since #989 (lot E) it is signed on the
+-- spot: by the manager's account, and by the renter unless they were
+-- absent or refused — which is all this row says about them.
 CREATE TABLE IF NOT EXISTS rental_inventory_validations (
     id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
     booking_id INT UNSIGNED NOT NULL,
@@ -1178,8 +1180,20 @@ CREATE TABLE IF NOT EXISTS rental_inventory_validations (
     phase VARCHAR(20) NOT NULL,
     validated_at DATETIME NOT NULL,
     validated_by_member_id INT UNSIGNED NULL,
+    -- The account that signed it, the session's (#989, lot E): whose
+    -- signature is on the PDF, never a value the form carried.
+    validated_by_account_id INT UNSIGNED NULL,
+    -- What the renter did (#989, lot E, Stay\RenterSigning): 'on_site'
+    -- (signed on the manager's phone), 'absent' or 'refused'. Nothing of
+    -- their signature is kept here — neither the name they typed nor the
+    -- drawing: the PDF is the only place either exists.
+    renter_signing VARCHAR(20) NOT NULL,
     -- The PDF filed in rental_documents (DocumentType::INVENTORY).
     document_id INT UNSIGNED NULL,
+    -- SHA-256 of that PDF as filed and sent (hash_file), 64 lowercase hex:
+    -- what proves later which bytes the two parties signed. Not
+    -- rental_documents.fingerprint, which is a contract's terms.
+    document_sha256 CHAR(64) NULL,
     UNIQUE KEY uq_rental_inventory_validations (booking_id, phase),
     CONSTRAINT fk_rental_inventory_validations_booking
         FOREIGN KEY (booking_id) REFERENCES rental_bookings (id) ON DELETE CASCADE

@@ -4,17 +4,23 @@ declare(strict_types=1);
 
 namespace Tests\Modules\Rental\Stay;
 
+use Core\Signature\AccountSignature;
+use Core\Signature\SignatureOrigin;
+use Core\Signature\SignaturePng;
 use Modules\Rental\Stay\Incident;
 use Modules\Rental\Stay\IncidentDecision;
 use Modules\Rental\Stay\IncidentPhoto;
 use Modules\Rental\Stay\InventoryPhotoAnnex;
 use Modules\Rental\Stay\InventoryKind;
 use Modules\Rental\Stay\InventoryReport;
+use Modules\Rental\Stay\InventorySignatureBlock;
+use Modules\Rental\Stay\InventorySigning;
 use Modules\Rental\Stay\MeterConsumption;
 use Modules\Rental\Stay\MeterKind;
 use Modules\Rental\Stay\MeterReading;
 use Modules\Rental\Stay\RentalMeter;
 use Modules\Rental\Stay\ReadingPhase;
+use Modules\Rental\Stay\RenterSigning;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -121,7 +127,7 @@ final class InventoryReportTest extends TestCase
         ], $differences);
     }
 
-    public function testThePdfSaysNonVerifieEscapesWhatWasTypedAndNamesWhoValidated(): void
+    public function testThePdfSaysNonVerifieEscapesWhatWasTypedAndEndsWithTheSignatures(): void
     {
         $html = InventoryReport::html(
             ReadingPhase::DEPARTURE,
@@ -134,8 +140,7 @@ final class InventoryReportTest extends TestCase
                 1, 1, 'Vitre <cassée>', 5000, IncidentDecision::PENDING, null, null, null, null,
                 new \DateTimeImmutable('2027-07-04 10:00:00')
             )],
-            'Anne Dupont',
-            new \DateTimeImmutable('2027-07-04 11:30:00')
+            self::signed(new \DateTimeImmutable('2027-07-04 11:30:00'))
         );
 
         $this->assertStringContainsString('<em>non vérifié</em>', $html);
@@ -144,7 +149,9 @@ final class InventoryReportTest extends TestCase
         $this->assertStringContainsString('Cuisine propre : Évier &lt;sale&gt;', $html);
         $this->assertStringContainsString('Vitre &lt;cassée&gt;', $html);
         $this->assertStringContainsString("<h2>Différences avec l'entrée</h2>", $html);
-        $this->assertStringContainsString('Validé par Anne Dupont le 04/07/2027 à 11:30.', $html);
+        $this->assertStringContainsString('<h2>Signatures</h2>', $html);
+        $this->assertStringContainsString('Signé au doigt par Anne Dupont', $html);
+        $this->assertStringContainsString('Signé sur place, Local Saint-Georges, le 04/07/2027 à 11:30.', $html);
     }
 
     /**
@@ -162,8 +169,7 @@ final class InventoryReportTest extends TestCase
                 1, 1, 'Vitre cassée', 12345, IncidentDecision::PENDING, null, null, null, null,
                 new \DateTimeImmutable('2027-07-04 10:00:00')
             )],
-            'Anne Dupont',
-            new \DateTimeImmutable('2027-07-04 11:30:00')
+            self::signed(new \DateTimeImmutable('2027-07-04 11:30:00'))
         );
 
         $this->assertStringContainsString('<li>04/07 à 10 h 00 — Vitre cassée</li>', $html);
@@ -178,8 +184,7 @@ final class InventoryReportTest extends TestCase
             [self::line('Chaises', InventoryKind::QUANTITY, 40, '40')],
             [],
             [],
-            'Anne Dupont',
-            new \DateTimeImmutable('2027-07-01 15:00:00')
+            self::signed(new \DateTimeImmutable('2027-07-01 15:00:00'))
         );
 
         $this->assertStringContainsString('Écarts avec le modèle</h2><p>Aucun.</p>', $html);
@@ -203,12 +208,11 @@ final class InventoryReportTest extends TestCase
                 1, 1, 'Porte du réfectoire forcée', null, IncidentDecision::PENDING, null, null, null, null,
                 new \DateTimeImmutable('2027-07-12 16:40:00', $utc)
             )],
-            'Anne Dupont',
-            new \DateTimeImmutable('2027-07-13 08:05:00', $utc)
+            self::signed(new \DateTimeImmutable('2027-07-13 08:05:00', $utc))
         );
 
         $this->assertStringContainsString('<li>12/07 à 18 h 40 — Porte du réfectoire forcée</li>', $html);
-        $this->assertStringContainsString('Validé par Anne Dupont le 13/07/2027 à 10:05.', $html);
+        $this->assertStringContainsString('Signé sur place, Local Saint-Georges, le 13/07/2027 à 10:05.', $html);
     }
 
     /**
@@ -249,14 +253,14 @@ final class InventoryReportTest extends TestCase
         );
 
         $html = InventoryReport::html(
-            ReadingPhase::DEPARTURE, [], $meters, $incidents, 'Anne Dupont', $at, $photos
+            ReadingPhase::DEPARTURE, [], $meters, $incidents, self::signed($at), $photos
         );
 
         $this->assertStringContainsString('<li>12/07 à 18 h 40 — Porte du réfectoire forcée (photos 3 et 4)</li>', $html);
         $this->assertStringContainsString('<li>12/07 à 18 h 40 — Vitre &lt;cassée&gt; (photo 5)</li>', $html);
         $this->assertStringContainsString('<li>12/07 à 18 h 40 — Rayure</li>', $html);
         // The annex follows the line that closes the text.
-        $this->assertGreaterThan(strpos($html, 'Validé par'), strpos($html, 'Annexe : photos'));
+        $this->assertGreaterThan(strpos($html, 'Signé sur place'), strpos($html, 'Annexe : photos'));
         $this->assertStringContainsString('<strong>Photo 5</strong> — Incident : Vitre &lt;cassée&gt;', $html);
     }
 
@@ -268,10 +272,25 @@ final class InventoryReportTest extends TestCase
             [self::line('Chaises', InventoryKind::QUANTITY, 40, '40')],
             [],
             [],
-            'Anne Dupont',
-            new \DateTimeImmutable('2027-07-01 15:00:00')
+            self::signed(new \DateTimeImmutable('2027-07-01 15:00:00'))
         );
 
         $this->assertStringNotContainsString('Annexe', $html);
+    }
+
+    /** The signatures at the foot of the PDF: the renter absent, the manager's traced. */
+    private static function signed(\DateTimeImmutable $at): InventorySignatureBlock
+    {
+        $image = imagecreatetruecolor(300, 100);
+        ob_start();
+        imagepng($image);
+
+        return new InventorySignatureBlock(
+            InventorySigning::without(RenterSigning::ABSENT),
+            new AccountSignature(1, new SignaturePng((string) ob_get_clean()), SignatureOrigin::DrawnNow, false, 'Anne Dupont'),
+            'Local Saint-Georges',
+            null,
+            $at
+        );
     }
 }
