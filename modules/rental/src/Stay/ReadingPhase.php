@@ -32,9 +32,10 @@ enum ReadingPhase: string
 
     /**
      * The phases whose validation freezes this one (#708, IT-17): its own,
-     * and every later one. The departure is read against the arrival, so
-     * an arrival only ticked by hand — never validated itself — is frozen
-     * all the same once the departure's PDF has gone out.
+     * and every later one. The departure is read against the arrival,
+     * which is always validated first (#989, lot G: never ticked by hand);
+     * the writes' own guard still refuses an arrival under a departure
+     * already sent, whatever the arrival's row says.
      *
      * @return list<self>
      */

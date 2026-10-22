@@ -21,19 +21,19 @@ namespace Modules\Rental\Booking;
  * | DERIVED  | the derived sentence, and no control at all           |
  * | HERE     | a button, and the other decisions beside it           |
  * | RENTER   | the derived sentence (no manual chase exists to offer) |
- * | OFFSITE  | nothing the site can see: only ticked by hand         |
  *
- * **Any nature can be completed by hand since #708 (IT-14)**, from the
+ * **Most steps can be completed by hand since #708 (IT-14)**, from the
  * step's disc: things happen away from the site, a contract accepted by
  * e-mail, a deposit paid in cash. The nature still says how the line
- * normally gets ticked; OFFSITE is the one whose only way is the hand.
+ * normally gets ticked. There is no « hors du site » nature any more: it
+ * was the walk-throughs of an asset with nothing to walk, which are
+ * minimal inventories signed here since #989 (lot G).
  */
 enum MilestoneKind: string
 {
     case DERIVED = 'derived';
     case HERE = 'here';
     case RENTER = 'renter';
-    case OFFSITE = 'offsite';
 
     public function label(): string
     {
@@ -41,15 +41,6 @@ enum MilestoneKind: string
             self::DERIVED => 'se dérive du site',
             self::HERE => 'à faire ici',
             self::RENTER => 'en attente du locataire',
-            self::OFFSITE => 'hors du site',
         };
-    }
-
-    /**
-     * Whether a manager can tick this line by hand.
-     */
-    public function isMarkable(): bool
-    {
-        return $this === self::OFFSITE;
     }
 }

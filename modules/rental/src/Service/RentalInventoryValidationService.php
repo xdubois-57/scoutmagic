@@ -27,6 +27,7 @@ use Modules\Rental\Repository\RentalDocumentRepository;
 use Modules\Rental\Stay\BlankInventorySheet;
 use Modules\Rental\Stay\InventoryPhotoAnnex;
 use Modules\Rental\Stay\InventoryReport;
+use Modules\Rental\Stay\InventoryScope;
 use Modules\Rental\Stay\InventorySignatureBlock;
 use Modules\Rental\Stay\InventorySigning;
 use Modules\Rental\Stay\ReadingPhase;
@@ -48,6 +49,14 @@ use Modules\Rental\Stay\ReadingPhase;
  * drawing go into the PDF and nowhere else: the row says only what they
  * did (`Stay\RenterSigning`), the history the same and the fingerprint,
  * the journal the manager's act (`recordSigning()`).
+ *
+ * **An asset with nothing to walk validates a minimal inventory** (#989,
+ * lot G): no items and no meters, so one statement — « Bien remis en bon
+ * état, sans remarque », « Bien rendu… », or the manager's free remark,
+ * kept encrypted on the validation row — and, at the departure, the
+ * incidents noted, signed and sent exactly like a full one. It replaced
+ * the dashboard's bare tick: no inventory step is ever done without a
+ * PDF the renter holds.
  *
  * **A missing reading blocks; an unchecked line does not.** An item nobody
  * looked at is printed « non vérifié », which is an honest record; a meter
@@ -74,6 +83,10 @@ class RentalInventoryValidationService
     public const SHEET_UNREADABLE = "La photo de la feuille signée n'a pas pu être relue : reprenez-la. "
         . "Rien n'a été validé.";
 
+    /** Said when a minimal inventory comes with a sheet signed on paper (#989, lots F and G). */
+    public const MINIMAL_NOT_ON_PAPER = "Ce bien n'a ni éléments d'état des lieux ni compteurs : il n'y a pas de liste à "
+        . "signer sur papier. Faites signer l'état des lieux sur l'écran, ou indiquez que le locataire est absent.";
+
     public function __construct(
         private RentalStayService $stay,
         private RentalDocumentService $documents,
@@ -92,25 +105,16 @@ class RentalInventoryValidationService
     /**
      * The meters still lacking their reading for this phase.
      *
-     * At the departure, the arrival's too when the arrival has no
-     * validation of its own (ticked by hand): validating the departure
-     * freezes the arrival with it (`ReadingPhase::frozenBy()`), and an
-     * arrival reading missing then could never be taken — the meter's
-     * consumption never billed. A validated arrival already required its
-     * readings, so a meter added since does not block the departure.
+     * The phase's own only: the departure starts once the arrival is
+     * validated, and a validated arrival already required its readings,
+     * so a meter added since does not block the departure.
      *
-     * @return list<string> their labels, « (entrée) » marking an arrival one
+     * @return list<string> their labels
      */
     public function missingReadings(RentalBooking $booking, int $assetId, ReadingPhase $phase): array
     {
-        $arrivalToo = $phase === ReadingPhase::DEPARTURE
-            && !isset($this->stay->inventoryValidations($booking->id)[ReadingPhase::ARRIVAL->value]);
-
         $missing = [];
         foreach ($this->stay->consumptionsFor($booking, $assetId) as $consumption) {
-            if ($arrivalToo && $consumption->arrival === null) {
-                $missing[] = $consumption->meter->label . ' (entrée)';
-            }
             $reading = $phase === ReadingPhase::ARRIVAL ? $consumption->arrival : $consumption->departure;
             if ($reading === null) {
                 $missing[] = $consumption->meter->label;
@@ -159,6 +163,11 @@ class RentalInventoryValidationService
      * signing, the signer's notification, then the e-mail to the renter
      * — sent whatever the renter did, absent and refusal included.
      *
+     * `$remark` is a minimal inventory's free remark (#989, lot G),
+     * `InventoryScope::REMARK_MAX` characters at most; blank, the PDF says
+     * the fixed sentence. A full inventory has its lines' notes instead,
+     * and ignores it.
+     *
      * @return array{document: RentalDocument, sent: bool, sha256: string}
      * @throws RentalException
      * @throws \InvalidArgumentException when an electronic signature comes with
@@ -172,7 +181,7 @@ class RentalInventoryValidationService
         InventorySigning $renter,
         ?AccountSignature $manager,
         \DateTimeImmutable $now,
-        bool $arrivalTickedByHand = false
+        ?string $remark = null
     ): array {
         // Before anything: the two modes never mix (decision Q3), and a
         // signature posted with « Signé sur papier » is never put on it.
@@ -180,15 +189,28 @@ class RentalInventoryValidationService
         $sheet = $renter->paperSheet;
         $accountId = $manager !== null ? $manager->accountId : $sheet?->accountId;
 
-        $this->stay->assertPhaseOpen($booking->id, $phase, $arrivalTickedByHand);
+        $this->stay->assertPhaseOpen($booking->id, $phase);
 
         $lines = $this->stay->inventoryFor($booking->id);
         $meters = $this->stay->consumptionsFor($booking, $asset->id);
-        if ($lines === [] && $meters === []) {
+        // What the dashboard, the page and the reminders agree on
+        // (keepsInventoryFor()): nothing to walk is a minimal inventory.
+        $scope = $this->stay->keepsInventoryFor($booking) ? InventoryScope::FULL : InventoryScope::MINIMAL;
+        if ($scope === InventoryScope::FULL && $lines === [] && $meters === []) {
+            // A template not copied into the booking yet: that happens at
+            // the confirmation.
             throw new RentalException(
-                "Ce bien n'a ni éléments d'état des lieux ni compteurs : l'état des lieux se coche à la main."
+                "La liste d'état des lieux de ce bien est copiée dans la réservation à sa confirmation : "
+                    . 'confirmez-la avant de faire son état des lieux.'
             );
         }
+        // A minimal inventory is signed on the screen (#989, lots F and G):
+        // there is no checklist to print, so a sheet signed on paper would
+        // carry signatures under nothing the PDF states.
+        if ($scope === InventoryScope::MINIMAL && $sheet !== null) {
+            throw new RentalException(self::MINIMAL_NOT_ON_PAPER);
+        }
+        $remark = $scope === InventoryScope::MINIMAL ? self::remark($remark) : null;
 
         $missing = $this->missingReadings($booking, $asset->id, $phase);
         if ($missing !== []) {
@@ -236,6 +258,8 @@ class RentalInventoryValidationService
                     $sheet,
                     $sheetImage,
                     $accountId,
+                    $scope,
+                    $remark,
                     &$writtenPath
                 ): array {
                     if (!$this->stay->recordInventoryValidation(
@@ -244,7 +268,9 @@ class RentalInventoryValidationService
                         $now,
                         $actorMemberId,
                         $accountId,
-                        $renter->choice
+                        $renter->choice,
+                        $scope,
+                        $remark
                     )) {
                         throw new RentalException('Cet état des lieux est déjà validé.');
                     }
@@ -258,6 +284,11 @@ class RentalInventoryValidationService
                     $lines = $this->stay->inventoryFor($booking->id);
                     $meters = $this->stay->consumptionsFor($booking, $asset->id);
                     $incidents = $isDeparture ? $this->stay->incidentsFor($booking->id) : [];
+                    // Read from the incidents as frozen: a minimal departure
+                    // with some never says « en bon état ».
+                    $statement = $scope === InventoryScope::MINIMAL
+                        ? InventoryScope::statement($phase, $remark, $incidents !== [])
+                        : null;
 
                     // « Valider, signer et mémoriser » is one act: kept here,
                     // in this transaction, so that anything failing below
@@ -298,7 +329,8 @@ class RentalInventoryValidationService
                                 $incidents,
                                 $signatures,
                                 $photos,
-                                $sheetPhoto
+                                $sheetPhoto,
+                                $statement
                             ),
                             (string) ($this->settings->get('site_name') ?: 'Unité scoute'),
                             $this->metaLines($booking, $asset)
@@ -322,12 +354,14 @@ class RentalInventoryValidationService
 
                     // What the renter did and the fingerprint, never their
                     // typed name: the history is the unit's, the name the
-                    // renter's, and it lives in the PDF alone.
+                    // renter's, and it lives in the PDF alone. Nor the
+                    // remark: it is kept once, encrypted, on the row.
                     $this->bookingAudit->record(
                         $booking->id,
                         BookingAudit::STATUS_CHANGED,
                         null,
-                        $label . ' — ' . $renter->choice->historyLabel() . ' — SHA-256 ' . $sha256,
+                        $label . ($scope === InventoryScope::MINIMAL ? ' minimal' : '') . ' — '
+                            . $renter->choice->historyLabel() . ' — SHA-256 ' . $sha256,
                         'État des lieux signé',
                         $actorMemberId,
                         // The account that signed — or, on paper, that
@@ -524,6 +558,27 @@ class RentalInventoryValidationService
                 . self::frenchDate($booking->departureDate),
             'Locataire : ' . $booking->renterName,
         ];
+    }
+
+    /**
+     * A minimal inventory's remark as stored: trimmed, null when blank.
+     *
+     * @throws RentalException over `InventoryScope::REMARK_MAX` characters
+     */
+    private static function remark(?string $remark): ?string
+    {
+        $remark = $remark !== null ? trim($remark) : '';
+        if ($remark === '') {
+            return null;
+        }
+        if (mb_strlen($remark) > InventoryScope::REMARK_MAX) {
+            throw new RentalException(
+                'La remarque ne peut pas dépasser ' . number_format(InventoryScope::REMARK_MAX, 0, ',', ' ')
+                    . ' caractères.'
+            );
+        }
+
+        return $remark;
     }
 
     private static function frenchDate(string $isoDate): string

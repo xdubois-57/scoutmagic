@@ -31,26 +31,26 @@ votre copie signée dans « Votre contrat » : un PDF, un scan ou une photo
 lisible de chaque page, avec « Envoyer ma copie signée ». Dès qu'elle est
 reçue, et tant que l'unité ne la refuse pas, vos dates ne se libèrent
 plus. Si elle la refuse, la page dit pourquoi et vos dates restent
-bloquées quelques jours : déposez-en une autre. Une fois le contrat signé
-par les deux parties, « Télécharger le contrat signé » le met à votre
-disposition.
+bloquées quelques jours : déposez-en une autre. Signé par les deux
+parties, il se garde avec « Télécharger le contrat signé ».
 
 ## Votre paiement
 
 La boîte « Paiement » donne le bénéficiaire, l'IBAN, la communication,
 le montant à verser et son échéance, avec un QR code à scanner depuis
 votre application bancaire — « Agrandir le QR code » l'affiche en grand.
-Utilisez toujours la même communication, pour l'acompte, le solde et la
-caution. Après le décompte du séjour, l'unité vous rembourse par virement
+Gardez la même communication pour chaque versement. Après le décompte du séjour, l'unité vous rembourse par virement
 ce que vous avez versé en plus, la caution par exemple ; un solde
 restant se paie dans les 30 jours.
 
-## Incidents et dégâts
+## L'état des lieux et les dégâts
 
-Si un dégât est constaté pendant le séjour, « Incidents et dégâts » le
-décrit, avec sa date et le montant facturé, ou « Non facturé ». Tant
-qu'un dégât est en cours d'évaluation, la page le dit sans détail ; si
-votre caution a été reçue, elle reste retenue jusqu'à son règlement.
+À l'arrivée et au départ, l'unité fait l'état des lieux avec vous : vous
+le signez sur son téléphone, et le PDF signé vous arrive par e-mail. Un
+dégât constaté apparaît dans « Incidents et dégâts », avec sa date et
+le montant facturé, ou « Non facturé ». En cours d'évaluation, la page
+le dit sans détail, et une caution reçue reste retenue jusqu'à son
+règlement.
 
 ## Changer vos dates ou annuler
 
@@ -67,8 +67,7 @@ Votre adresse est indispensable : sans elle, le contrat de location ne
 peut pas être établi. Indiquez aussi le « Responsable du groupe sur
 place », une personne majeure présente pendant tout le séjour. La raison
 sociale et les numéros ne servent que pour une facture au nom d'une
-association ou d'une société. Les gestionnaires peuvent tout corriger de
-leur côté.
+association ou d'une société.
 
 ## Le lien
 

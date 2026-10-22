@@ -30,6 +30,11 @@
   disables and hides both signature fieldsets — and the paper fieldset,
   disabled and hidden otherwise, asks for the required photo of the sheet.
 
+  **A minimal inventory** (`minimal`, #989 lot G: an asset with neither
+  items nor meters) has no lines and no readings: the form carries its
+  free remark, and the PDF says `fixed_statement` when it is left blank.
+  At the departure the incidents are shown all the same.
+
   Answered `private, no-store`, and not in the offline list.
 
   Requires the context of RentalManagementController::signInventory().
@@ -49,6 +54,7 @@
             chacun dans votre cadre.
         </div>
 
+        {% if not minimal or not is_arrival %}
         <section class="card mb-3" aria-labelledby="inventory-summary-title" data-inventory-summary>
             <div class="card-body">
                 <h2 class="h5 mb-3" id="inventory-summary-title">Ce que dit l'état des lieux {{ phase_name }}</h2>
@@ -109,6 +115,7 @@
                 {% endif %}
             </div>
         </section>
+        {% endif %}
 
         <form method="post" action="/mes-locations/etat-des-lieux/valider" enctype="multipart/form-data"
               data-signature-form data-signature-inline-form data-inventory-signing-form>
@@ -117,6 +124,21 @@
             <input type="hidden" name="booking_id" value="{{ booking.id }}">
             <input type="hidden" name="booking_page" value="inventory">
             <input type="hidden" name="phase" value="{{ phase.value }}">
+
+            {% if minimal %}
+                <section class="card mb-3" aria-labelledby="inventory-remark-title" data-inventory-minimal>
+                    <div class="card-body">
+                        <h2 class="h5 mb-2" id="inventory-remark-title">Constat</h2>
+                        <p class="text-body-secondary small">
+                            Ce bien n'a ni éléments d'état des lieux ni compteurs : l'état des lieux tient en
+                            une phrase. Laissée vide, la remarque est « {{ fixed_statement }} ».
+                        </p>
+                        <label class="form-label" for="inventory-remark">Remarque (facultatif)</label>
+                        <textarea class="form-control" id="inventory-remark" name="remark" rows="3"
+                                  maxlength="{{ remark_max }}" placeholder="{{ fixed_statement }}"></textarea>
+                    </div>
+                </section>
+            {% endif %}
 
             <section class="card mb-3" aria-labelledby="inventory-renter-title">
                 <div class="card-body">

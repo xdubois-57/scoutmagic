@@ -46,13 +46,14 @@ final class BookingMilestones
     public const SECURITY_DEPOSIT_RETURNED = 'security_deposit_returned';
 
     /**
-     * The lines a manager may tick by hand when the site cannot derive them
-     * — the walk-throughs, on an asset whose inventory the site does not
-     * keep (issue #462, D5). A line becomes one only per booking, through
-     * `$offsite`: where « État des lieux » records the inventory line by line,
-     * the same line derives itself and carries no box.
+     * The walk-throughs: signed, never ticked (#989, lot G, decision Q4).
+     * Each is done when its inventory is validated — the full one on
+     * « État des lieux », or the minimal one of an asset with nothing to
+     * walk — and its PDF has gone to the renter, so a signed one never
+     * reopens either. `RentalMilestoneMarkService::set()` refuses them, and
+     * a mark stored before is read as nothing (`MilestoneEvidence`).
      */
-    public const MARKABLE = [self::ARRIVAL_INVENTORY, self::DEPARTURE_INVENTORY];
+    public const INVENTORIES = [self::ARRIVAL_INVENTORY, self::DEPARTURE_INVENTORY];
 
     /**
      * The steps whose disc is never a box to tick (#708, IT-14): « Demande
@@ -113,8 +114,9 @@ final class BookingMilestones
      * @param array<string, bool> $extras
      * @param array<string, string> $details the grey suffix an extra line may
      *   carry — a send date, a settlement version (Booking\MilestoneEvidence)
-     * @param list<string> $offsite the keys that are done outside the site on
-     *   this booking, and therefore ticked by hand (Booking\MilestoneEvidence)
+     * @param list<string> $minimal the inventory keys that are a minimal
+     *   inventory on this booking — nothing to walk, so the step leads
+     *   straight to the signing screen (#989, lot G; Booking\MilestoneEvidence)
      * @param list<string> $manual the keys done because a manager ticked them
      *   by hand (#708, IT-14)
      * @param list<string> $awaitingAssessment the keys a damage still being
@@ -126,7 +128,7 @@ final class BookingMilestones
         \DateTimeImmutable $now,
         array $extras = [],
         array $details = [],
-        array $offsite = [],
+        array $minimal = [],
         array $manual = [],
         array $awaitingAssessment = []
     ): array {
@@ -252,15 +254,22 @@ final class BookingMilestones
         // What each line asks and how it gets ticked is decided once, over
         // the finished list, so that the facts above stay the only thing
         // each constructor call is about.
+        $arrivalSigned = false;
+        foreach ($milestones as $milestone) {
+            if ($milestone->key === self::ARRIVAL_INVENTORY) {
+                $arrivalSigned = $milestone->isDone;
+            }
+        }
         $shaped = array_map(
             static fn(BookingMilestone $m): BookingMilestone => self::shaped(
                 $m,
                 $booking->status,
-                $offsite,
+                $minimal,
                 $booking->lapseEndsTheBooking(),
                 in_array($m->key, $manual, true),
                 $firm,
-                !$abandoned && in_array($m->key, $awaitingAssessment, true)
+                !$abandoned && in_array($m->key, $awaitingAssessment, true),
+                $arrivalSigned
             ),
             $milestones
         );
@@ -301,16 +310,17 @@ final class BookingMilestones
      * The facts — done, applicable, detail — are untouched: this adds the
      * how, never a second answer to whether.
      *
-     * @param list<string> $offsite
+     * @param list<string> $minimal
      */
     private static function shaped(
         BookingMilestone $m,
         BookingStatus $status,
-        array $offsite,
+        array $minimal,
         bool $lapseEndsTheBooking = false,
         bool $isManual = false,
         bool $holdsFirmly = false,
-        bool $awaitsAssessment = false
+        bool $awaitsAssessment = false,
+        bool $arrivalSigned = false
     ): BookingMilestone {
         $kind = MilestoneKind::DERIVED;
         $explanation = null;
@@ -368,15 +378,29 @@ final class BookingMilestones
                 break;
             case self::ARRIVAL_INVENTORY:
             case self::DEPARTURE_INVENTORY:
-                if (in_array($m->key, $offsite, true)) {
-                    $kind = MilestoneKind::OFFSITE;
-                    $explanation = "Ce bien n'a pas d'inventaire sur le site : personne ne peut le deviner, "
-                        . "cochez quand c'est fait.";
+                // Signed, never ticked (#989, lot G): the way to the
+                // signing is the only control the step has.
+                $kind = MilestoneKind::HERE;
+                if (in_array($m->key, $minimal, true)) {
+                    $isArrival = $m->key === self::ARRIVAL_INVENTORY;
+                    if (!$isArrival && !$m->isDone && !$arrivalSigned) {
+                        // The departure opens once the arrival is signed
+                        // (RentalStayService::assertPhaseOpen): no way in
+                        // that would only bounce back.
+                        $explanation = "L'état des lieux de sortie se signe une fois celui d'entrée signé.";
+                        break;
+                    }
+                    $explanation = "Ce bien n'a ni éléments ni compteurs : l'état des lieux est minimal, une "
+                        . 'phrase ou votre remarque, signée avec le locataire. Le PDF lui est envoyé.';
+                    $action = MilestoneAction::openPage(
+                        $isArrival ? "Signer l'état des lieux d'entrée" : "Signer l'état des lieux de sortie",
+                        BookingPage::INVENTORY,
+                        '/signer?phase=' . ($isArrival ? 'arrival' : 'departure')
+                    );
                     break;
                 }
-                $kind = MilestoneKind::HERE;
                 $explanation = "Chaque élément se constate sur la page État des lieux, avec les relevés de "
-                    . "compteurs ; l'étape se coche à la validation, qui envoie le PDF au locataire.";
+                    . "compteurs ; l'étape se coche quand il est signé, et le PDF part au locataire.";
                 $action = MilestoneAction::openBox("Faire l'état des lieux", BookingBox::INVENTORY);
                 break;
             case self::FINAL_SETTLEMENT:

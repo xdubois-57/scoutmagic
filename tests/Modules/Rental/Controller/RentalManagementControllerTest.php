@@ -4476,7 +4476,10 @@ class RentalManagementControllerTest extends TestCase
                 );
             }
         }
-        $this->assertContains('arrival_inventory', $tickable);
+        $this->assertNotSame([], $tickable);
+        // Signed, never ticked (#989, lot G).
+        $this->assertNotContains('arrival_inventory', $tickable);
+        $this->assertNotContains('departure_inventory', $tickable);
         $this->assertNotContains('request_received', $tickable);
         $this->assertNotContains('hold', $tickable);
         $this->assertNotContains('closed', $tickable, 'a status is run, never ticked');
@@ -4533,20 +4536,20 @@ class RentalManagementControllerTest extends TestCase
         $booking = $this->createBooking();
         $this->confirm($booking);
 
-        $this->assertSame(302, $this->markStep($booking, 'arrival_inventory')->getStatusCode());
+        $this->assertSame(302, $this->markStep($booking, 'final_settlement')->getStatusCode());
 
         $body = (string) $this->bookingPage('local-saint-georges', $booking->id)->getBody();
-        $step = self::step($body, 'arrival_inventory');
+        $step = self::step($body, 'final_settlement');
         $this->assertStringContainsString('<span class="visually-hidden">Fait :</span>', $step);
         $this->assertStringContainsString('Coché à la main', $step);
         $this->assertStringContainsString(' le ' . (new \DateTimeImmutable())->format('d/m/Y'), $step);
         // Reopened from the same disc.
-        $this->assertStringContainsString('<span class="visually-hidden">Rouvrir « État des lieux d&#039;entrée »</span>', $step);
+        $this->assertStringContainsString('<span class="visually-hidden">Rouvrir « Décompte final réglé »</span>', $step);
         $this->assertStringContainsString('Étape cochée à la main', self::panel($body, 'history'));
 
-        $this->markStep($booking, 'arrival_inventory', false);
+        $this->markStep($booking, 'final_settlement', false);
         $again = (string) $this->bookingPage('local-saint-georges', $booking->id)->getBody();
-        $this->assertStringContainsString('<span class="visually-hidden">À faire :</span>', self::step($again, 'arrival_inventory'));
+        $this->assertStringContainsString('<span class="visually-hidden">À faire :</span>', self::step($again, 'final_settlement'));
     }
 
     /**
@@ -6268,7 +6271,10 @@ class RentalManagementControllerTest extends TestCase
         $body = $this->inventoryPage($booking);
         $this->assertStringContainsString("ni éléments d'état des lieux ni compteurs", $body);
         $this->assertStringContainsString('action="/mes-locations/incident"', $body);
-        $this->assertStringNotContainsString('data-inventory-sign', $body);
+        // A minimal inventory to sign (#989, lot G), nothing to fill in.
+        $this->assertStringContainsString('data-inventory-minimal', $body);
+        $this->assertStringContainsString('Bien remis en bon état, sans remarque', $body);
+        $this->assertStringContainsString('etat-des-lieux/signer?phase=arrival', $body);
         $this->assertStringNotContainsString('data-inventory-line', $body);
     }
 
@@ -6286,14 +6292,17 @@ class RentalManagementControllerTest extends TestCase
             $this->stayService->removeInventoryItem($this->assetId, $item['id']);
         }
 
-        $this->assertStringContainsString('data-inventory-sign', $this->inventoryPage($booking));
+        $kept = $this->inventoryPage($booking);
+        $this->assertStringContainsString('data-inventory-line', $kept);
+        $this->assertStringNotContainsString('data-inventory-minimal', $kept);
 
         $empty = $this->createBooking(null, 'LOC-K7Q2M4');
         $this->stayService->snapshotInventory($empty, $this->assetId);
         $this->stayService->addInventoryItem($this->assetId, 'Clés');
 
         $body = $this->inventoryPage($empty);
-        $this->assertStringNotContainsString('data-inventory-sign', $body);
+        $this->assertStringNotContainsString('data-inventory-line', $body);
+        $this->assertStringContainsString('data-inventory-minimal', $body);
         $this->assertStringContainsString("ni éléments d'état des lieux ni compteurs", $body);
     }
 
@@ -6425,74 +6434,97 @@ class RentalManagementControllerTest extends TestCase
         $this->assertCount(2, $this->documentEmails);
     }
 
-    /** An arrival ticked by hand opens the departure without a reference to take. */
-    public function testAnArrivalTickedByHandOpensTheDeparture(): void
+    /**
+     * **The bare tick is gone** (#989, lot G, Q4): ticking the arrival by
+     * hand is refused and stores nothing, so the departure still waits for
+     * the arrival — validated late on « État des lieux » if need be.
+     */
+    public function testAnInventoryTickIsRefusedAndTheDepartureWaits(): void
     {
         $this->loginAsManager();
         [$booking, $chairs] = $this->bookingWithAnInventory();
         $this->confirm($booking);
+
+        $step = self::step((string) $this->bookingPage('local-saint-georges', $booking->id)->getBody(), 'arrival_inventory');
+        $this->assertStringNotContainsString('action="/mes-locations/etape"', $step);
+
         $this->markStep($booking, 'arrival_inventory');
 
-        $body = $this->inventoryPage($booking);
-
-        $this->assertStringContainsString('État des lieux de sortie', $body);
-        $this->assertStringContainsString("coché à la main", $body);
-        $this->assertTrue($this->saveLine($booking, $chairs, 'departure', '40')['success']);
-
-        // Once the departure is validated, only ONE inventory was: the
-        // arrival was ticked, never validated, and the page says so.
-        $this->validateInventoryPhase($booking, 'departure');
-        $body = $this->inventoryPage($booking);
-        $this->assertStringContainsString('État des lieux validé', $body);
-        $this->assertStringNotContainsString('Les deux états des lieux sont validés', $body);
+        $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
+        $marks = new \Modules\Rental\Repository\RentalMilestoneMarkRepository($this->pdo);
+        $this->assertSame([], $marks->findForBooking($booking->id));
+        $this->assertFalse($this->saveLine($booking, $chairs, 'departure', '40')['success']);
+        $this->assertStringContainsString('etat-des-lieux/signer?phase=arrival', $this->inventoryPage($booking));
     }
 
     /**
-     * A validated departure freezes the arrival with it: unticking the
-     * hand-ticked arrival afterwards does not reopen an arrival form whose
-     * every save would be refused.
+     * On an asset with nothing to walk, the dashboard's step leads straight
+     * to the minimal signing screen (#989, lot G): a free remark, the fixed
+     * sentence when it is left blank; signed, the step is done — and says
+     * it was minimal — and the page shows the remark, read back in clear.
      */
-    public function testUntickingTheArrivalAfterTheDepartureReopensNothing(): void
+    public function testAMinimalInventoryIsSignedFromTheDashboardStep(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+        $this->confirm($booking);
+        $signing = '/mes-locations/local-saint-georges/reservations/' . $booking->id . '/etat-des-lieux/signer?phase=arrival';
+
+        $dashboard = (string) $this->bookingPage('local-saint-georges', $booking->id)->getBody();
+        $this->assertStringContainsString('href="' . $signing . '"', $dashboard);
+        $this->assertStringNotContainsString('action="/mes-locations/etape"', self::step($dashboard, 'arrival_inventory'));
+        $this->assertStringNotContainsString('action="/mes-locations/etape"', self::step($dashboard, 'departure_inventory'));
+
+        $screen = $this->signingPage($booking, 'arrival');
+        $this->assertSame(200, $screen->getStatusCode());
+        $body = (string) $screen->getBody();
+        $this->assertStringContainsString('data-inventory-minimal', $body);
+        $this->assertStringContainsString('name="remark"', $body);
+        $this->assertStringContainsString('Remarque (facultatif)', $body);
+        $this->assertStringContainsString('Bien remis en bon état, sans remarque', $body);
+        $this->assertStringNotContainsString('data-inventory-summary', $body, 'a minimal arrival has nothing to sum up');
+        // No checklist to print: never « Signé sur papier » (#989, lots F and G).
+        $this->assertStringNotContainsString('value="paper"', $body);
+        $this->assertStringContainsString('value="absent"', $body);
+
+        $this->validateInventoryPhase($booking, 'arrival', ['remark' => 'Clés remises au trésorier.']);
+
+        $this->assertSame('success', \Core\Http\FlashMessage::get()['type'] ?? null);
+        $validation = $this->stayService->inventoryValidations($booking->id)['arrival'];
+        $this->assertSame(\Modules\Rental\Stay\InventoryScope::MINIMAL, $validation['scope']);
+        $this->assertSame('Clés remises au trésorier.', $validation['remark']);
+        $this->assertSame([['booking_id' => $booking->id, 'label' => "État des lieux d'entrée"]], $this->documentEmails);
+
+        $step = self::step((string) $this->bookingPage('local-saint-georges', $booking->id)->getBody(), 'arrival_inventory');
+        $this->assertStringContainsString('<span class="visually-hidden">Fait :</span>', $step);
+        $this->assertStringContainsString('minimal, validé le', $step);
+        $this->assertStringNotContainsString('action="/mes-locations/etape"', $step);
+
+        $page = $this->inventoryPage($booking);
+        $this->assertStringContainsString('Remarque : Clés remises au trésorier.', $page);
+        $this->assertStringContainsString('etat-des-lieux/signer?phase=departure', $page);
+    }
+
+    /**
+     * A signed inventory step never reopens (#989, lot G, Q4): its PDF has
+     * gone to the renter. A hand-made POST to reopen it changes nothing.
+     */
+    public function testASignedInventoryStepNeverReopens(): void
     {
         $this->loginAsManager();
         [$booking] = $this->bookingWithAnInventory();
         $this->confirm($booking);
-        $this->markStep($booking, 'arrival_inventory');
-        $this->validateInventoryPhase($booking, 'departure');
-        $this->assertSame('success', \Core\Http\FlashMessage::get()['type'] ?? null);
+        $this->validateInventoryPhase($booking, 'arrival');
+
+        $step = self::step((string) $this->bookingPage('local-saint-georges', $booking->id)->getBody(), 'arrival_inventory');
+        $this->assertStringContainsString('<span class="visually-hidden">Fait :</span>', $step);
+        $this->assertStringNotContainsString('action="/mes-locations/etape"', $step);
 
         $this->markStep($booking, 'arrival_inventory', false);
 
-        $body = $this->inventoryPage($booking);
-        $this->assertStringNotContainsString('etat-des-lieux/signer?phase=arrival', $body);
-        $this->assertStringNotContainsString('data-inventory-line', $body);
-        $this->assertStringContainsString('État des lieux validé', $body);
-    }
-
-    /**
-     * An arrival ticked by hand was never read through the page: its meter
-     * readings are offered beside the departure's until the departure is
-     * validated, or the consumption could never be billed. Only then.
-     */
-    public function testAnArrivalTickedByHandKeepsItsMeterReadingsReachable(): void
-    {
-        $this->loginAsManager();
-        $this->stayService->addMeter(
-            $this->assetId, 'Électricité', \Modules\Rental\Stay\MeterKind::ELECTRICITY, 'kWh', null
-        );
-        [$booking] = $this->bookingWithAnInventory();
-        $this->confirm($booking);
-
-        // Before the tick: the arrival's own page, its own readings only.
-        $body = $this->inventoryPage($booking);
-        $this->assertStringContainsString('aria-label="Relevé entrée — Électricité"', $body);
-        $this->assertStringNotContainsString('aria-label="Relevé sortie — Électricité"', $body);
-
-        $this->markStep($booking, 'arrival_inventory');
-
-        $body = $this->inventoryPage($booking);
-        $this->assertStringContainsString('aria-label="Relevé entrée — Électricité"', $body);
-        $this->assertStringContainsString('aria-label="Relevé sortie — Électricité"', $body);
+        $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
+        $this->assertArrayHasKey('arrival', $this->stayService->inventoryValidations($booking->id));
+        $this->assertStringContainsString('État des lieux de sortie', $this->inventoryPage($booking));
     }
 
     // ── « Facture » (#708, IT-18) ───────────────────────────────────────
@@ -7369,7 +7401,8 @@ class RentalManagementControllerTest extends TestCase
         $this->assertCount(1, $this->invoices($booking));
     }
 
-    public function testADepartureTickedByHandLetsTheInvoiceBeMade(): void
+    /** The departure is not ticked into being: the invoice still waits for its signing. */
+    public function testATickedDepartureDoesNotLetTheInvoiceBeMade(): void
     {
         $this->loginAsManager();
         $this->stayService->addInventoryItem($this->assetId, 'Clés');
@@ -7377,9 +7410,9 @@ class RentalManagementControllerTest extends TestCase
         $this->confirm($booking);
         $this->markStep($booking, 'departure_inventory');
 
-        $this->assertStringContainsString('Générer la facture', $this->invoicePage($booking));
+        $this->assertStringNotContainsString('Générer la facture', $this->invoicePage($booking));
         $this->generateInvoice($booking);
-        $this->assertCount(1, $this->invoices($booking));
+        $this->assertSame([], $this->invoices($booking));
     }
 
     /** An asset with no inventory page waits for nothing. */

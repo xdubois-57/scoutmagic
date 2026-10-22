@@ -415,6 +415,20 @@ class RentalHardeningAuditTest extends TestCase
         }
     }
 
+    /**
+     * What a manager writes about a renter's stay is encrypted like the
+     * incidents: a minimal inventory's free remark too (#989, lot G).
+     */
+    public function testAMinimalInventorysRemarkIsAnEncryptedBlob(): void
+    {
+        $schema = (string) file_get_contents(self::root() . '/modules/rental/schema.sql');
+
+        $this->assertMatchesRegularExpression(
+            '/CREATE TABLE IF NOT EXISTS rental_inventory_validations \([^;]*\bremark_encrypted\s+BLOB/is',
+            $schema
+        );
+    }
+
     public function testASearchableAddressIsABlindIndexRatherThanAPlainColumn(): void
     {
         $schema = (string) file_get_contents(self::root() . '/modules/rental/schema.sql');

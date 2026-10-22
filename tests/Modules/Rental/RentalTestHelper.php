@@ -355,6 +355,8 @@ class RentalTestHelper
             document_id INTEGER,
             document_sha256 TEXT,
             paper_sheet_document_id INTEGER,
+            scope TEXT NOT NULL DEFAULT \'full\',
+            remark_encrypted BLOB,
             UNIQUE (booking_id, phase),
             FOREIGN KEY (booking_id) REFERENCES rental_bookings(id) ON DELETE CASCADE
         )');

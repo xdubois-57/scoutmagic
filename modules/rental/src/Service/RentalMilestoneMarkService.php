@@ -23,7 +23,8 @@ use Modules\Rental\Repository\RentalMilestoneMarkRepository;
  * THIS booking (still to do, or ticked by hand to reopen it, and in a
  * stretch the booking has reached) is the caller's to establish from the
  * journey; this service refuses anything that could never be ticked by
- * hand — a status, « Demande reçue », a state.
+ * hand — a status, « Demande reçue », a state, and the two inventories,
+ * which are signed and never ticked nor reopened (#989, lot G).
  */
 class RentalMilestoneMarkService
 {
@@ -62,6 +63,12 @@ class RentalMilestoneMarkService
             || in_array($milestoneKey, BookingMilestones::NEVER_BY_HAND, true)
         ) {
             throw new RentalException('Cette étape ne se coche pas à la main.');
+        }
+        if (in_array($milestoneKey, BookingMilestones::INVENTORIES, true)) {
+            throw new RentalException(
+                "L'état des lieux ne se coche pas à la main : il se signe avec le locataire depuis la page "
+                    . 'État des lieux, et une fois signé il ne se rouvre plus.'
+            );
         }
 
         $changed = $done

@@ -174,10 +174,14 @@ class ModuleManifestTest extends TestCase
      * 1.53.0 prints the blank checklist and takes an inventory « Signé sur
      * papier » (#989, lot F): `rental_inventory_validations` gains
      * `paper_sheet_document_id`, and the checklist gets its route.
+     *
+     * 1.54.0 replaces the hand-ticked inventory with a minimal one, signed
+     * (#989, lot G): `rental_inventory_validations` gains `scope` and
+     * `remark_encrypted`.
      */
     public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
     {
-        $this->assertSame('1.53.0', $this->manifest->version);
+        $this->assertSame('1.54.0', $this->manifest->version);
     }
 
     /**

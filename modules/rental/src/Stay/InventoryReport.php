@@ -105,8 +105,8 @@ final class InventoryReport
      * « Chaises : il en manque 1 par rapport à l'entrée », « Cuisine
      * propre : oui à l'entrée, non à la sortie ».
      *
-     * A line found at the departure but never at the arrival — an arrival
-     * ticked by hand leaves them all so — is said, not skipped: silence
+     * A line found at the departure but never at the arrival — left
+     * unchecked then, or a minimal arrival — is said, not skipped: silence
      * would read as « no difference » in the PDF the renter receives,
      * when there was nothing to compare against.
      *
@@ -149,6 +149,11 @@ final class InventoryReport
      * then its photos in an annex — and, signed on paper, the photo of the
      * sheet on the last page (lot F).
      *
+     * A minimal inventory (#989, lot G) has no lines and no meters: its
+     * `$statement` — `InventoryScope::statement()`, the fixed sentence or
+     * the manager's remark — stands in their place, before the incidents
+     * of a departure. Null for a full one.
+     *
      * Every time is on the application clock (`AppClock::zone()`): an
      * incident's `created_at` comes from the database and the signing's
      * instant from PHP, and both must read the hour the renter lived.
@@ -167,11 +172,17 @@ final class InventoryReport
         array $incidents,
         InventorySignatureBlock $signatures,
         array $photos = [],
-        ?InventoryPhoto $paperSheet = null
+        ?InventoryPhoto $paperSheet = null,
+        ?string $statement = null
     ): string {
         $e = static fn(?string $text): string => htmlspecialchars((string) $text, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
         $isArrival = $phase === ReadingPhase::ARRIVAL;
         $html = '';
+
+        if ($statement !== null) {
+            // Typed by a person, on several lines maybe: escaped first.
+            $html .= '<h2>Constat</h2><p>' . nl2br($e($statement), false) . '</p>';
+        }
 
         if ($lines !== []) {
             $html .= '<h2>Éléments</h2><table class="items"><thead><tr><th>Élément</th><th>'

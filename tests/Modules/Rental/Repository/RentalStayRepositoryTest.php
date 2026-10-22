@@ -460,6 +460,9 @@ class RentalStayRepositoryTest extends TestCase
         $this->assertSame(7, $validation['document_id']);
         $this->assertSame($sha256, $validation['document_sha256']);
         $this->assertNull($validation['paper_sheet_document_id']);
+        // Full unless said otherwise, with no remark (#989, lot G).
+        $this->assertSame(\Modules\Rental\Stay\InventoryScope::FULL, $validation['scope']);
+        $this->assertNull($validation['remark']);
     }
 
     /**
@@ -482,6 +485,39 @@ class RentalStayRepositoryTest extends TestCase
         $this->assertSame(\Modules\Rental\Stay\RenterSigning::PAPER, $validation['renter_signing']);
         $this->assertSame(7, $validation['document_id']);
         $this->assertSame(8, $validation['paper_sheet_document_id']);
+    }
+
+    /**
+     * A minimal inventory's remark (#989, lot G) is stored encrypted under
+     * its own context and read back in clear; a blank one is NULL.
+     */
+    public function testAMinimalValidationKeepsItsRemarkEncrypted(): void
+    {
+        $at = new \DateTimeImmutable('2027-07-01 10:00:00');
+        $minimal = \Modules\Rental\Stay\InventoryScope::MINIMAL;
+
+        $this->repository->recordInventoryValidation(
+            $this->bookingId, ReadingPhase::ARRIVAL, $at, 3, 12, \Modules\Rental\Stay\RenterSigning::ABSENT, $minimal, '  '
+        );
+        $this->repository->recordInventoryValidation(
+            $this->bookingId, ReadingPhase::DEPARTURE, $at, 3, 12, \Modules\Rental\Stay\RenterSigning::ABSENT, $minimal, ' Une vitre fêlée. '
+        );
+
+        $validations = $this->repository->findInventoryValidations($this->bookingId);
+        $this->assertSame($minimal, $validations['arrival']['scope']);
+        $this->assertNull($validations['arrival']['remark']);
+        $this->assertSame('Une vitre fêlée.', $validations['departure']['remark']);
+
+        $stored = $this->pdo->query(
+            "SELECT phase, scope, remark_encrypted FROM rental_inventory_validations ORDER BY phase"
+        )->fetchAll(\PDO::FETCH_ASSOC);
+        $this->assertNull($stored[0]['remark_encrypted']);
+        $this->assertSame('minimal', $stored[1]['scope']);
+        $this->assertStringNotContainsString('vitre', (string) $stored[1]['remark_encrypted']);
+        $this->assertSame(
+            'Une vitre fêlée.',
+            $this->encryption->decrypt((string) $stored[1]['remark_encrypted'], 'rental_inventory_validations.remark')
+        );
     }
 
     /**

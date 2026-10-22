@@ -904,30 +904,85 @@ class BookingJourneyTest extends TestCase
     }
 
     /**
-     * A walk-through the site keeps no inventory for is the one line a
-     * manager ticks by hand — and only that line: no derived line is ever
-     * markable, whatever else is offsite.
+     * **The inventories are signed, never ticked** (#989, lot G, Q4): an
+     * asset with nothing to walk has its step lead straight to the
+     * minimal signing screen, one that keeps an inventory to « État des
+     * lieux »; neither disc ticks, and a signed one never reopens.
      */
-    public function testOnlyALineTheSiteCannotDeriveIsTickedByHand(): void
+    public function testTheInventoriesLeadToTheirSigningAndAreNeverTicked(): void
     {
-        $milestones = BookingMilestones::for(
+        $extras = [
+            BookingMilestones::ARRIVAL_INVENTORY => false,
+            BookingMilestones::DEPARTURE_INVENTORY => false,
+            BookingMilestones::DEPOSIT_RECEIVED => false,
+        ];
+        $byKey = [];
+        foreach (BookingMilestones::for(
             $this->booking(BookingStatus::CONFIRMED),
             new \DateTimeImmutable('2027-01-10 12:00:00'),
-            [
-                BookingMilestones::ARRIVAL_INVENTORY => false,
-                BookingMilestones::DEPARTURE_INVENTORY => false,
-                BookingMilestones::DEPOSIT_RECEIVED => false,
-            ],
+            $extras,
             [],
-            [BookingMilestones::ARRIVAL_INVENTORY, BookingMilestones::DEPARTURE_INVENTORY, BookingMilestones::DEPOSIT_RECEIVED]
-        );
+            [BookingMilestones::ARRIVAL_INVENTORY, BookingMilestones::DEPARTURE_INVENTORY]
+        ) as $milestone) {
+            $byKey[$milestone->key] = $milestone;
+        }
 
-        foreach ($milestones as $milestone) {
-            $this->assertSame(
-                in_array($milestone->key, [BookingMilestones::ARRIVAL_INVENTORY, BookingMilestones::DEPARTURE_INVENTORY], true),
-                $milestone->kind->isMarkable(),
-                $milestone->key
-            );
+        $arrival = $byKey[BookingMilestones::ARRIVAL_INVENTORY];
+        $this->assertSame(MilestoneKind::HERE, $arrival->kind);
+        $this->assertFalse($arrival->canBeCompletedByHand());
+        $this->assertSame(\Modules\Rental\Booking\BookingPage::INVENTORY, $arrival->action?->page);
+        $this->assertSame('/signer?phase=arrival', $arrival->action->pathSuffix);
+        $this->assertSame("Signer l'état des lieux d'entrée", $arrival->action->label);
+        // The departure waits for the arrival: no way in that would only
+        // bounce back to « État des lieux », and the line says why.
+        $departure = $byKey[BookingMilestones::DEPARTURE_INVENTORY];
+        $this->assertFalse($departure->canBeCompletedByHand());
+        $this->assertNull($departure->action);
+        $this->assertSame("L'état des lieux de sortie se signe une fois celui d'entrée signé.", $departure->explanation);
+        // Any other step still to do is ticked by hand as before (IT-14).
+        $this->assertTrue($byKey[BookingMilestones::DEPOSIT_RECEIVED]->canBeCompletedByHand());
+
+        // An asset that keeps an inventory: the step leads to its page.
+        $kept = BookingMilestones::for(
+            $this->booking(BookingStatus::CONFIRMED),
+            new \DateTimeImmutable('2027-01-10 12:00:00'),
+            $extras
+        );
+        foreach ($kept as $milestone) {
+            if (in_array($milestone->key, BookingMilestones::INVENTORIES, true)) {
+                $this->assertSame(\Modules\Rental\Booking\BookingBox::INVENTORY, $milestone->action?->box);
+                $this->assertFalse($milestone->canBeCompletedByHand());
+            }
+        }
+
+        // Signed: done, and never reopened.
+        $signed = BookingMilestones::for(
+            $this->booking(BookingStatus::CONFIRMED),
+            new \DateTimeImmutable('2027-01-10 12:00:00'),
+            [BookingMilestones::ARRIVAL_INVENTORY => true] + $extras,
+            [],
+            [BookingMilestones::ARRIVAL_INVENTORY]
+        );
+        foreach ($signed as $milestone) {
+            if ($milestone->key === BookingMilestones::ARRIVAL_INVENTORY) {
+                $this->assertTrue($milestone->isDone);
+                $this->assertFalse($milestone->canBeReopened());
+            }
+        }
+
+        // The arrival signed, the departure's step leads to its signing.
+        $next = BookingMilestones::for(
+            $this->booking(BookingStatus::CONFIRMED),
+            new \DateTimeImmutable('2027-01-10 12:00:00'),
+            [BookingMilestones::ARRIVAL_INVENTORY => true] + $extras,
+            [],
+            [BookingMilestones::ARRIVAL_INVENTORY, BookingMilestones::DEPARTURE_INVENTORY]
+        );
+        foreach ($next as $milestone) {
+            if ($milestone->key === BookingMilestones::DEPARTURE_INVENTORY) {
+                $this->assertSame('/signer?phase=departure', $milestone->action?->pathSuffix);
+                $this->assertSame("Signer l'état des lieux de sortie", $milestone->action->label);
+            }
         }
     }
 

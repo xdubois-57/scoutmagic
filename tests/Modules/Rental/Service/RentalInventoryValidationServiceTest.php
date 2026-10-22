@@ -35,6 +35,7 @@ use Modules\Rental\Service\RentalDocumentService;
 use Modules\Rental\Service\RentalInventoryValidationService;
 use Modules\Rental\Service\RentalPricingService;
 use Modules\Rental\Service\RentalStayService;
+use Modules\Rental\Stay\InventoryScope;
 use Modules\Rental\Stay\InventorySigning;
 use Modules\Rental\Stay\MeterKind;
 use Modules\Rental\Stay\PaperSheet;
@@ -146,16 +147,17 @@ final class RentalInventoryValidationServiceTest extends TestCase
             $booking, $this->assetId, $meterId, ReadingPhase::ARRIVAL, '1000', $this->at('2027-07-01 15:00'),
             $this->storedPhoto(1), null, 1
         );
+        $this->arrivalValidated($booking);
         $this->stay->recordReading(
             $booking, $this->assetId, $meterId, ReadingPhase::DEPARTURE, '1342,5', $this->at('2027-07-04 10:00'),
-            $this->storedPhoto(2), null, 1, true
+            $this->storedPhoto(2), null, 1
         );
         $this->stay->reportIncident(
             $booking, 'Porte du réfectoire forcée', null, array_map($this->storedPhoto(...), [3, 4, 5, 6, 7]), 1
         );
         $this->stay->reportIncident($booking, 'Vitre cassée', null, array_map($this->storedPhoto(...), [8, 9, 10]), 1);
 
-        $this->signWith($this->validationService(), $booking, ReadingPhase::DEPARTURE, $this->at('2027-07-04 11:30'), true);
+        $this->signWith($this->validationService(), $booking, ReadingPhase::DEPARTURE, $this->at('2027-07-04 11:30'));
 
         $this->assertNotNull($this->filedPdf);
         $this->assertLessThan(self::TEN_PHOTOS_CEILING_BYTES, strlen($this->filedPdf));
@@ -182,10 +184,11 @@ final class RentalInventoryValidationServiceTest extends TestCase
         $this->stay->addInventoryItem($this->assetId, 'Clés');
         $this->stay->snapshotInventory($booking, $this->assetId);
         $this->stay->reportIncident($booking, 'Rayure', null, [$this->storedPhoto(1)], 1);
+        $this->arrivalValidated($booking);
         $before = glob($this->storagePath . '/rental/*') ?: [];
         $files = (int) $this->pdo->query('SELECT COUNT(*) FROM files')->fetchColumn();
 
-        $this->signWith($this->validationService(), $booking, ReadingPhase::DEPARTURE, $this->at('2027-07-04 11:30'), true);
+        $this->signWith($this->validationService(), $booking, ReadingPhase::DEPARTURE, $this->at('2027-07-04 11:30'));
 
         $this->assertSame($before, glob($this->storagePath . '/rental/*') ?: []);
         $this->assertSame($files, (int) $this->pdo->query('SELECT COUNT(*) FROM files')->fetchColumn());
@@ -226,8 +229,9 @@ final class RentalInventoryValidationServiceTest extends TestCase
         $record = $this->fileRepository->findById($gone);
         $this->assertNotNull($record);
         unlink($this->storagePath . '/' . $record->relativePath);
+        $this->arrivalValidated($booking);
 
-        $this->signWith($this->validationService(), $booking, ReadingPhase::DEPARTURE, $this->at('2027-07-04 11:30'), true);
+        $this->signWith($this->validationService(), $booking, ReadingPhase::DEPARTURE, $this->at('2027-07-04 11:30'));
 
         $this->assertStringContainsString('Rayure (photo 1)', (new Parser())->parseContent((string) $this->filedPdf)->getText());
         $this->assertSame(1, $this->embeddedJpegCount((string) $this->filedPdf));
@@ -427,6 +431,7 @@ final class RentalInventoryValidationServiceTest extends TestCase
         );
         $mail = $this->createStub(RentalBookingMailService::class);
         $mail->method('sendDocument')->willThrowException(new \RuntimeException('smtp'));
+        $this->arrivalValidated($booking);
 
         $result = $this->realService($mail, $notifications)->validate(
             $booking,
@@ -435,8 +440,7 @@ final class RentalInventoryValidationServiceTest extends TestCase
             1,
             InventorySigning::without(RenterSigning::ABSENT),
             $this->managerSignature($account),
-            new \DateTimeImmutable('2027-07-04 09:30:00', new \DateTimeZone('UTC')),
-            true
+            new \DateTimeImmutable('2027-07-04 09:30:00', new \DateTimeZone('UTC'))
         );
 
         $this->assertFalse($result['sent']);
@@ -529,6 +533,210 @@ final class RentalInventoryValidationServiceTest extends TestCase
         // And the notification, stored encrypted by the core, carries none.
         $this->assertCount(1, $notified);
         $this->assertStringNotContainsString('Témoin', json_encode($notified, JSON_UNESCAPED_UNICODE) ?: '');
+    }
+
+    // ── The minimal inventory (#989, lot G) ─────────────────────────────
+
+    /**
+     * An asset with neither items nor meters signs a minimal inventory:
+     * the fixed sentence when no remark is written, both signatures, the
+     * PDF filed and sent — the same act as a full one, the history saying
+     * which it was.
+     */
+    public function testAnAssetWithNothingToWalkSignsAMinimalInventory(): void
+    {
+        $account = $this->sessionAccount();
+        $booking = $this->createBooking();
+        $sent = [];
+        $mail = $this->createStub(RentalBookingMailService::class);
+        $mail->method('sendDocument')->willReturnCallback(
+            function (RentalBooking $to, RentalAsset $asset, string $label) use (&$sent): string {
+                $sent[] = $label;
+
+                return '<message@test>';
+            }
+        );
+
+        $result = $this->realService($mail)->validate(
+            $booking,
+            $this->asset(),
+            ReadingPhase::ARRIVAL,
+            1,
+            InventorySigning::onSite($this->witness('Jeanne Témoin')),
+            $this->managerSignature($account),
+            $this->at('2027-07-01 15:30'),
+            '   '
+        );
+
+        $this->assertTrue($result['sent']);
+        $this->assertSame(["État des lieux d'entrée"], $sent);
+        $validation = $this->stay->inventoryValidations($booking->id)['arrival'];
+        $this->assertSame(InventoryScope::MINIMAL, $validation['scope']);
+        $this->assertNull($validation['remark'], 'a blank remark is the fixed sentence, not a stored one');
+        $this->assertNull($this->pdo->query('SELECT remark_encrypted FROM rental_inventory_validations')->fetchColumn());
+        $this->assertSame($result['sha256'], $validation['document_sha256']);
+
+        $path = (string) $this->documentService()->absolutePath($result['document']);
+        $text = (string) preg_replace('/\s+/u', ' ', (new Parser())->parseFile($path)->getText());
+        $this->assertStringContainsString('Bien remis en bon état, sans remarque', $text);
+        $this->assertStringContainsString('Accepté sur place par Jeanne Témoin, signé au doigt', $text);
+        $this->assertStringContainsString('Signé au doigt par Anne Dupont', $text);
+        $this->assertStringNotContainsString('Éléments', $text);
+        $this->assertStringNotContainsString('Compteurs', $text);
+        $this->assertSame(
+            "État des lieux d'entrée minimal — signé sur place par le locataire — SHA-256 " . $result['sha256'],
+            $this->historyOf($booking)[0]['to']
+        );
+    }
+
+    /**
+     * The free remark replaces the fixed sentence in the PDF, beside the
+     * departure's incidents; it is stored encrypted under its own context
+     * and read back in clear, and the history never carries it.
+     */
+    public function testAMinimalRemarkIsStoredEncryptedAndReadBack(): void
+    {
+        $account = $this->sessionAccount();
+        $booking = $this->createBooking();
+        $this->stay->reportIncident($booking, 'Vitre cassée', null, [], 1);
+        $this->arrivalValidated($booking);
+        $remark = "Le local est rendu propre.\nUne chaise manque au réfectoire.";
+
+        $result = $this->realService()->validate(
+            $booking,
+            $this->asset(),
+            ReadingPhase::DEPARTURE,
+            1,
+            InventorySigning::without(RenterSigning::ABSENT),
+            $this->managerSignature($account),
+            $this->at('2027-07-04 10:00'),
+            '  ' . $remark . '  '
+        );
+
+        $validation = $this->stay->inventoryValidations($booking->id)['departure'];
+        $this->assertSame(InventoryScope::MINIMAL, $validation['scope']);
+        $this->assertSame($remark, $validation['remark']);
+
+        $stored = (string) $this->pdo->query(
+            "SELECT remark_encrypted FROM rental_inventory_validations WHERE phase = 'departure'"
+        )->fetchColumn();
+        $this->assertStringNotContainsString('chaise', $stored);
+        $this->assertSame($remark, $this->encryption->decrypt($stored, 'rental_inventory_validations.remark'));
+
+        $path = (string) $this->documentService()->absolutePath($result['document']);
+        $text = (string) preg_replace('/\s+/u', ' ', (new Parser())->parseFile($path)->getText());
+        $this->assertStringContainsString('Le local est rendu propre. Une chaise manque au réfectoire.', $text);
+        $this->assertStringNotContainsString('sans remarque', $text);
+        $this->assertStringContainsString('Vitre cassée', $text);
+        foreach ($this->historyOf($booking) as $line) {
+            $this->assertStringNotContainsString('chaise', (string) $line['to']);
+        }
+    }
+
+    /**
+     * Given back with incidents and no remark, a minimal departure never
+     * says « en bon état »: the PDF says the incidents follow, and lists
+     * them.
+     */
+    public function testAMinimalDepartureWithIncidentsIsNeverSaidInGoodOrder(): void
+    {
+        $account = $this->sessionAccount();
+        $booking = $this->createBooking();
+        $this->stay->reportIncident($booking, 'Vitre cassée', null, [], 1);
+        $this->arrivalValidated($booking);
+
+        $result = $this->realService()->validate(
+            $booking,
+            $this->asset(),
+            ReadingPhase::DEPARTURE,
+            1,
+            InventorySigning::without(RenterSigning::ABSENT),
+            $this->managerSignature($account),
+            $this->at('2027-07-04 10:00')
+        );
+
+        $path = (string) $this->documentService()->absolutePath($result['document']);
+        $text = (string) preg_replace('/\s+/u', ' ', (new Parser())->parseFile($path)->getText());
+        $this->assertStringContainsString('Bien rendu ; incidents constatés ci-dessous', $text);
+        $this->assertStringNotContainsString('en bon état', $text);
+        $this->assertStringContainsString('Vitre cassée', $text);
+        $this->assertNull($this->stay->inventoryValidations($booking->id)['departure']['remark']);
+    }
+
+    /**
+     * A minimal inventory is signed on the screen (#989, lots F and G): it
+     * has no checklist to print, so « Signé sur papier » is refused with a
+     * sentence that says what to do, and nothing is validated nor filed.
+     */
+    public function testAMinimalInventoryIsNeverSignedOnPaper(): void
+    {
+        $account = $this->sessionAccount();
+        $booking = $this->createBooking();
+
+        try {
+            $this->realService()->validate(
+                $booking,
+                $this->asset(),
+                ReadingPhase::ARRIVAL,
+                1,
+                InventorySigning::onPaper(new PaperSheet($this->storedPhoto(41), $account)),
+                null,
+                $this->at('2027-07-01 15:30')
+            );
+            $this->fail('A minimal inventory was signed on paper.');
+        } catch (\Modules\Rental\Service\RentalException $e) {
+            $this->assertSame(RentalInventoryValidationService::MINIMAL_NOT_ON_PAPER, $e->getMessage());
+        }
+
+        $this->assertSame([], $this->stay->inventoryValidations($booking->id));
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM rental_documents')->fetchColumn());
+    }
+
+    /** A remark past its length is refused, and nothing is validated. */
+    public function testARemarkTooLongIsRefused(): void
+    {
+        $account = $this->sessionAccount();
+        $booking = $this->createBooking();
+
+        try {
+            $this->realService()->validate(
+                $booking,
+                $this->asset(),
+                ReadingPhase::ARRIVAL,
+                1,
+                InventorySigning::without(RenterSigning::ABSENT),
+                $this->managerSignature($account),
+                $this->at('2027-07-01 15:30'),
+                str_repeat('é', InventoryScope::REMARK_MAX + 1)
+            );
+            $this->fail('A remark past its length went through.');
+        } catch (\Modules\Rental\Service\RentalException $e) {
+            $this->assertSame('La remarque ne peut pas dépasser 2 000 caractères.', $e->getMessage());
+        }
+
+        $this->assertSame([], $this->stay->inventoryValidations($booking->id));
+    }
+
+    /** A full inventory has its lines' notes: a posted remark is not kept. */
+    public function testAFullInventoryKeepsNoRemark(): void
+    {
+        $account = $this->sessionAccount();
+        $booking = $this->bookingWithAnInventory();
+
+        $this->realService()->validate(
+            $booking,
+            $this->asset(),
+            ReadingPhase::ARRIVAL,
+            1,
+            InventorySigning::without(RenterSigning::ABSENT),
+            $this->managerSignature($account),
+            $this->at('2027-07-01 15:30'),
+            'Une remarque'
+        );
+
+        $validation = $this->stay->inventoryValidations($booking->id)['arrival'];
+        $this->assertSame(InventoryScope::FULL, $validation['scope']);
+        $this->assertNull($validation['remark']);
     }
 
     // ── Fixtures ────────────────────────────────────────────────────────
@@ -805,8 +1013,7 @@ final class RentalInventoryValidationServiceTest extends TestCase
         RentalInventoryValidationService $service,
         RentalBooking $booking,
         ReadingPhase $phase,
-        \DateTimeImmutable $at,
-        bool $arrivalTickedByHand = false
+        \DateTimeImmutable $at
     ): void {
         $service->validate(
             $booking,
@@ -815,9 +1022,17 @@ final class RentalInventoryValidationServiceTest extends TestCase
             1,
             InventorySigning::without(RenterSigning::ABSENT),
             new AccountSignature(1, $this->drawnSignature(), \Core\Signature\SignatureOrigin::DrawnNow, false, 'Anne Dupont'),
-            $at,
-            $arrivalTickedByHand
+            $at
         );
+    }
+
+    /**
+     * The arrival frozen as its own validation leaves it — the departure
+     * starts only then (#989, lot G: an inventory is never ticked).
+     */
+    private function arrivalValidated(RentalBooking $booking): void
+    {
+        $this->assertTrue($this->stay->recordInventoryValidation($booking, ReadingPhase::ARRIVAL, $this->at('2027-07-01 15:30'), 1));
     }
 
     /** The account the session would hold: Anne Dupont, with no signature kept. */

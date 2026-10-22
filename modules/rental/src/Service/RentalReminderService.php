@@ -192,14 +192,12 @@ class RentalReminderService
             }
 
             // A step ticked by hand counts exactly like the site's own
-            // answer (#708, IT-14): the reminder that chases it stops.
+            // answer (#708, IT-14): the reminder that chases it stops. Not
+            // an inventory, which is signed and never ticked (#989, lot G):
+            // a mark stored for one counts for nothing.
             $marks = $this->markRepository?->findForBooking($booking->id) ?? [];
             $ticked = array_keys($marks);
             $inventory = $this->inventoryState($booking);
-            $inventory['arrival'] = $inventory['arrival']
-                || in_array(BookingMilestones::ARRIVAL_INVENTORY, $ticked, true);
-            $inventory['departure'] = $inventory['departure']
-                || in_array(BookingMilestones::DEPARTURE_INVENTORY, $ticked, true);
 
             [$contractSent, $hasSignedCopy] = $this->contractState($booking->id, $ticked);
             $due = $this->planner->forBooking(
@@ -431,14 +429,10 @@ class RentalReminderService
             return ['arrival' => true, 'departure' => true];
         }
 
-        // Nothing to walk on an asset with neither items nor meters, so
-        // nothing to chase — as before (#708, IT-17).
-        if (!$this->stayService->keepsInventoryFor($booking)) {
-            return ['arrival' => true, 'departure' => true];
-        }
-
         // Done means VALIDATED (#708, IT-17): a line filled in is not an
-        // inventory the renter has been sent.
+        // inventory the renter has been sent. An asset with nothing to
+        // walk is no exception any more: its minimal inventory is signed
+        // on the site too (#989, lot G), and chased like any other.
         $validations = $this->stayService->inventoryValidations($booking->id);
 
         return ['arrival' => isset($validations['arrival']), 'departure' => isset($validations['departure'])];

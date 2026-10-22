@@ -68,11 +68,14 @@ final class BookingMilestone
     /**
      * Whether a manager may mark this step done by hand (#708, IT-14):
      * any step still to do, but the ones whose disc is a status or a fact
-     * the site always has.
+     * the site always has, and the inventories, which are signed (#989,
+     * lot G).
      */
     public function canBeCompletedByHand(): bool
     {
-        return $this->isOutstanding() && !in_array($this->key, BookingMilestones::NEVER_BY_HAND, true);
+        return $this->isOutstanding()
+            && !in_array($this->key, BookingMilestones::NEVER_BY_HAND, true)
+            && !in_array($this->key, BookingMilestones::INVENTORIES, true);
     }
 
     /** Only a hand tick reopens; a step the site completed does not. */

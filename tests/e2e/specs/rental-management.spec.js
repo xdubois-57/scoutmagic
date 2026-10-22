@@ -31,6 +31,9 @@
 //     calendar as an indistinguishable "occupé" (specifications.md §22.2).
 //   - Confirming a request moves it through the real transition table and
 //     the real availability re-check.
+//   - A hall with nothing to walk has a minimal inventory (#989, lot G):
+//     its dashboard step has no disc to tick, its link opens the signing
+//     screen, and the signed step is done for good.
 //
 // LOCATORS
 // ----------------------------------------------------------------------------
@@ -45,6 +48,7 @@ import { answerCookieBanner } from '../support/cookie-banner.js';
 import { openSectionEditor } from '../support/section-editor.js';
 import { waitOutHumanCheckDelay } from '../support/human-check.js';
 import { closeModal, openModal } from '../support/modal.js';
+import { signAsManager } from '../support/inventory-signing.js';
 
 /** A date far enough out to clear any notice period the asset declares. */
 function isoDaysFromNow(days) {
@@ -71,6 +75,9 @@ function nextDay(day) {
 
     return date.toISOString().slice(0, 10);
 }
+
+/** What the manager notes on the minimal inventory (#989, lot G). */
+const MINIMAL_REMARK = 'Clés remises au responsable du groupe.';
 
 const ARRIVAL = isoDaysFromNow(200);
 const DEPARTURE = isoDaysFromNow(203);
@@ -393,6 +400,32 @@ test.describe('Rentals — running an asset', () => {
         await page.getByRole('button', { name: 'Retirer tresorier@groupe.example' }).click();
         expect(await answerConfirmation(page)).toContain('Les messages déjà rattachés restent');
         await expect(other).toHaveCount(0);
+
+        // ── The hall keeps no inventory: its walk-through is a minimal
+        //    one, signed from the dashboard's step (#989, lot G). ─────────
+        // No disc ticks it; the step's link opens the signing screen.
+        const dashboard = page.url().replace(/\/courrier$/, '');
+        await page.goto(dashboard, { waitUntil: 'load' });
+        const arrivalStep = page.locator('[data-milestone="arrival_inventory"]');
+        await expect(arrivalStep.locator('form[action="/mes-locations/etape"]')).toHaveCount(0);
+        await page.getByRole('link', { name: "Signer l'état des lieux d'entrée" }).first().click();
+        await page.waitForURL(/\/etat-des-lieux\/signer\?phase=arrival$/, { waitUntil: 'load' });
+        const signing = page.locator('form[data-inventory-signing-form]');
+        await expect(signing.getByLabel('Remarque (facultatif)'))
+            .toHaveAttribute('placeholder', 'Bien remis en bon état, sans remarque');
+        await signing.getByLabel('Remarque (facultatif)').fill(MINIMAL_REMARK);
+        await signing.getByLabel('Le locataire est absent').check();
+        await signAsManager(page, signing);
+        await signing.getByRole('button', { name: 'Valider, signer et envoyer' }).click();
+        await page.waitForURL(/\/etat-des-lieux$/, { waitUntil: 'load' });
+        await expect(page.getByRole('alert').filter({ hasText: 'signé et rangé dans les documents' })).toHaveCount(1);
+        // The remark, kept encrypted, read back in clear on the page.
+        await expect(page.locator('[data-inventory-remark]')).toContainText(MINIMAL_REMARK);
+        await page.goto(dashboard, { waitUntil: 'load' });
+        await expect(arrivalStep).toContainText('Fait :');
+        await expect(arrivalStep).toContainText('minimal, validé le');
+        // Signed, it never reopens.
+        await expect(arrivalStep.locator('form[action="/mes-locations/etape"]')).toHaveCount(0);
 
         // ── The confirmed stay now holds its dates against everybody
         //    else, with no more reason given than the block was. ──────────

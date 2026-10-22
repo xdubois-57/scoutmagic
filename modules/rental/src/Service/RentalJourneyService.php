@@ -121,7 +121,7 @@ class RentalJourneyService
             $this->stay?->latestSettlement($booking->id),
             // An asset with neither items to check nor meters to read has
             // nothing an inventory could walk, so its walk-throughs are
-            // ticked by hand (#708, IT-17).
+            // minimal inventories, signed from the step (#989, lot G).
             $this->stay === null || $this->stay->keepsInventoryFor($booking),
             $marks,
             $now,
@@ -136,7 +136,7 @@ class RentalJourneyService
             $now,
             $evidence->done,
             $evidence->details,
-            $evidence->offsite,
+            $evidence->minimal,
             $evidence->manual,
             $evidence->awaitingAssessment
         );

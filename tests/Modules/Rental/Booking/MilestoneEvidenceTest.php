@@ -12,6 +12,7 @@ use Modules\Rental\Document\ConditionsVersion;
 use Modules\Rental\Document\DocumentType;
 use Modules\Rental\Document\RentalDocument;
 use Modules\Rental\Payment\SecurityDepositStatus;
+use Modules\Rental\Stay\InventoryScope;
 use Modules\Rental\Stay\Settlement;
 use PHPUnit\Framework\TestCase;
 
@@ -402,7 +403,7 @@ class MilestoneEvidenceTest extends TestCase
         $this->assertTrue($evidence->done[BookingMilestones::ARRIVAL_INVENTORY]);
         $this->assertSame('validé le 01/07/2027', $evidence->details[BookingMilestones::ARRIVAL_INVENTORY]);
         $this->assertFalse($evidence->done[BookingMilestones::DEPARTURE_INVENTORY]);
-        $this->assertSame([], $evidence->offsite);
+        $this->assertSame([], $evidence->minimal);
     }
 
     /** No « Relevés de compteurs » line any more: the readings are part of each inventory. */
@@ -431,58 +432,86 @@ class MilestoneEvidenceTest extends TestCase
     }
 
     /**
-     * Without the stay module, what only that module records does not
-     * apply — the settlement — but the walk-throughs still
-     * happen, on paper: nothing here can derive them, so they are the lines
-     * a manager ticks by hand (issue #462, D5).
+     * Without the stay module there is no inventory screen at all: what
+     * only that module records does not apply — the settlement, and the
+     * walk-throughs, which are signed there and never ticked (#989, lot G).
      */
-    public function testWithoutTheStayModuleTheWalkThroughsAreTickedByHand(): void
+    public function testWithoutTheStayModuleTheWalkThroughsDoNotApply(): void
     {
         $evidence = MilestoneEvidence::collect($this->booking(), [], $this->payment(), null, null);
 
         $this->assertArrayNotHasKey(BookingMilestones::FINAL_SETTLEMENT, $evidence->done);
-        $this->assertSame(
-            [BookingMilestones::ARRIVAL_INVENTORY, BookingMilestones::DEPARTURE_INVENTORY],
-            $evidence->offsite
-        );
-        $this->assertFalse($evidence->done[BookingMilestones::ARRIVAL_INVENTORY]);
+        $this->assertArrayNotHasKey(BookingMilestones::ARRIVAL_INVENTORY, $evidence->done);
+        $this->assertArrayNotHasKey(BookingMilestones::DEPARTURE_INVENTORY, $evidence->done);
+        $this->assertSame([], $evidence->minimal);
     }
 
     /**
      * An asset with neither items nor meters has nothing an inventory
-     * could walk: same answer, with the stay module on.
+     * could walk: each walk-through is a minimal inventory (#989, lot G),
+     * still to do until it is signed, its step leading to the signing.
      */
-    public function testAnAssetWithNoInventoryHasItsWalkThroughsTickedByHand(): void
+    public function testAnAssetWithNoInventoryHasMinimalInventories(): void
     {
         $evidence = MilestoneEvidence::collect($this->booking(), [], $this->payment(), [], null, false);
 
         $this->assertSame(
             [BookingMilestones::ARRIVAL_INVENTORY, BookingMilestones::DEPARTURE_INVENTORY],
-            $evidence->offsite
+            $evidence->minimal
         );
+        $this->assertFalse($evidence->done[BookingMilestones::ARRIVAL_INVENTORY]);
+        $this->assertFalse($evidence->done[BookingMilestones::DEPARTURE_INVENTORY]);
         // The settlement still derives from the stay module.
         $this->assertArrayHasKey(BookingMilestones::FINAL_SETTLEMENT, $evidence->done);
     }
 
     /**
-     * Any step can be ticked by hand since #708 (IT-14) — an inventory
-     * done on paper on an asset whose stay page keeps one counts too.
+     * A minimal inventory signed is done like a full one, and says it was
+     * minimal; what the step reads is the validation's own scope, so a
+     * meter added to the asset afterwards changes nothing of it.
      */
-    public function testAnInventoryTheSiteKeepsCanBeTickedByHand(): void
+    public function testASignedMinimalInventoryIsDone(): void
     {
         $evidence = MilestoneEvidence::collect(
             $this->booking(),
             [],
             $this->payment(),
-            [],
+            ['arrival' => [
+                'validated_at' => new \DateTimeImmutable('2027-07-01 18:30'),
+                'scope' => InventoryScope::MINIMAL,
+                'remark' => null,
+            ]],
             null,
-            true,
-            [BookingMilestones::ARRIVAL_INVENTORY => ['at' => new \DateTimeImmutable('2027-03-01'), 'by' => 'Jeanne']]
+            true
         );
 
-        $this->assertSame([], $evidence->offsite);
         $this->assertTrue($evidence->done[BookingMilestones::ARRIVAL_INVENTORY]);
-        $this->assertSame([BookingMilestones::ARRIVAL_INVENTORY], $evidence->manual);
+        $this->assertSame('minimal, validé le 01/07/2027', $evidence->details[BookingMilestones::ARRIVAL_INVENTORY]);
+        $this->assertSame([BookingMilestones::ARRIVAL_INVENTORY], $evidence->minimal);
+        $this->assertSame([], $evidence->manual);
+    }
+
+    /**
+     * **The bare tick is gone for the inventories** (#989, lot G, Q4): a
+     * mark stored before counts for nothing — on an asset that keeps an
+     * inventory or one with nothing to walk — so the step is neither done
+     * nor reopenable by hand.
+     */
+    public function testAnInventoryMarkCountsForNothing(): void
+    {
+        $marks = [
+            BookingMilestones::ARRIVAL_INVENTORY => ['at' => new \DateTimeImmutable('2027-03-01'), 'by' => 'Jeanne'],
+            BookingMilestones::DEPARTURE_INVENTORY => ['at' => new \DateTimeImmutable('2027-03-02'), 'by' => 'Jeanne'],
+        ];
+
+        foreach ([true, false] as $keeps) {
+            $evidence = MilestoneEvidence::collect($this->booking(), [], $this->payment(), [], null, $keeps, $marks);
+
+            $this->assertFalse($evidence->done[BookingMilestones::ARRIVAL_INVENTORY]);
+            $this->assertFalse($evidence->done[BookingMilestones::DEPARTURE_INVENTORY]);
+            $this->assertArrayNotHasKey(BookingMilestones::ARRIVAL_INVENTORY, $evidence->details);
+            $this->assertSame([], $evidence->manual);
+        }
     }
 
     /**
@@ -662,16 +691,15 @@ class MilestoneEvidenceTest extends TestCase
             $this->booking(),
             [],
             $this->payment(),
-            null,
-            null,
+            [],
+            $this->settlement(false),
             true,
-            [BookingMilestones::DEPARTURE_INVENTORY => ['at' => new \DateTimeImmutable('2027-07-20 18:00'), 'by' => 'Jeanne Martin']]
+            [BookingMilestones::FINAL_SETTLEMENT => ['at' => new \DateTimeImmutable('2027-07-20 18:00'), 'by' => 'Jeanne Martin']]
         );
 
-        $this->assertTrue($evidence->done[BookingMilestones::DEPARTURE_INVENTORY]);
-        $this->assertSame('Coché à la main par Jeanne Martin le 20/07/2027', $evidence->details[BookingMilestones::DEPARTURE_INVENTORY]);
-        $this->assertSame([BookingMilestones::DEPARTURE_INVENTORY], $evidence->manual);
-        $this->assertFalse($evidence->done[BookingMilestones::ARRIVAL_INVENTORY]);
+        $this->assertTrue($evidence->done[BookingMilestones::FINAL_SETTLEMENT]);
+        $this->assertSame('Coché à la main par Jeanne Martin le 20/07/2027', $evidence->details[BookingMilestones::FINAL_SETTLEMENT]);
+        $this->assertSame([BookingMilestones::FINAL_SETTLEMENT], $evidence->manual);
     }
 
     /**
@@ -737,7 +765,7 @@ class MilestoneEvidenceTest extends TestCase
             new \DateTimeImmutable('2027-07-10 09:00:00'),
             $evidence->done,
             $evidence->details,
-            $evidence->offsite,
+            $evidence->minimal,
             $evidence->manual,
             $evidence->awaitingAssessment
         ) as $milestone) {

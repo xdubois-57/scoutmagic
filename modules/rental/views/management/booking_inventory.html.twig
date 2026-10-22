@@ -3,7 +3,9 @@
   « État des lieux » (Booking\BookingPage::INVENTORY, #708 IT-17): one
   inventory at a time — the arrival until it is validated, then the
   departure, then a read-only summary with both PDFs — with the meters read
-  for that phase and the incidents.
+  for that phase and the incidents. On an asset with neither items nor
+  meters, each phase is a minimal inventory (#989, lot G): this page only
+  leads to its signing screen, where its remark is written.
 
   **The value is the check.** Nothing is pre-filled: an empty field is
   « nobody has looked yet », and every line would otherwise read as checked
@@ -30,18 +32,27 @@
             connexion : photographiez sur place, saisissez au retour.
         </div>
         <div data-booking-panel="inventory">
-            {% if not inventory_kept %}
-                <div class="card mb-3">
+            {% if inventory_phase and not inventory_kept %}
+                {% set phase_name = inventory_phase.value == 'arrival' ? "d'entrée" : 'de sortie' %}
+                <div class="card mb-3" data-inventory-minimal>
                     <div class="card-body">
-                        <h2 class="h5 mb-2">État des lieux</h2>
-                        <p class="text-body-secondary small mb-0">
-                            Ce bien n'a ni éléments d'état des lieux ni compteurs : ses états des lieux se
-                            cochent à la main sur le tableau de bord. Les incidents se constatent ci-dessous.
+                        <h2 class="h5 mb-2">État des lieux {{ phase_name }}</h2>
+                        <p class="text-body-secondary small">
+                            Ce bien n'a ni éléments d'état des lieux ni compteurs : son état des lieux est
+                            minimal. Il dit « {{ fixed_statement }} »,
+                            ou votre remarque{{ inventory_phase.value == 'departure' ? ', avec les incidents constatés ci-dessous' : '' }}.
+                        </p>
+                        <p class="mb-0">
+                            <a href="{{ booking_url }}/etat-des-lieux/signer?phase={{ inventory_phase.value }}" class="btn btn-primary"
+                               data-inventory-sign>Signer l'état des lieux {{ phase_name }}</a>
+                        </p>
+                        <p class="form-text mb-0">
+                            Le locataire et vous signez sur l'écran suivant ; le PDF signé lui est envoyé par e-mail.
                         </p>
                     </div>
                 </div>
             {% endif %}
-            {% if inventory_phase %}
+            {% if inventory_phase and inventory_kept %}
                 {% set phase = inventory_phase %}
                 {% set phase_name = phase.value == 'arrival' ? "d'entrée" : 'de sortie' %}
                 <div class="card mb-3">
@@ -52,12 +63,6 @@
                             Le bouton « = » reprend la référence quand tout est conforme. Chaque ligne
                             s'enregistre seule.
                         </p>
-                        {% if phase.value == 'departure' and arrival_by_hand and inventory_validations.arrival is not defined %}
-                            <p class="small alert alert-secondary">
-                                L'état des lieux d'entrée a été coché à la main : il n'y a pas de référence
-                                d'entrée à reprendre.
-                            </p>
-                        {% endif %}
 
                         {% if inventory_lines is not empty %}
                             <div class="list-group list-group-flush mb-3" data-inventory-lines>
@@ -153,18 +158,20 @@
             {% if inventory_validations is not empty %}
                 <div class="card mb-3">
                     <div class="card-body">
-                        {# Resolved is not validated: an arrival ticked by hand
-                           has no validation of its own, so "both" is said
-                           only when there are two. #}
                         <h2 class="h5 mb-2">{{ inventory_phase ? 'Déjà validé' : (inventory_validations|length > 1 ? 'Les deux états des lieux sont validés' : 'État des lieux validé') }}</h2>
                         <ul class="list-unstyled mb-0">
                             {% for validated_phase, validation in inventory_validations %}
                                 {% set document = inventory_documents[validated_phase]|default(null) %}
                                 <li class="py-1">
-                                    État des lieux {{ validated_phase == 'arrival' ? "d'entrée" : 'de sortie' }},
+                                    État des lieux {{ validated_phase == 'arrival' ? "d'entrée" : 'de sortie' }}
+                                    {{- validation.scope.value == 'minimal' ? ' minimal' : '' }},
                                     validé le {{ validation.validated_at|datetime_fr }}
                                     {% if document %}
                                         — <a href="{{ file_url(document.fileId) }}" target="_blank" rel="noopener">ouvrir le PDF</a>
+                                    {% endif %}
+                                    {# A minimal inventory's remark, kept encrypted (#989, lot G). #}
+                                    {% if validation.remark %}
+                                        <span class="d-block small text-body-secondary" data-inventory-remark>Remarque : {{ validation.remark|nl2br }}</span>
                                     {% endif %}
                                 </li>
                             {% endfor %}

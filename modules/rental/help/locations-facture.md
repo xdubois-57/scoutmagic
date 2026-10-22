@@ -64,7 +64,7 @@ seulement, ajustez-le avant de générer. Chaque génération crée une
 version de plus, sans écraser la précédente.
 
 **La facture attend la fin de l'état des lieux.** Tant que celui de
-sortie n'est ni validé ni coché à la main, le bouton est remplacé par une
+sortie n'est pas validé, le bouton est remplacé par une
 phrase qui dit pourquoi, avec un lien vers l'état des lieux. Un bien
 sans modèle d'état des lieux ni compteurs n'attend rien.
 

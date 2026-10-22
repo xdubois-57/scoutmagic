@@ -278,6 +278,55 @@ final class InventoryReportTest extends TestCase
         $this->assertStringNotContainsString('Annexe', $html);
     }
 
+    /**
+     * A minimal inventory (#989, lot G): its statement stands where the
+     * lines and the meters would — the fixed sentence, or the remark
+     * escaped with its line breaks kept — before a departure's incidents.
+     */
+    public function testAMinimalInventorySaysItsStatementBeforeTheIncidents(): void
+    {
+        $fixed = InventoryReport::html(
+            ReadingPhase::ARRIVAL,
+            [],
+            [],
+            [],
+            self::signed(new \DateTimeImmutable('2027-07-01 15:00:00')),
+            statement: \Modules\Rental\Stay\InventoryScope::statement(ReadingPhase::ARRIVAL, '  ')
+        );
+        $this->assertStringContainsString('<h2>Constat</h2><p>Bien remis en bon état, sans remarque</p>', $fixed);
+        $this->assertStringNotContainsString('Éléments', $fixed);
+        $this->assertStringNotContainsString('Compteurs', $fixed);
+
+        $remark = InventoryReport::html(
+            ReadingPhase::DEPARTURE,
+            [],
+            [],
+            [new Incident(
+                1, 1, 'Vitre cassée', null, IncidentDecision::PENDING, null, null, null, null,
+                new \DateTimeImmutable('2027-07-04 10:00:00')
+            )],
+            self::signed(new \DateTimeImmutable('2027-07-04 11:30:00')),
+            statement: \Modules\Rental\Stay\InventoryScope::statement(ReadingPhase::DEPARTURE, "Rendu propre.\n<b>Clés</b> au trésorier.")
+        );
+        $this->assertStringContainsString('<p>Rendu propre.<br>' . "\n" . '&lt;b&gt;Clés&lt;/b&gt; au trésorier.</p>', $remark);
+        $this->assertLessThan(strpos($remark, 'Incidents et dégâts'), strpos($remark, 'Constat'));
+        $this->assertSame(
+            'Bien rendu en bon état, sans remarque',
+            \Modules\Rental\Stay\InventoryScope::statement(ReadingPhase::DEPARTURE, null)
+        );
+        // Given back with incidents, it is never « en bon état »; a remark
+        // still wins, and the arrival has no incidents to speak of.
+        $this->assertSame(
+            'Bien rendu ; incidents constatés ci-dessous',
+            \Modules\Rental\Stay\InventoryScope::statement(ReadingPhase::DEPARTURE, ' ', true)
+        );
+        $this->assertSame('Rendu propre.', \Modules\Rental\Stay\InventoryScope::statement(ReadingPhase::DEPARTURE, 'Rendu propre.', true));
+        $this->assertSame(
+            'Bien remis en bon état, sans remarque',
+            \Modules\Rental\Stay\InventoryScope::statement(ReadingPhase::ARRIVAL, null, true)
+        );
+    }
+
     /** The signatures at the foot of the PDF: the renter absent, the manager's traced. */
     private static function signed(\DateTimeImmutable $at): InventorySignatureBlock
     {
