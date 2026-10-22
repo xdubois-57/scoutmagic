@@ -52,7 +52,7 @@ concurrency:
 jobs:
   check:
     name: Check the external sources
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
       # The checkout: the script, the register and the code the agent
