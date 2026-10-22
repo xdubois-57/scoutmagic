@@ -49,7 +49,7 @@ const states = new WeakMap();
 const previews = new Map();
 
 /** The two pickers a menu entry may name — anything else is ignored. */
-const SOURCES = ['camera', 'gallery'];
+const SOURCES = new Set(['camera', 'gallery']);
 
 /**
  * @param {HTMLElement} tile
@@ -266,7 +266,7 @@ export async function addFiles(tile, picked) {
     say(tile, droppedMessage(max, dropped));
 
     const form = tile.closest('form');
-    if (form && form.dataset.photoAutosubmit !== undefined && stateOf(tile).files.length > 0) {
+    if (form?.dataset.photoAutosubmit !== undefined && stateOf(tile).files.length > 0) {
         form.requestSubmit();
         // The submission read the form's entries synchronously — through
         // rental-booking.js's FormData, or the browser's own — so the tile
@@ -344,7 +344,7 @@ export function wire(doc) {
         const pick = /** @type {HTMLElement|null} */ (target.closest('[data-photo-pick]'));
         if (pick) {
             const source = pick.dataset.photoPick || '';
-            if (!SOURCES.includes(source) || stateOf(tile).busy) {
+            if (!SOURCES.has(source) || stateOf(tile).busy) {
                 return;
             }
             const input = /** @type {HTMLInputElement|null} */ (tile.querySelector('[data-photo-source="' + source + '"]'));

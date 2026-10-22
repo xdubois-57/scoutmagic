@@ -61,13 +61,16 @@
                 </li>
             </ul>
         </div>
-        <input type="file" hidden data-photo-source="camera" accept="image/jpeg,image/png,image/webp"
-               capture="environment" aria-label="Prendre une photo — {{ label }}">
-        <input type="file" hidden data-photo-source="gallery" accept="image/jpeg,image/png,image/webp"
-               {{ max > 1 ? 'multiple' : '' }} aria-label="Choisir dans la galerie — {{ label }}">
+        <label class="visually-hidden" for="{{ tile_id }}-camera">Prendre une photo — {{ label }}</label>
+        <input type="file" hidden id="{{ tile_id }}-camera" data-photo-source="camera"
+               accept="image/jpeg,image/png,image/webp" capture="environment">
+        <label class="visually-hidden" for="{{ tile_id }}-gallery">Choisir dans la galerie — {{ label }}</label>
+        <input type="file" hidden id="{{ tile_id }}-gallery" data-photo-source="gallery"
+               accept="image/jpeg,image/png,image/webp" {{ max > 1 ? 'multiple' : '' }}>
+        <label class="visually-hidden" for="{{ tile_id }}-carrier">Photos — {{ label }}</label>
         <input type="file" class="form-control form-control-sm photo-tile-carrier" id="{{ tile_id }}-carrier"
                name="{{ field }}" accept="image/jpeg,image/png,image/webp" {{ max > 1 ? 'multiple' : '' }}
-               data-photo-carrier aria-label="Photos — {{ label }}">
+               data-photo-carrier>
     {% endif %}
     <output class="photo-tiles-status small text-danger" data-photo-status aria-live="polite"></output>
 </div>
