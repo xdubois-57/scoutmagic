@@ -8,12 +8,15 @@ declare(strict_types=1);
 
 namespace Modules\Rental\Service;
 
+use Core\Config\AppClock;
 use Core\Journal\JournalService;
 use Core\Notification\NotificationService;
 use Core\Pdf\PdfCompressor;
 use Core\Signature\AccountSignature;
 use Core\Signature\PersonalSignatureService;
+use Core\View\DateFilterExtension;
 use Modules\Rental\Audit\BookingAudit;
+use Modules\Rental\Booking\BookingPage;
 use Modules\Rental\Booking\RentalBooking;
 use Modules\Rental\Document\CountersignedContract;
 use Modules\Rental\Document\DocumentType;
@@ -41,12 +44,20 @@ use Modules\Rental\Repository\RentalDocumentRepository;
  * countersigning account keeps in Mon compte, or one it traced or imported
  * in the signature dialog for this contract alone — and, when it ticked
  * « Mémoriser », kept in its account in the same transaction as the signed
- * contract, so a countersignature that fails keeps nothing.
+ * contract, so a countersignature that fails keeps nothing. The account
+ * that signed is then notified, and nobody else (issue #926, decision Q1):
+ * its own trace of every document its signature went on.
  */
 class RentalSignedContractService
 {
     /** The notification a copy arriving raises. */
     public const NOTIFICATION = 'rental.signed_contract_received';
+
+    /**
+     * The notification the signing account receives once its signature is
+     * on a contract (issue #926, decision Q1).
+     */
+    public const SIGNED_NOTIFICATION = 'rental.document_signed';
 
     /** What the renter is told when a copy is refused, at most. */
     public const MAX_REFUSAL_LENGTH = 300;
@@ -595,6 +606,8 @@ class RentalSignedContractService
             $booking->id,
             $now
         );
+        // The signer's own trace, whatever becomes of the renter's e-mail.
+        $this->notifySigner($signature, $booking, $asset, $final, $now);
         // The renter's e-mail says the booking as it now stands.
         $booking = $this->occupancy?->fresh($booking) ?? $booking;
 
@@ -830,6 +843,87 @@ class RentalSignedContractService
         } catch (\Throwable) {
             // The booking's page still shows the copy; a failed
             // notification must not surface to the renter as their problem.
+        }
+    }
+
+    /**
+     * Tells the account that signed — that account alone, never the
+     * managers a member's address would resolve to — which document its
+     * signature went on and when, with a link to the booking's Documents
+     * page, which holds it (issue #926, decision Q1). The asset, the
+     * reference and the time: no renter, no tracking link, no file.
+     *
+     * Not dispatched as the actor's own action on purpose: a notification
+     * whose actor is its recipient gets no push and no e-mail, and the
+     * whole point of this one is to reach the signer's devices, so that a
+     * signature applied from a session they did not hold does not go
+     * unseen. A dispatch that fails is journaled with ids only, and changes
+     * nothing of the countersignature, which is committed by then.
+     */
+    private function notifySigner(
+        AccountSignature $signature,
+        RentalBooking $booking,
+        RentalAsset $asset,
+        RentalDocument $final,
+        \DateTimeImmutable $now
+    ): void {
+        if ($this->notifications === null) {
+            return;
+        }
+
+        $replacement = $final->modificationId !== null;
+        $at = DateFilterExtension::datetimeFr($now->setTimezone(AppClock::zone()));
+        $bookingUrl = '/mes-locations/' . rawurlencode($asset->slug) . '/reservations/' . $booking->id;
+
+        try {
+            $this->notifications->dispatch(
+                self::SIGNED_NOTIFICATION,
+                [['userAccountId' => $signature->accountId, 'memberId' => null]],
+                [
+                    'title' => ($replacement ? 'Contrat de remplacement signé' : 'Contrat signé')
+                        . ' — ' . $asset->name,
+                    'body' => 'Vous avez contresigné ' . ($replacement ? 'le contrat de remplacement' : 'le contrat')
+                        . ' de ' . $booking->reference . ' avec votre signature, le ' . $at
+                        . '. Il est rangé dans les Documents de la réservation.',
+                    'url' => BookingPage::DOCUMENTS->url($bookingUrl),
+                ]
+            );
+        } catch (\Throwable $e) {
+            $this->noteSignerNotificationFailure($e, $signature, $booking, $final);
+        }
+    }
+
+    /**
+     * The journal line of a signer notification that failed — and, should
+     * the journal fail too, the server's log instead: this runs after the
+     * commit, before the renter's e-mail, and an error escaping here would
+     * keep the renter from receiving a contract that is signed.
+     */
+    private function noteSignerNotificationFailure(
+        \Throwable $e,
+        AccountSignature $signature,
+        RentalBooking $booking,
+        RentalDocument $final
+    ): void {
+        $cause = (new \ReflectionClass($e))->getShortName();
+        try {
+            $this->journal->log(
+                'rental',
+                'rental_signer_notification_failed',
+                'warning',
+                "La notification au signataire d'un contrat n'a pas pu être créée (" . $cause . ').',
+                ['booking_id' => $booking->id, 'document_id' => $final->id],
+                $signature->accountId
+            );
+        } catch (\Throwable $journalError) {
+            error_log(sprintf(
+                'ScoutMagic: a signer notification failed (%s) and so did its journal line (%s):'
+                    . ' booking #%d, document #%d',
+                $cause,
+                $journalError::class,
+                $booking->id,
+                $final->id
+            ));
         }
     }
 

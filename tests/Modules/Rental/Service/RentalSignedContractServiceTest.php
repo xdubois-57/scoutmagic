@@ -13,6 +13,7 @@ use Core\Config\SettingService;
 use Core\File\FileRepository;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
+use Core\Notification\NotificationService;
 use Core\Pdf\DocumentPdfService;
 use Core\Pdf\PdfCompressor;
 use Core\Security\EncryptionService;
@@ -78,6 +79,14 @@ class RentalSignedContractServiceTest extends TestCase
     /** Whether the refusal e-mail goes out; a test turns it off. */
     private bool $refusalMailSucceeds = true;
 
+    /** Whether the signed contract's e-mail goes out; a test turns it off. */
+    private bool $signedMailSucceeds = true;
+
+    private RentalBookingMailService $mail;
+    private JournalService $journal;
+    private RentalPricingService $pricing;
+    private EncryptionService $encryption;
+
     protected function setUp(): void
     {
         $this->pdo = DatabaseTestHelper::createTestDatabase();
@@ -127,6 +136,9 @@ class RentalSignedContractServiceTest extends TestCase
         );
         $mail->method('sendSignedContract')->willReturnCallback(
             function (RentalBooking $booking, RentalAsset $asset, string $path): string {
+                if (!$this->signedMailSucceeds) {
+                    throw new \RuntimeException('SMTP down');
+                }
                 $this->mails[] = ['kind' => 'signed', 'booking_id' => $booking->id, 'path' => $path];
 
                 return '<id@test>';
@@ -134,30 +146,11 @@ class RentalSignedContractServiceTest extends TestCase
         );
 
         $this->bookingService = new RentalBookingService($this->bookingRepository, $journal);
-        $pricing = new RentalPricingService(new RentalPricingRepository($this->pdo), new RentalPricingEngine(), $journal);
-        $this->service = new RentalSignedContractService(
-            $this->documents,
-            $this->documentRepository,
-            $this->signatures,
-            RentalTestHelper::bookingAudit($this->pdo, $encryption),
-            $mail,
-            new PdfCompressor($this->storagePath . '/temp'),
-            $journal,
-            null,
-            null,
-            null,
-            // As public/index.php wires it: a copy received or refused is a
-            // write of an occupation (#927, chantier §2.1).
-            new RentalOccupancyGuard(
-                $this->bookingRepository,
-                new RentalAvailabilityService(
-                    new AvailabilityCalculator(),
-                    new RentalConstraintsRepository($this->pdo),
-                    [$this->bookingService, new RentalBlockRepository($this->pdo)]
-                ),
-                $pricing
-            )
-        );
+        $this->mail = $mail;
+        $this->journal = $journal;
+        $this->encryption = $encryption;
+        $this->pricing = new RentalPricingService(new RentalPricingRepository($this->pdo), new RentalPricingEngine(), $journal);
+        $this->service = $this->buildService(null);
 
         $this->assetId = $this->assetRepository->create(
             'Local',
@@ -172,6 +165,34 @@ class RentalSignedContractServiceTest extends TestCase
         );
         // A contract is refused without the asset's address (issue #977).
         $this->assetRepository->saveContractDetails($this->assetId, 'Chemin du Camp 4, 1300 Wavre', 90);
+    }
+
+    /** The service as public/index.php wires it, with or without the notifications. */
+    private function buildService(?NotificationService $notifications): RentalSignedContractService
+    {
+        return new RentalSignedContractService(
+            $this->documents,
+            $this->documentRepository,
+            $this->signatures,
+            RentalTestHelper::bookingAudit($this->pdo, $this->encryption),
+            $this->mail,
+            new PdfCompressor($this->storagePath . '/temp'),
+            $this->journal,
+            $notifications,
+            null,
+            null,
+            // As public/index.php wires it: a copy received or refused is a
+            // write of an occupation (#927, chantier §2.1).
+            new RentalOccupancyGuard(
+                $this->bookingRepository,
+                new RentalAvailabilityService(
+                    new AvailabilityCalculator(),
+                    new RentalConstraintsRepository($this->pdo),
+                    [$this->bookingService, new RentalBlockRepository($this->pdo)]
+                ),
+                $this->pricing
+            )
+        );
     }
 
     protected function tearDown(): void
@@ -572,6 +593,205 @@ class RentalSignedContractServiceTest extends TestCase
         $this->assertIsString($path);
         $text = (string) preg_replace('/\s+/', ' ', (string) (new \Core\File\PdfTextExtractor())->extractText((string) file_get_contents($path)));
         $this->assertStringContainsString(' par Marie Dupont, le ', $text);
+    }
+
+    /**
+     * A contract already signed carries its own copy of the signature
+     * (issue #926, acceptance 7): replacing the account's signature, then
+     * deleting it, changes not a byte of the file.
+     */
+    public function testReplacingOrDeletingTheSignatureLeavesASignedContractUntouched(): void
+    {
+        $booking = $this->booking();
+        $copy = $this->service->receiveCopy($booking, $this->asset(), $this->storedFile(self::photo(), 'jpg', 'image/jpeg'));
+        $account = $this->account();
+        $this->signatures->save($account, SignatureImage::fromBytes(self::signaturePng()), new \DateTimeImmutable());
+        $final = $this->service->countersign($booking, $this->asset(), $copy->id, $this->stored($account), null, new \DateTimeImmutable());
+        $path = $this->documents->absolutePath($final);
+        $this->assertIsString($path);
+        $before = hash_file('sha256', $path);
+
+        $other = imagecreatetruecolor(500, 150);
+        imagefill($other, 0, 0, (int) imagecolorallocate($other, 255, 255, 255));
+        ob_start();
+        imagepng($other);
+        $this->signatures->save($account, SignatureImage::fromBytes((string) ob_get_clean()), new \DateTimeImmutable());
+        $this->assertSame($before, hash_file('sha256', $path));
+
+        $this->signatures->delete($account);
+        $this->assertFalse($this->signatures->has($account));
+        $this->assertSame($before, hash_file('sha256', $path));
+        $this->assertSame($final->id, $this->service->finalContract($booking->id)?->id);
+    }
+
+    // ── The signer is notified (issue #926, decision Q1) ────────────────
+
+    /**
+     * What the dispatched notification carried, recorded by a stub — or
+     * the stub throws, when `$fails`.
+     *
+     * @param list<array{type: string, recipients: array<int, array{userAccountId: int, memberId: ?int}>, payload: array<string, mixed>}> $sent
+     */
+    private function notifications(array &$sent, bool $fails = false): NotificationService
+    {
+        $notifications = $this->createStub(NotificationService::class);
+        $notifications->method('dispatch')->willReturnCallback(
+            function (string $type, array $recipients, array $payload) use (&$sent, $fails): void {
+                if ($fails) {
+                    throw new \RuntimeException('push gateway down for jeanne@example.be');
+                }
+                $sent[] = ['type' => $type, 'recipients' => $recipients, 'payload' => $payload];
+            }
+        );
+
+        return $notifications;
+    }
+
+    /**
+     * The account that signed — and only it — is told which document its
+     * signature went on and when, on the application's clock, with a link
+     * to the booking's Documents page: no renter, no tracking link.
+     */
+    public function testTheSigningAccountAloneIsToldWhichDocumentAndWhen(): void
+    {
+        $sent = [];
+        $service = $this->buildService($this->notifications($sent));
+        $booking = $this->booking();
+        $copy = $service->receiveCopy($booking, $this->asset(), $this->storedFile(self::photo(), 'jpg', 'image/jpeg'));
+        $account = $this->account();
+        $other = $this->account();
+        $this->signatures->save($other, SignatureImage::fromBytes(self::signaturePng()), new \DateTimeImmutable());
+
+        // 11:00 UTC is noon in Brussels in January.
+        $service->countersign(
+            $booking,
+            $this->asset(),
+            $copy->id,
+            $this->drawnNow($account, false),
+            null,
+            new \DateTimeImmutable('2027-01-05 11:00:00', new \DateTimeZone('UTC'))
+        );
+
+        $this->assertCount(1, $sent, 'a copy received notifies nobody here, the countersignature once');
+        $this->assertSame(RentalSignedContractService::SIGNED_NOTIFICATION, $sent[0]['type']);
+        $this->assertSame('rental.document_signed', $sent[0]['type']);
+        $this->assertSame([['userAccountId' => $account, 'memberId' => null]], $sent[0]['recipients']);
+        $payload = $sent[0]['payload'];
+        $this->assertSame('Contrat signé — Local Saint-Georges', $payload['title']);
+        $this->assertSame(
+            'Vous avez contresigné le contrat de LOC-K7Q2M4 avec votre signature, le 05/01/2027 à 12:00. '
+                . 'Il est rangé dans les Documents de la réservation.',
+            $payload['body']
+        );
+        $this->assertSame('/mes-locations/local-saint-georges/reservations/' . $booking->id . '/documents', $payload['url']);
+        $everything = json_encode($payload, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE);
+        $this->assertStringNotContainsString('Jeanne', $everything);
+        $this->assertStringNotContainsString('jeanne@example.be', $everything);
+        $this->assertStringNotContainsString('/locations/suivi', $everything);
+    }
+
+    /**
+     * A notification that cannot be created is journaled with ids only and
+     * takes nothing back: the contract is countersigned, filed and mailed.
+     */
+    public function testANotificationThatFailsIsJournaledAndTheCountersignatureStands(): void
+    {
+        $sent = [];
+        $service = $this->buildService($this->notifications($sent, true));
+        $booking = $this->booking();
+        $copy = $service->receiveCopy($booking, $this->asset(), $this->storedFile(self::photo(), 'jpg', 'image/jpeg'));
+        $account = $this->account();
+
+        $final = $service->countersign($booking, $this->asset(), $copy->id, $this->drawnNow($account, true), null, new \DateTimeImmutable());
+
+        $this->assertSame($final->id, $service->finalContract($booking->id)?->id);
+        $this->assertNotNull($final->sentAt, 'the renter still receives the signed contract');
+        $this->assertTrue($this->signatures->has($account), 'the remembering stands with the countersignature');
+        $stmt = $this->pdo->prepare('SELECT * FROM event_log WHERE event_type = ?');
+        $stmt->execute(['rental_signer_notification_failed']);
+        $entries = $stmt->fetchAll();
+        $this->assertCount(1, $entries);
+        $this->assertSame('warning', $entries[0]['level']);
+        $this->assertSame($account, (int) $entries[0]['user_account_id']);
+        $this->assertSame(
+            ['booking_id' => $booking->id, 'document_id' => $final->id],
+            json_decode((string) $entries[0]['context'], true)
+        );
+        $this->assertStringNotContainsString('jeanne', strtolower(json_encode($entries, JSON_THROW_ON_ERROR)));
+    }
+
+    /**
+     * A notification that fails while the journal fails too: the second
+     * error goes to the server's log, never up to countersign(), which
+     * still mails the renter the contract that is signed.
+     */
+    public function testANotificationAndItsJournalLineBothFailingStillMailTheRenter(): void
+    {
+        $sent = [];
+        $service = $this->buildService($this->notifications($sent, true));
+        $booking = $this->booking();
+        $copy = $service->receiveCopy($booking, $this->asset(), $this->storedFile(self::photo(), 'jpg', 'image/jpeg'));
+        $account = $this->account();
+        $this->pdo->exec('DROP TABLE event_log');
+        $log = (string) tempnam(sys_get_temp_dir(), 'notiflog');
+        $previous = ini_set('error_log', $log);
+
+        try {
+            $final = $service->countersign($booking, $this->asset(), $copy->id, $this->drawnNow($account, false), null, new \DateTimeImmutable());
+            $written = (string) file_get_contents($log);
+        } finally {
+            ini_set('error_log', (string) $previous);
+            @unlink($log);
+        }
+
+        $this->assertNotNull($final->sentAt, 'the renter still receives the signed contract');
+        $this->assertStringContainsString(
+            'a signer notification failed (RuntimeException) and so did its journal line',
+            $written
+        );
+        $this->assertStringContainsString('booking #' . $booking->id . ', document #' . $final->id, $written);
+        $this->assertStringNotContainsString('jeanne', strtolower($written));
+    }
+
+    /** The renter's e-mail failing does not keep the signer from being told. */
+    public function testTheRentersEmailFailingStillNotifiesTheSigner(): void
+    {
+        $sent = [];
+        $service = $this->buildService($this->notifications($sent));
+        $booking = $this->booking();
+        $copy = $service->receiveCopy($booking, $this->asset(), $this->storedFile(self::photo(), 'jpg', 'image/jpeg'));
+        $account = $this->account();
+        $this->signedMailSucceeds = false;
+
+        $final = $service->countersign($booking, $this->asset(), $copy->id, $this->drawnNow($account, false), null, new \DateTimeImmutable());
+
+        $this->assertNull($final->sentAt);
+        $this->assertSame(
+            1,
+            (int) $this->pdo->query("SELECT COUNT(*) FROM event_log WHERE event_type = 'rental_signed_contract_send_failed'")->fetchColumn()
+        );
+        $this->assertCount(1, $sent);
+        $this->assertSame([['userAccountId' => $account, 'memberId' => null]], $sent[0]['recipients']);
+    }
+
+    /** A countersignature that fails signed nothing: nobody is told it did. */
+    public function testACountersignatureThatFailsNotifiesNobody(): void
+    {
+        $sent = [];
+        $service = $this->buildService($this->notifications($sent));
+        $booking = $this->booking();
+        $copy = $service->receiveCopy($booking, $this->asset(), $this->storedFile(self::photo(), 'jpg', 'image/jpeg'));
+        $path = $this->documents->absolutePath($copy);
+        $this->assertIsString($path);
+        unlink($path);
+
+        try {
+            $service->countersign($booking, $this->asset(), $copy->id, $this->drawnNow($this->account(), false), null, new \DateTimeImmutable());
+            $this->fail('a copy whose file is gone cannot be countersigned');
+        } catch (RentalException) {
+        }
+
+        $this->assertSame([], $sent);
     }
 
     /**

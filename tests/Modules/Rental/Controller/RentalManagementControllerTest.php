@@ -360,7 +360,8 @@ class RentalManagementControllerTest extends TestCase
                 $this->recordingMailService(),
                 new \Core\Pdf\PdfCompressor($this->storagePath . '/temp'),
                 $journal,
-                null,
+                // Records what the signer is told (issue #926, decision Q1).
+                $this->recordingNotifications(),
                 null,
                 null,
                 $occupancyGuard,
@@ -425,6 +426,25 @@ class RentalManagementControllerTest extends TestCase
 
     private \Modules\Rental\Service\RentalSignedContractService $signedContractService;
     private \Core\Signature\PersonalSignatureService $personalSignatures;
+
+    /**
+     * What the signed-contract service dispatched (issue #926, decision Q1).
+     *
+     * @var list<array{type: string, recipients: array<int, array{userAccountId: int, memberId: ?int}>, payload: array<string, mixed>}>
+     */
+    private array $notified = [];
+
+    private function recordingNotifications(): \Core\Notification\NotificationService
+    {
+        $stub = $this->createStub(\Core\Notification\NotificationService::class);
+        $stub->method('dispatch')->willReturnCallback(
+            function (string $type, array $recipients, array $payload): void {
+                $this->notified[] = ['type' => $type, 'recipients' => $recipients, 'payload' => $payload];
+            }
+        );
+
+        return $stub;
+    }
 
     private function recordingMailService(): \Modules\Rental\Service\RentalBookingMailService
     {
@@ -3114,6 +3134,47 @@ class RentalManagementControllerTest extends TestCase
         $this->assertSame(\Modules\Rental\Document\DocumentType::SIGNED_CONTRACT, $final->type);
         $after = $this->bookingPage('local-saint-georges', $booking->id)->getBody();
         $this->assertStringContainsString('<span class="visually-hidden">Fait :</span>', self::step($after, 'contract_countersigned'));
+    }
+
+    /**
+     * The session's account is told, and nobody else: not the asset's
+     * other manager, and not whichever account a member's address would
+     * resolve to (issue #926, decision Q1). The flash says the contract,
+     * not the notification.
+     */
+    public function testTheSessionsAccountAloneIsNotifiedOfItsCountersignature(): void
+    {
+        $this->addManager($this->assetId, 'autre@test.be');
+        $accounts = new \Core\Security\UserAccountRepository($this->pdo, $this->encryption);
+        // Account 1 is the session's; the manager's address resolves to
+        // account 2, the other manager's to account 3.
+        $this->assertSame(1, $accounts->create('session@test.be')->id);
+        $this->assertSame(2, $accounts->create('manager@test.be')->id);
+        $this->assertSame(3, $accounts->create('autre@test.be')->id);
+        $this->loginAsManager();
+        [$booking, $copy] = $this->bookingWithASignedCopy();
+        $this->notified = [];
+
+        $this->post('/mes-locations/contrat-contresigner', 'countersignContract', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'document_id' => (string) $copy->id,
+            'signature_source' => 'new',
+            'signature_data' => self::signatureDataUrl(),
+            'user_account_id' => '2',
+        ]);
+
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertSame('success', $flash['type'] ?? null, (string) ($flash['message'] ?? ''));
+        $this->assertStringNotContainsString('notification', strtolower((string) ($flash['message'] ?? '')));
+        $this->assertCount(1, $this->notified);
+        $this->assertSame('rental.document_signed', $this->notified[0]['type']);
+        $this->assertSame([['userAccountId' => 1, 'memberId' => null]], $this->notified[0]['recipients']);
+        $this->assertSame(
+            '/mes-locations/local-saint-georges/reservations/' . $booking->id . '/documents',
+            $this->notified[0]['payload']['url']
+        );
+        $this->assertStringStartsWith('Contrat signé — ', $this->notified[0]['payload']['title']);
     }
 
     // ── Who signs a document (#825) ─────────────────────────────────────
@@ -7391,9 +7452,15 @@ class RentalManagementControllerTest extends TestCase
             'document_id' => (string) $copy->id,
             'signature_source' => 'stored',
         ]);
+        $this->notified = [];
         $countersign();
         $flash = \Core\Http\FlashMessage::get();
         $this->assertSame('success', $flash['type'] ?? null, (string) ($flash['message'] ?? ''));
+        // The signer is told which document it was (issue #926, Q1).
+        $this->assertCount(1, $this->notified);
+        $this->assertStringStartsWith('Contrat de remplacement signé — ', $this->notified[0]['payload']['title']);
+        $this->assertStringContainsString('le contrat de remplacement de ' . $booking->reference, $this->notified[0]['payload']['body']);
+        $this->assertStringEndsWith('/documents', $this->notified[0]['payload']['url']);
 
         $applied = $this->bookingRepository->findById($booking->id);
         $this->assertSame('2027-07-10', $applied?->arrivalDate);

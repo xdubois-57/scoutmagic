@@ -2,7 +2,7 @@
   "id": "rental",
   "name": "Locations",
   "description": "Location des biens de l'unité : locaux, terrains, tentes, remorques.",
-  "version": "1.49.0",
+  "version": "1.50.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -1400,6 +1400,18 @@
       "id": "rental.signed_contract_received",
       "label": "Contrat signé reçu",
       "description": "Le locataire a déposé sa copie signée du contrat sur sa page de suivi : elle attend votre vérification et votre contresignature.",
+      "group": "Locations",
+      "role_min": "identified",
+      "channels": {
+        "in_app": "default_on",
+        "push": "default_on",
+        "email": "default_off"
+      }
+    },
+    {
+      "id": "rental.document_signed",
+      "label": "Contrat signé avec votre signature",
+      "description": "Vous venez de contresigner un contrat de location avec votre signature : la notification dit lequel et quand, et mène à la page Documents de la réservation, qui le porte. Vous seul la recevez.",
       "group": "Locations",
       "role_min": "identified",
       "channels": {

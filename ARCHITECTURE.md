@@ -2318,7 +2318,7 @@ against it.
 
 **`is_for_renter` is an email flag, not an access right** (`specifications.md` §22.6). An external renter has no account, and the tracking token is a capability for *their own page*, not a file credential: their contract and invoice reach them by email; a lost email is resent by a manager, which is why resending is a first-class action. **One file is the exception**, the contract signed by both parties (#708, IT-16): `/locations/suivi/{id}/{token}/contrat-signe.pdf` checks the same token and serves that booking's countersigned contract in force and nothing else — never `/files/{id}`, so the token never becomes a credential for the file store (SECURITY.md §6).
 
-**The countersignature signs with the core's personal signature** (issue #926, §8.125). Locations keeps no signature of its own any more. Both entry points — the dashboard's « Contrat contresigné » step (`_countersign_step.html.twig`) and the replacement contract on « Documents » (`_contracts.html.twig`) — open `partials/signature_dialog.html.twig` with their own consequence sentence, `data-async="off"` so `rental-booking.js` leaves the post to the browser (an open dialog does not survive the panels re-rendering). `RentalManagementController::countersignContract()` builds the `SignatureSubmission` and calls `PersonalSignatureService::forSigning()` with the session's account inside its `bookingAction()` closure, **before** `countersign()` takes the asset's and the booking's locks, and turns a `SignatureException` into the `RentalException` that `bookingAction()` catches. `RentalSignedContractService::countersign(…, AccountSignature, …)` runs `rememberIfAsked()` inside `withBookingLocked()`, right after `pendingCopyOf()` and before the file is read or anything assembled — same PDO, same transaction, so a copy that cannot be countersigned keeps nothing remembered —; the added page names the account's own name (« un gestionnaire » without one, #825); `BookingAudit::record()` takes the signing account (`$actorAccountId`, which wins over the member → address → account resolution); and after the commit, `recordSigning()` writes the act to the core's journal. The flash adds « Votre signature est enregistrée dans Mon compte. » when the box was ticked. « Gérer mes locations » links to « Gérer ma signature » under Mon compte.
+**The countersignature signs with the core's personal signature** (issue #926, §8.125). Locations keeps no signature of its own any more. Both entry points — the dashboard's « Contrat contresigné » step (`_countersign_step.html.twig`) and the replacement contract on « Documents » (`_contracts.html.twig`) — open `partials/signature_dialog.html.twig` with their own consequence sentence, `data-async="off"` so `rental-booking.js` leaves the post to the browser (an open dialog does not survive the panels re-rendering). `RentalManagementController::countersignContract()` builds the `SignatureSubmission` and calls `PersonalSignatureService::forSigning()` with the session's account inside its `bookingAction()` closure, **before** `countersign()` takes the asset's and the booking's locks, and turns a `SignatureException` into the `RentalException` that `bookingAction()` catches. `RentalSignedContractService::countersign(…, AccountSignature, …)` runs `rememberIfAsked()` inside `withBookingLocked()`, right after `pendingCopyOf()` and before the file is read or anything assembled — same PDO, same transaction, so a copy that cannot be countersigned keeps nothing remembered —; the added page names the account's own name (« un gestionnaire » without one, #825); `BookingAudit::record()` takes the signing account (`$actorAccountId`, which wins over the member → address → account resolution); and after the commit, `recordSigning()` writes the act to the core's journal, then `notifySigner()` dispatches `rental.document_signed` (declared in `module.json`, `identified`, in-app and push on, e-mail off by default) to **the signing account alone** — `AccountSignature::$accountId`, the session's, never `ManagerRecipientResolver` nor a member's address (decision Q1, which replaced the ticket's Cc to the signer). It names the document (« Contrat signé », or « Contrat de remplacement signé » when the copy answered a modification), the asset, the reference and the time on the application clock (`DateFilterExtension::datetimeFr()` in `AppClock::zone()`), and links to `BookingPage::DOCUMENTS`; no renter, no tracking link, no file. It is deliberately dispatched **without** `$actorUserAccountId`, although the recipient is the actor: an actor gets the in-app row and nothing else, and this notification exists to reach the signer's devices, so that a signature applied from a session they did not hold does not go unseen. It is dispatched before the renter's e-mail is attempted, so that e-mail failing cannot hold it back; a dispatch that throws is journaled (`rental_signer_notification_failed`, booking and document ids, the account) and changes nothing of the committed countersignature or of the flash. The flash adds « Votre signature est enregistrée dans Mon compte. » when the box was ticked. « Gérer mes locations » links to « Gérer ma signature » under Mon compte.
 
 What does protect the files is the ordinary mechanism: `File\RentalDocumentOwnershipChecker` in `Core\File\FileAccessGuard`'s `owner_type` registry (§8.3/§7.4), resolving file → booking → asset and answering "may this person manage it?" through `RentalAuthorizationService`. The file's own `role_min` is `identified`, which alone would let any logged-in visitor at every contract in the unit; there is no role bypass, so a chief with no grant is refused like anyone else, and a file whose booking is gone is refused because there is nobody left to check against.
 
@@ -6121,11 +6121,13 @@ Issue #926, `docs/chantiers/CHANTIER-signature-personnelle.md`. The
 signature a person keeps for signing documents, in any module, used to
 belong to Locations (`rental_manager_signatures`, #708 IT-16) and could
 countersign a contract there and nowhere else. It is a capability of the
-core now, and this section grows lot by lot: lot A is the storage and the
+core now, built in lots that this section follows: lot A is the storage and the
 image, lot B the owner's page under Mon compte, lot C1 the API a module
 signs with and the dialog it opens, lot C2 Locations' countersignature on
 it (§8.55) — `rental_manager_signatures`, its repository, its page and its
-four routes are gone (`modules/rental/drops.sql`, nothing carried over).
+four routes are gone (`modules/rental/drops.sql`, nothing carried over) —,
+lot D the notification the signing account receives (§8.55), lot E the
+witness mode finished for a signer without an account (below).
 
 **It belongs to the ACCOUNT, never to a member.** `user_account_signatures`
 is keyed by `user_account_id`, the login an address authenticates as
@@ -6227,6 +6229,13 @@ and a `WitnessSignature` that nothing can keep. `recordSigning()` writes
 the act to the journal (`personal_signature_document_signed`, `security`):
 module, document type and id, owning entity, origin, whether it was
 remembered, the time, and the session's account — no pixel, no size.
+**Telling the signer is the module's**, through its own declared
+notification type and `NotificationService::dispatch()` (§8.24) to the
+`AccountSignature`'s account alone, after the commit, and never able to
+undo the signing; the core sends nothing itself, because only the module
+knows which page holds the signed document (decision Q1 — no copy of the
+document by e-mail, no attachment; Locations' `rental.document_signed`,
+§8.55).
 
 **The transaction rule.** The order is fixed, and each step is where it is
 for a reason: `forSigning()` **before** any lock of the module, because
@@ -6267,6 +6276,34 @@ because a panel re-rendered under a fetch brings a fresh, unwired copy.
 `form_attributes` lets a page whose own script turns forms into fetches
 tell it to stand aside (Locations' `data-async="off"`): an open dialog does
 not survive the panels under it being re-rendered.
+
+**A signer without an account (ticket §6a, lot E) — the brick #989 signs
+the inventory with.** The renter signs with a finger on the manager's
+phone, the day of the inventory, and has no account to keep anything in.
+The module renders the dialog with `witness: true` and reads it with
+`PersonalSignatureService::witnessFromRequest($request)` — before any
+lock of its own, like `forSigning()`, and after its own right to have the
+document signed (the manager's, from the session) is established. What
+comes back is a `WitnessSignature`: the `SignaturePng` and **the name the
+signer typed** (`signer_name`, `WITNESS_NAME_FIELD`, 1 to 120 characters,
+spaces collapsed), and nothing else — it has no account property and
+nothing in `Core\Signature` can store it, link it or offer it again.
+**A drawing only**: the witness mode renders no import, no « Mémoriser »
+box and no preview, and `witness()` refuses a file or the stored mode
+even if a forged form posts one; the dialog says under the pad that the
+signature goes on this document only. **Never stored**: the method writes
+nothing, to the database or the journal; the module puts the PNG and the
+name in its document, and the document is the only place the signature
+exists (and its retention, the module's). **The canvas is wiped** by
+`signature-dialog.js` when the dialog closes, once it is sent and on a
+page restored from the back-forward cache — pad, hidden field and typed
+name — so the next person holding the phone finds it empty. The journal
+line of the act is the module's to write (`recordSigning()` takes an
+`AccountSignature` and has no witness form), naming its own document and
+the manager's session, never the image or the typed name. Tests:
+`PersonalSignatureSigningTest` (witness and `witnessFromRequest()`),
+`SignatureDialogTest` (witness mode), `tests/js/signature-dialog.test.js`
+(« a signer without an account »).
 
 ## 9. Installation / bootstrap
 

@@ -157,10 +157,13 @@ class ModuleManifestTest extends TestCase
      * 1.49.0 drops `rental_manager_signatures` and the four
      * « Ma signature » routes: a manager countersigns with the personal
      * signature of their account, in the core (issue #926).
+     *
+     * 1.50.0 declares `rental.document_signed`, the notification the
+     * signing account receives (issue #926, decision Q1) — no schema change.
      */
     public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
     {
-        $this->assertSame('1.49.0', $this->manifest->version);
+        $this->assertSame('1.50.0', $this->manifest->version);
     }
 
     /**
@@ -455,6 +458,25 @@ class ModuleManifestTest extends TestCase
         foreach (\Modules\Rental\Service\RentalReminderService::declaredNotificationTypeIds() as $typeId) {
             $this->assertContains($typeId, $declared, $typeId . ' is dispatched but never declared.');
         }
+    }
+
+    /**
+     * The notification the signing account receives (issue #926, decision
+     * Q1) is declared — `dispatch()` throws on an undeclared type, after the
+     * contract is countersigned, where only the journal would see it — and
+     * it is no e-mail unless its recipient asks for one: the maintainer
+     * chose a notification over an e-mail receipt.
+     */
+    public function testTheSignersNotificationIsDeclared(): void
+    {
+        $declared = array_column($this->manifest->notifications, null, 'id');
+        $type = $declared[\Modules\Rental\Service\RentalSignedContractService::SIGNED_NOTIFICATION] ?? null;
+
+        $this->assertNotNull($type);
+        $this->assertSame('identified', $type['role_min']);
+        $this->assertSame('Locations', $type['group']);
+        $this->assertSame('default_on', $type['channels']['in_app']);
+        $this->assertSame('default_off', $type['channels']['email']);
     }
 
     /**
