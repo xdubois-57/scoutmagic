@@ -224,7 +224,7 @@ class RentalAttentionProviderTest extends TestCase
         ]);
         $booking = (int) $this->pdo->lastInsertId();
 
-        $incident = (int) $this->stay->createIncident($booking, 'Porte fendue par Jeanne Martin', 30000, null, 1);
+        $incident = (int) $this->stay->createIncident($booking, 'Porte fendue par Jeanne Martin', 30000, [], 1);
         if ($awaiting !== null || $fileReference !== null) {
             $this->stay->decideIncident($incident, IncidentDecision::PENDING, null, 1, $awaiting, $fileReference);
         }

@@ -71,6 +71,25 @@ class AttachedFileRemoverTest extends TestCase
         $this->assertFileDoesNotExist($this->storagePath . '/sub/contract.pdf');
     }
 
+    /**
+     * A photo's thumbnail is a sibling with no row of its own: removing
+     * the photo takes it along, or nothing ever would (#989).
+     */
+    public function testRemovingAPhotoTakesItsDerivativesAlong(): void
+    {
+        $fileId = $this->createFile('sub/photo.jpg');
+        file_put_contents($this->storagePath . '/sub/photo.thumb.webp', 'thumb');
+        file_put_contents($this->storagePath . '/sub/photo.md.webp', 'md');
+        file_put_contents($this->storagePath . '/sub/other.thumb.webp', 'another photo');
+
+        (new AttachedFileRemover($this->files, $this->storagePath))->removeOrphan($fileId);
+
+        $this->assertFileDoesNotExist($this->storagePath . '/sub/photo.jpg');
+        $this->assertFileDoesNotExist($this->storagePath . '/sub/photo.thumb.webp');
+        $this->assertFileDoesNotExist($this->storagePath . '/sub/photo.md.webp');
+        $this->assertFileExists($this->storagePath . '/sub/other.thumb.webp');
+    }
+
     public function testAttachmentTheModuleDoesNotOwnKeepsItsFile(): void
     {
         $fileId = $this->createFile('sub/inbound.pdf');

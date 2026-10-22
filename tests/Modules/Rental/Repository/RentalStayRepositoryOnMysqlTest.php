@@ -42,11 +42,17 @@ use Tests\UsesProductionEngine;
  * like a refused one. `RentalStayService` therefore asks the phase again
  * whenever no row changed. This class holds both halves where it matters:
  * the refusal, and an unchanged save that must not be mistaken for one.
+ *
+ * The photo writes (#989, `IncidentPhotoScenarios`) run here too: adding
+ * one is an INSERT selecting from the very table it writes (MySQL builds
+ * a temporary table for it), and taking one off a reading decides on the
+ * `rowCount()` of an UPDATE.
  */
 #[Group('database')]
 final class RentalStayRepositoryOnMysqlTest extends TestCase
 {
     use UsesProductionEngine;
+    use IncidentPhotoScenarios;
 
     private \PDO $pdo;
     private EncryptionService $encryption;
@@ -203,11 +209,11 @@ final class RentalStayRepositoryOnMysqlTest extends TestCase
     public function testNoIncidentIsRecordedOnceTheDepartureIsValidated(): void
     {
         $this->validate(ReadingPhase::ARRIVAL);
-        $this->assertNotNull($this->repository->createIncident($this->bookingId, 'Avant', null, null, 7));
+        $this->assertNotNull($this->repository->createIncident($this->bookingId, 'Avant', null, [], 7));
 
         $this->validate(ReadingPhase::DEPARTURE);
 
-        $this->assertNull($this->repository->createIncident($this->bookingId, 'Trop tard', 2000, null, 7));
+        $this->assertNull($this->repository->createIncident($this->bookingId, 'Trop tard', 2000, [], 7));
         $this->assertSame(
             ['Avant'],
             array_map(static fn ($incident) => $incident->description, $this->repository->findIncidents($this->bookingId))
@@ -313,7 +319,7 @@ final class RentalStayRepositoryOnMysqlTest extends TestCase
     {
         // A ciphertext is binary: a column that is not a BLOB on this engine
         // would mangle it and the decryption would fail (#980).
-        $id = $this->repository->createIncident($this->bookingId, 'Vitre cassée', 4500, null, 7);
+        $id = $this->repository->createIncident($this->bookingId, 'Vitre cassée', 4500, [], 7);
         $this->assertNotNull($id);
 
         $this->repository->decideIncident(
@@ -337,8 +343,8 @@ final class RentalStayRepositoryOnMysqlTest extends TestCase
     {
         // The ciphertext goes through a CASE on this engine (#980): a decided
         // one must still decrypt, one under assessment must not come back.
-        $charged = $this->repository->createIncident($this->bookingId, 'Vitre cassée', 4500, null, 7);
-        $this->repository->createIncident($this->bookingId, 'Infiltration au dortoir', 80000, null, 7);
+        $charged = $this->repository->createIncident($this->bookingId, 'Vitre cassée', 4500, [], 7);
+        $this->repository->createIncident($this->bookingId, 'Infiltration au dortoir', 80000, [], 7);
         $this->assertNotNull($charged);
         $this->repository->decideIncident($charged, IncidentDecision::CHARGE, 6000, 9, null, null, null);
 
@@ -388,7 +394,7 @@ final class RentalStayRepositoryOnMysqlTest extends TestCase
         $id = $this->repository->createSettlement(
             $this->bookingId, 1, null, [], 41000, 0, 41000, null, null, 7, 41000, $hash
         );
-        $incident = $this->repository->createIncident($this->bookingId, 'Porte fendue', 30000, null, 7);
+        $incident = $this->repository->createIncident($this->bookingId, 'Porte fendue', 30000, [], 7);
         $this->assertNotNull($incident);
 
         $this->assertFalse($this->repository->validateSettlement($id, 7));
@@ -411,7 +417,7 @@ final class RentalStayRepositoryOnMysqlTest extends TestCase
      */
     public function testThePendingIncidentsOfBookingsGoneByADateAreReadOnThisEngine(): void
     {
-        $id = $this->repository->createIncident($this->bookingId, 'Porte fendue', 30000, null, 7);
+        $id = $this->repository->createIncident($this->bookingId, 'Porte fendue', 30000, [], 7);
         $this->assertNotNull($id);
         $this->repository->decideIncident($id, IncidentDecision::PENDING, null, 7, 'le devis', 'DOS-42');
 

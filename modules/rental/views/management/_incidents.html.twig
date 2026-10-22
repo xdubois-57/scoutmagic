@@ -1,8 +1,9 @@
 {#
   Incidents and damage (§6.23), on the « État des lieux » page since #708
-  (IT-17): observed during the stay — description, estimated amount, photo
-  — until the departure inventory is validated; decided at any time, since
-  deciding is about billing, not about what was seen. Three states (#980):
+  (IT-17): observed during the stay — description, estimated amount, up
+  to five photos (#989) — until the departure inventory is validated;
+  decided at any time, since deciding is about billing, not about what
+  was seen. Three states (#980):
   under assessment, billed, not billed, each choice saying what it does.
 
   The fields that belong to one choice carry `data-incident-field` (the
@@ -36,8 +37,12 @@
                                 <div class="d-flex justify-content-between align-items-start gap-2">
                                     <span>
                                         {{ incident.description }}
-                                        {% if incident.fileId %}
-                                            <a href="{{ file_url(incident.fileId) }}" class="small d-block">Photo</a>
+                                        {% if incident.photos is not empty %}
+                                            <span class="small d-block">
+                                                {% for photo in incident.photos %}
+                                                    <a href="{{ file_url(photo.fileId) }}">Photo {{ loop.index }}</a>{% if not loop.last %} · {% endif %}
+                                                {% endfor %}
+                                            </span>
                                         {% endif %}
                                         {% if incident.awaiting or incident.reference %}
                                             <span class="small text-body-secondary d-block">
@@ -174,7 +179,7 @@
                     <div class="col-6 col-md-3">
                         <label class="form-label" for="incident-photo">Photo</label>
                         <input type="file" class="form-control form-control-sm" id="incident-photo"
-                               name="photo" accept="image/*">
+                               name="photo" accept="image/jpeg,image/png,image/webp">
                     </div>
                     <div class="col-12 col-md-2">
                         <button type="submit" class="btn btn-sm btn-outline-secondary w-100">Ajouter</button>

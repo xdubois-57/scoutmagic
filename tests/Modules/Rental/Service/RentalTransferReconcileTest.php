@@ -314,7 +314,7 @@ final class RentalTransferReconcileTest extends TestCase
 
         // The damage it paid, charged and settled: the overpayment is the
         // deposit owed back, nothing more.
-        $incident = $this->stay->reportIncident($this->reload($booking->id), 'Châssis brisé', 100000, null, 1);
+        $incident = $this->stay->reportIncident($this->reload($booking->id), 'Châssis brisé', 100000, [], 1);
         $this->stay->decideIncident($this->reload($booking->id), $incident, IncidentDecision::CHARGE, 100000, 1);
         $settlement = $this->stay->recordSettlement($this->reload($booking->id), $this->assetId, null, [], 1);
         // The reconciliation is dated before the validation, as in life.

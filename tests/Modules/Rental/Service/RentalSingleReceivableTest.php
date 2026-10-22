@@ -494,7 +494,7 @@ class RentalSingleReceivableTest extends TestCase
         // unit keeps 668 + 34 − 80 = 622 €, and owes 196 €.
         $booking = $this->createBooking();
         $this->pay($this->firstContract($booking), 818.00);
-        $incident = $this->stay->reportIncident($this->reload($booking->id), 'Vitre fêlée', 3400, null, 1);
+        $incident = $this->stay->reportIncident($this->reload($booking->id), 'Vitre fêlée', 3400, [], 1);
         $this->stay->decideIncident($this->reload($booking->id), $incident, IncidentDecision::CHARGE, 3400, 1);
         $gesture = SettlementLine::gesture(null, 8000);
         $this->assertNotNull($gesture);
@@ -520,7 +520,7 @@ class RentalSingleReceivableTest extends TestCase
         $booking = $this->createBooking();
         $communication = $this->firstContract($booking);
         $this->pay($communication, 818.00);
-        $incident = $this->stay->reportIncident($this->reload($booking->id), 'Châssis brisé', 80000, null, 1);
+        $incident = $this->stay->reportIncident($this->reload($booking->id), 'Châssis brisé', 80000, [], 1);
         $this->stay->decideIncident($this->reload($booking->id), $incident, IncidentDecision::CHARGE, null, 1);
 
         $settlement = $this->stay->recordSettlement($this->reload($booking->id), $this->assetId, null, [], 1);
@@ -706,7 +706,7 @@ class RentalSingleReceivableTest extends TestCase
      */
     private function settleWithCharge(RentalBooking $booking, int $chargedCents): void
     {
-        $incident = $this->stay->reportIncident($this->reload($booking->id), 'Dégâts', $chargedCents, null, 1);
+        $incident = $this->stay->reportIncident($this->reload($booking->id), 'Dégâts', $chargedCents, [], 1);
         $this->stay->decideIncident(
             $this->reload($booking->id),
             $incident,

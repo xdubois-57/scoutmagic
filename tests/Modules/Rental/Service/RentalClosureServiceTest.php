@@ -262,7 +262,7 @@ final class RentalClosureServiceTest extends TestCase
     /** $chargedCents of damage decided, a settlement recorded — and validated unless told otherwise. */
     private function settleWithDamage(RentalBooking $booking, int $chargedCents, bool $validate = true): void
     {
-        $incident = $this->stay->reportIncident($this->reload($booking->id), 'Châssis brisé', $chargedCents, null, 1);
+        $incident = $this->stay->reportIncident($this->reload($booking->id), 'Châssis brisé', $chargedCents, [], 1);
         $this->stay->decideIncident($this->reload($booking->id), $incident, IncidentDecision::CHARGE, null, 1);
         $settlement = $this->stay->recordSettlement($this->reload($booking->id), $this->assetId, null, [], 1);
         if ($validate) {
@@ -308,7 +308,7 @@ final class RentalClosureServiceTest extends TestCase
     {
         $booking = $this->confirmedBooking();
         $this->pay($booking, 818.00);
-        $this->stay->reportIncident($this->reload($booking->id), 'Vitre fêlée', 12000, null, 1);
+        $this->stay->reportIncident($this->reload($booking->id), 'Vitre fêlée', 12000, [], 1);
 
         $this->assertClosingIsRefused($booking, "tranchez l'incident sur la page État des lieux");
         $this->assertFalse($this->closure->check($this->reload($booking->id))->offersUnrecovered());
@@ -462,7 +462,7 @@ final class RentalClosureServiceTest extends TestCase
         // deposit's return not recorded is.
         $this->assertClosingIsRefused($booking, "La restitution de la caution n'est pas enregistrée");
 
-        $incident = $this->stay->reportIncident($this->reload($booking->id), 'Vitre fêlée', 12000, null, 1);
+        $incident = $this->stay->reportIncident($this->reload($booking->id), 'Vitre fêlée', 12000, [], 1);
         $this->payments->recordSecurityDepositReturn(
             $this->reload($booking->id),
             15000,
@@ -632,7 +632,7 @@ final class RentalClosureServiceTest extends TestCase
     public function testADamageAssessedRefusesTheUnrecoveredClosureToo(): void
     {
         $booking = $this->bookingWithABalanceDue();
-        $this->stay->reportIncident($this->reload($booking->id), 'Volet arraché', 5000, null, 1);
+        $this->stay->reportIncident($this->reload($booking->id), 'Volet arraché', 5000, [], 1);
 
         $this->assertFalse($this->closure->check($this->reload($booking->id))->offersUnrecovered());
         $this->expectException(RentalException::class);
@@ -645,7 +645,7 @@ final class RentalClosureServiceTest extends TestCase
         // A damage decided after the validation: the validated version does
         // not carry it, and writing off from it would forget it.
         $booking = $this->bookingWithABalanceDue();
-        $incident = $this->stay->reportIncident($this->reload($booking->id), 'Volet arraché', 5000, null, 1);
+        $incident = $this->stay->reportIncident($this->reload($booking->id), 'Volet arraché', 5000, [], 1);
         $this->stay->decideIncident($this->reload($booking->id), $incident, IncidentDecision::CHARGE, null, 1);
 
         $check = $this->closure->check($this->reload($booking->id));

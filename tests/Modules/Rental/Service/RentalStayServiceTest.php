@@ -821,6 +821,257 @@ class RentalStayServiceTest extends TestCase
         $this->validationService()->validate($booking, $this->asset(), ReadingPhase::ARRIVAL, 1, 'Anne', $this->now());
     }
 
+    // ── Photos (#989) ───────────────────────────────────────────────────
+
+    /** Where photoService() keeps its files, removed after each test. */
+    private ?string $photoStorage = null;
+
+    protected function tearDown(): void
+    {
+        if ($this->photoStorage !== null) {
+            foreach (glob($this->photoStorage . '/rental/*') ?: [] as $file) {
+                unlink($file);
+            }
+            @rmdir($this->photoStorage . '/rental');
+            @rmdir($this->photoStorage);
+        }
+    }
+
+    /** The service as public/index.php wires it: removed photos lose their file. */
+    private function photoService(): RentalStayService
+    {
+        $this->photoStorage = sys_get_temp_dir() . '/rental_photos_' . bin2hex(random_bytes(6));
+        mkdir($this->photoStorage . '/rental', 0755, true);
+        $journal = new JournalService(new JournalRepository($this->pdo));
+
+        return new RentalStayService(
+            $this->stayRepository,
+            RentalTestHelper::bookingAudit($this->pdo, $this->encryption),
+            $this->pricingService,
+            new SettlementCalculator(),
+            $journal,
+            null,
+            new \Core\File\AttachedFileRemover(new \Core\File\FileRepository($this->pdo), $this->photoStorage)
+        );
+    }
+
+    /** A stored photo with its thumbnail beside it, as the controller leaves one. */
+    private function storedPhoto(string $name): int
+    {
+        $this->assertNotNull($this->photoStorage, 'call photoService() first');
+        file_put_contents($this->photoStorage . '/rental/' . $name . '.jpg', 'jpeg');
+        file_put_contents($this->photoStorage . '/rental/' . $name . '.thumb.webp', 'thumb');
+
+        return (new \Core\File\FileRepository($this->pdo))->create(
+            'rental/' . $name . '.jpg', $name . '.jpg', 'image/jpeg', 4, 'identified', 'rental', null
+        );
+    }
+
+    private function photoIsGone(string $name): bool
+    {
+        return !is_file($this->photoStorage . '/rental/' . $name . '.jpg')
+            && !is_file($this->photoStorage . '/rental/' . $name . '.thumb.webp');
+    }
+
+    /** @return list<int> */
+    private function photoFileIdsOf(int $incidentId): array
+    {
+        return array_map(
+            static fn(\Modules\Rental\Stay\IncidentPhoto $photo): int => $photo->fileId,
+            $this->stayRepository->findIncident($incidentId)?->photos ?? []
+        );
+    }
+
+    public function testAnIncidentIsReportedWithItsPhotosInOrder(): void
+    {
+        $service = $this->photoService();
+        $booking = $this->createBooking();
+        $files = [$this->storedPhoto('a'), $this->storedPhoto('b'), $this->storedPhoto('c')];
+
+        $id = $service->reportIncident($booking, 'Porte du réfectoire forcée', null, $files, 1);
+
+        $this->assertSame($files, $this->photoFileIdsOf($id));
+    }
+
+    /** Five photos per incident, whether they come with the report or after it. */
+    public function testASixthPhotoIsRefused(): void
+    {
+        $service = $this->photoService();
+        $booking = $this->createBooking();
+        $six = array_map(fn(string $n): int => $this->storedPhoto($n), ['a', 'b', 'c', 'd', 'e', 'f']);
+
+        try {
+            $service->reportIncident($booking, 'Vitre cassée', null, $six, 1);
+            $this->fail('Six photos must be refused.');
+        } catch (RentalException $e) {
+            $this->assertSame('Un incident garde 5 photos au plus.', $e->getMessage());
+        }
+        $this->assertSame([], $this->service->incidentsFor($booking->id));
+
+        $id = $service->reportIncident($booking, 'Vitre cassée', null, array_slice($six, 0, 4), 1);
+        $service->addIncidentPhotos($booking, $id, [$six[4]], 1);
+        try {
+            $service->addIncidentPhotos($booking, $id, [$six[5]], 1);
+            $this->fail('A sixth photo must be refused.');
+        } catch (RentalException $e) {
+            $this->assertStringContainsString('5 photos au plus : retirez-en une', $e->getMessage());
+        }
+        $this->assertSame(array_slice($six, 0, 5), $this->photoFileIdsOf($id));
+    }
+
+    /**
+     * Decision Q5: photos are added and removed until the departure
+     * inventory is validated, then frozen with the PDF that lists the
+     * incidents. A removed photo takes its file and thumbnail along.
+     */
+    public function testPhotosChangeUntilTheDepartureIsValidatedAndNeverAfter(): void
+    {
+        $service = $this->photoService();
+        $booking = $this->createBooking();
+        $id = $service->reportIncident($booking, 'Vitre cassée', null, [$this->storedPhoto('a')], 1);
+
+        $service->addIncidentPhotos($booking, $id, [$this->storedPhoto('b'), $this->storedPhoto('c')], 1);
+        $photos = $this->stayRepository->findIncident($id)?->photos ?? [];
+        $this->assertCount(3, $photos);
+        $this->assertSame([1, 2, 3], array_map(static fn($photo): int => $photo->position, $photos));
+
+        $service->removeIncidentPhoto($booking, $photos[1]->id);
+        $this->assertSame([$photos[0]->fileId, $photos[2]->fileId], $this->photoFileIdsOf($id));
+        $this->assertTrue($this->photoIsGone('b'));
+        $this->assertNull((new \Core\File\FileRepository($this->pdo))->findById($photos[1]->fileId));
+
+        // The arrival does not freeze them: the incident is still observed.
+        $service->recordInventoryValidation($booking, ReadingPhase::ARRIVAL, $this->now(), 1);
+        $service->addIncidentPhotos($booking, $id, [$this->storedPhoto('d')], 1);
+
+        $service->recordInventoryValidation($booking, ReadingPhase::DEPARTURE, $this->now(), 1);
+        foreach ([
+            fn() => $service->addIncidentPhotos($booking, $id, [$this->storedPhoto('e')], 1),
+            fn() => $service->removeIncidentPhoto($booking, $photos[0]->id),
+        ] as $change) {
+            try {
+                $change();
+                $this->fail('A validated departure freezes the photos.');
+            } catch (RentalException $e) {
+                $this->assertSame(RentalStayService::INCIDENT_PHOTOS_FROZEN, $e->getMessage());
+            }
+        }
+        $this->assertCount(3, $this->photoFileIdsOf($id));
+        $this->assertFalse($this->photoIsGone('a'));
+    }
+
+    /** An id in a POST is no authorisation: another booking's incident or photo is refused. */
+    public function testAnotherBookingsIncidentOrPhotoIsRefused(): void
+    {
+        $service = $this->photoService();
+        $booking = $this->createBooking();
+        $other = $this->createBooking('LOC-Z9Y8X7');
+        $foreign = $service->reportIncident($other, 'Rayure', null, [$this->storedPhoto('a')], 1);
+        $foreignPhoto = ($this->stayRepository->findIncident($foreign)?->photos ?? [])[0];
+
+        try {
+            $service->addIncidentPhotos($booking, $foreign, [$this->storedPhoto('b')], 1);
+            $this->fail('Another booking\'s incident must be refused.');
+        } catch (RentalException $e) {
+            $this->assertSame("Cet incident n'appartient pas à cette réservation.", $e->getMessage());
+        }
+        try {
+            $service->removeIncidentPhoto($booking, $foreignPhoto->id);
+            $this->fail('Another booking\'s photo must be refused.');
+        } catch (RentalException $e) {
+            $this->assertSame("Cette photo n'appartient pas à cette réservation.", $e->getMessage());
+        }
+
+        $this->assertSame([$foreignPhoto->fileId], $this->photoFileIdsOf($foreign));
+        $this->assertFalse($this->photoIsGone('a'));
+    }
+
+    public function testAddingNoPhotoIsRefused(): void
+    {
+        $booking = $this->createBooking();
+        $id = $this->service->reportIncident($booking, 'Vitre cassée', null, [], 1);
+
+        $this->expectException(RentalException::class);
+        $this->expectExceptionMessage('Choisissez une photo à ajouter.');
+
+        $this->service->addIncidentPhotos($booking, $id, [], 1);
+    }
+
+    /** A reading keeps one photo: a new one replaces the old, whose file goes. */
+    public function testReplacingAReadingsPhotoDeletesTheOldFile(): void
+    {
+        $service = $this->photoService();
+        $meterId = $this->addMeter();
+        $booking = $this->createBooking();
+        $first = $this->storedPhoto('first');
+        $service->recordReading($booking, $this->assetId, $meterId, ReadingPhase::ARRIVAL, '1000', $this->now(), $first, null, 1);
+
+        // A value correction without a photo keeps it.
+        $service->recordReading($booking, $this->assetId, $meterId, ReadingPhase::ARRIVAL, '1001', $this->now(), null, null, 1);
+        $this->assertFalse($this->photoIsGone('first'));
+
+        $second = $this->storedPhoto('second');
+        $service->recordReading($booking, $this->assetId, $meterId, ReadingPhase::ARRIVAL, '1002', $this->now(), $second, null, 1);
+
+        $this->assertSame($second, $this->stayRepository->findReading($booking->id, $meterId, ReadingPhase::ARRIVAL)?->fileId);
+        $this->assertTrue($this->photoIsGone('first'));
+        $this->assertNull((new \Core\File\FileRepository($this->pdo))->findById($first));
+        $this->assertFalse($this->photoIsGone('second'));
+    }
+
+    /** A reading's photo comes off until its phase is validated, then stays. */
+    public function testAReadingsPhotoIsRemovedUntilItsPhaseIsValidated(): void
+    {
+        $service = $this->photoService();
+        $meterId = $this->addMeter();
+        $booking = $this->createBooking();
+        $service->recordReading(
+            $booking, $this->assetId, $meterId, ReadingPhase::ARRIVAL, '1000', $this->now(), $this->storedPhoto('a'), null, 1
+        );
+
+        $service->removeReadingPhoto($booking, $this->assetId, $meterId, ReadingPhase::ARRIVAL);
+
+        $reading = $this->stayRepository->findReading($booking->id, $meterId, ReadingPhase::ARRIVAL);
+        $this->assertNull($reading?->fileId);
+        $this->assertSame(1_000_000, $reading?->valueMilli, 'the reading itself stays');
+        $this->assertTrue($this->photoIsGone('a'));
+
+        $this->expectException(RentalException::class);
+        $this->expectExceptionMessage("Ce relevé n'a pas de photo.");
+        $service->removeReadingPhoto($booking, $this->assetId, $meterId, ReadingPhase::ARRIVAL);
+    }
+
+    public function testAValidatedReadingKeepsItsPhoto(): void
+    {
+        $service = $this->photoService();
+        $meterId = $this->addMeter();
+        $booking = $this->createBooking();
+        $service->recordReading(
+            $booking, $this->assetId, $meterId, ReadingPhase::ARRIVAL, '1000', $this->now(), $this->storedPhoto('a'), null, 1
+        );
+        $service->recordInventoryValidation($booking, ReadingPhase::ARRIVAL, $this->now(), 1);
+
+        try {
+            $service->removeReadingPhoto($booking, $this->assetId, $meterId, ReadingPhase::ARRIVAL);
+            $this->fail('A validated reading keeps its photo.');
+        } catch (RentalException $e) {
+            $this->assertStringContainsString("L'état des lieux d'entrée est validé", $e->getMessage());
+        }
+        $this->assertFalse($this->photoIsGone('a'));
+    }
+
+    /** A meter of another asset is no way onto this booking's readings. */
+    public function testAReadingPhotoOfAnotherAssetsMeterIsRefused(): void
+    {
+        $booking = $this->createBooking();
+        $foreignMeter = $this->addMeter($this->otherAssetId);
+
+        $this->expectException(RentalException::class);
+        $this->expectExceptionMessage("Ce compteur n'existe pas pour ce bien.");
+
+        $this->service->removeReadingPhoto($booking, $this->assetId, $foreignMeter, ReadingPhase::ARRIVAL);
+    }
+
     // ── Incidents (§6.23) ───────────────────────────────────────────────
 
     public function testNoIncidentIsReportedOnceTheDepartureIsValidated(): void
@@ -832,13 +1083,13 @@ class RentalStayServiceTest extends TestCase
 
         $this->expectException(RentalException::class);
 
-        $this->service->reportIncident($booking, 'Vitre cassée', 5000, null, 1);
+        $this->service->reportIncident($booking, 'Vitre cassée', 5000, [], 1);
     }
 
     public function testAnIncidentDescriptionIsStoredEncrypted(): void
     {
         $booking = $this->createBooking();
-        $this->service->reportIncident($booking, 'Vitre cassée par le groupe de Mme Martin', 5000, null, 1);
+        $this->service->reportIncident($booking, 'Vitre cassée par le groupe de Mme Martin', 5000, [], 1);
 
         $raw = (string) json_encode($this->pdo->query('SELECT * FROM rental_incidents')->fetchAll(\PDO::FETCH_ASSOC));
         $this->assertStringNotContainsString('Vitre cassée', $raw);
@@ -851,7 +1102,7 @@ class RentalStayServiceTest extends TestCase
     public function testAnIncidentNeverReachesTheJournalInClear(): void
     {
         $booking = $this->createBooking();
-        $this->service->reportIncident($booking, 'Vitre cassée par le groupe de Mme Martin', 5000, null, 1);
+        $this->service->reportIncident($booking, 'Vitre cassée par le groupe de Mme Martin', 5000, [], 1);
 
         $journal = (string) json_encode($this->pdo->query('SELECT * FROM event_log')->fetchAll(\PDO::FETCH_ASSOC));
         $this->assertStringContainsString('LOC-A2B3C4', $journal);
@@ -863,7 +1114,7 @@ class RentalStayServiceTest extends TestCase
     {
         // They would read a proposed figure as a demand.
         $booking = $this->createBooking();
-        $this->service->reportIncident($booking, 'Dégât en cours d\'évaluation', 5000, null, 1);
+        $this->service->reportIncident($booking, 'Dégât en cours d\'évaluation', 5000, [], 1);
 
         $this->assertSame(IncidentDecision::PENDING, $this->service->incidentsFor($booking->id)[0]->decision);
         $this->assertSame([], $this->service->renterIncidents($booking->id)->decided);
@@ -873,7 +1124,7 @@ class RentalStayServiceTest extends TestCase
     public function testADecidedIncidentBecomesVisibleToTheRenter(): void
     {
         $booking = $this->createBooking();
-        $id = $this->service->reportIncident($booking, 'Vitre cassée', 5000, null, 1);
+        $id = $this->service->reportIncident($booking, 'Vitre cassée', 5000, [], 1);
 
         $this->service->decideIncident($booking, $id, IncidentDecision::CHARGE, null, 1);
 
@@ -888,7 +1139,7 @@ class RentalStayServiceTest extends TestCase
     {
         $this->expectException(RentalException::class);
 
-        $this->service->reportIncident($this->createBooking(), '   ', 5000, null, 1);
+        $this->service->reportIncident($this->createBooking(), '   ', 5000, [], 1);
     }
 
     public function testADecidedIncidentCanGoBackToTheAssessment(): void
@@ -896,7 +1147,7 @@ class RentalStayServiceTest extends TestCase
         // « En cours d'évaluation » is one of the three choices (#980, Q5):
         // the insurer contests, and the damage is no longer billed.
         $booking = $this->createBooking();
-        $id = $this->service->reportIncident($booking, 'Vitre cassée', 5000, null, 1);
+        $id = $this->service->reportIncident($booking, 'Vitre cassée', 5000, [], 1);
         $this->service->decideIncident($booking, $id, IncidentDecision::CHARGE, null, 1);
 
         $this->service->decideIncident($booking, $id, IncidentDecision::PENDING, null, 1, 'Expertise', 'SIN-42');
@@ -915,7 +1166,7 @@ class RentalStayServiceTest extends TestCase
     public function testTheDecisionTextsAreKeptTrimmedAndBlankOnesCleared(): void
     {
         $booking = $this->createBooking();
-        $id = $this->service->reportIncident($booking, 'Vitre cassée', 5000, null, 1);
+        $id = $this->service->reportIncident($booking, 'Vitre cassée', 5000, [], 1);
         $this->service->decideIncident(
             $booking,
             $id,
@@ -940,7 +1191,7 @@ class RentalStayServiceTest extends TestCase
     public function testTheReasonForNotBillingIsKeptOnlyWithNotBilling(): void
     {
         $booking = $this->createBooking();
-        $id = $this->service->reportIncident($booking, 'Vitre cassée', 5000, null, 1);
+        $id = $this->service->reportIncident($booking, 'Vitre cassée', 5000, [], 1);
 
         $this->service->decideIncident($booking, $id, IncidentDecision::WAIVE, null, 1, null, null, 'Geste');
         $this->assertSame('Geste', $this->service->incidentsFor($booking->id)[0]->waiveReason);
@@ -954,7 +1205,7 @@ class RentalStayServiceTest extends TestCase
     public function testADecisionTextLongerThanTheFormAllowsIsRefused(): void
     {
         $booking = $this->createBooking();
-        $id = $this->service->reportIncident($booking, 'Vitre cassée', 5000, null, 1);
+        $id = $this->service->reportIncident($booking, 'Vitre cassée', 5000, [], 1);
 
         foreach ([
             [str_repeat('é', RentalStayService::INCIDENT_AWAITING_MAX + 1), null, null, IncidentDecision::PENDING],
@@ -987,7 +1238,7 @@ class RentalStayServiceTest extends TestCase
     public function testTheDecisionTextsReachNeitherTheJournalNorTheHistoryNorTheDiskInClear(): void
     {
         $booking = $this->createBooking();
-        $id = $this->service->reportIncident($booking, 'Vitre cassée', 5000, null, 1);
+        $id = $this->service->reportIncident($booking, 'Vitre cassée', 5000, [], 1);
         $this->service->decideIncident(
             $booking,
             $id,
@@ -1015,7 +1266,7 @@ class RentalStayServiceTest extends TestCase
     {
         $mine = $this->createBooking('LOC-A2B3C4');
         $other = $this->createBooking('LOC-A2B3C5');
-        $foreignId = $this->service->reportIncident($other, 'Vitre cassée', 5000, null, 1);
+        $foreignId = $this->service->reportIncident($other, 'Vitre cassée', 5000, [], 1);
 
         $this->expectException(RentalException::class);
 
@@ -1164,9 +1415,9 @@ class RentalStayServiceTest extends TestCase
         $this->service->recordReading(
             $booking, $this->assetId, $meterId, ReadingPhase::DEPARTURE, '1342,5', $this->now(), null, null, 1
         );
-        $charged = $this->service->reportIncident($booking, 'Vitre cassée', 5000, null, 1);
+        $charged = $this->service->reportIncident($booking, 'Vitre cassée', 5000, [], 1);
         $this->service->decideIncident($booking, $charged, IncidentDecision::CHARGE, null, 1);
-        $pending = $this->service->reportIncident($booking, 'Trace au mur, à évaluer', 99999, null, 1);
+        $pending = $this->service->reportIncident($booking, 'Trace au mur, à évaluer', 99999, [], 1);
 
         $settlement = $this->service->recordSettlement($booking, $this->assetId, 28, [], 1);
 
@@ -1225,7 +1476,7 @@ class RentalStayServiceTest extends TestCase
         // Without Finance (#980): the damage is a line of the settlement,
         // on the balance, never a withholding beside it.
         $booking = $this->createBooking();
-        $id = $this->service->reportIncident($booking, 'Vitre cassée', 3000, null, 1);
+        $id = $this->service->reportIncident($booking, 'Vitre cassée', 3000, [], 1);
         $this->service->decideIncident($booking, $id, IncidentDecision::CHARGE, null, 1);
 
         $settlement = $this->service->recordSettlement(
@@ -1334,7 +1585,7 @@ class RentalStayServiceTest extends TestCase
     public function testASettlementDoesNotValidateWhileADamageIsAssessed(): void
     {
         $booking = $this->createBooking();
-        $this->service->reportIncident($booking, 'Porte fendue, devis demandé', 30000, null, 1);
+        $this->service->reportIncident($booking, 'Porte fendue, devis demandé', 30000, [], 1);
         $settlement = $this->service->recordSettlement($booking, $this->assetId, 28, [], 1);
 
         try {
@@ -1350,7 +1601,7 @@ class RentalStayServiceTest extends TestCase
     public function testTheVersionRecordedWhileAssessingIsOutdatedOnceTheDamageIsDecided(): void
     {
         $booking = $this->createBooking();
-        $incident = $this->service->reportIncident($booking, 'Porte fendue', 30000, null, 1);
+        $incident = $this->service->reportIncident($booking, 'Porte fendue', 30000, [], 1);
         $before = $this->service->recordSettlement($booking, $this->assetId, 28, [], 1);
         $this->service->decideIncident($booking, $incident, IncidentDecision::CHARGE, null, 1);
 
@@ -1375,7 +1626,7 @@ class RentalStayServiceTest extends TestCase
     public function testAChargedAmountChangedSinceTheVersionOutdatesIt(): void
     {
         $booking = $this->createBooking();
-        $incident = $this->service->reportIncident($booking, 'Vitre cassée', 5000, null, 1);
+        $incident = $this->service->reportIncident($booking, 'Vitre cassée', 5000, [], 1);
         $this->service->decideIncident($booking, $incident, IncidentDecision::CHARGE, null, 1);
         $settlement = $this->service->recordSettlement($booking, $this->assetId, 28, [], 1);
 
@@ -1390,7 +1641,7 @@ class RentalStayServiceTest extends TestCase
     public function testATextThatMovesNoMoneyLeavesTheVersionValid(): void
     {
         $booking = $this->createBooking();
-        $incident = $this->service->reportIncident($booking, 'Rayure au sol', 4000, null, 1);
+        $incident = $this->service->reportIncident($booking, 'Rayure au sol', 4000, [], 1);
         $this->service->decideIncident($booking, $incident, IncidentDecision::WAIVE, null, 1, null, null, 'Usure');
         $settlement = $this->service->recordSettlement($booking, $this->assetId, 28, [], 1);
 
@@ -1414,7 +1665,7 @@ class RentalStayServiceTest extends TestCase
     public function testAVersionRecordsTheFingerprintOfTheIncidentsItWasComputedFrom(): void
     {
         $booking = $this->createBooking();
-        $incident = $this->service->reportIncident($booking, 'Vitre cassée', 5000, null, 1);
+        $incident = $this->service->reportIncident($booking, 'Vitre cassée', 5000, [], 1);
         $this->service->decideIncident($booking, $incident, IncidentDecision::CHARGE, null, 1);
 
         $settlement = $this->service->recordSettlement($booking, $this->assetId, 28, [], 1);
@@ -1439,7 +1690,7 @@ class RentalStayServiceTest extends TestCase
         $this->assertNotNull($legacy);
         $this->assertNull($legacy->incidentBasisHash);
         $this->assertSame([], $this->service->outdatedSettlementIds($booking->id, [$legacy]));
-        $incident = $this->service->reportIncident($booking, 'Porte fendue', 30000, null, 1);
+        $incident = $this->service->reportIncident($booking, 'Porte fendue', 30000, [], 1);
 
         try {
             $this->service->validateSettlement($booking, $legacy->id, 1);
@@ -1456,7 +1707,7 @@ class RentalStayServiceTest extends TestCase
     public function testADamageSentBackToItsAssessmentLeavesAValidatedVersionAsItIs(): void
     {
         $booking = $this->createBooking();
-        $incident = $this->service->reportIncident($booking, 'Vitre cassée', 5000, null, 1);
+        $incident = $this->service->reportIncident($booking, 'Vitre cassée', 5000, [], 1);
         $this->service->decideIncident($booking, $incident, IncidentDecision::CHARGE, null, 1);
         $settlement = $this->service->recordSettlement($booking, $this->assetId, 28, [], 1);
         $this->service->validateSettlement($booking, $settlement->id, 1);
@@ -1475,9 +1726,9 @@ class RentalStayServiceTest extends TestCase
     public function testThePendingIncidentsAreListedOldestFirstAndOnlyThem(): void
     {
         $booking = $this->createBooking();
-        $first = $this->service->reportIncident($booking, 'Porte fendue', 30000, null, 1);
-        $decided = $this->service->reportIncident($booking, 'Vitre cassée', 5000, null, 1);
-        $second = $this->service->reportIncident($booking, 'Tache au plafond', null, null, 1);
+        $first = $this->service->reportIncident($booking, 'Porte fendue', 30000, [], 1);
+        $decided = $this->service->reportIncident($booking, 'Vitre cassée', 5000, [], 1);
+        $second = $this->service->reportIncident($booking, 'Tache au plafond', null, [], 1);
         $this->service->decideIncident($booking, $decided, IncidentDecision::CHARGE, null, 1);
 
         $this->assertSame([$first, $second], $this->service->pendingIncidentIds($booking->id));
@@ -1510,7 +1761,7 @@ class RentalStayServiceTest extends TestCase
     private function validatedWithACharge(): array
     {
         $booking = $this->createBooking();
-        $incident = $this->service->reportIncident($booking, 'Vitre cassée', 5000, null, 1);
+        $incident = $this->service->reportIncident($booking, 'Vitre cassée', 5000, [], 1);
         $this->service->decideIncident($booking, $incident, IncidentDecision::CHARGE, null, 1);
         $settlement = $this->service->recordSettlement(
             $booking,

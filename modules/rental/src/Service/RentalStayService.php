@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\Rental\Service;
 
+use Core\File\AttachedFileRemover;
 use Core\Journal\JournalService;
 use Modules\Rental\Audit\BookingAudit;
 use Modules\Rental\Booking\RentalBooking;
@@ -58,6 +59,13 @@ class RentalStayService
     /** The longest reason for not billing a damage. */
     public const INCIDENT_WAIVE_REASON_MAX = 500;
 
+    /** The photos one incident keeps (#989): an overall view, then close-ups. */
+    public const MAX_INCIDENT_PHOTOS = 5;
+
+    /** Why an incident's photos no longer change (#989). */
+    public const INCIDENT_PHOTOS_FROZEN = "L'état des lieux de sortie est validé : les photos des incidents ne se "
+        . 'modifient plus.';
+
     /** Why a settlement does not validate while a damage is assessed (#980). */
     public const SETTLEMENT_WAITS_FOR_ASSESSMENT = "Un dégât est en cours d'évaluation : le décompte se valide "
         . "une fois l'incident tranché, sur la page État des lieux.";
@@ -76,7 +84,14 @@ class RentalStayService
          * "already paid" is zero and the settlement is a statement of what
          * is owed rather than of what is left.
          */
-        private ?RentalPaymentService $paymentService = null
+        private ?RentalPaymentService $paymentService = null,
+        /**
+         * Deletes the file of a photo taken off a reading or an incident
+         * (#989), with its thumbnail. Null leaves the file in place — a
+         * `files` row nothing points at — which is what a caller with no
+         * storage (a scheduled task reading the stay) can live with.
+         */
+        private ?AttachedFileRemover $fileRemover = null
     ) {
     }
 
@@ -165,6 +180,13 @@ class RentalStayService
             throw new RentalException('Un index de compteur ne peut pas être négatif.');
         }
 
+        // A reading keeps one photo (#989): a new one replaces the old,
+        // whose file goes rather than staying behind with nothing pointing
+        // at it.
+        $replacedFileId = $fileId !== null
+            ? $this->stayRepository->findReading($booking->id, $meterId, $phase)?->fileId
+            : null;
+
         $saved = $this->stayRepository->saveReading(
             $booking->id,
             $meterId,
@@ -181,6 +203,10 @@ class RentalStayService
             $this->assertPhaseOpen($booking->id, $phase, $arrivalTickedByHand);
         }
 
+        if ($saved && $replacedFileId !== null && $replacedFileId !== $fileId) {
+            $this->fileRemover?->removeOrphan($replacedFileId);
+        }
+
         $this->bookingAudit->record(
             $booking->id,
             BookingAudit::STATUS_CHANGED,
@@ -189,6 +215,42 @@ class RentalStayService
             'Relevé ' . mb_strtolower($phase->label()),
             $actorMemberId
         );
+    }
+
+    /**
+     * Takes the photo off a reading (#989), until its phase is validated —
+     * then the renter holds the PDF it was read into. The file goes with
+     * its thumbnail.
+     *
+     * @throws RentalException
+     */
+    public function removeReadingPhoto(
+        RentalBooking $booking,
+        int $assetId,
+        int $meterId,
+        ReadingPhase $phase,
+        bool $arrivalTickedByHand = false
+    ): void {
+        $this->assertPhaseOpen($booking->id, $phase, $arrivalTickedByHand);
+
+        $meter = $this->stayRepository->findMeter($meterId);
+        if ($meter === null || $meter->assetId !== $assetId) {
+            throw new RentalException("Ce compteur n'existe pas pour ce bien.");
+        }
+
+        $reading = $this->stayRepository->findReading($booking->id, $meterId, $phase);
+        if ($reading === null || $reading->fileId === null) {
+            throw new RentalException("Ce relevé n'a pas de photo.");
+        }
+
+        if (!$this->stayRepository->clearReadingPhoto($reading->id, $booking->id, $reading->fileId, $phase)) {
+            // Validated by someone else since the check above: the write
+            // itself refused it. Or the photo was already replaced.
+            $this->assertPhaseOpen($booking->id, $phase, $arrivalTickedByHand);
+            throw new RentalException("Ce relevé n'a pas de photo.");
+        }
+
+        $this->fileRemover?->removeOrphan($reading->fileId);
     }
 
     /**
@@ -480,18 +542,23 @@ class RentalStayService
     // ── Incidents (§6.23) ───────────────────────────────────────────────
 
     /**
+     * @param list<int> $fileIds its photos (#989), up to MAX_INCIDENT_PHOTOS
      * @throws RentalException
      */
     public function reportIncident(
         RentalBooking $booking,
         string $description,
         ?int $proposedAmountCents,
-        ?int $fileId,
+        array $fileIds,
         ?int $actorMemberId
     ): int {
         $description = trim($description);
         if ($description === '') {
             throw new RentalException('Décrivez ce qui a été constaté.');
+        }
+
+        if (count($fileIds) > self::MAX_INCIDENT_PHOTOS) {
+            throw new RentalException(self::tooManyPhotos());
         }
 
         // Observed during the stay, until the departure inventory closes
@@ -513,7 +580,7 @@ class RentalStayService
             $booking->id,
             $description,
             $proposedAmountCents,
-            $fileId,
+            $fileIds,
             $actorMemberId
         );
         if ($id === null) {
@@ -529,10 +596,119 @@ class RentalStayService
             'rental_incident_reported',
             'info',
             'Incident constaté sur ' . $booking->reference,
-            ['booking_id' => $booking->id, 'incident_id' => $id, 'proposed_cents' => $proposedAmountCents]
+            [
+                'booking_id' => $booking->id,
+                'incident_id' => $id,
+                'proposed_cents' => $proposedAmountCents,
+                'photos' => count($fileIds),
+            ]
         );
 
         return $id;
+    }
+
+    /**
+     * Adds photos to an incident already observed (#989, decision Q5),
+     * until the departure inventory is validated — its PDF lists the
+     * incidents, frozen with it — and up to MAX_INCIDENT_PHOTOS in all.
+     * All or none.
+     *
+     * @param list<int> $fileIds
+     * @throws RentalException
+     */
+    public function addIncidentPhotos(
+        RentalBooking $booking,
+        int $incidentId,
+        array $fileIds,
+        ?int $actorMemberId
+    ): void {
+        if ($fileIds === []) {
+            throw new RentalException('Choisissez une photo à ajouter.');
+        }
+
+        $incident = $this->stayRepository->findIncident($incidentId);
+        // The booking check is the guard that matters: an incident id
+        // alone must not let a manager of one asset write onto another's.
+        if ($incident === null || $incident->bookingId !== $booking->id) {
+            throw new RentalException("Cet incident n'appartient pas à cette réservation.");
+        }
+
+        $this->assertIncidentPhotosOpen($booking->id);
+
+        if (count($incident->photos) + count($fileIds) > self::MAX_INCIDENT_PHOTOS) {
+            throw new RentalException(self::tooManyPhotos(true));
+        }
+
+        $added = $this->stayRepository->addIncidentPhotos(
+            $incidentId,
+            $booking->id,
+            $fileIds,
+            $actorMemberId,
+            self::MAX_INCIDENT_PHOTOS
+        );
+        if (!$added) {
+            // Something changed since the checks above, and the write
+            // itself refused it: say which.
+            $this->assertIncidentPhotosOpen($booking->id);
+            throw new RentalException(self::tooManyPhotos(true));
+        }
+
+        $this->journal->log(
+            'rental',
+            'rental_incident_photo_added',
+            'info',
+            'Photo ajoutée à un incident de ' . $booking->reference,
+            ['booking_id' => $booking->id, 'incident_id' => $incidentId, 'photos' => count($fileIds)]
+        );
+    }
+
+    /**
+     * Removes one photo of an incident (#989, decision Q5), until the
+     * departure inventory is validated. The file goes with its thumbnail.
+     *
+     * @throws RentalException
+     */
+    public function removeIncidentPhoto(RentalBooking $booking, int $photoId): void
+    {
+        $photo = $this->stayRepository->findIncidentPhoto($photoId);
+        if ($photo === null || $photo->bookingId !== $booking->id) {
+            throw new RentalException("Cette photo n'appartient pas à cette réservation.");
+        }
+
+        $this->assertIncidentPhotosOpen($booking->id);
+
+        if (!$this->stayRepository->deleteIncidentPhoto($photoId, $booking->id)) {
+            // Validated by someone else since the check above — the write
+            // itself refused it — or already removed.
+            $this->assertIncidentPhotosOpen($booking->id);
+            throw new RentalException("Cette photo n'appartient pas à cette réservation.");
+        }
+
+        $this->fileRemover?->removeOrphan($photo->fileId);
+
+        $this->journal->log(
+            'rental',
+            'rental_incident_photo_removed',
+            'info',
+            "Photo retirée d'un incident de " . $booking->reference,
+            ['booking_id' => $booking->id, 'incident_id' => $photo->incidentId, 'photo_id' => $photoId]
+        );
+    }
+
+    /**
+     * @throws RentalException
+     */
+    private function assertIncidentPhotosOpen(int $bookingId): void
+    {
+        if (isset($this->inventoryValidations($bookingId)[ReadingPhase::DEPARTURE->value])) {
+            throw new RentalException(self::INCIDENT_PHOTOS_FROZEN);
+        }
+    }
+
+    private static function tooManyPhotos(bool $toAnExistingIncident = false): string
+    {
+        return 'Un incident garde ' . self::MAX_INCIDENT_PHOTOS . ' photos au plus'
+            . ($toAnExistingIncident ? " : retirez-en une avant d'en ajouter une autre." : '.');
     }
 
     /**

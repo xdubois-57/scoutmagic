@@ -27,6 +27,8 @@ use Tests\Modules\Rental\RentalTestHelper;
 #[\PHPUnit\Framework\Attributes\Group('database')]
 class RentalStayRepositoryTest extends TestCase
 {
+    use IncidentPhotoScenarios;
+
     private \PDO $pdo;
     private EncryptionService $encryption;
     private RentalStayRepository $repository;
@@ -458,14 +460,15 @@ class RentalStayRepositoryTest extends TestCase
 
     public function testAnIncidentIsStoredEncryptedAndComesBackReadable(): void
     {
-        $id = $this->repository->createIncident($this->bookingId, '  Vitre cassée dans la cuisine ', 4500, 12, 7);
+        $id = $this->repository->createIncident($this->bookingId, '  Vitre cassée dans la cuisine ', 4500, [12, 13], 7);
 
         $incident = $this->repository->findIncident($id);
         $this->assertNotNull($incident);
         $this->assertSame('Vitre cassée dans la cuisine', $incident->description);
         $this->assertSame(4500, $incident->proposedAmountCents);
         $this->assertSame(IncidentDecision::PENDING, $incident->decision);
-        $this->assertSame(12, $incident->fileId);
+        $this->assertSame([12, 13], array_map(static fn($photo): int => $photo->fileId, $incident->photos));
+        $this->assertSame([1, 2], array_map(static fn($photo): int => $photo->position, $incident->photos));
 
         $raw = (string) $this->pdo->query('SELECT description_encrypted FROM rental_incidents')->fetchColumn();
         $this->assertStringNotContainsString('Vitre cassée', $raw);
@@ -473,7 +476,7 @@ class RentalStayRepositoryTest extends TestCase
 
     public function testAnIncidentIsCreatedPendingAndDecidedAfterwards(): void
     {
-        $id = $this->repository->createIncident($this->bookingId, 'Vitre cassée', 4500, null, 7);
+        $id = $this->repository->createIncident($this->bookingId, 'Vitre cassée', 4500, [], 7);
 
         $this->repository->decideIncident($id, IncidentDecision::CHARGE, 4000, 9);
 
@@ -488,7 +491,7 @@ class RentalStayRepositoryTest extends TestCase
 
     public function testTheDecisionTextsAreStoredEncryptedEachUnderItsOwnContext(): void
     {
-        $id = $this->repository->createIncident($this->bookingId, 'Vitre cassée', 4500, null, 7);
+        $id = $this->repository->createIncident($this->bookingId, 'Vitre cassée', 4500, [], 7);
 
         $this->repository->decideIncident(
             $id,
@@ -520,7 +523,7 @@ class RentalStayRepositoryTest extends TestCase
 
     public function testABlankDecisionTextStoresNothing(): void
     {
-        $id = $this->repository->createIncident($this->bookingId, 'Vitre cassée', 4500, null, 7);
+        $id = $this->repository->createIncident($this->bookingId, 'Vitre cassée', 4500, [], 7);
         $this->repository->decideIncident($id, IncidentDecision::PENDING, null, 9, 'Devis', 'REF');
 
         $this->repository->decideIncident($id, IncidentDecision::WAIVE, null, 9, '  ', null, '');
@@ -533,9 +536,9 @@ class RentalStayRepositoryTest extends TestCase
 
     public function testTheRetiredWithholdIsConvertedToAChargeOfTheSameAmountOnce(): void
     {
-        $decided = $this->repository->createIncident($this->bookingId, 'Décidé', 4500, null, 7);
-        $proposed = $this->repository->createIncident($this->bookingId, 'Proposé', 3000, null, 7);
-        $waived = $this->repository->createIncident($this->bookingId, 'Abandonné', 2000, null, 7);
+        $decided = $this->repository->createIncident($this->bookingId, 'Décidé', 4500, [], 7);
+        $proposed = $this->repository->createIncident($this->bookingId, 'Proposé', 3000, [], 7);
+        $waived = $this->repository->createIncident($this->bookingId, 'Abandonné', 2000, [], 7);
         $stmt = $this->pdo->prepare('UPDATE rental_incidents SET decision = ?, decided_amount_cents = ? WHERE id = ?');
         $stmt->execute(['withhold', 4000, $decided]);
         $stmt->execute(['withhold', null, $proposed]);
@@ -556,7 +559,7 @@ class RentalStayRepositoryTest extends TestCase
 
     public function testALeftoverWithholdReadsAsACharge(): void
     {
-        $id = $this->repository->createIncident($this->bookingId, 'Vitre cassée', 4500, null, 7);
+        $id = $this->repository->createIncident($this->bookingId, 'Vitre cassée', 4500, [], 7);
         $this->pdo->prepare('UPDATE rental_incidents SET decision = ? WHERE id = ?')->execute(['withhold', $id]);
 
         $this->assertSame(IncidentDecision::CHARGE, $this->repository->findIncident($id)?->decision);
@@ -566,9 +569,9 @@ class RentalStayRepositoryTest extends TestCase
     {
         $otherBookingId = $this->booking('LOC-A2B3C5', '2027-08-01', '2027-08-04');
 
-        $this->repository->createIncident($this->bookingId, 'Premier', null, null, 7);
-        $this->repository->createIncident($this->bookingId, 'Second', null, null, 7);
-        $this->repository->createIncident($otherBookingId, 'Autre séjour', null, null, 7);
+        $this->repository->createIncident($this->bookingId, 'Premier', null, [], 7);
+        $this->repository->createIncident($this->bookingId, 'Second', null, [], 7);
+        $this->repository->createIncident($otherBookingId, 'Autre séjour', null, [], 7);
 
         $descriptions = array_map(
             static fn ($incident) => $incident->description,
@@ -579,8 +582,8 @@ class RentalStayRepositoryTest extends TestCase
 
     public function testDeletingAnIncidentRemovesItAndNothingElse(): void
     {
-        $kept = $this->repository->createIncident($this->bookingId, 'Gardé', null, null, 7);
-        $gone = $this->repository->createIncident($this->bookingId, 'Effacé', null, null, 7);
+        $kept = $this->repository->createIncident($this->bookingId, 'Gardé', null, [], 7);
+        $gone = $this->repository->createIncident($this->bookingId, 'Effacé', null, [], 7);
 
         $this->repository->deleteIncident($gone);
 
@@ -597,11 +600,11 @@ class RentalStayRepositoryTest extends TestCase
     {
         $at = new \DateTimeImmutable('2027-07-17 18:00:00');
         $this->repository->recordInventoryValidation($this->bookingId, ReadingPhase::ARRIVAL, $at, null);
-        $this->assertNotNull($this->repository->createIncident($this->bookingId, 'Avant', null, null, 7));
+        $this->assertNotNull($this->repository->createIncident($this->bookingId, 'Avant', null, [], 7));
 
         $this->repository->recordInventoryValidation($this->bookingId, ReadingPhase::DEPARTURE, $at, null);
 
-        $this->assertNull($this->repository->createIncident($this->bookingId, 'Trop tard', 2000, null, 7));
+        $this->assertNull($this->repository->createIncident($this->bookingId, 'Trop tard', 2000, [], 7));
         $this->assertSame(
             ['Avant'],
             array_map(static fn ($incident) => $incident->description, $this->repository->findIncidents($this->bookingId))
@@ -748,7 +751,7 @@ class RentalStayRepositoryTest extends TestCase
     {
         $plain = $this->settlement(1);
         $withDeposit = $this->settlement(2);
-        $incident = $this->repository->createIncident($this->bookingId, 'Porte fendue', 30000, null, 7);
+        $incident = $this->repository->createIncident($this->bookingId, 'Porte fendue', 30000, [], 7);
         $this->assertNotNull($incident);
 
         $this->assertFalse($this->repository->validateSettlement($plain, 7));
@@ -765,16 +768,16 @@ class RentalStayRepositoryTest extends TestCase
     public function testAnotherBookingsAssessmentHoldsNothingHere(): void
     {
         $other = $this->booking('LOC-A2B3C5', '2027-08-01', '2027-08-03');
-        $this->repository->createIncident($other, 'Porte fendue', 30000, null, 7);
+        $this->repository->createIncident($other, 'Porte fendue', 30000, [], 7);
 
         $this->assertTrue($this->repository->validateSettlement($this->settlement(1), 7));
     }
 
     public function testThePendingIncidentIdsAreTheAssessedOnesOldestFirst(): void
     {
-        $first = $this->repository->createIncident($this->bookingId, 'Porte fendue', 30000, null, 7);
-        $decided = $this->repository->createIncident($this->bookingId, 'Vitre cassée', 5000, null, 7);
-        $second = $this->repository->createIncident($this->bookingId, 'Tache', null, null, 7);
+        $first = $this->repository->createIncident($this->bookingId, 'Porte fendue', 30000, [], 7);
+        $decided = $this->repository->createIncident($this->bookingId, 'Vitre cassée', 5000, [], 7);
+        $second = $this->repository->createIncident($this->bookingId, 'Tache', null, [], 7);
         $this->repository->decideIncident((int) $decided, IncidentDecision::CHARGE, null, 7);
 
         $this->assertSame([$first, $second], $this->repository->pendingIncidentIds($this->bookingId));
@@ -784,16 +787,16 @@ class RentalStayRepositoryTest extends TestCase
     public function testThePendingIncidentsOfBookingsGoneByADateCarryOnlyWhatThePointShows(): void
     {
         // Left on 20/07: on the bound, then a day after it.
-        $pending = $this->repository->createIncident($this->bookingId, 'Porte fendue', 30000, null, 7);
+        $pending = $this->repository->createIncident($this->bookingId, 'Porte fendue', 30000, [], 7);
         $this->repository->decideIncident(
             (int) $pending, IncidentDecision::PENDING, null, 7, "le devis du menuisier", 'DOS-42'
         );
-        $decided = $this->repository->createIncident($this->bookingId, 'Vitre cassée', 5000, null, 7);
+        $decided = $this->repository->createIncident($this->bookingId, 'Vitre cassée', 5000, [], 7);
         $this->repository->decideIncident((int) $decided, IncidentDecision::CHARGE, null, 7);
         $later = $this->booking('LOC-A2B3C5', '2027-07-20', '2027-07-21');
-        $this->repository->createIncident($later, 'Rayure', null, null, 7);
+        $this->repository->createIncident($later, 'Rayure', null, [], 7);
         $cancelled = $this->booking('LOC-A2B3C6', '2027-07-10', '2027-07-12');
-        $this->repository->createIncident($cancelled, 'Rayure', null, null, 7);
+        $this->repository->createIncident($cancelled, 'Rayure', null, [], 7);
         $this->pdo->prepare('UPDATE rental_bookings SET status = ? WHERE id = ?')->execute(['cancelled', $cancelled]);
 
         $rows = $this->repository->findPendingIncidentsDepartedBy('2027-07-20', ['refused', 'cancelled', 'expired']);

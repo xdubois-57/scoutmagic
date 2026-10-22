@@ -129,7 +129,7 @@ final class RentalClosureOnMysqlTest extends TestCase
             null
         );
         $stay = self::stay($this->pdo);
-        $incident = $stay->reportIncident($this->booking($this->pdo), 'Châssis brisé', 80000, null, 1);
+        $incident = $stay->reportIncident($this->booking($this->pdo), 'Châssis brisé', 80000, [], 1);
         $stay->decideIncident($this->booking($this->pdo), $incident, IncidentDecision::CHARGE, null, 1);
         $settlement = $stay->recordSettlement($this->booking($this->pdo), $this->assetId, null, [], 1);
         $stay->validateSettlement($this->booking($this->pdo), $settlement->id, 1);

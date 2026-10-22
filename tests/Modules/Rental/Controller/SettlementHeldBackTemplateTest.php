@@ -162,7 +162,6 @@ final class SettlementHeldBackTemplateTest extends TestCase
             decidedAmountCents: null,
             decidedAt: new \DateTimeImmutable('2027-07-22 10:00:00'),
             decidedByMemberId: 1,
-            fileId: null,
             createdByMemberId: 1,
             createdAt: new \DateTimeImmutable('2027-07-20 10:00:00')
         );

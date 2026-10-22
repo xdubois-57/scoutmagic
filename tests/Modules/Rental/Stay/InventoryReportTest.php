@@ -125,7 +125,7 @@ final class InventoryReportTest extends TestCase
             ],
             [],
             [new Incident(
-                1, 1, 'Vitre <cassée>', 5000, IncidentDecision::PENDING, null, null, null, null, null,
+                1, 1, 'Vitre <cassée>', 5000, IncidentDecision::PENDING, null, null, null, null,
                 new \DateTimeImmutable('2027-07-04 10:00:00')
             )],
             'Anne Dupont',
@@ -153,7 +153,7 @@ final class InventoryReportTest extends TestCase
             [],
             [],
             [new Incident(
-                1, 1, 'Vitre cassée', 12345, IncidentDecision::PENDING, null, null, null, null, null,
+                1, 1, 'Vitre cassée', 12345, IncidentDecision::PENDING, null, null, null, null,
                 new \DateTimeImmutable('2027-07-04 10:00:00')
             )],
             'Anne Dupont',

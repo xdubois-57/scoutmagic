@@ -112,15 +112,31 @@ class ImageVariantService
         return is_file($path) ? $path : null;
     }
 
+    /**
+     * Where every derivative of a stored original lives, relative to the
+     * storage root, whether it exists or not — for code that DELETES the
+     * original: a derivative has no `files` row of its own, so nothing
+     * else will ever find it again (Core\File\AttachedFileRemover).
+     *
+     * @return list<string>
+     */
+    public static function derivativeRelativePaths(string $relativePath): array
+    {
+        return array_map(
+            static fn (string $variant): string => self::siblingRelativePath($relativePath, $variant),
+            self::VARIANTS
+        );
+    }
+
     private function absoluteVariantPath(string $relativePath, string $variant): string
     {
-        return $this->storagePath . '/' . $this->siblingRelativePath($relativePath, $variant);
+        return $this->storagePath . '/' . self::siblingRelativePath($relativePath, $variant);
     }
 
     /**
      * "core/member_photos/{hex}.jpg" + "thumb" => "core/member_photos/{hex}.thumb.webp".
      */
-    private function siblingRelativePath(string $relativePath, string $variant): string
+    private static function siblingRelativePath(string $relativePath, string $variant): string
     {
         $dir = dirname($relativePath);
         $base = pathinfo($relativePath, PATHINFO_FILENAME);

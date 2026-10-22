@@ -29,12 +29,17 @@ final class Incident
         public readonly ?int $decidedAmountCents,
         public readonly ?\DateTimeImmutable $decidedAt,
         public readonly ?int $decidedByMemberId,
-        public readonly ?int $fileId,
         public readonly ?int $createdByMemberId,
         public readonly \DateTimeImmutable $createdAt,
         public readonly ?string $awaiting = null,
         public readonly ?string $reference = null,
-        public readonly ?string $waiveReason = null
+        public readonly ?string $waiveReason = null,
+        /**
+         * Its photos in the order they were added, up to five (#989).
+         *
+         * @var list<IncidentPhoto>
+         */
+        public readonly array $photos = []
     ) {
     }
 

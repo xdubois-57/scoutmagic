@@ -241,8 +241,8 @@ class RentalTrackingIncidentsTest extends TestCase
     {
         $created = $this->createBooking();
         $booking = $this->booking($created);
-        $charged = $this->stay->reportIncident($booking, 'Vitre de la cuisine cassée', 9000, null, 1);
-        $waived = $this->stay->reportIncident($booking, 'Tache sur le parquet', 3000, null, 1);
+        $charged = $this->stay->reportIncident($booking, 'Vitre de la cuisine cassée', 9000, [], 1);
+        $waived = $this->stay->reportIncident($booking, 'Tache sur le parquet', 3000, [], 1);
         $this->pdo->prepare('UPDATE rental_incidents SET created_at = ? WHERE id IN (?, ?)')
             ->execute(['2027-03-14 18:30:00', $charged, $waived]);
         $this->stay->decideIncident($booking, $charged, IncidentDecision::CHARGE, 12000, 1);
@@ -270,7 +270,7 @@ class RentalTrackingIncidentsTest extends TestCase
         // (Incident::effectiveAmountCents()).
         $created = $this->createBooking();
         $booking = $this->booking($created);
-        $id = $this->stay->reportIncident($booking, 'Chaise brisée', 4500, null, 1);
+        $id = $this->stay->reportIncident($booking, 'Chaise brisée', 4500, [], 1);
         $this->stay->decideIncident($booking, $id, IncidentDecision::CHARGE, null, 1);
 
         $this->assertStringContainsString('Facturé : 45,00 €', $this->track($created));
@@ -280,7 +280,7 @@ class RentalTrackingIncidentsTest extends TestCase
     {
         $created = $this->createBooking();
         $booking = $this->booking($created);
-        $pending = $this->stay->reportIncident($booking, 'Infiltration dans le dortoir', 85000, null, 1);
+        $pending = $this->stay->reportIncident($booking, 'Infiltration dans le dortoir', 85000, [], 1);
         $this->stay->decideIncident(
             $booking,
             $pending,
@@ -290,7 +290,7 @@ class RentalTrackingIncidentsTest extends TestCase
             'Expertise de l\'assurance',
             'SIN-2027-0042'
         );
-        $decided = $this->stay->reportIncident($booking, 'Ampoule grillée', 500, null, 1);
+        $decided = $this->stay->reportIncident($booking, 'Ampoule grillée', 500, [], 1);
         $this->stay->decideIncident($booking, $decided, IncidentDecision::WAIVE, null, 1);
 
         $body = $this->track($created);
@@ -319,7 +319,7 @@ class RentalTrackingIncidentsTest extends TestCase
         // Not merely hidden by the template: the object the page receives
         // carries nothing of it (ARCHITECTURE.md §7.6, rule 3).
         $created = $this->createBooking();
-        $this->stay->reportIncident($this->booking($created), 'Infiltration dans le dortoir', 85000, null, 1);
+        $this->stay->reportIncident($this->booking($created), 'Infiltration dans le dortoir', 85000, [], 1);
 
         $incidents = $this->stay->renterIncidents($created['id']);
 
@@ -333,7 +333,7 @@ class RentalTrackingIncidentsTest extends TestCase
     {
         $created = $this->createBooking();
         $booking = $this->booking($created);
-        $id = $this->stay->reportIncident($booking, 'Porte rayée', 2000, null, 1);
+        $id = $this->stay->reportIncident($booking, 'Porte rayée', 2000, [], 1);
         $this->stay->decideIncident(
             $booking,
             $id,
@@ -357,7 +357,7 @@ class RentalTrackingIncidentsTest extends TestCase
     {
         // The retired value, before IncidentDecisionMigration has run.
         $created = $this->createBooking();
-        $id = $this->stay->reportIncident($this->booking($created), 'Matelas taché', 6000, null, 1);
+        $id = $this->stay->reportIncident($this->booking($created), 'Matelas taché', 6000, [], 1);
         $this->pdo->prepare('UPDATE rental_incidents SET decision = ? WHERE id = ?')
             ->execute([IncidentDecision::LEGACY_WITHHOLD, $id]);
 
@@ -376,7 +376,7 @@ class RentalTrackingIncidentsTest extends TestCase
     public function testAWrongTokenIsNotFound(): void
     {
         $created = $this->createBooking();
-        $this->stay->reportIncident($this->booking($created), 'Vitre de la cuisine cassée', 9000, null, 1);
+        $this->stay->reportIncident($this->booking($created), 'Vitre de la cuisine cassée', 9000, [], 1);
 
         $response = $this->controller()->tracking(
             new Request('GET', '/locations/suivi/' . $created['id'] . '/wrong', [], [], [], []),

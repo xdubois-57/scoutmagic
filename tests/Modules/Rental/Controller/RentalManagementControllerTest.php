@@ -195,6 +195,10 @@ class RentalManagementControllerTest extends TestCase
             new \Modules\Finance\Service\FinanceAccountService(new AccountRepository($this->pdo, $this->encryption))
         );
 
+        $this->storagePath = sys_get_temp_dir() . '/rental_mgmt_' . bin2hex(random_bytes(6));
+        mkdir($this->storagePath, 0755, true);
+        $this->fileRepository = new \Core\File\FileRepository($this->pdo);
+
         $this->stayService = new \Modules\Rental\Service\RentalStayService(
             new \Modules\Rental\Repository\RentalStayRepository($this->pdo, $this->encryption),
             $bookingAudit,
@@ -202,8 +206,11 @@ class RentalManagementControllerTest extends TestCase
             new \Modules\Rental\Stay\SettlementCalculator(),
             $journal,
             // As public/index.php wires it: the settlement reads what was
-            // paid on the booking's receivable.
-            $this->paymentService
+            // paid on the booking's receivable...
+            $this->paymentService,
+            // ...and a photo taken off a reading or an incident leaves no
+            // file behind (#989).
+            new \Core\File\AttachedFileRemover($this->fileRepository, $this->storagePath)
         );
 
         // The guarded closure and the unrecovered one (#980), as
@@ -248,9 +255,6 @@ class RentalManagementControllerTest extends TestCase
         $this->twig->addGlobal('current_path', '/mes-locations');
         $this->twig->addGlobal('csp_nonce', 'test-nonce');
 
-        $this->storagePath = sys_get_temp_dir() . '/rental_mgmt_' . bin2hex(random_bytes(6));
-        mkdir($this->storagePath, 0755, true);
-        $this->fileRepository = new \Core\File\FileRepository($this->pdo);
         $this->documentService = new \Modules\Rental\Service\RentalDocumentService(
             new \Modules\Rental\Repository\RentalDocumentRepository($this->pdo),
             $this->bookingRepository,
@@ -393,7 +397,15 @@ class RentalManagementControllerTest extends TestCase
             new \Modules\Rental\Document\SignerName(
                 new \Core\Security\UserAccountRepository($this->pdo, $this->encryption)
             ),
-            $this->closureService
+            $this->closureService,
+            // As public/index.php wires them (#989): every photo is
+            // normalised before it is stored, and gets its thumbnail.
+            \Core\Image\PhotoNormalizer::forThisServer(),
+            new \Core\Photo\ImageVariantService(
+                $this->fileRepository,
+                new \Core\Photo\ImageVariantProcessor(),
+                $this->storagePath
+            )
         );
 
         $this->assetId = $this->createAsset('Local Saint-Georges', 'local-saint-georges');
@@ -1638,6 +1650,9 @@ class RentalManagementControllerTest extends TestCase
             ['/mes-locations/etat-des-lieux/ligne', 'saveInventoryLine', ['inventory_id' => '1', 'phase' => 'arrival', 'value' => '1']],
             ['/mes-locations/etat-des-lieux/valider', 'validateInventory', ['phase' => 'arrival']],
             ['/mes-locations/incident', 'reportIncident', ['description' => 'x']],
+            ['/mes-locations/incident/photo', 'addIncidentPhotos', ['incident_id' => '1']],
+            ['/mes-locations/incident/photo/retirer', 'removeIncidentPhoto', ['photo_id' => '1']],
+            ['/mes-locations/releve/photo/retirer', 'removeReadingPhoto', ['meter_id' => '1', 'phase' => 'arrival']],
             ['/mes-locations/incident-decision', 'decideIncident', ['incident_id' => '1', 'decision' => 'charge']],
             ['/mes-locations/decompte', 'recordSettlement', ['final_persons' => '10']],
             ['/mes-locations/decompte-valider', 'validateSettlement', ['settlement_id' => '1']],
@@ -5012,7 +5027,7 @@ class RentalManagementControllerTest extends TestCase
     {
         $this->loginAsManager();
         $booking = $this->createBooking();
-        $id = $this->stayService->reportIncident($booking, 'Vitre cassée', 5000, null, 1);
+        $id = $this->stayService->reportIncident($booking, 'Vitre cassée', 5000, [], 1);
 
         $this->post('/mes-locations/incident-decision', 'decideIncident', [
             'asset_id' => (string) $this->assetId,
@@ -5033,7 +5048,7 @@ class RentalManagementControllerTest extends TestCase
     {
         $this->loginAsManager();
         $booking = $this->createBooking();
-        $id = $this->stayService->reportIncident($booking, 'Vitre cassée', 5000, null, 1);
+        $id = $this->stayService->reportIncident($booking, 'Vitre cassée', 5000, [], 1);
 
         $this->post('/mes-locations/incident-decision', 'decideIncident', [
             'asset_id' => (string) $this->assetId,
@@ -5061,7 +5076,7 @@ class RentalManagementControllerTest extends TestCase
     {
         $this->loginAsManager();
         $booking = $this->createBooking();
-        $id = $this->stayService->reportIncident($booking, 'Vitre cassée', 5000, null, 1);
+        $id = $this->stayService->reportIncident($booking, 'Vitre cassée', 5000, [], 1);
         $this->stayService->decideIncident(
             $booking,
             $id,
@@ -5115,7 +5130,7 @@ class RentalManagementControllerTest extends TestCase
         $this->loginAsManager();
         $mine = $this->createBooking(null, 'LOC-A2B3C4');
         $foreign = $this->createBooking($this->otherAssetId, 'LOC-W9Y8X7');
-        $foreignId = $this->stayService->reportIncident($foreign, 'Vitre cassée', 5000, null, 1);
+        $foreignId = $this->stayService->reportIncident($foreign, 'Vitre cassée', 5000, [], 1);
 
         $this->post('/mes-locations/incident-decision', 'decideIncident', [
             'asset_id' => (string) $this->assetId,
@@ -5477,6 +5492,346 @@ class RentalManagementControllerTest extends TestCase
             'booking_id' => (string) $booking->id,
         ]);
         unset($_FILES['photo']);
+    }
+
+    // ── Photos (#989) ───────────────────────────────────────────────────
+
+    /**
+     * Posts photos under `photos[]` (several) — the field a form with
+     * several photos sends — and removes the temporary files afterwards.
+     *
+     * @param array<string, string> $body
+     * @param list<string> $images the bytes of each photo
+     */
+    private function postWithPhotos(string $path, string $action, array $body, array $images, RentalBooking $booking): Response
+    {
+        $temporaries = [];
+        foreach ($images as $bytes) {
+            $temporary = (string) tempnam(sys_get_temp_dir(), 'photo-');
+            file_put_contents($temporary, $bytes);
+            $temporaries[] = $temporary;
+        }
+        $_FILES['photos'] = [
+            'name' => array_map(static fn(int $i): string => 'IMG_' . $i . '.jpg', array_keys($images)),
+            'type' => array_fill(0, count($images), 'image/jpeg'),
+            'tmp_name' => $temporaries,
+            'error' => array_fill(0, count($images), UPLOAD_ERR_OK),
+            'size' => array_map('strlen', $images),
+        ];
+
+        try {
+            return $this->post($path, $action, $body + [
+                'asset_id' => (string) $this->assetId,
+                'booking_id' => (string) $booking->id,
+            ]);
+        } finally {
+            unset($_FILES['photos']);
+            foreach ($temporaries as $temporary) {
+                @unlink($temporary);
+            }
+        }
+    }
+
+    /** A phone photo: JPEG pixels and an EXIF block with a camera make in it. */
+    private static function phonePhoto(int $width = 64, int $height = 48): string
+    {
+        $image = imagecreatetruecolor($width, $height);
+        ob_start();
+        imagejpeg($image, null, 90);
+        $jpeg = (string) ob_get_clean();
+        $make = "PhoneCam\x00";
+        $tiff = 'II' . pack('v', 0x002A) . pack('V', 8) . pack('v', 1)
+            . pack('vvVV', 0x010F, 2, strlen($make), 26) . pack('V', 0) . $make;
+        $payload = "Exif\x00\x00" . $tiff;
+
+        return substr($jpeg, 0, 2) . "\xFF\xE1" . pack('n', strlen($payload) + 2) . $payload . substr($jpeg, 2);
+    }
+
+    private function countFiles(): int
+    {
+        return (int) $this->pdo->query('SELECT COUNT(*) FROM files')->fetchColumn();
+    }
+
+    /** @return list<\Modules\Rental\Stay\IncidentPhoto> */
+    private function photosOfTheOnlyIncident(RentalBooking $booking): array
+    {
+        $incidents = $this->stayService->incidentsFor($booking->id);
+        $this->assertCount(1, $incidents);
+
+        return $incidents[0]->photos;
+    }
+
+    /**
+     * Several photos come with one report, and each is stored as the site
+     * keeps a photo: a JPEG with no EXIF, served through FileAccessGuard,
+     * its thumbnail beside it. The incident page links to each.
+     */
+    public function testAnIncidentIsReportedWithSeveralNormalisedPhotos(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+
+        $this->postWithPhotos('/mes-locations/incident', 'reportIncident', [
+            'description' => 'Porte du réfectoire forcée', 'amount' => '', 'booking_page' => 'inventory',
+        ], [self::phonePhoto(), self::phonePhoto(3000, 1500)], $booking);
+
+        $this->assertSame('success', \Core\Http\FlashMessage::get()['type'] ?? null);
+        $photos = $this->photosOfTheOnlyIncident($booking);
+        $this->assertCount(2, $photos);
+        foreach ($photos as $photo) {
+            $record = $this->fileRepository->findById($photo->fileId);
+            $this->assertNotNull($record);
+            $this->assertSame('image/jpeg', $record->mimeType);
+            $this->assertSame(\Modules\Rental\Service\RentalDocumentService::OWNER_TYPE, $record->ownerType);
+            $this->assertSame($booking->id, $record->ownerId);
+            $bytes = (string) file_get_contents($this->storagePath . '/' . $record->relativePath);
+            $this->assertStringNotContainsString('PhoneCam', $bytes);
+            [$width, $height] = (array) getimagesizefromstring($bytes);
+            $this->assertLessThanOrEqual(\Core\Image\PhotoNormalizer::MAX_LONG_SIDE, max($width, $height));
+            $this->assertFileExists(
+                $this->storagePath . '/' . \Core\Photo\ImageVariantService::derivativeRelativePaths($record->relativePath)[0]
+            );
+        }
+
+        $body = $this->inventoryPage($booking);
+        $this->assertStringContainsString('/files/' . $photos[0]->fileId . '"', $body);
+        $this->assertStringContainsString('Photo 2</a>', $body);
+    }
+
+    /** The single `photo` field the page posts today works the same way. */
+    public function testTheSinglePhotoFieldIsNormalisedToo(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+
+        $this->postWithPhoto('/mes-locations/incident', 'reportIncident', ['description' => 'Vitre cassée', 'amount' => '']);
+
+        $photos = $this->photosOfTheOnlyIncident($booking);
+        $this->assertCount(1, $photos);
+        $this->assertSame('image/jpeg', $this->fileRepository->findById($photos[0]->fileId)?->mimeType);
+    }
+
+    /**
+     * A photo the server cannot read is refused with the normaliser's
+     * sentence, and nothing of the report is kept — not the incident, not
+     * the other photo already stored.
+     */
+    public function testAnUnreadablePhotoRefusesTheReportAndKeepsNothing(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+        $before = $this->countFiles();
+
+        $this->postWithPhotos('/mes-locations/incident', 'reportIncident', [
+            'description' => 'Vitre cassée', 'amount' => '',
+        ], [self::phonePhoto(), "\xFF\xD8\xFF\xE0" . str_repeat("\x00", 64)], $booking);
+
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertSame('error', $flash['type'] ?? null);
+        $this->assertSame(\Core\Image\PhotoNormalizer::UNREADABLE, $flash['message'] ?? null);
+        $this->assertSame([], $this->stayService->incidentsFor($booking->id));
+        $this->assertSame($before, $this->countFiles());
+        $this->assertSame([], glob($this->storagePath . '/rental/documents/*') ?: []);
+    }
+
+    /**
+     * Decision Q6: an HEIC photo on a server whose Imagick cannot read it
+     * is refused with the sentence that tells an iPhone owner what to
+     * change — never kept as it came, GPS position and all.
+     */
+    public function testAnHeicPhotoTheServerCannotReadIsRefusedInFrench(): void
+    {
+        (new \ReflectionProperty(RentalManagementController::class, 'photoNormalizer'))
+            ->setValue($this->controller, new \Core\Image\PhotoNormalizer(null));
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+        $before = $this->countFiles();
+        $heic = pack('N', 24) . 'ftypheic' . pack('N', 0) . 'mif1heic' . str_repeat("\x00", 64);
+
+        $this->postWithPhotos('/mes-locations/incident', 'reportIncident', [
+            'description' => 'Vitre cassée', 'amount' => '',
+        ], [$heic], $booking);
+
+        $this->assertSame(\Core\Image\PhotoNormalizer::HEIC_UNREADABLE, \Core\Http\FlashMessage::get()['message'] ?? null);
+        $this->assertSame([], $this->stayService->incidentsFor($booking->id));
+        $this->assertSame($before, $this->countFiles());
+    }
+
+    public function testSixPhotosInOneReportAreRefusedBeforeAnyIsStored(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+        $before = $this->countFiles();
+
+        $this->postWithPhotos('/mes-locations/incident', 'reportIncident', [
+            'description' => 'Vitre cassée', 'amount' => '',
+        ], array_fill(0, 6, self::phonePhoto()), $booking);
+
+        $this->assertSame('Un incident garde 5 photos au plus.', \Core\Http\FlashMessage::get()['message'] ?? null);
+        $this->assertSame($before, $this->countFiles());
+    }
+
+    /**
+     * Decision Q5: a photo is added to an incident already observed, and
+     * one is removed — its file and its thumbnail with it.
+     */
+    public function testAPhotoIsAddedToAnIncidentAndRemovedFromIt(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+        $incidentId = $this->stayService->reportIncident($booking, 'Vitre cassée', null, [], null);
+
+        $this->postWithPhotos('/mes-locations/incident/photo', 'addIncidentPhotos', [
+            'incident_id' => (string) $incidentId,
+        ], [self::phonePhoto(), self::phonePhoto()], $booking);
+        $this->assertSame("Photo ajoutée à l'incident.", \Core\Http\FlashMessage::get()['message'] ?? null);
+        $photos = $this->photosOfTheOnlyIncident($booking);
+        $this->assertCount(2, $photos);
+        $record = $this->fileRepository->findById($photos[0]->fileId);
+        $this->assertNotNull($record);
+        $thumb = $this->storagePath . '/' . \Core\Photo\ImageVariantService::derivativeRelativePaths($record->relativePath)[0];
+        $this->assertFileExists($thumb);
+
+        $this->post('/mes-locations/incident/photo/retirer', 'removeIncidentPhoto', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'photo_id' => (string) $photos[0]->id,
+        ]);
+
+        $this->assertSame("Photo retirée de l'incident.", \Core\Http\FlashMessage::get()['message'] ?? null);
+        $this->assertSame([$photos[1]->id], array_map(
+            static fn($photo): int => $photo->id,
+            $this->photosOfTheOnlyIncident($booking)
+        ));
+        $this->assertNull($this->fileRepository->findById($photos[0]->fileId));
+        $this->assertFileDoesNotExist($this->storagePath . '/' . $record->relativePath);
+        $this->assertFileDoesNotExist($thumb);
+    }
+
+    /** After the departure is validated, a photo is neither added (and its upload goes) nor removed. */
+    public function testIncidentPhotosFreezeWithTheDepartureInventory(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+        $incidentId = $this->stayService->reportIncident($booking, 'Vitre cassée', null, [], null);
+        $this->postWithPhotos('/mes-locations/incident/photo', 'addIncidentPhotos', [
+            'incident_id' => (string) $incidentId,
+        ], [self::phonePhoto()], $booking);
+        $photo = $this->photosOfTheOnlyIncident($booking)[0];
+        $this->stayService->recordInventoryValidation($booking, \Modules\Rental\Stay\ReadingPhase::ARRIVAL, new \DateTimeImmutable(), null);
+        $this->stayService->recordInventoryValidation($booking, \Modules\Rental\Stay\ReadingPhase::DEPARTURE, new \DateTimeImmutable(), null);
+        $before = $this->countFiles();
+
+        $this->postWithPhotos('/mes-locations/incident/photo', 'addIncidentPhotos', [
+            'incident_id' => (string) $incidentId,
+        ], [self::phonePhoto()], $booking);
+        $this->assertSame(
+            \Modules\Rental\Service\RentalStayService::INCIDENT_PHOTOS_FROZEN,
+            \Core\Http\FlashMessage::get()['message'] ?? null
+        );
+        $this->assertSame($before, $this->countFiles(), 'the refused upload is taken back');
+
+        $this->post('/mes-locations/incident/photo/retirer', 'removeIncidentPhoto', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'photo_id' => (string) $photo->id,
+        ]);
+        $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
+        $this->assertNotNull($this->fileRepository->findById($photo->fileId));
+    }
+
+    /** A forged token stores nothing: the CSRF guard runs before any byte is decoded. */
+    public function testAPhotoPostWithoutAValidCsrfTokenStoresNothing(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+        $incidentId = $this->stayService->reportIncident($booking, 'Vitre cassée', null, [], null);
+        $before = $this->countFiles();
+
+        $response = $this->postWithPhotos('/mes-locations/incident/photo', 'addIncidentPhotos', [
+            '_csrf_token' => 'forged',
+            'incident_id' => (string) $incidentId,
+        ], [self::phonePhoto()], $booking);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame(
+            \Core\Http\Controller\AbstractController::SESSION_EXPIRED_MESSAGE,
+            \Core\Http\FlashMessage::get()['message'] ?? null
+        );
+        $this->assertSame($before, $this->countFiles());
+        $this->assertSame([], $this->photosOfTheOnlyIncident($booking));
+    }
+
+    /** A manager of another asset reaches none of this booking's photos. */
+    public function testAnotherAssetsManagerCannotTouchThePhotos(): void
+    {
+        $booking = $this->createBooking();
+        $incidentId = $this->stayService->reportIncident($booking, 'Vitre cassée', null, [], null);
+        $this->addManager($this->otherAssetId, 'other@test.be');
+        AuthSession::login(2, 'other@test.be', 'identified');
+        $before = $this->countFiles();
+
+        $response = $this->postWithPhotos('/mes-locations/incident/photo', 'addIncidentPhotos', [
+            'incident_id' => (string) $incidentId,
+        ], [self::phonePhoto()], $booking);
+
+        $this->assertSame(404, $response->getStatusCode());
+        $this->assertSame($before, $this->countFiles());
+    }
+
+    /**
+     * A reading keeps one photo: a new one replaces the old, whose file
+     * goes; and « retirer » takes it off until the phase is validated.
+     */
+    public function testAReadingsPhotoIsReplacedAndRemoved(): void
+    {
+        $this->loginAsManager();
+        $meterId = $this->stayService->addMeter(
+            $this->assetId, 'Électricité', \Modules\Rental\Stay\MeterKind::ELECTRICITY, 'kWh', null
+        );
+        $booking = $this->createBooking();
+        $reading = fn() => $this->stayService->consumptionsFor($booking, $this->assetId)[0]->arrival;
+        $body = ['meter_id' => (string) $meterId, 'phase' => 'arrival', 'value' => '1234'];
+
+        $this->postWithPhoto('/mes-locations/releve', 'recordReading', $body, $booking);
+        $first = $reading()?->fileId;
+        $this->assertNotNull($first);
+        $this->postWithPhoto('/mes-locations/releve', 'recordReading', $body, $booking);
+        $second = $reading()?->fileId;
+        $this->assertNotNull($second);
+        $this->assertNotSame($first, $second);
+        $this->assertNull($this->fileRepository->findById($first), 'the replaced photo is gone');
+
+        // Two photos for one reading are refused before either is stored.
+        $before = $this->countFiles();
+        $this->postWithPhotos('/mes-locations/releve', 'recordReading', $body, [self::phonePhoto(), self::phonePhoto()], $booking);
+        $this->assertSame('Une seule photo à la fois ici.', \Core\Http\FlashMessage::get()['message'] ?? null);
+        $this->assertSame($before, $this->countFiles());
+
+        $this->post('/mes-locations/releve/photo/retirer', 'removeReadingPhoto', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'meter_id' => (string) $meterId,
+            'phase' => 'arrival',
+        ]);
+        $this->assertSame('Photo du relevé retirée.', \Core\Http\FlashMessage::get()['message'] ?? null);
+        $this->assertNull($reading()?->fileId);
+        $this->assertSame(1_234_000, $reading()?->valueMilli);
+        $this->assertNull($this->fileRepository->findById($second));
+    }
+
+    /** The photo inputs ask the phone for what the server reads without a converter (Q6). */
+    public function testThePhotoInputsAskForJpegPngOrWebp(): void
+    {
+        $this->loginAsManager();
+        $this->stayService->addMeter($this->assetId, 'Électricité', \Modules\Rental\Stay\MeterKind::ELECTRICITY, 'kWh', null);
+        $this->stayService->addInventoryItem($this->assetId, 'Chaises');
+        $booking = $this->createBooking();
+
+        $body = $this->inventoryPage($booking);
+
+        $this->assertStringContainsString('name="photo" accept="image/jpeg,image/png,image/webp"', $body);
+        $this->assertStringNotContainsString('accept="image/*"', $body);
     }
 
     /**
@@ -6652,9 +7007,9 @@ class RentalManagementControllerTest extends TestCase
         $this->loginAsManager();
         $this->stayService->addInventoryItem($this->assetId, 'Clés');
         $booking = $this->createBooking();
-        $incident = $this->stayService->reportIncident($booking, 'Vitre cassée', 5000, null, 1);
+        $incident = $this->stayService->reportIncident($booking, 'Vitre cassée', 5000, [], 1);
         $this->stayService->decideIncident($booking, $incident, \Modules\Rental\Stay\IncidentDecision::CHARGE, 4500, 1);
-        $this->stayService->reportIncident($booking, 'Tache au mur', 1000, null, 1);
+        $this->stayService->reportIncident($booking, 'Tache au mur', 1000, [], 1);
 
         $body = $this->invoicePage($booking);
 
@@ -6675,7 +7030,7 @@ class RentalManagementControllerTest extends TestCase
         $this->loginAsManager();
         $this->stayService->addInventoryItem($this->assetId, 'Clés');
         $booking = $this->createBooking();
-        $incident = $this->stayService->reportIncident($booking, 'Porte fendue', 30000, null, 1);
+        $incident = $this->stayService->reportIncident($booking, 'Porte fendue', 30000, [], 1);
         $settlement = $this->stayService->recordSettlement($booking, $this->assetId, 28, [], 1);
 
         $body = $this->invoicePage($booking);
@@ -6704,7 +7059,7 @@ class RentalManagementControllerTest extends TestCase
         $this->loginAsManager();
         $this->stayService->addInventoryItem($this->assetId, 'Clés');
         $booking = $this->createBooking();
-        $incident = $this->stayService->reportIncident($booking, 'Porte fendue', 30000, null, 1);
+        $incident = $this->stayService->reportIncident($booking, 'Porte fendue', 30000, [], 1);
         $this->stayService->recordSettlement($booking, $this->assetId, 28, [], 1);
         $this->stayService->decideIncident(
             $booking,
@@ -7773,7 +8128,7 @@ class RentalManagementControllerTest extends TestCase
         $this->assertNotNull($invoice->settlementId);
         $this->assertStringNotContainsString('data-settlement-revision', $this->invoicePage($booking));
 
-        $incident = $this->stayService->reportIncident($booking, 'Vitre cassée', 5000, null, 1);
+        $incident = $this->stayService->reportIncident($booking, 'Vitre cassée', 5000, [], 1);
         $this->stayService->decideIncident($booking, $incident, \Modules\Rental\Stay\IncidentDecision::CHARGE, null, 1);
 
         $body = $this->invoicePage($booking);
@@ -7851,7 +8206,7 @@ class RentalManagementControllerTest extends TestCase
     public function testAnUnsentSupplementOfAnOlderSettlementIsNotSent(): void
     {
         $booking = $this->invoicedAfterASettlement();
-        $incident = $this->stayService->reportIncident($booking, 'Vitre cassée', 5000, null, 1);
+        $incident = $this->stayService->reportIncident($booking, 'Vitre cassée', 5000, [], 1);
         $this->stayService->decideIncident($booking, $incident, \Modules\Rental\Stay\IncidentDecision::CHARGE, null, 1);
         $v2 = $this->stayService->recordSettlementFromValidated($booking, $this->assetId, 1);
         $this->stayService->validateSettlement($booking, $v2->id, 1);
@@ -7912,7 +8267,7 @@ class RentalManagementControllerTest extends TestCase
         $this->bookingRepository->setStatus($booking->id, BookingStatus::CONFIRMED, new \DateTimeImmutable());
         $this->payOnReceivable($booking, 617.50);
         $fresh = fn(): RentalBooking => $this->bookingRepository->findById($booking->id) ?? $booking;
-        $incident = $this->stayService->reportIncident($fresh(), 'Châssis brisé', 80000, null, null);
+        $incident = $this->stayService->reportIncident($fresh(), 'Châssis brisé', 80000, [], null);
         $this->stayService->decideIncident(
             $fresh(),
             $incident,
