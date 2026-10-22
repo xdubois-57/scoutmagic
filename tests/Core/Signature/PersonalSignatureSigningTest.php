@@ -254,6 +254,72 @@ final class PersonalSignatureSigningTest extends TestCase
         $this->service->witness(new SignatureSubmission(false, self::drawing()), str_repeat('é', 121));
     }
 
+    // ── witnessFromRequest() — the brick #989 will use ──────────────────
+
+    /**
+     * What the witness dialog posts becomes a signature in one call: the
+     * drawing and the typed name. A « Mémoriser » box or an account id
+     * posted alongside is not read, and nothing is written anywhere —
+     * neither a signature nor a journal line.
+     */
+    public function testTheWitnessDialogIsReadIntoASignatureThatNothingKeeps(): void
+    {
+        $journalBefore = (int) $this->pdo->query('SELECT COUNT(*) FROM event_log')->fetchColumn();
+
+        $witness = $this->service->witnessFromRequest(self::request([
+            'signature_source' => 'new',
+            'signature_data' => self::drawing(),
+            PersonalSignatureService::WITNESS_NAME_FIELD => ' Jeanne Martin ',
+            'remember_signature' => '1',
+            'user_account_id' => (string) $this->account,
+        ]));
+
+        $this->assertSame('signer_name', PersonalSignatureService::WITNESS_NAME_FIELD);
+        $this->assertSame('Jeanne Martin', $witness->typedName);
+        $this->assertStringStartsWith("\x89PNG", $witness->png->bytes());
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM user_account_signatures')->fetchColumn());
+        $this->assertSame($journalBefore, (int) $this->pdo->query('SELECT COUNT(*) FROM event_log')->fetchColumn());
+        $this->assertFalse($this->service->has($this->account));
+        // A WitnessSignature names no account: it has no property for one.
+        $this->assertSame(['png', 'typedName'], array_map(
+            static fn(\ReflectionProperty $p): string => $p->getName(),
+            (new \ReflectionClass($witness))->getProperties()
+        ));
+    }
+
+    /** The stored mode is the account's signature, and a witness has no account. */
+    public function testTheWitnessDialogRefusesTheStoredMode(): void
+    {
+        $this->service->save($this->account, SignatureImage::fromBytes(self::pngBytes()), new \DateTimeImmutable());
+
+        $this->expectException(SignatureException::class);
+        $this->expectExceptionMessage('une signature enregistrée ne convient pas');
+        $this->service->witnessFromRequest(self::request([
+            'signature_source' => 'stored',
+            PersonalSignatureService::WITNESS_NAME_FIELD => 'Jeanne Martin',
+        ]));
+    }
+
+    public function testTheWitnessDialogNeedsADrawingAndAName(): void
+    {
+        try {
+            $this->service->witnessFromRequest(self::request([
+                'signature_source' => 'new',
+                PersonalSignatureService::WITNESS_NAME_FIELD => 'Jeanne Martin',
+            ]));
+            $this->fail('signed without a drawing');
+        } catch (SignatureException $e) {
+            $this->assertSame('Tracez la signature dans le cadre.', $e->getMessage());
+        }
+
+        $this->expectException(SignatureException::class);
+        $this->expectExceptionMessage('Indiquez le nom de la personne qui signe.');
+        $this->service->witnessFromRequest(self::request([
+            'signature_source' => 'new',
+            'signature_data' => self::drawing(),
+        ]));
+    }
+
     // ── recordSigning() ─────────────────────────────────────────────────
 
     public function testTheActIsJournaledForTheSessionAccountWithoutAPixel(): void

@@ -11,8 +11,8 @@ paths: /mes-locations/*/reservations/*, /mes-locations/*/reservations/*/document
 related: locations-documents, locations-modifications, locations-parcours, locations-suivi, ma-signature
 ---
 
-Le contrat part **sans signature**. Il porte deux signatures, dans cet
-ordre : celle du locataire, puis celle de l'unité.
+Le contrat part **sans signature**. Il en reçoit deux, dans cet ordre :
+celle du locataire, puis celle de l'unité.
 
 ## La copie du locataire
 
@@ -33,13 +33,15 @@ copie reçue, puis choisissez :
   signature, la référence de la réservation. Vous y êtes désigné par le
   nom de votre compte, jamais par votre totem. Le locataire reçoit le
   contrat signé par les deux parties par e-mail, et peut le télécharger
-  depuis sa page de suivi. « Annuler » ne signe rien.
+  depuis sa page de suivi. Vous seul recevez la notification « Contrat
+  signé avec votre signature » : quel contrat, quand, et un lien vers la
+  page « Documents ». « Annuler » ne signe rien.
 - **« Refuser la copie »** : écrivez un court motif, 300 caractères au
   plus. Le locataire le reçoit par e-mail et peut déposer une autre copie ;
   ses dates restent bloquées au moins trois jours.
 
-Une page ajoutée plutôt qu'une signature posée sur le contrat : sur un
-scan ou une photo, le site ne peut pas savoir où se trouve l'emplacement.
+Une page ajoutée, car sur un scan ou une photo le site ne sait pas où
+signer.
 
 ## Avec ou sans signature enregistrée
 

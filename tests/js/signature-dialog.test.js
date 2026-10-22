@@ -174,6 +174,70 @@ describe('nothing stays behind', () => {
     });
 });
 
+describe('a signer without an account (ticket §6a, the witness mode)', () => {
+    it('never fetches the stored signature: a witness has no account', () => {
+        const { modal } = dialog('witness');
+
+        modal.dispatchEvent(new Event('show.bs.modal', { bubbles: true }));
+
+        expect(document.querySelector('img')).toBeNull();
+    });
+
+    it('says so in place when sent with nothing traced — there is no import to fall back on', () => {
+        const { form } = dialog('witness');
+        field(form, 'signer_name').value = 'Jeanne';
+        const missing = /** @type {HTMLElement} */ (form.querySelector('[data-signature-missing]'));
+
+        const event = submit(form);
+
+        expect(event.defaultPrevented).toBe(true);
+        expect(missing.hidden).toBe(false);
+    });
+
+    it('sends the drawing and the typed name only, then wipes both once sent', async () => {
+        vi.useFakeTimers();
+        const { form, canvas, context } = dialog('witness');
+        field(form, 'signer_name').value = 'Jeanne';
+        trace(/** @type {HTMLCanvasElement} */ (canvas));
+
+        const event = submit(form);
+
+        expect(event.defaultPrevented).toBe(false);
+        expect(field(form, 'signature_data').value).toBe('data:image/png;base64,AAAA');
+        const names = Array.from(form.querySelectorAll('input')).map((input) => input.name);
+        expect(names).toEqual(['signature_source', 'signer_name', 'signature_data']);
+
+        await vi.runAllTimersAsync();
+        expect(field(form, 'signature_data').value).toBe('');
+        expect(field(form, 'signer_name').value).toBe('');
+        expect(context.clearRect).toHaveBeenCalled();
+    });
+
+    it('wipes the pad and the name when cancelled, for the next person holding the phone', () => {
+        const { form, modal, canvas, context } = dialog('witness');
+        field(form, 'signer_name').value = 'Jeanne';
+        trace(/** @type {HTMLCanvasElement} */ (canvas));
+
+        modal.dispatchEvent(new Event('hidden.bs.modal'));
+
+        expect(context.clearRect).toHaveBeenCalledWith(0, 0, 600, 200);
+        expect(field(form, 'signer_name').value).toBe('');
+        submit(form);
+        expect(field(form, 'signature_data').value).toBe(''); // a wiped pad posts no drawing
+    });
+
+    it('wipes the pad and the name of a page restored from the back-forward cache', () => {
+        const { form, canvas, context } = dialog('witness');
+        field(form, 'signer_name').value = 'Jeanne';
+        trace(/** @type {HTMLCanvasElement} */ (canvas));
+
+        restore();
+
+        expect(context.clearRect).toHaveBeenCalled();
+        expect(field(form, 'signer_name').value).toBe('');
+    });
+});
+
 describe('a dialog that arrived after the page loaded', () => {
     it('is wired when it opens: its pad draws, and closing it empties it', () => {
         const { form, modal, canvas, context } = dialog('new', false);

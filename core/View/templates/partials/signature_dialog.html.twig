@@ -35,8 +35,9 @@
     « Mémoriser ma signature dans mon compte pour une utilisation
     future » (`allow_remember`, default true), never rendered checked;
   - witness (`witness: true`, ticket §6a): a person without an account,
-    their typed name (`signer_name`, required), drawing only — no import,
-    no box, nothing kept.
+    their typed name (`signer_name`, required — PersonalSignatureService::
+    WITNESS_NAME_FIELD, read by witnessFromRequest()), drawing only — no
+    import, no box, no preview, nothing kept; it says so under the pad.
 
   Parameters: `id`, `title`, `action`, `consequence` (the module's own
   sentence: what signing does), `fields` (hidden fields, name → value),
@@ -112,6 +113,9 @@
                         aria-labelledby="{{ id }}-pad-label"
                         class="border rounded bg-white w-100 d-block" style="aspect-ratio: 3 / 1;"></canvas>
                 <button type="button" class="btn btn-sm btn-outline-secondary mt-2" data-signature-clear>Effacer</button>
+                {% if witness %}
+                    <p class="form-text mb-0">La signature est ajoutée à ce document seulement : elle n'est gardée nulle part ailleurs, et le cadre est effacé dès que vous signez ou annulez.</p>
+                {% endif %}
 
                 {% if allow_import %}
                     <div class="mt-3">

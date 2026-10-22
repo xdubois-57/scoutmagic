@@ -117,6 +117,25 @@ final class SignatureDialogTest extends TestCase
         $this->assertStringNotContainsString('Gérer ma signature', $html);
         $this->assertStringNotContainsString('enregistrée dans votre compte', $html);
         $this->assertStringNotContainsString('checked', $html);
+        $this->assertStringNotContainsString('data-signature-preview', $html);
+        $this->assertStringContainsString(
+            'name="' . \Core\Signature\PersonalSignatureService::WITNESS_NAME_FIELD . '"',
+            $html
+        );
+        $this->assertStringContainsString('<input type="hidden" name="signature_source" value="new">', $html);
+        $this->assertStringContainsString('Tracez la signature dans le cadre.', $html);
+        $this->assertStringContainsString("elle n'est gardée nulle part ailleurs", html_entity_decode($html, ENT_QUOTES));
+        $this->assertButtons($html);
+    }
+
+    /** Only the witness mode says the signature is kept nowhere: the others have their own sentence. */
+    public function testOnlyTheWitnessModeSaysTheSignatureIsKeptNowhere(): void
+    {
+        foreach ([true, false] as $stored) {
+            $html = html_entity_decode($this->dialog(['has_stored_signature' => $stored]), ENT_QUOTES);
+            $this->assertStringNotContainsString("n'est gardée nulle part ailleurs", $html);
+            $this->assertStringNotContainsString('signer_name', $html);
+        }
     }
 
     /** The dialog is the confirmation: no data-confirm after it, and never an account id. */

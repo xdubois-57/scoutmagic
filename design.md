@@ -606,7 +606,10 @@ helpers; a page-level primary action that happens to call an AI
   `data-confirm` message: what happens, to whom), a preview loaded when
   it opens and « Gérer ma signature »; without one, the pad, the import
   and « Mémoriser ma signature dans mon compte pour une utilisation
-  future », never pre-ticked. The buttons are always « Annuler »
+  future », never pre-ticked; for a signer without an account (witness
+  mode, ticket §6a), « Nom de la personne qui signe », the pad alone and
+  one line saying the signature goes on this document only. The buttons
+  are always « Annuler »
   (`btn btn-outline-secondary`) and « Signer le document »
   (`btn-primary`: nothing is destroyed). **The dialog is the
   confirmation**: never a `data-confirm` on its form, which would ask the

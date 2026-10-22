@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Core\Signature;
 
+use Core\Http\Request;
 use Core\Journal\JournalService;
 use Core\Security\UserAccountRepository;
 
@@ -158,6 +159,9 @@ class PersonalSignatureService
     /** The longest name a witness may type under their signature. */
     public const MAX_WITNESS_NAME_LENGTH = 120;
 
+    /** The field the dialog's witness mode posts the typed name in. */
+    public const WITNESS_NAME_FIELD = 'signer_name';
+
     /**
      * The signature the session's account signs this document with: the
      * one it keeps, when the dialog said so, or the one traced or imported
@@ -176,7 +180,13 @@ class PersonalSignatureService
                 throw new SignatureException(self::STORED_SIGNATURE_GONE);
             }
 
-            return new AccountSignature($sessionAccountId, $png, SignatureOrigin::Stored, false, $this->nameOf($sessionAccountId));
+            return new AccountSignature(
+                $sessionAccountId,
+                $png,
+                SignatureOrigin::Stored,
+                false,
+                $this->nameOf($sessionAccountId)
+            );
         }
 
         if ($submission->drawing !== null) {
@@ -239,7 +249,10 @@ class PersonalSignatureService
                 'Le nom de la personne qui signe ne peut pas dépasser ' . self::MAX_WITNESS_NAME_LENGTH . ' caractères.'
             );
         }
-        if ($submission->useStored || $submission->uploadedPath !== null) {
+        if ($submission->useStored) {
+            throw new SignatureException('Cette signature se trace sur place : une signature enregistrée ne convient pas.');
+        }
+        if ($submission->uploadedPath !== null) {
             throw new SignatureException('Cette signature se trace sur place : une image importée ne convient pas.');
         }
         if ($submission->drawing === null) {
@@ -247,6 +260,27 @@ class PersonalSignatureService
         }
 
         return new WitnessSignature(SignatureImage::fromDataUrl($submission->drawing), $name);
+    }
+
+    /**
+     * The witness dialog, read and turned into a signature in one call
+     * (ticket §6a; the brick #989 signs the inventory with): the drawing
+     * and the name posted as `signer_name` by the dialog's witness mode
+     * (`partials/signature_dialog.html.twig`, `witness: true`). A file, the
+     * stored mode and the « Mémoriser » box are not read as a choice —
+     * an import or the stored mode is refused by {@see witness()} — and
+     * no account id is read at all: a witness has none. Called before
+     * the module takes any lock, like {@see forSigning()}; it writes
+     * nothing, to the database or the journal.
+     *
+     * @throws SignatureException
+     */
+    public function witnessFromRequest(Request $request): WitnessSignature
+    {
+        return $this->witness(
+            SignatureSubmission::fromRequest($request, true, false),
+            (string) $request->getBody(self::WITNESS_NAME_FIELD, '')
+        );
     }
 
     /**
@@ -292,7 +326,8 @@ class PersonalSignatureService
             );
         } catch (\Throwable $e) {
             error_log(sprintf(
-                'ScoutMagic: the journal line of a signed document was not written (module %s, %s #%d, account #%d): %s',
+                'ScoutMagic: the journal line of a signed document was not written'
+                    . ' (module %s, %s #%d, account #%d): %s',
                 $module,
                 $documentType,
                 $documentId,

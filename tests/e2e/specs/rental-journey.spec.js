@@ -26,7 +26,8 @@
 //     (issue #926): the first with an image imported for that contract
 //     alone, the box unticked, and Mon compte still says no signature is
 //     kept; the second traced on the pad with « Mémoriser » ticked, and
-//     Mon compte keeps it.
+//     Mon compte keeps it. The signing manager's notification centre holds
+//     « Contrat signé », which opens the booking's Documents page.
 //
 // Each of those is unit-tested on its own. Whether they agree with each
 // other on a running install — the communication Finance stores is the one
@@ -324,6 +325,17 @@ test.describe('Rentals — one booking from the request to the deposit back', ()
         // Signed for that contract alone: nothing was kept in Mon compte.
         await page.goto('/account', { waitUntil: 'load' });
         await expect(page.getByText('Aucune signature enregistrée.')).toBeVisible();
+
+        // The signing account is told, and its notification opens the
+        // booking's Documents page (issue #926, decision Q1).
+        await page.goto('/notifications', { waitUntil: 'load' });
+        // The bell's dropdown carries hidden copies of the same rows.
+        const signedNotice = page.locator('form[action$="/read"]',
+            { hasText: `Contrat signé — ${ASSET_NAME}` }).filter({ visible: true });
+        await expect(signedNotice).toHaveCount(1);
+        await expect(signedNotice).toContainText(`Vous avez contresigné le contrat de ${reference} avec votre signature`);
+        await signedNotice.getByRole('button').click();
+        await page.waitForURL(`${dashboard}/documents`, { waitUntil: 'load' });
 
         // ── 5. A modification after the contract: a project ───────────────
         await page.goto(`${dashboard}/modifications`, { waitUntil: 'load' });
