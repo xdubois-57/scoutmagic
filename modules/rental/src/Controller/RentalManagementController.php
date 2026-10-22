@@ -663,6 +663,23 @@ class RentalManagementController extends AbstractController
             );
         }
 
+        return $this->storePhotoFiles($photos, $booking);
+    }
+
+    /**
+     * The normalising and storing half of `storePostedPhotos()`, for
+     * uploads already picked out of the request.
+     *
+     * @param list<array<string, mixed>> $photos
+     * @return list<int> the stored file ids
+     * @throws RentalException
+     */
+    private function storePhotoFiles(array $photos, RentalBooking $booking): array
+    {
+        if ($this->uploadHandler === null) {
+            return [];
+        }
+
         $normalizer = $this->photoNormalizer ??= \Core\Image\PhotoNormalizer::forThisServer();
         $stored = [];
         foreach ($photos as $photo) {
@@ -1400,12 +1417,16 @@ class RentalManagementController extends AbstractController
                         )
                     )),
                     'uploadable_types' => DocumentType::uploadable(),
-                    // A signed inventory is never deleted (#989, lot E), so
-                    // the page does not offer it.
-                    'signed_inventory_ids' => array_values(array_filter(array_map(
-                        static fn(array $validation): ?int => $validation['document_id'],
-                        $this->stayService?->inventoryValidations($booking->id) ?? []
-                    ))),
+                    // A signed inventory is never deleted (#989, lot E), nor
+                    // the photo of a sheet signed on paper (lot F), so the
+                    // page does not offer it.
+                    'signed_inventory_ids' => array_values(array_filter(array_merge(...array_map(
+                        static fn(array $validation): array => [
+                            $validation['document_id'],
+                            $validation['paper_sheet_document_id'],
+                        ],
+                        array_values($this->stayService?->inventoryValidations($booking->id) ?? [])
+                    )))),
                     // So the page can say, BEFORE a contract goes out, that
                     // it would print « — » where the landlord's address
                     // belongs (issue #497).
@@ -3519,6 +3540,70 @@ class RentalManagementController extends AbstractController
      */
     private const RENTER_SIGNATURE_PREFIX = 'renter_';
 
+    /** The field the signing screen posts the photo of a sheet signed on paper in (#989, lot F). */
+    private const PAPER_SHEET_FIELD = 'paper_sheet';
+
+    /** Said when « Signé sur papier » comes without the photo of the sheet. */
+    public const PAPER_SHEET_MISSING = 'Joignez la photo de la feuille signée par les deux parties : '
+        . "sans elle, l'état des lieux signé sur papier ne se valide pas.";
+
+    /**
+     * Stores the photo of the sheet signed on paper (#989, lot F), through
+     * the same normaliser and `UploadHandler` as every photo of the stay.
+     * Required: without it, nothing records that either party signed.
+     *
+     * @throws RentalException
+     */
+    private function storePaperSheet(Request $request, RentalBooking $booking): int
+    {
+        $file = $request->getFile(self::PAPER_SHEET_FIELD);
+        if (!is_array($file) || is_array($file['name'] ?? null)
+            || (int) ($file['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE
+        ) {
+            throw new RentalException(self::PAPER_SHEET_MISSING);
+        }
+
+        return $this->storePhotoFiles([$file], $booking)[0]
+            ?? throw new RentalException("La photo de la feuille signée n'a pas pu être enregistrée.");
+    }
+
+    /**
+     * GET /mes-locations/{slug}/reservations/{id}/etat-des-lieux/liste.pdf?phase=
+     * — « Imprimer la liste à vérifier » (#989, lot F): the blank checklist
+     * of a phase, to walk through on site and, when the inventory is
+     * « Signé sur papier », to sign by hand (`Stay\BlankInventorySheet`).
+     *
+     * For the asset's managers only, like the inventory page itself
+     * (`manageableAsset()`): it names the renter. Generated on request and
+     * never stored, so `FileAccessGuard` is not involved — it is not a file
+     * — and answered `private, no-store`.
+     *
+     * @param array<string, string> $params
+     */
+    public function inventorySheet(Request $request, array $params): Response
+    {
+        $asset = $this->manageableAsset($params);
+        if ($asset === null || $this->stayService === null || $this->inventoryValidation === null) {
+            return $this->notFound();
+        }
+        $booking = $this->bookingOfAsset($asset, (int) ($params['id'] ?? 0));
+        $phase = ReadingPhase::tryFrom((string) $request->getQuery('phase', ''));
+        if ($booking === null || $phase === null) {
+            return $this->notFound();
+        }
+
+        return (new Response($this->inventoryValidation->blankSheet($booking, $asset, $phase)))
+            ->setHeader('Content-Type', 'application/pdf')
+            ->setHeader(
+                'Content-Disposition',
+                'inline; filename="liste-etat-des-lieux-' . ($phase === ReadingPhase::ARRIVAL ? 'entree' : 'sortie')
+                    . '-' . $booking->reference . '.pdf"'
+            )
+            ->setHeader('Cache-Control', 'private, no-store')
+            ->setHeader('X-Content-Type-Options', 'nosniff')
+            ->setHeader('X-Robots-Tag', 'noindex');
+    }
+
     /**
      * GET /mes-locations/{slug}/reservations/{id}/etat-des-lieux/signer?phase=
      * — « Valider, signer et envoyer » (#989, lot E): the screen the
@@ -3639,6 +3724,11 @@ class RentalManagementController extends AbstractController
      * back to the signing screen, which the signatures must be traced on
      * again: neither is kept anywhere in between.
      *
+     * « Signé sur papier » (#989, lot F, decision Q3) reads neither: the
+     * photo of the signed sheet is required instead, stored like every
+     * photo of the stay, and discarded again when the validation does not
+     * happen.
+     *
      * @param array<string, string> $params
      */
     public function validateInventory(Request $request, array $params): Response
@@ -3660,36 +3750,62 @@ class RentalManagementController extends AbstractController
             try {
                 $choice = \Modules\Rental\Stay\RenterSigning::tryFrom((string) $request->getBody('renter_signing', ''));
                 if ($choice === null) {
-                    throw new RentalException('Dites si le locataire signe ici, est absent ou refuse de signer.');
-                }
-                try {
-                    // The manager traces or applies the account's signature;
-                    // no import on the spot.
-                    $manager = $this->personalSignatures->forSigning(
-                        $account,
-                        \Core\Signature\SignatureSubmission::fromRequest($request, false, true)
+                    throw new RentalException(
+                        'Dites si le locataire signe ici, est absent, refuse de signer, '
+                            . 'ou si vous avez signé sur papier.'
                     );
-                    $renter = $choice->renterSigns()
-                        ? \Modules\Rental\Stay\InventorySigning::onSite(
-                            $this->personalSignatures->witnessFromRequest($request, self::RENTER_SIGNATURE_PREFIX)
-                        )
-                        : \Modules\Rental\Stay\InventorySigning::without($choice);
-                } catch (\Core\Signature\SignatureException $e) {
-                    // bookingAction() answers a RentalException, and only
-                    // that: the core's sentence is already the visitor's.
-                    throw new RentalException($e->getMessage(), 0, $e);
+                }
+                $manager = null;
+                $sheetFileId = null;
+                if ($choice->isOnPaper()) {
+                    // Signed on paper (decision Q3): no electronic
+                    // signature is read, whatever the form carried — the
+                    // photo of the sheet is the signatures, and the
+                    // session's account the one that validated.
+                    $sheetFileId = $this->storePaperSheet($request, $booking);
+                    $renter = \Modules\Rental\Stay\InventorySigning::onPaper(
+                        new \Modules\Rental\Stay\PaperSheet($sheetFileId, $account)
+                    );
+                } else {
+                    try {
+                        // The manager traces or applies the account's
+                        // signature; no import on the spot.
+                        $manager = $this->personalSignatures->forSigning(
+                            $account,
+                            \Core\Signature\SignatureSubmission::fromRequest($request, false, true)
+                        );
+                        $renter = $choice->renterSigns()
+                            ? \Modules\Rental\Stay\InventorySigning::onSite(
+                                $this->personalSignatures->witnessFromRequest($request, self::RENTER_SIGNATURE_PREFIX)
+                            )
+                            : \Modules\Rental\Stay\InventorySigning::without($choice);
+                    } catch (\Core\Signature\SignatureException $e) {
+                        // bookingAction() answers a RentalException, and
+                        // only that: the core's sentence is already the
+                        // visitor's.
+                        throw new RentalException($e->getMessage(), 0, $e);
+                    }
                 }
 
-                $result = $this->inventoryValidation->validate(
-                    $booking,
-                    $asset,
-                    $phase,
-                    $this->actorMemberId(),
-                    $renter,
-                    $manager,
-                    new \DateTimeImmutable(),
-                    $this->arrivalTickedByHand($booking)
-                );
+                try {
+                    $result = $this->inventoryValidation->validate(
+                        $booking,
+                        $asset,
+                        $phase,
+                        $this->actorMemberId(),
+                        $renter,
+                        $manager,
+                        new \DateTimeImmutable(),
+                        $this->arrivalTickedByHand($booking)
+                    );
+                } catch (\Throwable $e) {
+                    // A sheet stored for a validation that did not happen
+                    // is referenced by nothing, and never will be.
+                    if ($sheetFileId !== null) {
+                        $this->discardUploads([$sheetFileId]);
+                    }
+                    throw $e;
+                }
             } catch (RentalException $e) {
                 FlashMessage::set('error', $e->getMessage());
 
@@ -3699,11 +3815,13 @@ class RentalManagementController extends AbstractController
             FlashMessage::set(
                 $result['sent'] ? 'success' : 'warning',
                 ($phase === ReadingPhase::ARRIVAL ? "État des lieux d'entrée" : 'État des lieux de sortie')
-                . ' signé et rangé dans les documents'
+                . ($manager === null
+                    ? ' signé sur papier et rangé dans les documents avec la photo de la feuille'
+                    : ' signé et rangé dans les documents')
                 . ($result['sent']
                     ? ', puis envoyé au locataire.'
                     : ". Il n'a pas pu être envoyé : renvoyez-le depuis la page Documents.")
-                . ($manager->willBeRemembered() ? ' Votre signature est enregistrée dans Mon compte.' : '')
+                . ($manager?->willBeRemembered() === true ? ' Votre signature est enregistrée dans Mon compte.' : '')
             );
 
             return $inventoryUrl;

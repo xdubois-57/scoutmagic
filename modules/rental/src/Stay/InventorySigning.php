@@ -20,15 +20,18 @@ use Core\Signature\WitnessSignature;
  * PDF and writes `$choice` alone to the database; the history and the
  * journal never see the typed name.
  *
- * A signature comes with « on_site » and with nothing else: the two
+ * A signature comes with « on_site » and with nothing else: the three
  * constructors below are the only ways in, so an « absent » renter cannot
- * carry a drawing, nor an « on site » one go without.
+ * carry a drawing, nor an « on site » one go without — and an inventory
+ * « Signé sur papier » (#989, lot F) carries the photo of the signed sheet
+ * and no drawing at all, nor can it go without that photo.
  */
 final readonly class InventorySigning
 {
     private function __construct(
         public RenterSigning $choice,
-        public ?WitnessSignature $signature
+        public ?WitnessSignature $signature,
+        public ?PaperSheet $paperSheet = null
     ) {
     }
 
@@ -38,14 +41,27 @@ final readonly class InventorySigning
     }
 
     /**
+     * Both parties signed the printed sheet by hand (decision Q3): its
+     * photo, and nobody's signature on the screen.
+     */
+    public static function onPaper(PaperSheet $sheet): self
+    {
+        return new self(RenterSigning::PAPER, null, $sheet);
+    }
+
+    /**
      * The renter was absent or refused to sign: no signature of theirs.
      *
-     * @throws \InvalidArgumentException for « on_site », which needs one
+     * @throws \InvalidArgumentException for « on_site », which needs one,
+     *   and for « paper », which needs the photo of the sheet
      */
     public static function without(RenterSigning $choice): self
     {
         if ($choice->renterSigns()) {
             throw new \InvalidArgumentException('A renter signing on site signs: use onSite().');
+        }
+        if ($choice->isOnPaper()) {
+            throw new \InvalidArgumentException('An inventory signed on paper carries its sheet: use onPaper().');
         }
 
         return new self($choice, null);

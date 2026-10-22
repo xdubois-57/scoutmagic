@@ -41,6 +41,11 @@ final class RgpdCoverageTest extends TestCase
             $page
         );
         $this->assertStringContainsString('conservé avec la réservation ; le site ne les garde nulle part ailleurs', $page);
+        // The photo of a sheet signed on paper (#989, lot F).
+        $this->assertStringContainsString(
+            '<strong>la photo de la feuille signée</strong>, qui porte votre nom et votre signature manuscrite',
+            $page
+        );
     }
 
     public function testThePromptKeepsIt(): void
@@ -53,5 +58,7 @@ final class RgpdCoverageTest extends TestCase
         $this->assertStringContainsString('est **refusée**, jamais enregistrée telle quelle', $prompt);
         $this->assertStringContainsString("**figurent en annexe du PDF de l'état des lieux envoyé au locataire**", $prompt);
         $this->assertStringContainsString("**uniquement dans le PDF de l'état des lieux**", $prompt);
+        $this->assertStringContainsString('**la photo de la feuille', $prompt);
+        $this->assertStringContainsString('**signé sur papier**', $prompt);
     }
 }

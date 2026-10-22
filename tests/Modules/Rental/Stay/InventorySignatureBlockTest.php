@@ -10,6 +10,7 @@ use Core\Signature\SignaturePng;
 use Core\Signature\WitnessSignature;
 use Modules\Rental\Stay\InventorySignatureBlock;
 use Modules\Rental\Stay\InventorySigning;
+use Modules\Rental\Stay\PaperSheet;
 use Modules\Rental\Stay\RenterSigning;
 use PHPUnit\Framework\TestCase;
 
@@ -118,6 +119,68 @@ final class InventorySignatureBlockTest extends TestCase
         $this->expectException(\InvalidArgumentException::class);
 
         InventorySigning::without(RenterSigning::ON_SITE);
+    }
+
+    /**
+     * « Signé sur papier » (#989, lot F, decision Q3): no frame and no
+     * image — the sheet carries both signatures — and the line sends the
+     * reader to its photo, in Belgian time.
+     */
+    public function testSignedOnPaperTheBlockSendsToTheSheetsPhoto(): void
+    {
+        $block = new InventorySignatureBlock(
+            InventorySigning::onPaper(new PaperSheet(55, 7)),
+            null,
+            'Local Saint-Georges',
+            'Rue du Camp 1',
+            new \DateTimeImmutable('2027-07-04 09:30:00', new \DateTimeZone('UTC'))
+        );
+
+        $html = $block->html(7);
+
+        $this->assertStringContainsString(
+            'Signé sur papier par les deux parties le 04/07/2027 à 11:30 : voir la feuille signée, photo 7.',
+            $html
+        );
+        $this->assertStringNotContainsString('<img', $html);
+        $this->assertStringNotContainsString('<table', $html);
+        $this->assertStringNotContainsString('Signé sur place', $html);
+        $this->assertSame('Signé sur papier', $block->renterCaption());
+    }
+
+    /** The two modes never mix: no signature on paper, one otherwise. */
+    public function testAnElectronicSignatureNeverComesWithAPaperSheet(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+
+        new InventorySignatureBlock(
+            InventorySigning::onPaper(new PaperSheet(55, 7)),
+            self::manager(SignatureOrigin::DrawnNow, 'Anne Dupont'),
+            'Local Saint-Georges',
+            null,
+            new \DateTimeImmutable('2027-07-04 11:30:00')
+        );
+    }
+
+    public function testOnlyPaperGoesWithoutTheManagersSignature(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+
+        new InventorySignatureBlock(
+            InventorySigning::without(RenterSigning::ABSENT),
+            null,
+            'Local Saint-Georges',
+            null,
+            new \DateTimeImmutable('2027-07-04 11:30:00')
+        );
+    }
+
+    /** An inventory signed on paper comes with its sheet, and only that way. */
+    public function testPaperIsNeverWithoutTheSheet(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+
+        InventorySigning::without(RenterSigning::PAPER);
     }
 
     private static function manager(SignatureOrigin $origin, ?string $name): AccountSignature

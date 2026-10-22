@@ -1158,14 +1158,15 @@ class RentalDocumentService
         }
         // **Nor a signed inventory, sent or not** (#989, lot E): its PDF is
         // what the renter and the manager signed, and the validation points
-        // at it. An e-mail that failed is resent, never replaced.
-        if (
-            $document->type === DocumentType::INVENTORY
-            && $this->documentRepository->isInventoryValidationDocument($document->id)
-        ) {
+        // at it. An e-mail that failed is resent, never replaced. Nor the
+        // photo of the sheet one was signed on, on paper (lot F), whatever
+        // it has been reclassified as: it is the signatures.
+        if ($this->documentRepository->isInventoryValidationDocument($document->id)) {
             throw new RentalException(
-                "Cet état des lieux est signé : il ne peut pas être supprimé. S'il n'est pas parti, "
-                . 'renvoyez-le au locataire.'
+                $document->type === DocumentType::INVENTORY
+                    ? "Cet état des lieux est signé : il ne peut pas être supprimé. S'il n'est pas parti, "
+                        . 'renvoyez-le au locataire.'
+                    : "Cette photo est la feuille signée d'un état des lieux : elle ne peut pas être supprimée."
             );
         }
 

@@ -36,6 +36,13 @@ use Core\Signature\SignaturePng;
  * - then « Signé sur place, {bien}, {adresse}, le JJ/MM/AAAA à HH:MM »,
  *   the name alone while the asset has no address, the time on the
  *   application clock (`AppClock::zone()`).
+ *
+ * **Signed on paper** (#989, lot F, decision Q3), there is no frame and no
+ * image: nobody signed on the screen, the sheet carries both signatures,
+ * so the block says « Signé sur papier par les deux parties le … : voir la
+ * feuille signée, photo n » — n being the number the annex gives the
+ * sheet's photo. A manager's signature is then refused rather than
+ * printed: the two modes never mix.
  */
 final readonly class InventorySignatureBlock
 {
@@ -50,17 +57,23 @@ final readonly class InventorySignatureBlock
 
     public function __construct(
         public InventorySigning $renter,
-        public AccountSignature $manager,
+        /** The manager's signature; null exactly when the sheet was signed on paper. */
+        public ?AccountSignature $manager,
         public string $assetName,
         public ?string $assetAddress,
         public \DateTimeImmutable $signedAt
     ) {
+        if ($renter->choice->isOnPaper() !== ($manager === null)) {
+            throw new \InvalidArgumentException(
+                'An inventory signed on paper carries no electronic signature, and any other carries the manager\'s.'
+            );
+        }
     }
 
     /** The account's own name, or « un gestionnaire ». */
     public function managerName(): string
     {
-        $name = trim((string) $this->manager->signerName);
+        $name = trim((string) $this->manager?->signerName);
 
         return $name !== '' ? $name : self::UNNAMED_MANAGER;
     }
@@ -73,13 +86,15 @@ final readonly class InventorySignatureBlock
                 . ', signé au doigt',
             RenterSigning::ABSENT => 'Le locataire était absent',
             RenterSigning::REFUSED => 'Le locataire a refusé de signer',
+            RenterSigning::PAPER => 'Signé sur papier',
         };
     }
 
     /** What the manager's frame says under the signature. Unescaped. */
     public function managerCaption(): string
     {
-        return match ($this->manager->origin) {
+        return match ($this->manager?->origin) {
+            null => 'Signé sur papier',
             SignatureOrigin::Stored => 'Signature enregistrée appliquée sur confirmation de ' . $this->managerName(),
             SignatureOrigin::DrawnNow => 'Signé au doigt par ' . $this->managerName(),
             SignatureOrigin::ImportedNow => 'Image de signature importée par ' . $this->managerName(),
@@ -99,9 +114,32 @@ final readonly class InventorySignatureBlock
             . $this->signedAt->setTimezone(AppClock::zone())->format('d/m/Y à H:i');
     }
 
-    public function html(): string
+    /**
+     * « Signé sur papier par les deux parties le 04/07/2027 à 11:30 : voir
+     * la feuille signée, photo 7 ». Unescaped.
+     */
+    public function onPaper(?int $sheetPhotoNumber): string
+    {
+        return 'Signé sur papier par les deux parties le '
+            . $this->signedAt->setTimezone(AppClock::zone())->format('d/m/Y à H:i')
+            . ' : voir la feuille signée, '
+            . ($sheetPhotoNumber !== null ? 'photo ' . $sheetPhotoNumber : 'en annexe');
+    }
+
+    /**
+     * @param int|null $sheetPhotoNumber the number the annex gives the
+     *   photo of the sheet signed on paper; unused otherwise
+     */
+    public function html(?int $sheetPhotoNumber = null): string
     {
         $e = static fn(string $text): string => htmlspecialchars($text, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        if ($this->manager === null) {
+            // Set left, against the frame's justified body: a justified
+            // line spreads its words apart, and a reader of the text layer
+            // gets them in pieces.
+            return '<h2>Signatures</h2><p class="validated" style="text-align: left;">'
+                . $e($this->onPaper($sheetPhotoNumber)) . '.</p>';
+        }
         // The frame's `.body td` rule draws a thin border already; the text
         // is set left, against the frame's justified body.
         $cell = 'width: 50%; vertical-align: top; padding: 6px 8px; text-align: left;';

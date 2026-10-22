@@ -212,6 +212,37 @@ final class InventoryPhotoAnnexTest extends TestCase
         $this->assertStringContainsString('<strong>Photo 1</strong>', $html);
     }
 
+    // ── The sheet signed on paper (#989, lot F) ─────────────────────────
+
+    /**
+     * The sheet comes after every other photo, under the next number, on a
+     * page of its own and as large as the page allows, its proportions
+     * kept.
+     */
+    public function testTheSheetSignedOnPaperIsTheLastPhotoOnAPageOfItsOwn(): void
+    {
+        $photos = $this->incidentPhotos(3);
+        $sheet = InventoryPhotoAnnex::paperSheet(
+            $photos,
+            99,
+            ['jpeg' => $this->jpeg(), 'width' => 1230, 'height' => 1640],
+            new \DateTimeImmutable('2027-07-04 09:30', new \DateTimeZone('UTC'))
+        );
+
+        $this->assertSame(4, $sheet->number);
+        $this->assertSame(99, $sheet->fileId);
+        $html = InventoryPhotoAnnex::sheetHtml($sheet);
+        $this->assertStringStartsWith('<h2 style="page-break-before: always;">Annexe : feuille signée</h2>', $html);
+        $this->assertStringContainsString('<img src="data:image/jpeg;base64,', $html);
+        // 1 230 × 1 640 fitted into the 640 × 820 box: half, its height the limit.
+        $this->assertStringContainsString('width="615" height="820" alt="Photo 4">', $html);
+        $this->assertStringContainsString(
+            "<strong>Photo 4</strong> — Feuille d&#039;état des lieux signée sur papier, 04/07 à 11 h 30",
+            $html
+        );
+        $this->assertSame('', InventoryPhotoAnnex::sheetHtml(null));
+    }
+
     // ── Fixtures ────────────────────────────────────────────────────────
 
     private function meter(int $id, string $label, ?int $arrivalFile, ?int $departureFile): MeterConsumption

@@ -1184,7 +1184,8 @@ CREATE TABLE IF NOT EXISTS rental_inventory_validations (
     -- signature is on the PDF, never a value the form carried.
     validated_by_account_id INT UNSIGNED NULL,
     -- What the renter did (#989, lot E, Stay\RenterSigning): 'on_site'
-    -- (signed on the manager's phone), 'absent' or 'refused'. Nothing of
+    -- (signed on the manager's phone), 'absent', 'refused' or 'paper'
+    -- (both signed the printed sheet by hand, lot F). Nothing of
     -- their signature is kept here — neither the name they typed nor the
     -- drawing: the PDF is the only place either exists.
     renter_signing VARCHAR(20) NOT NULL,
@@ -1194,6 +1195,11 @@ CREATE TABLE IF NOT EXISTS rental_inventory_validations (
     -- what proves later which bytes the two parties signed. Not
     -- rental_documents.fingerprint, which is a contract's terms.
     document_sha256 CHAR(64) NULL,
+    -- Signed on paper (#989, lot F, renter_signing 'paper'): the photo of
+    -- the printed sheet both parties signed by hand, filed in
+    -- rental_documents (DocumentType::PHOTO, not for the renter — it is
+    -- printed in the PDF). NULL for any other signing.
+    paper_sheet_document_id INT UNSIGNED NULL,
     UNIQUE KEY uq_rental_inventory_validations (booking_id, phase),
     CONSTRAINT fk_rental_inventory_validations_booking
         FOREIGN KEY (booking_id) REFERENCES rental_bookings (id) ON DELETE CASCADE

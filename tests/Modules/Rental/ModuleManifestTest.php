@@ -170,10 +170,14 @@ class ModuleManifestTest extends TestCase
      * `validated_by_account_id` and `document_sha256`, the signing screen
      * gets its route, and `rental.document_signed` reads « Document signé
      * avec votre signature ».
+     *
+     * 1.53.0 prints the blank checklist and takes an inventory « Signé sur
+     * papier » (#989, lot F): `rental_inventory_validations` gains
+     * `paper_sheet_document_id`, and the checklist gets its route.
      */
     public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
     {
-        $this->assertSame('1.52.0', $this->manifest->version);
+        $this->assertSame('1.53.0', $this->manifest->version);
     }
 
     /**
@@ -508,6 +512,22 @@ class ModuleManifestTest extends TestCase
         $this->assertNotNull($route);
         $this->assertSame('GET', $route['method']);
         $this->assertSame('signInventory', $route['action']);
+        $this->assertSame('identified', $route['role_min']);
+    }
+
+    /**
+     * The blank checklist (#989, lot F) is a GET of the managed space,
+     * like the inventory page it is printed from: `identified` here, the
+     * asset's managers in the controller.
+     */
+    public function testTheBlankChecklistIsDeclared(): void
+    {
+        $routes = array_column($this->manifest->routes, null, 'path');
+        $route = $routes['/mes-locations/{slug}/reservations/{id}/etat-des-lieux/liste.pdf'] ?? null;
+
+        $this->assertNotNull($route);
+        $this->assertSame('GET', $route['method']);
+        $this->assertSame('inventorySheet', $route['action']);
         $this->assertSame('identified', $route['role_min']);
     }
 

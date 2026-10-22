@@ -5580,15 +5580,228 @@ class RentalManagementControllerTest extends TestCase
     }
 
     /** A renter's choice the screen does not offer is refused. */
-    public function testARenterChoiceOutsideTheThreeIsRefused(): void
+    public function testARenterChoiceOutsideTheFourIsRefused(): void
     {
         $this->loginAsManager();
         [$booking] = $this->bookingWithAnInventory();
 
-        $this->validateInventoryPhase($booking, 'arrival', ['renter_signing' => 'paper']);
+        $this->validateInventoryPhase($booking, 'arrival', ['renter_signing' => 'notarised']);
 
         $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
         $this->assertSame([], $this->stayService->inventoryValidations($booking->id));
+    }
+
+    // ── The blank checklist and « Signé sur papier » (#989, lot F) ──────
+
+    /** GET the blank checklist of one phase. */
+    private function blankChecklist(RentalBooking $booking, string $phase): Response
+    {
+        return $this->get(
+            '/mes-locations/{slug}/reservations/{id}/etat-des-lieux/liste.pdf',
+            '/mes-locations/local-saint-georges/reservations/' . $booking->id . '/etat-des-lieux/liste.pdf',
+            'inventorySheet',
+            ['phase' => $phase]
+        );
+    }
+
+    /**
+     * « Imprimer la liste à vérifier » opens the phase's blank checklist:
+     * a PDF made on request, for the asset's managers, never cached.
+     */
+    public function testTheBlankChecklistIsAPdfForTheAssetsManagers(): void
+    {
+        $this->loginAsManager();
+        [$booking] = $this->bookingWithAnInventory();
+
+        $this->assertStringContainsString(
+            'href="/mes-locations/local-saint-georges/reservations/' . $booking->id
+                . '/etat-des-lieux/liste.pdf?phase=arrival"',
+            $this->inventoryPage($booking)
+        );
+        $this->assertStringContainsString('Imprimer la liste à vérifier', $this->inventoryPage($booking));
+
+        foreach (['arrival' => 'entree', 'departure' => 'sortie'] as $phase => $word) {
+            $response = $this->blankChecklist($booking, $phase);
+
+            $this->assertSame(200, $response->getStatusCode());
+            $headers = $response->getHeaders();
+            $this->assertSame('application/pdf', $headers['Content-Type'] ?? null);
+            $this->assertSame(
+                'inline; filename="liste-etat-des-lieux-' . $word . '-' . $booking->reference . '.pdf"',
+                $headers['Content-Disposition'] ?? null
+            );
+            $this->assertSame('private, no-store', $headers['Cache-Control'] ?? null);
+            $this->assertSame('nosniff', $headers['X-Content-Type-Options'] ?? null);
+            $this->assertStringStartsWith('%PDF-', (string) $response->getBody());
+        }
+        $text = (string) (new \Core\File\PdfTextExtractor())->extractText((string) $this->blankChecklist($booking, 'arrival')->getBody());
+        $this->assertStringContainsString('Chaises', $text);
+        $this->assertStringContainsString('Cuisine propre', $text);
+    }
+
+    /**
+     * The checklist names the renter: a manager of another asset, or
+     * nobody's, gets nothing, an anonymous visitor is not let in, and a
+     * phase that does not exist is not found.
+     */
+    public function testTheBlankChecklistIsRefusedToANonManagerAndAnUnknownPhase(): void
+    {
+        $this->loginAsManager();
+        [$booking] = $this->bookingWithAnInventory();
+        $this->assertSame(404, $this->blankChecklist($booking, 'midway')->getStatusCode());
+
+        AuthSession::login(2, 'nobody@test.be', 'identified');
+        $this->assertSame(404, $this->blankChecklist($booking, 'arrival')->getStatusCode());
+
+        AuthSession::logout();
+        $this->assertContains($this->blankChecklist($booking, 'arrival')->getStatusCode(), [302, 401, 403]);
+    }
+
+    /** The signing screen offers « Signé sur papier » and the field for the sheet's photo, set aside. */
+    public function testTheSigningScreenOffersToSignOnPaper(): void
+    {
+        $this->loginAsManager();
+        [$booking] = $this->bookingWithAnInventory();
+
+        $body = (string) preg_replace('/\s+/', ' ', (string) $this->signingPage($booking, 'arrival')->getBody());
+
+        $this->assertStringContainsString('value="paper"', $body);
+        $this->assertStringContainsString('Signé sur papier', $body);
+        $this->assertMatchesRegularExpression('#<fieldset data-paper-sheet disabled hidden>.*?name="paper_sheet"#', $body);
+        // The « + Photo » tile, with the camera, and its script on the page.
+        $this->assertMatchesRegularExpression('#<fieldset data-paper-sheet disabled hidden>.*?data-photo-tile data-photo-max="1"#', $body);
+        $this->assertMatchesRegularExpression('#<fieldset data-paper-sheet disabled hidden>.*?capture="environment"#', $body);
+        $this->assertStringContainsString('/assets/js/rental-photo-tile.js', $body);
+        $this->assertStringContainsString('<fieldset data-manager-signature>', $body);
+    }
+
+    /**
+     * « Signé sur papier » without the photo of the sheet is refused in
+     * French, and nothing is validated.
+     */
+    public function testSignedOnPaperWithoutThePhotoOfTheSheetIsRefused(): void
+    {
+        $this->loginAsManager();
+        [$booking] = $this->bookingWithAnInventory();
+
+        $response = $this->validateInventoryPhase($booking, 'arrival', ['renter_signing' => 'paper']);
+
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertSame('error', $flash['type'] ?? null);
+        $this->assertSame(RentalManagementController::PAPER_SHEET_MISSING, $flash['message'] ?? null);
+        $this->assertStringEndsWith('/etat-des-lieux/signer?phase=arrival', (string) $response->getHeaders()['Location']);
+        $this->assertSame([], $this->stayService->inventoryValidations($booking->id));
+        $this->assertSame([], $this->documentEmails);
+    }
+
+    /**
+     * Signed on paper, no electronic signature is read — not the renter's
+     * name and drawing, not the manager's drawing nor « Mémoriser », even
+     * when the form carries them. The sheet's photo, normalised, becomes a
+     * photo of the booking's documents the page does not offer to delete;
+     * the session's account is the one recorded; the renter is sent the
+     * PDF, and nobody is told « signed with your signature ».
+     */
+    public function testSignedOnPaperNoElectronicSignatureIsReadEvenWhenPosted(): void
+    {
+        $accounts = new \Core\Security\UserAccountRepository($this->pdo, $this->encryption);
+        $session = $accounts->create('session@test.be');
+        $accounts->updateProfile($session->id, 'Anne', 'Dupont');
+        $this->addManager($this->assetId, 'session@test.be');
+        AuthSession::login($session->id, 'session@test.be', 'identified');
+        [$booking] = $this->bookingWithAnInventory();
+        $this->notified = [];
+        $temporary = (string) tempnam(sys_get_temp_dir(), 'sheet-');
+        file_put_contents($temporary, self::phonePhoto(1200, 1600));
+        $_FILES['paper_sheet'] = [
+            'name' => 'IMG_0001.jpg',
+            'type' => 'image/jpeg',
+            'tmp_name' => $temporary,
+            'error' => UPLOAD_ERR_OK,
+            'size' => (int) filesize($temporary),
+        ];
+
+        try {
+            $this->validateInventoryPhase($booking, 'arrival', [
+                'renter_signing' => 'paper',
+                'renter_signer_name' => 'Jeanne Martin',
+                'renter_signature_data' => self::signatureDataUrl(),
+                'remember_signature' => '1',
+            ]);
+        } finally {
+            unset($_FILES['paper_sheet']);
+            @unlink($temporary);
+        }
+
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertSame('success', $flash['type'] ?? null, (string) ($flash['message'] ?? ''));
+        $this->assertStringContainsString('signé sur papier', (string) ($flash['message'] ?? ''));
+        $validation = $this->stayService->inventoryValidations($booking->id)['arrival'] ?? null;
+        $this->assertNotNull($validation);
+        $this->assertSame(\Modules\Rental\Stay\RenterSigning::PAPER, $validation['renter_signing']);
+        $this->assertSame($session->id, $validation['validated_by_account_id']);
+
+        $document = $this->documentService->find((int) $validation['document_id']);
+        $this->assertNotNull($document);
+        $text = $this->renderedTextOf($document);
+        $this->assertStringContainsString('Signé sur papier par les deux parties le', $text);
+        $this->assertStringContainsString('voir la feuille signée, photo 1', $text);
+        $this->assertStringNotContainsString('Jeanne Martin, signé', $text);
+        $this->assertStringNotContainsString('Signé au doigt', $text);
+        $this->assertFalse($this->personalSignatures->has($session->id), '« Mémoriser » is not read on paper');
+        $this->assertSame([], $this->notified);
+        $this->assertCount(1, $this->documentEmails);
+
+        $sheet = $this->documentService->find((int) $validation['paper_sheet_document_id']);
+        $this->assertNotNull($sheet);
+        $this->assertSame(\Modules\Rental\Document\DocumentType::PHOTO, $sheet->type);
+        $this->assertFalse($sheet->isForRenter);
+        $record = $this->fileRepository->findById($sheet->fileId);
+        $this->assertNotNull($record);
+        $this->assertSame('image/jpeg', $record->mimeType);
+        $this->assertStringNotContainsString(
+            'PhoneCam',
+            (string) file_get_contents($this->storagePath . '/' . $record->relativePath),
+            'the sheet goes through the normaliser'
+        );
+        $documents = (string) $this->filePage(BookingPage::DOCUMENTS, 'local-saint-georges', $booking->id)->getBody();
+        $this->assertStringNotContainsString(
+            'name="document_id" value="' . $sheet->id . '"',
+            $this->deleteFormsOf($documents)
+        );
+    }
+
+    /**
+     * A sheet stored for a validation that is then refused — the phase
+     * already validated — is taken back: nothing references it.
+     */
+    public function testARefusedPaperValidationLeavesNoSheetBehind(): void
+    {
+        $this->loginAsManager();
+        [$booking] = $this->bookingWithAnInventory();
+        $this->stayService->recordInventoryValidation(
+            $booking, \Modules\Rental\Stay\ReadingPhase::ARRIVAL, new \DateTimeImmutable(), null
+        );
+        $before = $this->countFiles();
+        $temporary = (string) tempnam(sys_get_temp_dir(), 'sheet-');
+        file_put_contents($temporary, self::phonePhoto());
+        $_FILES['paper_sheet'] = [
+            'name' => 'IMG_0002.jpg',
+            'type' => 'image/jpeg',
+            'tmp_name' => $temporary,
+            'error' => UPLOAD_ERR_OK,
+            'size' => (int) filesize($temporary),
+        ];
+
+        try {
+            $this->validateInventoryPhase($booking, 'arrival', ['renter_signing' => 'paper']);
+        } finally {
+            unset($_FILES['paper_sheet']);
+            @unlink($temporary);
+        }
+
+        $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
+        $this->assertSame($before, $this->countFiles());
     }
 
     /**

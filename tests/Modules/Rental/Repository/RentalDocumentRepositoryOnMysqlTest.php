@@ -164,6 +164,27 @@ final class RentalDocumentRepositoryOnMysqlTest extends TestCase
         $this->assertFalse($this->repository->isInventoryValidationDocument($other));
     }
 
+    /**
+     * Signed on paper (#989, lot F), the photo of the sheet is known as
+     * signed too — on the column the whole schema declares — and the
+     * other photos of the booking are not.
+     */
+    public function testThePhotoOfASheetSignedOnPaperIsKnownAsSigned(): void
+    {
+        $pdf = $this->repository->create($this->bookingId, 41, DocumentType::INVENTORY, 1, true, null, null);
+        $sheet = $this->repository->create($this->bookingId, 43, DocumentType::PHOTO, 1, false, null, null);
+        $other = $this->repository->create($this->bookingId, 44, DocumentType::PHOTO, 1, false, null, null);
+        $this->pdo->prepare(
+            "INSERT INTO rental_inventory_validations
+                (booking_id, phase, validated_at, renter_signing, document_id, paper_sheet_document_id)
+             VALUES (?, 'arrival', '2027-07-01 15:30:00', 'paper', ?, ?)"
+        )->execute([$this->bookingId, $pdf, $sheet]);
+
+        $this->assertTrue($this->repository->isInventoryValidationDocument($pdf));
+        $this->assertTrue($this->repository->isInventoryValidationDocument($sheet));
+        $this->assertFalse($this->repository->isInventoryValidationDocument($other));
+    }
+
     public function testWhatAnInvoiceAndItsSupplementBillRoundTrips(): void
     {
         $invoiceId = $this->repository->create(

@@ -6,8 +6,8 @@ category: Espace membres
 role_min: identified
 question: Comment faire signer l'état des lieux par le locataire ?
 question: Que faire si le locataire est absent ou refuse de signer ?
-question: Comment envoyer l'état des lieux au locataire ?
 question: Pourquoi ne puis-je plus modifier un état des lieux ?
+question: Comment faire signer l'état des lieux sur papier ?
 paths: /mes-locations/*/reservations/*/etat-des-lieux/signer
 related: locations-etat-des-lieux, locations-incidents, locations-signatures, locations-documents
 ---
@@ -32,7 +32,9 @@ Choisissez ce qui se passe :
   cadre ;
 - « Le locataire est absent » ou « Le locataire refuse de signer » : son
   cadre disparaît, et l'écran rappelle que l'état des lieux prouve moins
-  sans sa signature. Joignez alors des photos de ce qui compte.
+  sans sa signature. Joignez alors des photos de ce qui compte ;
+- « Signé sur papier » : vous avez signé tous les deux la liste imprimée.
+  Personne ne signe à l'écran ; la photo de la feuille est obligatoire.
 
 Dans tous les cas, le PDF lui est envoyé par e-mail et dit ce qui s'est
 passé.
@@ -62,3 +64,13 @@ quand même ; renvoyez-le depuis la page « Documents ».
 
 Si un relevé de compteur manque, la signature attend : un état des lieux
 signé ne se complète plus.
+
+## Sur papier
+
+Sur la page « État des lieux », « Imprimer la liste à vérifier » ouvre la
+liste de la phase : chaque élément avec sa référence et une case, les
+compteurs, des lignes pour les incidents et deux cadres de signature
+datés. Une fois la liste signée par vous deux, saisissez les valeurs,
+choisissez « Signé sur papier » et photographiez la feuille entière : le
+PDF dit qu'elle a été signée sur papier et la reprend en annexe ; la photo
+est aussi rangée dans les documents.

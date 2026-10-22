@@ -90,7 +90,7 @@ import { openSectionEditor } from '../support/section-editor.js';
 import { pngBuffer } from '../support/png.js';
 import { giveAssetAddress, giveRenterAddress } from '../support/rental-contract.js';
 import { scaled } from '../support/timeouts.js';
-import { signInventory } from '../support/inventory-signing.js';
+import { signInventory, signInventoryOnPaper } from '../support/inventory-signing.js';
 import { waitOutHumanCheckDelay } from '../support/human-check.js';
 import { waitForServerResponse } from '../support/response.js';
 
@@ -347,6 +347,16 @@ test.describe('Rentals — the milestones after a confirmation', () => {
         await takeReference(page, INVENTORY_KEYS);
         await expect(page.getByLabel(INVENTORY_KEYS, { exact: true })).toHaveValue('1');
 
+        // The blank checklist to walk through on site (#989, lot F): a PDF
+        // made on request for this manager's session, never a stored file.
+        const checklist = page.getByRole('link', { name: 'Imprimer la liste à vérifier' });
+        const checklistUrl = new URL(String(await checklist.getAttribute('href')), page.url()).toString();
+        expect(checklistUrl).toMatch(/\/etat-des-lieux\/liste\.pdf\?phase=arrival$/);
+        const checklistPdf = await page.request.get(checklistUrl);
+        expect(checklistPdf.status()).toBe(200);
+        expect(checklistPdf.headers()['content-type']).toBe('application/pdf');
+        expect((await checklistPdf.body()).subarray(0, 5).toString()).toBe('%PDF-');
+
         // Signed on its own screen (#989, lot E): the renter refuses, so
         // the manager signs alone, warned first — traced on the spot, the
         // account keeping no signature.
@@ -369,8 +379,10 @@ test.describe('Rentals — the milestones after a confirmation', () => {
         // A « non » IS a completed observation — the inventory asks what
         // was found, not whether everything was fine.
         await saveLine(page, page.getByLabel(INVENTORY_KITCHEN, { exact: true }), (field) => field.selectOption('no'));
-        // The renter is there this time, and signs with a finger.
-        await signInventory(page, "Signer l'état des lieux de sortie", { renter: 'Paul Locataire' });
+        // No network on site this time: both sign the printed list, and the
+        // photo of the sheet goes through the tile (#989, lot F). The renter
+        // signing with a finger is rental-journey's.
+        await signInventoryOnPaper(page, "Signer l'état des lieux de sortie");
         await expect(page.locator('[data-booking-panel="inventory"]'))
             .toContainText('Les deux états des lieux sont validés');
 

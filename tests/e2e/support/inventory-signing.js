@@ -8,6 +8,7 @@
 // with the signature their account keeps, or one traced there. Sent, it
 // comes back to « État des lieux » with the flash.
 import { expect } from '@playwright/test';
+import { pngBuffer } from './png.js';
 
 /**
  * A stroke across a pad, the way a finger or a mouse draws one.
@@ -65,4 +66,40 @@ export async function signInventory(page, label, who) {
     await form.getByRole('button', { name: 'Valider, signer et envoyer' }).click();
     await page.waitForURL(inventory, { waitUntil: 'load' });
     await expect(page.getByRole('alert').filter({ hasText: 'signé et rangé dans les documents' })).toHaveCount(1);
+}
+
+/**
+ * « Signé sur papier » (lot F): both parties signed the printed sheet, so
+ * nobody signs on screen — the photo of the sheet goes through the « + Photo »
+ * tile, held back by the form until it is there.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {string} label the link on « État des lieux »
+ */
+export async function signInventoryOnPaper(page, label) {
+    const inventory = page.url().split(/[?#]/)[0];
+    await page.getByRole('link', { name: label }).click();
+    await page.waitForURL(/\/etat-des-lieux\/signer\?phase=(arrival|departure)$/, { waitUntil: 'load' });
+
+    const form = page.locator('form[data-inventory-signing-form]');
+    await form.getByLabel('Signé sur papier').check();
+    await expect(form.locator('fieldset[data-renter-signature]')).toBeHidden();
+    await expect(form.locator('fieldset[data-manager-signature]')).toBeHidden();
+    const sheet = form.locator('fieldset[data-paper-sheet]');
+    await expect(sheet).toBeVisible();
+
+    // Sent without the sheet: the form holds it and says why.
+    await form.getByRole('button', { name: 'Valider, signer et envoyer' }).click();
+    await expect(sheet.locator('[data-photo-status]')).toHaveText('Ajoutez la photo de la feuille signée.');
+    expect(page.url()).toContain('/etat-des-lieux/signer');
+
+    await sheet.locator('[data-photo-source="camera"]').setInputFiles({
+        name: 'feuille.png', mimeType: 'image/png', buffer: pngBuffer(1200, 1600),
+    });
+    await expect(sheet.locator('[data-photo-pending]')).toHaveCount(1);
+
+    await form.getByRole('button', { name: 'Valider, signer et envoyer' }).click();
+    await page.waitForURL(inventory, { waitUntil: 'load' });
+    await expect(page.getByRole('alert').filter({ hasText: 'signé sur papier et rangé dans les documents avec la photo de la feuille' }))
+        .toHaveCount(1);
 }
