@@ -1200,6 +1200,14 @@ CREATE TABLE IF NOT EXISTS rental_inventory_validations (
     -- rental_documents (DocumentType::PHOTO, not for the renter — it is
     -- printed in the PDF). NULL for any other signing.
     paper_sheet_document_id INT UNSIGNED NULL,
+    -- How much was walked (#989, lot G, Stay\InventoryScope): 'full' (the
+    -- booking's checklist and meters) or 'minimal' (an asset keeping
+    -- neither: one statement and, at the departure, the incidents).
+    scope VARCHAR(20) NOT NULL DEFAULT 'full',
+    -- A minimal inventory's free remark (#989, lot G), encrypted under its
+    -- own context: written by a manager about the renter's stay, it gets
+    -- the incidents' protection. NULL when the fixed sentence was used.
+    remark_encrypted BLOB NULL,
     UNIQUE KEY uq_rental_inventory_validations (booking_id, phase),
     CONSTRAINT fk_rental_inventory_validations_booking
         FOREIGN KEY (booking_id) REFERENCES rental_bookings (id) ON DELETE CASCADE

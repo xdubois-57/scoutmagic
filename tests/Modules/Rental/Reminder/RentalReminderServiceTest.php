@@ -319,6 +319,40 @@ class RentalReminderServiceTest extends TestCase
         );
     }
 
+    /**
+     * An asset with nothing to walk has its minimal inventory to sign
+     * (#989, lot G), and it is chased like any other — a mark stored for
+     * the step before counts for nothing: an inventory is never ticked.
+     */
+    public function testAMinimalInventoryIsChasedAndAnOldTickStopsNothing(): void
+    {
+        $this->addManagerWithAccount('chef@unite.be');
+        $booking = $this->createBooking(arrival: '2027-06-30', departure: '2027-07-04');
+        $marks = new \Modules\Rental\Repository\RentalMilestoneMarkRepository($this->pdo);
+        $marks->mark($booking->id, \Modules\Rental\Booking\BookingMilestones::ARRIVAL_INVENTORY, null, new \DateTimeImmutable('2027-06-30'));
+        $stay = $this->createStub(\Modules\Rental\Service\RentalStayService::class);
+        $stay->method('keepsInventoryFor')->willReturn(false);
+        $stay->method('inventoryValidations')->willReturn([]);
+        $stay->method('settlementsFor')->willReturn([]);
+
+        (new RentalReminderService(
+            $this->bookingRepository,
+            $this->assetRepository,
+            $this->managerRepository,
+            $this->complianceService,
+            $this->reminderRepository,
+            new ReminderPlanner(),
+            new MemberYearRepository($this->pdo),
+            new UserAccountRepository($this->pdo, $this->encryption),
+            new JournalService(new JournalRepository($this->pdo)),
+            $this->notificationService(),
+            stayService: $stay,
+            markRepository: $marks
+        ))->run(new \DateTimeImmutable('2027-07-02'));
+
+        $this->assertContains(ReminderKind::ARRIVAL_INVENTORY->notificationTypeId(), $this->dispatchedTypeIds());
+    }
+
     public function testTheRentersReminderGoesByEmailAndNeverAsANotification(): void
     {
         // The distinction §6.29 is emphatic about: a renter has no

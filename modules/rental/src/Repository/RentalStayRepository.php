@@ -14,6 +14,7 @@ use Modules\Rental\Stay\Incident;
 use Modules\Rental\Stay\IncidentDecision;
 use Modules\Rental\Stay\IncidentPhoto;
 use Modules\Rental\Stay\InventoryKind;
+use Modules\Rental\Stay\InventoryScope;
 use Modules\Rental\Stay\MeterKind;
 use Modules\Rental\Stay\MeterReading;
 use Modules\Rental\Stay\ReadingPhase;
@@ -35,9 +36,10 @@ use Modules\Rental\Stay\SettlementLine;
  * anybody draws.
  *
  * **Only incident texts are encrypted**, with the reason a balance was
- * not recovered (#980). They are written by a manager about what a
- * renter's group did or owes, so they carry the same protection as the
- * renter's own fields. A meter comment and an inventory
+ * not recovered (#980) and a minimal inventory's remark (#989, lot G).
+ * They are written by a manager about what a renter's group did or owes,
+ * so they carry the same protection as the renter's own fields. A meter
+ * comment and an inventory
  * note are about a device and a piece of furniture, and stay plain — the
  * same rule, and the same responsibility on the interface, as
  * `rental_blocks.reason`.
@@ -52,6 +54,7 @@ class RentalStayRepository
     private const CTX_INCIDENT_REFERENCE = 'rental_incidents.reference';
     private const CTX_INCIDENT_WAIVE_REASON = 'rental_incidents.waive_reason';
     private const CTX_UNRECOVERED_REASON = 'rental_settlements.unrecovered_reason';
+    private const CTX_INVENTORY_REMARK = 'rental_inventory_validations.remark';
 
     public function __construct(
         private \PDO $pdo,
@@ -491,7 +494,7 @@ class RentalStayRepository
      * was validating would otherwise land after the PDF was made, and the
      * frozen value would differ from the one the renter holds. "Validated"
      * includes a later phase (`ReadingPhase::frozenBy()`): the departure's
-     * PDF is read against the arrival, even one only ticked by hand.
+     * PDF is read against the arrival.
      *
      * False when no row changed — the phase was validated in between, or
      * (MySQL counts changed rows, not matched ones) nothing was different.
@@ -535,14 +538,16 @@ class RentalStayRepository
      *     renter_signing: ?RenterSigning,
      *     document_id: ?int,
      *     document_sha256: ?string,
-     *     paper_sheet_document_id: ?int
+     *     paper_sheet_document_id: ?int,
+     *     scope: InventoryScope,
+     *     remark: ?string
      * }>
      */
     public function findInventoryValidations(int $bookingId): array
     {
         $stmt = $this->pdo->prepare(
             'SELECT phase, validated_at, validated_by_member_id, validated_by_account_id, renter_signing,
-                    document_id, document_sha256, paper_sheet_document_id
+                    document_id, document_sha256, paper_sheet_document_id, scope, remark_encrypted
                FROM rental_inventory_validations WHERE booking_id = ?'
         );
         $stmt->execute([$bookingId]);
@@ -568,6 +573,9 @@ class RentalStayRepository
                 'paper_sheet_document_id' => $row['paper_sheet_document_id'] !== null
                     ? (int) $row['paper_sheet_document_id']
                     : null,
+                // Full unless it says otherwise: the column's own default.
+                'scope' => InventoryScope::tryFrom((string) $row['scope']) ?? InventoryScope::FULL,
+                'remark' => $this->decryptOptional($row['remark_encrypted'] ?? null, self::CTX_INVENTORY_REMARK),
             ];
         }
 
@@ -580,9 +588,10 @@ class RentalStayRepository
      *
      * `$accountId` is the account that signed (the session's) and
      * `$renterSigning` what the renter did (#989, lot E) — the only trace
-     * of the renter's part, never their typed name. The default is what
-     * the many fixtures freezing a phase need; the signing service always
-     * says.
+     * of the renter's part, never their typed name. `$scope` and `$remark`
+     * say what a minimal inventory stated (#989, lot G); the remark is
+     * encrypted, and a blank one stored as NULL. The defaults are what the
+     * many fixtures freezing a phase need; the signing service always says.
      */
     public function recordInventoryValidation(
         int $bookingId,
@@ -590,13 +599,16 @@ class RentalStayRepository
         \DateTimeImmutable $at,
         ?int $memberId,
         ?int $accountId = null,
-        RenterSigning $renterSigning = RenterSigning::ON_SITE
+        RenterSigning $renterSigning = RenterSigning::ON_SITE,
+        InventoryScope $scope = InventoryScope::FULL,
+        ?string $remark = null
     ): bool {
         try {
             $this->pdo->prepare(
                 'INSERT INTO rental_inventory_validations
-                    (booking_id, phase, validated_at, validated_by_member_id, validated_by_account_id, renter_signing)
-                 VALUES (?, ?, ?, ?, ?, ?)'
+                    (booking_id, phase, validated_at, validated_by_member_id, validated_by_account_id, renter_signing,
+                     scope, remark_encrypted)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
             )->execute([
                 $bookingId,
                 $phase->value,
@@ -604,6 +616,8 @@ class RentalStayRepository
                 $memberId,
                 $accountId,
                 $renterSigning->value,
+                $scope->value,
+                $this->encryptOptional($remark, self::CTX_INVENTORY_REMARK),
             ]);
         } catch (\PDOException $e) {
             // The unique key only: an FK failure shares SQLSTATE 23000 and

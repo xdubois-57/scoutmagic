@@ -7,16 +7,17 @@ role_min: identified
 question: Comment faire l'état des lieux d'entrée d'une location ?
 question: Que veut dire « non vérifié » dans l'état des lieux ?
 question: Les photos des incidents sont-elles dans le PDF de l'état des lieux ?
+question: Comment faire l'état des lieux d'un bien sans modèle ni compteurs ?
 paths: /mes-locations/*/reservations/*/etat-des-lieux
 related: locations-etat-des-lieux-signature, locations-incidents, locations-facture, locations-gabarits, locations-reservation, gerer-les-locations, locations-documents
 ---
 
-La page « État des lieux » d'une réservation propose l'état des lieux si
-le bien a un modèle d'état des lieux ou des compteurs (page « Gabarits »).
-Sans l'un ni l'autre, l'état des lieux se coche à la main sur le tableau
-de bord, et la page ne garde que les incidents. C'est la liste copiée à la
-confirmation qui compte : modifier le modèle ensuite ne change pas les
-réservations déjà confirmées.
+La page « État des lieux » d'une réservation propose l'état des lieux
+ligne par ligne si le bien a un modèle d'état des lieux ou des compteurs
+(page « Gabarits ») ; sans l'un ni l'autre, il est minimal (voir plus
+bas). C'est la liste
+copiée à la confirmation qui compte : modifier le modèle ensuite ne
+change pas les réservations déjà confirmées.
 
 Elle montre **un seul état des lieux à la fois** : celui d'entrée tant
 qu'il n'est pas validé, puis celui de sortie, puis un récapitulatif avec
@@ -61,11 +62,18 @@ l'état des lieux avec le locataire »).
 La facture se génère, sur la page « Facture », une fois l'état des lieux
 de sortie validé.
 
-Si l'état des lieux d'entrée a été coché à la main sur le tableau de
-bord, celui de sortie commence directement, sans référence d'entrée à
-reprendre. Ce que vous aviez déjà noté à l'entrée reste modifiable
-jusqu'à la validation de la sortie : le PDF de sortie se lit contre
-l'entrée, et l'entrée se fige avec lui.
+Un état des lieux ne se coche jamais à la main. La sortie commence une
+fois l'entrée signée, même en retard.
 
 Ce site ne fonctionne qu'en ligne : sur place sans réseau, notez sur
 papier et saisissez au retour.
+
+## L'état des lieux minimal
+
+Sur un bien sans modèle ni compteurs, l'étape du tableau de bord ouvre
+directement l'écran de signature, qui demande une « Remarque
+(facultatif) ». Laissée vide, le PDF dit « Bien remis en bon état, sans
+remarque » à l'entrée, « Bien rendu en bon état, sans remarque » à la
+sortie, ou « Bien rendu ; incidents constatés ci-dessous » s'il y a des
+incidents. Jamais sur papier ; la remarque, gardée chiffrée, s'affiche
+sur cette page.

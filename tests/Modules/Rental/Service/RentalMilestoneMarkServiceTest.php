@@ -20,8 +20,8 @@ use Tests\Modules\Rental\RentalTestHelper;
 
 /**
  * « Marquer comme fait » (issue #462, D5): a tick is a real fact, carried
- * by the booking's history like any other action — and only a step the
- * site can never derive is ever ticked at all.
+ * by the booking's history like any other action — and never a status,
+ * a state, nor an inventory, which is signed (#989, lot G).
  */
 #[\PHPUnit\Framework\Attributes\Group('database')]
 class RentalMilestoneMarkServiceTest extends TestCase
@@ -83,27 +83,27 @@ class RentalMilestoneMarkServiceTest extends TestCase
     {
         $this->assertTrue($this->service->set(
             $this->booking(),
-            'arrival_inventory',
-            "État des lieux d'entrée",
+            'deposit_received',
+            'Acompte reçu',
             true,
             null,
             new \DateTimeImmutable('2027-07-17 09:30:00')
         ));
 
-        $this->assertArrayHasKey('arrival_inventory', $this->service->marksFor(5));
+        $this->assertArrayHasKey('deposit_received', $this->service->marksFor(5));
         $history = RentalTestHelper::bookingHistory($this->pdo, $this->encryption, 5);
         $this->assertCount(1, $history);
         $this->assertSame(BookingAudit::STEP_MARKED, $history[0]->fieldKey);
-        $this->assertSame("État des lieux d'entrée", $history[0]->summary);
+        $this->assertSame('Acompte reçu', $history[0]->summary);
         $this->assertSame('Fait', $history[0]->toValue);
     }
 
     public function testAnUntickIsWrittenToTheHistoryToo(): void
     {
         $at = new \DateTimeImmutable('2027-07-17 09:30:00');
-        $this->service->set($this->booking(), 'arrival_inventory', "État des lieux d'entrée", true, null, $at);
+        $this->service->set($this->booking(), 'deposit_received', 'Acompte reçu', true, null, $at);
 
-        $this->assertTrue($this->service->set($this->booking(), 'arrival_inventory', "État des lieux d'entrée", false, null, $at));
+        $this->assertTrue($this->service->set($this->booking(), 'deposit_received', 'Acompte reçu', false, null, $at));
 
         $this->assertSame([], $this->service->marksFor(5));
         $history = RentalTestHelper::bookingHistory($this->pdo, $this->encryption, 5);
@@ -147,9 +147,9 @@ class RentalMilestoneMarkServiceTest extends TestCase
     public function testATickThatChangesNothingWritesNothing(): void
     {
         $at = new \DateTimeImmutable('2027-07-17 09:30:00');
-        $this->service->set($this->booking(), 'arrival_inventory', "État des lieux d'entrée", true, null, $at);
+        $this->service->set($this->booking(), 'deposit_received', 'Acompte reçu', true, null, $at);
 
-        $this->assertFalse($this->service->set($this->booking(), 'arrival_inventory', "État des lieux d'entrée", true, null, $at));
+        $this->assertFalse($this->service->set($this->booking(), 'deposit_received', 'Acompte reçu', true, null, $at));
         $this->assertCount(1, RentalTestHelper::bookingHistory($this->pdo, $this->encryption, 5));
     }
 
@@ -168,6 +168,32 @@ class RentalMilestoneMarkServiceTest extends TestCase
                 $this->addToAssertionCount(1);
             }
         }
+    }
+
+    /**
+     * **The inventories are signed, never ticked** (#989, lot G, Q4):
+     * neither is marked nor reopened, with the sentence that says where
+     * it is done — and nothing reaches the marks nor the history.
+     */
+    public function testAnInventoryIsNeitherTickedNorReopened(): void
+    {
+        foreach (['arrival_inventory', 'departure_inventory'] as $key) {
+            foreach ([true, false] as $done) {
+                try {
+                    $this->service->set($this->booking(), $key, 'État des lieux', $done, null, new \DateTimeImmutable());
+                    $this->fail($key . ' was ' . ($done ? 'ticked' : 'reopened') . ' by hand');
+                } catch (RentalException $e) {
+                    $this->assertSame(
+                        "L'état des lieux ne se coche pas à la main : il se signe avec le locataire depuis la page "
+                            . 'État des lieux, et une fois signé il ne se rouvre plus.',
+                        $e->getMessage()
+                    );
+                }
+            }
+        }
+
+        $this->assertSame([], $this->service->marksFor(5));
+        $this->assertSame([], RentalTestHelper::bookingHistory($this->pdo, $this->encryption, 5));
     }
 
     /** Any other step is ticked by hand — a deposit paid in cash. */

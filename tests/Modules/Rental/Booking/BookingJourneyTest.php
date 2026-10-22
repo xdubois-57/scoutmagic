@@ -904,30 +904,66 @@ class BookingJourneyTest extends TestCase
     }
 
     /**
-     * A walk-through the site keeps no inventory for is the one line a
-     * manager ticks by hand — and only that line: no derived line is ever
-     * markable, whatever else is offsite.
+     * **The inventories are signed, never ticked** (#989, lot G, Q4): an
+     * asset with nothing to walk has its step lead straight to the
+     * minimal signing screen, one that keeps an inventory to « État des
+     * lieux »; neither disc ticks, and a signed one never reopens.
      */
-    public function testOnlyALineTheSiteCannotDeriveIsTickedByHand(): void
+    public function testTheInventoriesLeadToTheirSigningAndAreNeverTicked(): void
     {
-        $milestones = BookingMilestones::for(
+        $extras = [
+            BookingMilestones::ARRIVAL_INVENTORY => false,
+            BookingMilestones::DEPARTURE_INVENTORY => false,
+            BookingMilestones::DEPOSIT_RECEIVED => false,
+        ];
+        $byKey = [];
+        foreach (BookingMilestones::for(
             $this->booking(BookingStatus::CONFIRMED),
             new \DateTimeImmutable('2027-01-10 12:00:00'),
-            [
-                BookingMilestones::ARRIVAL_INVENTORY => false,
-                BookingMilestones::DEPARTURE_INVENTORY => false,
-                BookingMilestones::DEPOSIT_RECEIVED => false,
-            ],
+            $extras,
             [],
-            [BookingMilestones::ARRIVAL_INVENTORY, BookingMilestones::DEPARTURE_INVENTORY, BookingMilestones::DEPOSIT_RECEIVED]
-        );
+            [BookingMilestones::ARRIVAL_INVENTORY, BookingMilestones::DEPARTURE_INVENTORY]
+        ) as $milestone) {
+            $byKey[$milestone->key] = $milestone;
+        }
 
-        foreach ($milestones as $milestone) {
-            $this->assertSame(
-                in_array($milestone->key, [BookingMilestones::ARRIVAL_INVENTORY, BookingMilestones::DEPARTURE_INVENTORY], true),
-                $milestone->kind->isMarkable(),
-                $milestone->key
-            );
+        foreach (['arrival' => BookingMilestones::ARRIVAL_INVENTORY, 'departure' => BookingMilestones::DEPARTURE_INVENTORY] as $phase => $key) {
+            $step = $byKey[$key];
+            $this->assertSame(MilestoneKind::HERE, $step->kind, $key);
+            $this->assertFalse($step->canBeCompletedByHand(), $key);
+            $this->assertSame(\Modules\Rental\Booking\BookingPage::INVENTORY, $step->action?->page, $key);
+            $this->assertSame('/signer?phase=' . $phase, $step->action->pathSuffix, $key);
+        }
+        $this->assertSame("Signer l'état des lieux d'entrée", $byKey[BookingMilestones::ARRIVAL_INVENTORY]->action?->label);
+        // Any other step still to do is ticked by hand as before (IT-14).
+        $this->assertTrue($byKey[BookingMilestones::DEPOSIT_RECEIVED]->canBeCompletedByHand());
+
+        // An asset that keeps an inventory: the step leads to its page.
+        $kept = BookingMilestones::for(
+            $this->booking(BookingStatus::CONFIRMED),
+            new \DateTimeImmutable('2027-01-10 12:00:00'),
+            $extras
+        );
+        foreach ($kept as $milestone) {
+            if (in_array($milestone->key, BookingMilestones::INVENTORIES, true)) {
+                $this->assertSame(\Modules\Rental\Booking\BookingBox::INVENTORY, $milestone->action?->box);
+                $this->assertFalse($milestone->canBeCompletedByHand());
+            }
+        }
+
+        // Signed: done, and never reopened.
+        $signed = BookingMilestones::for(
+            $this->booking(BookingStatus::CONFIRMED),
+            new \DateTimeImmutable('2027-01-10 12:00:00'),
+            [BookingMilestones::ARRIVAL_INVENTORY => true] + $extras,
+            [],
+            [BookingMilestones::ARRIVAL_INVENTORY]
+        );
+        foreach ($signed as $milestone) {
+            if ($milestone->key === BookingMilestones::ARRIVAL_INVENTORY) {
+                $this->assertTrue($milestone->isDone);
+                $this->assertFalse($milestone->canBeReopened());
+            }
         }
     }
 

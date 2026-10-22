@@ -13,6 +13,7 @@ use Modules\Rental\Document\ConditionsVersion;
 use Modules\Rental\Document\DocumentType;
 use Modules\Rental\Document\RentalDocument;
 use Modules\Rental\Payment\SecurityDepositStatus;
+use Modules\Rental\Stay\InventoryScope;
 use Modules\Rental\Stay\Settlement;
 
 /**
@@ -62,8 +63,9 @@ final class MilestoneEvidence
      *   a key absent from this map is "not applicable"
      * @param array<string, string> $details the small grey suffix each line
      *   may carry (a date, a version) — same keying
-     * @param list<string> $offsite the keys ticked by hand on this booking,
-     *   because the site keeps nothing they could be derived from
+     * @param list<string> $minimal the inventory keys that are a minimal
+     *   inventory on this booking (#989, lot G): the asset has nothing to
+     *   walk, so the step opens the signing screen itself
      * @param list<string> $manual the keys done because a manager ticked them
      *   by hand (#708, IT-14) — the only done steps that reopen
      * @param list<string> $awaitingAssessment the keys still to do that a
@@ -72,7 +74,7 @@ final class MilestoneEvidence
     private function __construct(
         public readonly array $done,
         public readonly array $details,
-        public readonly array $offsite = [],
+        public readonly array $minimal = [],
         public readonly array $manual = [],
         public readonly array $awaitingAssessment = []
     ) {
@@ -97,7 +99,8 @@ final class MilestoneEvidence
      *   on this booking, keyed 'arrival' / 'departure' (#708, IT-17); null when
      *   the stay module is unavailable
      * @param bool $assetKeepsInventory whether the asset's inventories are
-     *   kept on the site — items to check or meters to read
+     *   kept line by line — items to check or meters to read; without
+     *   either, each is a minimal inventory (#989, lot G)
      * @param array<string, array{at: \DateTimeImmutable, by: ?string}> $marks
      *   the lines a manager ticked by hand, keyed by milestone
      * @param ?\DateTimeImmutable $today what a due date is measured against;
@@ -122,7 +125,7 @@ final class MilestoneEvidence
     ): self {
         $done = [];
         $details = [];
-        $offsite = [];
+        $minimal = [];
 
         // The conditions are accepted with the request, never with the
         // contract (#708, IT-16): a fact of « Demande reçue », with the
@@ -245,30 +248,30 @@ final class MilestoneEvidence
             );
         }
 
-        // The walk-throughs happen whether or not the site keeps an
-        // inventory. Where it keeps none — the stay module is off, or the
-        // asset has neither items to check nor meters to read — nothing
-        // here can derive them, so they are the lines a manager ticks by
-        // hand (issue #462, D5); where it keeps one, they are done when
-        // they are VALIDATED, not before (#708, IT-17) — and a hand tick
-        // still counts while they are not (IT-14).
-        if ($inventoryValidations === null || !$assetKeepsInventory) {
-            foreach ([BookingMilestones::ARRIVAL_INVENTORY, BookingMilestones::DEPARTURE_INVENTORY] as $key) {
-                $offsite[] = $key;
-                $record($key, false);
-            }
-        } else {
+        // The walk-throughs are done when they are VALIDATED — signed, and
+        // their PDF sent (#708, IT-17; #989, lot E) — never before, and
+        // never by hand (#989, lot G, decision Q4): an asset with neither
+        // items nor meters validates a minimal inventory, on the same
+        // screen. Without the stay module there is no screen at all, so
+        // the lines do not apply here.
+        if ($inventoryValidations !== null) {
             $phases = [
                 'arrival' => BookingMilestones::ARRIVAL_INVENTORY,
                 'departure' => BookingMilestones::DEPARTURE_INVENTORY,
             ];
             foreach ($phases as $phase => $key) {
                 $validated = $inventoryValidations[$phase] ?? null;
+                $isMinimal = is_array($validated)
+                    ? ($validated['scope'] ?? null) === InventoryScope::MINIMAL
+                    : !$assetKeepsInventory;
+                if ($isMinimal) {
+                    $minimal[] = $key;
+                }
                 $record(
                     $key,
                     $validated !== null,
                     is_array($validated) && ($validated['validated_at'] ?? null) instanceof \DateTimeImmutable
-                        ? 'validé le ' . $validated['validated_at']->format('d/m/Y')
+                        ? ($isMinimal ? 'minimal, ' : '') . 'validé le ' . $validated['validated_at']->format('d/m/Y')
                         : null
                 );
             }
@@ -291,6 +294,12 @@ final class MilestoneEvidence
         // paid in cash and later reconciled in Finances is the site's again
         // — and a step that is not applicable here cannot be ticked into
         // being.
+        // The inventories are the exception: signed, never ticked (#989,
+        // lot G). A mark stored before counts for nothing, so it neither
+        // ticks the step nor offers to reopen it.
+        foreach (BookingMilestones::INVENTORIES as $key) {
+            unset($marks[$key]);
+        }
         // A mark on the retired step stood for the whole agreement: it
         // carries over to the two signatures it covered, rather than
         // vanishing and leaving a booking that was ready to confirm waiting
@@ -347,7 +356,7 @@ final class MilestoneEvidence
             }
         }
 
-        return new self($done, $details, $offsite, $manual, $awaitingAssessment);
+        return new self($done, $details, $minimal, $manual, $awaitingAssessment);
     }
 
     /**

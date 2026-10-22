@@ -520,32 +520,32 @@ class RentalStayServiceTest extends TestCase
             $this->assertStringContainsString("une fois celui d'entrée validé", $e->getMessage());
         }
 
-        // An arrival ticked by hand opens the departure all the same.
-        $this->service->setInventoryValue($booking, $line['id'], ReadingPhase::DEPARTURE, '2', null, true);
+        // Only the arrival's validation opens it: no tick does (#989, lot G).
+        $this->assertTrue($this->service->recordInventoryValidation($booking, ReadingPhase::ARRIVAL, $this->now(), 1));
+        $this->service->setInventoryValue($booking, $line['id'], ReadingPhase::DEPARTURE, '2', null);
         $this->assertSame('2', $this->service->inventoryFor($booking->id)[0]['departure_value']);
     }
 
     /**
-     * An arrival ticked by hand is never validated itself, but the
-     * departure's PDF is read against it: once that PDF has gone out, the
-     * arrival is frozen with it — its values and its readings.
+     * The departure's PDF is read against the arrival: once it has gone
+     * out, the arrival is frozen with it — its values and its readings —
+     * whatever the arrival's own row says (the writes guard it too).
      */
-    public function testAnArrivalTickedByHandIsFrozenOnceTheDepartureIsValidated(): void
+    public function testTheArrivalIsFrozenOnceTheDepartureIsValidated(): void
     {
         $this->service->addInventoryItem($this->assetId, 'Clés');
         $meterId = $this->addMeter();
         $booking = $this->createBooking();
         $this->service->snapshotInventory($booking, $this->assetId);
         $line = $this->service->inventoryFor($booking->id)[0];
-        $this->service->setInventoryValue($booking, $line['id'], ReadingPhase::ARRIVAL, '2', null, true);
-        $this->service->setInventoryValue($booking, $line['id'], ReadingPhase::DEPARTURE, '2', null, true);
+        $this->service->setInventoryValue($booking, $line['id'], ReadingPhase::ARRIVAL, '2', null);
 
         $this->assertTrue($this->service->recordInventoryValidation($booking, ReadingPhase::DEPARTURE, $this->now(), 1));
 
         foreach ([
-            fn() => $this->service->setInventoryValue($booking, $line['id'], ReadingPhase::ARRIVAL, '1', null, true),
+            fn() => $this->service->setInventoryValue($booking, $line['id'], ReadingPhase::ARRIVAL, '1', null),
             fn() => $this->service->recordReading(
-                $booking, $this->assetId, $meterId, ReadingPhase::ARRIVAL, '1000', $this->now(), null, null, 1, true
+                $booking, $this->assetId, $meterId, ReadingPhase::ARRIVAL, '1000', $this->now(), null, null, 1
             ),
         ] as $write) {
             try {
@@ -662,7 +662,7 @@ class RentalStayServiceTest extends TestCase
         \Modules\Rental\Service\RentalInventoryValidationService $service,
         \Modules\Rental\Booking\RentalBooking $booking,
         ReadingPhase $phase,
-        bool $arrivalTickedByHand = false
+        ?string $remark = null
     ): array {
         $image = imagecreatetruecolor(300, 100);
         ob_start();
@@ -682,7 +682,7 @@ class RentalStayServiceTest extends TestCase
                 'Anne'
             ),
             $this->now(),
-            $arrivalTickedByHand
+            $remark
         );
     }
 
@@ -806,36 +806,19 @@ class RentalStayServiceTest extends TestCase
     }
 
     /**
-     * An arrival ticked by hand is frozen by the departure's validation:
-     * its meter readings must be in by then, or the consumption could
-     * never be billed. A validated arrival is not asked again.
+     * The departure asks for its own readings only: the arrival is
+     * validated first, with its readings, so a meter added since does
+     * not block the departure.
      */
-    public function testTheDepartureAsksForTheArrivalReadingsOfAnArrivalTickedByHand(): void
+    public function testTheDepartureAsksForItsOwnReadingsOnly(): void
     {
-        $meterId = $this->addMeter();
         $booking = $this->createBooking();
-        $this->service->recordReading(
-            $booking, $this->assetId, $meterId, ReadingPhase::DEPARTURE, '1500', $this->now(), null, null, 1, true
-        );
+        $this->assertTrue($this->service->recordInventoryValidation($booking, ReadingPhase::ARRIVAL, $this->now(), 1));
+        $this->addMeter();
 
-        $this->assertSame(
-            ['Électricité (entrée)'],
-            $this->validationService()->missingReadings($booking, $this->assetId, ReadingPhase::DEPARTURE)
-        );
-        try {
-            $this->validateWith($this->validationService(), $booking, ReadingPhase::DEPARTURE, true);
-            $this->fail('A departure froze an arrival still missing its reading.');
-        } catch (RentalException $e) {
-            $this->assertStringContainsString('Il manque le relevé de : Électricité (entrée)', $e->getMessage());
-        }
-
-        // Once the arrival is validated with its reading, nothing more is asked of it.
-        $other = $this->createBooking('LOC-A2B3C5');
-        $this->service->recordReading($other, $this->assetId, $meterId, ReadingPhase::ARRIVAL, '1000', $this->now(), null, null, 1);
-        $this->assertTrue($this->service->recordInventoryValidation($other, ReadingPhase::ARRIVAL, $this->now(), 1));
         $this->assertSame(
             ['Électricité'],
-            $this->validationService()->missingReadings($other, $this->assetId, ReadingPhase::DEPARTURE)
+            $this->validationService()->missingReadings($booking, $this->assetId, ReadingPhase::DEPARTURE)
         );
     }
 
@@ -852,12 +835,53 @@ class RentalStayServiceTest extends TestCase
         $this->validateWith($this->validationService(), $booking, ReadingPhase::ARRIVAL);
     }
 
-    public function testAnAssetWithNothingToWalkHasNothingToValidate(): void
+    /**
+     * An asset with nothing to walk validates a minimal inventory (#989,
+     * lot G) — no longer a refusal sending the manager to a tick — and
+     * its departure waits for that arrival like any other.
+     */
+    public function testAnAssetWithNothingToWalkValidatesAMinimalInventory(): void
     {
+        $booking = $this->createBooking();
+        try {
+            $this->validateWith($this->validationService(), $booking, ReadingPhase::DEPARTURE);
+            $this->fail('A departure was validated before its arrival.');
+        } catch (RentalException $e) {
+            $this->assertStringContainsString("une fois celui d'entrée validé", $e->getMessage());
+        }
+
+        $written = $this->filedPdfOnDisk();
+        $documents = $this->createStub(\Modules\Rental\Service\RentalDocumentService::class);
+        $documents->method('attachPdf')->willReturn($this->filedDocument($booking));
+        $documents->method('absolutePath')->willReturn($written);
+        try {
+            $this->validateWith(
+                $this->validationService(null, $documents),
+                $booking,
+                ReadingPhase::ARRIVAL,
+                'Clés remises en main propre.'
+            );
+        } finally {
+            @unlink($written);
+        }
+
+        $arrival = $this->service->inventoryValidations($booking->id)['arrival'];
+        $this->assertSame(\Modules\Rental\Stay\InventoryScope::MINIMAL, $arrival['scope']);
+        $this->assertSame('Clés remises en main propre.', $arrival['remark']);
+    }
+
+    /**
+     * A template the booking has not copied yet — it is copied at the
+     * confirmation — is not a minimal inventory: it is refused, with the
+     * way out.
+     */
+    public function testATemplateNotCopiedYetIsNotAMinimalInventory(): void
+    {
+        $this->service->addInventoryItem($this->assetId, 'Clés');
         $booking = $this->createBooking();
 
         $this->expectException(RentalException::class);
-        $this->expectExceptionMessage('se coche à la main');
+        $this->expectExceptionMessage('à sa confirmation');
 
         $this->validateWith($this->validationService(), $booking, ReadingPhase::ARRIVAL);
     }

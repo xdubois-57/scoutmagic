@@ -9,7 +9,9 @@
   (#708, IT-14). Any step still to do can be marked done there, after an
   explicit confirmation — things happen away from the site, a contract
   accepted by e-mail, a deposit paid in cash — and a step marked by hand
-  reopens the same way. A step the site completed itself does not reopen;
+  reopens the same way. The two inventories are not: they are signed
+  (#989, lot G), and their step offers only the way to the signing. A step
+  the site completed itself does not reopen;
   « Demande reçue » and « Dates bloquées » have an inert disc; the disc of
   « Réservation confirmée » and « Location clôturée » runs the transition
   itself, with its usual confirmation. Every actionable disc is a real
@@ -113,7 +115,6 @@
                     derived: 'bg-secondary-subtle text-secondary-emphasis',
                     here: 'bg-primary-subtle text-primary-emphasis',
                     renter: 'bg-warning-subtle text-warning-emphasis',
-                    offsite: 'bg-info-subtle text-info-emphasis',
                 } %}
                 <span class="badge {{ kind_class[milestone.kind.value] }}">{{ milestone.kind.label }}</span>
             {% endif %}
@@ -140,7 +141,7 @@
           its way up there already.
         #}
         {% if state == 'todo' and not future and milestone.kind.value == 'here' and not is_next
-            and milestone.action and (milestone.action.box or milestone.action.command)
+            and milestone.action and (milestone.action.box or milestone.action.page or milestone.action.command)
             and milestone.action.command != 'countersign' %}
             <div class="mt-2">
                 {% include '@rental/management/_milestone_action.html.twig' with {

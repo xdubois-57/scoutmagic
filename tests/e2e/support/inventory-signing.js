@@ -53,8 +53,23 @@ export async function signInventory(page, label, who) {
         await expect(renterFrame.getByLabel('Nom de la personne qui signe')).toBeDisabled();
     }
 
-    // The manager: the account's signature, previewed from the owner's
-    // route and never written into the page — or a stroke of their own.
+    await signAsManager(page, form);
+
+    await form.getByRole('button', { name: 'Valider, signer et envoyer' }).click();
+    await page.waitForURL(inventory, { waitUntil: 'load' });
+    await expect(page.getByRole('alert').filter({ hasText: 'signé et rangé dans les documents' })).toHaveCount(1);
+}
+
+/**
+ * The manager's frame: the account's signature, previewed from the owner's
+ * route and never written into the page — or a stroke of their own when
+ * the account keeps none. Which one depends on what an earlier spec left
+ * on the shared account, so a spec never assumes either.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {import('@playwright/test').Locator} form the signing form
+ */
+export async function signAsManager(page, form) {
     const managerFrame = form.locator('[data-signature-field]').filter({ hasNot: page.locator('[name^="renter_"]') });
     if (await managerFrame.getAttribute('data-signature-mode') === 'stored') {
         await expect(managerFrame.locator('[data-signature-preview] img'))
@@ -62,10 +77,6 @@ export async function signInventory(page, label, who) {
     } else {
         await traceSignature(page, managerFrame.locator('canvas[data-signature-pad]'));
     }
-
-    await form.getByRole('button', { name: 'Valider, signer et envoyer' }).click();
-    await page.waitForURL(inventory, { waitUntil: 'load' });
-    await expect(page.getByRole('alert').filter({ hasText: 'signé et rangé dans les documents' })).toHaveCount(1);
 }
 
 /**

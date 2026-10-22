@@ -1301,8 +1301,8 @@ class RentalManagementController extends AbstractController
     {
         // « État des lieux » wherever the stay features are: the incidents
         // live there (#708, IT-17), and an asset with nothing to walk can
-        // still be damaged. Its walk-throughs are ticked by hand on the
-        // dashboard; the page then shows only the incidents.
+        // still be damaged. Its walk-throughs are minimal inventories
+        // (#989, lot G), signed from there too.
         $inventory = $this->stayService !== null;
 
         return array_values(array_filter(
@@ -3319,7 +3319,9 @@ class RentalManagementController extends AbstractController
      * What « État des lieux » renders (#708, IT-17): one inventory at a
      * time — the arrival until it is validated, then the departure, then a
      * read-only summary with both PDFs — its lines with what each is
-     * checked against, the meters, and the incidents.
+     * checked against, the meters, and the incidents. On an asset with
+     * nothing to walk (`inventory_kept` false), the phase open is a
+     * minimal inventory (#989, lot G): only the way to its signing screen.
      *
      * @return array<string, mixed>
      */
@@ -3330,16 +3332,11 @@ class RentalManagementController extends AbstractController
         }
 
         $validations = $this->stayService->inventoryValidations($booking->id);
-        $arrivalByHand = $this->arrivalTickedByHand($booking);
         $kept = $this->stayService->keepsInventoryFor($booking);
-        // A validated departure freezes the arrival too (frozenBy): unticking
-        // a hand-ticked arrival afterwards must not reopen a form whose every
-        // save would be refused.
+        // A validated departure freezes the arrival too (frozenBy): no form
+        // reopens under it, whatever the arrival's own row says.
         $phase = match (true) {
-            // Nothing to walk: no phase to fill in, only the incidents.
-            !$kept => null,
-            !isset($validations['arrival']) && !$arrivalByHand && !isset($validations['departure'])
-                => ReadingPhase::ARRIVAL,
+            !isset($validations['arrival']) && !isset($validations['departure']) => ReadingPhase::ARRIVAL,
             !isset($validations['departure']) => ReadingPhase::DEPARTURE,
             default => null,
         };
@@ -3366,7 +3363,13 @@ class RentalManagementController extends AbstractController
             'inventory_lines' => $lines,
             'inventory_validations' => $validations,
             'inventory_documents' => $documents,
-            'arrival_by_hand' => $arrivalByHand,
+            // What a minimal inventory says without a remark (#989, lot G).
+            'fixed_statement' => $phase !== null
+                ? \Modules\Rental\Stay\InventoryScope::fixedStatement(
+                    $phase,
+                    $phase === ReadingPhase::DEPARTURE && $this->stayService->incidentsFor($booking->id) !== []
+                )
+                : null,
             'unchecked_count' => $phase !== null
                 ? \Modules\Rental\Stay\InventoryReport::uncheckedCount($lines, $phase)
                 : 0,
@@ -3374,33 +3377,13 @@ class RentalManagementController extends AbstractController
                 ? ($this->inventoryValidation?->missingReadings($booking, $asset->id, $phase) ?? [])
                 : [],
             'consumptions' => $this->stayService->consumptionsFor($booking, $asset->id),
-            // An arrival ticked by hand was never read through this page:
-            // its meter readings stay to be taken beside the departure's
-            // until the departure is validated, or the consumption could
-            // never be billed.
-            'meter_phases' => match (true) {
-                $phase === ReadingPhase::DEPARTURE && $arrivalByHand && !isset($validations['arrival'])
-                    => [ReadingPhase::ARRIVAL, ReadingPhase::DEPARTURE],
-                $phase !== null => [$phase],
-                default => [],
-            },
+            'meter_phases' => $phase !== null && $kept ? [$phase] : [],
             'incidents' => $this->stayService->incidentsFor($booking->id),
             'incident_decisions' => IncidentDecision::decidable(),
             'incidents_open' => !isset($validations['departure']),
             // The « + Photo » tile says and holds the service's own limit (#989).
             'max_incident_photos' => RentalStayService::MAX_INCIDENT_PHOTOS,
         ];
-    }
-
-    /**
-     * Whether a manager ticked the arrival inventory by hand (#708, IT-14)
-     * — the departure then starts without a validated arrival.
-     */
-    private function arrivalTickedByHand(RentalBooking $booking): bool
-    {
-        $marks = $this->milestoneMarkService?->marksFor($booking->id) ?? [];
-
-        return isset($marks[BookingMilestones::ARRIVAL_INVENTORY]);
     }
 
     /**
@@ -3488,10 +3471,11 @@ class RentalManagementController extends AbstractController
 
     /**
      * Whether the invoice still waits for the departure inventory (#708,
-     * IT-18): until it is validated or ticked by hand, what it would bill
-     * — the consumptions, the incidents — is not known. A booking with
-     * nothing to walk waits for nothing (keepsInventoryFor(): its own
-     * copied checklist, not the asset's current template).
+     * IT-18): until it is validated, what it would bill — the
+     * consumptions, the incidents — is not known. A booking with nothing
+     * to walk waits for nothing (keepsInventoryFor(): its own copied
+     * checklist, not the asset's current template): its incidents are
+     * billed from « État des lieux » whenever they are decided.
      */
     private function invoiceWaits(RentalBooking $booking, RentalAsset $asset): bool
     {
@@ -3499,10 +3483,7 @@ class RentalManagementController extends AbstractController
             return false;
         }
 
-        $marks = $this->milestoneMarkService?->marksFor($booking->id) ?? [];
-
-        return !isset($this->stayService->inventoryValidations($booking->id)['departure'])
-            && !isset($marks[BookingMilestones::DEPARTURE_INVENTORY]);
+        return !isset($this->stayService->inventoryValidations($booking->id)['departure']);
     }
 
     /**
@@ -3525,8 +3506,7 @@ class RentalManagementController extends AbstractController
                 (int) $request->getBody('inventory_id', 0),
                 $phase,
                 (string) $request->getBody('value', ''),
-                Support::optionalString($request->getBody('note')),
-                $this->arrivalTickedByHand($booking)
+                Support::optionalString($request->getBody('note'))
             );
 
             FlashMessage::set('success', 'Enregistré.');
@@ -3622,6 +3602,11 @@ class RentalManagementController extends AbstractController
      * the one open — validated meanwhile, or not started — goes back to
      * « État des lieux ».
      *
+     * On an asset with nothing to walk it is the minimal inventory (#989,
+     * lot G), reached straight from the dashboard's step: no lines and no
+     * readings, a free remark instead — the fixed sentence when left
+     * blank — and, at the departure, the incidents.
+     *
      * @param array<string, string> $params
      */
     public function signInventory(Request $request, array $params): Response
@@ -3681,11 +3666,15 @@ class RentalManagementController extends AbstractController
 
         $account = AuthSession::getUserAccountId();
         $signingUrl = $inventoryUrl . '/signer?phase=' . $phase->value;
+        $minimal = !$this->stayService->keepsInventoryFor($booking);
 
         return $this->render('@rental/management/booking_inventory_sign.html.twig', [
             'asset' => $asset,
             'booking' => $booking,
             'phase' => $phase,
+            'minimal' => $minimal,
+            'fixed_statement' => \Modules\Rental\Stay\InventoryScope::fixedStatement($phase, $incidents !== []),
+            'remark_max' => \Modules\Rental\Stay\InventoryScope::REMARK_MAX,
             'findings' => $phase === ReadingPhase::ARRIVAL
                 ? \Modules\Rental\Stay\InventoryReport::arrivalGaps($lines)
                 : \Modules\Rental\Stay\InventoryReport::departureDifferences($lines),
@@ -3693,7 +3682,13 @@ class RentalManagementController extends AbstractController
             'unchecked_count' => \Modules\Rental\Stay\InventoryReport::uncheckedCount($lines, $phase),
             'readings' => $readings,
             'incidents' => $incidents,
-            'renter_choices' => \Modules\Rental\Stay\RenterSigning::cases(),
+            // A minimal inventory has no checklist to print, so it is never
+            // signed on paper (#989, lots F and G).
+            'renter_choices' => array_filter(
+                \Modules\Rental\Stay\RenterSigning::cases(),
+                static fn(\Modules\Rental\Stay\RenterSigning $choice): bool
+                    => !$minimal || $choice !== \Modules\Rental\Stay\RenterSigning::PAPER
+            ),
             'renter_prefix' => self::RENTER_SIGNATURE_PREFIX,
             'has_stored_signature' => $account !== null && ($this->personalSignatures?->has($account) ?? false),
             'signing_url' => $signingUrl,
@@ -3796,7 +3791,9 @@ class RentalManagementController extends AbstractController
                         $renter,
                         $manager,
                         new \DateTimeImmutable(),
-                        $this->arrivalTickedByHand($booking)
+                        // A minimal inventory's (#989, lot G); a full one
+                        // ignores it.
+                        Support::optionalString($request->getBody('remark'))
                     );
                 } catch (\Throwable $e) {
                     // A sheet stored for a validation that did not happen
@@ -3856,8 +3853,7 @@ class RentalManagementController extends AbstractController
                 $readAt,
                 $fileIds[0] ?? null,
                 Support::optionalString($request->getBody('comment')),
-                $this->actorMemberId(),
-                $this->arrivalTickedByHand($booking)
+                $this->actorMemberId()
             );
             // One photo per reading (#989): a new one replaces the old.
             $this->withPhotos($request, $booking, 1, $record);
@@ -3887,8 +3883,7 @@ class RentalManagementController extends AbstractController
                 $booking,
                 $asset->id,
                 (int) $request->getBody('meter_id', 0),
-                $phase,
-                $this->arrivalTickedByHand($booking)
+                $phase
             );
 
             FlashMessage::set('success', 'Photo du relevé retirée.');

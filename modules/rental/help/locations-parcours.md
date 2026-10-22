@@ -49,9 +49,7 @@ Chaque étape dit **comment elle se coche** :
 - **se dérive du site** — d'elle-même, d'après ce qui s'est passé ici,
   comme un paiement pointé dans les Finances ;
 - **à faire ici** — un bouton mène à ce qu'il faut faire ;
-- **en attente du locataire** — elle se cochera quand il aura répondu ;
-- **hors du site** — personne ne peut le deviner : cochez-la à la main
-  quand c'est fait.
+- **en attente du locataire** — elle se cochera quand il aura répondu.
 
 ## Cocher une étape à la main
 
@@ -61,6 +59,8 @@ le rappelle : ce n'est pas la bonne pratique, le site ne la vérifiera
 plus. La coche compte comme celle du site : étape suivante, « À
 traiter », rappels. La ligne dit qui l'a cochée et quand ; le même rond
 la rouvre. Une étape que le site a vérifiée lui-même ne se rouvre pas.
+Les deux états des lieux ne se cochent jamais : ils se signent avec le
+locataire, et une fois signés ne se rouvrent plus.
 
 Le rond de « Réservation confirmée » et de « Location clôturée » lance
 la transition elle-même. Ceux de « Demande reçue » et de « Dates

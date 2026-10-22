@@ -46,6 +46,11 @@ final class RgpdCoverageTest extends TestCase
             '<strong>la photo de la feuille signée</strong>, qui porte votre nom et votre signature manuscrite',
             $page
         );
+        // A minimal inventory's free remark, encrypted (#989, lot G).
+        $this->assertStringContainsString(
+            'une remarque libre du gestionnaire : cette remarque, qui peut parler de votre groupe, est <strong>chiffrée au repos</strong>',
+            $page
+        );
     }
 
     public function testThePromptKeepsIt(): void
@@ -60,5 +65,7 @@ final class RgpdCoverageTest extends TestCase
         $this->assertStringContainsString("**uniquement dans le PDF de l'état des lieux**", $prompt);
         $this->assertStringContainsString('**la photo de la feuille', $prompt);
         $this->assertStringContainsString('**signé sur papier**', $prompt);
+        // A minimal inventory's free remark (#989, lot G).
+        $this->assertStringContainsString("la remarque libre d'un état des lieux minimal", $prompt);
     }
 }
