@@ -434,6 +434,16 @@ describe('two signers in a form of the page (issue #989, lot D)', () => {
         expect(isEmpty(form)).toBe(false);
     });
 
+    it('still asks for a signer merely hidden: only a disabled fieldset sets one aside', () => {
+        const { form, pads, missing } = page('new');
+        wire(form);
+        /** @type {HTMLFieldSetElement} */ (form.querySelector('#renter-block')).hidden = true;
+        trace(pads.manager.canvas);
+
+        expect(submit(form).defaultPrevented).toBe(true);
+        expect(missing('renter').hidden).toBe(false);
+    });
+
     it('sends each signer’s PNG in its own field, then empties both signers and nothing else', async () => {
         vi.useFakeTimers();
         const { form, pads } = page('new');

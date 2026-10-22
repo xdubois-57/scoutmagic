@@ -6332,8 +6332,10 @@ gives a dialog, signer by signer: the wipe once it is sent and on a page
 restored from the back-forward cache (leaving the page is its
 « Annuler »), « Tracez… » in place under the frame left empty, the stored
 signature's preview fetched into that signer's own container — and
-nothing asked of a container the page set aside (inside `[hidden]` or a
-disabled fieldset: a renter who is absent). `recordSigning(…,
+nothing asked of a container the page set aside, which only a disabled
+fieldset does (a renter who is absent): it also takes the signer's fields
+out of the browser's validation and out of the request, where `[hidden]`
+alone would leave the required typed name blocking the form. `recordSigning(…,
 $documentSha256)` adds `document_sha256` to the journal line when the
 module gives it — the SHA-256 of the file as filed, 64 lowercase
 hexadecimal characters, any other shape refused before anything is

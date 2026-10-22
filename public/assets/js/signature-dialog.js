@@ -36,9 +36,12 @@
  * frame empty, the stored signature's preview fetched into its own
  * container when the page shows it. There is no closing to hook: leaving
  * the page is the « Annuler » of such a form, and the back-forward cache
- * is what could bring it back. A container inside `[hidden]` or a
- * disabled fieldset is a signer the page has set aside (a renter who is
- * absent) and is not asked for anything.
+ * is what could bring it back. A container inside a disabled fieldset
+ * is a signer the page has set aside (a renter who is absent) and is not
+ * asked for anything — and only a disabled fieldset sets one aside: it
+ * also takes the signer's fields out of the browser's own validation and
+ * out of what is sent, where `[hidden]` alone would leave the required
+ * name blocking the form.
  */
 
 (function () {
@@ -135,14 +138,15 @@
     }
 
     /**
-     * Whether a signer was set aside by the page — inside `[hidden]` or a
-     * disabled fieldset — and so is not asked for a signature.
+     * Whether a signer was set aside by the page — inside a disabled
+     * fieldset, the one way to do it (see the header) — and so is not
+     * asked for a signature.
      *
      * @param {HTMLElement} signer
      * @returns {boolean}
      */
     function setAside(signer) {
-        return signer.closest('[hidden], fieldset[disabled]') !== null;
+        return signer.closest('fieldset[disabled]') !== null;
     }
 
     /**
