@@ -138,7 +138,9 @@ final readonly class SignatureSubmission
     public static function assertPrefix(string $prefix): void
     {
         if (preg_match(self::PREFIX_PATTERN, $prefix) !== 1) {
-            throw new \InvalidArgumentException('A signature field prefix is lowercase letters and one underscore, or empty.');
+            throw new \InvalidArgumentException(
+                'A signature field prefix is lowercase letters and one underscore, or empty.'
+            );
         }
     }
 

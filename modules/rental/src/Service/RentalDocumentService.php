@@ -995,18 +995,29 @@ class RentalDocumentService
         ?int $modificationId = null
     ): RentalDocument {
         $fileId = $this->storePdf($pdf, $displayName, $booking->id);
-        $documentId = $this->documentRepository->create(
-            $booking->id,
-            $fileId,
-            $type,
-            1,
-            $isForRenter,
-            null,
-            $actorMemberId,
-            RentalDocument::SOURCE_MANUAL,
-            $contractDocumentId,
-            $modificationId
-        );
+        try {
+            $documentId = $this->documentRepository->create(
+                $booking->id,
+                $fileId,
+                $type,
+                1,
+                $isForRenter,
+                null,
+                $actorMemberId,
+                RentalDocument::SOURCE_MANUAL,
+                $contractDocumentId,
+                $modificationId
+            );
+        } catch (\Throwable $e) {
+            // The bytes go with the row that was refused: under a caller's
+            // transaction the `files` row rolls back, and the file on disk
+            // would be left for nobody to find (#989, lot E).
+            $file = $this->fileRepository->findById($fileId);
+            if ($file !== null) {
+                @unlink($this->storagePath . '/' . $file->relativePath);
+            }
+            throw $e;
+        }
 
         return $this->documentRepository->findById($documentId)
             ?? throw new RentalException("Le document n'a pas pu être enregistré.");
@@ -1145,6 +1156,18 @@ class RentalDocumentService
             throw new RentalException(
                 'Ce document a été envoyé au locataire : il ne peut plus être supprimé. '
                 . 'Ce qui est parti reste au dossier.'
+            );
+        }
+        // **Nor a signed inventory, sent or not** (#989, lot E): its PDF is
+        // what the renter and the manager signed, and the validation points
+        // at it. An e-mail that failed is resent, never replaced.
+        if (
+            $document->type === DocumentType::INVENTORY
+            && $this->documentRepository->isInventoryValidationDocument($document->id)
+        ) {
+            throw new RentalException(
+                "Cet état des lieux est signé : il ne peut pas être supprimé. S'il n'est pas parti, "
+                . 'renvoyez-le au locataire.'
             );
         }
 
@@ -1426,15 +1449,29 @@ class RentalDocumentService
         // Random on disk, readable in the interface: the stored name must
         // not be guessable, and the displayed one must say what it is.
         $relativePath = self::STORAGE_SUBDIRECTORY . '/' . bin2hex(random_bytes(16)) . '.pdf';
-        if (file_put_contents($this->storagePath . '/' . $relativePath, $pdf) === false) {
+        $absolutePath = $this->storagePath . '/' . $relativePath;
+        if (file_put_contents($absolutePath, $pdf) === false) {
             throw new RentalException("Le document n'a pas pu être écrit sur le disque.");
         }
 
+        try {
+            return $this->storedPdfRow($relativePath, $displayName, strlen($pdf), $bookingId);
+        } catch (\Throwable $e) {
+            // No row, so nothing would ever point at these bytes: a PDF
+            // left on disk without its `files` row is an orphan nobody
+            // finds again — and a signed inventory's carries signatures.
+            @unlink($absolutePath);
+            throw $e;
+        }
+    }
+
+    private function storedPdfRow(string $relativePath, string $displayName, int $size, int $bookingId): int
+    {
         return $this->fileRepository->create(
             $relativePath,
             $displayName,
             'application/pdf',
-            strlen($pdf),
+            $size,
             self::FILE_ROLE_MIN,
             'rental',
             null,

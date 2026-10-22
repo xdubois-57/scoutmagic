@@ -2,7 +2,7 @@
   "id": "rental",
   "name": "Locations",
   "description": "Location des biens de l'unité : locaux, terrains, tentes, remorques.",
-  "version": "1.51.0",
+  "version": "1.52.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -729,6 +729,21 @@
       }
     },
     {
+      "path": "/mes-locations/{slug}/reservations/{id}/etat-des-lieux/signer",
+      "method": "GET",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "signInventory",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": "",
+      "breadcrumb": {
+        "label": "Signer l'état des lieux",
+        "parents": [
+          "Espace membres"
+        ]
+      }
+    },
+    {
       "path": "/mes-locations/{slug}/reservations/{id}/facture",
       "method": "GET",
       "controller": "Modules\\Rental\\Controller\\RentalManagementController",
@@ -1437,8 +1452,8 @@
     },
     {
       "id": "rental.document_signed",
-      "label": "Contrat signé avec votre signature",
-      "description": "Vous venez de contresigner un contrat de location avec votre signature : la notification dit lequel et quand, et mène à la page Documents de la réservation, qui le porte. Vous seul la recevez.",
+      "label": "Document signé avec votre signature",
+      "description": "Vous venez de contresigner un contrat de location ou de signer un état des lieux avec votre signature : la notification dit lequel et quand, et mène à la page Documents de la réservation, qui le porte. Vous seul la recevez.",
       "group": "Locations",
       "role_min": "identified",
       "channels": {

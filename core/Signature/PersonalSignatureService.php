@@ -336,7 +336,9 @@ class PersonalSignatureService
         ?string $documentSha256 = null
     ): void {
         if ($documentSha256 !== null && preg_match('/^[0-9a-f]{64}$/D', $documentSha256) !== 1) {
-            throw new \InvalidArgumentException('A document fingerprint is a SHA-256 in 64 lowercase hexadecimal characters.');
+            throw new \InvalidArgumentException(
+                'A document fingerprint is a SHA-256 in 64 lowercase hexadecimal characters.'
+            );
         }
         $context = [
             'module' => $module,

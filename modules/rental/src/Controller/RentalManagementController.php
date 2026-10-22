@@ -1400,6 +1400,12 @@ class RentalManagementController extends AbstractController
                         )
                     )),
                     'uploadable_types' => DocumentType::uploadable(),
+                    // A signed inventory is never deleted (#989, lot E), so
+                    // the page does not offer it.
+                    'signed_inventory_ids' => array_values(array_filter(array_map(
+                        static fn(array $validation): ?int => $validation['document_id'],
+                        $this->stayService?->inventoryValidations($booking->id) ?? []
+                    ))),
                     // So the page can say, BEFORE a contract goes out, that
                     // it would print « — » where the landlord's address
                     // belongs (issue #497).
@@ -3505,8 +3511,131 @@ class RentalManagementController extends AbstractController
     }
 
     /**
-     * POST /mes-locations/etat-des-lieux/valider — the phase frozen, its
-     * PDF filed and sent to the renter (#708, IT-17).
+     * The prefix of the renter's fields on the signing screen (#989, lot
+     * E): `renter_signer_name`, `renter_signature_data`, … — the manager's
+     * fields carry none, and neither read ever falls back on the other's.
+     */
+    private const RENTER_SIGNATURE_PREFIX = 'renter_';
+
+    /**
+     * GET /mes-locations/{slug}/reservations/{id}/etat-des-lieux/signer?phase=
+     * — « Valider, signer et envoyer » (#989, lot E): the screen the
+     * renter and the manager sign on, on the manager's phone.
+     *
+     * **The renter reads it.** It shows what the PDF will say about the
+     * phase — the gaps or the differences, the readings, at the departure
+     * the incidents with their date and their photos — and never an
+     * amount, a decision, what an assessment waits for, its reference or
+     * a reason: the incidents reach the template as a date, a description
+     * and photo ids, nothing else.
+     *
+     * `private, no-store`, and not in the offline list: it is a write
+     * page, and the manager's stored signature is fetched into it by
+     * `signature-dialog.js`, never written into it. A phase that is not
+     * the one open — validated meanwhile, or not started — goes back to
+     * « État des lieux ».
+     *
+     * @param array<string, string> $params
+     */
+    public function signInventory(Request $request, array $params): Response
+    {
+        $asset = $this->manageableAsset($params);
+        if ($asset === null || $this->stayService === null || $this->inventoryValidation === null) {
+            return $this->notFound();
+        }
+        $booking = $this->bookingOfAsset($asset, (int) ($params['id'] ?? 0));
+        if ($booking === null) {
+            return $this->notFound();
+        }
+
+        $bookingUrl = $this->bookingUrl($asset, $booking);
+        $inventoryUrl = BookingPage::INVENTORY->url($bookingUrl);
+        $phase = ReadingPhase::tryFrom((string) $request->getQuery('phase', ''));
+        $open = $this->inventoryContext($booking, $asset)['inventory_phase'] ?? null;
+        if ($phase === null || $open !== $phase) {
+            return $this->redirect($inventoryUrl);
+        }
+        $missing = $this->inventoryValidation->missingReadings($booking, $asset->id, $phase);
+        if ($missing !== []) {
+            FlashMessage::set(
+                'error',
+                'Il manque le relevé de : ' . implode(', ', $missing)
+                    . ". L'état des lieux ne se signe qu'avec tous ses relevés."
+            );
+
+            return $this->redirect($inventoryUrl);
+        }
+
+        $lines = $this->stayService->inventoryFor($booking->id);
+        $consumptions = $this->stayService->consumptionsFor($booking, $asset->id);
+        $readings = [];
+        foreach ($consumptions as $consumption) {
+            $readings[] = [
+                'label' => $consumption->meter->label,
+                'arrival' => $consumption->arrival?->formatted(),
+                'departure' => $phase === ReadingPhase::DEPARTURE ? $consumption->departure?->formatted() : null,
+            ];
+        }
+        // Only what the renter may read of an incident (§2.7 of #980):
+        // when, what, and its photos.
+        $incidents = [];
+        if ($phase === ReadingPhase::DEPARTURE) {
+            foreach ($this->stayService->incidentsFor($booking->id) as $incident) {
+                $incidents[] = [
+                    'reported_at' => $incident->createdAt,
+                    'description' => $incident->description,
+                    'photo_file_ids' => array_map(
+                        static fn(\Modules\Rental\Stay\IncidentPhoto $photo): int => $photo->fileId,
+                        $incident->photos
+                    ),
+                ];
+            }
+        }
+
+        $account = AuthSession::getUserAccountId();
+        $signingUrl = $inventoryUrl . '/signer?phase=' . $phase->value;
+
+        return $this->render('@rental/management/booking_inventory_sign.html.twig', [
+            'asset' => $asset,
+            'booking' => $booking,
+            'phase' => $phase,
+            'findings' => $phase === ReadingPhase::ARRIVAL
+                ? \Modules\Rental\Stay\InventoryReport::arrivalGaps($lines)
+                : \Modules\Rental\Stay\InventoryReport::departureDifferences($lines),
+            'has_lines' => $lines !== [],
+            'unchecked_count' => \Modules\Rental\Stay\InventoryReport::uncheckedCount($lines, $phase),
+            'readings' => $readings,
+            'incidents' => $incidents,
+            'renter_choices' => \Modules\Rental\Stay\RenterSigning::cases(),
+            'renter_prefix' => self::RENTER_SIGNATURE_PREFIX,
+            'has_stored_signature' => $account !== null && ($this->personalSignatures?->has($account) ?? false),
+            'signing_url' => $signingUrl,
+            'inventory_url' => $inventoryUrl,
+            'breadcrumb_current' => $phase === ReadingPhase::ARRIVAL
+                ? "Signer l'état des lieux d'entrée"
+                : "Signer l'état des lieux de sortie",
+            'breadcrumb_trail' => [
+                ...$this->bookingTrail($asset),
+                ['label' => $booking->reference, 'url' => $bookingUrl],
+                ['label' => BookingPage::INVENTORY->label(), 'url' => $inventoryUrl],
+            ],
+            'nav_page' => 'bookings',
+        ])->setHeader('Cache-Control', 'private, no-store');
+    }
+
+    /**
+     * POST /mes-locations/etat-des-lieux/valider — « Valider, signer et
+     * envoyer » (#708, IT-17; #989, lot E): the phase frozen, its PDF
+     * signed by the manager and, unless absent or refusing, the renter,
+     * filed and sent to the renter.
+     *
+     * Both signatures are read here, inside `bookingAction()` — after the
+     * CSRF check and the manager check, before the service takes any lock:
+     * the manager's with the SESSION's account (`forSigning()`; a posted
+     * `user_account_id` is never read), the renter's as a witness under
+     * its own prefix, and only when they sign on the spot. A refusal goes
+     * back to the signing screen, which the signatures must be traced on
+     * again: neither is kept anywhere in between.
      *
      * @param array<string, string> $params
      */
@@ -3515,30 +3644,67 @@ class RentalManagementController extends AbstractController
         return $this->bookingAction($request, function (
             RentalBooking $booking,
             RentalAsset $asset
-        ) use ($request): void {
+        ) use ($request): string {
             $phase = ReadingPhase::tryFrom((string) $request->getBody('phase', ''));
             if ($phase === null || $this->inventoryValidation === null) {
                 throw new RentalException("Cet état des lieux n'existe pas.");
             }
+            $account = AuthSession::getUserAccountId();
+            if ($this->personalSignatures === null || $account === null) {
+                throw new RentalException("La signature de l'état des lieux n'est pas disponible.");
+            }
+            $inventoryUrl = BookingPage::INVENTORY->url($this->bookingUrl($asset, $booking));
 
-            $result = $this->inventoryValidation->validate(
-                $booking,
-                $asset,
-                $phase,
-                $this->actorMemberId(),
-                $this->signerDisplayName(),
-                new \DateTimeImmutable(),
-                $this->arrivalTickedByHand($booking)
-            );
+            try {
+                $choice = \Modules\Rental\Stay\RenterSigning::tryFrom((string) $request->getBody('renter_signing', ''));
+                if ($choice === null) {
+                    throw new RentalException('Dites si le locataire signe ici, est absent ou refuse de signer.');
+                }
+                try {
+                    // The manager traces or applies the account's signature;
+                    // no import on the spot.
+                    $manager = $this->personalSignatures->forSigning(
+                        $account,
+                        \Core\Signature\SignatureSubmission::fromRequest($request, false, true)
+                    );
+                    $renter = $choice->renterSigns()
+                        ? \Modules\Rental\Stay\InventorySigning::onSite(
+                            $this->personalSignatures->witnessFromRequest($request, self::RENTER_SIGNATURE_PREFIX)
+                        )
+                        : \Modules\Rental\Stay\InventorySigning::without($choice);
+                } catch (\Core\Signature\SignatureException $e) {
+                    // bookingAction() answers a RentalException, and only
+                    // that: the core's sentence is already the visitor's.
+                    throw new RentalException($e->getMessage(), 0, $e);
+                }
+
+                $result = $this->inventoryValidation->validate(
+                    $booking,
+                    $asset,
+                    $phase,
+                    $this->actorMemberId(),
+                    $renter,
+                    $manager,
+                    new \DateTimeImmutable(),
+                    $this->arrivalTickedByHand($booking)
+                );
+            } catch (RentalException $e) {
+                FlashMessage::set('error', $e->getMessage());
+
+                return $inventoryUrl . '/signer?phase=' . $phase->value;
+            }
 
             FlashMessage::set(
                 $result['sent'] ? 'success' : 'warning',
                 ($phase === ReadingPhase::ARRIVAL ? "État des lieux d'entrée" : 'État des lieux de sortie')
-                . ' validé et rangé dans les documents'
+                . ' signé et rangé dans les documents'
                 . ($result['sent']
                     ? ', puis envoyé au locataire.'
                     : ". Il n'a pas pu être envoyé : renvoyez-le depuis la page Documents.")
+                . ($manager->willBeRemembered() ? ' Votre signature est enregistrée dans Mon compte.' : '')
             );
+
+            return $inventoryUrl;
         });
     }
 
@@ -4841,17 +5007,6 @@ class RentalManagementController extends AbstractController
         return array_merge($this->assetTrail(), [
             ['label' => $asset->name, 'url' => '/mes-locations/' . $asset->slug],
         ]);
-    }
-
-    /**
-     * The name printed beside a signature on a document the renter reads:
-     * the signed-in account's own name, and « un gestionnaire » when it has
-     * none. Not the display name the rest of the site uses — that is a
-     * totem, which tells a tenant nothing (issue #825).
-     */
-    private function signerDisplayName(): string
-    {
-        return $this->signerName?->forAccount(AuthSession::getUserAccountId()) ?? 'un gestionnaire';
     }
 
     /**

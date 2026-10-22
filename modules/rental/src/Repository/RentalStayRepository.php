@@ -18,6 +18,7 @@ use Modules\Rental\Stay\MeterKind;
 use Modules\Rental\Stay\MeterReading;
 use Modules\Rental\Stay\ReadingPhase;
 use Modules\Rental\Stay\RentalMeter;
+use Modules\Rental\Stay\RenterSigning;
 use Modules\Rental\Stay\RenterIncident;
 use Modules\Rental\Stay\RenterIncidents;
 use Modules\Rental\Stay\Settlement;
@@ -527,12 +528,20 @@ class RentalStayRepository
     /**
      * The phases validated on this booking (#708, IT-17), keyed by phase.
      *
-     * @return array<string, array{validated_at: \DateTimeImmutable, validated_by_member_id: ?int, document_id: ?int}>
+     * @return array<string, array{
+     *     validated_at: \DateTimeImmutable,
+     *     validated_by_member_id: ?int,
+     *     validated_by_account_id: ?int,
+     *     renter_signing: ?RenterSigning,
+     *     document_id: ?int,
+     *     document_sha256: ?string
+     * }>
      */
     public function findInventoryValidations(int $bookingId): array
     {
         $stmt = $this->pdo->prepare(
-            'SELECT phase, validated_at, validated_by_member_id, document_id
+            'SELECT phase, validated_at, validated_by_member_id, validated_by_account_id, renter_signing,
+                    document_id, document_sha256
                FROM rental_inventory_validations WHERE booking_id = ?'
         );
         $stmt->execute([$bookingId]);
@@ -547,7 +556,14 @@ class RentalStayRepository
                 'validated_by_member_id' => $row['validated_by_member_id'] !== null
                     ? (int) $row['validated_by_member_id']
                     : null,
+                'validated_by_account_id' => $row['validated_by_account_id'] !== null
+                    ? (int) $row['validated_by_account_id']
+                    : null,
+                // Null for a value this version does not know (a later
+                // lot's « paper » read by an older one), never a guess.
+                'renter_signing' => RenterSigning::tryFrom((string) $row['renter_signing']),
                 'document_id' => $row['document_id'] !== null ? (int) $row['document_id'] : null,
+                'document_sha256' => $row['document_sha256'] !== null ? (string) $row['document_sha256'] : null,
             ];
         }
 
@@ -557,18 +573,34 @@ class RentalStayRepository
     /**
      * Freezes a phase. False when it already was: the unique key is the
      * lock, so two managers validating at once produce one validation.
+     *
+     * `$accountId` is the account that signed (the session's) and
+     * `$renterSigning` what the renter did (#989, lot E) — the only trace
+     * of the renter's part, never their typed name. The default is what
+     * the many fixtures freezing a phase need; the signing service always
+     * says.
      */
     public function recordInventoryValidation(
         int $bookingId,
         ReadingPhase $phase,
         \DateTimeImmutable $at,
-        ?int $memberId
+        ?int $memberId,
+        ?int $accountId = null,
+        RenterSigning $renterSigning = RenterSigning::ON_SITE
     ): bool {
         try {
             $this->pdo->prepare(
-                'INSERT INTO rental_inventory_validations (booking_id, phase, validated_at, validated_by_member_id)
-                 VALUES (?, ?, ?, ?)'
-            )->execute([$bookingId, $phase->value, $at->format('Y-m-d H:i:s'), $memberId]);
+                'INSERT INTO rental_inventory_validations
+                    (booking_id, phase, validated_at, validated_by_member_id, validated_by_account_id, renter_signing)
+                 VALUES (?, ?, ?, ?, ?, ?)'
+            )->execute([
+                $bookingId,
+                $phase->value,
+                $at->format('Y-m-d H:i:s'),
+                $memberId,
+                $accountId,
+                $renterSigning->value,
+            ]);
         } catch (\PDOException $e) {
             // The unique key only: an FK failure shares SQLSTATE 23000 and
             // must not be read as « already validated ».
@@ -581,20 +613,20 @@ class RentalStayRepository
         return true;
     }
 
-    /** The PDF a validation produced. */
-    public function setInventoryValidationDocument(int $bookingId, ReadingPhase $phase, int $documentId): void
-    {
+    /**
+     * The PDF a validation produced, and the SHA-256 of its file as filed
+     * (#989, lot E) — 64 lowercase hexadecimal characters, or null.
+     */
+    public function setInventoryValidationDocument(
+        int $bookingId,
+        ReadingPhase $phase,
+        int $documentId,
+        ?string $documentSha256 = null
+    ): void {
         $this->pdo->prepare(
-            'UPDATE rental_inventory_validations SET document_id = ? WHERE booking_id = ? AND phase = ?'
-        )->execute([$documentId, $bookingId, $phase->value]);
-    }
-
-    /** Undoes a validation whose PDF could not be produced. */
-    public function forgetInventoryValidation(int $bookingId, ReadingPhase $phase): void
-    {
-        $this->pdo->prepare(
-            'DELETE FROM rental_inventory_validations WHERE booking_id = ? AND phase = ?'
-        )->execute([$bookingId, $phase->value]);
+            'UPDATE rental_inventory_validations SET document_id = ?, document_sha256 = ?
+              WHERE booking_id = ? AND phase = ?'
+        )->execute([$documentId, $documentSha256, $bookingId, $phase->value]);
     }
 
     public function findInventoryBookingId(int $inventoryId): ?int

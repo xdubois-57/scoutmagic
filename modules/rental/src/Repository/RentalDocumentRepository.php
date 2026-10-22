@@ -280,6 +280,19 @@ class RentalDocumentRepository implements AttachedFileRepository
         return $stmt->fetchColumn() !== false;
     }
 
+    /**
+     * Whether a validated inventory's PDF is this document (#989, lot E):
+     * the signed record of the two parties, which nobody may delete —
+     * whether or not its e-mail left.
+     */
+    public function isInventoryValidationDocument(int $documentId): bool
+    {
+        $stmt = $this->pdo->prepare('SELECT 1 FROM rental_inventory_validations WHERE document_id = ? LIMIT 1');
+        $stmt->execute([$documentId]);
+
+        return $stmt->fetchColumn() !== false;
+    }
+
     public function markSent(int $id, \DateTimeImmutable $sentAt): void
     {
         $stmt = $this->pdo->prepare('UPDATE rental_documents SET sent_at = ? WHERE id = ?');

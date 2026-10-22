@@ -8,7 +8,14 @@ use Core\File\FileRepository;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Pdf\DocumentPdfService;
+use Core\Notification\NotificationService;
 use Core\Security\EncryptionService;
+use Core\Security\UserAccountRepository;
+use Core\Signature\AccountSignature;
+use Core\Signature\PersonalSignatureRepository;
+use Core\Signature\PersonalSignatureService;
+use Core\Signature\SignatureSubmission;
+use Core\Signature\WitnessSignature;
 use Modules\Rental\Booking\RentalBooking;
 use Modules\Rental\Document\DocumentType;
 use Modules\Rental\Document\RentalDocument;
@@ -19,6 +26,7 @@ use Modules\Rental\Pricing\RentalPricingEngine;
 use Modules\Rental\Repository\RentalAsset;
 use Modules\Rental\Repository\RentalAssetRepository;
 use Modules\Rental\Repository\RentalBookingRepository;
+use Modules\Rental\Repository\RentalDocumentRepository;
 use Modules\Rental\Repository\RentalPricingRepository;
 use Modules\Rental\Repository\RentalStayRepository;
 use Modules\Rental\Service\InventoryPhotoRenderer;
@@ -27,8 +35,10 @@ use Modules\Rental\Service\RentalDocumentService;
 use Modules\Rental\Service\RentalInventoryValidationService;
 use Modules\Rental\Service\RentalPricingService;
 use Modules\Rental\Service\RentalStayService;
+use Modules\Rental\Stay\InventorySigning;
 use Modules\Rental\Stay\MeterKind;
 use Modules\Rental\Stay\ReadingPhase;
+use Modules\Rental\Stay\RenterSigning;
 use Modules\Rental\Stay\SettlementCalculator;
 use PHPUnit\Framework\TestCase;
 use Smalot\PdfParser\Parser;
@@ -66,6 +76,10 @@ final class RentalInventoryValidationServiceTest extends TestCase
     private string $storagePath;
     private int $assetId;
 
+    private JournalService $journal;
+    private UserAccountRepository $accounts;
+    private PersonalSignatureService $signatures;
+
     /** The PDF the last validation filed, as dompdf wrote it. */
     private ?string $filedPdf = null;
 
@@ -74,7 +88,13 @@ final class RentalInventoryValidationServiceTest extends TestCase
         $this->pdo = DatabaseTestHelper::createTestDatabase();
         RentalTestHelper::createTables($this->pdo);
         $this->encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
-        $journal = new JournalService(new JournalRepository($this->pdo));
+        $journal = $this->journal = new JournalService(new JournalRepository($this->pdo));
+        $this->accounts = new UserAccountRepository($this->pdo, $this->encryption);
+        $this->signatures = new PersonalSignatureService(
+            new PersonalSignatureRepository($this->pdo, $this->encryption),
+            $journal,
+            $this->accounts
+        );
         $pricing = new RentalPricingService(new RentalPricingRepository($this->pdo), new RentalPricingEngine(), $journal);
 
         $this->assetRepository = new RentalAssetRepository($this->pdo, $this->encryption);
@@ -100,11 +120,14 @@ final class RentalInventoryValidationServiceTest extends TestCase
 
     protected function tearDown(): void
     {
-        foreach (glob($this->storagePath . '/rental/*') ?: [] as $file) {
-            unlink($file);
+        $files = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($this->storagePath, \FilesystemIterator::SKIP_DOTS),
+            \RecursiveIteratorIterator::CHILD_FIRST
+        );
+        foreach ($files as $file) {
+            $file->isDir() ? rmdir($file->getPathname()) : unlink($file->getPathname());
         }
-        @rmdir($this->storagePath . '/rental');
-        @rmdir($this->storagePath);
+        rmdir($this->storagePath);
     }
 
     // ── The tests ───────────────────────────────────────────────────────
@@ -131,9 +154,7 @@ final class RentalInventoryValidationServiceTest extends TestCase
         );
         $this->stay->reportIncident($booking, 'Vitre cassée', null, array_map($this->storedPhoto(...), [8, 9, 10]), 1);
 
-        $this->validationService()->validate(
-            $booking, $this->asset(), ReadingPhase::DEPARTURE, 1, 'Anne Dupont', $this->at('2027-07-04 11:30'), true
-        );
+        $this->signWith($this->validationService(), $booking, ReadingPhase::DEPARTURE, $this->at('2027-07-04 11:30'), true);
 
         $this->assertNotNull($this->filedPdf);
         $this->assertLessThan(self::TEN_PHOTOS_CEILING_BYTES, strlen($this->filedPdf));
@@ -163,9 +184,7 @@ final class RentalInventoryValidationServiceTest extends TestCase
         $before = glob($this->storagePath . '/rental/*') ?: [];
         $files = (int) $this->pdo->query('SELECT COUNT(*) FROM files')->fetchColumn();
 
-        $this->validationService()->validate(
-            $booking, $this->asset(), ReadingPhase::DEPARTURE, 1, 'Anne Dupont', $this->at('2027-07-04 11:30'), true
-        );
+        $this->signWith($this->validationService(), $booking, ReadingPhase::DEPARTURE, $this->at('2027-07-04 11:30'), true);
 
         $this->assertSame($before, glob($this->storagePath . '/rental/*') ?: []);
         $this->assertSame($files, (int) $this->pdo->query('SELECT COUNT(*) FROM files')->fetchColumn());
@@ -186,9 +205,7 @@ final class RentalInventoryValidationServiceTest extends TestCase
         );
         $this->stay->reportIncident($booking, 'Rayure', null, [$this->storedPhoto(2)], 1);
 
-        $this->validationService()->validate(
-            $booking, $this->asset(), ReadingPhase::ARRIVAL, 1, 'Anne Dupont', $this->at('2027-07-01 15:30')
-        );
+        $this->signWith($this->validationService(), $booking, ReadingPhase::ARRIVAL, $this->at('2027-07-01 15:30'));
 
         $text = (new Parser())->parseContent((string) $this->filedPdf)->getText();
         $this->assertStringContainsString('Compteur Eau, entrée : 12,000 m³', $text);
@@ -209,19 +226,315 @@ final class RentalInventoryValidationServiceTest extends TestCase
         $this->assertNotNull($record);
         unlink($this->storagePath . '/' . $record->relativePath);
 
-        $this->validationService()->validate(
-            $booking, $this->asset(), ReadingPhase::DEPARTURE, 1, 'Anne Dupont', $this->at('2027-07-04 11:30'), true
-        );
+        $this->signWith($this->validationService(), $booking, ReadingPhase::DEPARTURE, $this->at('2027-07-04 11:30'), true);
 
         $this->assertStringContainsString('Rayure (photo 1)', (new Parser())->parseContent((string) $this->filedPdf)->getText());
         $this->assertSame(1, $this->embeddedJpegCount((string) $this->filedPdf));
+    }
+
+    // ── Signed on the spot (#989, lot E) ────────────────────────────────
+
+    /**
+     * Both signatures: the PDF says who accepted and who signed, the row
+     * says what the renter did and which account signed, and the
+     * fingerprint is the SHA-256 of the very file filed — in the row, in
+     * the booking's history and in the journal of the act.
+     */
+    public function testTheRenterAndTheManagerSignAndTheFingerprintIsTheFilesOwn(): void
+    {
+        $account = $this->sessionAccount();
+        $booking = $this->bookingWithAnInventory();
+        $service = $this->realService();
+
+        $result = $service->validate(
+            $booking,
+            $this->asset(),
+            ReadingPhase::ARRIVAL,
+            1,
+            InventorySigning::onSite($this->witness('Jeanne Témoin')),
+            $this->managerSignature($account),
+            $this->at('2027-07-01 15:30')
+        );
+
+        $path = $this->documentService()->absolutePath($result['document']);
+        $this->assertIsString($path);
+        $this->assertSame(hash_file('sha256', $path), $result['sha256']);
+        $validation = $this->stay->inventoryValidations($booking->id)['arrival'];
+        $this->assertSame($result['sha256'], $validation['document_sha256']);
+        $this->assertSame(RenterSigning::ON_SITE, $validation['renter_signing']);
+        $this->assertSame($account, $validation['validated_by_account_id']);
+        $this->assertSame($result['document']->id, $validation['document_id']);
+
+        $text = (string) preg_replace('/\s+/u', ' ', (new Parser())->parseFile($path)->getText());
+        $this->assertStringContainsString('Accepté sur place par Jeanne Témoin, signé au doigt', $text);
+        $this->assertStringContainsString('Signé au doigt par Anne Dupont', $text);
+        $this->assertStringContainsString('Signé sur place, Local Saint-Georges, le 01/07/2027 à 15:30', $text);
+
+        $history = $this->historyOf($booking);
+        $this->assertCount(1, $history);
+        $this->assertSame('État des lieux signé', $history[0]['summary']);
+        $this->assertSame(
+            "État des lieux d'entrée — signé sur place par le locataire — SHA-256 " . $result['sha256'],
+            $history[0]['to']
+        );
+        $this->assertSame($account, $history[0]['account']);
+
+        $act = $this->journalContexts('personal_signature_document_signed');
+        $this->assertCount(1, $act);
+        $this->assertSame($result['sha256'], $act[0]['document_sha256']);
+        $this->assertSame('inventory', $act[0]['document_type']);
+        $this->assertSame($result['document']->id, $act[0]['document_id']);
+    }
+
+    /**
+     * @return iterable<string, array{RenterSigning, string, string}>
+     */
+    public static function renterWithoutSignature(): iterable
+    {
+        yield 'absent' => [RenterSigning::ABSENT, 'Le locataire était absent', 'locataire absent'];
+        yield 'refused' => [RenterSigning::REFUSED, 'Le locataire a refusé de signer', 'le locataire a refusé de signer'];
+    }
+
+    /**
+     * Absent or refusing, the renter still receives the PDF, which says
+     * so; the manager's signature is still on it, and the history says
+     * what the renter did.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('renterWithoutSignature')]
+    public function testWithoutTheRenterThePdfSaysWhyAndStillGoesToThem(
+        RenterSigning $choice,
+        string $inThePdf,
+        string $inTheHistory
+    ): void {
+        $account = $this->sessionAccount();
+        $booking = $this->bookingWithAnInventory();
+        $sent = [];
+        $mail = $this->createStub(RentalBookingMailService::class);
+        $mail->method('sendDocument')->willReturnCallback(
+            function (RentalBooking $to, RentalAsset $asset, string $label) use (&$sent): string {
+                $sent[] = [$to->id, $label];
+
+                return '<message@test>';
+            }
+        );
+
+        $result = $this->realService($mail)->validate(
+            $booking,
+            $this->asset(),
+            ReadingPhase::ARRIVAL,
+            1,
+            InventorySigning::without($choice),
+            $this->managerSignature($account),
+            $this->at('2027-07-01 15:30')
+        );
+
+        $this->assertTrue($result['sent']);
+        $this->assertSame([[$booking->id, "État des lieux d'entrée"]], $sent);
+        $path = (string) $this->documentService()->absolutePath($result['document']);
+        $text = (string) preg_replace('/\s+/u', ' ', (new Parser())->parseFile($path)->getText());
+        $this->assertStringContainsString($inThePdf, $text);
+        $this->assertStringContainsString('Signé au doigt par Anne Dupont', $text);
+        $this->assertSame($choice, $this->stay->inventoryValidations($booking->id)['arrival']['renter_signing']);
+        $this->assertStringContainsString(' — ' . $inTheHistory . ' — SHA-256 ', (string) $this->historyOf($booking)[0]['to']);
+    }
+
+    /**
+     * « Mémoriser » is one act with the signing: a PDF that cannot be made
+     * keeps no signature in the account, validates nothing, files nothing.
+     */
+    public function testARememberedSignatureIsNotKeptWhenThePdfFails(): void
+    {
+        $account = $this->sessionAccount();
+        $booking = $this->bookingWithAnInventory();
+        $pdf = $this->createStub(DocumentPdfService::class);
+        $pdf->method('generate')->willThrowException(new \RuntimeException('dompdf'));
+
+        try {
+            $this->realService(null, null, $pdf)->validate(
+                $booking,
+                $this->asset(),
+                ReadingPhase::ARRIVAL,
+                1,
+                InventorySigning::onSite($this->witness('Jeanne Témoin')),
+                $this->managerSignature($account, true),
+                $this->at('2027-07-01 15:30')
+            );
+            $this->fail('A validation without its PDF went through.');
+        } catch (\Modules\Rental\Service\RentalException $e) {
+            $this->assertStringContainsString("Rien n'a été validé ni signé", $e->getMessage());
+        }
+
+        $this->assertFalse($this->signatures->has($account), 'nothing remembered');
+        $this->assertSame([], $this->stay->inventoryValidations($booking->id));
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM rental_documents')->fetchColumn());
+        $this->assertSame([], $this->historyOf($booking));
+        $this->assertSame([], $this->journalContexts('personal_signature_document_signed'));
+    }
+
+    /**
+     * A failure after the PDF was written to disk rolls everything back —
+     * the row, the document, the remembered signature — and deletes the
+     * file: it carries both signatures, and nothing would point at it.
+     */
+    public function testAFailureAfterThePdfWasWrittenDeletesTheFile(): void
+    {
+        $account = $this->sessionAccount();
+        $booking = $this->bookingWithAnInventory();
+        $this->pdo->exec(
+            "CREATE TRIGGER no_document BEFORE UPDATE OF document_id ON rental_inventory_validations
+             BEGIN SELECT RAISE(ABORT, 'disque plein'); END"
+        );
+
+        try {
+            $this->realService()->validate(
+                $booking,
+                $this->asset(),
+                ReadingPhase::ARRIVAL,
+                1,
+                InventorySigning::onSite($this->witness('Jeanne Témoin')),
+                $this->managerSignature($account, true),
+                $this->at('2027-07-01 15:30')
+            );
+            $this->fail('A validation whose document could not be attached went through.');
+        } catch (\Modules\Rental\Service\RentalException) {
+            // Expected.
+        }
+
+        $this->assertSame([], glob($this->storagePath . '/' . RentalDocumentService::STORAGE_SUBDIRECTORY . '/*') ?: []);
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM rental_documents')->fetchColumn());
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM files')->fetchColumn());
+        $this->assertFalse($this->signatures->has($account));
+        $this->assertSame([], $this->stay->inventoryValidations($booking->id));
+    }
+
+    /**
+     * The signer is told — the session's account and nobody else — with a
+     * link to the booking's Documents; and an e-mail to the renter that
+     * fails holds nothing of it back.
+     */
+    public function testTheSessionsAccountAloneIsNotifiedEvenWhenTheRentersEmailFails(): void
+    {
+        $account = $this->sessionAccount();
+        $this->accounts->create('autre@test.be');
+        $booking = $this->bookingWithAnInventory();
+        $notified = [];
+        $notifications = $this->createStub(NotificationService::class);
+        $notifications->method('dispatch')->willReturnCallback(
+            function (string $type, array $recipients, array $payload) use (&$notified): void {
+                $notified[] = ['type' => $type, 'recipients' => $recipients, 'payload' => $payload];
+            }
+        );
+        $mail = $this->createStub(RentalBookingMailService::class);
+        $mail->method('sendDocument')->willThrowException(new \RuntimeException('smtp'));
+
+        $result = $this->realService($mail, $notifications)->validate(
+            $booking,
+            $this->asset(),
+            ReadingPhase::DEPARTURE,
+            1,
+            InventorySigning::without(RenterSigning::ABSENT),
+            $this->managerSignature($account),
+            new \DateTimeImmutable('2027-07-04 09:30:00', new \DateTimeZone('UTC')),
+            true
+        );
+
+        $this->assertFalse($result['sent']);
+        $this->assertCount(1, $notified);
+        $this->assertSame('rental.document_signed', $notified[0]['type']);
+        $this->assertSame([['userAccountId' => $account, 'memberId' => null]], $notified[0]['recipients']);
+        $this->assertSame("État des lieux de sortie signé — Local Saint-Georges", $notified[0]['payload']['title']);
+        $this->assertSame(
+            "Vous avez signé l'état des lieux de sortie de LOC-A2B3C4 le 04/07/2027 à 11:30, avec votre signature."
+                . ' Il est rangé dans les Documents de la réservation.',
+            $notified[0]['payload']['body']
+        );
+        $this->assertSame(
+            '/mes-locations/local-saint-georges/reservations/' . $booking->id . '/documents',
+            $notified[0]['payload']['url']
+        );
+        $this->assertStringNotContainsString('Jeanne', json_encode($notified, JSON_UNESCAPED_UNICODE) ?: '');
+    }
+
+    /** A notification that cannot be created is journaled, and the signing stands. */
+    public function testAFailedNotificationIsJournaledAndChangesNothing(): void
+    {
+        $account = $this->sessionAccount();
+        $booking = $this->bookingWithAnInventory();
+        $notifications = $this->createStub(NotificationService::class);
+        $notifications->method('dispatch')->willThrowException(new \RuntimeException('push'));
+
+        $result = $this->realService(null, $notifications)->validate(
+            $booking,
+            $this->asset(),
+            ReadingPhase::ARRIVAL,
+            1,
+            InventorySigning::without(RenterSigning::REFUSED),
+            $this->managerSignature($account),
+            $this->at('2027-07-01 15:30')
+        );
+
+        $this->assertArrayHasKey('arrival', $this->stay->inventoryValidations($booking->id));
+        $this->assertSame(
+            [['booking_id' => $booking->id, 'document_id' => $result['document']->id]],
+            $this->journalContexts('rental_signer_notification_failed')
+        );
+    }
+
+    /**
+     * **The renter's signature exists in the PDF alone.** After a signing
+     * remembered by the manager, with the renter's history line, the act's
+     * journal line and the notification written, no table of the database
+     * holds the name the renter typed nor their drawing — every column of
+     * every table read, the encrypted ones decrypted under every context
+     * the code encrypts with.
+     */
+    public function testNoTableHoldsTheRentersTypedNameNorTheirDrawing(): void
+    {
+        $account = $this->sessionAccount();
+        $booking = $this->bookingWithAnInventory();
+        $typedName = 'Jeanne Témoin-Unique';
+        $witness = $this->witness($typedName);
+        $notified = [];
+        $notifications = $this->createStub(NotificationService::class);
+        $notifications->method('dispatch')->willReturnCallback(
+            function (string $type, array $recipients, array $payload) use (&$notified): void {
+                $notified[] = $payload;
+            }
+        );
+
+        $result = $this->realService(null, $notifications)->validate(
+            $booking,
+            $this->asset(),
+            ReadingPhase::ARRIVAL,
+            1,
+            InventorySigning::onSite($witness),
+            $this->managerSignature($account, true),
+            $this->at('2027-07-01 15:30')
+        );
+
+        // The PDF does carry them: the scan below is not blind.
+        $pdf = (string) file_get_contents((string) $this->documentService()->absolutePath($result['document']));
+        $this->assertStringContainsString($typedName, (string) (new Parser())->parseContent($pdf)->getText());
+        $this->assertTrue($this->signatures->has($account), "the manager's own signature was remembered");
+
+        $decrypted = 0;
+        foreach ($this->everyStoredValue($decrypted) as $where => $value) {
+            $this->assertStringNotContainsString($typedName, $value, $where . ' holds the typed name');
+            $this->assertStringNotContainsString('Témoin', $value, $where . ' holds part of the typed name');
+            $this->assertStringNotContainsString($witness->png->bytes(), $value, $where . ' holds the drawing');
+            $this->assertStringNotContainsString(base64_encode($witness->png->bytes()), $value, $where . ' holds the drawing');
+        }
+        $this->assertGreaterThan(0, $decrypted, 'the encrypted columns were read in clear');
+        // And the notification, stored encrypted by the core, carries none.
+        $this->assertCount(1, $notified);
+        $this->assertStringNotContainsString('Témoin', json_encode($notified, JSON_UNESCAPED_UNICODE) ?: '');
     }
 
     // ── Fixtures ────────────────────────────────────────────────────────
 
     /**
      * The service with the real dompdf and the real renderer; the PDF is
-     * caught where it would be filed, and no e-mail goes (no path).
+     * caught where it would be filed.
      */
     private function validationService(): RentalInventoryValidationService
     {
@@ -245,16 +558,26 @@ final class RentalInventoryValidationServiceTest extends TestCase
                 );
             }
         );
-        $documents->method('absolutePath')->willReturn(null);
+        // Where attachPdf() would have written it: the fingerprint is read
+        // from the file. No e-mail goes (the mail service is a stub).
+        $documents->method('absolutePath')->willReturnCallback(function (): string {
+            $path = $this->storagePath . '/filed.pdf';
+            file_put_contents($path, (string) $this->filedPdf);
+
+            return $path;
+        });
 
         return new RentalInventoryValidationService(
             $this->stay,
             $documents,
+            new RentalDocumentRepository($this->pdo),
             $this->createStub(RentalBookingMailService::class),
             new DocumentPdfService(),
             $this->createStub(\Core\Config\SettingService::class),
             RentalTestHelper::bookingAudit($this->pdo, $this->encryption),
-            new InventoryPhotoRenderer($this->fileRepository, $this->storagePath)
+            new InventoryPhotoRenderer($this->fileRepository, $this->storagePath),
+            $this->signatures,
+            $this->journal
         );
     }
 
@@ -294,6 +617,219 @@ final class RentalInventoryValidationServiceTest extends TestCase
     private function embeddedJpegCount(string $pdf): int
     {
         return preg_match_all('#/Subtype\s*/Image.{0,200}?/Filter\s*/DCTDecode|/Filter\s*/DCTDecode.{0,200}?/Subtype\s*/Image#s', $pdf);
+    }
+
+    /**
+     * The validation the older tests make: the renter absent, the
+     * manager's signature traced, account 1.
+     */
+    private function signWith(
+        RentalInventoryValidationService $service,
+        RentalBooking $booking,
+        ReadingPhase $phase,
+        \DateTimeImmutable $at,
+        bool $arrivalTickedByHand = false
+    ): void {
+        $service->validate(
+            $booking,
+            $this->asset(),
+            $phase,
+            1,
+            InventorySigning::without(RenterSigning::ABSENT),
+            new AccountSignature(1, $this->drawnSignature(), \Core\Signature\SignatureOrigin::DrawnNow, false, 'Anne Dupont'),
+            $at,
+            $arrivalTickedByHand
+        );
+    }
+
+    /** The account the session would hold: Anne Dupont, with no signature kept. */
+    private function sessionAccount(): int
+    {
+        $account = $this->accounts->create('anne@test.be');
+        $this->accounts->updateProfile($account->id, 'Anne', 'Dupont');
+
+        return $account->id;
+    }
+
+    /** As the controller reads the manager's fields: a drawing, « Mémoriser » or not. */
+    private function managerSignature(int $account, bool $remember = false): AccountSignature
+    {
+        return $this->signatures->forSigning(
+            $account,
+            new SignatureSubmission(false, $this->drawingDataUrl(300, 100), null, $remember)
+        );
+    }
+
+    /** As the controller reads the renter's fields: a drawing and the typed name. */
+    private function witness(string $typedName): WitnessSignature
+    {
+        return $this->signatures->witness(new SignatureSubmission(false, $this->drawingDataUrl(360, 120)), $typedName);
+    }
+
+    private function drawnSignature(): \Core\Signature\SignaturePng
+    {
+        return \Core\Signature\SignatureImage::fromDataUrl($this->drawingDataUrl(300, 100));
+    }
+
+    /** A canvas export, with a stroke so two of them differ. */
+    private function drawingDataUrl(int $width, int $height): string
+    {
+        $image = imagecreatetruecolor($width, $height);
+        imageline($image, 10, (int) ($height / 2), $width - 10, 10, (int) imagecolorallocate($image, 255, 255, 255));
+        ob_start();
+        imagepng($image);
+
+        return 'data:image/png;base64,' . base64_encode((string) ob_get_clean());
+    }
+
+    /** A booking whose checklist has one line, checked. */
+    private function bookingWithAnInventory(): RentalBooking
+    {
+        $booking = $this->createBooking();
+        $this->stay->addInventoryItem($this->assetId, 'Clés');
+        $this->stay->snapshotInventory($booking, $this->assetId);
+
+        return $booking;
+    }
+
+    private function documentService(): RentalDocumentService
+    {
+        return new RentalDocumentService(
+            new RentalDocumentRepository($this->pdo),
+            $this->bookingRepository,
+            RentalTestHelper::bookingAudit($this->pdo, $this->encryption),
+            new \Core\View\EditableContentService(new \Core\View\EditableContentRepository($this->pdo)),
+            $this->fileRepository,
+            new \Core\File\AttachedFileRemover($this->fileRepository, $this->storagePath),
+            new DocumentPdfService(),
+            new \Core\Security\HtmlSanitizer(),
+            $this->createStub(\Core\Config\SettingService::class),
+            $this->journal,
+            $this->storagePath
+        );
+    }
+
+    /** The service as public/index.php wires it, the PDF really filed on disk. */
+    private function realService(
+        ?RentalBookingMailService $mail = null,
+        ?NotificationService $notifications = null,
+        ?DocumentPdfService $pdf = null
+    ): RentalInventoryValidationService {
+        return new RentalInventoryValidationService(
+            $this->stay,
+            $this->documentService(),
+            new RentalDocumentRepository($this->pdo),
+            $mail ?? $this->createStub(RentalBookingMailService::class),
+            $pdf ?? new DocumentPdfService(),
+            $this->createStub(\Core\Config\SettingService::class),
+            RentalTestHelper::bookingAudit($this->pdo, $this->encryption),
+            new InventoryPhotoRenderer($this->fileRepository, $this->storagePath),
+            $this->signatures,
+            $this->journal,
+            $notifications
+        );
+    }
+
+    /**
+     * The booking's history, decrypted.
+     *
+     * @return list<array{summary: ?string, to: ?string, account: ?int}>
+     */
+    private function historyOf(RentalBooking $booking): array
+    {
+        $rows = $this->pdo->query(
+            "SELECT * FROM entity_changes WHERE entity_type = 'rental_booking' AND entity_id = " . $booking->id
+        )->fetchAll(\PDO::FETCH_ASSOC);
+
+        $clear = fn(mixed $value): ?string => $value !== null
+            ? $this->encryption->decrypt((string) $value, 'entity_changes.value')
+            : null;
+
+        return array_map(fn(array $row): array => [
+            'summary' => $clear($row['summary']),
+            'to' => $clear($row['to_value']),
+            'account' => $row['actor_user_account_id'] !== null ? (int) $row['actor_user_account_id'] : null,
+        ], $rows);
+    }
+
+    /**
+     * The contexts of the journal lines of one type.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function journalContexts(string $type): array
+    {
+        $stmt = $this->pdo->prepare('SELECT context FROM event_log WHERE event_type = ? ORDER BY id');
+        $stmt->execute([$type]);
+
+        return array_map(
+            static fn(mixed $context): array => (array) json_decode((string) $context, true),
+            $stmt->fetchAll(\PDO::FETCH_COLUMN)
+        );
+    }
+
+    /**
+     * Every value of every table of the test database, as text — and each
+     * one that decrypts under a context the code encrypts with, in clear
+     * as well. `$decrypted` counts those.
+     *
+     * @return \Generator<string, string>
+     */
+    private function everyStoredValue(int &$decrypted): \Generator
+    {
+        $contexts = self::encryptionContexts();
+        $tables = $this->pdo->query(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
+        )->fetchAll(\PDO::FETCH_COLUMN);
+        $this->assertContains('rental_inventory_validations', $tables);
+        foreach ($tables as $table) {
+            foreach ($this->pdo->query('SELECT * FROM "' . $table . '"')->fetchAll(\PDO::FETCH_ASSOC) as $i => $row) {
+                foreach ($row as $column => $value) {
+                    if (!is_string($value) || $value === '') {
+                        continue;
+                    }
+                    $where = $table . '.' . $column . '#' . $i;
+                    yield $where => $value;
+                    foreach ([...$contexts, $table . '.' . $column] as $context) {
+                        try {
+                            $plain = $this->encryption->decrypt($value, $context);
+                        } catch (\Throwable) {
+                            continue;
+                        }
+                        $decrypted++;
+                        yield $where . ' (' . $context . ')' => $plain;
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Every context the code passes to `encrypt()`, read off the source:
+     * a literal second argument, or a constant whose name says CONTEXT.
+     *
+     * @return list<string>
+     */
+    private static function encryptionContexts(): array
+    {
+        $root = dirname(__DIR__, 4);
+        $contexts = [''];
+        $files = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($root . '/core', \FilesystemIterator::SKIP_DOTS));
+        $sources = iterator_to_array($files);
+        foreach (new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($root . '/modules', \FilesystemIterator::SKIP_DOTS)) as $file) {
+            $sources[] = $file;
+        }
+        foreach ($sources as $file) {
+            if (!$file instanceof \SplFileInfo || $file->getExtension() !== 'php') {
+                continue;
+            }
+            $source = (string) file_get_contents($file->getPathname());
+            preg_match_all("/crypt\\([^;]*?,\\s*'([a-z0-9_.]+)'\\s*\\)/i", $source, $literal);
+            preg_match_all("/const\\s+[A-Z_]*CONTEXT[A-Z_]*\\s*=\\s*'([a-z0-9_.]+)'/", $source, $constant);
+            array_push($contexts, ...$literal[1], ...$constant[1]);
+        }
+
+        return array_values(array_unique($contexts));
     }
 
     private function createBooking(): RentalBooking

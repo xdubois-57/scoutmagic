@@ -350,7 +350,10 @@ class RentalTestHelper
             phase TEXT NOT NULL,
             validated_at TEXT NOT NULL,
             validated_by_member_id INTEGER,
+            validated_by_account_id INTEGER,
+            renter_signing TEXT NOT NULL,
             document_id INTEGER,
+            document_sha256 TEXT,
             UNIQUE (booking_id, phase),
             FOREIGN KEY (booking_id) REFERENCES rental_bookings(id) ON DELETE CASCADE
         )');

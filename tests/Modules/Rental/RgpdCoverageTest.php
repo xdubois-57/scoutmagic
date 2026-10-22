@@ -35,6 +35,12 @@ final class RgpdCoverageTest extends TestCase
         $this->assertStringContainsString('les photos des relevés et des incidents, son décompte', $page);
         // They travel to the renter inside the inventory's PDF (#989, lot C).
         $this->assertStringContainsString("<strong>figurent en annexe du PDF de l'état des lieux qui vous est envoyé</strong>", $page);
+        // The renter's signature on the inventory (#989, lot E).
+        $this->assertStringContainsString(
+            "<strong>le nom que vous tapez et votre signature manuscrite ne figurent que dans le PDF de l'état des lieux</strong>",
+            $page
+        );
+        $this->assertStringContainsString('conservé avec la réservation ; le site ne les garde nulle part ailleurs', $page);
     }
 
     public function testThePromptKeepsIt(): void
@@ -46,5 +52,6 @@ final class RgpdCoverageTest extends TestCase
         $this->assertStringContainsString('**sans aucune métadonnée** (ni position GPS', $prompt);
         $this->assertStringContainsString('est **refusée**, jamais enregistrée telle quelle', $prompt);
         $this->assertStringContainsString("**figurent en annexe du PDF de l'état des lieux envoyé au locataire**", $prompt);
+        $this->assertStringContainsString("**uniquement dans le PDF de l'état des lieux**", $prompt);
     }
 }

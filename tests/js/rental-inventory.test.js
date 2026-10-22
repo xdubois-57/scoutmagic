@@ -2,9 +2,7 @@
 // the REAL public/assets/js/rental-inventory.js: « État des lieux » (#708,
 // IT-17), each line saved as it is typed, « = » taking the reference.
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import {
-    countUnchecked, saveLine, showIncidentFields, validationQuestion, wire
-} from '../../public/assets/js/rental-inventory.js';
+import { saveLine, showIncidentFields, wire } from '../../public/assets/js/rental-inventory.js';
 
 function page() {
     document.body.innerHTML = `
@@ -20,8 +18,7 @@ function page() {
                 <option value="">—</option><option value="yes">Oui</option><option value="no">Non</option>
             </select>
             <output data-inventory-status></output>
-        </form>
-        <form data-inventory-validate data-confirm-base="Valider ?" data-confirm="Valider ?"></form>`;
+        </form>`;
 }
 
 afterEach(() => {
@@ -29,23 +26,8 @@ afterEach(() => {
     document.body.innerHTML = '';
 });
 
-describe('validationQuestion()', () => {
-    it('says how many lines are still empty, and nothing when none is', () => {
-        expect(validationQuestion('Valider ?', 0)).toBe('Valider ?');
-        expect(validationQuestion('Valider ?', 1)).toBe('Valider ? 1 élément sans valeur : le PDF le marquera « non vérifié ».');
-        expect(validationQuestion('Valider ?', 2)).toBe('Valider ? 2 éléments sans valeur : le PDF les marquera « non vérifié ».');
-    });
-});
-
-describe('countUnchecked()', () => {
-    it('counts the fields nobody filled in — nothing is pre-filled', () => {
-        page();
-        expect(countUnchecked(document)).toBe(2);
-    });
-});
-
 describe('the page', () => {
-    it('hides the save buttons, saves on change, and recounts the question', async () => {
+    it('hides the save buttons and saves on change', async () => {
         page();
         const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
             new Response(JSON.stringify({ success: true, type: 'success', message: 'Enregistré.' }))
@@ -59,9 +41,8 @@ describe('the page', () => {
         select.dispatchEvent(new Event('change', { bubbles: true }));
         await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
         expect(fetchMock.mock.calls[0][1]?.headers).toEqual({ 'X-Requested-With': 'XMLHttpRequest' });
-        await vi.waitFor(() => expect(
-            /** @type {HTMLFormElement} */ (document.querySelector('[data-inventory-validate]')).dataset.confirm
-        ).toContain('1 élément sans valeur'));
+        await vi.waitFor(() => expect(select.closest('form')?.querySelector('[data-inventory-status]')?.textContent)
+            .toBe('Enregistré'));
     });
 
     it('« = » takes the reference and saves it', async () => {

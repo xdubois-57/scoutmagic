@@ -260,8 +260,9 @@
                                            while the renter still holds the PDF made from the old
                                            one. The refusal is server-side in
                                            RentalDocumentService::delete(); this is only the page
-                                           not proposing what would be refused. #}
-                                        {% if not document.hasBeenSent %}
+                                           not proposing what would be refused. Nor on a signed
+                                           inventory, sent or not (#989): the two parties signed it. #}
+                                        {% if not document.hasBeenSent and document.id not in signed_inventory_ids|default([]) %}
                                         <form method="post" action="/mes-locations/document-supprimer" class="d-inline"
                                               data-confirm="Supprimer « {{ document.label }} » ?">
                                             {{ csrf_field()|raw }}

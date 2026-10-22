@@ -12684,12 +12684,20 @@ if ($isEnabled('rental')) {
             new \Modules\Rental\Service\RentalInventoryValidationService(
                 $rentalStayService,
                 $rentalDocumentService,
+                // Signed under the booking's lock, in one transaction (#989).
+                $rentalDocumentRepository,
                 $rentalBookingMailService,
                 new \Core\Pdf\DocumentPdfService(),
                 $settingService,
                 $rentalBookingAudit,
                 // The photos' 1 600 px copies its PDF embeds, never stored (#989).
-                new \Modules\Rental\Service\InventoryPhotoRenderer($fileRepository, $storagePath)
+                new \Modules\Rental\Service\InventoryPhotoRenderer($fileRepository, $storagePath),
+                // Signed by the manager's own account, « Mémoriser » in the
+                // same transaction, the act in the journal (#989, lot E)...
+                $personalSignatureService,
+                $journalService,
+                // ...and the signing account told (decision Q1).
+                $notificationService
             ),
             // What the site sent the renter, on « Courrier » (#720, step 2).
             new \Modules\Rental\Repository\RentalSentEmailRepository($pdo, $encryptionService),

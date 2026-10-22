@@ -146,6 +146,24 @@ final class RentalDocumentRepositoryOnMysqlTest extends TestCase
      * schema: the three columns round-trip, and a supplement is found by
      * the settlement it bills — the question « Générer » asks under the lock.
      */
+    /**
+     * The PDF a validated inventory points at is known as such (#989, lot
+     * E) — what `RentalDocumentService::delete()` refuses on — and no other
+     * document is.
+     */
+    public function testAnInventoryValidationsDocumentIsKnownAsSigned(): void
+    {
+        $signed = $this->repository->create($this->bookingId, 41, DocumentType::INVENTORY, 1, true, null, null);
+        $other = $this->repository->create($this->bookingId, 42, DocumentType::PHOTO, 1, false, null, null);
+        $this->pdo->prepare(
+            "INSERT INTO rental_inventory_validations (booking_id, phase, validated_at, renter_signing, document_id)
+             VALUES (?, 'arrival', '2027-07-01 15:30:00', 'absent', ?)"
+        )->execute([$this->bookingId, $signed]);
+
+        $this->assertTrue($this->repository->isInventoryValidationDocument($signed));
+        $this->assertFalse($this->repository->isInventoryValidationDocument($other));
+    }
+
     public function testWhatAnInvoiceAndItsSupplementBillRoundTrips(): void
     {
         $invoiceId = $this->repository->create(

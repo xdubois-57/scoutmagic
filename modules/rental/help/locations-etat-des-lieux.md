@@ -1,15 +1,14 @@
 ---
 id: locations-etat-des-lieux
 title: L'état des lieux d'une réservation
-summary: La page État des lieux d'une réservation — saisir ce qu'on constate, relever les compteurs, valider et envoyer le PDF au locataire.
+summary: La page État des lieux d'une réservation — saisir ce qu'on constate, relever les compteurs, puis passer à la signature.
 category: Espace membres
 role_min: identified
 question: Comment faire l'état des lieux d'entrée d'une location ?
-question: Pourquoi ne puis-je plus modifier un état des lieux ?
-question: Comment envoyer l'état des lieux au locataire ?
+question: Que veut dire « non vérifié » dans l'état des lieux ?
 question: Les photos des incidents sont-elles dans le PDF de l'état des lieux ?
 paths: /mes-locations/*/reservations/*/etat-des-lieux
-related: locations-incidents, locations-facture, locations-gabarits, locations-reservation, gerer-les-locations, locations-documents
+related: locations-etat-des-lieux-signature, locations-incidents, locations-facture, locations-gabarits, locations-reservation, gerer-les-locations, locations-documents
 ---
 
 La page « État des lieux » d'une réservation propose l'état des lieux si
@@ -46,21 +45,18 @@ Les incidents se signalent ici aussi, jusqu'à la validation de la sortie.
 Son PDF les liste sans montant : ce qui se facture se décide ensuite (voir
 « Les incidents et dégâts d'une location »).
 
-## Valider et envoyer
+## Le PDF, puis la signature
 
-Valider produit un PDF : les éléments, les écarts calculés (à l'entrée,
-avec le modèle ; à la sortie, avec l'entrée), les compteurs et, à la
-sortie, les incidents avec leur date et leur heure. Les photos suivent en
-annexe, numérotées, six par page : les compteurs d'abord, puis les
-incidents, chacun citant les siennes (« photos 3 et 4 »). Un
-élément resté vide est marqué « non vérifié » ; la confirmation vous dit
-combien il en reste avant de valider.
+Le PDF reprend les éléments, les écarts calculés (à l'entrée, avec le
+modèle ; à la sortie, avec l'entrée), les compteurs et, à la sortie, les
+incidents avec leur date et leur heure. Les photos suivent en annexe,
+numérotées, six par page : les compteurs d'abord, puis les incidents,
+chacun citant les siennes (« photos 3 et 4 »). Un élément resté vide est
+marqué « non vérifié » : l'écran de signature dit combien il en reste.
 
-Le PDF est rangé dans les documents de la réservation et envoyé au
-locataire. Il porte « Validé par » suivi du nom de votre compte (« Mon
-compte »), jamais de votre totem. **Une fois validé, l'état des lieux ne se modifie plus** : le
-locataire en a une copie. Si l'envoi échoue, il est validé quand même ;
-renvoyez-le depuis la page Documents.
+Quand tout est saisi, le bouton de signature ouvre l'écran où le
+locataire et vous signez, puis le PDF part au locataire (voir « Signer
+l'état des lieux avec le locataire »).
 
 La facture se génère, sur la page « Facture », une fois l'état des lieux
 de sortie validé.

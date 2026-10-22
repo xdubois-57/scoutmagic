@@ -195,7 +195,7 @@
      */
     function wire(form) {
         const modal = form.closest('.modal');
-        const inline = modal === null && form.hasAttribute('data-signature-inline-form');
+        const inline = modal === null && form.dataset.signatureInlineForm !== undefined;
         if (modal === null && !inline) {
             return false;
         }

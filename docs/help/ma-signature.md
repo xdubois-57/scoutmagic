@@ -53,8 +53,8 @@ en tracez ou en importez une pour ce seul document : elle n'est gardée
 dans votre compte que si vous cochez « Mémoriser ma signature dans mon
 compte pour une utilisation future ».
 
-Après la contresignature d'un contrat de location, une notification vous
-dit lequel et quand, et mène à la page « Documents » de la réservation :
+Après la contresignature d'un contrat de location ou la signature d'un
+état des lieux, une notification vous dit lequel et quand, et mène à la page « Documents » de la réservation :
 vous gardez la trace de chaque document signé avec votre signature.
 
 ## Qui la voit

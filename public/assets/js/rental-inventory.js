@@ -16,46 +16,15 @@
  * whole inventory panel after a meter reading or an incident: a listener
  * bound to the old rows would be gone with them.
  *
- * The validation's question counts the lines still empty AS THEY ARE NOW —
- * the count the page was rendered with is stale the moment a line is
- * typed.
+ * Validating is not here any more: « Signer l'état des lieux » leads to a
+ * screen of its own (#989, lot E; rental-inventory-sign.js), rendered from
+ * the lines as they are when it opens.
  *
  * « Trancher » an incident (#980) shows the fields of the choice picked —
  * « En attente de… » and « Référence » under assessment, the amount to
  * bill, the reason for not billing — and hides the others, which still post
  * what they hold.
  */
-
-/**
- * The validation's question, with the lines still empty said at the end.
- *
- * @param {string} base
- * @param {number} unchecked
- * @returns {string}
- */
-export function validationQuestion(base, unchecked) {
-    if (unchecked <= 0) {
-        return base;
-    }
-
-    return base + ' ' + unchecked + ' élément' + (unchecked > 1 ? 's' : '') + ' sans valeur : le PDF '
-        + (unchecked > 1 ? 'les' : 'le') + ' marquera « non vérifié ».';
-}
-
-/**
- * @param {ParentNode} root
- * @returns {number}
- */
-export function countUnchecked(root) {
-    let count = 0;
-    root.querySelectorAll('[data-inventory-value]').forEach((field) => {
-        if (/** @type {HTMLInputElement|HTMLSelectElement} */ (field).value.trim() === '') {
-            count++;
-        }
-    });
-
-    return count;
-}
 
 /**
  * Shows, in one incident's « Trancher » form, the fields that serve the
@@ -72,18 +41,6 @@ export function showIncidentFields(form) {
         const field = /** @type {HTMLElement} */ (element);
         field.hidden = !(field.dataset.incidentField || '').split(' ').includes(choice);
     });
-}
-
-/**
- * @param {Document} doc
- * @returns {void}
- */
-function refreshQuestion(doc) {
-    const form = /** @type {HTMLFormElement|null} */ (doc.querySelector('form[data-inventory-validate]'));
-    if (form === null) {
-        return;
-    }
-    form.dataset.confirm = validationQuestion(form.dataset.confirmBase || '', countUnchecked(doc));
 }
 
 /**
@@ -163,7 +120,6 @@ export function saveLine(form) {
             status.className = 'small d-block ' + (ok ? 'text-success' : 'text-danger');
         }
         form.querySelector('[data-inventory-value]')?.classList.toggle('is-invalid', !ok);
-        refreshQuestion(form.ownerDocument);
     });
     inFlight.set(form, run);
 

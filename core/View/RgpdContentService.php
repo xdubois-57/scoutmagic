@@ -861,7 +861,10 @@ rattachés, fichiers compris — et qu'elle s'applique de la même manière à u
 suite ; (b bis) que les photos des relevés et des incidents sont **réencodées par le site** avant d'être enregistrées,
 réduites et **sans aucune métadonnée** (ni position GPS, ni date de prise de vue, ni appareil), et qu'une photo que
 le serveur ne sait pas relire est **refusée**, jamais enregistrée telle quelle, et que ces photos **figurent en
-annexe du PDF de l'état des lieux envoyé au locataire** ; (c) qu'il ne subsiste qu'**une
+annexe du PDF de l'état des lieux envoyé au locataire** ; (b ter) que le locataire qui signe l'état des lieux sur
+place y laisse son nom tapé et sa signature manuscrite **uniquement dans le PDF de l'état des lieux**, qui lui est
+envoyé et conservé avec la réservation, et que le site ne garde que son choix (signé, absent, refus) et l'empreinte
+du PDF ; (c) qu'il ne subsiste qu'**une
 ligne anonyme** (bien, mois, nombre de jours, montant), sans identifiant, sans jeton, sans fichier et sans rien de
 rattachable à une personne, servant uniquement à ce que les totaux annuels restent justes ; (d) qu'un solde auquel
 l'unité renonce est clôturé en « montant non recouvré », avec un motif écrit par un gestionnaire, **chiffré**,

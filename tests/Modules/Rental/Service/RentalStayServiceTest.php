@@ -575,17 +575,6 @@ class RentalStayServiceTest extends TestCase
         $this->service->setInventoryValue($booking, $line['id'], ReadingPhase::ARRIVAL, '2', null);
     }
 
-    public function testAForgottenValidationReopensThePhase(): void
-    {
-        $booking = $this->createBooking();
-        $this->service->recordInventoryValidation($booking, ReadingPhase::ARRIVAL, $this->now(), null);
-
-        $this->service->forgetInventoryValidation($booking, ReadingPhase::ARRIVAL);
-
-        $this->assertSame([], $this->service->inventoryValidations($booking->id));
-        $this->service->assertPhaseOpen($booking->id, ReadingPhase::ARRIVAL);
-    }
-
     public function testAnAssetKeepsItsInventoryOnlyWithItemsOrMeters(): void
     {
         $this->assertFalse($this->service->keepsInventory($this->assetId));
@@ -640,9 +629,12 @@ class RentalStayServiceTest extends TestCase
         ?\Core\Pdf\DocumentPdfService $pdf = null,
         ?\Modules\Rental\Service\RentalDocumentService $documents = null
     ): \Modules\Rental\Service\RentalInventoryValidationService {
+        $journal = new \Core\Journal\JournalService(new \Core\Journal\JournalRepository($this->pdo));
+
         return new \Modules\Rental\Service\RentalInventoryValidationService(
             $this->service,
             $documents ?? $this->createStub(\Modules\Rental\Service\RentalDocumentService::class),
+            new \Modules\Rental\Repository\RentalDocumentRepository($this->pdo),
             $this->createStub(\Modules\Rental\Service\RentalBookingMailService::class),
             $pdf ?? $this->createStub(\Core\Pdf\DocumentPdfService::class),
             $this->createStub(\Core\Config\SettingService::class),
@@ -650,8 +642,57 @@ class RentalStayServiceTest extends TestCase
             new \Modules\Rental\Service\InventoryPhotoRenderer(
                 new \Core\File\FileRepository($this->pdo),
                 sys_get_temp_dir()
-            )
+            ),
+            new \Core\Signature\PersonalSignatureService(
+                new \Core\Signature\PersonalSignatureRepository($this->pdo, $this->encryption),
+                $journal
+            ),
+            $journal
         );
+    }
+
+    /**
+     * Validates with the renter absent and the manager's signature traced
+     * on the spot (#989, lot E): the rules pinned here are the phase's,
+     * not the signatures' (RentalInventoryValidationServiceTest).
+     *
+     * @return array{document: \Modules\Rental\Document\RentalDocument, sent: bool, sha256: string}
+     */
+    private function validateWith(
+        \Modules\Rental\Service\RentalInventoryValidationService $service,
+        \Modules\Rental\Booking\RentalBooking $booking,
+        ReadingPhase $phase,
+        bool $arrivalTickedByHand = false
+    ): array {
+        $image = imagecreatetruecolor(300, 100);
+        ob_start();
+        imagepng($image);
+
+        return $service->validate(
+            $booking,
+            $this->asset(),
+            $phase,
+            1,
+            \Modules\Rental\Stay\InventorySigning::without(\Modules\Rental\Stay\RenterSigning::ABSENT),
+            new \Core\Signature\AccountSignature(
+                1,
+                new \Core\Signature\SignaturePng((string) ob_get_clean()),
+                \Core\Signature\SignatureOrigin::DrawnNow,
+                false,
+                'Anne'
+            ),
+            $this->now(),
+            $arrivalTickedByHand
+        );
+    }
+
+    /** A PDF on disk, as attachPdf() would have filed it — removed by the test. */
+    private function filedPdfOnDisk(): string
+    {
+        $path = sys_get_temp_dir() . '/inventory-' . bin2hex(random_bytes(6)) . '.pdf';
+        file_put_contents($path, '%PDF-1.4 état des lieux');
+
+        return $path;
     }
 
     private function asset(): \Modules\Rental\Repository\RentalAsset
@@ -676,9 +717,7 @@ class RentalStayServiceTest extends TestCase
         $pdf->method('generate')->willThrowException(new \RuntimeException('dompdf'));
 
         try {
-            $this->validationService($pdf)->validate(
-                $booking, $this->asset(), ReadingPhase::ARRIVAL, 1, 'Anne', $this->now()
-            );
+            $this->validateWith($this->validationService($pdf), $booking, ReadingPhase::ARRIVAL);
             $this->fail('A validation without its PDF went through.');
         } catch (RentalException $e) {
             $this->assertStringContainsString("Rien n'a été validé", $e->getMessage());
@@ -688,11 +727,12 @@ class RentalStayServiceTest extends TestCase
     }
 
     /**
-     * A PDF already filed when the validation is taken back goes with it:
-     * left in Documents, it could still be sent to the renter as if the
-     * inventory had been validated.
+     * A PDF already filed when the validation is rolled back goes with it
+     * (#989, lot E): its row rolls back with the transaction, and the file
+     * the PDF was written to is deleted — left on disk, it would hold both
+     * signatures for nobody to find.
      */
-    public function testAValidationTakenBackAfterItsPdfWasFiledTakesThePdfAway(): void
+    public function testAValidationRolledBackAfterItsPdfWasFiledDeletesTheFile(): void
     {
         $this->service->addInventoryItem($this->assetId, 'Clés');
         $booking = $this->createBooking();
@@ -703,7 +743,29 @@ class RentalStayServiceTest extends TestCase
             "CREATE TRIGGER no_document BEFORE UPDATE OF document_id ON rental_inventory_validations
              BEGIN SELECT RAISE(ABORT, 'disque plein'); END"
         );
-        $filed = new \Modules\Rental\Document\RentalDocument(
+        $written = $this->filedPdfOnDisk();
+        $documents = $this->createMock(\Modules\Rental\Service\RentalDocumentService::class);
+        $documents->method('attachPdf')->willReturn($this->filedDocument($booking));
+        $documents->method('absolutePath')->willReturn($written);
+        $documents->expects($this->never())->method('delete');
+
+        try {
+            $this->validateWith($this->validationService(null, $documents), $booking, ReadingPhase::ARRIVAL);
+            $this->fail('A validation whose document could not be attached went through.');
+        } catch (RentalException $e) {
+            $this->assertStringContainsString("Rien n'a été validé", $e->getMessage());
+        } finally {
+            $left = is_file($written);
+            @unlink($written);
+        }
+
+        $this->assertFalse($left, 'the PDF written before the failure is deleted');
+        $this->assertSame([], $this->service->inventoryValidations($booking->id));
+    }
+
+    private function filedDocument(\Modules\Rental\Booking\RentalBooking $booking): \Modules\Rental\Document\RentalDocument
+    {
+        return new \Modules\Rental\Document\RentalDocument(
             id: 41,
             bookingId: $booking->id,
             fileId: 141,
@@ -716,20 +778,6 @@ class RentalStayServiceTest extends TestCase
             createdByMemberId: 1,
             createdAt: $this->now()
         );
-        $documents = $this->createMock(\Modules\Rental\Service\RentalDocumentService::class);
-        $documents->method('attachPdf')->willReturn($filed);
-        $documents->expects($this->once())->method('delete')->with($filed, 1);
-
-        try {
-            $this->validationService(null, $documents)->validate(
-                $booking, $this->asset(), ReadingPhase::ARRIVAL, 1, 'Anne', $this->now()
-            );
-            $this->fail('A validation whose document could not be attached went through.');
-        } catch (RentalException $e) {
-            $this->assertStringContainsString("Rien n'a été validé", $e->getMessage());
-        }
-
-        $this->assertSame([], $this->service->inventoryValidations($booking->id));
     }
 
     /**
@@ -741,26 +789,17 @@ class RentalStayServiceTest extends TestCase
         $this->service->addInventoryItem($this->assetId, 'Clés');
         $booking = $this->createBooking();
         $this->service->snapshotInventory($booking, $this->assetId);
+        $written = $this->filedPdfOnDisk();
         $documents = $this->createStub(\Modules\Rental\Service\RentalDocumentService::class);
-        $documents->method('attachPdf')->willReturn(new \Modules\Rental\Document\RentalDocument(
-            id: 41,
-            bookingId: $booking->id,
-            fileId: 141,
-            type: \Modules\Rental\Document\DocumentType::INVENTORY,
-            version: 1,
-            isForRenter: true,
-            originalName: 'etat-des-lieux-entree.pdf',
-            sizeBytes: 1024,
-            sentAt: null,
-            createdByMemberId: 1,
-            createdAt: $this->now()
-        ));
-        $documents->method('absolutePath')->willReturn(__FILE__);
+        $documents->method('attachPdf')->willReturn($this->filedDocument($booking));
+        $documents->method('absolutePath')->willReturn($written);
         $documents->method('markSent')->willThrowException(new \RuntimeException('verrou'));
 
-        $result = $this->validationService(null, $documents)->validate(
-            $booking, $this->asset(), ReadingPhase::ARRIVAL, 1, 'Anne', $this->now()
-        );
+        try {
+            $result = $this->validateWith($this->validationService(null, $documents), $booking, ReadingPhase::ARRIVAL);
+        } finally {
+            @unlink($written);
+        }
 
         $this->assertTrue($result['sent']);
         $this->assertArrayHasKey('arrival', $this->service->inventoryValidations($booking->id));
@@ -784,9 +823,7 @@ class RentalStayServiceTest extends TestCase
             $this->validationService()->missingReadings($booking, $this->assetId, ReadingPhase::DEPARTURE)
         );
         try {
-            $this->validationService()->validate(
-                $booking, $this->asset(), ReadingPhase::DEPARTURE, 1, 'Anne', $this->now(), true
-            );
+            $this->validateWith($this->validationService(), $booking, ReadingPhase::DEPARTURE, true);
             $this->fail('A departure froze an arrival still missing its reading.');
         } catch (RentalException $e) {
             $this->assertStringContainsString('Il manque le relevé de : Électricité (entrée)', $e->getMessage());
@@ -812,7 +849,7 @@ class RentalStayServiceTest extends TestCase
         $this->expectException(RentalException::class);
         $this->expectExceptionMessage('Il manque le relevé de : Électricité');
 
-        $this->validationService()->validate($booking, $this->asset(), ReadingPhase::ARRIVAL, 1, 'Anne', $this->now());
+        $this->validateWith($this->validationService(), $booking, ReadingPhase::ARRIVAL);
     }
 
     public function testAnAssetWithNothingToWalkHasNothingToValidate(): void
@@ -822,7 +859,7 @@ class RentalStayServiceTest extends TestCase
         $this->expectException(RentalException::class);
         $this->expectExceptionMessage('se coche à la main');
 
-        $this->validationService()->validate($booking, $this->asset(), ReadingPhase::ARRIVAL, 1, 'Anne', $this->now());
+        $this->validateWith($this->validationService(), $booking, ReadingPhase::ARRIVAL);
     }
 
     // ── Photos (#989) ───────────────────────────────────────────────────

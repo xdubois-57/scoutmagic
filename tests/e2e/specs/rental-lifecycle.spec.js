@@ -90,6 +90,7 @@ import { openSectionEditor } from '../support/section-editor.js';
 import { pngBuffer } from '../support/png.js';
 import { giveAssetAddress, giveRenterAddress } from '../support/rental-contract.js';
 import { scaled } from '../support/timeouts.js';
+import { signInventory } from '../support/inventory-signing.js';
 import { waitOutHumanCheckDelay } from '../support/human-check.js';
 import { waitForServerResponse } from '../support/response.js';
 
@@ -342,13 +343,17 @@ test.describe('Rentals — the milestones after a confirmation', () => {
         await recordReading(page, 'entrée', '4210,5');
 
         // The keys as expected, in one gesture; the kitchen left unchecked,
-        // which the validation's question then counts.
+        // which the signing screen then counts.
         await takeReference(page, INVENTORY_KEYS);
         await expect(page.getByLabel(INVENTORY_KEYS, { exact: true })).toHaveValue('1');
-        await expect(page.locator('form[data-inventory-validate]'))
-            .toHaveAttribute('data-confirm', /1 élément sans valeur/);
 
-        await validateInventory(page, "Valider l'état des lieux d'entrée");
+        // Signed on its own screen (#989, lot E): the renter refuses, so
+        // the manager signs alone, warned first — traced on the spot, the
+        // account keeping no signature.
+        await page.getByRole('link', { name: "Signer l'état des lieux d'entrée" }).click();
+        await expect(page.locator('[data-inventory-summary]')).toContainText('1 élément sans valeur');
+        await page.goBack({ waitUntil: 'load' });
+        await signInventory(page, "Signer l'état des lieux d'entrée", { renterChoice: 'Le locataire refuse de signer' });
         // Frozen and filed: the page moves on to the departure, read
         // against what the arrival found.
         await expect(page.locator('[data-booking-panel="inventory"]')).toContainText('État des lieux de sortie');
@@ -364,7 +369,8 @@ test.describe('Rentals — the milestones after a confirmation', () => {
         // A « non » IS a completed observation — the inventory asks what
         // was found, not whether everything was fine.
         await saveLine(page, page.getByLabel(INVENTORY_KITCHEN, { exact: true }), (field) => field.selectOption('no'));
-        await validateInventory(page, "Valider l'état des lieux de sortie");
+        // The renter is there this time, and signs with a finger.
+        await signInventory(page, "Signer l'état des lieux de sortie", { renter: 'Paul Locataire' });
         await expect(page.locator('[data-booking-panel="inventory"]'))
             .toContainText('Les deux états des lieux sont validés');
 
@@ -583,21 +589,6 @@ async function takeReference(page, item) {
         page,
         page.getByLabel(item, { exact: true }),
         () => page.getByRole('button', { name: `Reprendre la référence pour ${item}` }).click(),
-    );
-}
-
-/**
- * Validate the phase on screen; the confirmation is answered « oui » by
- * the run's autoConfirm.
- *
- * @param {import('@playwright/test').Page} page
- * @param {string} label the button's label
- */
-async function validateInventory(page, label) {
-    await submitAndRefresh(
-        page,
-        '/mes-locations/etat-des-lieux/valider',
-        () => page.getByRole('button', { name: label }).click(),
     );
 }
 

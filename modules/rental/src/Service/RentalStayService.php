@@ -435,7 +435,14 @@ class RentalStayService
     /**
      * The phases validated on this booking (#708, IT-17), keyed by phase.
      *
-     * @return array<string, array{validated_at: \DateTimeImmutable, validated_by_member_id: ?int, document_id: ?int}>
+     * @return array<string, array{
+     *     validated_at: \DateTimeImmutable,
+     *     validated_by_member_id: ?int,
+     *     validated_by_account_id: ?int,
+     *     renter_signing: ?\Modules\Rental\Stay\RenterSigning,
+     *     document_id: ?int,
+     *     document_sha256: ?string
+     * }>
      */
     public function inventoryValidations(int $bookingId): array
     {
@@ -519,24 +526,36 @@ class RentalStayService
 
     /**
      * Freezes a phase (#708, IT-17). False when it already was.
+     *
+     * `$accountId` signed it and `$renterSigning` is what the renter did
+     * (#989, lot E); see `RentalStayRepository::recordInventoryValidation()`.
      */
     public function recordInventoryValidation(
         RentalBooking $booking,
         ReadingPhase $phase,
         \DateTimeImmutable $at,
-        ?int $actorMemberId
+        ?int $actorMemberId,
+        ?int $accountId = null,
+        \Modules\Rental\Stay\RenterSigning $renterSigning = \Modules\Rental\Stay\RenterSigning::ON_SITE
     ): bool {
-        return $this->stayRepository->recordInventoryValidation($booking->id, $phase, $at, $actorMemberId);
+        return $this->stayRepository->recordInventoryValidation(
+            $booking->id,
+            $phase,
+            $at,
+            $actorMemberId,
+            $accountId,
+            $renterSigning
+        );
     }
 
-    public function attachInventoryDocument(RentalBooking $booking, ReadingPhase $phase, int $documentId): void
-    {
-        $this->stayRepository->setInventoryValidationDocument($booking->id, $phase, $documentId);
-    }
-
-    public function forgetInventoryValidation(RentalBooking $booking, ReadingPhase $phase): void
-    {
-        $this->stayRepository->forgetInventoryValidation($booking->id, $phase);
+    /** The validation's PDF, and the SHA-256 of its file as filed (#989, lot E). */
+    public function attachInventoryDocument(
+        RentalBooking $booking,
+        ReadingPhase $phase,
+        int $documentId,
+        ?string $documentSha256 = null
+    ): void {
+        $this->stayRepository->setInventoryValidationDocument($booking->id, $phase, $documentId, $documentSha256);
     }
 
     // ── Incidents (§6.23) ───────────────────────────────────────────────
