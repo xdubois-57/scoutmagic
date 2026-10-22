@@ -3366,6 +3366,8 @@ class RentalManagementController extends AbstractController
             'incidents' => $this->stayService->incidentsFor($booking->id),
             'incident_decisions' => IncidentDecision::decidable(),
             'incidents_open' => !isset($validations['departure']),
+            // The « + Photo » tile says and holds the service's own limit (#989).
+            'max_incident_photos' => RentalStayService::MAX_INCIDENT_PHOTOS,
         ];
     }
 

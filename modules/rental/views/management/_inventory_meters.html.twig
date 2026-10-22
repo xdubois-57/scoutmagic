@@ -6,6 +6,10 @@
   readings beside the departure's (`phases` holds both): nowhere else
   could they be taken.
 
+  Each reading has one photo at most (#989), with the « + Photo » tile of
+  `_photo_tile.html.twig`; its cross posts the form after the reading's,
+  behind `data-confirm`. A new photo is sent with « Enregistrer ».
+
   Requires `consumptions`, `phases` (Stay\ReadingPhase[]), `asset` and
   `booking`.
 #}
@@ -41,16 +45,34 @@
                            aria-label="Relevé {{ phase.label|lower }} — {{ consumption.meter.label }}">
                 </div>
                 <div class="col-6 col-md-3">
-                    <label class="visually-hidden" for="{{ field_id }}-photo">
-                        Photo — {{ consumption.meter.label }}
-                    </label>
-                    <input type="file" class="form-control form-control-sm" id="{{ field_id }}-photo"
-                           name="photo" accept="image/jpeg,image/png,image/webp">
+                    {% include '@rental/management/_photo_tile.html.twig' with {
+                        tile_id: field_id ~ '-photo',
+                        max: 1,
+                        field: 'photo',
+                        photos: reading and reading.fileId
+                            ? [{file_id: reading.fileId, remove_form: field_id ~ '-photo-remove'}]
+                            : [],
+                        open: true,
+                        label: consumption.meter.label,
+                        hint: '',
+                    } only %}
                 </div>
                 <div class="col-12 col-md-2">
                     <button type="submit" class="btn btn-sm btn-outline-secondary w-100">Enregistrer</button>
                 </div>
             </form>
+            {% if reading and reading.fileId %}
+                <form method="post" action="/mes-locations/releve/photo/retirer" id="{{ field_id }}-photo-remove"
+                      data-confirm="Retirer la photo de ce relevé ? Elle est supprimée et ne se récupère pas."
+                      data-confirm-label="Retirer">
+                    {{ csrf_field()|raw }}
+                    <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                    <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                    <input type="hidden" name="booking_page" value="inventory">
+                    <input type="hidden" name="meter_id" value="{{ consumption.meter.id }}">
+                    <input type="hidden" name="phase" value="{{ phase.value }}">
+                </form>
+            {% endif %}
         {% endfor %}
     {% endfor %}
 {% endif %}
