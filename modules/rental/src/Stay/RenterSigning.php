@@ -17,12 +17,18 @@ namespace Modules\Rental\Stay;
  *
  * Without the renter's signature the manager still signs, and the PDF
  * still goes to the renter by e-mail: it says which of the three it was.
+ *
+ * « Signé sur papier » (#989, lot F, decision Q3) is the fourth: both
+ * parties signed the printed checklist by hand, and nobody signs on the
+ * screen — neither the renter nor the manager. A photo of that sheet is
+ * then required and goes into the PDF (`Stay\PaperSheet`).
  */
 enum RenterSigning: string
 {
     case ON_SITE = 'on_site';
     case ABSENT = 'absent';
     case REFUSED = 'refused';
+    case PAPER = 'paper';
 
     /** The choice as the signing screen offers it. */
     public function choice(): string
@@ -31,6 +37,7 @@ enum RenterSigning: string
             self::ON_SITE => 'Le locataire signe ici',
             self::ABSENT => 'Le locataire est absent',
             self::REFUSED => 'Le locataire refuse de signer',
+            self::PAPER => 'Signé sur papier',
         };
     }
 
@@ -44,11 +51,18 @@ enum RenterSigning: string
             self::ON_SITE => 'signé sur place par le locataire',
             self::ABSENT => 'locataire absent',
             self::REFUSED => 'le locataire a refusé de signer',
+            self::PAPER => 'signé sur papier par les deux parties',
         };
     }
 
     public function renterSigns(): bool
     {
         return $this === self::ON_SITE;
+    }
+
+    /** Signed by hand on the printed sheet: no electronic signature at all. */
+    public function isOnPaper(): bool
+    {
+        return $this === self::PAPER;
     }
 }

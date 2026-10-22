@@ -24,6 +24,7 @@ use Modules\Rental\Document\DocumentType;
 use Modules\Rental\Document\RentalDocument;
 use Modules\Rental\Repository\RentalAsset;
 use Modules\Rental\Repository\RentalDocumentRepository;
+use Modules\Rental\Stay\BlankInventorySheet;
 use Modules\Rental\Stay\InventoryPhotoAnnex;
 use Modules\Rental\Stay\InventoryReport;
 use Modules\Rental\Stay\InventorySignatureBlock;
@@ -57,9 +58,22 @@ use Modules\Rental\Stay\ReadingPhase;
  * the incidents' — 1 600 px copies `InventoryPhotoRenderer` makes in
  * memory before the phase is frozen, never stored, numbered by
  * `Stay\InventoryPhotoAnnex` so each incident line names its photos.
+ *
+ * **« Signé sur papier »** (#989, lot F, decision Q3): nobody signs on the
+ * screen — the printed checklist (`blankSheet()`) carries both signatures
+ * — and the photo of that sheet is required instead. It is filed as a
+ * `DocumentType::PHOTO` document, not for the renter (it is printed in
+ * the PDF they are sent), referenced by the validation, and printed last
+ * in the annex. The session's account is still recorded, in the row, the
+ * history and the journal; « Mémoriser » and the journal of an electronic
+ * signing are not used, since there is none.
  */
 class RentalInventoryValidationService
 {
+    /** Said when the photo of the sheet signed on paper cannot be read back. */
+    public const SHEET_UNREADABLE = "La photo de la feuille signée n'a pas pu être relue : reprenez-la. "
+        . "Rien n'a été validé.";
+
     public function __construct(
         private RentalStayService $stay,
         private RentalDocumentService $documents,
@@ -107,11 +121,35 @@ class RentalInventoryValidationService
     }
 
     /**
+     * The blank checklist of a phase, as a PDF to print (#989, lot F):
+     * the items with what each is checked against and a box to tick, the
+     * meters with an empty field, free lines for the incidents and two
+     * signature frames (`Stay\BlankInventorySheet`). Nothing is stored.
+     */
+    public function blankSheet(RentalBooking $booking, RentalAsset $asset, ReadingPhase $phase): string
+    {
+        $label = $phase === ReadingPhase::ARRIVAL ? "État des lieux d'entrée" : 'État des lieux de sortie';
+
+        return $this->pdf->generate(
+            $label . ' — liste à vérifier — ' . $booking->reference,
+            BlankInventorySheet::html(
+                $phase,
+                $this->stay->inventoryFor($booking->id),
+                $this->stay->consumptionsFor($booking, $asset->id)
+            ),
+            (string) ($this->settings->get('site_name') ?: 'Unité scoute'),
+            $this->metaLines($booking, $asset)
+        );
+    }
+
+    /**
      * Validates the phase, signed on the spot: by the session's account
      * (`$manager`, from `PersonalSignatureService::forSigning()`) and by
      * the renter unless they were absent or refused (`$renter`, from
      * `witnessFromRequest()`) — both decoded by the caller before this
-     * takes any lock.
+     * takes any lock. Signed on paper (`InventorySigning::onPaper()`),
+     * `$manager` is null: the sheet's photo is the signatures, and its
+     * `PaperSheet` names the session's account.
      *
      * **One transaction, under the booking's lock** (the rule of #926):
      * the freeze, the re-read, « Mémoriser », the PDF, its filing, its
@@ -123,6 +161,8 @@ class RentalInventoryValidationService
      *
      * @return array{document: RentalDocument, sent: bool, sha256: string}
      * @throws RentalException
+     * @throws \InvalidArgumentException when an electronic signature comes with
+     *   an inventory signed on paper, or none with any other
      */
     public function validate(
         RentalBooking $booking,
@@ -130,10 +170,16 @@ class RentalInventoryValidationService
         ReadingPhase $phase,
         ?int $actorMemberId,
         InventorySigning $renter,
-        AccountSignature $manager,
+        ?AccountSignature $manager,
         \DateTimeImmutable $now,
         bool $arrivalTickedByHand = false
     ): array {
+        // Before anything: the two modes never mix (decision Q3), and a
+        // signature posted with « Signé sur papier » is never put on it.
+        $signatures = new InventorySignatureBlock($renter, $manager, $asset->name, $asset->address, $now);
+        $sheet = $renter->paperSheet;
+        $accountId = $manager !== null ? $manager->accountId : $sheet?->accountId;
+
         $this->stay->assertPhaseOpen($booking->id, $phase, $arrivalTickedByHand);
 
         $lines = $this->stay->inventoryFor($booking->id);
@@ -161,14 +207,19 @@ class RentalInventoryValidationService
             $meters,
             $isDeparture ? $this->stay->incidentsFor($booking->id) : []
         ));
+        // The sheet signed on paper is the signatures: one that cannot be
+        // read refuses the validation, rather than a PDF citing nothing.
+        $sheetImage = $sheet !== null
+            ? $this->photoRenderer->render([$sheet->fileId])[$sheet->fileId]
+                ?? throw new RentalException(self::SHEET_UNREADABLE)
+            : null;
 
         $label = $phase === ReadingPhase::ARRIVAL ? "État des lieux d'entrée" : 'État des lieux de sortie';
-        $signatures = new InventorySignatureBlock($renter, $manager, $asset->name, $asset->address, $now);
         // The PDF on disk, deleted if the transaction does not commit.
         $writtenPath = null;
 
         try {
-            [$document, $sha256] = $this->documentRepository->withBookingLocked(
+            [$document, $sha256, $sheetDocumentId] = $this->documentRepository->withBookingLocked(
                 $booking->id,
                 function () use (
                     $booking,
@@ -182,6 +233,9 @@ class RentalInventoryValidationService
                     $label,
                     $signatures,
                     $images,
+                    $sheet,
+                    $sheetImage,
+                    $accountId,
                     &$writtenPath
                 ): array {
                     if (!$this->stay->recordInventoryValidation(
@@ -189,7 +243,7 @@ class RentalInventoryValidationService
                         $phase,
                         $now,
                         $actorMemberId,
-                        $manager->accountId,
+                        $accountId,
                         $renter->choice
                     )) {
                         throw new RentalException('Cet état des lieux est déjà validé.');
@@ -208,25 +262,46 @@ class RentalInventoryValidationService
                     // « Valider, signer et mémoriser » is one act: kept here,
                     // in this transaction, so that anything failing below
                     // keeps nothing.
-                    $this->signatures->rememberIfAsked($manager, $now);
+                    if ($manager !== null) {
+                        $this->signatures->rememberIfAsked($manager, $now);
+                    }
 
                     $fileIds = InventoryPhotoAnnex::fileIds($phase, $meters, $incidents);
                     $images += $this->photoRenderer->render(array_values(array_diff($fileIds, array_keys($images))));
                     $photos = InventoryPhotoAnnex::photos($phase, $meters, $incidents, $images);
                     unset($images);
 
+                    // The sheet signed on paper, filed with the booking's
+                    // documents — for the unit: the renter has it in the
+                    // PDF — in this transaction, so a failure files nothing.
+                    $sheetDocumentId = null;
+                    $sheetPhoto = null;
+                    if ($sheet !== null && $sheetImage !== null) {
+                        $sheetDocumentId = $this->documents->attachUploaded(
+                            $booking,
+                            $sheet->fileId,
+                            DocumentType::PHOTO,
+                            false,
+                            $actorMemberId
+                        );
+                        $sheetPhoto = InventoryPhotoAnnex::paperSheet($photos, $sheet->fileId, $sheetImage, $now);
+                    }
+
                     $document = $this->documents->attachPdf(
                         $booking,
                         $this->pdf->generate(
                             $label . ' — ' . $booking->reference,
-                            InventoryReport::html($phase, $lines, $meters, $incidents, $signatures, $photos),
+                            InventoryReport::html(
+                                $phase,
+                                $lines,
+                                $meters,
+                                $incidents,
+                                $signatures,
+                                $photos,
+                                $sheetPhoto
+                            ),
                             (string) ($this->settings->get('site_name') ?: 'Unité scoute'),
-                            [
-                                'Bien : ' . $asset->name,
-                                'Séjour : du ' . self::frenchDate($booking->arrivalDate) . ' au '
-                                    . self::frenchDate($booking->departureDate),
-                                'Locataire : ' . $booking->renterName,
-                            ]
+                            $this->metaLines($booking, $asset)
                         ),
                         DocumentType::INVENTORY,
                         ($phase === ReadingPhase::ARRIVAL ? 'etat-des-lieux-entree-' : 'etat-des-lieux-sortie-')
@@ -243,7 +318,7 @@ class RentalInventoryValidationService
                             "Le PDF de l'état des lieux n'a pas pu être relu. Rien n'a été validé ni signé."
                         );
                     }
-                    $this->stay->attachInventoryDocument($booking, $phase, $document->id, $sha256);
+                    $this->stay->attachInventoryDocument($booking, $phase, $document->id, $sha256, $sheetDocumentId);
 
                     // What the renter did and the fingerprint, never their
                     // typed name: the history is the unit's, the name the
@@ -255,11 +330,12 @@ class RentalInventoryValidationService
                         $label . ' — ' . $renter->choice->historyLabel() . ' — SHA-256 ' . $sha256,
                         'État des lieux signé',
                         $actorMemberId,
-                        // The account that signed, the session's.
-                        $manager->accountId
+                        // The account that signed — or, on paper, that
+                        // validated — the session's.
+                        $accountId
                     );
 
-                    return [$document, $sha256];
+                    return [$document, $sha256, $sheetDocumentId];
                 }
             );
         } catch (\Throwable $e) {
@@ -278,20 +354,28 @@ class RentalInventoryValidationService
                 );
         }
 
-        // The act, in the core's journal, once the document exists: which
-        // document, which bytes, by which account — never a pixel, and
-        // nothing of the renter.
-        $this->signatures->recordSigning(
-            $manager,
-            'rental',
-            DocumentType::INVENTORY->value,
-            $document->id,
-            $booking->id,
-            $now,
-            $sha256
-        );
-        // The signer's own trace, whatever becomes of the renter's e-mail.
-        $this->notifySigner($manager, $booking, $asset, $phase, $document, $now);
+        if ($manager !== null) {
+            // The act, in the core's journal, once the document exists:
+            // which document, which bytes, by which account — never a
+            // pixel, and nothing of the renter.
+            $this->signatures->recordSigning(
+                $manager,
+                'rental',
+                DocumentType::INVENTORY->value,
+                $document->id,
+                $booking->id,
+                $now,
+                $sha256
+            );
+            // The signer's own trace, whatever becomes of the renter's e-mail.
+            $this->notifySigner($manager, $booking, $asset, $phase, $document, $now);
+        } else {
+            // Signed on paper: no electronic signature to record, nor a
+            // « signed with your signature » to notify — but the account
+            // that validated, the document, its bytes and the sheet's
+            // photo, in the journal as for any sensitive act.
+            $this->recordPaperSigning($booking, $document, $sha256, $sheetDocumentId, $accountId);
+        }
 
         // Sent like any document (§6.24), whatever the renter did: absent
         // or refusing, they still receive what was recorded. Validated
@@ -326,6 +410,43 @@ class RentalInventoryValidationService
         }
 
         return ['document' => $document, 'sent' => $sent, 'sha256' => $sha256];
+    }
+
+    /**
+     * The journal line of an inventory signed on paper: ids and the
+     * fingerprint, never a name — the renter's is on the sheet alone. A
+     * journal that cannot be written changes nothing of the committed
+     * validation.
+     */
+    private function recordPaperSigning(
+        RentalBooking $booking,
+        RentalDocument $document,
+        string $sha256,
+        ?int $sheetDocumentId,
+        ?int $accountId
+    ): void {
+        try {
+            $this->journal->log(
+                'rental',
+                'rental_inventory_signed_on_paper',
+                'info',
+                'État des lieux signé sur papier par les deux parties',
+                [
+                    'booking_id' => $booking->id,
+                    'document_id' => $document->id,
+                    'document_sha256' => $sha256,
+                    'paper_sheet_document_id' => $sheetDocumentId,
+                ],
+                $accountId
+            );
+        } catch (\Throwable $e) {
+            error_log(sprintf(
+                'ScoutMagic: the journal line of an inventory signed on paper failed (%s): booking #%d, document #%d',
+                $e::class,
+                $booking->id,
+                $document->id
+            ));
+        }
     }
 
     /**
@@ -388,6 +509,21 @@ class RentalInventoryValidationService
                 ));
             }
         }
+    }
+
+    /**
+     * The lines under the title of both PDFs: the asset, the stay, the renter.
+     *
+     * @return list<string>
+     */
+    private function metaLines(RentalBooking $booking, RentalAsset $asset): array
+    {
+        return [
+            'Bien : ' . $asset->name,
+            'Séjour : du ' . self::frenchDate($booking->arrivalDate) . ' au '
+                . self::frenchDate($booking->departureDate),
+            'Locataire : ' . $booking->renterName,
+        ];
     }
 
     private static function frenchDate(string $isoDate): string

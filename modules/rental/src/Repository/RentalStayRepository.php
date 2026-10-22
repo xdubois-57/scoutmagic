@@ -534,14 +534,15 @@ class RentalStayRepository
      *     validated_by_account_id: ?int,
      *     renter_signing: ?RenterSigning,
      *     document_id: ?int,
-     *     document_sha256: ?string
+     *     document_sha256: ?string,
+     *     paper_sheet_document_id: ?int
      * }>
      */
     public function findInventoryValidations(int $bookingId): array
     {
         $stmt = $this->pdo->prepare(
             'SELECT phase, validated_at, validated_by_member_id, validated_by_account_id, renter_signing,
-                    document_id, document_sha256
+                    document_id, document_sha256, paper_sheet_document_id
                FROM rental_inventory_validations WHERE booking_id = ?'
         );
         $stmt->execute([$bookingId]);
@@ -564,6 +565,9 @@ class RentalStayRepository
                 'renter_signing' => RenterSigning::tryFrom((string) $row['renter_signing']),
                 'document_id' => $row['document_id'] !== null ? (int) $row['document_id'] : null,
                 'document_sha256' => $row['document_sha256'] !== null ? (string) $row['document_sha256'] : null,
+                'paper_sheet_document_id' => $row['paper_sheet_document_id'] !== null
+                    ? (int) $row['paper_sheet_document_id']
+                    : null,
             ];
         }
 
@@ -615,18 +619,21 @@ class RentalStayRepository
 
     /**
      * The PDF a validation produced, and the SHA-256 of its file as filed
-     * (#989, lot E) — 64 lowercase hexadecimal characters, or null.
+     * (#989, lot E) — 64 lowercase hexadecimal characters, or null — and,
+     * for an inventory signed on paper, the document holding the photo of
+     * the signed sheet (lot F).
      */
     public function setInventoryValidationDocument(
         int $bookingId,
         ReadingPhase $phase,
         int $documentId,
-        ?string $documentSha256 = null
+        ?string $documentSha256 = null,
+        ?int $paperSheetDocumentId = null
     ): void {
         $this->pdo->prepare(
-            'UPDATE rental_inventory_validations SET document_id = ?, document_sha256 = ?
+            'UPDATE rental_inventory_validations SET document_id = ?, document_sha256 = ?, paper_sheet_document_id = ?
               WHERE booking_id = ? AND phase = ?'
-        )->execute([$documentId, $documentSha256, $bookingId, $phase->value]);
+        )->execute([$documentId, $documentSha256, $paperSheetDocumentId, $bookingId, $phase->value]);
     }
 
     public function findInventoryBookingId(int $inventoryId): ?int

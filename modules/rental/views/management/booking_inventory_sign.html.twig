@@ -25,6 +25,11 @@
   and fetches the stored signature's preview; nothing of either signature
   is written into this page.
 
+  « Signé sur papier » (lot F, decision Q3): both parties signed the
+  printed checklist by hand, so NEITHER signs here — rental-inventory-sign.js
+  disables and hides both signature fieldsets — and the paper fieldset,
+  disabled and hidden otherwise, asks for the required photo of the sheet.
+
   Answered `private, no-store`, and not in the offline list.
 
   Requires the context of RentalManagementController::signInventory().
@@ -117,7 +122,7 @@
                 <div class="card-body">
                     <h2 class="h5 mb-3" id="inventory-renter-title">Le locataire</h2>
                     <fieldset class="mb-3">
-                        <legend class="form-label fs-6">Le locataire est-il là pour signer ?</legend>
+                        <legend class="form-label fs-6">Comment l'état des lieux est-il signé ?</legend>
                         {% for choice in renter_choices %}
                             <div class="form-check">
                                 <input class="form-check-input" type="radio" name="renter_signing"
@@ -130,6 +135,19 @@
                     <p class="alert alert-warning small" data-renter-unsigned-warning hidden>
                         Sans la signature du locataire, cet état des lieux prouve moins. Joignez des photos de ce qui compte.
                     </p>
+                    <fieldset data-paper-sheet disabled hidden>
+                        <legend class="visually-hidden">Feuille signée sur papier</legend>
+                        <p>
+                            Vous avez signé tous les deux la liste imprimée : personne ne signe à l'écran. Le PDF
+                            reprend la photo de la feuille, et il est envoyé au locataire.
+                        </p>
+                        <label class="form-label" for="inventory-paper-sheet">Photo de la feuille signée</label>
+                        <input type="file" class="form-control" id="inventory-paper-sheet" name="paper_sheet"
+                               accept="image/jpeg,image/png,image/webp" required aria-describedby="inventory-paper-sheet-help">
+                        <p class="form-text mb-0" id="inventory-paper-sheet-help">
+                            La feuille entière, lisible, avec les deux signatures.
+                        </p>
+                    </fieldset>
                     <fieldset data-renter-signature>
                         <legend class="visually-hidden">Signature du locataire</legend>
                         {% include 'partials/signature_fields.html.twig' with {
@@ -145,13 +163,20 @@
             <section class="card mb-3" aria-labelledby="inventory-manager-title">
                 <div class="card-body">
                     <h2 class="h5 mb-3" id="inventory-manager-title">Votre signature</h2>
-                    {% include 'partials/signature_fields.html.twig' with {
-                        id: 'inventory-manager',
-                        has_stored_signature: has_stored_signature,
-                        allow_import: false,
-                        manage_return: signing_url,
-                        consequence: "Le PDF signé est rangé dans les documents de la location et envoyé à " ~ booking.renterEmail ~ ". L'état des lieux ne pourra plus être modifié.",
-                    } only %}
+                    <fieldset data-manager-signature>
+                        <legend class="visually-hidden">Votre signature</legend>
+                        {% include 'partials/signature_fields.html.twig' with {
+                            id: 'inventory-manager',
+                            has_stored_signature: has_stored_signature,
+                            allow_import: false,
+                            manage_return: signing_url,
+                            consequence: "Le PDF signé est rangé dans les documents de la location et envoyé à " ~ booking.renterEmail ~ ". L'état des lieux ne pourra plus être modifié.",
+                        } only %}
+                    </fieldset>
+                    <p class="mb-0" data-manager-paper-note hidden>
+                        Signé sur papier : votre signature est sur la feuille. Le PDF est rangé dans les documents
+                        de la location et envoyé à {{ booking.renterEmail }}. L'état des lieux ne pourra plus être modifié.
+                    </p>
                 </div>
             </section>
 

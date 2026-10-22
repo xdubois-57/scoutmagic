@@ -347,6 +347,16 @@ test.describe('Rentals — the milestones after a confirmation', () => {
         await takeReference(page, INVENTORY_KEYS);
         await expect(page.getByLabel(INVENTORY_KEYS, { exact: true })).toHaveValue('1');
 
+        // The blank checklist to walk through on site (#989, lot F): a PDF
+        // made on request for this manager's session, never a stored file.
+        const checklist = page.getByRole('link', { name: 'Imprimer la liste à vérifier' });
+        const checklistUrl = new URL(String(await checklist.getAttribute('href')), page.url()).toString();
+        expect(checklistUrl).toMatch(/\/etat-des-lieux\/liste\.pdf\?phase=arrival$/);
+        const checklistPdf = await page.request.get(checklistUrl);
+        expect(checklistPdf.status()).toBe(200);
+        expect(checklistPdf.headers()['content-type']).toBe('application/pdf');
+        expect((await checklistPdf.body()).subarray(0, 5).toString()).toBe('%PDF-');
+
         // Signed on its own screen (#989, lot E): the renter refuses, so
         // the manager signs alone, warned first — traced on the spot, the
         // account keeping no signature.

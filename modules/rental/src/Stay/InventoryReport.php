@@ -146,7 +146,8 @@ final class InventoryReport
     /**
      * The body of the PDF a validated inventory produces: the findings,
      * then the two signatures (`InventorySignatureBlock`, #989 lot E),
-     * then its photos in an annex.
+     * then its photos in an annex — and, signed on paper, the photo of the
+     * sheet on the last page (lot F).
      *
      * Every time is on the application clock (`AppClock::zone()`): an
      * incident's `created_at` comes from the database and the signing's
@@ -156,6 +157,8 @@ final class InventoryReport
      * @param MeterConsumption[] $meters
      * @param Incident[] $incidents only on the departure's
      * @param list<InventoryPhoto> $photos numbered by `InventoryPhotoAnnex::photos()`
+     * @param InventoryPhoto|null $paperSheet the sheet signed on paper (#989, lot F), numbered after
+     *   them by `InventoryPhotoAnnex::paperSheet()`; the signatures send the reader to it
      */
     public static function html(
         ReadingPhase $phase,
@@ -163,7 +166,8 @@ final class InventoryReport
         array $meters,
         array $incidents,
         InventorySignatureBlock $signatures,
-        array $photos = []
+        array $photos = [],
+        ?InventoryPhoto $paperSheet = null
     ): string {
         $e = static fn(?string $text): string => htmlspecialchars((string) $text, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
         $isArrival = $phase === ReadingPhase::ARRIVAL;
@@ -222,7 +226,8 @@ final class InventoryReport
             );
         }
 
-        return $html . $signatures->html() . InventoryPhotoAnnex::html($photos);
+        return $html . $signatures->html($paperSheet?->number) . InventoryPhotoAnnex::html($photos)
+            . InventoryPhotoAnnex::sheetHtml($paperSheet);
     }
 
     /**

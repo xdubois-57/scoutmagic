@@ -441,7 +441,8 @@ class RentalStayService
      *     validated_by_account_id: ?int,
      *     renter_signing: ?\Modules\Rental\Stay\RenterSigning,
      *     document_id: ?int,
-     *     document_sha256: ?string
+     *     document_sha256: ?string,
+     *     paper_sheet_document_id: ?int
      * }>
      */
     public function inventoryValidations(int $bookingId): array
@@ -548,14 +549,24 @@ class RentalStayService
         );
     }
 
-    /** The validation's PDF, and the SHA-256 of its file as filed (#989, lot E). */
+    /**
+     * The validation's PDF, and the SHA-256 of its file as filed (#989, lot
+     * E) — and, signed on paper, the photo of the signed sheet (lot F).
+     */
     public function attachInventoryDocument(
         RentalBooking $booking,
         ReadingPhase $phase,
         int $documentId,
-        ?string $documentSha256 = null
+        ?string $documentSha256 = null,
+        ?int $paperSheetDocumentId = null
     ): void {
-        $this->stayRepository->setInventoryValidationDocument($booking->id, $phase, $documentId, $documentSha256);
+        $this->stayRepository->setInventoryValidationDocument(
+            $booking->id,
+            $phase,
+            $documentId,
+            $documentSha256,
+            $paperSheetDocumentId
+        );
     }
 
     // ── Incidents (§6.23) ───────────────────────────────────────────────

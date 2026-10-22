@@ -705,6 +705,9 @@ final class UxConventionsTest extends TestCase
         // from their tracking page (#708, IT-16) — a PDF, no page.
         '/locations/suivi/{id}/{token}/contrat-signe.pdf',
         '/locations/{slug}/apercu',
+        // The blank inventory checklist to print (#989, lot F) — a PDF
+        // made on request, no page.
+        '/mes-locations/{slug}/reservations/{id}/etat-des-lieux/liste.pdf',
         // The contact group dialog's JSON contacts, and its two XLSX
         // downloads — the group's file and the empty template.
         '/admin/listes-de-diffusion/contact-groups/{id}/contacts',

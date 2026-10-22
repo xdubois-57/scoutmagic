@@ -354,6 +354,7 @@ class RentalTestHelper
             renter_signing TEXT NOT NULL,
             document_id INTEGER,
             document_sha256 TEXT,
+            paper_sheet_document_id INTEGER,
             UNIQUE (booking_id, phase),
             FOREIGN KEY (booking_id) REFERENCES rental_bookings(id) ON DELETE CASCADE
         )');

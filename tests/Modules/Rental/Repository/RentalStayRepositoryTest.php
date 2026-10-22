@@ -459,6 +459,29 @@ class RentalStayRepositoryTest extends TestCase
         $this->assertSame(3, $validation['validated_by_member_id']);
         $this->assertSame(7, $validation['document_id']);
         $this->assertSame($sha256, $validation['document_sha256']);
+        $this->assertNull($validation['paper_sheet_document_id']);
+    }
+
+    /**
+     * Signed on paper (#989, lot F), the validation also points at the
+     * photo of the signed sheet.
+     */
+    public function testAValidationSignedOnPaperPointsAtThePhotoOfTheSheet(): void
+    {
+        $this->assertTrue($this->repository->recordInventoryValidation(
+            $this->bookingId,
+            ReadingPhase::ARRIVAL,
+            new \DateTimeImmutable('2027-07-01 10:00:00'),
+            3,
+            12,
+            \Modules\Rental\Stay\RenterSigning::PAPER
+        ));
+        $this->repository->setInventoryValidationDocument($this->bookingId, ReadingPhase::ARRIVAL, 7, hash('sha256', 'pdf'), 8);
+
+        $validation = $this->repository->findInventoryValidations($this->bookingId)['arrival'];
+        $this->assertSame(\Modules\Rental\Stay\RenterSigning::PAPER, $validation['renter_signing']);
+        $this->assertSame(7, $validation['document_id']);
+        $this->assertSame(8, $validation['paper_sheet_document_id']);
     }
 
     /**

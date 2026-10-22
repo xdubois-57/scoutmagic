@@ -34,6 +34,11 @@ use Core\Config\AppClock;
  * width and height worked out here and written as attributes, because
  * dompdf respects `max-height` badly too; and the frame's `.body td`
  * border and justified text undone inline on every cell.
+ *
+ * **The sheet signed on paper** (#989, lot F) comes last, on a page of its
+ * own and as large as the page allows, since it is read rather than
+ * glanced at: `paperSheet()` numbers it after every other photo, and
+ * `sheetHtml()` prints it.
  */
 final class InventoryPhotoAnnex
 {
@@ -53,6 +58,17 @@ final class InventoryPhotoAnnex
 
     /** How much of a description or a label a caption repeats; the text above has it whole. */
     public const SUBJECT_MAX_CHARACTERS = 60;
+
+    /** What the caption of the sheet signed on paper says. */
+    public const SHEET_SUBJECT = "Feuille d'état des lieux signée sur papier";
+
+    /**
+     * The box the sheet is fitted into: the A4 frame's width, and its
+     * height less the heading and the caption (dompdf, 96 px per inch).
+     */
+    public const SHEET_BOX_WIDTH = 640;
+
+    public const SHEET_BOX_HEIGHT = 820;
 
     private const DATA_URI = '#^data:image/jpeg;base64,[A-Za-z0-9+/]++={0,2}$#';
 
@@ -106,6 +122,54 @@ final class InventoryPhotoAnnex
         }
 
         return $photos;
+    }
+
+    /**
+     * The photo of the sheet signed on paper, numbered after the others
+     * (`$photos` as `photos()` returned them).
+     *
+     * @param list<InventoryPhoto> $photos
+     * @param array{jpeg: string, width: int, height: int} $image
+     */
+    public static function paperSheet(
+        array $photos,
+        int $fileId,
+        array $image,
+        \DateTimeImmutable $takenAt
+    ): InventoryPhoto {
+        return new InventoryPhoto(
+            count($photos) + 1,
+            $fileId,
+            self::SHEET_SUBJECT,
+            null,
+            null,
+            null,
+            null,
+            $takenAt,
+            $image['jpeg'],
+            $image['width'],
+            $image['height']
+        );
+    }
+
+    /**
+     * The sheet signed on paper, on a page of its own, or nothing.
+     */
+    public static function sheetHtml(?InventoryPhoto $sheet): string
+    {
+        if ($sheet === null) {
+            return '';
+        }
+
+        $e = static fn(string $text): string => htmlspecialchars($text, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        $scale = min(self::SHEET_BOX_WIDTH / max(1, $sheet->width), self::SHEET_BOX_HEIGHT / max(1, $sheet->height));
+        $width = max(1, (int) floor($sheet->width * $scale));
+        $height = max(1, (int) floor($sheet->height * $scale));
+
+        return '<h2 style="page-break-before: always;">Annexe : feuille signée</h2>'
+            . '<div style="text-align: center;">' . self::jpegImage($sheet, $width, $height) . '</div>'
+            . '<div style="font-size: 8pt; text-align: center; margin-top: 3px;"><strong>Photo ' . $sheet->number
+            . '</strong> — ' . $e(self::caption($sheet)) . ', ' . $e(self::moment($sheet->takenAt)) . '</div>';
     }
 
     /**
@@ -239,11 +303,9 @@ final class InventoryPhotoAnnex
 
         $e = static fn(string $text): string => htmlspecialchars($text, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
         [$width, $height] = self::fit($photo->width, $photo->height);
-        $image = '';
-        $dataUri = 'data:image/jpeg;base64,' . base64_encode($photo->jpeg);
-        if (str_starts_with($photo->jpeg, "\xFF\xD8\xFF") && preg_match(self::DATA_URI, $dataUri) === 1) {
-            $image = '<div style="height: ' . self::BOX_HEIGHT . 'px;"><img src="' . $dataUri . '" width="' . $width
-                . '" height="' . $height . '" alt="Photo ' . $photo->number . '"></div>';
+        $image = self::jpegImage($photo, $width, $height);
+        if ($image !== '') {
+            $image = '<div style="height: ' . self::BOX_HEIGHT . 'px;">' . $image . '</div>';
         }
 
         return $open . $image
@@ -252,9 +314,30 @@ final class InventoryPhotoAnnex
             . $e(self::moment($photo->takenAt)) . '</div></td>';
     }
 
-    /** « Compteur Électricité, entrée : 1 234,567 kWh », « Incident : Vitre cassée ». */
+    /**
+     * The `<img>` of a photo at that size, or nothing: only JPEG bytes, as
+     * a `data:` URI of the expected shape, are ever handed to dompdf.
+     */
+    private static function jpegImage(InventoryPhoto $photo, int $width, int $height): string
+    {
+        $dataUri = 'data:image/jpeg;base64,' . base64_encode($photo->jpeg);
+        if (!str_starts_with($photo->jpeg, "\xFF\xD8\xFF") || preg_match(self::DATA_URI, $dataUri) !== 1) {
+            return '';
+        }
+
+        return '<img src="' . $dataUri . '" width="' . $width . '" height="' . $height . '" alt="Photo '
+            . $photo->number . '">';
+    }
+
+    /**
+     * « Compteur Électricité, entrée : 1 234,567 kWh », « Incident : Vitre
+     * cassée », or the sheet signed on paper.
+     */
     private static function caption(InventoryPhoto $photo): string
     {
+        if (!$photo->isOfAMeter() && $photo->incidentId === null) {
+            return $photo->subject;
+        }
         // Shortened, so that no caption runs past three lines and pushes
         // the third row of a page onto the next.
         $subject = mb_strimwidth($photo->subject, 0, self::SUBJECT_MAX_CHARACTERS, '…', 'UTF-8');

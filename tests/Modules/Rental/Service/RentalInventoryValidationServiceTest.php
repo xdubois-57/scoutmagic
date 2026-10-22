@@ -37,6 +37,7 @@ use Modules\Rental\Service\RentalPricingService;
 use Modules\Rental\Service\RentalStayService;
 use Modules\Rental\Stay\InventorySigning;
 use Modules\Rental\Stay\MeterKind;
+use Modules\Rental\Stay\PaperSheet;
 use Modules\Rental\Stay\ReadingPhase;
 use Modules\Rental\Stay\RenterSigning;
 use Modules\Rental\Stay\SettlementCalculator;
@@ -531,6 +532,183 @@ final class RentalInventoryValidationServiceTest extends TestCase
     }
 
     // ── Fixtures ────────────────────────────────────────────────────────
+
+    // ── « Signé sur papier » and the blank checklist (#989, lot F) ──────
+
+    /**
+     * Signed on paper, nobody signs on the screen: the photo of the sheet
+     * is filed with the booking's documents — a photo, not for the renter,
+     * who has it in the PDF — referenced by the validation, printed last
+     * in the annex, and the signatures block sends the reader to it. The
+     * session's account is in the row, the history and the journal; there
+     * is no electronic signing to journal, nor a « signed with your
+     * signature » to notify. The renter still receives the PDF.
+     */
+    public function testSignedOnPaperTheSheetIsInTheAnnexAndInTheDocuments(): void
+    {
+        $account = $this->sessionAccount();
+        $booking = $this->bookingWithAnInventory();
+        $sheet = $this->storedPhoto(31);
+        $notified = [];
+        $notifications = $this->createStub(NotificationService::class);
+        $notifications->method('dispatch')->willReturnCallback(
+            function (string $type) use (&$notified): void {
+                $notified[] = $type;
+            }
+        );
+        $sent = [];
+        $mail = $this->createStub(RentalBookingMailService::class);
+        $mail->method('sendDocument')->willReturnCallback(
+            function (RentalBooking $to, RentalAsset $asset, string $label) use (&$sent): string {
+                $sent[] = $label;
+
+                return '<message@test>';
+            }
+        );
+
+        $result = $this->realService($mail, $notifications)->validate(
+            $booking,
+            $this->asset(),
+            ReadingPhase::ARRIVAL,
+            1,
+            InventorySigning::onPaper(new PaperSheet($sheet, $account)),
+            null,
+            $this->at('2027-07-01 15:30')
+        );
+
+        $validation = $this->stay->inventoryValidations($booking->id)['arrival'];
+        $this->assertSame(RenterSigning::PAPER, $validation['renter_signing']);
+        $this->assertSame($account, $validation['validated_by_account_id']);
+        $this->assertSame($result['sha256'], $validation['document_sha256']);
+        $photo = $this->documentService()->find((int) $validation['paper_sheet_document_id']);
+        $this->assertNotNull($photo);
+        $this->assertSame(DocumentType::PHOTO, $photo->type);
+        $this->assertSame($sheet, $photo->fileId);
+        $this->assertFalse($photo->isForRenter, 'the renter has it in the PDF');
+        $this->assertSame($booking->id, $photo->bookingId);
+
+        $path = (string) $this->documentService()->absolutePath($result['document']);
+        $pdf = (string) file_get_contents($path);
+        $parsed = (new Parser())->parseContent($pdf);
+        $text = (string) preg_replace('/\s+/u', ' ', $parsed->getText());
+        $this->assertStringContainsString(
+            'Signé sur papier par les deux parties le 01/07/2027 à 15:30 : voir la feuille signée, photo 1',
+            $text
+        );
+        $this->assertStringContainsString('Annexe : feuille signée', $text);
+        $this->assertStringContainsString("Photo 1 — Feuille d'état des lieux signée sur papier", $text);
+        $this->assertStringNotContainsString('Signé au doigt', $text);
+        $this->assertStringNotContainsString('Signé sur place', $text);
+        $this->assertSame(1, $this->embeddedJpegCount($pdf), 'the sheet, and no signature image');
+        $this->assertCount(2, $parsed->getPages(), 'the text, then the sheet on a page of its own');
+
+        $history = $this->historyOf($booking);
+        $signed = array_values(array_filter($history, static fn(array $row): bool => $row['summary'] === 'État des lieux signé'));
+        $this->assertCount(1, $signed);
+        $this->assertSame(
+            "État des lieux d'entrée — signé sur papier par les deux parties — SHA-256 " . $result['sha256'],
+            $signed[0]['to']
+        );
+        $this->assertSame($account, $signed[0]['account']);
+
+        $this->assertSame([], $this->journalContexts('personal_signature_document_signed'));
+        $act = $this->journalContexts('rental_inventory_signed_on_paper');
+        $this->assertCount(1, $act);
+        $this->assertSame($result['sha256'], $act[0]['document_sha256']);
+        $this->assertSame($photo->id, $act[0]['paper_sheet_document_id']);
+        $this->assertSame([], $notified, 'nobody signed with their signature');
+        $this->assertSame(["État des lieux d'entrée"], $sent);
+        $this->assertTrue($result['sent']);
+
+        // The sheet is the signatures: it is not deleted either.
+        try {
+            $this->documentService()->delete($photo);
+            $this->fail('the photo of a signed sheet must not be deleted');
+        } catch (\Modules\Rental\Service\RentalException $e) {
+            $this->assertStringContainsString("la feuille signée d'un état des lieux", $e->getMessage());
+        }
+        $this->assertNotNull($this->documentService()->find($photo->id));
+    }
+
+    /**
+     * A sheet whose photo cannot be read back refuses the validation in
+     * French, before anything is frozen or filed.
+     */
+    public function testAPaperSheetThatCannotBeReadValidatesNothing(): void
+    {
+        $account = $this->sessionAccount();
+        $booking = $this->bookingWithAnInventory();
+        $documents = (int) $this->pdo->query('SELECT COUNT(*) FROM rental_documents')->fetchColumn();
+
+        try {
+            $this->realService()->validate(
+                $booking,
+                $this->asset(),
+                ReadingPhase::ARRIVAL,
+                1,
+                InventorySigning::onPaper(new PaperSheet(424242, $account)),
+                null,
+                $this->at('2027-07-01 15:30')
+            );
+            $this->fail('a sheet that cannot be read must refuse the validation');
+        } catch (\Modules\Rental\Service\RentalException $e) {
+            $this->assertSame(RentalInventoryValidationService::SHEET_UNREADABLE, $e->getMessage());
+        }
+
+        $this->assertSame([], $this->stay->inventoryValidations($booking->id));
+        $this->assertSame($documents, (int) $this->pdo->query('SELECT COUNT(*) FROM rental_documents')->fetchColumn());
+    }
+
+    /**
+     * Signed on paper, no electronic signature is ever put on the PDF nor
+     * « remembered », even when one is handed in: the two modes never mix.
+     */
+    public function testAnElectronicSignatureIsNeverTakenWithAnInventorySignedOnPaper(): void
+    {
+        $account = $this->sessionAccount();
+        $booking = $this->bookingWithAnInventory();
+
+        try {
+            $this->realService()->validate(
+                $booking,
+                $this->asset(),
+                ReadingPhase::ARRIVAL,
+                1,
+                InventorySigning::onPaper(new PaperSheet($this->storedPhoto(32), $account)),
+                $this->managerSignature($account, true),
+                $this->at('2027-07-01 15:30')
+            );
+            $this->fail('a signature handed in with a paper sheet must be refused');
+        } catch (\InvalidArgumentException) {
+        }
+
+        $this->assertSame([], $this->stay->inventoryValidations($booking->id));
+        $this->assertFalse($this->signatures->has($account), 'nothing remembered');
+    }
+
+    /**
+     * « Imprimer la liste à vérifier »: a PDF of the phase's checklist, its
+     * items with their reference and a box, the meters, the free lines and
+     * the two frames — nothing stored.
+     */
+    public function testTheBlankChecklistIsAPdfOfThePhase(): void
+    {
+        $booking = $this->bookingWithAnInventory();
+        $this->stay->addMeter($this->assetId, 'Électricité', MeterKind::ELECTRICITY, 'kWh', null);
+        $files = (int) $this->pdo->query('SELECT COUNT(*) FROM files')->fetchColumn();
+
+        $pdf = $this->realService()->blankSheet($booking, $this->asset(), ReadingPhase::DEPARTURE);
+
+        $this->assertStringStartsWith('%PDF-', $pdf);
+        $text = (string) preg_replace('/\s+/u', ' ', (new Parser())->parseContent($pdf)->getText());
+        $this->assertStringContainsString("État des lieux de sortie — liste à vérifier", $text);
+        $this->assertStringContainsString("Cochez ce qui est conforme", $text);
+        $this->assertStringContainsString('Clés', $text);
+        $this->assertStringContainsString('Électricité (kWh)', $text);
+        $this->assertStringContainsString('Incidents et remarques', $text);
+        $this->assertStringContainsString('Le gestionnaire', $text);
+        $this->assertSame($files, (int) $this->pdo->query('SELECT COUNT(*) FROM files')->fetchColumn());
+    }
 
     /**
      * The service with the real dompdf and the real renderer; the PDF is
