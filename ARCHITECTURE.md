@@ -6177,6 +6177,27 @@ it carries the copy it was signed with, as Locations' countersignature page
 already does (§8.55), and follows its module's retention — the RGPD page
 says so (rule 37, sections 2.1 and 3.1).
 
+**« Ma signature », under Mon compte (lot B).**
+`Core\Signature\Controller\AccountSignatureController` serves four
+routes, all `identified`, all acting on the session's account and never on
+an id the request carries: `GET /account/signature` (the page), `POST
+/account/signature` (draw or import, replacing the one kept; the
+`retour` it may carry goes through `SafeRedirect::internalPath()` and never
+names the page itself), `POST /account/signature/delete` (behind
+`data-confirm`), and `GET /account/signature/image` (the owner's PNG,
+`private, no-store`, `nosniff`, a 404 for everyone else — SECURITY.md §6).
+**A page of its own on purpose**: `/account` is cached for offline reading
+(`Core\Offline\OfflineWhitelist`, §8.25), so its card says only whether a
+signature is kept and since when, and links to « Gérer ma signature »; the
+image never appears there. The page is answered `no-store` as well. The
+pad is `public/assets/js/signature-pad.js`, generalised from Locations'
+`rental-signature.js` (which stays until lot C2): pointer events, the
+canvas exported with `toDataURL()` into `signature_data` only when
+something was drawn — so an untouched pad leaves room for an import — and
+emptied when the page comes back from the back-forward cache; no point,
+timing or pressure is ever kept. A file is read only when
+`is_uploaded_file()` says PHP received it with this request.
+
 ## 9. Installation / bootstrap
 
 ### 9.1 First install: bootstrap.php

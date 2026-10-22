@@ -84,6 +84,72 @@ class AccountControllerTest extends TestCase
         $this->assertSame(200, $response->getStatusCode());
     }
 
+    /**
+     * The « Ma signature » card (issue #926) is told whether the SESSION's
+     * account keeps a signature, and since when — never the image, which
+     * this offline-cached page must not carry.
+     */
+    public function testIndexTellsTheCardWhetherThisAccountKeepsASignature(): void
+    {
+        $signatures = new \Core\Signature\PersonalSignatureService(
+            new \Core\Signature\PersonalSignatureRepository($this->pdo, $this->encryption),
+            new \Core\Journal\JournalService(new \Core\Journal\JournalRepository($this->pdo))
+        );
+        $other = $this->userRepo->create('other@example.com');
+        $image = imagecreatetruecolor(10, 10);
+        ob_start();
+        imagepng($image);
+        $signatures->save($other->id, \Core\Signature\SignatureImage::fromBytes((string) ob_get_clean()), new \DateTimeImmutable());
+
+        /** @var list<array<string, mixed>> $contexts */
+        $contexts = [];
+        $twig = $this->createStub(Environment::class);
+        $twig->method('render')->willReturnCallback(function (string $name, array $context) use (&$contexts): string {
+            $contexts[] = $context;
+
+            return '<html></html>';
+        });
+        $controller = new AccountController(
+            $twig,
+            $this->userRepo,
+            $this->webAuthnRepo,
+            new WebAuthnService($this->webAuthnRepo, $this->userRepo, 'localhost', 'Test Scout', 'https://localhost'),
+            null,
+            null,
+            $signatures
+        );
+
+        $controller->index(new Request('GET', '/account', [], [], [], []), []);
+
+        $this->assertFalse($contexts[0]['has_personal_signature'], 'another account’s signature is not this one’s');
+        $this->assertNull($contexts[0]['personal_signature_saved_at']);
+        foreach ($contexts[0] as $value) {
+            $this->assertNotInstanceOf(\Core\Signature\SignaturePng::class, $value);
+        }
+    }
+
+    public function testWithoutTheSignatureServiceTheCardIsNotOffered(): void
+    {
+        /** @var list<array<string, mixed>> $contexts */
+        $contexts = [];
+        $twig = $this->createStub(Environment::class);
+        $twig->method('render')->willReturnCallback(function (string $name, array $context) use (&$contexts): string {
+            $contexts[] = $context;
+
+            return '<html></html>';
+        });
+        $controller = new AccountController(
+            $twig,
+            $this->userRepo,
+            $this->webAuthnRepo,
+            new WebAuthnService($this->webAuthnRepo, $this->userRepo, 'localhost', 'Test Scout', 'https://localhost')
+        );
+
+        $controller->index(new Request('GET', '/account', [], [], [], []), []);
+
+        $this->assertNull($contexts[0]['has_personal_signature']);
+    }
+
     public function testIndexRedirectsToLoginWhenNotAuthenticated(): void
     {
         AuthSession::logout();

@@ -4268,6 +4268,43 @@ $router->addRoute(
     'revoke',
     'admin'
 );
+// « Ma signature » (Core\Signature, issue #926, ARCHITECTURE.md §8.125):
+// the personal signature an account keeps for signing documents. Every
+// route `identified` — any account may keep one, whatever its role — and
+// every one acts on the session's own account, never on an id from the
+// request. A page of its own rather than a card of /account, which is
+// cached for offline reading; the image has its own `no-store` route
+// (SECURITY.md §6).
+$router->addRoute(
+    'GET',
+    '/account/signature',
+    \Core\Signature\Controller\AccountSignatureController::class,
+    'index',
+    'identified',
+    ['label' => 'Ma signature', 'parents' => [],
+        'ancestors' => [['label' => 'Mon compte', 'path' => '/account']]]
+);
+$router->addRoute(
+    'POST',
+    '/account/signature',
+    \Core\Signature\Controller\AccountSignatureController::class,
+    'save',
+    'identified'
+);
+$router->addRoute(
+    'POST',
+    '/account/signature/delete',
+    \Core\Signature\Controller\AccountSignatureController::class,
+    'delete',
+    'identified'
+);
+$router->addRoute(
+    'GET',
+    '/account/signature/image',
+    \Core\Signature\Controller\AccountSignatureController::class,
+    'image',
+    'identified'
+);
 // « Revoir les astuces » — forgets every discovery tip this account was
 // shown and releases any delay (§8.95). On HelpDiscoveryController rather
 // than AccountController because it is the discovery feature's own state:
@@ -6674,8 +6711,13 @@ $frontController->registerController(
         $webAuthnCredentialRepo,
         $webAuthnService,
         $accountPhotoService,
-        $seenHelpTopicRepository
+        $seenHelpTopicRepository,
+        $personalSignatureService
     )
+);
+$frontController->registerController(
+    \Core\Signature\Controller\AccountSignatureController::class,
+    new \Core\Signature\Controller\AccountSignatureController($twig, $personalSignatureService)
 );
 // Contact synchronisation: the credentials an address-book client
 // authenticates with (Core\Contact\Device, ARCHITECTURE.md §8.117). One
