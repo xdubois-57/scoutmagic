@@ -331,9 +331,18 @@ class DiskBudgetTest extends TestCase
     /** Counting the same bytes twice costs a walk, never a refusal. */
     public function testTheCountOnlyEverDecidesWhenToWalkAgain(): void
     {
+        // A quota small enough to be the binding figure: availableBytes() is
+        // the lesser of the quota left and the volume's free space, so a
+        // quota of 2 GB made this test read the machine's free disk instead
+        // — and fail on any machine with less than that to spare.
         $this->write('gallery/photo.jpg', 100);
-        $this->settings->set(DiskBudget::QUOTA_SETTING, (string) (2048 * self::MIB));
+        $this->settings->set(DiskBudget::QUOTA_SETTING, (string) (256 * self::MIB));
         $budget = $this->budget();
+        $this->assertGreaterThan(
+            256 * self::MIB,
+            (int) disk_free_space($this->storagePath),
+            'The volume must have more room than the quota for the quota to be what is read.'
+        );
 
         $budget->measureNow();
         $budget->ensureRoom(DiskBudget::SAFETY_MARGIN_BYTES);
@@ -341,7 +350,7 @@ class DiskBudgetTest extends TestCase
         // The cache is gone, but the answer is unchanged: the count is not
         // subtracted from anything.
         $this->assertFileDoesNotExist($this->cacheFile());
-        $this->assertSame(2048 * self::MIB - 100, $budget->availableBytes());
+        $this->assertSame(256 * self::MIB - 100, $budget->availableBytes());
     }
 
     /** Rewriting the counter must not restart the reading's own lifetime. */
