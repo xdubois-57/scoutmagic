@@ -70,8 +70,8 @@ final class CountersignedContract extends Fpdi
      * A photographed or scanned page, fitted on an A4 page — turned
      * landscape when the photo is.
      *
-     * @param string $jpeg the image as JPEG bytes (`SignatureImage` and the
-     *   caller re-encode whatever arrived)
+     * @param string $jpeg the image as JPEG bytes (the caller re-encodes
+     *   whatever arrived)
      */
     public function addImagePage(string $jpeg): void
     {

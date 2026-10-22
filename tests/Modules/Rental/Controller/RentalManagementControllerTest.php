@@ -351,9 +351,10 @@ class RentalManagementControllerTest extends TestCase
             $this->signedContractService = new \Modules\Rental\Service\RentalSignedContractService(
                 $this->documentService,
                 new \Modules\Rental\Repository\RentalDocumentRepository($this->pdo),
-                $this->signatureRepository = new \Modules\Rental\Repository\RentalManagerSignatureRepository(
-                    $this->pdo,
-                    $this->encryption
+                $this->personalSignatures = new \Core\Signature\PersonalSignatureService(
+                    new \Core\Signature\PersonalSignatureRepository($this->pdo, $this->encryption),
+                    $journal,
+                    new \Core\Security\UserAccountRepository($this->pdo, $this->encryption)
                 ),
                 $bookingAudit,
                 $this->recordingMailService(),
@@ -365,7 +366,7 @@ class RentalManagementControllerTest extends TestCase
                 $occupancyGuard,
                 $this->modificationService
             ),
-            $this->signatureRepository,
+            $this->personalSignatures,
             // A contract the booking has outgrown is voided (#708, IT-20).
             new \Modules\Rental\Service\RentalContractValidityService(
                 $this->documentService,
@@ -423,7 +424,7 @@ class RentalManagementControllerTest extends TestCase
     private array $cancellationEmails = [];
 
     private \Modules\Rental\Service\RentalSignedContractService $signedContractService;
-    private \Modules\Rental\Repository\RentalManagerSignatureRepository $signatureRepository;
+    private \Core\Signature\PersonalSignatureService $personalSignatures;
 
     private function recordingMailService(): \Modules\Rental\Service\RentalBookingMailService
     {
@@ -2912,32 +2913,191 @@ class RentalManagementControllerTest extends TestCase
         return 'data:image/png;base64,' . base64_encode((string) ob_get_clean());
     }
 
+    /** The signature this account keeps in Mon compte (Core\Signature, issue #926). */
+    private function keepSignatureFor(int $account): void
+    {
+        $this->personalSignatures->save(
+            $account,
+            \Core\Signature\SignatureImage::fromDataUrl(self::signatureDataUrl()),
+            new \DateTimeImmutable('2026-01-01 08:00:00')
+        );
+    }
+
     /**
-     * The copy is opened and answered from its step; a manager with no
-     * signature yet is sent to record one, and brought straight back.
+     * The copy is opened and answered from its step; without a stored
+     * signature, the dialog asks for one for this contract (issue #926).
      */
-    public function testACopyWaitsOnTheDashboardAndAManagerWithoutASignatureIsSentToRecordOne(): void
+    public function testACopyWaitsOnTheDashboardAndTheDialogAsksForASignatureForThisContract(): void
     {
         $this->loginAsManager();
-        [$booking] = $this->bookingWithASignedCopy();
+        [$booking, $copy] = $this->bookingWithASignedCopy();
 
         $body = $this->bookingPage('local-saint-georges', $booking->id)->getBody();
         $this->assertStringContainsString('href="#contresignature"', self::panel($body, 'next-step'));
         $step = self::step($body, 'contract_countersigned');
         $this->assertStringContainsString('Ouvrir la copie reçue', $step);
-        $this->assertStringContainsString(
-            'href="/mes-locations/ma-signature?retour=' . rawurlencode('/mes-locations/local-saint-georges/reservations/' . $booking->id) . '"',
-            $step
-        );
-        $this->assertStringNotContainsString('/mes-locations/contrat-contresigner', $step);
+        $this->assertStringContainsString('data-bs-target="#countersign-' . $copy->id . '">Valider et contresigner</button>', $step);
+        $dialog = self::dialog($body, 'countersign-' . $copy->id);
+        $this->assertStringContainsString('action="/mes-locations/contrat-contresigner"', $dialog);
+        $this->assertStringContainsString('data-signature-mode="new" data-async="off"', $dialog);
+        $this->assertStringContainsString('name="signature_source" value="new"', $dialog);
+        $this->assertStringContainsString('data-signature-pad', $dialog);
+        $this->assertStringContainsString('name="signature_file"', $dialog);
+        $this->assertStringContainsString('Mémoriser ma signature dans mon compte pour une utilisation future', $dialog);
+        $this->assertStringNotContainsString('checked', $dialog);
+        $this->assertStringNotContainsString('data-confirm', $dialog);
+        $this->assertStringContainsString('name="booking_page" value="dashboard"', $dialog);
+        $this->assertStringContainsString('name="document_id" value="' . $copy->id . '"', $dialog);
+        $this->assertStringContainsString('le locataire reçoit le contrat signé par les deux parties', $dialog);
+        $this->assertStringContainsString('Signer le document</button>', $dialog);
+        $this->assertStringNotContainsString('/mes-locations/ma-signature', $body);
+        $this->assertStringContainsString('/assets/js/signature-dialog.js', $body);
         $this->assertStringContainsString('<span class="visually-hidden">Fait :</span>', self::step($body, 'signed_copy_received'));
+    }
+
+    /** With a stored signature, the dialog says it will be used — and never carries it. */
+    public function testWithAStoredSignatureTheDialogSaysSoAndOffersToManageIt(): void
+    {
+        $this->loginAsManager();
+        [$booking, $copy] = $this->bookingWithASignedCopy();
+        $this->keepSignatureFor(1);
+
+        $body = $this->bookingPage('local-saint-georges', $booking->id)->getBody();
+        $dialog = self::dialog($body, 'countersign-' . $copy->id);
+
+        $this->assertStringContainsString(
+            'Ce document sera signé avec la signature enregistrée dans votre compte. Vérifiez son contenu avant de confirmer.',
+            $dialog
+        );
+        $this->assertStringContainsString('name="signature_source" value="stored"', $dialog);
+        $this->assertStringContainsString(
+            'href="/account/signature?retour=' . rawurlencode('/mes-locations/local-saint-georges/reservations/' . $booking->id) . '">Gérer ma signature</a>',
+            $dialog
+        );
+        $this->assertStringNotContainsString('data-signature-pad', $dialog);
+        $this->assertStringNotContainsString('remember_signature', $dialog);
+        $this->assertStringNotContainsString('/account/signature/image', $body);
+        $this->assertStringNotContainsString('data:image', $body);
+    }
+
+    /**
+     * Signed for this contract alone, nothing is kept; ticked, it is kept
+     * in Mon compte and the flash says so (issue #926).
+     */
+    public function testAOneOffCountersignatureKeepsNothingUnlessTheBoxIsTicked(): void
+    {
+        $this->loginAsManager();
+        [$booking, $copy] = $this->bookingWithASignedCopy();
+
+        $this->post('/mes-locations/contrat-contresigner', 'countersignContract', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'document_id' => (string) $copy->id,
+            'signature_source' => 'new',
+            'signature_data' => self::signatureDataUrl(),
+        ]);
+
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertSame('success', $flash['type'] ?? null, (string) ($flash['message'] ?? ''));
+        $this->assertStringNotContainsString('Mon compte', (string) ($flash['message'] ?? ''));
+        $this->assertNotNull($this->signedContractService->finalContract($booking->id));
+        $this->assertFalse($this->personalSignatures->has(1));
+    }
+
+    public function testTickedTheSignatureIsKeptForTheSessionsAccountWhateverTheFormSays(): void
+    {
+        $this->loginAsManager();
+        [$booking, $copy] = $this->bookingWithASignedCopy();
+
+        $this->post('/mes-locations/contrat-contresigner', 'countersignContract', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'document_id' => (string) $copy->id,
+            'signature_source' => 'new',
+            'signature_data' => self::signatureDataUrl(),
+            'remember_signature' => '1',
+            'user_account_id' => '2',
+        ]);
+
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertStringEndsWith(' Votre signature est enregistrée dans Mon compte.', (string) ($flash['message'] ?? ''));
+        $this->assertTrue($this->personalSignatures->has(1));
+        $this->assertFalse($this->personalSignatures->has(2));
+    }
+
+    /** A posted account id never reaches somebody else's stored signature. */
+    public function testAnotherAccountsStoredSignatureCannotBeNamedByTheForm(): void
+    {
+        $this->loginAsManager();
+        [$booking, $copy] = $this->bookingWithASignedCopy();
+        $this->keepSignatureFor(2);
+
+        $this->post('/mes-locations/contrat-contresigner', 'countersignContract', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'document_id' => (string) $copy->id,
+            'signature_source' => 'stored',
+            'user_account_id' => '2',
+        ]);
+
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertSame('error', $flash['type'] ?? null);
+        $this->assertStringContainsString("Votre signature enregistrée n'existe plus", (string) ($flash['message'] ?? ''));
+        $this->assertNull($this->signedContractService->finalContract($booking->id));
+        $this->assertSame($copy->id, $this->signedContractService->pendingCopy($booking->id)?->id);
+    }
+
+    /**
+     * « Annuler » posts nothing, so the copy waits as it was; a dialog sent
+     * with nothing to sign with is refused in French, not a 500 — the
+     * core's refusal reaches bookingAction() as the rental one it catches.
+     */
+    public function testNothingToSignWithLeavesTheCopyWaiting(): void
+    {
+        $this->loginAsManager();
+        [$booking, $copy] = $this->bookingWithASignedCopy();
+
+        $response = $this->post('/mes-locations/contrat-contresigner', 'countersignContract', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'document_id' => (string) $copy->id,
+            'signature_source' => 'new',
+        ]);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertSame('error', $flash['type'] ?? null);
+        $this->assertSame("Tracez votre signature ou importez-en l'image.", $flash['message'] ?? null);
+        $this->assertSame($copy->id, $this->signedContractService->pendingCopy($booking->id)?->id);
+        $this->assertNull($this->signedContractService->finalContract($booking->id));
+    }
+
+    /** Somebody who manages nothing countersigns nothing, and keeps nothing either. */
+    public function testSomeoneWhoManagesNothingCannotCountersign(): void
+    {
+        $this->loginAsManager();
+        [$booking, $copy] = $this->bookingWithASignedCopy();
+        AuthSession::login(9, 'nobody@test.be', 'identified');
+
+        $response = $this->post('/mes-locations/contrat-contresigner', 'countersignContract', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'document_id' => (string) $copy->id,
+            'signature_source' => 'new',
+            'signature_data' => self::signatureDataUrl(),
+            'remember_signature' => '1',
+        ]);
+
+        $this->assertSame(404, $response->getStatusCode());
+        $this->assertNull($this->signedContractService->finalContract($booking->id));
+        $this->assertFalse($this->personalSignatures->has(9));
     }
 
     public function testAManagerCountersignsWithTheirOwnSignature(): void
     {
         $this->loginAsManager();
         [$booking, $copy] = $this->bookingWithASignedCopy();
-        $this->signatureRepository->save(1, base64_decode(substr(self::signatureDataUrl(), 22)), new \DateTimeImmutable());
+        $this->keepSignatureFor(1);
 
         $before = self::step($this->bookingPage('local-saint-georges', $booking->id)->getBody(), 'contract_countersigned');
         $this->assertStringContainsString('/mes-locations/contrat-contresigner', $before);
@@ -2946,6 +3106,7 @@ class RentalManagementControllerTest extends TestCase
             'asset_id' => (string) $this->assetId,
             'booking_id' => (string) $booking->id,
             'document_id' => (string) $copy->id,
+            'signature_source' => 'stored',
         ]);
 
         $final = $this->signedContractService->finalContract($booking->id);
@@ -3011,16 +3172,13 @@ class RentalManagementControllerTest extends TestCase
     {
         $accountId = $this->loginAsManagerKnownByATotem();
         [$booking, $copy] = $this->bookingWithASignedCopy();
-        $this->signatureRepository->save(
-            $accountId,
-            base64_decode(substr(self::signatureDataUrl(), 22)),
-            new \DateTimeImmutable()
-        );
+        $this->keepSignatureFor($accountId);
 
         $this->post('/mes-locations/contrat-contresigner', 'countersignContract', [
             'asset_id' => (string) $this->assetId,
             'booking_id' => (string) $booking->id,
             'document_id' => (string) $copy->id,
+            'signature_source' => 'stored',
         ]);
 
         $final = $this->signedContractService->finalContract($booking->id);
@@ -3078,49 +3236,6 @@ class RentalManagementControllerTest extends TestCase
         // Back to waiting on the renter, and the reason is on the step.
         $this->assertStringContainsString('<span class="visually-hidden">À faire :</span>', self::step($body, 'signed_copy_received'));
         $this->assertStringContainsString('pas signée', html_entity_decode(self::step($body, 'contract_countersigned')));
-    }
-
-    /** Drawn, kept, shown to its owner — and to nobody else. */
-    public function testAManagerRecordsTheirSignatureAndOnlyTheySeeIt(): void
-    {
-        $this->loginAsManager();
-        $this->assertSame(200, $this->get('/mes-locations/ma-signature', '/mes-locations/ma-signature', 'mySignature')->getStatusCode());
-
-        $response = $this->post('/mes-locations/ma-signature', 'saveSignature', [
-            'signature_data' => self::signatureDataUrl(),
-            'retour' => '/mes-locations/local-saint-georges/reservations/7',
-        ]);
-        $this->assertSame('/mes-locations/local-saint-georges/reservations/7', $response->getHeaders()['Location'] ?? null);
-        $this->assertTrue($this->signatureRepository->has(1));
-
-        $image = $this->get('/mes-locations/ma-signature/image', '/mes-locations/ma-signature/image', 'signatureImage');
-        $this->assertSame('image/png', $image->getHeaders()['Content-Type'] ?? null);
-        $this->assertStringStartsWith("\x89PNG", (string) $image->getBody());
-
-        // Another manager of the very same asset gets nothing.
-        $this->addManager($this->assetId, 'other@test.be');
-        AuthSession::login(2, 'other@test.be', 'identified');
-        $this->assertSame(404, $this->get('/mes-locations/ma-signature/image', '/mes-locations/ma-signature/image', 'signatureImage')->getStatusCode());
-
-        // And a return address from elsewhere is never followed.
-        AuthSession::login(1, 'manager@test.be', 'identified');
-        $response = $this->post('/mes-locations/ma-signature', 'saveSignature', [
-            'signature_data' => self::signatureDataUrl(),
-            'retour' => 'https://ailleurs.example/piege',
-        ]);
-        $this->assertSame('/mes-locations/ma-signature', $response->getHeaders()['Location'] ?? null);
-
-        $this->post('/mes-locations/ma-signature/supprimer', 'deleteSignature', []);
-        $this->assertFalse($this->signatureRepository->has(1));
-    }
-
-    public function testSomeoneWhoManagesNothingKeepsNoSignatureHere(): void
-    {
-        AuthSession::login(9, 'nobody@test.be', 'identified');
-
-        $this->assertSame(403, $this->get('/mes-locations/ma-signature', '/mes-locations/ma-signature', 'mySignature')->getStatusCode());
-        $this->post('/mes-locations/ma-signature', 'saveSignature', ['signature_data' => self::signatureDataUrl()]);
-        $this->assertFalse($this->signatureRepository->has(9));
     }
 
     /**
@@ -3587,6 +3702,17 @@ class RentalManagementControllerTest extends TestCase
      * One step of the journey, by its milestone key — the `li` the step
      * partial renders, with its nature and its visually-hidden state.
      */
+    /** One signature dialog of the page, by its id (partials/signature_dialog.html.twig). */
+    private static function dialog(string $body, string $id): string
+    {
+        $start = strpos($body, '<div class="modal fade" id="' . $id . '"');
+        self::assertNotFalse($start, 'no dialog ' . $id . ' on the page');
+        $end = strpos($body, 'Signer le document</button>', $start);
+        self::assertNotFalse($end);
+
+        return substr($body, $start, $end - $start + strlen('Signer le document</button>'));
+    }
+
     private static function step(string $body, string $key): string
     {
         $found = preg_match('#<li class="step-item[^"]*"\s+data-milestone="' . preg_quote($key, '#') . '".*?</li>#s', $body, $m);
@@ -7232,15 +7358,38 @@ class RentalManagementControllerTest extends TestCase
         // The copy answers the project: the booking's own line still waits.
         $this->assertTrue($copy->inActiveModification);
 
-        $this->signatureRepository->save(
-            1,
-            base64_decode(substr(self::signatureDataUrl(), 22)),
-            new \DateTimeImmutable()
+        // « Contresigner » on Documents opens the core's dialog (issue
+        // #926): a signature for this contract while none is kept…
+        $documents = (string) $this->filePage(BookingPage::DOCUMENTS, 'local-saint-georges', $booking->id)->getBody();
+        $this->assertStringContainsString('data-bs-target="#countersign-' . $copy->id . '">Contresigner</button>', $documents);
+        $dialog = self::dialog($documents, 'countersign-' . $copy->id);
+        $this->assertStringContainsString('data-signature-mode="new" data-async="off"', $dialog);
+        $this->assertStringContainsString('name="booking_page" value="documents"', $dialog);
+        $this->assertStringContainsString(
+            "La modification s'applique aussitôt : la réservation passe au 10/07/2027 → 14/07/2027",
+            html_entity_decode($dialog, ENT_QUOTES)
         );
+        $this->assertStringContainsString('Le statut de confirmation ne change pas.', $dialog);
+        $this->assertStringNotContainsString('checked', $dialog);
+        $this->assertStringNotContainsString('data-confirm', $dialog);
+        $this->assertStringContainsString('/assets/js/signature-dialog.js', $documents);
+
+        // … the kept one, said and never carried, once there is one.
+        $this->keepSignatureFor(1);
+        $documents = (string) $this->filePage(BookingPage::DOCUMENTS, 'local-saint-georges', $booking->id)->getBody();
+        $dialog = self::dialog($documents, 'countersign-' . $copy->id);
+        $this->assertStringContainsString('Ce document sera signé avec la signature enregistrée dans votre compte.', $dialog);
+        $this->assertStringContainsString(
+            'href="/account/signature?retour=' . rawurlencode('/mes-locations/local-saint-georges/reservations/' . $booking->id . '/documents') . '">Gérer ma signature</a>',
+            $dialog
+        );
+        $this->assertStringNotContainsString('/account/signature/image', $documents);
+
         $countersign = fn() => $this->post('/mes-locations/contrat-contresigner', 'countersignContract', [
             'asset_id' => (string) $this->assetId,
             'booking_id' => (string) $booking->id,
             'document_id' => (string) $copy->id,
+            'signature_source' => 'stored',
         ]);
         $countersign();
         $flash = \Core\Http\FlashMessage::get();

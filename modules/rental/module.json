@@ -2,7 +2,7 @@
   "id": "rental",
   "name": "Locations",
   "description": "Location des biens de l'unité : locaux, terrains, tentes, remorques.",
-  "version": "1.48.0",
+  "version": "1.49.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -358,54 +358,6 @@
       "method": "POST",
       "controller": "Modules\\Rental\\Controller\\RentalManagementController",
       "action": "refuseSignedCopy",
-      "menu": "espace_animes",
-      "role_min": "identified",
-      "label": ""
-    },
-    {
-      "path": "/mes-locations/ma-signature",
-      "method": "GET",
-      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
-      "action": "mySignature",
-      "menu": "espace_animes",
-      "role_min": "identified",
-      "label": "",
-      "breadcrumb": {
-        "label": "Ma signature",
-        "parents": [
-          "Espace membres"
-        ],
-        "ancestors": [
-          {
-            "label": "Gérer mes locations",
-            "path": "/mes-locations"
-          }
-        ]
-      }
-    },
-    {
-      "path": "/mes-locations/ma-signature",
-      "method": "POST",
-      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
-      "action": "saveSignature",
-      "menu": "espace_animes",
-      "role_min": "identified",
-      "label": ""
-    },
-    {
-      "path": "/mes-locations/ma-signature/supprimer",
-      "method": "POST",
-      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
-      "action": "deleteSignature",
-      "menu": "espace_animes",
-      "role_min": "identified",
-      "label": ""
-    },
-    {
-      "path": "/mes-locations/ma-signature/image",
-      "method": "GET",
-      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
-      "action": "signatureImage",
       "menu": "espace_animes",
       "role_min": "identified",
       "label": ""

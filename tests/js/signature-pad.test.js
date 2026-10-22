@@ -113,6 +113,26 @@ describe('wirePad()', () => {
         expect(field.value).toBe('');
     });
 
+    it('empties itself when the signature dialog sends it signature-pad:reset', () => {
+        const { element, canvas, context, field } = form();
+        wirePad(element);
+
+        trace(canvas);
+        element.dispatchEvent(new CustomEvent('signature-pad:reset'));
+
+        expect(context.clearRect).toHaveBeenCalledWith(0, 0, 600, 200);
+        element.dispatchEvent(new Event('submit'));
+        expect(field.value).toBe('');
+    });
+
+    it('wires a form once, however often it is asked', () => {
+        const { element } = form();
+
+        expect(wirePad(element)).not.toBeNull();
+        expect(wirePad(element)).toBeNull();
+        expect(/** @type {any} */ (globalThis).ScoutMagicSignaturePad.wire).toBe(wirePad);
+    });
+
     it('does nothing on a form without a pad', () => {
         document.body.innerHTML = '<form data-signature-form><input type="file" name="signature_file"></form>';
 

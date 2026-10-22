@@ -153,10 +153,14 @@ class ModuleManifestTest extends TestCase
      *
      * 1.46.0 names the Finances category a rental's receivables carry
      * (`rental_assets.finance_category_id`) (#838).
+     *
+     * 1.49.0 drops `rental_manager_signatures` and the four
+     * « Ma signature » routes: a manager countersigns with the personal
+     * signature of their account, in the core (issue #926).
      */
     public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
     {
-        $this->assertSame('1.48.0', $this->manifest->version);
+        $this->assertSame('1.49.0', $this->manifest->version);
     }
 
     /**

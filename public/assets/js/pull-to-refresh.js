@@ -131,7 +131,7 @@
         }
         // An inner list scrolled down is pulled back up first, like the
         // page itself. A widget that draws or drags under the finger
-        // (rental-signature.js's canvas) says so with touch-action: a
+        // (signature-pad.js's canvas) says so with touch-action: a
         // vertical stroke there is the widget's, never a pull.
         for (var node = element; node && node !== document.body && node !== document.documentElement; node = node.parentElement) {
             if (node.scrollTop > 0 || !allowsVerticalPan(node)) {

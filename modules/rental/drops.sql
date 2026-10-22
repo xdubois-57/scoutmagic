@@ -106,3 +106,13 @@ ALTER TABLE rental_bookings DROP COLUMN balance_due_date;
 -- contract after it (rental_booking_modifications). The site is in test:
 -- nothing is carried over.
 DROP TABLE IF EXISTS rental_change_requests;
+
+-- The signature each manager countersigned contracts with (#708, IT-16).
+-- A signature belongs to the ACCOUNT now, in the core
+-- (`user_account_signatures`, Core\Signature, issue #926): kept from
+-- « Mon compte », or given in the signature dialog for one contract alone.
+-- Nothing is carried over, deliberately: the site is in test, and the
+-- ticket refuses a transfer of these images — a manager who wants one
+-- records it again in Mon compte. Contracts already countersigned keep the
+-- page they carry.
+DROP TABLE IF EXISTS rental_manager_signatures;

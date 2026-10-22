@@ -60,10 +60,11 @@
             {% endfor %}
         </div>
 
-        {# The signature this manager countersigns contracts with (#708, IT-16). #}
+        {# The signature a manager may countersign contracts with is their
+           account's, kept under Mon compte (Core\Signature, issue #926). #}
         <p class="mt-4 mb-0 small">
-            <a href="/mes-locations/ma-signature"><i class="bi bi-pen me-1" aria-hidden="true"></i>Ma signature</a>
-            <span class="text-body-secondary">— celle que vous apposez en contresignant un contrat.</span>
+            <a href="/account/signature?retour=/mes-locations"><i class="bi bi-pen me-1" aria-hidden="true"></i>Gérer ma signature</a>
+            <span class="text-body-secondary">— dans Mon compte, celle que vous pouvez apposer en contresignant un contrat.</span>
         </p>
     </div>
 {% endblock %}

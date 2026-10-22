@@ -2578,7 +2578,8 @@ $userAccountRepo = new UserAccountRepository($pdo, $encryptionService);
 // is deactivated — which is why it is built before the service below.
 $personalSignatureService = new \Core\Signature\PersonalSignatureService(
     new \Core\Signature\PersonalSignatureRepository($pdo, $encryptionService),
-    $journalService
+    $journalService,
+    $userAccountRepo
 );
 
 // Configuration > Comptes superadmin (Core\Security\SuperAdminService):
@@ -12410,12 +12411,6 @@ if ($isEnabled('rental')) {
         new \Modules\Rental\Repository\RentalSentEmailRepository($pdo, $encryptionService)
     );
 
-    // The contract's two signatures (#708, IT-16): the renter's copy, the
-    // manager's own signature, the contract signed by both parties.
-    $rentalSignatureRepository = new \Modules\Rental\Repository\RentalManagerSignatureRepository(
-        $pdo,
-        $encryptionService
-    );
     // The lock and the check every writer of an occupation shares (#927,
     // chantier §2.1).
     $rentalOccupancyGuard = new \Modules\Rental\Service\RentalOccupancyGuard(
@@ -12443,7 +12438,11 @@ if ($isEnabled('rental')) {
     $rentalSignedContractService = new \Modules\Rental\Service\RentalSignedContractService(
         $rentalDocumentService,
         $rentalDocumentRepository,
-        $rentalSignatureRepository,
+        // The contract's two signatures (#708, IT-16): the manager signs with
+        // the core's personal signature (issue #926) — the one their account
+        // keeps, or one given for this contract, remembered on the same PDO
+        // and in the same transaction as the signed contract.
+        $personalSignatureService,
         $rentalBookingAudit,
         $rentalBookingMailService,
         new \Core\Pdf\PdfCompressor($storagePath . '/temp'),
@@ -12671,10 +12670,10 @@ if ($isEnabled('rental')) {
             // Dates the version of the conditions in force on the Gabarits
             // list, and links to it from their page (#708, IT-10).
             $rentalConditionsService,
-            // The countersignature and each manager's own signature (#708,
-            // IT-16).
+            // The countersignature (#708, IT-16), with the signature of the
+            // manager's own account (Core\Signature, issue #926).
             $rentalSignedContractService,
-            $rentalSignatureRepository,
+            $personalSignatureService,
             // A contract the booking has outgrown is marked void (#708, IT-20).
             $rentalContractValidity,
             // « Valider l'état des lieux », its PDF and its e-mail (#708,

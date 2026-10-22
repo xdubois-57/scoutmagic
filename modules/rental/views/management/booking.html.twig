@@ -118,4 +118,10 @@
         {% include '@rental/management/_box_history.html.twig' %}
 {% endblock %}
 
-{% block booking_scripts %}{% endblock %}
+{% block booking_scripts %}
+    {# The countersignature's dialog (_countersign_step.html.twig, issue #926):
+       the pad, then the dialog that wires it — loaded on every view, since a
+       panel re-rendered under a fetch may bring the step. #}
+    <script src="{{ asset('/assets/js/signature-pad.js') }}" defer></script>
+    <script src="{{ asset('/assets/js/signature-dialog.js') }}" defer></script>
+{% endblock %}

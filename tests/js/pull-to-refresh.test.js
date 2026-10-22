@@ -292,7 +292,7 @@ describe('pull-to-refresh.js: the gesture', () => {
     });
 
     it('ignores a stroke on a widget that handles the vertical finger itself (touch-action)', async () => {
-        // rental-signature.js's canvas: touch-action none, drawn with pointer events.
+        // signature-pad.js's canvas: touch-action none, drawn with pointer events.
         document.body.insertAdjacentHTML('beforeend', '<div id="pad" style="touch-action: none"><canvas id="ink"></canvas></div>');
         document.body.insertAdjacentHTML('beforeend', '<div id="slider" style="touch-action: pan-x"></div>');
         await boot();

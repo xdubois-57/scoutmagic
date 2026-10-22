@@ -17,6 +17,13 @@ use Core\Pdf\DocumentPdfService;
 use Core\Pdf\PdfCompressor;
 use Core\Security\EncryptionService;
 use Core\Security\HtmlSanitizer;
+use Core\Security\UserAccountRepository;
+use Core\Signature\AccountSignature;
+use Core\Signature\PersonalSignatureRepository;
+use Core\Signature\PersonalSignatureService;
+use Core\Signature\SignatureException;
+use Core\Signature\SignatureImage;
+use Core\Signature\SignatureSubmission;
 use Core\View\EditableContentRepository;
 use Core\View\EditableContentService;
 use Modules\Rental\Booking\RentalBooking;
@@ -26,7 +33,6 @@ use Modules\Rental\Repository\RentalAsset;
 use Modules\Rental\Repository\RentalAssetRepository;
 use Modules\Rental\Repository\RentalBookingRepository;
 use Modules\Rental\Repository\RentalDocumentRepository;
-use Modules\Rental\Repository\RentalManagerSignatureRepository;
 use Modules\Rental\Service\RentalBookingMailService;
 use Modules\Rental\Service\RentalDocumentService;
 use Modules\Rental\Service\RentalException;
@@ -58,7 +64,7 @@ class RentalSignedContractServiceTest extends TestCase
     private string $storagePath;
     private RentalDocumentService $documents;
     private RentalDocumentRepository $documentRepository;
-    private RentalManagerSignatureRepository $signatures;
+    private PersonalSignatureService $signatures;
     private RentalBookingRepository $bookingRepository;
     private RentalAssetRepository $assetRepository;
     private FileRepository $fileRepository;
@@ -90,7 +96,11 @@ class RentalSignedContractServiceTest extends TestCase
         $this->bookingRepository = new RentalBookingRepository($this->pdo, $encryption);
         $this->documentRepository = new RentalDocumentRepository($this->pdo);
         $this->fileRepository = new FileRepository($this->pdo);
-        $this->signatures = new RentalManagerSignatureRepository($this->pdo, $encryption);
+        $this->signatures = new PersonalSignatureService(
+            new PersonalSignatureRepository($this->pdo, $encryption),
+            $journal,
+            new UserAccountRepository($this->pdo, $encryption)
+        );
         $editable = new EditableContentService(new EditableContentRepository($this->pdo));
 
         $this->documents = new RentalDocumentService(
@@ -278,6 +288,24 @@ class RentalSignedContractServiceTest extends TestCase
         return (int) $this->pdo->lastInsertId();
     }
 
+    /**
+     * The signature this account keeps, as the dialog's stored mode hands
+     * it over (`PersonalSignatureService::forSigning()`).
+     */
+    private function stored(int $account): AccountSignature
+    {
+        return $this->signatures->forSigning($account, new SignatureSubmission(true));
+    }
+
+    /** A signature traced in the dialog for this contract alone, the box ticked or not. */
+    private function drawnNow(int $account, bool $remember): AccountSignature
+    {
+        return $this->signatures->forSigning(
+            $account,
+            new SignatureSubmission(false, 'data:image/png;base64,' . base64_encode(self::signaturePng()), null, $remember)
+        );
+    }
+
     // ── 2. The renter's copy ────────────────────────────────────────────
 
     public function testNoCopyIsExpectedBeforeTheContractHasGone(): void
@@ -353,9 +381,9 @@ class RentalSignedContractServiceTest extends TestCase
 
         $second = $this->service->receiveCopy($booking, $this->asset(), $this->storedFile(self::photo(), 'jpg', 'image/jpeg'));
         $account = $this->account();
-        $this->signatures->save($account, self::signaturePng(), new \DateTimeImmutable());
+        $this->signatures->save($account, SignatureImage::fromBytes(self::signaturePng()), new \DateTimeImmutable());
         $now = new \DateTimeImmutable();
-        $this->service->countersign($booking, $this->asset(), $second->id, $account, null, 'Xavier Dubois', $now);
+        $this->service->countersign($booking, $this->asset(), $second->id, $this->stored($account), null, $now);
 
         $this->assertNull($this->service->lastRefusedCopy($booking->id));
     }
@@ -388,14 +416,14 @@ class RentalSignedContractServiceTest extends TestCase
         $photo = $this->storedFile(self::photo(), 'jpg', 'image/jpeg');
         $copy = $this->service->receiveCopy($booking, $this->asset(), $photo);
         $account = $this->account();
-        $this->signatures->save($account, self::signaturePng(), new \DateTimeImmutable());
+        $this->signatures->save($account, SignatureImage::fromBytes(self::signaturePng()), new \DateTimeImmutable());
         $path = $this->documents->absolutePath($copy);
         $this->assertIsString($path);
         unlink($path);
 
         try {
             $now = new \DateTimeImmutable();
-            $this->service->countersign($booking, $this->asset(), $copy->id, $account, null, 'Xavier Dubois', $now);
+            $this->service->countersign($booking, $this->asset(), $copy->id, $this->stored($account), null, $now);
             $this->fail('a copy whose file is gone cannot be countersigned');
         } catch (RentalException) {
         }
@@ -404,18 +432,146 @@ class RentalSignedContractServiceTest extends TestCase
         $this->assertSame($copy->id, $this->service->pendingCopy($booking->id)?->id);
     }
 
-    public function testCountersigningNeedsTheManagersOwnSignature(): void
+    /**
+     * Another account's stored signature is no use to this one (issue #926):
+     * the account signing reads its own, and without one it signs with a
+     * signature given now — which leaves the other's untouched.
+     */
+    public function testAnotherAccountsStoredSignatureIsNeverUsed(): void
     {
         $booking = $this->booking();
         $copy = $this->service->receiveCopy($booking, $this->asset(), $this->storedFile(self::photo(), 'jpg', 'image/jpeg'));
         $mine = $this->account();
         $other = $this->account();
-        // Another manager's signature is no use to this one.
-        $this->signatures->save($other, self::signaturePng(), new \DateTimeImmutable());
+        $this->signatures->save($other, SignatureImage::fromBytes(self::signaturePng()), new \DateTimeImmutable('2026-01-01 08:00:00'));
 
-        $this->expectException(RentalException::class);
-        $this->expectExceptionMessage('Enregistrez d\'abord votre signature');
-        $this->service->countersign($booking, $this->asset(), $copy->id, $mine, null, 'Xavier Dubois', new \DateTimeImmutable());
+        try {
+            $this->stored($mine);
+            $this->fail("the other account's signature was read for this one");
+        } catch (SignatureException) {
+        }
+
+        $this->service->countersign($booking, $this->asset(), $copy->id, $this->drawnNow($mine, false), null, new \DateTimeImmutable());
+
+        $this->assertNotNull($this->service->finalContract($booking->id));
+        $this->assertFalse($this->signatures->has($mine));
+        $this->assertSame('2026-01-01 08:00:00', $this->signatures->savedAt($other)?->format('Y-m-d H:i:s'));
+    }
+
+    // ── Signed now, remembered or not (issue #926) ──────────────────────
+
+    public function testASignatureGivenForThisContractAloneIsKeptNowhere(): void
+    {
+        $booking = $this->booking();
+        $copy = $this->service->receiveCopy($booking, $this->asset(), $this->storedFile(self::photo(), 'jpg', 'image/jpeg'));
+        $account = $this->account();
+
+        $final = $this->service->countersign($booking, $this->asset(), $copy->id, $this->drawnNow($account, false), null, new \DateTimeImmutable());
+
+        $this->assertSame(DocumentType::SIGNED_CONTRACT, $final->type);
+        $this->assertFalse($this->signatures->has($account));
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM user_account_signatures')->fetchColumn());
+    }
+
+    public function testTickedTheSignatureIsKeptInTheAccount(): void
+    {
+        $booking = $this->booking();
+        $copy = $this->service->receiveCopy($booking, $this->asset(), $this->storedFile(self::photo(), 'jpg', 'image/jpeg'));
+        $account = $this->account();
+        $signature = $this->drawnNow($account, true);
+
+        $this->service->countersign($booking, $this->asset(), $copy->id, $signature, null, new \DateTimeImmutable());
+
+        $this->assertSame($signature->png->bytes(), $this->signatures->ownImage($account)?->bytes());
+    }
+
+    /**
+     * « Signer et mémoriser » is one act: the remembering runs inside the
+     * booking's transaction, and a countersignature that fails — here, the
+     * renter's file gone — takes it back with everything else.
+     */
+    public function testARememberingWhoseCountersignatureFailsIsRolledBack(): void
+    {
+        $booking = $this->booking();
+        $copy = $this->service->receiveCopy($booking, $this->asset(), $this->storedFile(self::photo(), 'jpg', 'image/jpeg'));
+        $account = $this->account();
+        $path = $this->documents->absolutePath($copy);
+        $this->assertIsString($path);
+        unlink($path);
+
+        try {
+            $this->service->countersign($booking, $this->asset(), $copy->id, $this->drawnNow($account, true), null, new \DateTimeImmutable());
+            $this->fail('a copy whose file is gone cannot be countersigned');
+        } catch (RentalException $e) {
+            $this->assertStringContainsString('introuvable', $e->getMessage());
+        }
+
+        $this->assertFalse($this->signatures->has($account), 'nothing is remembered for a signing that failed');
+        $this->assertFalse($this->pdo->inTransaction());
+        $saved = $this->pdo->query("SELECT COUNT(*) FROM event_log WHERE event_type = 'personal_signature_saved'")->fetchColumn();
+        $this->assertSame(0, (int) $saved);
+        $this->assertSame($copy->id, $this->service->pendingCopy($booking->id)?->id);
+    }
+
+    /**
+     * The act is in the core's journal under the signing account, and the
+     * booking's history names that account — never a pixel in either.
+     */
+    public function testTheActIsJournaledAndAuditedForTheSigningAccountWithoutAPixel(): void
+    {
+        $booking = $this->booking();
+        $copy = $this->service->receiveCopy($booking, $this->asset(), $this->storedFile(self::photo(), 'jpg', 'image/jpeg'));
+        $account = $this->account();
+        $signature = $this->drawnNow($account, true);
+
+        $final = $this->service->countersign($booking, $this->asset(), $copy->id, $signature, null, new \DateTimeImmutable('2027-01-05 12:00:00'));
+
+        $stmt = $this->pdo->prepare('SELECT * FROM event_log WHERE event_type = ?');
+        $stmt->execute(['personal_signature_document_signed']);
+        $entries = $stmt->fetchAll();
+        $this->assertCount(1, $entries);
+        $this->assertSame($account, (int) $entries[0]['user_account_id']);
+        $context = json_decode((string) $entries[0]['context'], true);
+        $this->assertSame('rental', $context['module']);
+        $this->assertSame('signed_contract', $context['document_type']);
+        $this->assertSame($final->id, $context['document_id']);
+        $this->assertSame($booking->id, $context['owner_entity_id']);
+        $this->assertSame('drawn_now', $context['origin']);
+        $this->assertTrue($context['remembered']);
+
+        // Every column as stored, never re-encoded: a context is JSON, which
+        // may escape the slashes of a base64 string, and the slash-free
+        // start of every base64 PNG is searched for as well.
+        $everything = '';
+        foreach ($this->pdo->query('SELECT * FROM event_log')->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $everything .= implode("\n", array_map(static fn(mixed $value): string => (string) $value, $row)) . "\n";
+        }
+        $this->assertStringNotContainsString('iVBORw0KGgo', $everything);
+        $this->assertStringNotContainsString(base64_encode($signature->png->bytes()), $everything);
+        $this->assertStringNotContainsString(base64_encode(self::signaturePng()), $everything);
+
+        $audit = $this->pdo->prepare(
+            "SELECT actor_user_account_id FROM entity_changes WHERE entity_type = 'rental_booking' AND entity_id = ? AND field_key = 'status_changed'"
+        );
+        $audit->execute([$booking->id]);
+        $this->assertContains($account, array_map('intval', $audit->fetchAll(\PDO::FETCH_COLUMN)));
+    }
+
+    /** The page added at the end names the account by its own name, « un gestionnaire » without one. */
+    public function testTheAccountsOwnNameSignsTheAddedPage(): void
+    {
+        $booking = $this->booking();
+        $copy = $this->service->receiveCopy($booking, $this->asset(), $this->storedFile(self::photo(), 'jpg', 'image/jpeg'));
+        $account = $this->account();
+        (new UserAccountRepository($this->pdo, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))))
+            ->updateProfile($account, 'Marie', 'Dupont');
+
+        $final = $this->service->countersign($booking, $this->asset(), $copy->id, $this->drawnNow($account, false), null, new \DateTimeImmutable());
+
+        $path = $this->documents->absolutePath($final);
+        $this->assertIsString($path);
+        $text = (string) preg_replace('/\s+/', ' ', (string) (new \Core\File\PdfTextExtractor())->extractText((string) file_get_contents($path)));
+        $this->assertStringContainsString(' par Marie Dupont, le ', $text);
     }
 
     /**
@@ -432,11 +588,11 @@ class RentalSignedContractServiceTest extends TestCase
         $booking = $this->booking();
         $copy = $this->service->receiveCopy($booking, $this->asset(), $this->storedFile(self::twoPagePdf(), 'pdf', 'application/pdf'));
         $account = $this->account();
-        $this->signatures->save($account, self::signaturePng(), new \DateTimeImmutable());
+        $this->signatures->save($account, SignatureImage::fromBytes(self::signaturePng()), new \DateTimeImmutable());
         $this->documentRepository->markSuperseded([$copy->id], new \DateTimeImmutable());
 
         try {
-            $this->service->countersign($booking, $this->asset(), $copy->id, $account, null, 'Xavier Dubois', new \DateTimeImmutable());
+            $this->service->countersign($booking, $this->asset(), $copy->id, $this->stored($account), null, new \DateTimeImmutable());
             $this->fail('a replaced copy was countersigned');
         } catch (RentalException $e) {
             $this->assertStringContainsString('remplacée', $e->getMessage());
@@ -457,9 +613,9 @@ class RentalSignedContractServiceTest extends TestCase
         $booking = $this->booking();
         $copy = $this->service->receiveCopy($booking, $this->asset(), $this->storedFile(self::twoPagePdf(), 'pdf', 'application/pdf'));
         $account = $this->account();
-        $this->signatures->save($account, self::signaturePng(), new \DateTimeImmutable());
+        $this->signatures->save($account, SignatureImage::fromBytes(self::signaturePng()), new \DateTimeImmutable());
 
-        $final = $this->service->countersign($booking, $this->asset(), $copy->id, $account, null, 'Xavier Dubois', new \DateTimeImmutable('2027-01-05 12:00:00'));
+        $final = $this->service->countersign($booking, $this->asset(), $copy->id, $this->stored($account), null, new \DateTimeImmutable('2027-01-05 12:00:00'));
 
         $this->assertSame(DocumentType::SIGNED_CONTRACT, $final->type);
         $path = $this->documents->absolutePath($final);
@@ -478,9 +634,9 @@ class RentalSignedContractServiceTest extends TestCase
         $booking = $this->booking();
         $copy = $this->service->receiveCopy($booking, $this->asset(), $this->storedFile(self::photo(), 'jpg', 'image/jpeg'));
         $account = $this->account();
-        $this->signatures->save($account, self::signaturePng(), new \DateTimeImmutable());
+        $this->signatures->save($account, SignatureImage::fromBytes(self::signaturePng()), new \DateTimeImmutable());
 
-        $final = $this->service->countersign($booking, $this->asset(), $copy->id, $account, null, 'Xavier Dubois', new \DateTimeImmutable());
+        $final = $this->service->countersign($booking, $this->asset(), $copy->id, $this->stored($account), null, new \DateTimeImmutable());
 
         $path = $this->documents->absolutePath($final);
         $this->assertIsString($path);
@@ -516,28 +672,6 @@ class RentalSignedContractServiceTest extends TestCase
 
         $this->expectException(RentalException::class);
         $this->service->refuseCopy($other, $this->asset(), $copy->id, 'Non.', null, new \DateTimeImmutable());
-    }
-
-    // ── The signature itself ────────────────────────────────────────────
-
-    /** Encrypted at rest, readable by its owner, deleted on request. */
-    public function testASignatureIsEncryptedReadByItsOwnerAloneAndDeletable(): void
-    {
-        $owner = $this->account();
-        $other = $this->account();
-        $png = self::signaturePng();
-
-        $this->signatures->save($owner, $png, new \DateTimeImmutable());
-
-        $stored = $this->pdo->query('SELECT image_encrypted FROM rental_manager_signatures')->fetchColumn();
-        $this->assertIsString($stored);
-        $this->assertStringNotContainsString("\x89PNG", $stored);
-        $this->assertSame($png, $this->signatures->findPng($owner));
-        $this->assertNull($this->signatures->findPng($other));
-
-        $this->assertTrue($this->signatures->delete($owner));
-        $this->assertNull($this->signatures->findPng($owner));
-        $this->assertFalse($this->signatures->has($owner));
     }
 
     // ── Firm hold (#927, chantier §2.1) ─────────────────────────────────

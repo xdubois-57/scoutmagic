@@ -1,7 +1,8 @@
 {#
   « Contrat » on Documents (#927, chantier §2.4): the contract in force and,
   beside it while a modification runs, its replacement contract — with the
-  renter's copy of it, « Refuser la copie » and « Contresigner ».
+  renter's copy of it, « Refuser la copie » and « Contresigner », which
+  opens the core's signature dialog (issue #926).
   Countersigning the replacement contract IS applying the modification:
   there is no button of its own for that.
 
@@ -85,22 +86,9 @@
                                             <a class="btn btn-sm btn-outline-secondary" href="{{ booking_url }}/modifications/{{ m.id }}">Préparer depuis la modification</a>
                                         {% elseif progress.stage.value == 'copy_received' %}
                                             {% set copy = progress.pendingCopy %}
-                                            {% if has_signature %}
-                                                <form method="post" action="/mes-locations/contrat-contresigner" class="d-inline"
-                                                      data-confirm="Contresigner le contrat de remplacement ? La modification s'applique aussitôt : la réservation passe au {{ m.arrivalDate|date_fr }} → {{ m.departureDate|date_fr }}{% if m.persons %}, {{ m.persons }} personnes{% endif %}{% if m.totalCents is not null %}, {{ m.totalCents|money_cents }}{% endif %}, et la créance suit, avec la même communication. Les nuits libérées par l'ancien séjour le sont aussi. Le locataire reçoit le contrat signé par les deux parties par e-mail. Le statut de confirmation ne change pas."
-                                                      data-confirm-label="Contresigner"
-                                                      data-confirm-variant="primary">
-                                                    {{ csrf_field()|raw }}
-                                                    <input type="hidden" name="asset_id" value="{{ asset.id }}">
-                                                    <input type="hidden" name="booking_id" value="{{ booking.id }}">
-                                                    <input type="hidden" name="booking_page" value="documents">
-                                                    <input type="hidden" name="document_id" value="{{ copy.id }}">
-                                                    <button type="submit" class="btn btn-sm btn-primary">Contresigner</button>
-                                                </form>
-                                            {% else %}
-                                                <a class="btn btn-sm btn-primary"
-                                                   href="/mes-locations/ma-signature?retour={{ (booking_url ~ '/documents')|url_encode }}">Enregistrer ma signature</a>
-                                            {% endif %}
+                                            {# Opens the signature dialog, rendered below the table. #}
+                                            <button type="button" class="btn btn-sm btn-primary"
+                                                    data-bs-toggle="modal" data-bs-target="#countersign-{{ copy.id }}">Contresigner</button>
                                             <a href="{{ file_url(copy.fileId) }}" target="_blank" rel="noopener"
                                                class="btn btn-sm btn-outline-secondary">Ouvrir la copie</a>
                                         {% elseif replacement %}
@@ -116,6 +104,27 @@
             </div>
             {% if progress and progress.stage.value == 'copy_received' %}
                 {% set copy = progress.pendingCopy %}
+                {% set m = progress.modification %}
+                {#
+                  The core's signature dialog (issue #926), outside the
+                  table it is opened from: it is the confirmation, with the
+                  manager's stored signature or one given now. It posts
+                  without rental-booking.js (`data-async: off`): an open
+                  dialog would not survive the panels being re-rendered.
+                #}
+                {% include 'partials/signature_dialog.html.twig' with {
+                    id: 'countersign-' ~ copy.id,
+                    title: 'Contresigner le contrat de remplacement',
+                    action: '/mes-locations/contrat-contresigner',
+                    fields: { asset_id: asset.id, booking_id: booking.id, booking_page: 'documents', document_id: copy.id },
+                    consequence: "La modification s'applique aussitôt : la réservation passe au " ~ m.arrivalDate|date_fr ~ ' → ' ~ m.departureDate|date_fr
+                        ~ (m.persons ? ', ' ~ m.persons ~ ' personnes' : '')
+                        ~ (m.totalCents is not null ? ', ' ~ m.totalCents|money_cents : '')
+                        ~ ", et la créance suit, avec la même communication. Les nuits libérées par l'ancien séjour le sont aussi. Le locataire reçoit le contrat signé par les deux parties par e-mail. Le statut de confirmation ne change pas.",
+                    has_stored_signature: has_signature,
+                    manage_return: booking_url ~ '/documents',
+                    form_attributes: { 'data-async': 'off' },
+                } only %}
                 <details class="mb-2">
                     <summary>Refuser la copie</summary>
                     <form method="post" action="/mes-locations/copie-refuser" class="mt-2"
