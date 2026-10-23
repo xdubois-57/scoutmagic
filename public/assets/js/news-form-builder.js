@@ -755,11 +755,68 @@
             persistReorderIfSaved();
         }
 
+        // The order the server is known to hold, as field ids: what the page
+        // loaded with, then what the last accepted reorder sent. A refused
+        // reorder puts the screen back to THIS, not to "the order before the
+        // click" — with two clicks in flight, the one before may itself be
+        // an order the server never kept.
+        var serverOrder = fieldState.filter(function (f) { return f.id; }).map(function (f) { return f.id; });
+        // One request at a time: each carries the whole order and the
+        // endpoint keeps whichever arrives last, so two in flight could
+        // land in either order. A move made meanwhile waits, and goes out
+        // with the order as it is when the answer comes back.
+        var reorderInFlight = false;
+        var reorderQueued = false;
+
         function persistReorderIfSaved() {
+            if (reorderInFlight) {
+                reorderQueued = true;
+                return;
+            }
             var articleId = NEWS_EDITOR_DATA.articleId;
             var ids = fieldState.filter(function (f) { return f.id; }).map(function (f) { return f.id; });
             if (!articleId || ids.length !== fieldState.length) return;
-            void window.ScoutMagicApi.postJson('/news/' + articleId + '/form/fields/reorder', { ids: ids });
+            // The endpoint takes the form's whole field list. A field
+            // deleted here is only gone from the page until the form is
+            // saved, so the server still holds it and would refuse a list
+            // that omits it: the order then goes out with the form itself.
+            if (ids.length !== serverOrder.length || !ids.every(function (id) { return serverOrder.includes(id); })) return;
+
+            reorderInFlight = true;
+            // The route is registered for PATCH; a POST never reaches it.
+            void window.ScoutMagicApi.postJson('/news/' + articleId + '/form/fields/reorder', { ids: ids }, { method: 'PATCH' })
+                .then(function (res) {
+                    reorderInFlight = false;
+                    if (res.ok && res.data?.success !== false) {
+                        serverOrder = ids;
+                        if (reorderQueued) {
+                            reorderQueued = false;
+                            persistReorderIfSaved();
+                        }
+                        return;
+                    }
+                    // Moves made while this one was out are put back with
+                    // it: the screen returns to what the server holds.
+                    reorderQueued = false;
+                    restoreServerOrder();
+                    var message = res.data?.error
+                        || "Le nouvel ordre n'a pas pu être enregistré. L'ordre précédent a été rétabli.";
+                    window.ScoutMagicToast.show(message, { variant: 'error' });
+                });
+        }
+
+        // Puts the list back in the order the server holds. A field the
+        // server does not know (added since, not yet saved) keeps its
+        // relative place after the known ones.
+        function restoreServerOrder() {
+            var known = [];
+            serverOrder.forEach(function (id) {
+                var found = fieldState.find(function (f) { return f.id === id; });
+                if (found) known.push(found);
+            });
+            var unknown = fieldState.filter(function (f) { return !known.includes(f); });
+            fieldState = known.concat(unknown);
+            renderFieldList();
         }
 
         function fieldIcon(type) {

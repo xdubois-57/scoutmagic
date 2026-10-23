@@ -573,3 +573,182 @@ describe('news-form-builder.js: the Référencement card follows the visibility'
         expect(keywords.disabled).toBe(true);
     });
 });
+
+// Reordering the form's fields (issue #961). The new order shows at once;
+// the server is told afterwards, and a refusal used to pass unnoticed: the
+// screen kept an order the server had not kept, and the next reload
+// reversed it without a word. The request was also sent as POST to a route
+// registered for PATCH, which the router never matches — so every reorder
+// failed, and the missing check is what hid it.
+describe('news-form-builder.js: reordering the form fields', () => {
+    const FIELDS = [
+        { id: 10, field_type: 'text', label: 'Bloc de texte', is_required: true, confirmation_text: '<p>x</p>' },
+        { id: 11, field_type: 'short_text', label: 'Alpha', is_required: true },
+        { id: 12, field_type: 'short_text', label: 'Bravo', is_required: true },
+        { id: 13, field_type: 'short_text', label: 'Charlie', is_required: true },
+    ];
+
+    async function loadEditor(fields = FIELDS) {
+        document.body.innerHTML = `
+            <script type="application/json" id="news-editor-data">${JSON.stringify({ articleId: 7, fields })}</script>
+            <div id="news-fields-list"></div>
+            <button type="button" id="news-add-field-btn"></button>
+            <div id="news-field-type-picker" class="d-none">
+                <div id="news-field-type-grid"></div>
+                <button type="button" id="news-field-picker-close"></button>
+            </div>`;
+        vi.resetModules();
+        await import('../../public/assets/js/news-form-builder.js?reorder=' + Math.random());
+    }
+
+    function labels() {
+        return [...document.querySelectorAll('#news-fields-list .flex-grow-1')]
+            .map((el) => el.textContent.replace(/\s*\*$/, '').trim());
+    }
+
+    function rowOf(label) {
+        return [...document.querySelectorAll('#news-fields-list > div')]
+            .find((row) => row.textContent.includes(label));
+    }
+
+    function click(label, button) {
+        rowOf(label).querySelector(button).dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    }
+
+    function stubApi(...responses) {
+        const postJson = vi.fn();
+        responses.forEach((response) => postJson.mockImplementationOnce(() => response));
+        postJson.mockImplementation(() => Promise.resolve({ ok: true, status: 200, data: { success: true } }));
+        window.ScoutMagicApi.postJson = postJson;
+        const toast = vi.fn();
+        window.ScoutMagicToast = { show: toast };
+
+        return { postJson, toast };
+    }
+
+    const refused = (data = {}) => Promise.resolve({ ok: false, status: 403, data });
+
+    beforeEach(() => {
+        vi.restoreAllMocks();
+    });
+
+    it('sends the new order as PATCH, the method the route is registered for', async () => {
+        await loadEditor();
+        const { postJson } = stubApi();
+
+        click('Bravo', '.news-move-up');
+
+        expect(postJson).toHaveBeenCalledTimes(1);
+        expect(postJson).toHaveBeenCalledWith(
+            '/news/7/form/fields/reorder',
+            { ids: [10, 12, 11, 13] },
+            { method: 'PATCH' },
+        );
+    });
+
+    it('keeps the new order and says nothing when the server accepts it', async () => {
+        await loadEditor();
+        const { toast } = stubApi();
+
+        click('Bravo', '.news-move-up');
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(toast).not.toHaveBeenCalled();
+        expect(labels()).toEqual(['Bloc de texte', 'Bravo', 'Alpha', 'Charlie']);
+    });
+
+    it('announces a refusal with the server message and puts the order back', async () => {
+        await loadEditor();
+        const { toast } = stubApi(refused({ error: 'Accès refusé.' }));
+
+        click('Bravo', '.news-move-up');
+        expect(labels()).toEqual(['Bloc de texte', 'Bravo', 'Alpha', 'Charlie']);
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(toast).toHaveBeenCalledWith('Accès refusé.', { variant: 'error' });
+        expect(labels()).toEqual(['Bloc de texte', 'Alpha', 'Bravo', 'Charlie']);
+    });
+
+    it('says it in French when the failure carries no message (network down)', async () => {
+        await loadEditor();
+        const { toast } = stubApi(Promise.resolve({ ok: false, status: 0, data: null }));
+
+        click('Charlie', '.news-move-up');
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(toast).toHaveBeenCalledWith(
+            "Le nouvel ordre n'a pas pu être enregistré. L'ordre précédent a été rétabli.",
+            { variant: 'error' },
+        );
+        expect(labels()).toEqual(['Bloc de texte', 'Alpha', 'Bravo', 'Charlie']);
+    });
+
+    it('goes back to the last order the server kept, not to the one just before', async () => {
+        await loadEditor();
+        // First move accepted, the two next ones refused.
+        const { toast } = stubApi(
+            Promise.resolve({ ok: true, status: 200, data: { success: true } }),
+            refused(),
+            refused(),
+        );
+
+        click('Bravo', '.news-move-up');
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(labels()).toEqual(['Bloc de texte', 'Bravo', 'Alpha', 'Charlie']);
+
+        click('Charlie', '.news-move-up');
+        click('Charlie', '.news-move-up');
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(toast).toHaveBeenCalled();
+        expect(labels()).toEqual(['Bloc de texte', 'Bravo', 'Alpha', 'Charlie']);
+    });
+
+    it('sends one request at a time, the next one only once the first is answered', async () => {
+        await loadEditor();
+        let answerFirst;
+        const first = new Promise((resolve) => { answerFirst = resolve; });
+        const { postJson, toast } = stubApi(first, refused());
+
+        click('Bravo', '.news-move-up');
+        click('Charlie', '.news-move-up');
+        expect(postJson).toHaveBeenCalledTimes(1);
+
+        answerFirst({ ok: true, status: 200, data: { success: true } });
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+
+        // The second goes out with the order as it is by then...
+        expect(postJson).toHaveBeenCalledTimes(2);
+        expect(postJson.mock.calls[1][1]).toEqual({ ids: [10, 12, 13, 11] });
+        await Promise.resolve();
+        await Promise.resolve();
+
+        // ...and when it is refused, the screen goes back to what the FIRST
+        // one left on the server, which it had accepted.
+        expect(toast).toHaveBeenCalledTimes(1);
+        expect(labels()).toEqual(['Bloc de texte', 'Bravo', 'Alpha', 'Charlie']);
+    });
+
+    it('does not send an order that leaves out a field the author just deleted', async () => {
+        await loadEditor();
+        const { postJson, toast } = stubApi();
+
+        // Deleting is local until the form is saved; the server still holds
+        // all four fields and refuses a list that omits one.
+        rowOf('Alpha').querySelector('.btn-outline-danger').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+        click('Charlie', '.news-move-up');
+
+        expect(postJson).not.toHaveBeenCalled();
+        expect(toast).not.toHaveBeenCalled();
+        // The order shown is the one the form save will send.
+        expect(labels()).toEqual(['Bloc de texte', 'Charlie', 'Bravo']);
+    });
+});
