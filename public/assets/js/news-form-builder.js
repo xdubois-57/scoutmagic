@@ -780,14 +780,14 @@
             // deleted here is only gone from the page until the form is
             // saved, so the server still holds it and would refuse a list
             // that omits it: the order then goes out with the form itself.
-            if (ids.length !== serverOrder.length || !ids.every(function (id) { return serverOrder.indexOf(id) !== -1; })) return;
+            if (ids.length !== serverOrder.length || !ids.every(function (id) { return serverOrder.includes(id); })) return;
 
             reorderInFlight = true;
             // The route is registered for PATCH; a POST never reaches it.
             void window.ScoutMagicApi.postJson('/news/' + articleId + '/form/fields/reorder', { ids: ids }, { method: 'PATCH' })
                 .then(function (res) {
                     reorderInFlight = false;
-                    if (res.ok && (res.data || {}).success !== false) {
+                    if (res.ok && res.data?.success !== false) {
                         serverOrder = ids;
                         if (reorderQueued) {
                             reorderQueued = false;
@@ -799,7 +799,7 @@
                     // it: the screen returns to what the server holds.
                     reorderQueued = false;
                     restoreServerOrder();
-                    var message = (res.data || {}).error
+                    var message = res.data?.error
                         || "Le nouvel ordre n'a pas pu être enregistré. L'ordre précédent a été rétabli.";
                     window.ScoutMagicToast.show(message, { variant: 'error' });
                 });
@@ -814,7 +814,7 @@
                 var found = fieldState.find(function (f) { return f.id === id; });
                 if (found) known.push(found);
             });
-            var unknown = fieldState.filter(function (f) { return known.indexOf(f) === -1; });
+            var unknown = fieldState.filter(function (f) { return !known.includes(f); });
             fieldState = known.concat(unknown);
             renderFieldList();
         }
