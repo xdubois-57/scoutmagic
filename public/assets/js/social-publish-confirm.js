@@ -125,21 +125,23 @@
      * @returns {Array<{sentence: string, caption: string}>}
      */
     function failedShares(row) {
+        let parsed = [];
         try {
-            const parsed = JSON.parse(row.dataset.failedShares || '[]');
-
-            return Array.isArray(parsed)
-                ? parsed.filter(function (item) {
-                    return item && typeof item.sentence === 'string' && typeof item.caption === 'string';
-                })
-                : [];
+            parsed = JSON.parse(row.dataset.failedShares || '[]');
         } catch (error) {
             // Deliberately ignored: the attribute is written by the
             // server, so an unreadable one means the page was altered, and
             // the right answer is the dialog as it was before this list
             // existed — complete enough, and never wrong.
+            parsed = [];
+        }
+        if (!Array.isArray(parsed)) {
             return [];
         }
+
+        return parsed.filter(function (item) {
+            return item && typeof item.sentence === 'string' && typeof item.caption === 'string';
+        });
     }
 
     /**
@@ -153,7 +155,10 @@
         const same = serverTrim(row.dataset.sharedCaption || '') === caption;
         // What this source already went through at that destination: the
         // warning the dialog exists for, with its « même message » clause.
-        const gone = sentence === '' ? '' : sentence + (same ? ', avec le même message.' : ', avec un autre message.');
+        let gone = '';
+        if (sentence !== '') {
+            gone = sentence + (same ? ', avec le même message.' : ', avec un autre message.');
+        }
 
         // **A failure of this very message is said in ADDITION to what
         // already went out** (issue #881), never instead of it: the same
@@ -167,12 +172,12 @@
             return serverTrim(failure.caption) === caption;
         });
         if (relaunch !== undefined) {
-            return {
-                kind: 'box',
-                tone: 'warning',
-                title: title,
-                text: gone === '' ? relaunch.sentence : relaunch.sentence + ' ' + gone,
-            };
+            let text = relaunch.sentence;
+            if (gone !== '') {
+                text += ' ' + gone;
+            }
+
+            return { kind: 'box', tone: 'warning', title: title, text: text };
         }
 
         if (gone === '') {
