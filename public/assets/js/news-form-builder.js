@@ -755,11 +755,49 @@
             persistReorderIfSaved();
         }
 
+        // The order the server is known to hold, as field ids: what the page
+        // loaded with, then what the last accepted reorder sent. A refused
+        // reorder puts the screen back to THIS, not to "the order before the
+        // click" — with two clicks in flight, the one before may itself be
+        // an order the server never kept.
+        var serverOrder = fieldState.filter(function (f) { return f.id; }).map(function (f) { return f.id; });
+        var reorderSeq = 0;
+
         function persistReorderIfSaved() {
             var articleId = NEWS_EDITOR_DATA.articleId;
             var ids = fieldState.filter(function (f) { return f.id; }).map(function (f) { return f.id; });
             if (!articleId || ids.length !== fieldState.length) return;
-            void window.ScoutMagicApi.postJson('/news/' + articleId + '/form/fields/reorder', { ids: ids });
+
+            var seq = ++reorderSeq;
+            // The route is registered for PATCH; a POST never reaches it.
+            void window.ScoutMagicApi.postJson('/news/' + articleId + '/form/fields/reorder', { ids: ids }, { method: 'PATCH' })
+                .then(function (res) {
+                    // A newer reorder is on its way and carries the full
+                    // order: its answer is the one that decides.
+                    if (seq !== reorderSeq) return;
+                    if (res.ok && (res.data || {}).success !== false) {
+                        serverOrder = ids;
+                        return;
+                    }
+                    restoreServerOrder();
+                    var message = (res.data || {}).error
+                        || "Le nouvel ordre n'a pas pu être enregistré. L'ordre précédent a été rétabli.";
+                    window.ScoutMagicToast.show(message, { variant: 'error' });
+                });
+        }
+
+        // Puts the list back in the order the server holds. A field the
+        // server does not know (added since, not yet saved) keeps its
+        // relative place after the known ones.
+        function restoreServerOrder() {
+            var known = [];
+            serverOrder.forEach(function (id) {
+                var found = fieldState.find(function (f) { return f.id === id; });
+                if (found) known.push(found);
+            });
+            var unknown = fieldState.filter(function (f) { return known.indexOf(f) === -1; });
+            fieldState = known.concat(unknown);
+            renderFieldList();
         }
 
         function fieldIcon(type) {
