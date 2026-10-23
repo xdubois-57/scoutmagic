@@ -29,7 +29,8 @@ CREATE TABLE captured_emails (
     recipient BLOB NOT NULL,
     recipient_blind_index CHAR(64) NOT NULL,
     -- The visible copies (`Cc:`), one normalised address per line, as
-    -- personal as `recipient` and encrypted the same way. NULL when the
+    -- personal as `recipient` and encrypted the same way, under its own
+    -- context (`captured_emails.cc`). NULL when the
     -- message had none. Not searchable: nothing asks "which messages were
     -- copied to X", only "who was copied on this one" (issue #911).
     cc BLOB NULL,

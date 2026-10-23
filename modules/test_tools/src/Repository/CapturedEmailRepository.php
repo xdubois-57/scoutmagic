@@ -24,6 +24,9 @@ use Modules\TestTools\Service\CapturedEmail;
 class CapturedEmailRepository
 {
     private const ENCRYPTION_PURPOSE = 'captured_emails.recipient';
+    // One context per column (SECURITY.md §30): a recipient ciphertext
+    // moved into `cc` must fail authentication, not read as a copy.
+    private const CC_ENCRYPTION_PURPOSE = 'captured_emails.cc';
     private const BLIND_INDEX_PURPOSE = 'email';
 
     public function __construct(
@@ -376,7 +379,7 @@ class CapturedEmailRepository
             return null;
         }
 
-        return $this->encryption->encrypt(implode("\n", $normalized), self::ENCRYPTION_PURPOSE);
+        return $this->encryption->encrypt(implode("\n", $normalized), self::CC_ENCRYPTION_PURPOSE);
     }
 
     /**
@@ -388,7 +391,7 @@ class CapturedEmailRepository
             return [];
         }
 
-        return explode("\n", $this->encryption->decrypt((string) $stored, self::ENCRYPTION_PURPOSE));
+        return explode("\n", $this->encryption->decrypt((string) $stored, self::CC_ENCRYPTION_PURPOSE));
     }
 
     /**

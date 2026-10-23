@@ -691,6 +691,27 @@ class CaptureTransportTest extends TestCase
         $this->assertStringNotContainsString('unite@example.be', $stored);
     }
 
+    /**
+     * Each encrypted column has its own context (SECURITY.md §30): a
+     * recipient ciphertext copied into the `cc` column by someone with
+     * write access to the database must fail authentication instead of
+     * showing up as a copy.
+     */
+    public function testARecipientCiphertextRelocatedIntoTheCopyColumnDoesNotDecrypt(): void
+    {
+        $this->service()->send(
+            to: 'famille@example.be',
+            subject: 'Inscription reçue',
+            bodyHtml: '<p>Bonjour</p>',
+            bodyText: 'Bonjour'
+        );
+        $this->pdo->exec('UPDATE captured_emails SET cc = recipient');
+
+        $this->expectException(\Core\Security\DecryptionException::class);
+
+        $this->repository->findPage(10, 0);
+    }
+
     public function testTheCopiesOfARefusedDeliveryAreFiledToo(): void
     {
         $refusing = new class implements MailTransportInterface {
