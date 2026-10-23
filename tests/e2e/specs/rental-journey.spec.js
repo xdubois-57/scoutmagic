@@ -1046,7 +1046,13 @@ async function expectInventoryMailed(email, reference, label) {
             && candidate.subject.includes(label),
         { description: `« ${label} » sent to ${email}` },
     );
-    expect(message.raw, 'the signed PDF is attached').toMatch(/Content-Type: application\/pdf/i);
+    // The renter alone: every address in To, not just one of them.
+    const recipients = message.to.match(/[^\s<>,;"]+@[^\s<>,;"]+/g) ?? [];
+    expect(recipients, 'the renter is the only recipient').toEqual([email]);
+    // A PDF part that is an attachment, not an inline body.
+    const pdfPart = message.raw.split(/^--\S+$/m).find((part) => /Content-Type: application\/pdf/i.test(part));
+    expect(pdfPart, 'the signed PDF is in the message').toBeDefined();
+    expect(pdfPart, 'the signed PDF is attached').toMatch(/Content-Disposition: attachment/i);
     expect(message.raw, 'nobody is in copy').not.toMatch(/^(Cc|Bcc):/im);
 }
 

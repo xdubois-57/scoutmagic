@@ -5675,6 +5675,8 @@ class RentalManagementControllerTest extends TestCase
         $this->assertMatchesRegularExpression('#<fieldset data-paper-sheet disabled hidden>.*?data-photo-tile data-photo-max="1"#', $body);
         $this->assertMatchesRegularExpression('#<fieldset data-paper-sheet disabled hidden>.*?capture="environment"#', $body);
         $this->assertStringContainsString('/assets/js/rental-photo-tile.js', $body);
+        // Without the reducer the tile sends the photo as taken, EXIF included.
+        $this->assertStringContainsString('/assets/js/photo-reduce.js', $body);
         $this->assertStringContainsString('<fieldset data-manager-signature>', $body);
     }
 

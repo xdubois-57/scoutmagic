@@ -222,5 +222,7 @@
     <script src="{{ asset('/assets/js/signature-pad.js') }}" defer></script>
     <script src="{{ asset('/assets/js/signature-dialog.js') }}" defer></script>
     <script type="module" src="{{ asset('/assets/js/rental-inventory-sign.js') }}"></script>
+    {# The tile reduces a photo only when the reducer is on the page, as on « État des lieux ». #}
+    <script src="{{ asset('/assets/js/photo-reduce.js') }}" defer></script>
     <script type="module" src="{{ asset('/assets/js/rental-photo-tile.js') }}"></script>
 {% endblock %}

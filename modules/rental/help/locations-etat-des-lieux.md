@@ -65,7 +65,7 @@ de sortie validé.
 Un état des lieux ne se coche jamais à la main. La sortie commence une
 fois l'entrée signée, même en retard.
 
-Le site ne fonctionne qu'en ligne : sans réseau, partez avec
+Sans réseau sur place, imprimez avant de partir
 « Imprimer la liste à vérifier » et saisissez au retour.
 
 ## L'état des lieux minimal
