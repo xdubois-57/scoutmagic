@@ -59,7 +59,24 @@
     function liveCaption() {
         const field = form.querySelector('#communication-body');
 
-        return field instanceof HTMLTextAreaElement ? field.value.trim() : '';
+        return field instanceof HTMLTextAreaElement ? serverTrim(field.value) : '';
+    }
+
+    /**
+     * `trim()` as PHP does it — the controller's `body()` is what decides
+     * whether two texts are the same communication, and PHP strips only
+     * the ASCII whitespace and NUL, where JavaScript also strips the
+     * non-breaking space and every other Unicode blank. A text that
+     * differs from the one that went by such a character at its edge is
+     * another communication for the server, so it must be another one for
+     * the dialog too, or the dialog promises a relaunch that does not
+     * happen (CodeRabbit on PR #1020).
+     *
+     * @param {string} value
+     * @returns {string}
+     */
+    function serverTrim(value) {
+        return value.replace(/^[ \t\n\r\0\x0B]+|[ \t\n\r\0\x0B]+$/g, '');
     }
 
     /**
@@ -129,7 +146,7 @@
     function blockFor(row, caption) {
         const sentence = row.dataset.sharedLine || '';
         const title = row.dataset.destinationLabel || '';
-        const same = (row.dataset.sharedCaption || '').trim() === caption;
+        const same = serverTrim(row.dataset.sharedCaption || '') === caption;
         // What this source already went through at that destination: the
         // warning the dialog exists for, with its « même message » clause.
         const gone = sentence === '' ? '' : sentence + (same ? ', avec le même message.' : ', avec un autre message.');
@@ -143,7 +160,7 @@
         // live text can say it is the same one, which is why the server
         // ships every failed text.
         const relaunch = failedShares(row).find(function (failure) {
-            return failure.caption.trim() === caption;
+            return serverTrim(failure.caption) === caption;
         });
         if (relaunch !== undefined) {
             return {

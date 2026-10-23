@@ -314,6 +314,31 @@ describe('a destination whose message failed (issue #881)', () => {
         expect(block.text).toBe(failure[0].sentence);
     });
 
+    it('compares texts the way the server does: a non-breaking space at the edge is another message', async () => {
+        buildPage({
+            shared: false,
+            failed: [{ sentence: failure[0].sentence, caption: '\u00A0Les photos sont en ligne' }],
+        });
+
+        const block = await blockOfFacebook();
+
+        // PHP's trim() keeps the non-breaking space, so the server would
+        // make a new communication and relaunch nothing.
+        expect(block.text).not.toContain('relancée');
+        expect(block.text).toBe('Jamais partagé ici.');
+    });
+
+    it('still ignores the ASCII blanks the server strips', async () => {
+        buildPage({
+            shared: false,
+            failed: [{ sentence: failure[0].sentence, caption: ' \tLes photos sont en ligne\n' }],
+        });
+
+        const block = await blockOfFacebook();
+
+        expect(block.text).toBe(failure[0].sentence);
+    });
+
     it('ignores a malformed list rather than breaking the dialog', async () => {
         buildPage({ failed: null });
         document.querySelector('[data-destination="facebook"]').dataset.failedShares = '{pas du json';
