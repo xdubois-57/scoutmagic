@@ -134,6 +134,10 @@
                 })
                 : [];
         } catch (error) {
+            // Deliberately ignored: the attribute is written by the
+            // server, so an unreadable one means the page was altered, and
+            // the right answer is the dialog as it was before this list
+            // existed — complete enough, and never wrong.
             return [];
         }
     }
