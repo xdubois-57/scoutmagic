@@ -1410,7 +1410,10 @@ final class CommunicationController extends AbstractController
      * @param array<int, array{first_name: ?string, last_name: ?string}> $names
      * @param array<int, true> $shareable the communications this caller
      *        may share, as a set — the share icon is drawn for those and
-     *        for no others
+     *        for no others, and « Réessayer » follows the same rule
+     *        (issue #878): the retry page asks
+     *        {@see ShareSourceResolver::editableCommunication()}, which
+     *        is the rule this set is the bulk form of
      * @return array<string, mixed>
      */
     private function historyEntry(
@@ -1495,7 +1498,20 @@ final class CommunicationController extends AbstractController
                 // clipboard and never learnt what followed. The view
                 // needs the null to leave the button out rather than
                 // offer an address that would answer 404.
+                //
+                // **Nor on a colleague's communication** (issue #878):
+                // this page lists the whole unit's contents and is open
+                // to every chief, while the retry page answers
+                // « introuvable » to anyone but the author or an
+                // administrator — the very rule `$shareable` carries.
+                // An entry that is not a communication — a share
+                // recorded against an album's or an article's own key,
+                // from before the composer — keeps its button: its
+                // retry asks the owning module's rule, which is not
+                // this one.
                 'retry_path' => DirectShare::tryFrom($key) !== null
+                    || ($group['kind'] === ShareSource::KIND_COMMUNICATION
+                        && !isset($shareable[(int) $group['id']]))
                     ? null
                     // Unencoded: the router matches the raw path, and a
                     // destination key (`group:3`) is valid in one as it

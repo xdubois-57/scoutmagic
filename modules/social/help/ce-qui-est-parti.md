@@ -39,6 +39,12 @@ reste donc lisible même si l'album ou l'actualité a été supprimé depuis.
 
 ## Réessayer
 
+Sur une communication, l'icône n'apparaît que sur **les vôtres** — le
+Staff d'U la voit sur toutes. L'échec d'un collègue reste affiché, sans
+icône : c'est à lui de le relancer. Un partage d'album ou d'actualité
+fait avant le composeur garde son icône ; c'est la page de confirmation
+qui dit si vous pouvez le relancer.
+
 Réessayer demande **une confirmation**, qui dit ce qui repart : le même
 texte, vers cette destination seulement. Une destination déjà publiée
 n'est pas touchée, et la raison de l'échec précédent est rappelée.
