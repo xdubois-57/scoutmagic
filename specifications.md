@@ -3738,7 +3738,13 @@ et **une ligne par destination** : publié (avec sa date et « Voir »),
 échec (avec sa raison, conservée, et « Réessayer »), partagé à la main
 (§ 47.10), ou **non demandé**. « Voir » et « Réessayer » sont des
 icônes à la même place en bout de ligne ; une ligne sans action garde une
-case vide de même largeur. « Réessayer » ouvre une confirmation qui dit
+case vide de même largeur. **« Réessayer » n'est proposé que sur une
+communication que l'animateur peut modifier** — la sienne, ou n'importe
+laquelle pour le Staff d'U —, comme l'icône de partage : la page de
+reprise répond « introuvable » aux autres, et l'échec d'un collègue reste
+lisible sans bouton. Un partage ancien enregistré sous la clé d'un album
+ou d'une actualité garde le sien, que décide le module propriétaire.
+« Réessayer » ouvre une confirmation qui dit
 ce qui repart — le même texte, vers cette destination seulement, et
 l'image soit telle qu'elle a été publiée, soit refaite à partir de
 l'album ou de l'actualité tel qu'il est aujourd'hui quand aucune image

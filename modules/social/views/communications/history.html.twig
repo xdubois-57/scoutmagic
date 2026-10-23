@@ -97,7 +97,7 @@
                                 <a href="{{ row.publication.remoteUrl }}" class="btn btn-sm btn-outline-secondary" target="_blank" rel="noopener"
                                    aria-label="Voir la publication {{ row.label }} du {{ row.publication.publishedAt|french_date }}"
                                    title="Voir"><i class="bi bi-box-arrow-up-right" aria-hidden="true"></i></a>
-                            {% elseif row.state == 'failed' %}
+                            {% elseif row.state == 'failed' and row.retry_path %}
                                 <a href="{{ row.retry_path }}" class="btn btn-sm btn-outline-secondary"
                                    aria-label="Réessayer la publication sur {{ row.label }}"
                                    title="Réessayer"><i class="bi bi-arrow-clockwise" aria-hidden="true"></i></a>

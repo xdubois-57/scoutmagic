@@ -1784,6 +1784,110 @@ final class CommunicationControllerTest extends TestCase
     }
 
     /**
+     * « Réessayer » follows the same rule as the share icon (issue #878).
+     *
+     * The history lists the whole unit's contents and every chief may
+     * read it, while the retry page answers « introuvable » to anybody
+     * but the author or an administrator — so a chief was shown the
+     * icon on each of their colleagues' failed communications, and it
+     * refused every time. The failure itself stays readable; only the
+     * action that cannot work goes.
+     */
+    public function testTheRetryIsOfferedOnlyOnWhatThisChiefMayRetry(): void
+    {
+        $mine = $this->communication('Le mien', 'Les photos sont en ligne', self::PHOTO);
+        $theirs = $this->communications->create('Le leur', 'Autre texte', $this->other, new \DateTimeImmutable());
+        $this->failedInstagram($mine);
+        $this->failedInstagram($theirs);
+        $this->loginAuthor();
+
+        $html = $this->controller()->history($this->get(), [])->getBody();
+
+        $this->assertSame(
+            ['mine' => 1, 'theirs' => 0],
+            [
+                'mine' => substr_count($html, 'href="/medias-sociaux/reessayer/communication/' . $mine . '/instagram"'),
+                'theirs' => substr_count($html, '/medias-sociaux/reessayer/communication/' . $theirs . '/'),
+            ]
+        );
+        // The colleague's failure is still told, in both entries.
+        $this->assertSame(2, substr_count($html, 'data-platform="instagram" data-state="failed"'));
+    }
+
+    /**
+     * The cell keeps its width when the action goes, like a row with no
+     * action at all (§ 47.7) — and no link with an empty address is
+     * left behind.
+     */
+    public function testARetryThatIsNotOfferedLeavesTheEmptyCellOfTheSameWidth(): void
+    {
+        $theirs = $this->communications->create('Le leur', 'Autre texte', $this->other, new \DateTimeImmutable());
+        $this->failedInstagram($theirs);
+        $this->loginAuthor();
+
+        $html = $this->controller()->history($this->get(), [])->getBody();
+
+        $this->assertSame(
+            1,
+            preg_match('/data-platform="instagram" data-state="failed".*?<\/li>/s', $html, $row)
+        );
+        $this->assertStringContainsString('btn btn-sm invisible', $row[0]);
+        $this->assertStringNotContainsString('<a href=""', $row[0]);
+        $this->assertStringNotContainsString('Réessayer la publication', $row[0]);
+    }
+
+    /** An administrator may retry any of them: the other half of the rule. */
+    public function testAnAdministratorIsOfferedTheRetryOnEveryCommunication(): void
+    {
+        $mine = $this->communication('Le mien', 'Les photos sont en ligne', self::PHOTO);
+        $theirs = $this->communications->create('Le leur', 'Autre texte', $this->other, new \DateTimeImmutable());
+        $this->failedInstagram($mine);
+        $this->failedInstagram($theirs);
+        AuthSession::login($this->author, 'claire@unite.be', 'admin');
+
+        $html = $this->controller()->history($this->get(), [])->getBody();
+
+        $this->assertSame(
+            ['mine' => 1, 'theirs' => 1],
+            [
+                'mine' => substr_count($html, 'href="/medias-sociaux/reessayer/communication/' . $mine . '/instagram"'),
+                'theirs' => substr_count($html, 'href="/medias-sociaux/reessayer/communication/' . $theirs . '/instagram"'),
+            ]
+        );
+    }
+
+    /**
+     * A share recorded against an album's own key, from before the
+     * composer existed, is not a communication: its retry asks the
+     * owning module's rule, not `editableCommunication()`, so the
+     * communication rule must not take its button away.
+     */
+    public function testALegacyAlbumEntryKeepsItsRetry(): void
+    {
+        $at = new \DateTimeImmutable('-1 hour');
+        $this->publications->claim(
+            'album',
+            self::ALBUM_ID,
+            'instagram',
+            false,
+            $this->author,
+            $at,
+            $at->modify('-1 day'),
+            self::ALBUM_TITLE,
+            'Les photos sont en ligne'
+        );
+        $this->publications->markFailed('album', self::ALBUM_ID, 'instagram', 'Proportions refusées.', $at);
+        $this->loginAuthor();
+
+        $html = $this->controller()->history($this->get(), [])->getBody();
+
+        $this->assertStringContainsString(
+            'href="/medias-sociaux/reessayer/album/' . self::ALBUM_ID . '/instagram"',
+            $html
+        );
+    }
+
+    /**
      * **Both JSON routes prove the request first** (issue #706, IT-05).
      *
      * They write — one mints a public page that can never be withdrawn,
