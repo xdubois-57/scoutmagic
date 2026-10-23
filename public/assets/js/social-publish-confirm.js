@@ -76,7 +76,17 @@
      * @returns {string}
      */
     function serverTrim(value) {
-        return value.replace(/^[ \t\n\r\0\x0B]+|[ \t\n\r\0\x0B]+$/g, '');
+        const blanks = ' \t\n\r\u0000\u000B';
+        let start = 0;
+        let end = value.length;
+        while (start < end && blanks.includes(value.charAt(start))) {
+            start += 1;
+        }
+        while (end > start && blanks.includes(value.charAt(end - 1))) {
+            end -= 1;
+        }
+
+        return value.slice(start, end);
     }
 
     /**
