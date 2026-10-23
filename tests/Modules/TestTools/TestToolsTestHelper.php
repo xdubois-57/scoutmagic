@@ -36,6 +36,7 @@ class TestToolsTestHelper
             subject TEXT NOT NULL,
             recipient BLOB NOT NULL,
             recipient_blind_index TEXT NOT NULL,
+            cc BLOB NULL,
             from_address TEXT NOT NULL,
             reply_to TEXT NULL,
             size_bytes INTEGER NOT NULL DEFAULT 0,

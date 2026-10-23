@@ -34,6 +34,7 @@ class CapturedEmailRepository
 
     /**
      * @param array<int, array{file_name: string, mime_type: string, size_bytes: int, file_id: int|null}> $attachments
+     * @param list<string> $cc The visible copies; stored encrypted, one normalised address per line.
      */
     public function create(
         \DateTimeImmutable $capturedAt,
@@ -48,16 +49,17 @@ class CapturedEmailRepository
         ?int $bodyTextFileId,
         ?string $errorMessage,
         array $attachments,
-        bool $delivered = false
+        bool $delivered = false,
+        array $cc = []
     ): int {
         $normalizedRecipient = EncryptionService::normalizeEmailForIndex($recipient);
 
         $stmt = $this->pdo->prepare(
             'INSERT INTO captured_emails
-                (captured_at, delivered, subject, recipient, recipient_blind_index, from_address, reply_to,
+                (captured_at, delivered, subject, recipient, recipient_blind_index, cc, from_address, reply_to,
                  size_bytes, has_dkim, attachment_count, mime_file_id,
                  body_html_file_id, body_text_file_id, error_message)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
             $capturedAt->format('Y-m-d H:i:s'),
@@ -65,6 +67,7 @@ class CapturedEmailRepository
             mb_substr($subject, 0, 255),
             $this->encryption->encrypt($normalizedRecipient, self::ENCRYPTION_PURPOSE),
             $this->encryption->blindIndex($normalizedRecipient, self::BLIND_INDEX_PURPOSE),
+            $this->encryptCopies($cc),
             mb_substr($fromAddress, 0, 255),
             $replyTo !== null ? mb_substr($replyTo, 0, 255) : null,
             $sizeBytes,
@@ -364,6 +367,31 @@ class CapturedEmailRepository
     }
 
     /**
+     * @param list<string> $cc
+     */
+    private function encryptCopies(array $cc): ?string
+    {
+        $normalized = array_map(EncryptionService::normalizeEmailForIndex(...), $cc);
+        if ($normalized === []) {
+            return null;
+        }
+
+        return $this->encryption->encrypt(implode("\n", $normalized), self::ENCRYPTION_PURPOSE);
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function decryptCopies(mixed $stored): array
+    {
+        if ($stored === null || $stored === '') {
+            return [];
+        }
+
+        return explode("\n", $this->encryption->decrypt((string) $stored, self::ENCRYPTION_PURPOSE));
+    }
+
+    /**
      * @param array<string, mixed> $row
      * @param array<
      *     int,
@@ -387,7 +415,8 @@ class CapturedEmailRepository
             bodyHtmlFileId: $row['body_html_file_id'] !== null ? (int) $row['body_html_file_id'] : null,
             bodyTextFileId: $row['body_text_file_id'] !== null ? (int) $row['body_text_file_id'] : null,
             errorMessage: $row['error_message'] !== null ? (string) $row['error_message'] : null,
-            attachments: $attachments
+            attachments: $attachments,
+            cc: $this->decryptCopies($row['cc'])
         );
     }
 }
