@@ -608,8 +608,10 @@ final class RentalInventoryValidationServiceTest extends TestCase
             }
             $this->assertStringNotContainsString($address, $value, $where . ' holds the address');
         }
-        // The scan is not blind: the act was journaled, with the address
+        // The scan is not blind: the encrypted columns (the history among
+        // them) were read in clear, the act was journaled, with the address
         // in its own column only, and the history was written.
+        $this->assertGreaterThan(0, $decrypted, 'the encrypted columns were read in clear');
         $this->assertGreaterThan(0, $journaled);
         $this->assertCount(1, $this->historyOf($booking));
     }
