@@ -34,7 +34,7 @@
             <a href="{{ file_url(photo.file_id) }}" data-file-viewer="{{ file_url(photo.file_id) }}"
                data-file-name="Photo {{ loop.index }}" data-file-image="1"
                download="photo-{{ loop.index }}.jpg" target="_blank" rel="noopener">
-                <img src="{{ file_url(photo.file_id, 'thumb') }}" alt="Photo {{ loop.index }}"
+                <img src="{{ file_url(photo.file_id, 'thumb') }}" alt="Vue {{ loop.index }} — {{ label }}"
                      width="72" height="72" loading="lazy" decoding="async">
             </a>
             {% if photo.remove_form %}

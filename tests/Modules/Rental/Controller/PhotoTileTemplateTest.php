@@ -167,7 +167,14 @@ final class PhotoTileTemplateTest extends TestCase
 
         $this->assertSame('/files/401/thumb', self::attr($xpath, $item . '//figure[1]//img', 'src'));
         $this->assertSame('/files/402/thumb', self::attr($xpath, $item . '//figure[2]//img', 'src'));
-        $this->assertSame('Photo 1', self::attr($xpath, $item . '//figure[1]//img', 'alt'));
+        // Its text says which view of what, never « photo » again: the
+        // element already says it is one (SonarCloud Web:S6851).
+        $this->assertSame('Vue 1 — Vitre cassée', self::attr($xpath, $item . '//figure[1]//img', 'alt'));
+        $this->assertSame('Vue 2 — Vitre cassée', self::attr($xpath, $item . '//figure[2]//img', 'alt'));
+        foreach ($xpath->query($item . '//figure//img') ?: [] as $img) {
+            \assert($img instanceof \DOMElement);
+            $this->assertDoesNotMatchRegularExpression('/photo|image|picture/i', $img->getAttribute('alt'));
+        }
         // The full photo opens in the viewer, never as a bare navigation.
         $this->assertSame('/files/401', self::attr($xpath, $item . '//figure[1]/a', 'data-file-viewer'));
 
