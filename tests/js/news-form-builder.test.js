@@ -709,4 +709,31 @@ describe('news-form-builder.js: reordering the form fields', () => {
         expect(toast).toHaveBeenCalled();
         expect(labels()).toEqual(['Bloc de texte', 'Bravo', 'Alpha', 'Charlie']);
     });
+
+    it('sends one request at a time, the next one only once the first is answered', async () => {
+        await loadEditor();
+        let answerFirst;
+        const first = new Promise((resolve) => { answerFirst = resolve; });
+        const { postJson, toast } = stubApi(first, refused());
+
+        click('Bravo', '.news-move-up');
+        click('Charlie', '.news-move-up');
+        expect(postJson).toHaveBeenCalledTimes(1);
+
+        answerFirst({ ok: true, status: 200, data: { success: true } });
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+
+        // The second goes out with the order as it is by then...
+        expect(postJson).toHaveBeenCalledTimes(2);
+        expect(postJson.mock.calls[1][1]).toEqual({ ids: [10, 12, 13, 11] });
+        await Promise.resolve();
+        await Promise.resolve();
+
+        // ...and when it is refused, the screen goes back to what the FIRST
+        // one left on the server, which it had accepted.
+        expect(toast).toHaveBeenCalledTimes(1);
+        expect(labels()).toEqual(['Bloc de texte', 'Bravo', 'Alpha', 'Charlie']);
+    });
 });

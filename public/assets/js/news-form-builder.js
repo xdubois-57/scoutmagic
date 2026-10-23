@@ -761,24 +761,38 @@
         // click" — with two clicks in flight, the one before may itself be
         // an order the server never kept.
         var serverOrder = fieldState.filter(function (f) { return f.id; }).map(function (f) { return f.id; });
-        var reorderSeq = 0;
+        // One request at a time: each carries the whole order and the
+        // endpoint keeps whichever arrives last, so two in flight could
+        // land in either order. A move made meanwhile waits, and goes out
+        // with the order as it is when the answer comes back.
+        var reorderInFlight = false;
+        var reorderQueued = false;
 
         function persistReorderIfSaved() {
+            if (reorderInFlight) {
+                reorderQueued = true;
+                return;
+            }
             var articleId = NEWS_EDITOR_DATA.articleId;
             var ids = fieldState.filter(function (f) { return f.id; }).map(function (f) { return f.id; });
             if (!articleId || ids.length !== fieldState.length) return;
 
-            var seq = ++reorderSeq;
+            reorderInFlight = true;
             // The route is registered for PATCH; a POST never reaches it.
             void window.ScoutMagicApi.postJson('/news/' + articleId + '/form/fields/reorder', { ids: ids }, { method: 'PATCH' })
                 .then(function (res) {
-                    // A newer reorder is on its way and carries the full
-                    // order: its answer is the one that decides.
-                    if (seq !== reorderSeq) return;
+                    reorderInFlight = false;
                     if (res.ok && (res.data || {}).success !== false) {
                         serverOrder = ids;
+                        if (reorderQueued) {
+                            reorderQueued = false;
+                            persistReorderIfSaved();
+                        }
                         return;
                     }
+                    // Moves made while this one was out are put back with
+                    // it: the screen returns to what the server holds.
+                    reorderQueued = false;
                     restoreServerOrder();
                     var message = (res.data || {}).error
                         || "Le nouvel ordre n'a pas pu être enregistré. L'ordre précédent a été rétabli.";
