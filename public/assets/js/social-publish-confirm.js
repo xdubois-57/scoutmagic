@@ -129,34 +129,39 @@
     function blockFor(row, caption) {
         const sentence = row.dataset.sharedLine || '';
         const title = row.dataset.destinationLabel || '';
+        const same = (row.dataset.sharedCaption || '').trim() === caption;
+        // What this source already went through at that destination: the
+        // warning the dialog exists for, with its « même message » clause.
+        const gone = sentence === '' ? '' : sentence + (same ? ', avec le même message.' : ', avec un autre message.');
 
-        // **A failure of this very message wins** (issue #881): same
-        // album, same chief, same text is the communication the click
-        // lands on, and the server relaunches the failed publication
-        // instead of refusing it. Only the live text can say it is the
-        // same one, which is why the server ships every failed text.
+        // **A failure of this very message is said in ADDITION to what
+        // already went out** (issue #881), never instead of it: the same
+        // album can have gone to a destination under another text and
+        // failed there under this one, and the click then relaunches the
+        // second while the first stays public. Same album, same chief,
+        // same text is the communication the click lands on, and only the
+        // live text can say it is the same one, which is why the server
+        // ships every failed text.
         const relaunch = failedShares(row).find(function (failure) {
             return failure.caption.trim() === caption;
         });
         if (relaunch !== undefined) {
-            return { kind: 'box', tone: 'warning', title: title, text: relaunch.sentence };
+            return {
+                kind: 'box',
+                tone: 'warning',
+                title: title,
+                text: gone === '' ? relaunch.sentence : relaunch.sentence + ' ' + gone,
+            };
         }
 
-        if (sentence === '') {
+        if (gone === '') {
             // Muted where nothing went: the colour is the first thing
             // read, and the only line worth stopping on is the one that
             // says « already ».
             return { kind: 'box', tone: 'muted', title: title, text: NEVER };
         }
 
-        const same = (row.dataset.sharedCaption || '').trim() === caption;
-
-        return {
-            kind: 'box',
-            tone: 'warning',
-            title: title,
-            text: sentence + (same ? ', avec le même message.' : ', avec un autre message.'),
-        };
+        return { kind: 'box', tone: 'warning', title: title, text: gone };
     }
 
     /**

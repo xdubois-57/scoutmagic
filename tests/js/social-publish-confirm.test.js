@@ -272,12 +272,25 @@ describe('a destination whose message failed (issue #881)', () => {
     }
 
     it('says the failed publication will be relaunched, when the text is the same', async () => {
-        buildPage({ failed: failure });
+        buildPage({ shared: false, failed: failure });
 
         const block = await blockOfFacebook();
 
         expect(block.text).toBe(failure[0].sentence);
         expect(block.tone).toBe('warning');
+    });
+
+    it('keeps the « déjà parti » warning beside the relaunch, never instead of it', async () => {
+        // The album went out under another text and failed under this one.
+        buildPage({ failed: failure });
+        document.querySelector('[data-destination="facebook"]').dataset.sharedCaption = 'Le premier texte';
+
+        const block = await blockOfFacebook();
+
+        expect(block.text).toBe(
+            failure[0].sentence
+            + ' Cet album est déjà parti sur Facebook le 12 septembre 2026, avec un autre message.'
+        );
     });
 
     it('says nothing of the failure once the text has been rewritten', async () => {
@@ -291,6 +304,7 @@ describe('a destination whose message failed (issue #881)', () => {
 
     it('compares the live text, trimmed, with every failure it was given', async () => {
         buildPage({
+            shared: false,
             failed: [{ sentence: 'Autre échec', caption: 'Un autre texte' }].concat(failure),
             caption: '  Les photos sont en ligne  ',
         });
