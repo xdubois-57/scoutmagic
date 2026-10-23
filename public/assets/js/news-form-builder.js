@@ -776,6 +776,11 @@
             var articleId = NEWS_EDITOR_DATA.articleId;
             var ids = fieldState.filter(function (f) { return f.id; }).map(function (f) { return f.id; });
             if (!articleId || ids.length !== fieldState.length) return;
+            // The endpoint takes the form's whole field list. A field
+            // deleted here is only gone from the page until the form is
+            // saved, so the server still holds it and would refuse a list
+            // that omits it: the order then goes out with the form itself.
+            if (ids.length !== serverOrder.length || !ids.every(function (id) { return serverOrder.indexOf(id) !== -1; })) return;
 
             reorderInFlight = true;
             // The route is registered for PATCH; a POST never reaches it.

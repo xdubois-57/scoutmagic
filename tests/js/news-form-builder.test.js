@@ -736,4 +736,19 @@ describe('news-form-builder.js: reordering the form fields', () => {
         expect(toast).toHaveBeenCalledTimes(1);
         expect(labels()).toEqual(['Bloc de texte', 'Bravo', 'Alpha', 'Charlie']);
     });
+
+    it('does not send an order that leaves out a field the author just deleted', async () => {
+        await loadEditor();
+        const { postJson, toast } = stubApi();
+
+        // Deleting is local until the form is saved; the server still holds
+        // all four fields and refuses a list that omits one.
+        rowOf('Alpha').querySelector('.btn-outline-danger').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+        click('Charlie', '.news-move-up');
+
+        expect(postJson).not.toHaveBeenCalled();
+        expect(toast).not.toHaveBeenCalled();
+        // The order shown is the one the form save will send.
+        expect(labels()).toEqual(['Bloc de texte', 'Charlie', 'Bravo']);
+    });
 });
