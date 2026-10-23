@@ -219,9 +219,13 @@ class PublishingService
      * all ({@see DestinationStates::forSource()}, `$hasOwnHistory`), so
      * it shows the destination as available and pre-ticked. The chief
      * who publishes from there was then told to tick a box no page they
-     * had seen ever displayed. `Claude review` found it on PR #868; the
-     * composer's own silence about that row is #881, being a decision
-     * about what a prefilled page may read.
+     * had seen ever displayed. `Claude review` found it on PR #868.
+     *
+     * **That path no longer ends here** (issue #881): the prefilled
+     * composer's « Publier » now relaunches a failed destination of the
+     * same message itself, the confirmation standing for the retry one —
+     * see `CommunicationController::publishNow()`. This sentence stays
+     * for every other way a failure is reached without a confirmed retry.
      */
     private function whyNotClaimed(ShareSource $source, SocialPlatform $platform, \DateTimeImmutable $now): string
     {

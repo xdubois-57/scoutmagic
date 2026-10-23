@@ -18,6 +18,15 @@
    contain anything. A destination with no attribute was never shared,
    and the dialog says « Jamais partagé ici. » itself.
 
+   **`data-failed-shares`** (issue #881) lists, on the prefilled composer
+   only, the failed publications of the chief's own messages about this
+   source — each with the sentence « La publication de ce même message a
+   échoué le … — elle sera relancée. » and the text that failed. The
+   dialog shows the sentence when the live text is that text, and the
+   server relaunches that destination on « Publier » (`Controller\
+   CommunicationController::publishNow()`). A JSON list in an attribute,
+   escaped by Twig whatever a caption contains.
+
    **`data-destination-label` is the checkbox's own label**, « Page
    Facebook » and not « Facebook »: the dialog's block heading stands for
    the box that was ticked, and a chief comparing the two must read the
@@ -33,7 +42,8 @@
         <div class="form-check form-check--line-aligned mb-2" data-destination="{{ d.value }}" data-state="{{ d.state }}"
              data-destination-label="{{ d.label }}"
              {% if shared %}data-shared-line="{{ shared.sentence }}"
-             data-shared-caption="{{ shared.caption }}"{% endif %}>
+             data-shared-caption="{{ shared.caption }}"{% endif %}
+             {% if failed_by_destination[d.value] is defined %}data-failed-shares="{{ failed_by_destination[d.value]|json_encode }}"{% endif %}>
             <input class="form-check-input" type="checkbox" name="destinations[]" value="{{ d.value }}"
                    id="dest-{{ d.value }}"
                    {{ d.state in ['available', 'failed'] ? '' : 'disabled' }}
@@ -102,7 +112,8 @@
                                     <div class="form-check form-check--line-aligned mb-2" data-group="{{ g.id }}" data-state="{{ g.state }}"
                                          data-destination-label="{{ g.name }}"
                                          {% if group_shared %}data-shared-line="{{ group_shared.sentence }}"
-                                         data-shared-caption="{{ group_shared.caption }}"{% endif %}>
+                                         data-shared-caption="{{ group_shared.caption }}"{% endif %}
+                                         {% if failed_by_destination['group:' ~ g.id] is defined %}data-failed-shares="{{ failed_by_destination['group:' ~ g.id]|json_encode }}"{% endif %}>
                                         <input class="form-check-input" type="checkbox" name="groups[]" value="{{ g.id }}"
                                                id="group-{{ g.id }}" data-share-group-name="{{ g.name }}"
                                                {{ g.state in ['available', 'failed'] ? '' : 'disabled' }}

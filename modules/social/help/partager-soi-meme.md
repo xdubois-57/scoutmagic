@@ -59,3 +59,12 @@ signale presque toujours un oubli.
 Une seule chose reste refusée : **la même communication deux fois vers la
 même destination**. C'est le même message au même endroit, et ce n'est
 jamais voulu.
+
+## Quand la première publication a échoué
+
+Si vous repartagez le même album avec le même texte alors que la
+publication précédente sur une destination avait échoué, la confirmation
+vous le dit : « La publication de ce même message a échoué le … — elle sera
+relancée. » En confirmant, le site **relance cette publication** au lieu de
+la refuser, comme avec « Réessayer ». Avec un texte réécrit, c'est un
+nouveau message : rien n'est relancé, il part normalement.
