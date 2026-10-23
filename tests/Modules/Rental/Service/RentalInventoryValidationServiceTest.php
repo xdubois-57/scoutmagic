@@ -196,6 +196,25 @@ final class RentalInventoryValidationServiceTest extends TestCase
     }
 
     /**
+     * Each photo goes into the PDF as a copy of 1 600 px on its longest
+     * side (#989 §6), a JPEG — whatever the 2 400 px stored beside it.
+     */
+    public function testEachCopyForThePdfIsBroughtDownTo1600Pixels(): void
+    {
+        $fileId = $this->storedPhoto(1);
+        $renderer = new InventoryPhotoRenderer($this->fileRepository, $this->storagePath);
+
+        $copy = $renderer->render([$fileId])[$fileId] ?? null;
+
+        $this->assertNotNull($copy);
+        $this->assertSame([1600, 1200], [$copy['width'], $copy['height']]);
+        $size = getimagesizefromstring($copy['jpeg']);
+        $this->assertIsArray($size);
+        $this->assertSame([1600, 1200, IMAGETYPE_JPEG], [$size[0], $size[1], $size[2]]);
+        $this->assertSame(1600, InventoryPhotoRenderer::MAX_LONG_SIDE);
+    }
+
+    /**
      * The arrival's PDF shows the arrival's meter photos and nothing of
      * the incidents, which belong to the departure.
      */
@@ -533,6 +552,68 @@ final class RentalInventoryValidationServiceTest extends TestCase
         // And the notification, stored encrypted by the core, carries none.
         $this->assertCount(1, $notified);
         $this->assertStringNotContainsString('Témoin', json_encode($notified, JSON_UNESCAPED_UNICODE) ?: '');
+    }
+
+    /**
+     * **Nothing of the device is added** (#989 §1): neither the address
+     * the request came from nor the browser that sent it reaches the PDF,
+     * the validation's row or the booking's history. The one place an
+     * address is kept is the core journal's own column, where every
+     * action of a manager has it (decision Q2) — never a field of the act.
+     */
+    public function testNoAddressNorBrowserReachesThePdfTheRowOrTheHistory(): void
+    {
+        $address = '198.51.100.77';
+        $browser = 'Mozilla/5.0 (Linux; Android 14; Pixel-Marqueur-989) Mobile';
+        $saved = [$_SERVER['REMOTE_ADDR'] ?? null, $_SERVER['HTTP_USER_AGENT'] ?? null];
+        $_SERVER['REMOTE_ADDR'] = $address;
+        $_SERVER['HTTP_USER_AGENT'] = $browser;
+        try {
+            $account = $this->sessionAccount();
+            $booking = $this->bookingWithAnInventory();
+            $result = $this->realService()->validate(
+                $booking,
+                $this->asset(),
+                ReadingPhase::ARRIVAL,
+                1,
+                InventorySigning::onSite($this->witness('Jeanne Témoin')),
+                $this->managerSignature($account),
+                $this->at('2027-07-01 15:30')
+            );
+        } finally {
+            unset($_SERVER['REMOTE_ADDR'], $_SERVER['HTTP_USER_AGENT']);
+            if ($saved[0] !== null) {
+                $_SERVER['REMOTE_ADDR'] = $saved[0];
+            }
+            if ($saved[1] !== null) {
+                $_SERVER['HTTP_USER_AGENT'] = $saved[1];
+            }
+        }
+
+        $pdf = (string) file_get_contents((string) $this->documentService()->absolutePath($result['document']));
+        $text = (new Parser())->parseContent($pdf)->getText();
+        $this->assertStringContainsString('Accepté sur place par Jeanne Témoin', (string) preg_replace('/\s+/u', ' ', $text));
+        foreach ([$address, 'Pixel-Marqueur-989', 'Android', 'Mozilla'] as $trace) {
+            $this->assertStringNotContainsString($trace, $text, 'the PDF names the device');
+            $this->assertStringNotContainsString($trace, $pdf, 'the PDF file carries the device');
+        }
+
+        $journaled = 0;
+        $decrypted = 0;
+        foreach ($this->everyStoredValue($decrypted) as $where => $value) {
+            $this->assertStringNotContainsString('Pixel-Marqueur-989', $value, $where . ' holds the browser');
+            if (str_starts_with($where, 'event_log.ip_address#')) {
+                $journaled += $value === $address ? 1 : 0;
+                continue;
+            }
+            $this->assertStringNotContainsString($address, $value, $where . ' holds the address');
+        }
+        // The scan is not blind: the encrypted columns (the history among
+        // them) were read in clear, the act was journaled, with the address
+        // in its own column only, and the history was written.
+        $this->assertGreaterThan(0, $decrypted, 'the encrypted columns were read in clear');
+        $this->assertGreaterThan(0, $journaled);
+        $this->assertCount(1, $this->historyOf($booking));
     }
 
     // ── The minimal inventory (#989, lot G) ─────────────────────────────

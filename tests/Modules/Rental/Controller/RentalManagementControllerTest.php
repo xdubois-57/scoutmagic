@@ -5675,6 +5675,8 @@ class RentalManagementControllerTest extends TestCase
         $this->assertMatchesRegularExpression('#<fieldset data-paper-sheet disabled hidden>.*?data-photo-tile data-photo-max="1"#', $body);
         $this->assertMatchesRegularExpression('#<fieldset data-paper-sheet disabled hidden>.*?capture="environment"#', $body);
         $this->assertStringContainsString('/assets/js/rental-photo-tile.js', $body);
+        // Without the reducer the tile sends the photo as taken, EXIF included.
+        $this->assertStringContainsString('/assets/js/photo-reduce.js', $body);
         $this->assertStringContainsString('<fieldset data-manager-signature>', $body);
     }
 
@@ -6012,7 +6014,7 @@ class RentalManagementControllerTest extends TestCase
         // the « + Photo » tile after them and the scripts behind it (lot B).
         $body = $this->inventoryPage($booking);
         $this->assertStringContainsString('/files/' . $photos[0]->fileId . '"', $body);
-        $this->assertStringContainsString('src="/files/' . $photos[1]->fileId . '/thumb" alt="Photo 2"', $body);
+        $this->assertStringContainsString('src="/files/' . $photos[1]->fileId . '/thumb" alt="Vue 2 — Porte du réfectoire forcée"', $body);
         $this->assertStringContainsString('data-photo-max="5" data-photo-attached="2"', $body);
         $this->assertStringContainsString('/assets/js/photo-reduce.js?v=', $body);
         $this->assertStringContainsString('/assets/js/rental-photo-tile.js?v=', $body);

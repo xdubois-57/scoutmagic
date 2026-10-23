@@ -46,7 +46,7 @@ function build({ max = 5, attached = 0, autosubmit = false } = {}) {
             <div data-photo-tile data-photo-max="${max}" data-photo-attached="${attached}">
                 ${Array.from({ length: attached }, (_, i) => `
                     <figure class="photo-thumb">
-                        <img src="/files/${i + 10}/thumb" alt="Photo ${i + 1}">
+                        <img src="/files/${i + 10}/thumb" alt="Vue ${i + 1} — Vitre cassée">
                         <button type="submit" form="remove-${i}" class="photo-thumb-remove">×</button>
                     </figure>`).join('')}
                 <div class="dropdown photo-tile-add" data-photo-add>

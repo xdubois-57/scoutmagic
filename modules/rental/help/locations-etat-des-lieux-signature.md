@@ -50,8 +50,9 @@ votre compte, jamais votre totem.
 
 « Valider, signer et envoyer » produit le PDF avec les deux cadres de
 signature, le lieu (le bien et son adresse), la date et l'heure, le range
-dans les documents de la réservation et l'envoie au locataire. Vous
-recevez une notification qui mène à la page « Documents ». « Annuler »
+dans les documents de la réservation et l'envoie au locataire. Signé à
+l'écran, vous recevez une notification qui mène à la page
+« Documents ». « Annuler »
 ramène à l'état des lieux sans rien enregistrer.
 
 **Une fois signé, l'état des lieux ne se modifie plus et ne se supprime

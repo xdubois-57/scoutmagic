@@ -504,6 +504,24 @@ class ModuleManifestTest extends TestCase
     }
 
     /**
+     * Pushed by default: the alert that reaches the signer's devices when
+     * their signature is applied from a session they did not hold
+     * (SECURITY.md §5). The maintainer kept it on for #989 (lot H); the
+     * recipient can still turn it off in their preferences.
+     */
+    public function testTheSignersNotificationIsPushedByDefault(): void
+    {
+        $declared = array_column($this->manifest->notifications, null, 'id');
+        $type = $declared[\Modules\Rental\Service\RentalSignedContractService::SIGNED_NOTIFICATION] ?? null;
+
+        $this->assertNotNull($type);
+        $this->assertSame(
+            ['in_app' => 'default_on', 'push' => 'default_on', 'email' => 'default_off'],
+            $type['channels']
+        );
+    }
+
+    /**
      * The signing screen of the inventory (#989, lot E) is a page of the
      * managed space, readable only by those `bookingAction()`'s manager
      * check lets through — `identified` here, the asset's managers there.

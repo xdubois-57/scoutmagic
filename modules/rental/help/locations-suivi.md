@@ -45,8 +45,8 @@ restant se paie dans les 30 jours.
 
 ## L'état des lieux et les dégâts
 
-À l'arrivée et au départ, l'unité fait l'état des lieux avec vous : vous
-le signez sur son téléphone, et le PDF signé vous arrive par e-mail. Un
+À l'arrivée et au départ, vous signez l'état des lieux avec l'unité, sur
+son téléphone ou sur papier ; le PDF vous arrive par e-mail. Un
 dégât constaté apparaît dans « Incidents et dégâts », avec sa date et
 le montant facturé, ou « Non facturé ». En cours d'évaluation, la page
 le dit sans détail, et une caution reçue reste retenue jusqu'à son

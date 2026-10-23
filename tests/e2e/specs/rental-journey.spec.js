@@ -28,11 +28,18 @@
 //     kept; the second traced on the pad with « Mémoriser » ticked, and
 //     Mon compte keeps it. The signing manager's notification centre holds
 //     « Contrat signé », which opens the booking's Documents page;
-//   - both inventories are signed on their own screen (#989, lot E): the
-//     arrival by the renter on the spot — their typed name and their finger
-//     — and by the manager with the signature Mon compte now keeps; the
-//     departure with the renter absent, the warning shown and their frame
-//     set aside. Each one's notification opens the booking's Documents.
+//   - the stay is walked on the manager's PHONE (#989, lot H): a Pixel 5
+//     context, the tile's menu and the forms tapped, the pads traced by
+//     touch events. Both
+//     inventories are signed on their own screen (lot E) by the renter on
+//     the spot — their typed name and their finger — and by the manager
+//     with the signature Mon compte now keeps; between them a damage is
+//     reported with two photos through the « + Photo » tile's menu, one
+//     taken, one chosen (lot B), laid out one thing per line. Each signed
+//     inventory reaches the renter's mailbox with its PDF and nobody in
+//     copy, is filed as sent in Documents, and the signing manager's
+//     notification opens Documents instead (decision Q1). The renter absent
+//     or refusing is rental-lifecycle's and the service's subject.
 //
 // Each of those is unit-tested on its own. Whether they agree with each
 // other on a running install — the communication Finance stores is the one
@@ -70,15 +77,17 @@
 // ----------------------------------------------------------------------------
 // What the other rental specs already pin — the checklist's every line, the
 // inventory's every gesture, the request form's every field — is played
-// here without assertions of its own. Mail content is not read either: that
-// the replacement contract REACHED the renter is asserted the way the renter
-// sees it, on their page, which only says so once the send was recorded.
+// here without assertions of its own. Mail content is read for the two
+// signed inventories alone (their recipient, subject, attachment and the
+// absence of a copy); that the replacement contract REACHED the renter is
+// asserted the way the renter sees it, on their page, which only says so
+// once the send was recorded.
 //
 // HumanCheck (5 public requests per address per 10 minutes) counts the two
 // requests this spec submits together with the three other rental specs':
 // five, the ceiling. A sixth public request in this tier needs the limit
 // raised for the run, not a retry.
-import { expect, test } from '@playwright/test';
+import { devices, expect, test } from '@playwright/test';
 import { inflateSync } from 'node:zlib';
 
 import { answerCookieBanner } from '../support/cookie-banner.js';
@@ -92,6 +101,7 @@ import { giveAssetAddress, giveRenterAddress } from '../support/rental-contract.
 import { scaled } from '../support/timeouts.js';
 import { waitOutHumanCheckDelay } from '../support/human-check.js';
 import { waitForServerResponse } from '../support/response.js';
+import { waitForMail } from '../support/maildrop.js';
 
 /** A date far enough out to clear any notice period the asset declares. */
 function isoDaysFromNow(days) {
@@ -263,6 +273,7 @@ test.describe('Rentals — one booking from the request to the deposit back', ()
             .toEqual(['booked', 'refused']);
 
         const renter = visitors[outcomes.indexOf('booked')];
+        const renterEmail = ['claire.dumont@example.be', 'marc.lambert@example.be'][outcomes.indexOf('booked')];
         const turnedAway = visitors[outcomes.indexOf('refused')];
         // Refused for the dates, the form kept as it was typed.
         await expect(turnedAway.getByRole('alert').first()).toContainText(/disponible|occup|réserv/i);
@@ -438,56 +449,106 @@ test.describe('Rentals — one booking from the request to the deposit back', ()
         await expect(milestone(page, 'Solde reçu')).toContainText(DONE);
         await expect(milestone(page, 'Caution reçue')).toContainText(DONE);
 
-        // ── 10. The stay, and a damage under assessment ──────────────────
-        await page.goto(`${dashboard}/etat-des-lieux`, { waitUntil: 'load' });
-        await takeReference(page, INVENTORY_KEYS);
-        // Signed on its own screen, by the renter on the spot and by the
-        // manager with the signature Mon compte now keeps (#989, lot E).
-        await signInventory(page, "Signer l'état des lieux d'entrée", { renter: RENTER_SIGNER });
-        await expect(page.locator('[data-booking-panel="inventory"]')).toContainText("État des lieux d'entrée, validé le");
-        // The signing account is told, and the notification opens Documents.
-        await openSignedNotice(page, `État des lieux d'entrée signé — ${ASSET_NAME}`,
+        // ── 10. The stay, on the manager's phone ─────────────────────────
+        // Where an inventory is really walked (#989, lot H): a phone, its
+        // screen tapped and its signature pads traced with a finger. The
+        // manager's session is carried over rather than signed in again;
+        // the desktop page waits until the phone is put away.
+        const phoneContext = await browser.newContext({
+            ...devices['Pixel 5'],
+            storageState: await page.context().storageState(),
+            // What the config gives every context it creates, and a context
+            // made here does not inherit: without it Bootstrap scrolls
+            // smoothly, and a tap that lands while the page still glides to
+            // its target only stops the scroll — the button never clicks.
+            reducedMotion: 'reduce',
+            serviceWorkers: 'block',
+        });
+        const phone = await phoneContext.newPage();
+        phone.on('pageerror', (error) => pageErrors.push(`phone: ${error.message}`));
+        phone.on('response', (response) => {
+            if (response.status() >= 500) {
+                serverErrors.push(`phone: HTTP ${response.status()} on ${response.url()}`);
+            }
+        });
+        await autoConfirm(phone);
+
+        await phone.goto(`${dashboard}/etat-des-lieux`, { waitUntil: 'load' });
+        expect(await phone.evaluate(() => matchMedia('(pointer: coarse)').matches), 'a touch screen').toBe(true);
+        await takeReference(phone, INVENTORY_KEYS);
+        // Signed on its own screen, by the renter on the spot — their name
+        // and their finger — and by the manager with the signature Mon
+        // compte now keeps (#989, lot E).
+        await signInventory(phone, "Signer l'état des lieux d'entrée", { renter: RENTER_SIGNER }, { touch: true });
+        await expect(phone.locator('[data-booking-panel="inventory"]')).toContainText("État des lieux d'entrée, validé le");
+        // It leaves at once, to the renter alone, the PDF attached; the
+        // signing manager is told in the site instead of in copy (Q1).
+        await expectInventoryMailed(renterEmail, reference, "État des lieux d'entrée");
+        await openSignedNotice(phone, `État des lieux d'entrée signé — ${ASSET_NAME}`,
             `Vous avez signé l'état des lieux d'entrée de ${reference}`);
-        await page.waitForURL(`${dashboard}/documents`, { waitUntil: 'load' });
-        await page.goto(`${dashboard}/etat-des-lieux`, { waitUntil: 'load' });
+        await phone.waitForURL(`${dashboard}/documents`, { waitUntil: 'load' });
+        await expectFiledAndSent(phone, `etat-des-lieux-entree-${reference}.pdf`);
+        await phone.goto(`${dashboard}/etat-des-lieux`, { waitUntil: 'load' });
 
         // Seen during the stay, its price not known yet: the renter's
         // insurer sends an expert. It stays « En cours d'évaluation », with
         // what it waits for and the insurer's file number (#980, §2.1).
-        const reportForm = page.locator('form[action="/mes-locations/incident"]');
+        const reportForm = phone.locator('form[action="/mes-locations/incident"]');
         await reportForm.locator('#incident-description').fill(DAMAGE);
         await reportForm.locator('#incident-amount').fill('250,00');
-        // With two photos from the gallery, through the « + Photo » tile
-        // (#989): reduced in the browser, waiting as thumbnails, then
-        // re-encoded by the server — no EXIF, no GPS — and shown on the
+        // On a phone, one thing per line (#989 §5): the description, the
+        // amount under it, then the row of photos ending with the tile.
+        await expectStackedBelow(reportForm.locator('#incident-description'), reportForm.locator('#incident-amount'));
+        await expectStackedBelow(reportForm.locator('#incident-amount'), reportForm.locator('[data-photo-add]'));
+        await expect(phone.getByText("Une vue d'ensemble, puis un gros plan.")).toBeVisible();
+        // Two photos through the « + Photo » tile's own menu: the overall
+        // view taken with the camera, the close-up chosen from the gallery.
+        // Each is reduced in the browser and waits as a thumbnail; the
+        // server re-encodes them — no EXIF, no GPS — and shows them on the
         // incident as their `thumb` derivative, through FileAccessGuard.
-        await reportForm.locator('[data-photo-source="gallery"]').setInputFiles([
-            { name: 'vue.png', mimeType: 'image/png', buffer: pngBuffer(800, 600) },
-            { name: 'gros-plan.png', mimeType: 'image/png', buffer: pngBuffer(600, 800) },
-        ]);
+        await pickPhoto(phone, reportForm, 'Prendre une photo', { name: 'vue.png', mimeType: 'image/png', buffer: pngBuffer(800, 600) });
+        await pickPhoto(phone, reportForm, 'Choisir dans la galerie', { name: 'gros-plan.png', mimeType: 'image/png', buffer: pngBuffer(600, 800) });
         await expect(reportForm.locator('[data-photo-pending]')).toHaveCount(2);
-        await submitAndRefresh(page, '/mes-locations/incident',
-            () => reportForm.getByRole('button', { name: 'Ajouter', exact: true }).click());
-        const incident = page.locator('li[id^="incident-"]', { hasText: DAMAGE });
-        const incidentAnchor = await incident.getAttribute('id');
-        await expect(incident.locator('figure img[src$="/thumb"]')).toHaveCount(2);
-        await expect(incident.getByRole('link', { name: 'Photo 1' })).toHaveAttribute('href', /\/files\/\d+$/);
-        await incident.locator('input[name="awaiting"]').fill(DAMAGE_AWAITING);
-        await incident.locator('input[name="reference"]').fill(DAMAGE_REFERENCE);
-        await submitAndRefresh(page, '/mes-locations/incident-decision',
-            () => incident.getByRole('button', { name: 'Trancher' }).click());
-        await expect(incident).toContainText(`En attente de : ${DAMAGE_AWAITING}`);
-        await expect(incident.getByLabel("En cours d'évaluation")).toBeChecked();
+        await submitAndRefresh(phone, '/mes-locations/incident',
+            () => reportForm.getByRole('button', { name: 'Ajouter', exact: true }).tap());
+        const phoneIncident = phone.locator('li[id^="incident-"]', { hasText: DAMAGE });
+        const incidentAnchor = await phoneIncident.getAttribute('id');
+        await expect(phoneIncident.locator('figure img[src$="/thumb"]')).toHaveCount(2);
+        await expect(phoneIncident.getByRole('link', { name: `Vue 1 — ${DAMAGE}` })).toHaveAttribute('href', /\/files\/\d+$/);
+        await expect(phoneIncident.getByRole('link', { name: `Vue 2 — ${DAMAGE}` })).toHaveAttribute('href', /\/files\/\d+$/);
+        await phoneIncident.locator('input[name="awaiting"]').fill(DAMAGE_AWAITING);
+        await phoneIncident.locator('input[name="reference"]').fill(DAMAGE_REFERENCE);
+        await submitAndRefresh(phone, '/mes-locations/incident-decision',
+            () => phoneIncident.getByRole('button', { name: 'Trancher' }).tap());
+        await expect(phoneIncident).toContainText(`En attente de : ${DAMAGE_AWAITING}`);
+        await expect(phoneIncident.getByLabel("En cours d'évaluation")).toBeChecked();
 
-        await takeReference(page, INVENTORY_KEYS);
-        // The renter has left: the manager signs alone, warned first.
-        await signInventory(page, "Signer l'état des lieux de sortie", { renterChoice: 'Le locataire est absent' });
-        await openSignedNotice(page, `État des lieux de sortie signé — ${ASSET_NAME}`,
-            `Vous avez signé l'état des lieux de sortie de ${reference}`);
-        await page.waitForURL(`${dashboard}/documents`, { waitUntil: 'load' });
-        await page.goto(`${dashboard}/etat-des-lieux`, { waitUntil: 'load' });
-        await expect(page.locator('[data-booking-panel="inventory"]'))
+        await takeReference(phone, INVENTORY_KEYS);
+        // The departure, signed by both again, on the same phone. The
+        // screen shows the incident with its date and both thumbnails —
+        // what the renter is about to sign for.
+        await phone.getByRole('link', { name: "Signer l'état des lieux de sortie" }).tap();
+        await phone.waitForURL(/\/etat-des-lieux\/signer\?phase=departure$/, { waitUntil: 'load' });
+        const signingSummary = phone.locator('[data-inventory-summary]');
+        await expect(signingSummary).toContainText(DAMAGE);
+        await expect(signingSummary.locator('li', { hasText: DAMAGE })).toContainText(/\d{2}\/\d{2}\/\d{4} à \d{2}:\d{2}/);
+        await expect(signingSummary.locator('img[src$="/thumb"]')).toHaveCount(2);
+        for (const internal of [DAMAGE_AWAITING, DAMAGE_REFERENCE, '250,00']) {
+            await expect(signingSummary).not.toContainText(internal);
+        }
+        await phone.goBack({ waitUntil: 'load' });
+        await signInventory(phone, "Signer l'état des lieux de sortie", { renter: RENTER_SIGNER }, { touch: true });
+        await expect(phone.locator('[data-booking-panel="inventory"]'))
             .toContainText('Les deux états des lieux sont validés');
+        await expectInventoryMailed(renterEmail, reference, 'État des lieux de sortie');
+        await openSignedNotice(phone, `État des lieux de sortie signé — ${ASSET_NAME}`,
+            `Vous avez signé l'état des lieux de sortie de ${reference}`);
+        await phone.waitForURL(`${dashboard}/documents`, { waitUntil: 'load' });
+        await expectFiledAndSent(phone, `etat-des-lieux-sortie-${reference}.pdf`);
+        await phoneContext.close();
+
+        // Back at the desk for the rest of the booking.
+        const incident = page.locator('li[id^="incident-"]', { hasText: DAMAGE });
 
         // The renter is told one fixed sentence about it, and nothing else:
         // neither what was seen, nor an amount, nor what it waits for — the
@@ -968,6 +1029,77 @@ async function openSignedNotice(page, title, body) {
     await expect(notice).toHaveCount(1);
     await expect(notice).toContainText(body);
     await notice.getByRole('button').click();
+}
+
+/**
+ * The signed inventory in the renter's mailbox: theirs alone, under its
+ * label and the booking's reference, the PDF attached — and nobody in
+ * copy, since the signing manager is told in the site (#989, Q1).
+ *
+ * @param {string} email the renter's address
+ * @param {string} reference the booking's LOC-XXXXXX
+ * @param {string} label « État des lieux d'entrée » or « … de sortie »
+ */
+async function expectInventoryMailed(email, reference, label) {
+    const message = await waitForMail(
+        (candidate) => candidate.to.includes(email) && candidate.subject.includes(reference)
+            && candidate.subject.includes(label),
+        { description: `« ${label} » sent to ${email}` },
+    );
+    // The renter alone: every address in To, not just one of them.
+    const recipients = message.to.match(/[^\s<>,;"]+@[^\s<>,;"]+/g) ?? [];
+    expect(recipients, 'the renter is the only recipient').toEqual([email]);
+    // A PDF part that is an attachment, not an inline body.
+    const pdfPart = message.raw.split(/^--\S+$/m).find((part) => /Content-Type: application\/pdf/i.test(part));
+    expect(pdfPart, 'the signed PDF is in the message').toBeDefined();
+    expect(pdfPart, 'the signed PDF is attached').toMatch(/Content-Disposition: attachment/i);
+    expect(message.raw, 'nobody is in copy').not.toMatch(/^(Cc|Bcc):/im);
+}
+
+/**
+ * On Documents, the inventory is filed and its send recorded.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {string} fileName the PDF's name, which tells the two phases apart
+ */
+async function expectFiledAndSent(page, fileName) {
+    const row = page.getByRole('row').filter({ hasText: fileName });
+    await expect(row).toHaveCount(1);
+    await expect(row).toContainText(/Envoyé le \d{2}\/\d{2}\/\d{4}/);
+}
+
+/**
+ * `lower` sits entirely below `upper`: on a phone they share no line.
+ *
+ * @param {import('@playwright/test').Locator} upper
+ * @param {import('@playwright/test').Locator} lower
+ */
+async function expectStackedBelow(upper, lower) {
+    const top = await upper.boundingBox();
+    const bottom = await lower.boundingBox();
+    expect(top, 'the upper control is laid out').not.toBeNull();
+    expect(bottom, 'the lower control is laid out').not.toBeNull();
+    expect(bottom.y, 'one control per line on a phone').toBeGreaterThanOrEqual(top.y + top.height - 1);
+}
+
+/**
+ * One photo through the « + Photo » tile, by tapping it and then one entry
+ * of its menu — the way a phone opens the camera or the gallery. The file
+ * chooser that entry opens is answered with `file`.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {import('@playwright/test').Locator} scope the form holding the tile
+ * @param {'Prendre une photo' | 'Choisir dans la galerie'} entry
+ * @param {{ name: string, mimeType: string, buffer: Buffer }} file
+ */
+async function pickPhoto(page, scope, entry, file) {
+    const pending = scope.locator('[data-photo-pending]');
+    const before = await pending.count();
+    await scope.getByRole('button', { name: '+ Photo' }).tap();
+    const chooser = page.waitForEvent('filechooser');
+    await scope.getByRole('button', { name: entry }).tap();
+    await (await chooser).setFiles(file);
+    await expect(pending).toHaveCount(before + 1);
 }
 
 /**

@@ -29,14 +29,70 @@ export async function traceSignature(page, canvas) {
 }
 
 /**
+ * The same stroke drawn by a finger: touch events sent through the
+ * browser's input pipeline (CDP), so the pad receives `pointerType: touch`
+ * and the page's `touch-action: none` is what keeps the gesture from
+ * scrolling instead of drawing. Needs a context created with `hasTouch`
+ * (a `devices[…]` phone). A stroke the pad missed is no silent pass: the
+ * server sends a renter without one back to the screen.
+ *
+ * The events go out in one burst, in order, rather than one round trip
+ * each: at a round trip apiece the stroke lasted over half a second, and
+ * the gesture that followed it was not recognised as a tap.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {import('@playwright/test').Locator} canvas
+ */
+export async function traceSignatureByTouch(page, canvas) {
+    await canvas.scrollIntoViewIfNeeded();
+    await settled(page);
+    const box = await canvas.boundingBox();
+    expect(box, 'the pad is on screen').not.toBeNull();
+    const at = (/** @type {number} */ x, /** @type {number} */ y) => ({ x: box.x + box.width * x, y: box.y + box.height * y });
+    const cdp = await page.context().newCDPSession(page);
+    const touch = (/** @type {string} */ type, /** @type {{x: number, y: number}[]} */ touchPoints) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints });
+    try {
+        const sent = [touch('touchStart', [at(0.2, 0.6)])];
+        for (let step = 1; step <= 8; step++) {
+            sent.push(touch('touchMove', [at(0.2 + 0.3 * step / 8, 0.6 - 0.3 * step / 8)]));
+        }
+        for (let step = 1; step <= 8; step++) {
+            sent.push(touch('touchMove', [at(0.5 + 0.3 * step / 8, 0.3 + 0.3 * step / 8)]));
+        }
+        sent.push(touch('touchEnd', []));
+        await Promise.all(sent);
+    } finally {
+        await cdp.detach();
+    }
+    await settled(page);
+}
+
+/**
+ * Two frames painted, so the pad is measured where the page has come to
+ * rest after scrolling it into view, and the stroke has been handled
+ * before the next gesture starts.
+ *
+ * @param {import('@playwright/test').Page} page
+ */
+async function settled(page) {
+    await page.evaluate(() => new Promise((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve(undefined)));
+    }));
+}
+
+/**
  * @param {import('@playwright/test').Page} page
  * @param {string} label the link on « État des lieux »
  * @param {{ renter: string } | { renterChoice: 'Le locataire est absent' | 'Le locataire refuse de signer' }} who
  *        the renter's typed name when they sign here, or the choice that sets them aside
+ * @param {{ touch?: boolean }} [options] `touch`: the screen is a phone's,
+ *        tapped and traced with a finger rather than clicked and drawn with a mouse
  */
-export async function signInventory(page, label, who) {
+export async function signInventory(page, label, who, options = {}) {
+    const touch = options.touch === true;
     const inventory = page.url().split(/[?#]/)[0];
-    await page.getByRole('link', { name: label }).click();
+    const link = page.getByRole('link', { name: label });
+    await (touch ? link.tap() : link.click());
     await page.waitForURL(/\/etat-des-lieux\/signer\?phase=(arrival|departure)$/, { waitUntil: 'load' });
 
     const form = page.locator('form[data-inventory-signing-form]');
@@ -45,16 +101,24 @@ export async function signInventory(page, label, who) {
     if ('renter' in who) {
         await expect(warning).toBeHidden();
         await renterFrame.getByLabel('Nom de la personne qui signe').fill(who.renter);
-        await traceSignature(page, renterFrame.locator('canvas[data-signature-pad]'));
+        const pad = renterFrame.locator('canvas[data-signature-pad]');
+        await (touch ? traceSignatureByTouch(page, pad) : traceSignature(page, pad));
     } else {
-        await form.getByLabel(who.renterChoice).check();
+        const choice = form.getByLabel(who.renterChoice);
+        await (touch ? choice.tap() : choice.check());
+        await expect(choice).toBeChecked();
         await expect(warning).toBeVisible();
         // Set aside by its disabled fieldset: the required name with it.
         await expect(renterFrame.getByLabel('Nom de la personne qui signe')).toBeDisabled();
     }
 
-    await signAsManager(page, form);
+    await signAsManager(page, form, { touch });
 
+    // Clicked even on a phone. In Chromium's touch emulation the tap that
+    // follows a synthetic stroke is now and then lost — the button gets its
+    // pointerdown and pointerup, never the click — while the same tap after
+    // a mouse stroke clicks: a trait of the emulation, measured, not of the
+    // page. What touch has to prove on this screen is the pads.
     await form.getByRole('button', { name: 'Valider, signer et envoyer' }).click();
     await page.waitForURL(inventory, { waitUntil: 'load' });
     await expect(page.getByRole('alert').filter({ hasText: 'signé et rangé dans les documents' })).toHaveCount(1);
@@ -68,14 +132,16 @@ export async function signInventory(page, label, who) {
  *
  * @param {import('@playwright/test').Page} page
  * @param {import('@playwright/test').Locator} form the signing form
+ * @param {{ touch?: boolean }} [options] `touch`: traced with a finger
  */
-export async function signAsManager(page, form) {
+export async function signAsManager(page, form, options = {}) {
     const managerFrame = form.locator('[data-signature-field]').filter({ hasNot: page.locator('[name^="renter_"]') });
     if (await managerFrame.getAttribute('data-signature-mode') === 'stored') {
         await expect(managerFrame.locator('[data-signature-preview] img'))
             .toHaveAttribute('src', '/account/signature/image');
     } else {
-        await traceSignature(page, managerFrame.locator('canvas[data-signature-pad]'));
+        const pad = managerFrame.locator('canvas[data-signature-pad]');
+        await (options.touch === true ? traceSignatureByTouch(page, pad) : traceSignature(page, pad));
     }
 }
 

@@ -84,8 +84,9 @@ class RentalInventoryValidationService
         . "Rien n'a été validé.";
 
     /** Said when a minimal inventory comes with a sheet signed on paper (#989, lots F and G). */
-    public const MINIMAL_NOT_ON_PAPER = "Ce bien n'a ni éléments d'état des lieux ni compteurs : il n'y a pas de liste à "
-        . "signer sur papier. Faites signer l'état des lieux sur l'écran, ou indiquez que le locataire est absent.";
+    public const MINIMAL_NOT_ON_PAPER = "Ce bien n'a ni éléments d'état des lieux ni compteurs : "
+        . "il n'y a pas de liste à signer sur papier. "
+        . "Faites signer l'état des lieux sur l'écran, ou indiquez que le locataire est absent.";
 
     public function __construct(
         private RentalStayService $stay,
