@@ -140,6 +140,58 @@ final class ShareHistory
     }
 
     /**
+     * For each destination, the failed publications of **this chief's own**
+     * messages about the source, with the text that failed (issue #881).
+     *
+     * The prefilled composer reads no history, so it shows a destination
+     * as available even when the same message, by the same chief, already
+     * failed there — and « Publier » then lands on that very communication
+     * (the twin key) and used to refuse. The confirmation now says the
+     * failed publication « sera relancée », and the click relaunches it.
+     *
+     * **Only the browser can say whether it is the same message**, for the
+     * reason {@see byDestination()} gives: the text sits in a textarea the
+     * chief can still change. So every failed text is shipped with its
+     * sentence, and the dialog compares the live text with each. Own
+     * messages only, because the twin key includes the author: another
+     * chief's failure is another communication, which this click would
+     * not reach.
+     *
+     * A publication left `pending` past the delay counts as failed, as it
+     * does in « Ce qui est parti » and for « Réessayer ».
+     *
+     * @return array<string, list<array{sentence: string, caption: string}>>
+     */
+    public function failedByDestination(?string $sourceKind, ?int $sourceId, ?int $accountId): array
+    {
+        if ($sourceKind === null || $sourceId === null || $accountId === null) {
+            return [];
+        }
+
+        $ids = $this->communications->idsForSource($sourceKind, $sourceId);
+        $creators = $this->communications->creatorsOf($ids);
+        $own = array_values(array_filter($ids, static fn (int $id): bool => ($creators[$id] ?? null) === $accountId));
+        if ($own === []) {
+            return [];
+        }
+
+        $staleBefore = (new \DateTimeImmutable())->modify('-' . PublishingService::STALE_MINUTES . ' minutes');
+        $failed = [];
+        foreach ($this->publications->forCommunications($own) as $publication) {
+            if (!$publication->isRetryable($staleBefore)) {
+                continue;
+            }
+            $failed[$publication->destination][] = [
+                'sentence' => 'La publication de ce même message a échoué le '
+                    . DateFilterExtension::frenchDate($publication->attemptedAt) . ' — elle sera relancée.',
+                'caption' => $publication->caption,
+            ];
+        }
+
+        return $failed;
+    }
+
+    /**
      * Every publication of every communication sharing this source.
      *
      * A communication with no source answers nothing: there is no

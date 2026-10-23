@@ -1341,6 +1341,178 @@ final class CommunicationControllerTest extends TestCase
         );
     }
 
+    // ————— Sharing again after a failure (issue #881) —————
+
+    /**
+     * The communication a chief's first share of the album created, with
+     * its Facebook publication failed — the state the prefilled composer
+     * used to lie about (« disponible », then a refusal).
+     */
+    private function albumTwinWithFailedFacebook(string $body = 'Les photos sont en ligne'): int
+    {
+        $at = new \DateTimeImmutable('-1 day');
+        $id = $this->communications->create('', $body, $this->author, $at, 'album', self::ALBUM_ID);
+        $this->publications->claim('communication', $id, 'facebook', false, $this->author, $at, $at->modify('-1 day'), 'Camp', $body);
+        $this->publications->markFailed('communication', $id, 'facebook', 'Connexion expirée.', $at);
+
+        return $id;
+    }
+
+    /** The message the last request left for the next page, read once. */
+    private function flashes(): string
+    {
+        return FlashMessage::get()['message'] ?? '';
+    }
+
+    /** @return array<string, string> */
+    private function albumShare(string $body = 'Les photos sont en ligne'): array
+    {
+        return [
+            'source_kind' => 'album',
+            'source_id' => (string) self::ALBUM_ID,
+            'body' => $body,
+            'action' => 'publish',
+            'destinations' => ['facebook'],
+        ];
+    }
+
+    /**
+     * Same album, same chief, same text: the site finds the communication
+     * it already has, and the failed destination is relaunched instead of
+     * refused. The confirmation the chief just gave stands for the retry
+     * one.
+     */
+    public function testSharingAgainAfterAFailureRelaunchesTheFailedDestination(): void
+    {
+        $id = $this->albumTwinWithFailedFacebook();
+        $this->loginAuthor();
+
+        $this->controller()->store($this->post($this->albumShare()), []);
+
+        $facebook = $this->publications->forSource('communication', $id)['facebook'];
+        $this->assertTrue($facebook->isPublished(), 'the failed destination was not relaunched');
+        $this->assertSame(
+            1,
+            (int) $this->pdo->query('SELECT COUNT(*) FROM social_communications')->fetchColumn(),
+            'the relaunch made a second communication'
+        );
+        $this->assertStringNotContainsString(
+            'relancez-la avec « Réessayer »',
+            $this->flashes(),
+            'the refusal that sent the chief to « Réessayer » was still shown'
+        );
+    }
+
+    /**
+     * A text rewritten before the click is another message, hence another
+     * communication: nothing is relaunched, the failure of the old one is
+     * left as it was, and the new one goes out normally.
+     */
+    public function testARewrittenTextIsANewCommunicationAndRelaunchesNothing(): void
+    {
+        $old = $this->albumTwinWithFailedFacebook();
+        $this->loginAuthor();
+
+        $this->controller()->store($this->post($this->albumShare('Un autre texte, tout neuf')), []);
+
+        $this->assertSame(
+            2,
+            (int) $this->pdo->query('SELECT COUNT(*) FROM social_communications')->fetchColumn()
+        );
+        $this->assertSame('failed', $this->publications->forSource('communication', $old)['facebook']->status);
+        $this->assertSame(
+            1,
+            (int) $this->pdo->query(
+                "SELECT COUNT(*) FROM social_publications WHERE status = 'published'"
+            )->fetchColumn(),
+            'the new message should have gone out, once'
+        );
+    }
+
+    /** What already went out stays refused: « déjà parti » is not a failure. */
+    public function testADestinationAlreadyPublishedOnTheTwinIsStillRefused(): void
+    {
+        $this->loginAuthor();
+        $this->controller()->store($this->post($this->albumShare()), []);
+        $sent = count($this->meta->requests);
+
+        $this->controller()->store($this->post($this->albumShare()), []);
+
+        $this->assertSame($sent, count($this->meta->requests), 'the second click published again');
+        $this->assertStringContainsString('Déjà publié', $this->flashes());
+    }
+
+    /**
+     * Two clicks in a row on a failed destination: the first relaunches
+     * it, the second finds it published and goes nowhere. One post.
+     */
+    public function testTwoClicksOnAFailedDestinationRelaunchItOnce(): void
+    {
+        $this->albumTwinWithFailedFacebook();
+        $this->loginAuthor();
+
+        $this->controller()->store($this->post($this->albumShare()), []);
+        $afterFirst = count($this->meta->requests);
+        $this->controller()->store($this->post($this->albumShare()), []);
+
+        $this->assertGreaterThan(0, $afterFirst);
+        $this->assertSame($afterFirst, count($this->meta->requests), 'the second click relaunched it again');
+    }
+
+    /**
+     * The decision is scoped to the prefilled composer: on a saved
+     * communication the failed destination keeps its own « Je confirme »
+     * box, and ticking the destination alone is still refused.
+     */
+    public function testTheSavedComposerStillAsksForItsOwnRetryConfirmation(): void
+    {
+        $id = $this->albumTwinWithFailedFacebook();
+        $this->loginAuthor();
+
+        $this->controller()->update(
+            $this->post(['body' => 'Les photos sont en ligne', 'action' => 'publish', 'destinations' => ['facebook']]),
+            ['id' => (string) $id]
+        );
+
+        $this->assertSame('failed', $this->publications->forSource('communication', $id)['facebook']->status);
+    }
+
+    /**
+     * The dialog is told, for the destination whose message failed, what
+     * the click will do — and the text that failed, since only the same
+     * text is the same message.
+     */
+    public function testThePrefilledComposerShipsTheFailureToTheDialog(): void
+    {
+        $this->albumTwinWithFailedFacebook();
+        $this->loginAuthor();
+
+        $html = $this->controller()->createFromSource($this->get(), ['kind' => 'album', 'id' => (string) self::ALBUM_ID])->getBody();
+
+        // Read the way the browser does: the attribute, un-escaped, then
+        // parsed as JSON.
+        $this->assertSame(1, preg_match('/data-failed-shares="([^"]*)"/', $html, $attribute));
+        $shipped = json_decode(html_entity_decode($attribute[1]), true);
+        $this->assertIsArray($shipped);
+        $this->assertCount(1, $shipped);
+        $this->assertStringEndsWith('elle sera relancée.', $shipped[0]['sentence']);
+        $this->assertSame('Les photos sont en ligne', $shipped[0]['caption']);
+    }
+
+    /** Nobody else's failure is announced on this chief's dialog. */
+    public function testAnotherChiefsFailureIsNotAnnouncedOnTheDialog(): void
+    {
+        $at = new \DateTimeImmutable('-1 day');
+        $theirs = $this->communications->create('', 'Les photos sont en ligne', $this->other, $at, 'album', self::ALBUM_ID);
+        $this->publications->claim('communication', $theirs, 'facebook', false, $this->other, $at, $at->modify('-1 day'), 'Camp', 'Les photos sont en ligne');
+        $this->publications->markFailed('communication', $theirs, 'facebook', 'Connexion expirée.', $at);
+        $this->loginAuthor();
+
+        $html = $this->controller()->createFromSource($this->get(), ['kind' => 'album', 'id' => (string) self::ALBUM_ID])->getBody();
+
+        $this->assertStringNotContainsString('data-failed-shares=', $html);
+    }
+
     /**
      * **Only the TEXT is frozen for a source-backed share, and a later
      * destination really does receive a renamed album's new title.**

@@ -297,7 +297,12 @@ final class CommunicationController extends AbstractController
         $communication = $this->communications->find($id);
         \assert($communication !== null);
 
-        return $this->act($request, $communication);
+        // **Only this path relaunches** (issue #881): it is the one the
+        // prefilled composer posts to, which reads no history and so
+        // showed a failed destination as available. A saved
+        // communication's composer shows its failures and keeps its own
+        // « Je confirme » box.
+        return $this->act($request, $communication, relaunchFailed: true);
     }
 
     /** @param array<string, string> $params */
@@ -876,7 +881,7 @@ final class CommunicationController extends AbstractController
      * draft with nothing to read. Saying « Communication enregistrée »
      * here would tell them something happened that they did not ask for.
      */
-    private function act(Request $request, Communication $communication): Response
+    private function act(Request $request, Communication $communication, bool $relaunchFailed = false): Response
     {
         $action = (string) $request->getBody('action', '');
         $self = self::path($communication);
@@ -909,7 +914,7 @@ final class CommunicationController extends AbstractController
             return $this->redirect($self);
         }
         if ($action === 'publish') {
-            return $this->publishNow($request, $communication);
+            return $this->publishNow($request, $communication, $relaunchFailed);
         }
 
         return $this->redirect($self);
@@ -961,7 +966,12 @@ final class CommunicationController extends AbstractController
         $this->communications->useUploadedFile($communication->id, $fileId, new \DateTimeImmutable());
     }
 
-    private function publishNow(Request $request, Communication $communication): Response
+    /**
+     * @param bool $relaunchFailed a ticked destination whose publication of
+     *        this very communication failed is relaunched, the confirmation
+     *        the chief just gave standing for the retry one (issue #881)
+     */
+    private function publishNow(Request $request, Communication $communication, bool $relaunchFailed = false): Response
     {
         $self = self::path($communication);
         $asked = PublishRequest::fromForm(
@@ -1003,6 +1013,21 @@ final class CommunicationController extends AbstractController
         $source = $this->communicationSource($communication->id);
         if ($source === null) {
             return new Response('Not Found', 404);
+        }
+
+        if ($relaunchFailed) {
+            // **Decided here and not by the browser**, which only tells
+            // the chief what is about to happen. The communication in hand
+            // is the one the twin key found — same source, same author,
+            // same text — so its failed publications are exactly "the
+            // publication of this same message". Two clicks in a row
+            // cannot relaunch twice: `claim()` takes a failed row
+            // atomically, and the second finds it pending or published.
+            $staleBefore = (new \DateTimeImmutable())->modify('-' . PublishingService::STALE_MINUTES . ' minutes');
+            $asked = $asked->relaunching(array_keys(array_filter(
+                $this->publications->forSource(ShareSource::KIND_COMMUNICATION, $communication->id),
+                static fn (Publication $publication): bool => $publication->isRetryable($staleBefore)
+            )));
         }
 
         $outcomes = $this->states->publish(
@@ -1106,6 +1131,17 @@ final class CommunicationController extends AbstractController
             // computed here: the text it is about is in a textarea the
             // chief can still change (`Claude review` on PR #868).
             'shared_by_destination' => $this->shareHistory->byDestination($sourceKind, $sourceId),
+            // **What « Publier » will relaunch** (issue #881), on the
+            // prefilled composer only — the page that reads no history
+            // and shows every destination as available. A saved
+            // communication shows its failures itself.
+            'failed_by_destination' => $communication === null
+                ? $this->shareHistory->failedByDestination(
+                    $sourceKind,
+                    $sourceId,
+                    AuthSession::getUserAccountId()
+                )
+                : [],
             'source_kind' => $fromSource ? $sourceKind : null,
             'source_id' => $fromSource ? ($communication->sourceId ?? $prefill?->id) : null,
             'source_label' => $fromSource ? ShareSourceResolver::sourceLabel((string) $sourceKind) : null,

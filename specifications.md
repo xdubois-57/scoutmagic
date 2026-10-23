@@ -3698,6 +3698,20 @@ de réécrire. Elle dit aussi, comme avant, qu'une publication est
 publique et hors du site, et reprend l'avertissement du composeur quand
 une photo de la galerie part sans flou. Elle n'interdit rien.
 
+**Une publication échouée du même message est relancée au clic** (décision
+du 20/10/2026, ticket #881). Le composeur prérempli ne lit aucun
+historique : il montre une destination « disponible » même quand le même
+message, par le même animateur, y a déjà échoué. La fenêtre le dit —
+« La publication de ce même message a échoué le 12 octobre 2026 — elle
+sera relancée. » — pour chaque destination cochée dont le texte écrit au
+moment du clic est celui qui a échoué (avec un texte réécrit, c'est une
+autre communication : pas de ligne). Au clic, le site relance cette
+publication, le même chemin que « Réessayer », au lieu de la refuser ; la
+confirmation tient lieu de celle d'un réessai. Une destination déjà
+publiée reste refusée (« déjà parti »), une publication en cours aussi, et
+deux clics de suite ne relancent qu'une fois. Le composeur d'une
+communication enregistrée garde sa propre case « Je confirme ».
+
 Les boutons du point 3 et le titre du point 5 n'apparaissent pas quand
 l'image vient d'une source (§ 47.6) : l'image et le titre sont ceux de
 l'album ou de l'actualité. **Il n'y a pas de « Enregistrer »** : « Publier » enregistre

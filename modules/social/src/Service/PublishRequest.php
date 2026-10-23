@@ -59,6 +59,39 @@ final class PublishRequest
         );
     }
 
+    /**
+     * The same request, with the failed destinations it ticked confirmed
+     * as retries (issue #881).
+     *
+     * `$failedKeys` are the destination keys whose publication failed
+     * (`facebook`, `group:3`). A ticked destination among them is
+     * relaunched instead of refused; one that is not ticked stays out —
+     * relaunching confirms what was asked, it never adds a destination.
+     *
+     * @param list<string> $failedKeys
+     */
+    public function relaunching(array $failedKeys): self
+    {
+        $retries = $this->platformRetries;
+        foreach ($this->platforms as $platform) {
+            if (in_array($platform->value, $failedKeys, true) && !in_array($platform, $retries, true)) {
+                $retries[] = $platform;
+            }
+        }
+
+        $groupRetries = $this->groupRetries;
+        foreach ($this->groupIds as $groupId) {
+            if (
+                in_array(GroupPublishingService::KEY_PREFIX . $groupId, $failedKeys, true)
+                && !in_array($groupId, $groupRetries, true)
+            ) {
+                $groupRetries[] = $groupId;
+            }
+        }
+
+        return new self($this->platforms, $retries, $this->groupIds, $groupRetries);
+    }
+
     public function isEmpty(): bool
     {
         return $this->platforms === [] && $this->groupIds === [];

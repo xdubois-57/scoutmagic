@@ -241,6 +241,73 @@ final class ShareHistoryTest extends TestCase
      *
      * @return int the communication's id
      */
+    // ————— What a click would relaunch (issue #881) —————
+
+    /**
+     * The failure of the chief's own message is offered, with the text
+     * that failed: the browser compares it with the live textarea, since
+     * only the same text is the same communication.
+     */
+    public function testTheChiefsOwnFailedMessageIsOfferedForRelaunch(): void
+    {
+        $this->recordAttempt('Les photos sont en ligne', 'facebook', '2026-09-12 10:00:00', published: false);
+
+        $offered = $this->history->failedByDestination(ShareSource::KIND_ALBUM, self::ALBUM, 7);
+
+        $this->assertSame(
+            [
+                'facebook' => [[
+                    'sentence' => 'La publication de ce même message a échoué le 12 septembre 2026'
+                        . ' — elle sera relancée.',
+                    'caption' => 'Les photos sont en ligne',
+                ]],
+            ],
+            $offered
+        );
+    }
+
+    /** Another chief's message is another communication: not theirs to relaunch. */
+    public function testAnotherChiefsFailureIsNotOffered(): void
+    {
+        $this->recordAttempt('Les photos sont en ligne', 'facebook', '2026-09-12 10:00:00', published: false);
+
+        $this->assertSame([], $this->history->failedByDestination(ShareSource::KIND_ALBUM, self::ALBUM, 8));
+        $this->assertSame([], $this->history->failedByDestination(ShareSource::KIND_ALBUM, self::ALBUM, null));
+    }
+
+    /** A destination that went out is « déjà parti », not a failure to relaunch. */
+    public function testAPublishedShareIsNotOffered(): void
+    {
+        $this->share('Les photos sont en ligne', 'facebook', '2026-09-12 10:00:00');
+
+        $this->assertSame([], $this->history->failedByDestination(ShareSource::KIND_ALBUM, self::ALBUM, 7));
+    }
+
+    /**
+     * A publication in progress is not a failure; one left pending past
+     * the delay was interrupted, which is what the history already calls
+     * a failure and « Réessayer » already takes over.
+     */
+    public function testOnlyAnInterruptedPendingIsOffered(): void
+    {
+        $fresh = new \DateTimeImmutable('-1 minute');
+        $stale = new \DateTimeImmutable('-1 hour');
+        $freshId = $this->communications->create('', 'Texte récent', 7, $fresh, ShareSource::KIND_ALBUM, self::ALBUM);
+        $staleId = $this->communications->create('', 'Texte ancien', 7, $stale, ShareSource::KIND_ALBUM, self::ALBUM);
+        $this->publications->claim('communication', $freshId, 'facebook', false, 7, $fresh, $fresh->modify('-15 minutes'), 'T', 'Texte récent');
+        $this->publications->claim('communication', $staleId, 'instagram', false, 7, $stale, $stale->modify('-15 minutes'), 'T', 'Texte ancien');
+
+        $offered = $this->history->failedByDestination(ShareSource::KIND_ALBUM, self::ALBUM, 7);
+
+        $this->assertSame(['instagram'], array_keys($offered));
+    }
+
+    /** A communication with no source has no « same message » to relaunch. */
+    public function testNoSourceOffersNothing(): void
+    {
+        $this->assertSame([], $this->history->failedByDestination(null, null, 7));
+    }
+
     private function share(string $body, string $destination, string $when): int
     {
         return $this->recordAttempt($body, $destination, $when, published: true);

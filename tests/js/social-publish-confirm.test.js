@@ -17,11 +17,12 @@ let asked;
 /** Whether the form was submitted, and with which submitter. */
 let submitted;
 
-function buildPage({ shared = true, groupsTicked = false, sharp = false, caption = 'Les photos sont en ligne' } = {}) {
+function buildPage({ shared = true, groupsTicked = false, sharp = false, caption = 'Les photos sont en ligne', failed = null } = {}) {
+    const failedAttribute = failed === null ? '' : `data-failed-shares='${JSON.stringify(failed)}'`;
     document.body.innerHTML = `
         <form>
             <textarea id="communication-body">${caption}</textarea>
-            <div data-destination="facebook" data-destination-label="Facebook"
+            <div data-destination="facebook" data-destination-label="Facebook" ${failedAttribute}
                  ${shared ? 'data-shared-line="Cet album est déjà parti sur Facebook le 12 septembre 2026"'
         + ' data-shared-caption="Les photos sont en ligne"' : ''}>
                 <input type="checkbox" name="destinations[]" value="facebook" checked>
@@ -253,5 +254,58 @@ describe('answering it', () => {
         await settle();
 
         expect(submitted).toBeUndefined();
+    });
+});
+
+describe('a destination whose message failed (issue #881)', () => {
+    const failure = [{
+        sentence: 'La publication de ce même message a échoué le 12 octobre 2026 — elle sera relancée.',
+        caption: 'Les photos sont en ligne',
+    }];
+
+    async function blockOfFacebook() {
+        await load();
+        button().click();
+        await settle();
+
+        return asked.content.find((block) => block.title === 'Facebook');
+    }
+
+    it('says the failed publication will be relaunched, when the text is the same', async () => {
+        buildPage({ failed: failure });
+
+        const block = await blockOfFacebook();
+
+        expect(block.text).toBe(failure[0].sentence);
+        expect(block.tone).toBe('warning');
+    });
+
+    it('says nothing of the failure once the text has been rewritten', async () => {
+        buildPage({ failed: failure, caption: 'Un texte entièrement réécrit' });
+
+        const block = await blockOfFacebook();
+
+        expect(block.text).not.toContain('relancée');
+        expect(block.text).toContain('avec un autre message');
+    });
+
+    it('compares the live text, trimmed, with every failure it was given', async () => {
+        buildPage({
+            failed: [{ sentence: 'Autre échec', caption: 'Un autre texte' }].concat(failure),
+            caption: '  Les photos sont en ligne  ',
+        });
+
+        const block = await blockOfFacebook();
+
+        expect(block.text).toBe(failure[0].sentence);
+    });
+
+    it('ignores a malformed list rather than breaking the dialog', async () => {
+        buildPage({ failed: null });
+        document.querySelector('[data-destination="facebook"]').dataset.failedShares = '{pas du json';
+
+        const block = await blockOfFacebook();
+
+        expect(block.text).toContain('avec le même message');
     });
 });

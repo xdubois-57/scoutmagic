@@ -100,6 +100,28 @@
     }
 
     /**
+     * The failed publications the server listed for this destination.
+     * A list that cannot be read is no list: the dialog then speaks as it
+     * did before, which is never wrong, only less complete.
+     *
+     * @param {HTMLElement} row
+     * @returns {Array<{sentence: string, caption: string}>}
+     */
+    function failedShares(row) {
+        try {
+            const parsed = JSON.parse(row.dataset.failedShares || '[]');
+
+            return Array.isArray(parsed)
+                ? parsed.filter(function (item) {
+                    return item && typeof item.sentence === 'string' && typeof item.caption === 'string';
+                })
+                : [];
+        } catch (error) {
+            return [];
+        }
+    }
+
+    /**
      * @param {HTMLElement} row
      * @param {string} caption the text about to be published, trimmed
      * @returns {{kind: 'box', tone: 'muted'|'warning', title: string, text: string}}
@@ -107,6 +129,19 @@
     function blockFor(row, caption) {
         const sentence = row.dataset.sharedLine || '';
         const title = row.dataset.destinationLabel || '';
+
+        // **A failure of this very message wins** (issue #881): same
+        // album, same chief, same text is the communication the click
+        // lands on, and the server relaunches the failed publication
+        // instead of refusing it. Only the live text can say it is the
+        // same one, which is why the server ships every failed text.
+        const relaunch = failedShares(row).find(function (failure) {
+            return failure.caption.trim() === caption;
+        });
+        if (relaunch !== undefined) {
+            return { kind: 'box', tone: 'warning', title: title, text: relaunch.sentence };
+        }
+
         if (sentence === '') {
             // Muted where nothing went: the colour is the first thing
             // read, and the only line worth stopping on is the one that
