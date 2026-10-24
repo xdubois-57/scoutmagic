@@ -303,7 +303,7 @@
     "/mass-mail/audiences/{id}": {
       "id": "1"
     },
-    "/mass-mail/recipients/{id}": {
+    "/mass-mail/deliveries/{id}": {
       "id": "1"
     },
     "/mass-mail/unsubscribe/{id}": {
@@ -318,7 +318,7 @@
     "/members/{id}": {
       "email_id": "1",
       "id": "1",
-      "recipient_id": "1"
+      "target_id": "1"
     },
     "/mes-locations/{slug}": {
       "document": "conditions",

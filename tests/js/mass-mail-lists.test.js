@@ -733,6 +733,8 @@ describe('mass-mail-lists.js', () => {
                     { name: 'Hélène Collard', display_name: 'Ourson', email: 'helene@example.be', block_ids: [11] },
                     { name: 'Commune', display_name: null, email: 'commune@example.be', block_ids: [12] },
                 ],
+                // One member group member; the contact is no member.
+                target_count: 1,
                 blocks: {
                     11: { kind: 'member_group', label: 'Animateur' },
                     12: { kind: 'contact_group', label: 'Partenaires de la fête' },
@@ -746,17 +748,39 @@ describe('mass-mail-lists.js', () => {
                 await settle();
             }
 
-            it('lists who receives for the effective year, each with the block that brings them', async () => {
+            it('lists the messages for the effective year, each with the block that brings it', async () => {
                 await open();
 
                 expect(lastRequest().url).toBe('/admin/listes-de-diffusion/lists/5/recipients?year=3');
+                // Messages, one per address, and the members the list
+                // designates — never one figure for both (issue #999).
                 expect(document.getElementById('mm-recipients-modal-title').textContent)
-                    .toBe('2 destinataires en 2026-2027');
+                    .toBe('2 messages en 2026-2027 · 1 animé ciblé');
                 const rows = document.querySelectorAll('[data-recipients-rows] li');
                 expect(rows).toHaveLength(2);
                 expect(rows[0].textContent).toContain('Hélène Collard — Ourson');
                 expect(rows[0].querySelector('.badge').textContent).toBe('Animateur');
                 expect(rows[1].querySelector('.badge').textContent).toBe('Partenaires de la fête');
+            });
+
+            it('names a family address once, with every member it concerns, and counts both apart', async () => {
+                await boot();
+                global.fetch = vi.fn(() => jsonResponse({
+                    ...RECIPIENTS,
+                    recipients: [
+                        { name: 'Alice Dupont, Bob Dupont', display_name: null, email: 'famille@example.be', block_ids: [11] },
+                    ],
+                    target_count: 3,
+                }));
+
+                document.querySelector('[data-recipients-open]').click();
+                await settle();
+
+                expect(document.getElementById('mm-recipients-modal-title').textContent)
+                    .toBe('1 message en 2026-2027 · 3 animés ciblés');
+                const rows = document.querySelectorAll('[data-recipients-rows] li');
+                expect(rows).toHaveLength(1);
+                expect(rows[0].textContent).toContain('Alice Dupont, Bob Dupont');
             });
 
             it('searches without minding accents', async () => {

@@ -43,7 +43,8 @@ use Modules\MassMail\Repository\ListBlock;
 use Modules\MassMail\Repository\ListBlockRepository;
 use Modules\MassMail\Repository\MailingListRepository;
 use Modules\MassMail\Repository\MemberResolutionRepository;
-use Modules\MassMail\Repository\RecipientRepository;
+use Modules\MassMail\Repository\DeliveryRepository;
+use Modules\MassMail\Repository\TargetRepository;
 use Modules\MassMail\Repository\SuppressedAddressRepository;
 use Modules\MassMail\Service\AudienceImportService;
 use Modules\MassMail\Service\ListBlockService;
@@ -156,7 +157,8 @@ class MassMailPageTest extends TestCase
 
         $this->massMailService = new MassMailService(
             new EmailRepository($this->pdo),
-            new RecipientRepository($this->pdo, $encryption),
+            new DeliveryRepository($this->pdo, $encryption),
+            new TargetRepository($this->pdo),
             new EmailAttachmentRepository($this->pdo),
             new FileRepository($this->pdo),
             $listService,
@@ -599,6 +601,106 @@ class MassMailPageTest extends TestCase
 
         $this->assertStringContainsString('figée', $body);
         $this->assertStringContainsString('/mass-mail/' . $email->id . '/tracking', $body);
+    }
+
+    // -----------------------------------------------------------------
+    // « Suivi » and « Renvoyer » (issue #999, screen 3)
+    // -----------------------------------------------------------------
+
+    /**
+     * One line per MESSAGE — its address — then one per member left
+     * without any message, « Non envoyée » ; the counts count messages and
+     * name the members apart.
+     */
+    public function testTheTrackingPageListsMessagesAndTheMembersLeftWithoutOne(): void
+    {
+        $email = $this->createDraft('Week-end');
+        $this->pdo->exec("UPDATE mass_mail_emails SET status = 'sending' WHERE id = {$email->id}");
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $deliveries = new DeliveryRepository($this->pdo, $encryption);
+        $targets = new TargetRepository($this->pdo);
+        $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('TRK1')");
+        $alice = (int) $this->pdo->lastInsertId();
+        $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('TRK2')");
+        $charlie = (int) $this->pdo->lastInsertId();
+        $aliceTarget = $targets->create($email->id, $alice, $this->scoutYearId);
+        $targets->create($email->id, $charlie, $this->scoutYearId);
+        $deliveries->linkTargets($deliveries->create($email->id, 'famille.dupont@example.test', 'sent'), [$aliceTarget]);
+        $deliveries->linkTargets(
+            $deliveries->create($email->id, 'alice.dupont@example.test', 'error', 'Boîte pleine'),
+            [$aliceTarget]
+        );
+
+        $body = (string) $this->controller
+            ->tracking($this->get('/mass-mail/' . $email->id . '/tracking'), ['id' => (string) $email->id])
+            ->getBody();
+
+        $this->assertStringContainsString('famille.dupont@example.test', $body);
+        $this->assertStringContainsString('Boîte pleine', $body);
+        $this->assertStringContainsString('2 messages', $body);
+        $this->assertStringContainsString('2 animés ciblés', $body);
+        $this->assertStringContainsString('dont 1 sans adresse', $body);
+        $this->assertStringContainsString('Non envoyée', $body);
+        $this->assertStringContainsString('Aucune adresse valide', $body);
+        $this->assertSame(2, substr_count($body, 'mmt-resend-btn'), 'one « Renvoyer » per message, none for the member without one');
+    }
+
+    private function aDeliveryInError(): int
+    {
+        $email = $this->createDraft('Renvoi');
+
+        return (new DeliveryRepository($this->pdo, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))))
+            ->create($email->id, 'x@example.test', 'error', 'Erreur');
+    }
+
+    /** Through the router: « Renvoyer » is a chief's, an intendant is refused. */
+    public function testAnIntendantIsRefusedTheResendRoute(): void
+    {
+        $deliveryId = $this->aDeliveryInError();
+
+        AuthSession::login($this->accountId, 'intendant@test.com', 'intendant');
+        $refused = $this->frontController('/mass-mail/deliveries/{id}/resend', 'resend', 'POST')
+            ->handle(new Request('POST', '/mass-mail/deliveries/' . $deliveryId . '/resend', [], [], [], []));
+
+        $this->assertSame(403, $refused->getStatusCode());
+    }
+
+    public function testAChiefReachesTheResendRouteOfAMessage(): void
+    {
+        $deliveryId = $this->aDeliveryInError();
+
+        AuthSession::login($this->accountId, 'chief@test.com', 'chief');
+        $reached = $this->frontController('/mass-mail/deliveries/{id}/resend', 'resend', 'POST')
+            ->handle(new Request('POST', '/mass-mail/deliveries/' . $deliveryId . '/resend', [], [], [], []));
+
+        // Reached the controller, which refuses a body without its CSRF
+        // token — the JSON body is php://input, out of a test's reach.
+        $this->assertSame(400, $reached->getStatusCode());
+        $this->assertSame('error', (new DeliveryRepository($this->pdo, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))))
+            ->findById($deliveryId)?->status, 'nothing was resent');
+    }
+
+    /** With its token, « Renvoyer » puts the message back in the queue. */
+    public function testAChiefResendsAMessageInErrorWithItsToken(): void
+    {
+        $deliveryId = $this->aDeliveryInError();
+
+        AuthSession::login($this->accountId, 'chief@test.com', 'chief');
+        $response = $this->frontController('/mass-mail/deliveries/{id}/resend', 'resend', 'POST')
+            ->handle(new \Tests\RequestWithInput(
+                'POST',
+                '/mass-mail/deliveries/' . $deliveryId . '/resend',
+                [],
+                [],
+                [],
+                [],
+                (string) json_encode(['_csrf_token' => CsrfGuard::generateToken()])
+            ));
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertTrue(json_decode($response->getBody(), true)['success'] ?? false);
+        $this->assertSame('pending', (new DeliveryRepository($this->pdo, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))))
+            ->findById($deliveryId)?->status);
     }
 
     // -----------------------------------------------------------------
@@ -1068,7 +1170,7 @@ class MassMailPageTest extends TestCase
         $this->assertSame(Email::STATUS_TEST, $this->massMailService->findById($email->id)?->status);
         $this->assertSame(
             0,
-            (int) $this->pdo->query('SELECT COUNT(*) FROM mass_mail_recipients')->fetchColumn(),
+            (int) $this->pdo->query('SELECT COUNT(*) FROM mass_mail_deliveries')->fetchColumn(),
             'the freeze wrote recipients despite refusing the send'
         );
     }

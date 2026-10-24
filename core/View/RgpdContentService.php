@@ -554,11 +554,15 @@ localisation et privacy policy
 10. **Téléphonie** : Si sos_staff actif, utiliser {$phoneProvider} (OVH Télécom ou autre)
 10bis. **Envoi de mails** : Si mass_mail actif, conserver explicitement dans la section 2.4 : (a) que l'adresse email
 de chaque destinataire est copiée depuis la fiche membre chiffrée au moment précis du lancement de l'envoi (et non
-relue à chaque envoi individuel) puis conservée chiffrée dans une table dédiée aux destinataires ; (b) que l'adresse
+relue à chaque envoi individuel) puis conservée chiffrée dans une table dédiée aux messages, un message par adresse
+(chaque message part à une seule adresse, et une adresse partagée par plusieurs animés n'en reçoit qu'un) ; que les
+animés auxquels l'envoi est destiné (les « cibles ») sont enregistrés à part, sans adresse, pour l'historique de leur
+fiche et pour n'envoyer qu'une notification par compte concerné ; (b) que l'adresse
 d'expédition (From) utilisée est celle de la section expéditrice choisie pour l'email, et non l'adresse d'expédition
-générale du site ; (c) qu'il n'existe à ce jour aucune purge automatique dédiée aux anciens envois — ils sont
-conservés au même titre que le reste des données actives de l'unité (section 3.1), à l'exception des données importées
-d'un publipostage (voir d) ; (c bis) conserver intégralement le paragraphe « Groupes de contacts » : une liste
+générale du site ; (c) qu'il n'existe à ce jour aucune purge automatique dédiée aux anciens envois — leurs messages
+et leurs cibles sont conservés au même titre que le reste des données actives de l'unité (section 3.1), à l'exception
+des données importées d'un publipostage et des notifications qui en reprennent l'objet (voir d) ;
+(c bis) conserver intégralement le paragraphe « Groupes de contacts » : une liste
 personnalisée peut contenir des groupes de contacts, c'est-à-dire des personnes extérieures à l'unité (commune,
 paroisse, propriétaire d'un terrain, ancien membre) fournies par un chef d'unité au moyen d'un fichier Excel
 supprimé dès sa lecture, dont le nom facultatif et l'adresse sont chiffrés au repos, accompagnés d'une empreinte

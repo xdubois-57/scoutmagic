@@ -15,24 +15,29 @@ use Core\Scheduler\SchedulerService;
 use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
 use Core\Security\CapabilityToken;
+use Core\Member\MemberService;
 use Modules\MassMail\Repository\AudienceRepository;
+use Modules\MassMail\Repository\Delivery;
+use Modules\MassMail\Repository\DeliveryRepository;
 use Modules\MassMail\Repository\Email;
 use Modules\MassMail\Repository\EmailAttachmentRepository;
 use Modules\MassMail\Repository\EmailRepository;
-use Modules\MassMail\Repository\Recipient;
-use Modules\MassMail\Repository\RecipientRepository;
+use Modules\MassMail\Repository\NotifiedAccountRepository;
 use Modules\MassMail\Repository\SuppressedAddressRepository;
+use Modules\MassMail\Repository\Target;
+use Modules\MassMail\Repository\TargetRepository;
 use Modules\MassMail\Service\MassMailService;
 use Modules\MassMail\Service\MergeRenderer;
-use Modules\MassMail\Service\RecipientEmailLink;
+use Modules\MassMail\Service\TargetEmailLink;
 
 /**
  * The one and only task type mass_mail ever schedules (module spec —
- * explicitly never one job per recipient). Each run pulls the oldest
- * pending recipients across every email combined (FIFO,
- * Repository\RecipientRepository::findOldestPending()), sends each via
- * Core\Mail\MailService, and — as long as any 'pending' row remains
- * anywhere — reschedules itself.
+ * explicitly never one job per message). Each run pulls the oldest pending
+ * MESSAGES across every email combined (FIFO,
+ * Repository\DeliveryRepository::findOldestPending()) — one address each
+ * (issue #999) — sends each via Core\Mail\MailService exactly as before,
+ * and — as long as any 'pending' message remains anywhere — reschedules
+ * itself. An email is 'sent' once none of its messages is pending.
  *
  * **How big a lot is, and how long to wait after it, is no longer this
  * module's to decide.** Those were two of its own settings; they are now
@@ -60,7 +65,8 @@ class SendBatchHandler implements TaskHandlerInterface
     {
         $pdo = $context->connection->getPdo();
 
-        $recipientRepository = new RecipientRepository($pdo, $context->encryption);
+        $deliveryRepository = new DeliveryRepository($pdo, $context->encryption);
+        $targetRepository = new TargetRepository($pdo);
         $emailRepository = new EmailRepository($pdo);
         $attachmentRepository = new EmailAttachmentRepository($pdo);
         $fileRepository = new \Core\File\FileRepository($pdo);
@@ -71,36 +77,39 @@ class SendBatchHandler implements TaskHandlerInterface
         $cadence = $this->cadence($context);
         $batchSize = $cadence['batch_size'];
 
-        $batch = $recipientRepository->findOldestPending($batchSize);
+        $batch = $deliveryRepository->findOldestPending($batchSize);
 
         $sentCount = 0;
         $errorCount = 0;
         $touchedEmailIds = [];
         $senderIdentityBySection = [];
 
-        foreach ($batch as $recipient) {
-            $touchedEmailIds[$recipient->emailId] = true;
+        foreach ($batch as $delivery) {
+            $touchedEmailIds[$delivery->emailId] = true;
+            // The members this message concerns: what its journal lines
+            // name, and who its notification is about. None for a
+            // contact's message or a file row without a Tiers.
+            $targets = $targetRepository->findByDelivery($delivery->id);
+            $memberIds = array_values(array_unique(array_map(static fn(Target $t): int => $t->memberId, $targets)));
 
-            $email = $emailRepository->findById($recipient->emailId);
-            if ($email === null || $recipient->emailAddress === null) {
-                // A frozen recipient row is only ever created with a null
-                // address alongside status 'error' (never 'pending') — this
-                // branch is defensive, not an expected path.
-                $recipientRepository->recordSendFailure($recipient->id, 'Adresse invalide');
-                $massMailService->journalRecipientNotSendable(
-                    $recipient->emailId,
-                    $recipient->id,
-                    $recipient->memberId,
-                    'Adresse invalide'
+            $email = $emailRepository->findById($delivery->emailId);
+            if ($email === null) {
+                // Defensive: the email cascades its messages away.
+                $deliveryRepository->recordSendFailure($delivery->id, 'Email introuvable');
+                $massMailService->journalDeliveryNotSendable(
+                    $delivery->emailId,
+                    $delivery->id,
+                    $memberIds,
+                    'Email introuvable'
                 );
                 $errorCount++;
                 continue;
             }
 
-            // Mail-merge: this recipient's subject/body are rendered from
-            // their own audience row's values, right before sending. A row
-            // already purged by retention can't be rendered — explicit
-            // failure, never a mail with raw {{tokens}} in it.
+            // Mail-merge: this message's subject/body are rendered from its
+            // own file row's values, right before sending. A row already
+            // purged by retention can't be rendered — explicit failure,
+            // never a mail with raw {{tokens}} in it.
             $subject = $email->subject;
             $baseBodyHtml = $email->bodyHtml;
             // **What a seed copy may carry, decided here rather than
@@ -111,15 +120,15 @@ class SendBatchHandler implements TaskHandlerInterface
             $seedSubject = $email->subject;
             $seedBodyHtml = $email->bodyHtml;
             if ($email->listType === Email::LIST_TYPE_MAIL_MERGE) {
-                $mergeRow = $recipient->audienceRowId !== null
-                    ? $audienceRepository->findRowById($recipient->audienceRowId)
+                $mergeRow = $delivery->audienceRowId !== null
+                    ? $audienceRepository->findRowById($delivery->audienceRowId)
                     : null;
                 if ($mergeRow === null) {
-                    $recipientRepository->recordSendFailure($recipient->id, 'Données de publipostage purgées');
-                    $massMailService->journalRecipientNotSendable(
+                    $deliveryRepository->recordSendFailure($delivery->id, 'Données de publipostage purgées');
+                    $massMailService->journalDeliveryNotSendable(
                         $email->id,
-                        $recipient->id,
-                        $recipient->memberId,
+                        $delivery->id,
+                        $memberIds,
                         'Données de publipostage purgées'
                     );
                     $errorCount++;
@@ -159,7 +168,7 @@ class SendBatchHandler implements TaskHandlerInterface
                 }
             }
 
-            // Cached per batch — several recipients typically share the
+            // Cached per batch — several messages typically share the
             // same email/sender section.
             if (!isset($senderIdentityBySection[$email->sectionId])) {
                 $senderIdentityBySection[
@@ -169,27 +178,24 @@ class SendBatchHandler implements TaskHandlerInterface
             $sender = $senderIdentityBySection[$email->sectionId];
 
             // One-click unsubscribe (module addendum, RFC 8058) — a fresh
-            // token generated right before this actual send (never at
-            // freeze time in MassMailService::startSending(), which only
-            // resolves member_email_id; there'd be nowhere safe to hold a
-            // raw token between freezing and sending), same generation/
-            // hashing convention as Core\Security\AuthService's magic
-            // links. Every send gets the footer link + both headers,
-            // regardless of whether this recipient's address maps to the
-            // Desk-imported email or a secondary one — Modules\MassMail\
+            // token for THIS message, generated right before this actual
+            // send (never at freeze time in MassMailService::startSending();
+            // there'd be nowhere safe to hold a raw token between freezing
+            // and sending). Every message gets the footer link + both
+            // headers, whatever its address is — Modules\MassMail\
             // Controller\UnsubscribeController resolves the right
-            // Core\Member\MemberEmail row from recipient->memberEmailId.
+            // Core\Member\MemberEmail row from delivery->memberEmailId.
             // The token is 32 bytes of entropy, so a fast hash (SHA-256 +
             // hash_equals on verify) is as safe as bcrypt here and avoids a
             // per-request bcrypt on an anonymous endpoint — a needless
             // CPU-burn primitive an attacker could hammer (audit hardening).
             $rawUnsubscribeToken = CapabilityToken::generate();
-            $recipientRepository->setUnsubscribeTokenHash(
-                $recipient->id,
+            $deliveryRepository->setUnsubscribeTokenHash(
+                $delivery->id,
                 CapabilityToken::hash($rawUnsubscribeToken)
             );
             $unsubscribeUrl = rtrim((string) $context->settings->get('base_url'), '/')
-                . '/mass-mail/unsubscribe/' . $recipient->id . '?token=' . $rawUnsubscribeToken;
+                . '/mass-mail/unsubscribe/' . $delivery->id . '?token=' . $rawUnsubscribeToken;
 
             $bodyHtml = $baseBodyHtml
                 . '<hr><p style="font-size:12px;color:#999;">Vous recevez cet email en tant que membre de l\'unité. '
@@ -201,7 +207,7 @@ class SendBatchHandler implements TaskHandlerInterface
 
             try {
                 $context->mailService->send(
-                    $recipient->emailAddress,
+                    $delivery->emailAddress,
                     $subject,
                     $bodyHtml,
                     $bodyText,
@@ -322,7 +328,7 @@ class SendBatchHandler implements TaskHandlerInterface
                         $seedSubject
                     )
                 );
-                $recipientRepository->recordSendSuccess($recipient->id);
+                $deliveryRepository->recordSendSuccess($delivery->id);
                 // **The module vouches for its own contacts**
                 // (roadmap IT-05). `Core\Mail\MailService::send()` stamps
                 // a bounce receipt by itself, but only for an address the
@@ -357,7 +363,7 @@ class SendBatchHandler implements TaskHandlerInterface
                 // hand. A receipt is not worth a mailing.
                 try {
                     (new \Core\Mail\Feedback\Bounce\BounceStateRepository($pdo, $context->encryption))
-                        ->recordSend($recipient->emailAddress, new \DateTimeImmutable(), true);
+                        ->recordSend($delivery->emailAddress, new \DateTimeImmutable(), true);
                 } catch (\Throwable) {
                     // Deliberately silent, for the same reason the twin
                     // gives: there is nobody to tell who could act on it,
@@ -369,16 +375,40 @@ class SendBatchHandler implements TaskHandlerInterface
                 // batch summary below stays, but it answers a different
                 // question ("did the scheduler run, and how big was the
                 // lot?") and answers nothing about any one recipient.
-                $massMailService->journalRecipientSent($email->id, $recipient->id, $recipient->memberId);
+                $massMailService->journalDeliverySent($email->id, $delivery->id, $memberIds);
                 $sentCount++;
-                $this->dispatchEmailReceivedNotification(
-                    $context,
-                    $recipient,
-                    $email,
-                    $subject,
-                    $email->listType === Email::LIST_TYPE_MAIL_MERGE
-                        && $mergeRenderer->containsToken($email->subject)
-                );
+                // Best-effort, like the receipt above: the copy has left
+                // and its row says so. A notification that throws — a
+                // \PDOException from the claim, an error from dispatch(),
+                // or a MailException, which the handler below would turn
+                // into an `error` on a message that was in fact sent —
+                // must not cost the rest of the mailing. Journaled without
+                // the address or any text of the message.
+                try {
+                    $this->notifyOnce(
+                        $context,
+                        $delivery,
+                        $targets,
+                        $email,
+                        $subject,
+                        $email->listType === Email::LIST_TYPE_MAIL_MERGE
+                            && $mergeRenderer->containsToken($email->subject)
+                    );
+                } catch (\Throwable $e) {
+                    try {
+                        $context->journal->log(
+                            'mass_mail',
+                            'notification_failed',
+                            'error',
+                            'Notification non envoyée pour un message de l\'envoi groupé',
+                            ['email_id' => $email->id, 'delivery_id' => $delivery->id, 'exception' => $e::class],
+                            null
+                        );
+                    } catch (\Throwable) {
+                        // Nobody left to tell: the journal goes through the
+                        // same database that may just have refused.
+                    }
+                }
             } catch (\Core\Mail\SuppressedRecipientException) {
                 // Caught ahead of the general case so the tracking page
                 // keeps one vocabulary: the freeze writes this same
@@ -387,8 +417,8 @@ class SendBatchHandler implements TaskHandlerInterface
                 // batches later. The exception's own message is written
                 // for the MEMBER — it names their address page — and this
                 // column is read by staff.
-                $recipientRepository->recordSendFailure(
-                    $recipient->id,
+                $deliveryRepository->recordSendFailure(
+                    $delivery->id,
                     'Adresse suspendue après des refus répétés'
                 );
                 $errorCount++;
@@ -401,8 +431,8 @@ class SendBatchHandler implements TaskHandlerInterface
                 // tracking page. The sanitising happens HERE, at the write:
                 // the value is stored now and rendered much later, with no
                 // catch block in between to route it through.
-                $recipientRepository->recordSendFailure(
-                    $recipient->id,
+                $deliveryRepository->recordSendFailure(
+                    $delivery->id,
                     UserFacingMessage::from($e, "Échec de l'envoi — voir le journal pour le détail technique.")
                 );
                 // The real transport error still has to reach someone, and
@@ -411,10 +441,10 @@ class SendBatchHandler implements TaskHandlerInterface
                 // and the same searchable wording as the copies that did
                 // leave — a failure nobody can line up against its own
                 // mailing is most of the way back to no trace at all.
-                $massMailService->journalRecipientSendFailed(
+                $massMailService->journalDeliverySendFailed(
                     $email->id,
-                    $recipient->id,
-                    $recipient->memberId,
+                    $delivery->id,
+                    $memberIds,
                     ['mail_error' => $e->getMessage()]
                 );
                 $errorCount++;
@@ -436,96 +466,144 @@ class SendBatchHandler implements TaskHandlerInterface
             );
         }
 
-        $this->rescheduleIfPendingRemain($context, $recipientRepository);
+        $this->rescheduleIfPendingRemain($context, $deliveryRepository);
     }
 
     /**
      * Notification centre + push (module.json's "mass_mail.email_received"
-     * — push default-on, email channel forced off since a redundant
-     * "you got an email" email would defeat the point). Only fires when
-     * the recipient's plaintext address matches an existing login
-     * account — most recipients are scouts with no account of their own,
-     * so this is a targeted single-recipient dispatch, not a broadcast
-     * (unlike the calendar/gallery modules' "every identified member"
-     * notifications, which have no such natural single-recipient
-     * resolution). The deep link resolves the member_year row for this
-     * recipient's own snapshot scout year, matching MemberEmailController's
-     * `/members/{member_year_id}/emails/{recipient_id}` route.
+     * — push default-on, email channel forced off since a redundant "you
+     * got an email" email would defeat the point), **at most once per
+     * account and per communication** (a classic list) **or per file row**
+     * (a mail merge) — issue #999, §2.6.
      *
-     * $body is the subject that was actually sent, personalised or not,
-     * and $personalised says which — a merge whose SUBJECT carried a
-     * variable, the only case where this row ends up holding a value that
-     * has to stop existing one day.
+     * The account concerned is the one whose login is this message's
+     * address, and only when the message concerns at least one target: a
+     * contact's message, or a file row without a Tiers, notifies nobody,
+     * whoever the address belongs to. A second message of the same
+     * communication (or row) to another address of the same account, and
+     * every « Renvoyer », find the account already in
+     * mass_mail_notified_accounts and notify nobody — the row and the
+     * notification are written in ONE transaction, so neither exists
+     * without the other.
      *
-     * That value used to be scrubbed before reaching here, and the reason
-     * was not squeamishness: `notifications.body` is written once, at
-     * dispatch, and the core retention purge only ever deletes rows
-     * somebody has READ (`NotificationRepository::deleteReadOlderThan()`).
-     * A notification nobody opens was kept for good, so « Camp de Kaa »
-     * stored there would have outlived the 18-month merge retention this
-     * whole flow is built to respect. Encrypted at rest, yes; but the
-     * guarantee at stake is erasure, not confidentiality — so the
-     * notification said only that an email had arrived.
+     * The deep link is the entry (TargetEmailLink) of a target this message
+     * concerns that the account may see (`MemberService::canAccess()`) —
+     * the first by name; the others are reached from that entry's
+     * « concerne aussi ». A target with no member_years row for its year
+     * has no entry to link to.
      *
-     * These notifications now have a purge path of their own (issue #292):
-     * Task\PurgeMergeAudiencesHandler rebuilds this same `$url` for every
-     * recipient of an audience it erases and deletes the matching rows,
-     * read or not — the half the core purge cannot do. The value can be
-     * written because it now stops existing on schedule.
+     * $body is the subject that was actually sent, personalised or not, and
+     * $personalised says which — a merge whose SUBJECT carried a variable,
+     * the only case where this row ends up holding a value that has to stop
+     * existing one day. `notifications.body` is written once, at dispatch,
+     * and the core retention purge only ever deletes rows somebody has
+     * READ; Task\PurgeMergeAudiencesHandler rebuilds this same `$url` for
+     * every target of an audience it erases and deletes the matching rows,
+     * read or not (issue #292). **Which is exactly why a personalised
+     * subject is not written when there is no url**: the url IS the
+     * correlation key, and a value nothing can erase is the situation that
+     * purge exists to end. The neutral sentence is what the reader gets
+     * instead, and they lose nothing they could have opened.
      *
-     * **Which is exactly why a personalised subject is not written when
-     * there is no url.** The url IS the correlation key; without one the
-     * purge can never find the row again, and a value nothing can erase is
-     * the situation this change exists to end. That happens when the
-     * recipient's `member_years` row for its own snapshot year is gone by
-     * the time the batch reaches it — a Desk re-import or a year
-     * transition between queueing and sending — so it is rare, not
-     * impossible. The neutral sentence is what the reader gets instead,
-     * and they lose nothing they could have opened: there is no link
-     * either.
-     *
-     * The link, when there is one, goes to the member page's detail view,
-     * which re-renders the merge at READ time and therefore shows nothing
-     * once the audience is gone (Service\MassMailQueryService,
-     * ARCHITECTURE.md §8.61).
+     * @param Target[] $targets the targets this message concerns
      */
-    private function dispatchEmailReceivedNotification(
+    private function notifyOnce(
         TaskContext $context,
-        Recipient $recipient,
+        Delivery $delivery,
+        array $targets,
         Email $email,
         string $body,
         bool $personalised
     ): void {
-        if ($context->notifications === null || $recipient->emailAddress === null) {
-            return;
-        }
-        // An external mail-merge recipient is nobody in the members table
-        // — no member page, no deep link, no notification to dispatch.
-        if ($recipient->memberId === null || $recipient->scoutYearId === null) {
+        if ($context->notifications === null || $targets === []) {
             return;
         }
 
-        $account = $context->userAccounts->findByEmail($recipient->emailAddress);
+        $account = $context->userAccounts->findByEmail($delivery->emailAddress);
         if ($account === null) {
             return;
         }
 
         $pdo = $context->connection->getPdo();
-        $memberYear = (new MemberYearRepository($pdo))->findByMemberAndYear(
-            $recipient->memberId,
-            $recipient->scoutYearId
-        );
-        $url = $memberYear !== null
-            ? RecipientEmailLink::url((int) $memberYear['id'], $recipient->id)
-            : null;
+        $link = $this->linkFor($context, $delivery->emailAddress, $targets);
+        $url = $link !== null ? TargetEmailLink::url($link['member_year_id'], $link['target_id']) : null;
+        $memberId = $link['member_id'] ?? $targets[0]->memberId;
 
-        $context->notifications->dispatch('mass_mail.email_received', [
-            ['userAccountId' => $account->id, 'memberId' => $recipient->memberId],
-        ], [
-            'title' => 'Nouvel email',
-            'body' => $url === null && $personalised ? 'Un email personnalisé vous a été envoyé.' : $body,
-            'url' => $url,
-        ], $email->createdBy);
+        $pdo->beginTransaction();
+        try {
+            if (!(new NotifiedAccountRepository($pdo))->claim($email->id, $delivery->audienceRowId, $account->id)) {
+                $pdo->commit();
+                return;
+            }
+
+            $context->notifications->dispatch('mass_mail.email_received', [
+                ['userAccountId' => $account->id, 'memberId' => $memberId],
+            ], [
+                'title' => 'Nouvel email',
+                'body' => $url === null && $personalised ? 'Un email personnalisé vous a été envoyé.' : $body,
+                'url' => $url,
+            ], $email->createdBy);
+
+            $pdo->commit();
+        } catch (\Throwable $e) {
+            $pdo->rollBack();
+            throw $e;
+        }
+    }
+
+    /**
+     * The entry a notification about these targets leads to: among those
+     * with a member_years row for their year that the account may see, the
+     * first by display name.
+     *
+     * @param Target[] $targets
+     * @return array{member_year_id: int, target_id: int, member_id: int}|null
+     */
+    private function linkFor(TaskContext $context, string $accountEmail, array $targets): ?array
+    {
+        $pdo = $context->connection->getPdo();
+        $memberYears = new MemberYearRepository($pdo);
+        // With the member e-mail repository, canAccess() also answers for an
+        // account on a member's confirmed secondary address — the very
+        // addresses this module now sends to — and not only the Desk one.
+        $memberService = new MemberService(
+            $memberYears,
+            new \Core\Member\Repository\MemberProfileRepository($context->connection, $context->encryption),
+            null,
+            new \Core\Member\MemberEmailRepository($pdo, $context->encryption)
+        );
+
+        $candidates = [];
+        foreach ($targets as $target) {
+            if ($target->scoutYearId === null) {
+                continue;
+            }
+            $row = $memberYears->findByMemberAndYear($target->memberId, $target->scoutYearId);
+            if ($row === null || !$memberService->canAccess($accountEmail, (int) $row['id'], 'identified')) {
+                continue;
+            }
+            $names = $memberService->findDisplayNamesByMemberIds([$target->memberId], $target->scoutYearId);
+            $candidates[] = [
+                'name' => mb_strtolower($names[$target->memberId] ?? ''),
+                'member_year_id' => (int) $row['id'],
+                'target_id' => $target->id,
+                'member_id' => $target->memberId,
+            ];
+        }
+        if ($candidates === []) {
+            return null;
+        }
+
+        usort(
+            $candidates,
+            static fn(array $a, array $b): int => [$a['name'], $a['target_id']] <=> [$b['name'], $b['target_id']]
+        );
+
+        return [
+            'member_year_id' => $candidates[0]['member_year_id'],
+            'target_id' => $candidates[0]['target_id'],
+            'member_id' => $candidates[0]['member_id'],
+        ];
     }
 
     /**
@@ -550,9 +628,9 @@ class SendBatchHandler implements TaskHandlerInterface
         ];
     }
 
-    private function rescheduleIfPendingRemain(TaskContext $context, RecipientRepository $recipientRepository): void
+    private function rescheduleIfPendingRemain(TaskContext $context, DeliveryRepository $deliveryRepository): void
     {
-        if ($recipientRepository->findOldestPending(1) === []) {
+        if ($deliveryRepository->findOldestPending(1) === []) {
             return;
         }
 
@@ -630,7 +708,8 @@ class SendBatchHandler implements TaskHandlerInterface
 
         return new MassMailService(
             new EmailRepository($pdo),
-            new RecipientRepository($pdo, $context->encryption),
+            new DeliveryRepository($pdo, $context->encryption),
+            new TargetRepository($pdo),
             new EmailAttachmentRepository($pdo),
             new \Core\File\FileRepository($pdo),
             new \Modules\MassMail\Service\MailingListService(
@@ -647,7 +726,8 @@ class SendBatchHandler implements TaskHandlerInterface
                 // resolves to.
                 null,
                 new \Modules\MassMail\Repository\ListBlockRepository($pdo),
-                new \Modules\MassMail\Repository\ContactRepository($pdo, $context->encryption)
+                new \Modules\MassMail\Repository\ContactRepository($pdo, $context->encryption),
+                suppressedAddresses: new SuppressedAddressRepository($pdo)
             ),
             $memberService,
             $memberEmailService,

@@ -124,7 +124,10 @@
 
             {# §4 — Communications récentes — always shown when mass_mail is
                enabled, with an empty-state message when there's nothing yet
-               (an empty array alone can't tell "no data" from "disabled"). #}
+               (an empty array alone can't tell "no data" from "disabled").
+               One line per communication meant for this member, however many
+               of their addresses it went to (issue #999); one nothing of which
+               left stays listed, « Non envoyée ». #}
             {% if mass_mail_enabled %}
                 <div class="card mb-3">
                     <div class="card-body">
@@ -140,6 +143,12 @@
                                                the page behind it — a line reading « Camp de {{ '{{Prenom}}' }} »
                                                with nothing beside it is exactly what looks like a fault of
                                                the site. #}
+                                            {% if item.not_sent|default(false) %}
+                                                {% include 'partials/status_badge.html.twig' with {
+                                                    status: 'error',
+                                                    label: 'Non envoyée',
+                                                } only %}
+                                            {% endif %}
                                             {% if item.merge_purged %}
                                                 <span class="text-body-secondary fst-italic">— personnalisation effacée</span>
                                             {% endif %}

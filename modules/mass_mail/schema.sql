@@ -40,12 +40,16 @@ CREATE TABLE IF NOT EXISTS mass_mail_audiences (
     CONSTRAINT fk_mmau_created_by FOREIGN KEY (created_by) REFERENCES user_accounts(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- mass_mail_audience_rows: one Excel data row = one email to send.
--- Exactly one of member_id (row had a "Tiers" value, resolved against
--- members.desk_id at import — the email then goes to every address known
--- for that member) or email_encrypted (no Tiers → the row's own "Email"
--- column, possibly several addresses "a; b") is set — enforced by
--- Service\AudienceImportService, which refuses the whole file otherwise.
+-- mass_mail_audience_rows: one Excel data row = one COMMUNICATION (issue
+-- #999): one message per distinct address of the row, never deduplicated
+-- between rows. Exactly one of member_id (row had a "Tiers" value — or a
+-- module draft named the member — resolved at import; the messages then go
+-- to that member's eligible addresses and the row is one target in their
+-- history) or email_encrypted (no Tiers → the row's own "Email" column,
+-- possibly several addresses separated by ";" or ",") is set — enforced by
+-- Service\AudienceImportService, which refuses the whole file otherwise;
+-- an Email column beside a Tiers is ignored for sending (it stays a
+-- variable in data_encrypted).
 -- data_encrypted is the full row as a JSON map {header: value}: imported
 -- personal data → BLOB + EncryptionService, decrypted only in
 -- Repository\AudienceRepository (SECURITY.md). row_index is the Excel
@@ -234,7 +238,7 @@ CREATE TABLE IF NOT EXISTS mass_mail_block_contacts (
 -- mass_mail_emails: one mass email, draft → test → sending → sent (see
 -- Service\MassMailService — no step is ever skipped or reversed except
 -- test → draft). subject/body_html hold no personal data (admin-authored
--- content, not imported data) so they stay in clear, unlike the recipient
+-- content, not imported data) so they stay in clear, unlike the message
 -- table below. The list actually used is identified by list_type plus
 -- exactly one of list_id (a mass_mail_lists row, only for 'custom') or
 -- list_section_id (a sections row, only for 'default_section') — kept as
@@ -262,7 +266,7 @@ CREATE TABLE IF NOT EXISTS mass_mail_emails (
     -- scout year, not active in the effective one. Computed on the fly
     -- like the other default lists; list_id/list_section_id stay NULL.
     -- Each former member is resolved from THEIR OWN last active year, and
-    -- that is what mass_mail_recipients.scout_year_id carries for them —
+    -- that is what mass_mail_targets.scout_year_id carries for them —
     -- the tracking page looks their profile up by it, and their profile
     -- only exists for that year.
     list_type ENUM('default_section', 'default_active_members', 'default_chiefs', 'custom', 'external', 'mail_merge', 'default_former_members') NOT NULL,
@@ -286,10 +290,10 @@ CREATE TABLE IF NOT EXISTS mass_mail_emails (
 
 -- mass_mail_email_scout_years: an email can target several scout years at
 -- once (e.g. "Montages dias" retrospectives spanning two promotions) — the
--- list resolved for each selected year is merged and deduplicated by
--- address at freeze time (Service\MailingListService::
--- resolveMembersForYears()). A dedicated junction table rather than a
--- second scout_year_id column, since the set has no natural cap.
+-- list resolved for each selected year is merged at freeze time, one target
+-- per member (Service\MailingListService::resolveMembersForYears()). A
+-- dedicated junction table rather than a second scout_year_id column, since
+-- the set has no natural cap.
 CREATE TABLE IF NOT EXISTS mass_mail_email_scout_years (
     email_id INT UNSIGNED NOT NULL,
     scout_year_id INT UNSIGNED NOT NULL,
@@ -298,75 +302,146 @@ CREATE TABLE IF NOT EXISTS mass_mail_email_scout_years (
     CONSTRAINT fk_mmesy_scout_year FOREIGN KEY (scout_year_id) REFERENCES scout_years(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- mass_mail_recipients: one row per (member, address) the list resolved
--- to at the moment the email left 'draft'/'test' for 'sending' (Service\
--- MassMailService::startSending() "freezes" the list here — resolved
--- fresh from Service\MailingListService, never cached before this
--- point). A member with several currently-valid addresses (Desk +
--- secondary, Core\Member\MemberEmailService) gets one row per address,
--- not one row for the member — member_id is deliberately NOT unique per
--- email_id. member_id references the permanent members(id), not
--- member_years, so the link (and the tracking page) survives a scout
--- year change. email_address_encrypted is personal data copied at that
--- same instant → BLOB + EncryptionService, decrypted only in
--- Repository\RecipientRepository; no blind index, since this table is
--- never searched by address. NULL for a member who had no usable address
--- at freeze time — status is then immediately 'error' (never 'pending'),
--- same row shape as any other send failure so the tracking page needs no
--- special case for it.
-CREATE TABLE IF NOT EXISTS mass_mail_recipients (
+-- Three notions, four tables (issue #999, docs/chantiers/
+-- CHANTIER-envois-groupes.md §2.1). « How many messages leave, to which
+-- addresses » (mass_mail_deliveries), « whose history does this
+-- communication belong to » (mass_mail_targets) and « how many alerts does
+-- each account get » (mass_mail_notified_accounts) are counted apart, and
+-- mass_mail_delivery_targets ties a message to the targets it concerns.
+--
+-- Everything is written at ONE moment: Service\MassMailService::
+-- startSending() freezes the messages and the targets in the same
+-- transaction as the test → sending transition, which is what makes a
+-- second freeze of the same email impossible. No unique index including
+-- audience_row_id guards that — the purge sets it to NULL, and MySQL holds
+-- several NULLs to be distinct, so such an index would protect nothing
+-- once it mattered (§2.1).
+
+-- mass_mail_deliveries: one MESSAGE, always to exactly ONE address — the
+-- unit of sending, of the tracking page, of « Renvoyer » and of the
+-- one-click unsubscribe. A classic list writes one per DISTINCT address
+-- across every target and every contact group (compared lowercased); a
+-- mail merge one per distinct address OF EACH FILE ROW, never deduplicated
+-- between rows (two rows carry different values). The address is personal
+-- data copied at freeze time → BLOB + EncryptionService, decrypted only in
+-- Repository\DeliveryRepository (SECURITY.md §5); email_blind_index is the
+-- HMAC of the lowercased address, the only form an address is ever
+-- compared under in SQL.
+CREATE TABLE IF NOT EXISTS mass_mail_deliveries (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     email_id INT UNSIGNED NOT NULL,
-    -- NULL for the two recipients who are nobody in the members table,
-    -- and audience_row_id is what tells them apart: a mail-merge row
-    -- addressed by its "Email" column rather than a "Tiers" (audience_row_id
-    -- SET), and a contact of a custom list's contact group
-    -- (mass_mail_block_contacts, audience_row_id NULL). That pair is what
-    -- Controller\UnsubscribeController branches on, so a « stop writing to
-    -- me » lands on the right table. Every criteria-resolved recipient
-    -- still always has a member_id.
-    member_id INT UNSIGNED NULL,
-    -- Which of the email's (possibly several) selected scout years this
-    -- particular recipient was actually resolved from — needed to look up
-    -- their member_years profile correctly on the tracking page (a member
-    -- resolved via the "previous year" list only has a valid profile for
-    -- that year, not necessarily the current one). NULL for an external
-    -- mail-merge recipient (no member, no profile, no year).
-    scout_year_id INT UNSIGNED NULL,
-    -- The mass_mail_audience_rows row this recipient was frozen from
-    -- (mail-merge only, NULL otherwise) — what Task\SendBatchHandler
-    -- renders the per-recipient variables from. SET NULL on audience
-    -- purge: the tracking history survives, only the merge values are
-    -- gone (a "Renvoyer" after the purge then fails explicitly).
+    -- The file row this message was frozen from (mail merge only) — what
+    -- Task\SendBatchHandler renders the variables from. SET NULL at the
+    -- audience purge: the tracking survives, the values are gone (a
+    -- « Renvoyer » after the purge then fails explicitly).
     audience_row_id INT UNSIGNED NULL,
-    email_address_encrypted BLOB NULL,
-    -- The member_emails row this specific address maps to (Core\Member\
-    -- MemberEmailService::resolveOrCreateForMassMail() — for a Desk
-    -- address, lazily find-or-creates a 'desk'-sourced override row the
-    -- first time it's needed here, so unsubscribing it later always has
-    -- something to flip to 'inactive'). NULL only for the defensive
-    -- "invalid address" branch above, which never gets a real address or
-    -- an unsubscribe token either.
+    email_address_encrypted BLOB NOT NULL,
+    email_blind_index CHAR(64) NOT NULL,
+    -- The member_emails row this address maps to, when it is a member's
+    -- (Core\Member\MemberEmailService::resolveValidAddressesForMassMail()
+    -- lazily creates the Desk override row). What the unsubscribe flips to
+    -- 'inactive'. NULL for a contact or a file address.
     member_email_id INT UNSIGNED NULL,
-    -- Per-recipient one-click unsubscribe token (module addendum, RFC
-    -- 8058) — same generation/hashing convention as magic_links
-    -- (bin2hex(random_bytes(32)), hashed with password_hash() before
-    -- storage). Unlike a login token this is never single-use/expiring:
-    -- it must keep working for as long as this specific send's footer
-    -- link exists in the recipient's mailbox.
-    unsubscribe_token_hash VARCHAR(255) NULL,
     status ENUM('pending', 'sent', 'error') NOT NULL DEFAULT 'pending',
     error_message TEXT NULL,
     sent_at DATETIME NULL,
     attempts INT UNSIGNED NOT NULL DEFAULT 0,
+    -- One-click unsubscribe token of THIS message (RFC 8058), minted right
+    -- before the send by Task\SendBatchHandler through Core\Security\
+    -- CapabilityToken and stored as its SHA-256 hex digest — 32 random
+    -- bytes need no slow hash. Never single-use nor expiring: it must work
+    -- for as long as the message sits in a mailbox.
+    unsubscribe_token_hash CHAR(64) NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_mmr_status_id (status, id),
-    INDEX idx_mmr_email (email_id),
-    CONSTRAINT fk_mmr_email FOREIGN KEY (email_id) REFERENCES mass_mail_emails(id) ON DELETE CASCADE,
-    CONSTRAINT fk_mmr_member FOREIGN KEY (member_id) REFERENCES members(id),
-    CONSTRAINT fk_mmr_scout_year FOREIGN KEY (scout_year_id) REFERENCES scout_years(id),
-    CONSTRAINT fk_mmr_member_email FOREIGN KEY (member_email_id) REFERENCES member_emails(id),
-    CONSTRAINT fk_mmr_audience_row FOREIGN KEY (audience_row_id) REFERENCES mass_mail_audience_rows(id) ON DELETE SET NULL
+    INDEX idx_mmd_status_id (status, id),
+    INDEX idx_mmd_email (email_id),
+    INDEX idx_mmd_blind (email_blind_index),
+    CONSTRAINT fk_mmd_email FOREIGN KEY (email_id) REFERENCES mass_mail_emails(id) ON DELETE CASCADE,
+    CONSTRAINT fk_mmd_audience_row FOREIGN KEY (audience_row_id) REFERENCES mass_mail_audience_rows(id) ON DELETE SET NULL,
+    -- SET NULL: a member may delete a secondary address that already
+    -- received a mailing; the message stays, it merely can no longer
+    -- deactivate that row (the unsubscribe still suppresses the address).
+    CONSTRAINT fk_mmd_member_email FOREIGN KEY (member_email_id) REFERENCES member_emails(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- mass_mail_targets: one MEMBER a communication is meant for — the unit of
+-- the member page's history and of the notification. A classic list: one
+-- per member the list designates for the chosen years (the service keeps
+-- it unique per email; a member brought by several criteria, groups or
+-- years is one target, tagged with the most recent year that brought
+-- them). A mail merge: one per FILE ROW that has a Tiers — two rows for
+-- the same Tiers are two communications, so two targets. Sharing an
+-- address never creates a target, and a target with no eligible address
+-- exists all the same, with no message: it reads « Non envoyée ».
+-- scout_year_id is the year whose member_years row the member page link
+-- goes through; NULL only when the member has none at all (a merge Tiers
+-- with no profile), and then there is no link.
+CREATE TABLE IF NOT EXISTS mass_mail_targets (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    email_id INT UNSIGNED NOT NULL,
+    member_id INT UNSIGNED NOT NULL,
+    scout_year_id INT UNSIGNED NULL,
+    -- The file row (mail merge only). SET NULL at the purge, like the
+    -- message's — the entry stays on the member page, « personnalisation
+    -- effacée ».
+    audience_row_id INT UNSIGNED NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_mmt_email (email_id),
+    INDEX idx_mmt_member (member_id),
+    CONSTRAINT fk_mmt_email FOREIGN KEY (email_id) REFERENCES mass_mail_emails(id) ON DELETE CASCADE,
+    CONSTRAINT fk_mmt_member FOREIGN KEY (member_id) REFERENCES members(id),
+    CONSTRAINT fk_mmt_scout_year FOREIGN KEY (scout_year_id) REFERENCES scout_years(id),
+    CONSTRAINT fk_mmt_audience_row FOREIGN KEY (audience_row_id) REFERENCES mass_mail_audience_rows(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- mass_mail_delivery_targets: which targets a message concerns. A message
+-- to a family address concerns every target that has that address; one
+-- reaching an address only a contact group brings concerns none. CASCADE
+-- on both sides, without which deleting an email (and with it its
+-- messages and targets) would be refused.
+CREATE TABLE IF NOT EXISTS mass_mail_delivery_targets (
+    delivery_id INT UNSIGNED NOT NULL,
+    target_id INT UNSIGNED NOT NULL,
+    PRIMARY KEY (delivery_id, target_id),
+    INDEX idx_mmdt_target (target_id),
+    CONSTRAINT fk_mmdt_delivery FOREIGN KEY (delivery_id) REFERENCES mass_mail_deliveries(id) ON DELETE CASCADE,
+    CONSTRAINT fk_mmdt_target FOREIGN KEY (target_id) REFERENCES mass_mail_targets(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- mass_mail_notified_accounts: an account already sent its « Nouvel
+-- email » notification for one communication (classic list:
+-- audience_row_id NULL) or for one file row (mail merge). Written in the
+-- same transaction as the notification itself (Task\SendBatchHandler), so
+-- a second message of the same communication to another address of that
+-- account, or a « Renvoyer », never notifies again.
+--
+-- audience_row_key is COALESCE(audience_row_id, 0), the column the unique
+-- key needs: a NULL in a unique index is distinct from every other NULL.
+-- The roadmap asks for a GENERATED column; this schema's migration tooling
+-- (Core\Database\SqlParser, SchemaComparator) has no notion of a
+-- generation expression and would create it as a plain, NULL column on a
+-- fresh install, silently — the unique key then holding nothing. So it is
+-- a plain NOT NULL column, written by Repository\NotifiedAccountRepository
+-- and by nothing else (the same answer as rental_booking_modifications.
+-- active_booking_id). It can never drift from audience_row_id: that column
+-- is never updated, and its foreign key CASCADEs rather than going to NULL.
+--
+-- The CASCADE is the point: with SET NULL, purging an audience would bring
+-- the rows of several children notified to the same parent account down to
+-- (email, NULL, account) and break the unique key, failing the purge.
+-- Nothing is lost: an audience is purged only once every send of it is
+-- over, and its notifications are deleted in the same pass.
+CREATE TABLE IF NOT EXISTS mass_mail_notified_accounts (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    email_id INT UNSIGNED NOT NULL,
+    audience_row_id INT UNSIGNED NULL,
+    audience_row_key INT UNSIGNED NOT NULL DEFAULT 0,
+    user_account_id INT UNSIGNED NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE INDEX idx_mmna_once (email_id, audience_row_key, user_account_id),
+    CONSTRAINT fk_mmna_email FOREIGN KEY (email_id) REFERENCES mass_mail_emails(id) ON DELETE CASCADE,
+    CONSTRAINT fk_mmna_audience_row FOREIGN KEY (audience_row_id) REFERENCES mass_mail_audience_rows(id) ON DELETE CASCADE,
+    CONSTRAINT fk_mmna_account FOREIGN KEY (user_account_id) REFERENCES user_accounts(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- mass_mail_attachments: plain Core\File\UploadHandler + FileAccessGuard
