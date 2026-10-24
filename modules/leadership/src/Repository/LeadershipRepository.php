@@ -166,6 +166,42 @@ class LeadershipRepository
     }
 
     /**
+     * The persistent member behind each of these `member_years` rows, in
+     * one query — for the mail-merge draft, whose rows are attached to a
+     * member (`members.id`) while a list line only knows its
+     * `member_years.id` (Value\PersonLine).
+     *
+     * One query for the whole list on purpose: the number of lines is the
+     * very thing that grows, and one round trip per line is how the
+     * stewards page once paid for its table.
+     *
+     * @param int[] $memberYearIds
+     * @return array<int, int> member_years.id => members.id; an id that
+     *         resolves to no row is simply absent
+     */
+    public function findMemberIdsByMemberYearIds(array $memberYearIds): array
+    {
+        $memberYearIds = array_values(array_unique(array_map('intval', $memberYearIds)));
+        // MySQL and MariaDB refuse an empty IN (), which SQLite tolerates.
+        if ($memberYearIds === []) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($memberYearIds), '?'));
+        $stmt = $this->connection->getPdo()->prepare(
+            "SELECT id, member_id FROM member_years WHERE id IN ({$placeholders})"
+        );
+        $stmt->execute($memberYearIds);
+
+        $memberIds = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $memberIds[(int) $row['id']] = (int) $row['member_id'];
+        }
+
+        return $memberIds;
+    }
+
+    /**
      * The scout year immediately before this one, by START DATE — never by
      * id, which stops being chronological the moment a past year is
      * back-filled (the same trap ARCHITECTURE.md §8.1 records for
