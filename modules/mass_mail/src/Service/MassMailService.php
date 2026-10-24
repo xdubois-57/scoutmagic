@@ -1051,7 +1051,11 @@ class MassMailService
 
             foreach ($addresses as $memberEmail) {
                 $key = self::addressKey($memberEmail->email);
-                $messages[$key] ??= ['email' => $memberEmail->email, 'member_email_id' => $memberEmail->id, 'target_ids' => []];
+                $messages[$key] ??= [
+                    'email' => $memberEmail->email,
+                    'member_email_id' => $memberEmail->id,
+                    'target_ids' => [],
+                ];
                 $messages[$key]['target_ids'][] = $targetId;
             }
         }
@@ -1423,7 +1427,9 @@ class MassMailService
             $messages[] = [
                 'delivery' => $delivery,
                 'members' => implode(', ', $concerned),
-                'row_index' => $delivery->audienceRowId !== null ? ($rowIndexes[$delivery->audienceRowId] ?? null) : null,
+                'row_index' => $delivery->audienceRowId !== null
+                    ? ($rowIndexes[$delivery->audienceRowId] ?? null)
+                    : null,
             ];
         }
 

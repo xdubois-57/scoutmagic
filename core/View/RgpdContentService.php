@@ -561,7 +561,8 @@ fiche et pour n'envoyer qu'une notification par compte concerné ; (b) que l'adr
 d'expédition (From) utilisée est celle de la section expéditrice choisie pour l'email, et non l'adresse d'expédition
 générale du site ; (c) qu'il n'existe à ce jour aucune purge automatique dédiée aux anciens envois — leurs messages
 et leurs cibles sont conservés au même titre que le reste des données actives de l'unité (section 3.1), à l'exception
-des données importées d'un publipostage et des notifications qui en reprennent l'objet (voir d) ; (c bis) conserver intégralement le paragraphe « Groupes de contacts » : une liste
+des données importées d'un publipostage et des notifications qui en reprennent l'objet (voir d) ;
+(c bis) conserver intégralement le paragraphe « Groupes de contacts » : une liste
 personnalisée peut contenir des groupes de contacts, c'est-à-dire des personnes extérieures à l'unité (commune,
 paroisse, propriétaire d'un terrain, ancien membre) fournies par un chef d'unité au moyen d'un fichier Excel
 supprimé dès sa lecture, dont le nom facultatif et l'adresse sont chiffrés au repos, accompagnés d'une empreinte

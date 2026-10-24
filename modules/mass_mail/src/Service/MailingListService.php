@@ -1272,7 +1272,10 @@ class MailingListService
                 <=> [mb_strtolower($b['name'] ?? ''), mb_strtolower($b['email'])]
         );
 
-        return ['rows' => $rows, 'targets' => count($this->deduplicateByMember($memberGroups['members'], $scoutYearId))];
+        return [
+            'rows' => $rows,
+            'targets' => count($this->deduplicateByMember($memberGroups['members'], $scoutYearId)),
+        ];
     }
 
     /**
