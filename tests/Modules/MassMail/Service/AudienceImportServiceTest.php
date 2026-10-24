@@ -144,9 +144,117 @@ class AudienceImportServiceTest extends TestCase
             ['456789', 'ignored@example.be'],
         ]);
 
-        $rows = $this->audienceRepository->findRowsByAudience($this->service->import($path, 'f.xlsx', null)->audience->id);
+        $result = $this->service->import($path, 'f.xlsx', null);
+        $rows = $this->audienceRepository->findRowsByAudience($result->audience->id);
         $this->assertSame($memberId, $rows[0]->memberId);
         $this->assertNull($rows[0]->email);
+        // Ignored for delivery, still a merge variable.
+        $this->assertSame('ignored@example.be', $rows[0]->data['Email']);
+        $this->assertSame(
+            ["Ligne 2 : la colonne Email est ignorée, les messages partent aux adresses connues de l'animé (Tiers)."],
+            $result->warnings
+        );
+    }
+
+    /**
+     * Issue #999, maquette envois-groupes écran 5: every line whose Email
+     * cell a Tiers overrides is named, in one warning — and a Tiers line
+     * with an EMPTY Email cell is not, since nothing was ignored there.
+     */
+    public function testEveryLineWhoseEmailATiersOverridesIsNamedOnce(): void
+    {
+        $this->createMember('111');
+        $this->createMember('222');
+        $path = $this->writeXlsx([
+            ['Tiers', 'Email'],
+            ['111', ''],
+            ['', 'parent@example.be'],
+            ['111', 'a@example.be'],
+            ['222', 'b@example.be'],
+        ]);
+
+        $warnings = $this->service->import($path, 'f.xlsx', null)->warnings;
+
+        $this->assertContains(
+            "Lignes 4, 5 : la colonne Email est ignorée, les messages partent aux adresses connues de l'animé (Tiers).",
+            $warnings
+        );
+    }
+
+    /**
+     * One row sends one message per DISTINCT address: the same address
+     * twice in a cell is stored once, and the import says so with the
+     * cell as written. Not mistaken either for the cross-row duplicate,
+     * which it is not.
+     */
+    public function testAnAddressRepeatedInOneCellIsKeptOnceAndWarned(): void
+    {
+        $path = $this->writeXlsx([
+            ['Email', 'Prenom'],
+            ['a@x.be ; A@x.be, b@x.be', 'Alice'],
+            ['c@x.be', 'Charlie'],
+        ]);
+
+        $result = $this->service->import($path, 'f.xlsx', null);
+
+        $rows = $this->audienceRepository->findRowsByAudience($result->audience->id);
+        $this->assertSame('a@x.be; b@x.be', $rows[0]->email, 'first spelling kept, the repetition dropped');
+        $this->assertSame(
+            ["Ligne 2 : « a@x.be ; A@x.be, b@x.be » — l'adresse en double ne recevra qu'un message pour cette ligne."],
+            $result->warnings
+        );
+    }
+
+    /**
+     * The federation's exports keep carrying the Desk id a merge
+     * abandoned. A file built from one reaches the member the merge KEPT
+     * — the same rule as `Core\Import\MemberRepository::findByDeskId()` —
+     * and not the abandoned row, nor a refusal.
+     */
+    public function testAMergedMembersOldTiersLeadsToTheMemberKept(): void
+    {
+        $kept = $this->createMember('1000001');
+        $abandoned = $this->createMember('1000002');
+        $this->pdo->prepare('UPDATE members SET merged_into_member_id = ? WHERE id = ?')->execute([$kept, $abandoned]);
+        $this->pdo->prepare('INSERT INTO member_desk_id_aliases (member_id, desk_id) VALUES (?, ?)')
+            ->execute([$kept, '1000002']);
+        $path = $this->writeXlsx([['Tiers', 'Prenom'], ['1000002', 'Lucie'], ['1000001', 'Lucie bis']]);
+
+        $rows = $this->audienceRepository->findRowsByAudience($this->service->import($path, 'f.xlsx', null)->audience->id);
+
+        $this->assertSame([$kept, $kept], [$rows[0]->memberId, $rows[1]->memberId]);
+    }
+
+    public function testAnAliasWithNoMemberRowOfItsOwnLeadsToItsMember(): void
+    {
+        $memberId = $this->createMember('2000001');
+        $this->pdo->prepare('INSERT INTO member_desk_id_aliases (member_id, desk_id) VALUES (?, ?)')
+            ->execute([$memberId, 'OLD-77']);
+        $path = $this->writeXlsx([['Tiers'], ['OLD-77']]);
+
+        $rows = $this->audienceRepository->findRowsByAudience($this->service->import($path, 'f.xlsx', null)->audience->id);
+
+        $this->assertSame($memberId, $rows[0]->memberId);
+    }
+
+    /**
+     * Recognising old ids widens nothing: a Tiers nobody knows still
+     * refuses the WHOLE file, even next to a row that resolves fine.
+     */
+    public function testAnUnknownTiersBesideAValidRowStillRefusesTheWholeFile(): void
+    {
+        $this->createMember('3000001');
+        $path = $this->writeXlsx([['Tiers', 'Prenom'], ['3000001', 'Connu'], ['3999999', 'Inconnu']]);
+
+        try {
+            $this->service->import($path, 'f.xlsx', null);
+            $this->fail('Expected AudienceImportException');
+        } catch (AudienceImportException $e) {
+            $this->assertSame(['Ligne 3 — aucun membre ne correspond au Tiers « 3999999 ».'], $e->errors);
+        }
+
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM mass_mail_audiences')->fetchColumn());
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM mass_mail_audience_rows')->fetchColumn());
     }
 
     public function testRefusesTheWholeFileListingEveryOffendingLine(): void

@@ -54,5 +54,6 @@ les comptes d'une soirée, et un fichier qui dirait seulement payé ou
 impayé obligerait à rouvrir le site pour connaître un montant.
 
 « Écrire » prépare un brouillon de publipostage adressé aux seules
-personnes que le filtre affiche. Rien ne part avant que vous ne
-l'envoyiez.
+personnes que le filtre affiche, un e-mail par réponse : deux réponses
+d'une même famille sont deux e-mails, chacun avec son propre montant.
+Rien ne part avant que vous ne l'envoyiez.

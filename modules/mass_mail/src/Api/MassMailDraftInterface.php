@@ -38,9 +38,20 @@ interface MassMailDraftInterface
      * every key of every row's $values must be one of them — they become
      * the merge variables offered in the composer.
      *
-     * Rows are **deduplicated by address** by the implementation: two
-     * people who answered with the same address are one recipient, and
-     * the first row wins.
+     * **One row is one communication**, exactly like one line of an
+     * imported file (ARCHITECTURE.md §8.61): rows are never merged, so two
+     * rows with the same address are two messages, each with its own
+     * values. A row with neither a member nor an address is dropped.
+     *
+     * A row MAY carry a `member_id` (`members.id`), and then has exactly
+     * the meaning of a « Tiers » in an imported file: its messages go to
+     * the addresses known for that member, its `email` is ignored and may
+     * be left out, and the row appears in that member's history. Without
+     * one, the row goes to its `email` alone and belongs to no member —
+     * even when the address happens to be a member's. Choosing between the
+     * two is the caller's to decide: a form's respondent answered with one
+     * precise address and gets no `member_id`; a payment reminder for a
+     * child is about that child and gets one.
      *
      * $bodyHtml is the draft's starting BODY, sanitized on the way in
      * like any other. It is optional because a caller that has nothing
@@ -55,7 +66,7 @@ interface MassMailDraftInterface
      * @param string $label      what this audience is, for the composer's own listing
      * @param string $subject    the draft's starting subject line
      * @param string[] $columns  column headers, in order
-     * @param list<array{email: string, values: array<string, string>}> $rows
+     * @param list<array{email?: string, member_id?: ?int, values: array<string, string>}> $rows
      * @param string $actorRole  the acting account's role, as Core\Security\Role's string value
      * @param string $actorEmail the acting account's address, for resolving its own sections
      * @param ?string $bodyHtml  the draft's starting body, or null for an empty composer

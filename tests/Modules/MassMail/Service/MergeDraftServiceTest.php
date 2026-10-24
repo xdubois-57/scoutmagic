@@ -56,10 +56,11 @@ use Core\Member\Repository\SectionRepository;
  *
  * What matters here is not that a draft appears — MassMailService is
  * already tested for that — but the four decisions this service makes on
- * the way: it deduplicates by address, it never sets member_id, it stores
- * an audience indistinguishable from an imported one (so the existing
- * retention and composer keep working), and it lets mass_mail's own
- * authorization refuse rather than deciding anything itself.
+ * the way: one row stays one row (never merged by address), member_id is
+ * written when the caller gives one and never looked up from an address,
+ * the audience is indistinguishable from an imported one (so the existing
+ * retention and composer keep working), and mass_mail's own authorization
+ * refuses rather than this service deciding anything itself.
  */
 #[\PHPUnit\Framework\Attributes\Group('database')]
 class MergeDraftServiceTest extends TestCase
@@ -226,7 +227,12 @@ class MergeDraftServiceTest extends TestCase
         $this->assertSame('a@test.be', $rows[0]->email);
     }
 
-    public function testTwoAnswersFromOneAddressAreOneRecipient(): void
+    /**
+     * Issue #999: one row is one communication. Two answers from one
+     * family address are two e-mails, each with its own values — merging
+     * them, as this service used to, lost the second answer's values.
+     */
+    public function testTwoAnswersFromOneAddressAreTwoRowsEachWithItsOwnValues(): void
     {
         $url = $this->createDraft([
             ['email' => 'a@test.be', 'values' => ['Contact' => 'a@test.be', 'Taille' => 'M']],
@@ -236,11 +242,51 @@ class MergeDraftServiceTest extends TestCase
 
         $rows = $this->audienceRepository->findRowsByAudience($this->audienceIdOf($url));
 
-        $this->assertCount(2, $rows);
-        // Case and surrounding space do not make a second person, and the
-        // FIRST answer is the one whose values are kept.
+        $this->assertCount(3, $rows);
+        $this->assertSame(['M', 'L', 'S'], array_map(fn($r) => $r->data['Taille'], $rows));
+        $this->assertSame(['a@test.be', 'A@Test.be', 'b@test.be'], array_map(fn($r) => $r->email, $rows));
+        $this->assertSame([2, 3, 4], array_map(fn($r) => $r->rowIndex, $rows), 'numbered like an imported file');
+        $this->assertSame(3, $this->audienceRepository->findById($this->audienceIdOf($url))?->rowCount);
+    }
+
+    /**
+     * A row with a member_id means what a Tiers means in an imported file:
+     * the row belongs to that member, and its messages go to the
+     * addresses known for them — so its own address is not kept, exactly
+     * as an imported Tiers row keeps no Email.
+     */
+    public function testARowWithAMemberIsWrittenWithThatMemberAndNoAddressOfItsOwn(): void
+    {
+        $lucie = $this->createMember('1203456');
+        $antoine = $this->createMember('1203457');
+
+        $url = $this->createDraft([
+            ['member_id' => $lucie, 'email' => 'famille@test.be', 'values' => ['Contact' => 'Lucie', 'Taille' => 'M']],
+            ['member_id' => $antoine, 'values' => ['Contact' => 'Antoine', 'Taille' => 'S']],
+            ['email' => 'famille@test.be', 'values' => ['Contact' => 'famille@test.be', 'Taille' => 'L']],
+        ]);
+
+        $rows = $this->audienceRepository->findRowsByAudience($this->audienceIdOf($url));
+
+        $this->assertCount(3, $rows, 'two children of one family, and the family address: three rows');
+        $this->assertSame($lucie, $rows[0]->memberId);
+        $this->assertNull($rows[0]->email);
         $this->assertSame('M', $rows[0]->data['Taille']);
-        $this->assertSame(2, $this->audienceRepository->findById($this->audienceIdOf($url))?->rowCount);
+        $this->assertSame($antoine, $rows[1]->memberId, 'a member row needs no address at all');
+        $this->assertNull($rows[1]->email);
+        $this->assertNull($rows[2]->memberId, 'an address alone is never resolved to a member');
+        $this->assertSame('famille@test.be', $rows[2]->email);
+    }
+
+    public function testANullMemberIdIsARowWithoutAMember(): void
+    {
+        $url = $this->createDraft([
+            ['member_id' => null, 'email' => 'a@test.be', 'values' => ['Contact' => 'a@test.be']],
+        ]);
+
+        $rows = $this->audienceRepository->findRowsByAudience($this->audienceIdOf($url));
+        $this->assertNull($rows[0]->memberId);
+        $this->assertSame('a@test.be', $rows[0]->email);
     }
 
     public function testAnEmptyAddressIsDroppedRatherThanMailed(): void
@@ -314,8 +360,16 @@ class MergeDraftServiceTest extends TestCase
 
     // --- fixtures ---
 
+    private function createMember(string $deskId): int
+    {
+        $stmt = $this->pdo->prepare('INSERT INTO members (desk_id) VALUES (?)');
+        $stmt->execute([$deskId]);
+
+        return (int) $this->pdo->lastInsertId();
+    }
+
     /**
-     * @param list<array{email: string, values: array<string, string>}> $rows
+     * @param list<array{email?: string, member_id?: ?int, values: array<string, string>}> $rows
      */
     private function createDraft(array $rows): string
     {

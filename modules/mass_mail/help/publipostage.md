@@ -1,18 +1,19 @@
 ---
 id: publipostage
 title: Faire un publipostage depuis Excel
-summary: Un e-mail personnalisé par ligne d'un fichier Excel, variables comprises.
+summary: Écrire à chaque ligne d'un fichier Excel avec ses propres valeurs, variables comprises.
 category: Espace animateurs
 role_min: chief
 discovery: 1
 question: Comment envoyer un mail personnalisé depuis un fichier Excel ?
 question: Comment mettre le prénom de chacun dans un e-mail groupé ?
+question: Pourquoi la colonne Email est-elle ignorée quand il y a un Tiers ?
 paths: /mass-mail
 related: envoi-de-mails, membres-admin, publier-une-actualite
 ---
 
-Le publipostage envoie un e-mail personnalisé par ligne d'un fichier
-Excel : rappels de paiement avec le montant de chacun, convocations
+Le publipostage écrit à chaque ligne d'un fichier Excel avec ses
+propres valeurs : rappels de paiement avec le montant de chacun, convocations
 nominatives... Choisissez la liste « Publipostage » sur la page de
 composition, puis déposez votre fichier dans la zone prévue.
 
@@ -21,60 +22,62 @@ composition, puis déposez votre fichier dans la zone prévue.
 Un fichier Excel (.xlsx), première feuille, première ligne d'en-têtes.
 Deux colonnes ont un sens particulier :
 
-- **Tiers** : l'identifiant fédération du membre — l'e-mail part vers
-  toutes ses adresses connues ;
-- **Email** : une adresse libre (plusieurs possibles, séparées par
-  « ; »).
+- **Tiers** : l'identifiant fédération de l'animé — un message à
+  chacune de ses adresses connues. Un ancien identifiant, ou celui d'un
+  membre fusionné, mène à l'animé actuel ;
+- **Email** : des adresses libres, séparées par « ; » ou par une
+  virgule — un message par adresse, la même adresse écrite deux fois
+  n'en reçoit qu'un.
 
-Chaque ligne doit avoir l'une ou l'autre. Les fichiers Excel exportés
-par le site — membres par section, recherche de membres, réponses de
-formulaire — se réimportent tels quels, sans retouche.
+Chaque ligne a l'une ou l'autre. Avec les deux, la colonne Email est
+ignorée pour l'envoi (elle reste une variable) et l'import le signale.
+Les fichiers Excel exportés par le site se réimportent tels quels.
 
-Pour les réponses d'un formulaire d'article, vous n'avez d'ailleurs
-plus besoin du détour par Excel : le bouton « Écrire aux répondants »,
-sur l'onglet Réponses de l'article, prépare le brouillon directement.
+Pour les réponses d'un formulaire d'article, le bouton « Écrire aux
+répondants » prépare le brouillon sans détour par Excel.
 
-Un fichier fautif est **refusé en entier**, avec la liste complète des
-lignes en cause (Tiers inconnu, adresse invalide, ligne vide...) :
-corrigez, puis réimportez. Rien n'est envoyé à moitié.
+Un fichier fautif est **refusé en entier**, avec la liste des lignes
+en cause (Tiers inconnu, adresse invalide, ligne vide...).
+
+## Une ligne, une communication
+
+Chaque ligne est un envoi à part : une adresse présente sur deux lignes
+reçoit deux messages, chacun avec ses propres valeurs. Aucune adresse
+n'est jamais visible d'une autre.
+
+Une ligne avec Tiers apparaît dans l'historique de la fiche de l'animé :
+une entrée par ligne, quel que soit son nombre d'adresses. Une ligne
+sans Tiers n'est rattachée à aucune fiche, même si l'adresse est celle
+d'un membre.
 
 ## Les variables
 
-Chaque colonne du fichier devient une variable : écrivez
-{{Prenom}} ou {{Montant}} dans le sujet ou le message — le menu
-« Variable » de l'éditeur les insère sans faute de frappe. Une
-variable inconnue n'est pas remplacée et reste visible : l'aperçu de
-test la signale.
+Chaque colonne devient une variable : écrivez {{Prenom}} ou
+{{Montant}} dans le sujet ou le message, ou insérez-la par le menu
+« Variable ». Une variable inconnue reste visible telle quelle, et
+l'aperçu de test la signale.
 
 ## Qui est l'expéditeur
 
-Le message part au nom de votre section, sous son adresse. Celle-ci doit
-être sur le domaine d'envoi du site, le seul pour lequel le site peut
-signer : ailleurs (Telenet, Gmail, Yahoo…), les serveurs des destinataires
-refusent le message ou le classent en indésirable.
-
-Le site ne l'envoie donc pas ainsi. Il l'envoie depuis sa propre adresse,
-sous le nom de votre section suivi de celui de l'unité, en mettant
-l'adresse de la section en adresse de réponse : cliquer « Répondre »
-arrive toujours chez vous. L'aperçu de test montre cet expéditeur réel.
-Un Chef d'Unité peut corriger l'adresse.
+Le message part sous le nom de votre section suivi de celui de l'unité,
+depuis l'adresse du site : seule une adresse du domaine d'envoi peut
+être signée, les autres (Telenet, Gmail…) finissent refusées ou en
+indésirables. L'adresse de la section est mise en adresse de réponse,
+donc « Répondre » arrive chez vous. L'aperçu de test montre cet
+expéditeur réel ; un Chef d'Unité peut corriger l'adresse.
 
 ## Vérifier ligne par ligne
 
-En mode test, l'écran ne montre plus que l'e-mail final : expéditeur,
-destinataire, sujet, message et pièces jointes, exactement tels qu'ils
-partiront. L'aperçu s'ouvre sur **une ligne prise au hasard** — la
-première est celle que vous aviez sous les yeux en écrivant, elle ne
-prouve rien — et les flèches font défiler tout le fichier. L'e-mail de
-test part avec la ligne affichée. C'est le moment de repérer une
+En mode test, l'écran montre l'e-mail final — expéditeur,
+destinataire, sujet, message, pièces jointes — tel qu'il partira.
+L'aperçu s'ouvre sur **une ligne prise au hasard**, pas sur celle que
+vous aviez sous les yeux en écrivant, et les flèches font défiler le
+fichier. L'e-mail de test part avec la ligne affichée : repérez-y une
 colonne mal nommée ou une cellule vide.
 
-Pour modifier le texte, revenez au brouillon avec « Repasser en
-brouillon ». L'onglet « Destinataires » montre par ailleurs le fichier
-importé, ligne par ligne, avec toutes ses colonnes.
+Pour modifier le texte, utilisez « Repasser en brouillon ». L'onglet
+« Destinataires » montre le fichier importé, avec toutes ses colonnes.
 
-À la différence des autres listes, le publipostage envoie **un e-mail
-par ligne** : une personne présente deux fois recevra deux messages.
 Les destinataires extérieurs à l'unité disposent du même lien de
 désinscription que les membres, et le fichier importé est effacé
 automatiquement après usage — les données ne restent pas

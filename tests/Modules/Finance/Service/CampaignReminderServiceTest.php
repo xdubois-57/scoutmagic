@@ -414,7 +414,7 @@ final class RecordingDraftProvider implements MassMailDraftInterface
     public string $subject = '';
     /** @var string[] */
     public array $columns = [];
-    /** @var list<array{email: string, values: array<string, string>}> */
+    /** @var list<array{email?: string, member_id?: ?int, values: array<string, string>}> */
     public array $rows = [];
     public ?string $bodyHtml = null;
 

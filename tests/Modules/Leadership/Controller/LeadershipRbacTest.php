@@ -824,7 +824,7 @@ class LeadershipRbacTest extends TestCase
 /** Records the drafts asked for, and answers a composer URL. */
 final class RecordingMassMailDraft implements \Modules\MassMail\Api\MassMailDraftInterface
 {
-    /** @var list<array{label: string, rows: list<array{email: string, values: array<string, string>}>}> */
+    /** @var list<array{label: string, rows: list<array{email?: string, member_id?: ?int, values: array<string, string>}>}> */
     public array $calls = [];
 
     public function createMergeDraft(

@@ -51,7 +51,7 @@ class MergeDraftService implements MassMailDraftInterface
 
     /**
      * @param string[] $columns
-     * @param list<array{email: string, values: array<string, string>}> $rows
+     * @param list<array{email?: string, member_id?: ?int, values: array<string, string>}> $rows
      * @throws MassMailException
      */
     public function createMergeDraft(
@@ -64,9 +64,9 @@ class MergeDraftService implements MassMailDraftInterface
         ?int $actorAccountId,
         ?string $bodyHtml = null
     ): string {
-        $rows = $this->deduplicateByAddress($rows);
+        $rows = $this->keepAddressableRows($rows);
         if ($rows === []) {
-            throw new MassMailException('Aucune adresse à qui écrire.');
+            throw new MassMailException('Personne à qui écrire : aucune ligne ne porte un membre ou une adresse.');
         }
 
         $authorization = $this->buildAuthorization($actorRole, $actorEmail);
@@ -87,14 +87,18 @@ class MergeDraftService implements MassMailDraftInterface
 
         $rowIndex = 2; // an imported audience numbers from the first data line
         foreach ($rows as $row) {
-            // member_id stays null even when the address belongs to a
-            // member we know. Setting it would send to EVERY address that
-            // member has ever registered, and the person answered with one
-            // precise address — the one they expect to hear back on. The
-            // consequence is deliberate and documented: unsubscribing goes
-            // through mass_mail_suppressed_addresses rather than through
-            // their member_emails row.
-            $this->audienceRepository->createRow($audienceId, $rowIndex, null, $row['email'], $row['values']);
+            // member_id is written only when the CALLER gave one: it is
+            // never looked up from the address. A form's respondent
+            // answered with one precise address, the one they expect to
+            // hear back on, and resolving a member from it would send to
+            // every address that member has ever registered.
+            $this->audienceRepository->createRow(
+                $audienceId,
+                $rowIndex,
+                $row['member_id'],
+                $row['email'],
+                $row['values']
+            );
             $rowIndex++;
         }
 
@@ -123,32 +127,33 @@ class MergeDraftService implements MassMailDraftInterface
     }
 
     /**
-     * Two people who answered with the same address are one recipient.
-     * The first row wins: on a form, the earliest answer is the one whose
-     * values the rest of the row was read from.
+     * The rows that can reach somebody, in the caller's order, and none of
+     * them merged with another: one row is one communication, so two
+     * answers from one family address are two messages, each with its own
+     * values (ARCHITECTURE.md §8.71).
      *
-     * Compared on the lowercased, trimmed address — the same normalisation
-     * the rest of the site indexes addresses with, so "A@b.be" and
-     * "a@b.be " do not become two mails to one person.
+     * A row with a member keeps no address of its own — exactly as an
+     * imported row with a Tiers, whose Email cell is ignored for delivery
+     * — so the freeze has one meaning for both. A row with neither is
+     * dropped rather than mailed.
      *
-     * @param list<array{email: string, values: array<string, string>}> $rows
-     * @return list<array{email: string, values: array<string, string>}>
+     * @param list<array{email?: string, member_id?: ?int, values: array<string, string>}> $rows
+     * @return list<array{email: ?string, member_id: ?int, values: array<string, string>}>
      */
-    private function deduplicateByAddress(array $rows): array
+    private function keepAddressableRows(array $rows): array
     {
-        $seen = [];
         $result = [];
         foreach ($rows as $row) {
-            $address = trim($row['email']);
+            $memberId = $row['member_id'] ?? null;
+            if ($memberId !== null && $memberId > 0) {
+                $result[] = ['email' => null, 'member_id' => $memberId, 'values' => $row['values']];
+                continue;
+            }
+            $address = trim($row['email'] ?? '');
             if ($address === '') {
                 continue;
             }
-            $key = strtolower($address);
-            if (isset($seen[$key])) {
-                continue;
-            }
-            $seen[$key] = true;
-            $result[] = ['email' => $address, 'values' => $row['values']];
+            $result[] = ['email' => $address, 'member_id' => null, 'values' => $row['values']];
         }
 
         return $result;

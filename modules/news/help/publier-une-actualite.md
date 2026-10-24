@@ -65,7 +65,7 @@ répondu et vous dépose dans l'écran de composition, chaque champ du
 formulaire disponible comme variable. Rien n'est envoyé — le message
 reste à écrire, et il part ensuite comme n'importe quel publipostage.
 L'e-mail utilisé est celui avec lequel la personne a répondu, et deux
-réponses venues de la même adresse ne font qu'un destinataire.
+réponses venues de la même adresse font deux e-mails.
 
 Ce bouton demande le rôle animateur (la page des réponses, elle,
 s'ouvre dès intendant) et n'apparaît pas si le module Envoi de mails

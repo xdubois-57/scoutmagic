@@ -2785,18 +2785,36 @@ row's values as sample hints), usable in the subject and the body alike.
 
 **Import (`Service\AudienceImportService`, `POST /mass-mail/audiences`)** —
 first sheet only, first row = headers. Delivery resolution per row: a
-non-empty "Tiers" value must match `members.desk_id` (the email then goes
-to every currently-valid address of that member, via the exact
-`MemberEmailService::resolveValidAddressesForMassMail()` path list sends
-use, so member-level unsubscribes are honored identically); otherwise the
-row's "Email" column value (several addresses allowed, `;`-separated) must
-validate; neither → refused. Validation is **all-or-nothing by
-specification**: any bad line refuses the entire file, and
+non-empty "Tiers" value must designate a member, found by the rule of
+`Core\Import\MemberRepository::findByDeskId()` in its grouped form
+(`MemberResolutionRepository::findMemberIdsByDeskIds()`, three queries for
+a whole file): a direct match on a member that has not been merged away,
+then `member_desk_id_aliases` — so the old Desk id a merge abandoned, which
+the federation's exports keep carrying, leads to the member kept. It goes
+one step further, always towards the current member: a merged row without
+an alias still leads to the row it was merged into, and a chain of merges
+is followed to its end (a second merge does not repoint the first one's
+alias). The match is the collation's, case-insensitive, so the result is
+keyed by the value as asked rather than as stored —
+`MemberDeskIdLookupOnMysqlTest` holds that on the real engine. The row's
+messages then go to every currently-valid address of that member, via the
+exact `MemberEmailService::resolveValidAddressesForMassMail()` path list
+sends use, so member-level unsubscribes are honored identically; **an Email
+cell on the same row is ignored for delivery** (it stays a merge variable)
+and the import says so in a warning naming the lines. Without a Tiers, the
+row's "Email" column value (several addresses allowed, `;`- or
+`,`-separated) must validate; an address written twice in one cell is
+stored once, with a warning quoting the cell; neither column → refused.
+**One row is one communication**: one message per distinct address of the
+row, never deduplicated across rows (issue #999). Validation is
+**all-or-nothing by specification**: any bad line refuses the entire file —
+an unknown Tiers included, next to rows that resolve — and
 `AudienceImportException` carries every offending line at once (line
 number, column, value, reason) rather than the first one — the chief fixes
 the file once. Duplicate Tiers/addresses across rows are legitimate ("one
-row = one email") but reported as non-blocking warnings. Header
-recognition is alias-based, case/accent-insensitive — `Tiers` ≡
+row = one communication") but reported as non-blocking warnings, beside
+the two per-row ones above (maquette `envois-groupes.html`, écran 5).
+Header recognition is alias-based, case/accent-insensitive — `Tiers` ≡
 `Identifiant Desk`, `Email` ≡ `Email(s)` ≡ `Contact` ≡ `Adresse email` ≡
 `Courriel` — precisely so the site's own exports (`Core\Member\Export`,
 news form responses) re-import as audiences unchanged; every other column
@@ -3329,9 +3347,11 @@ Where the unit has camped, and every stay it made there. The product answers one
 
 **The audience is stored exactly like an imported one, on purpose** — same `mass_mail_audiences` + `mass_mail_audience_rows`, same encryption, same composer, and above all the same `Task\PurgeMergeAudiencesHandler` retention (18 months after the last send, 7 days for an orphan). A parallel mechanism would be a second thing to get wrong and a second place to forget when the retention rules change.
 
-**`member_id` stays null, even when the address belongs to a member we know.** Resolving it would send to *every* address that member has ever registered, and the respondent answered with one precise address — the one they expect the reply on. The consequence is deliberate and is the reason this is written down: unsubscribing then goes through `mass_mail_suppressed_addresses` rather than through their `member_emails` row.
+**A row may carry a `member_id`, and then means exactly what a Tiers means in an imported file** (§8.61, issue #999): `MergeDraftService` writes it to `mass_mail_audience_rows.member_id`, stores no address of its own for that row (the freeze sends to the member's addresses, as for an imported Tiers row), and the row appears in that member's history. It is the CALLER's decision and is never looked up from an address. Finance's reminders (one row per receivable, for the child) and leadership's drafts (one row per leader) are the consumers it exists for.
 
-**Rows are deduplicated by address**, compared lowercased and trimmed, first row winning. Two answers from one family address are one mail, not two.
+**A form's respondent gets no `member_id`, even when the address belongs to a member we know.** Resolving one would send to *every* address that member has ever registered, and the respondent answered with one precise address — the one they expect the reply on. The consequence is deliberate and is the reason this is written down: unsubscribing then goes through `mass_mail_suppressed_addresses` rather than through their `member_emails` row, and the mail appears on no member page.
+
+**Rows are never merged.** One row is one communication, exactly like a line of an imported file: two answers from one family address are **two e-mails**, each with its own values. The service used to deduplicate by address, first row winning, and so silently lost the second answer's values — the second child's size, the second registration's amount. A row with neither a member nor an address is dropped, and none left at all is refused rather than leaving an empty draft.
 
 **The columns come from one definition** — `Modules\News\Service\ResponseColumns`, read by the export and by the merge alike (§8.71quater). This paragraph used to say the two «cannot describe the same form differently» while they already did, and to justify the four payment columns being merge-only.
 
