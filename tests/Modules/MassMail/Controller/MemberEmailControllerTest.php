@@ -201,6 +201,36 @@ class MemberEmailControllerTest extends TestCase
         $this->assertStringNotContainsString('durée de conservation', $response->getBody());
     }
 
+    /**
+     * An entry nothing of which left (issue #999, screen 2): the content is
+     * still shown, under a sentence that says it could not be sent, and the
+     * page never says « Envoyé le ».
+     */
+    public function testAnEntryNotSentSaysSoAboveItsContent(): void
+    {
+        AuthSession::login(1, 'member@test.example', 'identified');
+        $massMailQuery = $this->createStub(MassMailQueryInterface::class);
+        $massMailQuery->method('findEmailDetailForMember')->willReturn([
+            'subject' => 'Sujet',
+            'body_html' => '<p>Corps</p>',
+            'sent_at' => '2026-01-01 10:00:00',
+            'section_name' => 'Meute A',
+            'merge_purged' => false,
+            'not_sent' => true,
+            'other_targets' => [],
+        ]);
+
+        $body = $this->buildController($massMailQuery)->show(
+            new Request('GET', "/members/{$this->memberYearId}/emails/5", [], [], [], []),
+            ['id' => (string) $this->memberYearId, 'target_id' => '5']
+        )->getBody();
+
+        $this->assertStringContainsString("Cet e-mail n'a pas pu être envoyé aux adresses de cet animé.", $body);
+        $this->assertStringContainsString('<p>Corps</p>', $body);
+        $this->assertStringContainsString('Non envoyée', $body);
+        $this->assertStringNotContainsString('Envoyé le', $body);
+    }
+
     public function testReturns404WhenRecipientDoesNotBelongToThisMember(): void
     {
         AuthSession::login(1, 'member@test.example', 'identified');
