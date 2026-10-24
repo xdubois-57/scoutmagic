@@ -28,19 +28,27 @@ use Modules\MassMail\Api\MassMailDraftInterface;
  * know when the request actually went out, and a notification fired at
  * draft time would announce a message nobody has written yet.
  *
- * **One autonomous block per receivable, never a table.** A table of
- * three lines invites one transfer for the total; three separate blocks —
- * a first name, an amount, a communication, a QR — invite three
- * transfers, which is what makes each payment identifiable when it lands.
- * The instruction says its own reason, because "one transfer per child"
- * with no explanation reads as bureaucracy.
+ * **One row per receivable, attached to its child** (issue #999). Each
+ * row carries the child's `member_id`, so mass_mail treats it exactly as
+ * an imported line with a « Tiers »: its messages go to that child's
+ * eligible addresses, and the reminder appears on THAT child's page. A
+ * family of three children sharing one address therefore receives three
+ * mails, one per child — never one mail grouping them, which is what
+ * used to put a reminder on nobody's page.
  *
- * The body is a template with one section per block
- * ({{#Prénom 2}}…{{/Prénom 2}}, Service\MergeRenderer) rather than a
- * fixed number of blocks: a household with one child must not receive the
- * empty blocks the household with three needs. The merge values are
- * escaped on render — deliberately, they are the audience's data — which
- * is exactly why the variable part has to live in the template.
+ * **"One transfer per child" now holds by construction.** Every mail
+ * carries exactly one payment block — a first name, an amount, a
+ * communication, a QR — so it can only invite one transfer, the one that
+ * makes the payment identifiable when it lands. The instruction still
+ * says its own reason, because the rule unexplained reads as bureaucracy.
+ * And no child is ever left out: the body used to carry one section per
+ * child ({{#Prénom N}}) up to a cap, and the children beyond it were
+ * dropped without a word.
+ *
+ * Who is reminded has not changed: a receivable still due whose child has
+ * an address in Desk. Which addresses the mail actually goes to is no
+ * longer decided here — that is mass_mail's rule for a member, the same
+ * as for any other publipostage line.
  *
  * **The QR is a URL, and the body repeats everything it encodes in
  * text.** Many mail clients block remote images by default, so the parent
@@ -53,8 +61,12 @@ use Modules\MassMail\Api\MassMailDraftInterface;
  */
 class CampaignReminderService
 {
-    /** Beyond this, the body would be a wall of blocks nobody reads. */
-    private const MAX_BLOCKS = 6;
+    /**
+     * The audience's columns, which are also the variables the composer
+     * offers. One payment block's worth, and no numbering: a row is one
+     * receivable.
+     */
+    public const COLUMNS = ['Prénom', 'Montant', 'Communication', 'QR', 'Bénéficiaire', 'IBAN'];
 
     public function __construct(
         private CampaignRowRepository $rows,
@@ -93,95 +105,80 @@ class CampaignReminderService
             );
         }
 
-        $recipients = $this->buildRecipients($campaign);
-        if ($recipients === []) {
+        $demands = $this->buildDemands($campaign);
+        if ($demands === []) {
             throw new FinanceException("Aucune créance à rappeler : soit tout est réglé, soit aucune adresse n'est "
                 . "connue.");
         }
 
-        $maxBlocks = 0;
-        foreach ($recipients as $recipient) {
-            $maxBlocks = max($maxBlocks, count($recipient['demands']));
-        }
+        $beneficiary = $account->holderName ?? $account->name;
+        $iban = IbanNormalizer::format(IbanNormalizer::normalize($account->iban));
 
-        $columns = $this->columns($maxBlocks);
         $rows = [];
-        foreach ($recipients as $email => $recipient) {
+        foreach ($demands as $demand) {
+            // No `email`: with a member_id, mass_mail sends to that
+            // member's addresses and would ignore one given here anyway.
             $rows[] = [
-                'email' => (string) $email,
-                'values' => $this->valuesFor(
-                    $recipient,
-                    $maxBlocks,
-                    $account->holderName ?? $account->name,
-                    IbanNormalizer::format(IbanNormalizer::normalize($account->iban))
-                ),
+                'member_id' => $demand['member_id'],
+                'values' => [
+                    'Prénom' => $demand['name'],
+                    'Montant' => self::euros($demand['amount_cents']),
+                    'Communication' => $demand['communication'],
+                    'QR' => $this->qrTokens->urlFor($demand['receivable_id'], $this->baseUrl),
+                    'Bénéficiaire' => $beneficiary,
+                    'IBAN' => $iban,
+                ],
             ];
         }
 
         return $this->massMailDraft->createMergeDraft(
             'Rappel — ' . $campaign->label,
             'Rappel — ' . $campaign->label,
-            $columns,
+            self::COLUMNS,
             $rows,
             $actorRole,
             $actorEmail,
             $actorAccountId,
-            $this->draftBody($maxBlocks)
+            $this->draftBody()
         );
     }
 
     /**
      * The starting body, offered to the composer.
      *
-     * Public so the controller can hand it over and so a test can read
-     * the promises it makes without going through the mail-merge module:
-     * one block per receivable, the payment details in text under each
-     * QR, and the reason for asking one transfer per child.
+     * Public so a test can read the promises it makes without going
+     * through the mail-merge module: one payment block, the payment
+     * details in text under the QR, and the reason for asking one
+     * transfer per child. It holds no section ({{#…}}): every row fills
+     * every variable, so nothing in it is ever conditional.
      */
-    public function draftBody(int $maxBlocks): string
+    public function draftBody(): string
     {
-        $blocks = '';
-        for ($index = 1; $index <= max(1, $maxBlocks); $index++) {
-            $blocks .= '{{#Prénom ' . $index . '}}'
-                . '<p>———</p>'
-                . '<p><strong>{{Prénom ' . $index . '}} — {{Montant ' . $index . '}}</strong></p>'
-                . '<p><img src="{{QR ' . $index . '}}" alt="QR de paiement" width="200" height="200"></p>'
-                . '<p>Bénéficiaire : {{Bénéficiaire}}<br>'
-                . 'IBAN : {{IBAN}}<br>'
-                . 'Communication : {{Communication ' . $index . '}}<br>'
-                . 'Montant : {{Montant ' . $index . '}}</p>'
-                . '{{/Prénom ' . $index . '}}';
-        }
-
         return '<p>Bonjour,</p>'
-            . '<p>Il reste {{Total}} à régler pour votre famille.</p>'
-            . $blocks
-            . '<p>———</p>'
-            . '<p><strong>Un virement par demande, s\'il vous plaît</strong> — c\'est ce qui nous permet '
-            . "d'identifier chaque paiement à son arrivée.</p>"
+            . '<p>Il reste {{Montant}} à régler pour {{Prénom}}.</p>'
+            . '<p><img src="{{QR}}" alt="QR de paiement" width="200" height="200"></p>'
+            . '<p>Bénéficiaire : {{Bénéficiaire}}<br>'
+            . 'IBAN : {{IBAN}}<br>'
+            . 'Communication : {{Communication}}<br>'
+            . 'Montant : {{Montant}}</p>'
+            . '<p><strong>Un virement par enfant, s\'il vous plaît</strong>, avec cette communication : c\'est ce '
+            . "qui nous permet d'identifier chaque paiement à son arrivée. Si vous avez plusieurs enfants dans "
+            . "l'unité, chacun reçoit son propre e-mail.</p>"
             . "<p>Si le code ne s'affiche pas, votre logiciel de messagerie bloque les images : les "
-            . 'informations sous chaque code suffisent pour faire le virement à la main.</p>'
+            . 'informations sous le code suffisent pour faire le virement à la main.</p>'
             . '<p>Merci, et bonne route.</p>';
     }
 
     /**
-     * Recipients keyed by address, each with the receivables that address
-     * is responsible for.
+     * The receivables still due, one entry each, in the campaign's order.
      *
-     * Grouped by ADDRESS rather than by member because that is what a
-     * mail-merge audience is: one row per address, deduplicated by the
-     * mail-merge module itself. A parent of three receives one mail
-     * carrying three blocks, never three mails.
+     * Never grouped by address and never capped: one receivable is one
+     * row of the audience, so a family of seven gets seven reminders and
+     * none of the seven is left out.
      *
-     * @return array<
-     *     string,
-     *     array{
-     *         demands: array<int, array{name: string, amount_cents: int, communication: string, receivable_id: int}>,
-     *         total: int
-     *     }
-     * >
+     * @return list<array{member_id: int, name: string, amount_cents: int, communication: string, receivable_id: int}>
      */
-    private function buildRecipients(Campaign $campaign): array
+    private function buildDemands(Campaign $campaign): array
     {
         $rows = $this->rows->findByCampaignId($campaign->id);
         if ($rows === []) {
@@ -202,7 +199,7 @@ class CampaignReminderService
             $names[$entry->memberId] = trim($entry->firstName) !== '' ? $entry->firstName : $entry->displayName;
         }
 
-        $recipients = [];
+        $demands = [];
         foreach ($rows as $row) {
             $receivable = $receivablesByRowId[$row->id] ?? null;
             $settlement = $receivable !== null ? ($settlements[$receivable->id] ?? null) : null;
@@ -215,75 +212,24 @@ class CampaignReminderService
                 continue;
             }
 
+            // The same rule as before about WHO is reminded: a child with
+            // no address in Desk is left out. The address itself is not
+            // passed on — the member_id decides where the mail goes.
             $email = $emails[$row->memberId] ?? null;
-            if ($email === null) {
+            if ($email === null || trim($email) === '') {
                 continue;
             }
 
-            $key = strtolower(trim($email));
-            $recipients[$key] ??= ['demands' => [], 'total' => 0];
-            if (count($recipients[$key]['demands']) >= self::MAX_BLOCKS) {
-                continue;
-            }
-
-            $recipients[$key]['demands'][] = [
+            $demands[] = [
+                'member_id' => $row->memberId,
                 'name' => $names[$row->memberId] ?? ('Membre #' . $row->memberId),
                 'amount_cents' => $settlement->amountRemainingCents(),
                 'communication' => $receivable->communication,
                 'receivable_id' => $receivable->id,
             ];
-            $recipients[$key]['total'] += $settlement->amountRemainingCents();
         }
 
-        return $recipients;
-    }
-
-    /**
-     * @return string[]
-     */
-    private function columns(int $maxBlocks): array
-    {
-        $columns = ['Bénéficiaire', 'IBAN', 'Total'];
-        for ($index = 1; $index <= max(1, $maxBlocks); $index++) {
-            $columns[] = 'Prénom ' . $index;
-            $columns[] = 'Montant ' . $index;
-            $columns[] = 'Communication ' . $index;
-            $columns[] = 'QR ' . $index;
-        }
-
-        return $columns;
-    }
-
-    /**
-     * @param array{
-     *     demands: array<int, array{name: string, amount_cents: int, communication: string, receivable_id: int}>,
-     *     total: int
-     * } $recipient
-     * @return array<string, string>
-     */
-    private function valuesFor(array $recipient, int $maxBlocks, string $beneficiary, string $iban): array
-    {
-        $values = [
-            'Bénéficiaire' => $beneficiary,
-            'IBAN' => $iban,
-            'Total' => self::euros($recipient['total']),
-        ];
-
-        for ($index = 1; $index <= max(1, $maxBlocks); $index++) {
-            $demand = $recipient['demands'][$index - 1] ?? null;
-            // An absent block leaves EVERY one of its columns empty: the
-            // section keyed on "Prénom N" is what removes it, and a
-            // stray value in a sibling column would be rendered nowhere
-            // but would still show up in the composer's preview.
-            $values['Prénom ' . $index] = $demand['name'] ?? '';
-            $values['Montant ' . $index] = $demand !== null ? self::euros($demand['amount_cents']) : '';
-            $values['Communication ' . $index] = $demand['communication'] ?? '';
-            $values['QR ' . $index] = $demand !== null
-                ? $this->qrTokens->urlFor($demand['receivable_id'], $this->baseUrl)
-                : '';
-        }
-
-        return $values;
+        return $demands;
     }
 
     private static function euros(int $cents): string
