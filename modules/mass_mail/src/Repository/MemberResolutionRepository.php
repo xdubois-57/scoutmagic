@@ -384,13 +384,32 @@ class MemberResolutionRepository
     }
 
     /**
-     * Mail-merge import: which members do these Desk "Tiers" values
-     * designate — keyed by the exact desk_id string, a value with no
-     * member is simply absent (Service\AudienceImportService then refuses
-     * the file, naming the row).
+     * Mail-merge import: which CURRENT members do these Desk "Tiers" values
+     * designate — keyed by the value exactly as it was passed in; a value
+     * with no member is simply absent (Service\AudienceImportService then
+     * refuses the file, naming the row).
+     *
+     * The grouped form of `Core\Import\MemberRepository::findByDeskId()`,
+     * and the same rule: a direct match on a member that has NOT been
+     * merged away first, then `member_desk_id_aliases` — the abandoned
+     * Desk id a merge registers, which the federation's exports keep
+     * carrying for ever. A file built from an old export therefore reaches
+     * the member the merge kept, not the abandoned row.
+     *
+     * Two steps go further than that rule, both towards the current member
+     * and never away from it: a merged row with no alias still leads to
+     * the row it was merged into, and a member reached either way that has
+     * itself been merged since is followed to the end of the chain (a
+     * second merge does not repoint the first one's alias).
+     *
+     * The matching is the collation's (utf8mb4_unicode_ci: case-
+     * insensitive), so a row is mapped back to the value asked for through
+     * a lowercased key rather than through the stored spelling — keyed by
+     * the stored spelling, "abc1" in a file would be found by the engine
+     * and then reported unknown. `MemberDeskIdLookupOnMysqlTest` holds it.
      *
      * @param string[] $deskIds
-     * @return array<string, int> desk_id => member_id
+     * @return array<string, int> desk_id as given => current member_id
      */
     public function findMemberIdsByDeskIds(array $deskIds): array
     {
@@ -399,15 +418,69 @@ class MemberResolutionRepository
             return [];
         }
 
+        $direct = [];
+        $mergedInto = [];
         $placeholders = implode(',', array_fill(0, count($deskIds), '?'));
-        $stmt = $this->pdo->prepare("SELECT desk_id, id FROM members WHERE desk_id IN ({$placeholders})");
+        $stmt = $this->pdo->prepare(
+            "SELECT desk_id, id, merged_into_member_id FROM members WHERE desk_id IN ({$placeholders})"
+        );
         $stmt->execute($deskIds);
-
-        $map = [];
         foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
-            $map[(string) $row['desk_id']] = (int) $row['id'];
+            $key = mb_strtolower((string) $row['desk_id']);
+            if ($row['merged_into_member_id'] === null) {
+                $direct[$key] = (int) $row['id'];
+            } else {
+                $mergedInto[$key] = (int) $row['merged_into_member_id'];
+            }
         }
-        return $map;
+
+        $aliased = [];
+        $missing = array_values(array_filter($deskIds, fn(string $d) => !isset($direct[mb_strtolower($d)])));
+        if ($missing !== []) {
+            $placeholders = implode(',', array_fill(0, count($missing), '?'));
+            $stmt = $this->pdo->prepare(
+                "SELECT desk_id, member_id FROM member_desk_id_aliases WHERE desk_id IN ({$placeholders})"
+            );
+            $stmt->execute($missing);
+            foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+                $aliased[mb_strtolower((string) $row['desk_id'])] = (int) $row['member_id'];
+            }
+        }
+
+        $found = [];
+        foreach ($deskIds as $deskId) {
+            $key = mb_strtolower($deskId);
+            $memberId = $direct[$key] ?? $aliased[$key] ?? $mergedInto[$key] ?? null;
+            if ($memberId !== null) {
+                $found[$deskId] = $memberId;
+            }
+        }
+        if ($found === []) {
+            return [];
+        }
+
+        // Follow every merge to its end. Bounded, so a cycle no merge
+        // screen can produce still cannot loop.
+        $current = $found;
+        for ($hop = 0; $hop < 10; $hop++) {
+            $ids = array_values(array_unique($current));
+            $placeholders = implode(',', array_fill(0, count($ids), '?'));
+            $stmt = $this->pdo->prepare(
+                "SELECT id, merged_into_member_id FROM members
+                 WHERE merged_into_member_id IS NOT NULL AND id IN ({$placeholders})"
+            );
+            $stmt->execute($ids);
+            $next = [];
+            foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+                $next[(int) $row['id']] = (int) $row['merged_into_member_id'];
+            }
+            if ($next === []) {
+                break;
+            }
+            $current = array_map(fn(int $id) => $next[$id] ?? $id, $current);
+        }
+
+        return $current;
     }
 
     /**

@@ -48,7 +48,9 @@ billet. C'est dans un tableur qu'on fait les comptes d'une soirée. Le
 fichier est réutilisable tel quel comme audience de publipostage.
 
 « Écrire » prépare un brouillon de publipostage adressé aux personnes
-que le filtre affiche, et vous dépose dans l'écran de composition. Sur
+que le filtre affiche, et vous dépose dans l'écran de composition.
+Chaque réponse a son e-mail : deux réponses d'une même famille sont
+deux e-mails, chacun avec ses propres valeurs. Sur
 un formulaire qui attend un paiement, il demande d'abord à qui écrire :
 tous les répondants, ou seulement ceux qui n'ont pas fini de payer. Le
 dialogue rappelle alors la date du dernier extrait bancaire importé —
