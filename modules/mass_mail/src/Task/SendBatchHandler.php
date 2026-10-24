@@ -377,15 +377,38 @@ class SendBatchHandler implements TaskHandlerInterface
                 // lot?") and answers nothing about any one recipient.
                 $massMailService->journalDeliverySent($email->id, $delivery->id, $memberIds);
                 $sentCount++;
-                $this->notifyOnce(
-                    $context,
-                    $delivery,
-                    $targets,
-                    $email,
-                    $subject,
-                    $email->listType === Email::LIST_TYPE_MAIL_MERGE
-                        && $mergeRenderer->containsToken($email->subject)
-                );
+                // Best-effort, like the receipt above: the copy has left
+                // and its row says so. A notification that throws — a
+                // \PDOException from the claim, an error from dispatch(),
+                // or a MailException, which the handler below would turn
+                // into an `error` on a message that was in fact sent —
+                // must not cost the rest of the mailing. Journaled without
+                // the address or any text of the message.
+                try {
+                    $this->notifyOnce(
+                        $context,
+                        $delivery,
+                        $targets,
+                        $email,
+                        $subject,
+                        $email->listType === Email::LIST_TYPE_MAIL_MERGE
+                            && $mergeRenderer->containsToken($email->subject)
+                    );
+                } catch (\Throwable $e) {
+                    try {
+                        $context->journal->log(
+                            'mass_mail',
+                            'notification_failed',
+                            'error',
+                            'Notification non envoyée pour un message de l\'envoi groupé',
+                            ['email_id' => $email->id, 'delivery_id' => $delivery->id, 'exception' => $e::class],
+                            null
+                        );
+                    } catch (\Throwable) {
+                        // Nobody left to tell: the journal goes through the
+                        // same database that may just have refused.
+                    }
+                }
             } catch (\Core\Mail\SuppressedRecipientException) {
                 // Caught ahead of the general case so the tracking page
                 // keeps one vocabulary: the freeze writes this same

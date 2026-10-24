@@ -874,6 +874,45 @@ class SendBatchHandlerTest extends TestCase
         return $notificationService;
     }
 
+    /**
+     * A notification is best-effort: the copy has left by the time it is
+     * attempted. One that throws — here dispatch() itself — must neither
+     * turn that message into an error nor stop the rest of the batch, and
+     * it is journaled without the address.
+     */
+    public function testAFailingNotificationCostsNeitherTheMessageNorTheRestOfTheBatch(): void
+    {
+        $deliveries = $this->deliveryRepository->findByEmailId($this->emailId);
+        $this->giveTheMemberAYearAt($deliveries[0]->emailAddress);
+        foreach ($deliveries as $delivery) {
+            $this->userAccountRepository->create($delivery->emailAddress);
+        }
+        $notificationService = $this->createMock(NotificationService::class);
+        $notificationService->method('dispatch')->willThrowException(new \RuntimeException('push down'));
+
+        (new SendBatchHandler())->handle([], $this->buildContextWithNotifications($this->mailServiceDouble(), $notificationService));
+
+        $statuses = $this->pdo->query(
+            'SELECT status FROM mass_mail_deliveries WHERE email_id = ' . (int) $this->emailId
+        )->fetchAll(\PDO::FETCH_COLUMN);
+        // The batch holds two of the three: both sent, none turned into an
+        // error, and the third still queued for the next batch.
+        $counts = array_count_values($statuses);
+        ksort($counts);
+        $this->assertSame(['pending' => 1, 'sent' => 2], $counts);
+        $rescheduled = $this->pdo->query(
+            "SELECT COUNT(*) FROM scheduled_actions WHERE module_id = 'mass_mail' AND task_key = 'send_batch' AND status = 'pending'"
+        )->fetchColumn();
+        $this->assertSame(1, (int) $rescheduled);
+        $logged = $this->pdo->query(
+            "SELECT context FROM event_log WHERE event_type = 'notification_failed'"
+        )->fetchAll(\PDO::FETCH_COLUMN);
+        $this->assertNotSame([], $logged);
+        foreach ($this->deliveryRepository->findByEmailId($this->emailId) as $delivery) {
+            $this->assertStringNotContainsString($delivery->emailAddress, implode(' ', $logged));
+        }
+    }
+
     public function testDispatchesEmailReceivedNotificationWhenRecipientHasALoginAccount(): void
     {
         $this->pdo->exec("DELETE FROM mass_mail_deliveries WHERE id NOT IN (SELECT MIN(id) FROM mass_mail_deliveries)");

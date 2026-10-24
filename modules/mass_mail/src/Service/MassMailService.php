@@ -1525,12 +1525,7 @@ class MassMailService
             return [];
         }
 
-        $indexes = [];
-        foreach ($this->audienceRepository->findRowsByAudience($email->audienceId) as $row) {
-            $indexes[$row->id] = $row->rowIndex;
-        }
-
-        return $indexes;
+        return $this->audienceRepository->findRowIndexesByAudience($email->audienceId);
     }
 
     /**

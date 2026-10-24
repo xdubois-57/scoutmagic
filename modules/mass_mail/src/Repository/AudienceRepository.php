@@ -87,6 +87,25 @@ class AudienceRepository
     }
 
     /**
+     * row_index keyed by row id, for one audience — the tracking page's
+     * « ligne N » beside each message. Both columns are stored in clear, so
+     * nothing is decrypted: an audience can hold thousands of rows.
+     *
+     * @return array<int, int>
+     */
+    public function findRowIndexesByAudience(int $audienceId): array
+    {
+        $stmt = $this->pdo->prepare('SELECT id, row_index FROM mass_mail_audience_rows WHERE audience_id = ?');
+        $stmt->execute([$audienceId]);
+        $indexes = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $indexes[(int) $row['id']] = (int) $row['row_index'];
+        }
+
+        return $indexes;
+    }
+
+    /**
      * The Nth data row (0-based, in file order) of one audience — the
      * compose dialog's per-recipient preview navigation.
      */

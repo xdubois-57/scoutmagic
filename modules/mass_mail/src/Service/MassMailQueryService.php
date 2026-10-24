@@ -101,13 +101,7 @@ class MassMailQueryService implements MassMailQueryInterface
         // communications, not one concerning both.
         $others = [];
         if (!$isMerge) {
-            foreach ($this->targetRepository->findOtherEntriesOfEmail($entry['email_id'], $targetId) as $other) {
-                $others[] = [
-                    'target_id' => $other['id'],
-                    'member_id' => $other['member_id'],
-                    'scout_year_id' => $other['scout_year_id'],
-                ];
-            }
+            $others = $this->targetRepository->findOtherEntriesOfEmail($entry['email_id'], $targetId);
         }
 
         if (!$isMerge || $row === null) {

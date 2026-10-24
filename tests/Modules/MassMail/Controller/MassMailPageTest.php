@@ -680,6 +680,29 @@ class MassMailPageTest extends TestCase
             ->findById($deliveryId)?->status, 'nothing was resent');
     }
 
+    /** With its token, « Renvoyer » puts the message back in the queue. */
+    public function testAChiefResendsAMessageInErrorWithItsToken(): void
+    {
+        $deliveryId = $this->aDeliveryInError();
+
+        AuthSession::login($this->accountId, 'chief@test.com', 'chief');
+        $response = $this->frontController('/mass-mail/deliveries/{id}/resend', 'resend', 'POST')
+            ->handle(new \Tests\RequestWithInput(
+                'POST',
+                '/mass-mail/deliveries/' . $deliveryId . '/resend',
+                [],
+                [],
+                [],
+                [],
+                (string) json_encode(['_csrf_token' => CsrfGuard::generateToken()])
+            ));
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertTrue(json_decode($response->getBody(), true)['success'] ?? false);
+        $this->assertSame('pending', (new DeliveryRepository($this->pdo, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))))
+            ->findById($deliveryId)?->status);
+    }
+
     // -----------------------------------------------------------------
     // What a section chief may aim at
     // -----------------------------------------------------------------

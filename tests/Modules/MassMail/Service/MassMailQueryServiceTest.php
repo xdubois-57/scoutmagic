@@ -437,6 +437,8 @@ class MassMailQueryServiceTest extends TestCase
         $bob = self::member($f['pdo'], 'B');
         $aliceTarget = self::sentTo($f['pdo'], $f['deliveries'], $email, $alice, $f['year_id'], ['a@x.be']);
         $bobTarget = self::sentTo($f['pdo'], $f['deliveries'], $email, $bob, null, ['b@x.be'], null, ['error']);
+        // Still going out: not shown yet, here as on their own page.
+        self::sentTo($f['pdo'], $f['deliveries'], $email, self::member($f['pdo'], 'C'), $f['year_id'], ['c@x.be'], null, ['pending']);
 
         $detail = $f['service']->findEmailDetailForMember($alice, $aliceTarget);
 

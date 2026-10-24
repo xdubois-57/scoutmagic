@@ -158,23 +158,39 @@ class TargetRepository
      * communication concerne aussi … ». Only the caller knows which of
      * these members the reader may see, and it names nobody else.
      *
-     * @return array<int, array{
-     *     id: int, email_id: int, member_id: int, scout_year_id: int|null, audience_row_id: int|null,
-     *     subject: string, body_html: string, list_type: string, section_name: string,
-     *     sent_at: string, not_sent: bool
-     * }>
+     * Only the three columns that question needs: a classic list to the
+     * whole unit has hundreds of targets, and each one would otherwise
+     * carry the body again and three counts. The visibility rule is
+     * SHOWN's, written out: a message sent, or none still pending.
+     *
+     * @return list<array{target_id: int, member_id: int, scout_year_id: int|null}>
      */
     public function findOtherEntriesOfEmail(int $emailId, int $exceptTargetId): array
     {
         $stmt = $this->pdo->prepare(
-            'SELECT * FROM (' . self::ENTRY_SELECT
-                . " WHERE t.email_id = ? AND t.id <> ? AND e.status IN ('sending', 'sent')) x"
-                . self::SHOWN
-                . ' ORDER BY x.id ASC'
+            "SELECT t.id AS target_id, t.member_id, t.scout_year_id
+             FROM mass_mail_targets t
+             JOIN mass_mail_emails e ON e.id = t.email_id
+             JOIN sections s ON s.id = e.section_id
+             WHERE t.email_id = ? AND t.id <> ? AND e.status IN ('sending', 'sent')
+               AND (EXISTS (SELECT 1 FROM mass_mail_delivery_targets dt
+                              JOIN mass_mail_deliveries d ON d.id = dt.delivery_id
+                             WHERE dt.target_id = t.id AND d.status = 'sent')
+                    OR NOT EXISTS (SELECT 1 FROM mass_mail_delivery_targets dt
+                              JOIN mass_mail_deliveries d ON d.id = dt.delivery_id
+                             WHERE dt.target_id = t.id AND d.status = 'pending'))
+             ORDER BY t.id ASC"
         );
         $stmt->execute([$emailId, $exceptTargetId]);
 
-        return array_map([$this, 'hydrateEntry'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
+        return array_map(
+            static fn(array $row): array => [
+                'target_id' => (int) $row['target_id'],
+                'member_id' => (int) $row['member_id'],
+                'scout_year_id' => $row['scout_year_id'] !== null ? (int) $row['scout_year_id'] : null,
+            ],
+            $stmt->fetchAll(\PDO::FETCH_ASSOC)
+        );
     }
 
     /**
