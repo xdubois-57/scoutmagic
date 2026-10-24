@@ -20,8 +20,10 @@ connexion vous donne accès à chacun d'eux.
 - Dans le menu « Espace membres », vous voyez **une entrée par animé**,
   avec sa photo ou ses initiales et sa section. Chacune ouvre la page
   de cet animé.
-- Les e-mails envoyés par l'unité au sujet d'un animé arrivent sur
-  votre adresse, pour chacun d'eux.
+- Un e-mail groupé destiné à plusieurs de vos animés n'arrive qu'une
+  fois sur votre adresse, avec une seule notification, et figure sur la
+  page de chacun. Un publipostage, lui, écrit ligne par ligne : il vous
+  arrive une fois par ligne qui concerne l'un de vos animés.
 - Votre rôle sur le site est le plus élevé de ceux que portent vos
   animés et vos propres fonctions : un parent qui est aussi animateur
   voit donc à la fois les pages de ses enfants et l'espace animateurs.
@@ -47,7 +49,8 @@ et permet de se connecter, exactement comme la vôtre. Le sujet
 ## Se désinscrire touche tout le monde
 
 Si quelqu'un utilise le lien de désinscription au bas d'un e-mail
-groupé, l'adresse cesse de recevoir les e-mails **pour tous les animés
-qui la partagent**, et ne permet plus de se connecter. Elle peut être
-réactivée à tout moment depuis la carte « Adresses email » de la page
-d'un animé.
+groupé, l'adresse cesse de recevoir les e-mails groupés **pour tous les
+animés qui la partagent**, et ne permet plus de se connecter.
+« Réactiver », sur la carte « Adresses email » de la page d'un animé,
+lui rend la connexion ; pour recevoir à nouveau les e-mails groupés,
+adressez-vous à l'unité.
