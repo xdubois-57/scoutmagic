@@ -261,6 +261,135 @@ final class ReleasePipelineIsWiredTest extends TestCase
     }
 
     /**
+     * The `github-security-evidence` job's text, from its id to the next job.
+     *
+     * Guarded like sliceFrom(): a job that has been renamed must fail the
+     * test that reads it, not turn it into an assertion over nothing.
+     */
+    private static function securityEvidenceJob(): string
+    {
+        $release = self::read(self::RELEASE);
+        $start = strpos($release, "\n  github-security-evidence:\n");
+        self::assertNotFalse($start, 'release.yml no longer has a github-security-evidence job');
+        $end = strpos($release, "\n  sonar-evidence:\n", $start);
+        self::assertNotFalse($end, 'release.yml no longer has a sonar-evidence job after the security one');
+
+        return substr($release, $start, $end - $start);
+    }
+
+    /**
+     * The shell of the verdict step, dedented, ready to run with `bash`.
+     */
+    private static function securityVerdictScript(): string
+    {
+        $job = self::securityEvidenceJob();
+        $at = strpos($job, "      - name: Refuse a release with an open security alert\n");
+        self::assertNotFalse($at, 'the security verdict step is gone');
+        $step = substr($job, $at);
+        $run = strpos($step, "        run: |\n");
+        self::assertNotFalse($run, 'the security verdict step has no run block');
+
+        $lines = [];
+        foreach (explode("\n", substr($step, $run + strlen("        run: |\n"))) as $line) {
+            if ($line !== '' && !str_starts_with($line, '          ')) {
+                break;
+            }
+            $lines[] = substr($line, 10);
+        }
+
+        return implode("\n", $lines) . "\n";
+    }
+
+    /**
+     * Issue #831. The evidence pack carried `dependabot-open-alerts.json`
+     * as an UNAVAILABLE marker because the job never asked for the
+     * `vulnerability-alerts` scope, so the signed pack attested that one of
+     * its own sources had not been read.
+     */
+    public function testTheSecurityEvidenceJobAsksForTheDependabotScope(): void
+    {
+        $job = self::securityEvidenceJob();
+
+        $this->assertStringContainsString(
+            "      vulnerability-alerts: read\n",
+            $job,
+            'without this scope the Dependabot alerts come back as "Resource not accessible by integration"'
+        );
+        // Read-only, and only that: the job records, it never changes anything.
+        $this->assertStringNotContainsString('vulnerability-alerts: write', $job);
+    }
+
+    /**
+     * Runs the verdict step's real shell against hand-made evidence files.
+     *
+     * @return array{int, string} exit code and combined output
+     */
+    private static function runSecurityVerdict(string $codeql, string $dependabot): array
+    {
+        $directory = sys_get_temp_dir() . '/release_verdict_' . uniqid();
+        mkdir($directory . '/evidence', 0700, true);
+        file_put_contents($directory . '/evidence/codeql-open-alerts.json', $codeql);
+        file_put_contents($directory . '/evidence/dependabot-open-alerts.json', $dependabot);
+        file_put_contents($directory . '/verdict.sh', self::securityVerdictScript());
+
+        $output = [];
+        $code = 0;
+        exec('cd ' . escapeshellarg($directory) . ' && bash verdict.sh 2>&1', $output, $code);
+
+        foreach (glob($directory . '/evidence/*') ?: [] as $file) {
+            unlink($file);
+        }
+        unlink($directory . '/verdict.sh');
+        rmdir($directory . '/evidence');
+        rmdir($directory);
+
+        return [$code, implode("\n", $output)];
+    }
+
+    public function testAnUnreadableDependabotSourceRefusesTheRelease(): void
+    {
+        $unavailable = '{"status":"UNAVAILABLE","reason":"gh: Resource not accessible by integration (HTTP 403)","read_by_hand":"https://example.test"}';
+
+        [$code, $output] = self::runSecurityVerdict('[]', $unavailable);
+
+        $this->assertSame(1, $code, 'a release went out over a Dependabot source nobody read: ' . $output);
+        $this->assertStringContainsString('dependabot-open-alerts', $output);
+        $this->assertStringContainsString('not readable', $output);
+    }
+
+    public function testAReadableCleanSecurityEvidenceLetsTheReleaseGo(): void
+    {
+        [$code, $output] = self::runSecurityVerdict('[]', '[]');
+
+        $this->assertSame(0, $code, $output);
+    }
+
+    public function testAnOpenDependabotAlertStillRefusesTheRelease(): void
+    {
+        $open = '[{"number":7,"package":"left-pad","severity":"high","summary":"x","html_url":"https://example.test/7"}]';
+
+        [$code, $output] = self::runSecurityVerdict('[]', $open);
+
+        $this->assertSame(1, $code, $output);
+        $this->assertStringContainsString('a release must not ship over one', $output);
+    }
+
+    /**
+     * Only Dependabot is made mandatory: the ticket is about the one source
+     * whose scope was missing, and an unreadable code-scanning source keeps
+     * being a statement about the token rather than a finding.
+     */
+    public function testAnUnreadableCodeScanningSourceIsStillOnlyAWarning(): void
+    {
+        $unavailable = '{"status":"UNAVAILABLE","reason":"x","read_by_hand":"https://example.test"}';
+
+        [$code, $output] = self::runSecurityVerdict($unavailable, '[]');
+
+        $this->assertSame(0, $code, $output);
+        $this->assertStringContainsString('codeql-open-alerts: not readable by this run', $output);
+    }
+
+    /**
      * The two evidence jobs are JUDGES, not recorders, and both refuse
      * after uploading what they found.
      *

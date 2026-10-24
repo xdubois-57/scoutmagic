@@ -1206,6 +1206,13 @@ permission. A release that printed that warning has **not** been checked
 against those two sources; the warning names the Security-tab URL to read by
 hand. `AGENTS.md` § Releases governs what to do about it.
 
+That exception belongs to **`scripts/release.sh`**, which runs with whatever
+access the person (or session) running it has. **The Release workflow's own
+`github-security-evidence` job no longer shares it for Dependabot** (issue
+#831): the job asks for `vulnerability-alerts: read`, and a Dependabot source
+it still cannot read **fails the job**, after the evidence has been uploaded —
+a signed pack must not attest that one of its own sources went unread. Only
+the code-scanning source keeps the warning-and-carry-on rule there.
 **The SonarQube release rule, in one sentence:** 100% of findings must be
 fixed, except those that are *all three at once* — software quality
 `MAINTAINABILITY`, severity `LOW`, and tagged `convention`. An issue carries
@@ -1245,8 +1252,9 @@ version — a dispatch run keeps the pack as a workflow artifact and creates
 no Release). It calls `checks.yml` with `evidence: true`, so **every gate
 runs a second time, on a runner nobody configured by hand**, with each
 tool's native output kept. Beside them it records the repository's open
-CodeQL and Dependabot alerts as GitHub's API returns them (or a file
-saying the call was refused and where to read by hand), and fetches
+CodeQL and Dependabot alerts as GitHub's API returns them (for CodeQL, or a
+file saying the call was refused and where to read by hand; a Dependabot call
+that is refused fails the job, the file being kept as the diagnosis), and fetches
 SonarCloud's complete analysis **of the released commit** through
 `scripts/sonar-evidence.php` — waiting for `ci.yml`'s analysis of that
 commit if it is still running, and refusing if it never arrives, because
@@ -1808,11 +1816,14 @@ nothing**:
   the flag CI sets, **cannot go red** for the failure it is meant to
   reproduce.
 - The release **Security gate passes on a permission gap**: denied access to
-  the CodeQL or Dependabot alert API is a warning, not a refusal, so a
-  release can be published with those two sources never consulted. The
-  evidence pack records the same two sources with the same honesty — a
-  file saying `UNAVAILABLE` and why, rather than no file — so read the
-  pack's `codeql-open-alerts.json` before reading its absence as clean.
+  the CodeQL or Dependabot alert API **in `scripts/release.sh`** is a warning,
+  not a refusal, so a release can be published with those two sources never
+  consulted. In the Release workflow only the CodeQL source is still that
+  lenient (Dependabot's `vulnerability-alerts: read` scope is requested and
+  an unreadable Dependabot source fails the job, issue #831). The evidence
+  pack records an unreadable CodeQL source with the same honesty — a file
+  saying `UNAVAILABLE` and why, rather than no file — so read the pack's
+  `codeql-open-alerts.json` before reading its absence as clean.
 - **A draft Release is invisible and stays so.** `release.yml` creates the
   Release as a draft, and `release.sh` is what publishes it; a script that
   died between the two — a laptop asleep, a network gone — leaves a tag,
