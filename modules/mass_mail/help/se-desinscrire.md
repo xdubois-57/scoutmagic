@@ -16,8 +16,10 @@ en bas. Il ouvre cette page, qui demande confirmation avant quoi que ce
 soit : un lien cliqué par erreur, ou ouvert automatiquement par votre
 boîte mail, ne vous désinscrit de rien.
 
-Vous n'avez pas besoin de compte ni de mot de passe. Le lien vaut pour
-votre adresse et pour elle seule.
+Vous n'avez pas besoin de compte ni de mot de passe. Chaque message
+porte son propre lien, qui vaut pour l'adresse à laquelle il a été
+envoyé et pour elle seule : si l'unité vous écrit à deux adresses,
+chacune se désinscrit depuis son message.
 
 ## Ce que la désinscription arrête
 

@@ -119,6 +119,7 @@ function buildDom({ status = 'draft', listType = 'default_section', merge = fals
             <span id="mm-merge-preview-position"></span>
             <button type="button" id="mm-merge-next-btn"></button>
             <p id="mm-merge-preview-recipient"></p>
+            <span id="mm-merge-preview-recipient-note"></span>
             <div id="mm-merge-preview-warnings" class="d-none"></div>
             <strong id="mm-merge-preview-subject"></strong>
             <div id="mm-merge-preview-body"></div>
@@ -196,33 +197,45 @@ beforeEach(() => {
 });
 
 describe('mass-mail-compose.js: starting the send', () => {
-    it('asks the shared confirmation with the live recipient count, never the native box', async () => {
+    it('asks the shared confirmation with the live count, never the native box', async () => {
         const nativeConfirm = vi.fn(() => true);
         window.confirm = nativeConfirm;
         await boot({ status: 'test' });
-        global.fetch = vi.fn(() => jsonResponse({ success: true, count: 42, kind: 'members' }));
+        global.fetch = vi.fn(() => jsonResponse({ success: true, count: 42, kind: 'messages', members: 40, rows: null }));
 
         document.getElementById('mm-start-sending-form').dispatchEvent(new Event('submit', { cancelable: true }));
         await settle();
 
         expect(fetch.mock.calls[0][0]).toBe('/mass-mail/7/recipient-count');
+        // Messages, one per address, and the members apart (issue #999).
         expect(window.ScoutMagicConfirm.ask).toHaveBeenCalledWith({
-            message: 'Cet email partira à 42 personnes. ' + START_SENDING_MESSAGE,
+            message: 'Cet email partira en 42 messages · 40 animés ciblés. ' + START_SENDING_MESSAGE,
             confirmLabel: 'Envoyer',
             variant: 'primary',
         });
         expect(nativeConfirm).not.toHaveBeenCalled();
     });
 
-    it('counts a mail merge in file rows, not in people', async () => {
+    it('counts a mail merge in messages, for the lines of the file', async () => {
         await boot({ status: 'test', listType: 'mail_merge' });
-        global.fetch = vi.fn(() => jsonResponse({ success: true, count: 1, kind: 'rows' }));
+        global.fetch = vi.fn(() => jsonResponse({ success: true, count: 2, kind: 'messages', members: 0, rows: 1 }));
 
         document.getElementById('mm-start-sending-form').dispatchEvent(new Event('submit', { cancelable: true }));
         await settle();
 
         expect(window.ScoutMagicConfirm.ask.mock.calls[0][0].message)
-            .toBe('Cet email partira à 1 ligne du fichier. ' + START_SENDING_MESSAGE);
+            .toBe('Cet email partira en 2 messages pour 1 ligne du fichier. ' + START_SENDING_MESSAGE);
+    });
+
+    it('says a list of members without any address still designates somebody', async () => {
+        await boot({ status: 'test' });
+        global.fetch = vi.fn(() => jsonResponse({ success: true, count: 0, kind: 'messages', members: 1, rows: null }));
+
+        document.getElementById('mm-start-sending-form').dispatchEvent(new Event('submit', { cancelable: true }));
+        await settle();
+
+        expect(window.ScoutMagicConfirm.ask.mock.calls[0][0].message)
+            .toBe('Cet email partira en 0 message · 1 animé ciblé. ' + START_SENDING_MESSAGE);
     });
 
     /**
@@ -439,6 +452,27 @@ describe('mass-mail-compose.js: the per-recipient preview', () => {
 
         expect(document.getElementById('mm-merge-preview-recipient').textContent)
             .toBe('kaa@example.test');
+    });
+
+    /**
+     * A line with two addresses is two messages, each to one of them
+     * (issue #999, screen 4): the second address is never in the « À : »
+     * beside the first, it is said beneath it, separately.
+     */
+    it('names the line\'s other addresses beneath the « À : », as separate messages', async () => {
+        await boot({
+            status: 'test',
+            listType: 'mail_merge',
+            merge: true,
+            fetch: () => jsonResponse(preview({
+                recipient_label: 'papa@example.test',
+                recipient_note: 'et séparément à maman@example.test — 2 messages, adresses connues de Kaa (Tiers)',
+            })),
+        });
+
+        expect(document.getElementById('mm-merge-preview-recipient').textContent).toBe('papa@example.test');
+        expect(document.getElementById('mm-merge-preview-recipient-note').textContent)
+            .toBe('et séparément à maman@example.test — 2 messages, adresses connues de Kaa (Tiers)');
     });
 
     /**

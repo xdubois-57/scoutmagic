@@ -16,8 +16,8 @@ use Core\Security\EncryptionService;
  * member_functions (module spec: "Résolution dynamique à chaque
  * utilisation (pas de cache de membres)"). Deliberately its own
  * repository, separate from Repository\MailingListRepository (custom
- * lists' own identity/criteria) and Repository\RecipientRepository
- * (already-sent recipients) — this one only ever reads core member
+ * lists' own identity/criteria) and Repository\DeliveryRepository
+ * (already-frozen messages) — this one only ever reads core member
  * tables, never mass_mail's own.
  *
  * Every query filters member_years.is_active = 1 only. An earlier version

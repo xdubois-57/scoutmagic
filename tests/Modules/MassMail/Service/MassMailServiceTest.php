@@ -479,19 +479,20 @@ class MassMailServiceTest extends TestCase
 
     // ── How many this would reach, asked before it is sent ──────────────
 
-    public function testTheRecipientCountAnswersWhoRatherThanHowManyAddresses(): void
+    public function testTheCountCountsMessagesAndNamesTheMembersApart(): void
     {
         // « Lancer l'envoi ? » on its own is a question about an unknown
         // quantity, and 42 versus 400 is the difference between one
-        // section and the whole unit.
+        // section and the whole unit. Two siblings on one family address
+        // are one message there and two members (issue #999).
         $this->createMemberWithEmail('un@test.be');
-        $this->createMemberWithEmail('deux@test.be');
-        $this->createMemberWithEmail('trois@test.be');
+        $this->createMemberWithEmail('famille@test.be');
+        $this->createMemberWithEmail('Famille@test.be');
 
         $email = $this->createDraft();
 
         $this->assertSame(
-            ['count' => 3, 'kind' => 'members'],
+            ['count' => 2, 'kind' => 'messages', 'members' => 3, 'rows' => null],
             $this->service->estimateRecipientCount($email->id)
         );
     }
@@ -505,13 +506,15 @@ class MassMailServiceTest extends TestCase
         $this->createMemberWithEmail('valide@test.be');
         $this->createMemberWithEmail(null);
 
-        $this->assertSame(2, $this->service->estimateRecipientCount($this->createDraft()->id)['count']);
+        $estimate = $this->service->estimateRecipientCount($this->createDraft()->id);
+        $this->assertSame(2, $estimate['members']);
+        $this->assertSame(1, $estimate['count'], 'and one message: nothing can go to the other');
     }
 
     public function testAnEmptyListCountsZeroRatherThanFailing(): void
     {
         $this->assertSame(
-            ['count' => 0, 'kind' => 'members'],
+            ['count' => 0, 'kind' => 'messages', 'members' => 0, 'rows' => null],
             $this->service->estimateRecipientCount($this->createDraft()->id)
         );
     }

@@ -1346,7 +1346,7 @@ An extra list type on the composition page: the recipients of one email come fro
 
 - Available to **every chief** (deliberate: the file, not a section list, names the recipients). An imported audience can only be used by the account that imported it, or a chef d'unité; every import is journaled.
 - Scout-year selection does not apply — the file defines the audience.
-- The normal draft → test → send workflow is unchanged. Test mode adds a **per-recipient preview** paging through the file's rows with the real substituted values (plus warnings for unknown variables and empty values); the test email carries the previewed row's values. The tracking page shows one line per message with its row number; a row left with no address appears as « Aucune adresse valide ».
+- The normal draft → test → send workflow is unchanged. Test mode adds a **per-row preview** paging through the file's rows with the real substituted values (plus warnings for unknown variables and empty values), naming the addresses the row will go to, each separately; the test email carries the previewed row's values. The tracking page shows one line per message with its row number; a row left with no address appears as « Aucune adresse valide ».
 - Every message carries the same one-click unsubscribe; an unsubscribed address is remembered (as an irreversible hash) and excluded from every future mailing.
 - « Nouvel email » notifications: at most one per account and per row; three rows for three children to one family address notify that account three times.
 
@@ -1366,7 +1366,7 @@ C'est là qu'un brouillon s'écrit. Un brouillon dure : on le compose en plusieu
 
 La création aussi : « Nouvel email » ouvre `/mass-mail/new`, la même page vide, qui redirige vers le brouillon créé. Le comportement ne change pas — mêmes listes, mêmes années scoutes, même import Excel refusé en entier avec ses lignes fautives, même aperçu par destinataire — mais le dépôt du fichier passe par la zone de dépôt du site, et l'éditeur de texte riche est celui des autres pages.
 
-**Destinataires** répond, avant l'envoi, à la question qu'on se pose en dernier : à qui cela va-t-il partir ? Le fichier ligne par ligne pour un publipostage, le nombre de personnes que la liste désigne à cet instant sinon — recompté à chaque visite, parce qu'une liste est vivante. Une fois l'envoi lancé la liste est figée, et la page renvoie vers **Suivi**, qui dit ce qu'il est advenu de chaque message.
+**Destinataires** répond, avant l'envoi, à la question qu'on se pose en dernier : à qui cela va-t-il partir ? Le fichier ligne par ligne pour un publipostage, sinon le nombre de messages (un par adresse distincte) et d'animés ciblés que la liste donne à cet instant — recompté à chaque visite, parce qu'une liste est vivante. Une fois l'envoi lancé la liste est figée, et la page renvoie vers **Suivi**, qui dit ce qu'il est advenu de chaque message.
 
 ## 25. Leadership module — three lists of people to contact (module leadership)
 

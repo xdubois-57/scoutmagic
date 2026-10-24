@@ -143,7 +143,7 @@
                                                the page behind it — a line reading « Camp de {{ '{{Prenom}}' }} »
                                                with nothing beside it is exactly what looks like a fault of
                                                the site. #}
-                                            {% if item.not_sent|default(false) %}
+                                            {% if item.not_sent %}
                                                 {% include 'partials/status_badge.html.twig' with {
                                                     status: 'error',
                                                     label: 'Non envoyée',

@@ -27,9 +27,9 @@ use Modules\Registration\Repository\RegistrationRequestRepository;
  * WAS accepted first (that's the only way to reach 'encoded' at all), so
  * "acceptées et encodées" reads as one path, not two separate inclusion
  * rules — and it can't mean anything else in practice: mass_mail's own
- * `mass_mail_recipients.member_id` is a NOT NULL foreign key to a real
- * `members` row, which an 'accepted'-but-not-yet-encoded request simply
- * doesn't have yet. This also matches the module spec's own "point à
+ * `mass_mail_targets.member_id` (the member a mailing is meant for) is a
+ * NOT NULL foreign key to a real `members` row, which an
+ * 'accepted'-but-not-yet-encoded request simply doesn't have yet. This also matches the module spec's own "point à
  * vérifier" about deduplication against section lists, which only makes
  * sense for members that already exist in Desk (i.e. are encoded).
  */
