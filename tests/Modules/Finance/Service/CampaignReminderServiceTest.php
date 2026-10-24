@@ -315,10 +315,9 @@ class CampaignReminderServiceTest extends TestCase
      */
     public function testAChildWithoutAnAddressInDeskIsLeftOut(): void
     {
-        $this->pdo->exec(
-            'UPDATE member_years SET email_encrypted = NULL, email_blind_index = NULL WHERE member_id = '
-                . $this->memberIds['Antoine']
-        );
+        $this->pdo->prepare(
+            'UPDATE member_years SET email_encrypted = NULL, email_blind_index = NULL WHERE member_id = ?'
+        )->execute([$this->memberIds['Antoine']]);
         $campaign = $this->campaignWith([['Lucie', 4500], ['Antoine', 4500]]);
 
         $this->service()->createDraft($campaign, 'intendant', 'tresorier@test.be', 7);

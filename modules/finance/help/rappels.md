@@ -44,9 +44,10 @@ par défaut, et un code invisible ne doit jamais laisser un parent sans
 moyen de payer.
 
 > Le texte du brouillon est un point de départ, pas un formulaire. Vous
-> pouvez le réécrire entièrement — gardez seulement les variables
-> (prénom, montant, communication, QR), qui sont ce qui remplit l'e-mail
-> de chaque enfant.
+> pouvez le réécrire entièrement — gardez les variables (prénom,
+> montant, communication, QR, bénéficiaire, IBAN), qui remplissent
+> l'e-mail de chaque enfant : sans l'IBAN en toutes lettres, un parent
+> dont la messagerie bloque les images ne peut pas payer.
 
 ## Notifier les familles
 

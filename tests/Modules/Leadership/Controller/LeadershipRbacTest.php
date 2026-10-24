@@ -655,8 +655,12 @@ class LeadershipRbacTest extends TestCase
     private function addCandidate(int $index, string $email): void
     {
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
-        $sectionId = (int) $this->pdo->query("SELECT id FROM sections WHERE desk_code = 'LOUV'")->fetchColumn();
-        $functionId = (int) $this->pdo->query("SELECT id FROM functions WHERE desk_code = 'CAND'")->fetchColumn();
+        $sectionStmt = $this->pdo->prepare('SELECT id FROM sections WHERE desk_code = ?');
+        $sectionStmt->execute(['LOUV']);
+        $sectionId = (int) $sectionStmt->fetchColumn();
+        $functionStmt = $this->pdo->prepare('SELECT id FROM functions WHERE desk_code = ?');
+        $functionStmt->execute(['CAND']);
+        $functionId = (int) $functionStmt->fetchColumn();
 
         $stmt = $this->pdo->prepare('INSERT INTO members (desk_id) VALUES (?)');
         $stmt->execute(['D' . $index]);
