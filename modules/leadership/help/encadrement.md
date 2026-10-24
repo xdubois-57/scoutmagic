@@ -20,8 +20,10 @@ Les onglets en haut mènent au tableau de bord, aux trois listes et à
 la configuration. Chaque nom ouvre la fiche de la personne, chaque
 adresse votre messagerie, chaque numéro votre téléphone. « Créer un
 brouillon d'e-mail » prépare un publipostage à la liste, sans rien
-envoyer, et « Exporter (Excel) » télécharge les listes de la page. Les
-personnes sans adresse dans Desk sont comptées sous la liste.
+envoyer : un message par personne, rattaché à sa fiche — il part aux
+adresses connues de cette fiche et apparaît dans ses communications.
+« Exporter (Excel) » télécharge les listes de la page. Les personnes
+sans adresse dans Desk sont comptées sous la liste.
 
 ## Formations
 
