@@ -20,19 +20,29 @@
         } only %}
     </p>
 
+    {# Counts MESSAGES — one per address (issue #999) — and names, beside
+       them, how many members the communication was meant for: three
+       siblings on one family address are one message there and three
+       members, and the two numbers answer different questions. #}
     <div class="progress mb-2" style="height: 1.5rem;">
         {% set total = counts.total > 0 ? counts.total : 1 %}
         <div class="progress-bar bg-success" style="width:{{ (counts.sent / total * 100) }}%"></div>
         <div class="progress-bar bg-danger" style="width:{{ (counts.error / total * 100) }}%"></div>
         <div class="progress-bar bg-secondary" style="width:{{ (counts.pending / total * 100) }}%"></div>
     </div>
-    <p class="text-body-secondary small mb-4">
-        {{ counts.sent }} envoyés · {{ counts.error }} erreurs · {{ counts.pending }} en attente — {{ counts.total }} au total
+    <p class="mb-4">
+        <strong>{{ counts.total }} message{{ counts.total > 1 ? 's' : '' }} :
+        {{ counts.sent }} envoyé{{ counts.sent > 1 ? 's' : '' }},
+        {{ counts.error }} en erreur{% if counts.pending > 0 %}, {{ counts.pending }} en attente{% endif %}</strong>
+        {% if target_count > 0 %}
+            · {{ target_count }} animé{{ target_count > 1 ? 's' : '' }} ciblé{{ target_count > 1 ? 's' : '' }}{% if targets_without_message > 0 %},
+            dont {{ targets_without_message }} sans adresse{% endif %}
+        {% endif %}
     </p>
 
     {% include 'partials/stat_tiles.html.twig' with {
         tiles: [
-            { label: 'Total', value: counts.total, icon: 'bi-envelope', tone: 'primary' },
+            { label: 'Messages', value: counts.total, icon: 'bi-envelope', tone: 'primary' },
             { label: 'Envoyés', value: counts.sent, icon: 'bi-check-circle', tone: 'success' },
             { label: 'En attente', value: counts.pending, icon: 'bi-hourglass-split', tone: 'warning' },
             { label: 'Erreurs', value: counts.error, icon: 'bi-x-circle', tone: 'danger' },
@@ -45,7 +55,7 @@
         <div class="col-6 col-md-4">
             {% include 'partials/form_field.html.twig' with {
                 field_id: 'mmt-search', label: 'Recherche',
-                placeholder: 'Nom, section, adresse...', size: 'sm', wrapper_class: '',
+                placeholder: 'Nom, adresse...', size: 'sm', wrapper_class: '',
             } only %}
         </div>
         <div class="col-6 col-md-3">
@@ -57,53 +67,76 @@
                     { value: 'pending', label: 'En attente' },
                     { value: 'sent', label: 'Envoyé' },
                     { value: 'error', label: 'Erreur' },
+                    { value: 'unsent', label: 'Non envoyée' },
                 ],
             } only %}
         </div>
     </div>
 
+    {# One line per message (its address, the members it concerns, the line
+       of the file for a publipostage), then one per member — or file row —
+       left without any message (screen 3 of the chantier's mock-up). #}
     <div class="table-responsive">
         <table class="table table-sm align-middle" id="mmt-table">
             <thead>
                 <tr>
-                    <th>Destinataire</th>
-                    <th>Adresse</th>
+                    <th>Destinataires</th>
                     <th>Statut</th>
-                    <th>Détail</th>
                     <th></th>
                 </tr>
             </thead>
             <tbody>
-                {% for item in recipients %}
-                    {% set r = item.recipient %}
-                    <tr data-search="{{ (item.display_name ~ ' ' ~ (item.section_name ?? '') ~ ' ' ~ (r.emailAddress ?? ''))|lower }}" data-status="{{ r.status }}">
-                        <td>{{ item.display_name }}{% if item.section_name %} <span class="text-body-secondary">({{ item.section_name }})</span>{% endif %}</td>
-                        <td>{{ r.emailAddress ?? '—' }}</td>
+                {% for item in messages %}
+                    {% set d = item.delivery %}
+                    {% set concerns = item.row_index is not null
+                        ? ('Ligne ' ~ item.row_index ~ (item.members ? ' · ' ~ item.members : ''))
+                        : item.members %}
+                    <tr data-search="{{ (d.emailAddress ~ ' ' ~ concerns)|lower }}" data-status="{{ d.status }}">
+                        <td class="text-break">
+                            {{ d.emailAddress }}
+                            {% if concerns %}<span class="d-block small text-body-secondary">{{ concerns }}</span>{% endif %}
+                        </td>
                         <td>
                             {% include 'partials/status_badge.html.twig' with {
-                                status: r.status == 'sent' ? 'done' : (r.status == 'error' ? 'error' : 'pending'),
-                                label: r.status == 'sent' ? 'Envoyé' : (r.status == 'error' ? 'Erreur' : 'En attente'),
+                                status: d.status == 'sent' ? 'done' : (d.status == 'error' ? 'error' : 'pending'),
+                                label: d.status == 'sent' ? 'Envoyé' : (d.status == 'error' ? 'Erreur' : 'En attente'),
                             } only %}
-                        </td>
-                        <td>
-                            {% if r.status == 'sent' %}{{ r.sentAt|datetime_fr }}
-                            {% elseif r.status == 'error' %}{{ r.errorMessage ?? '—' }}
-                            {% else %}—
-                            {% endif %}
+                            <span class="d-block small text-body-secondary">
+                                {% if d.status == 'sent' %}{{ d.sentAt|datetime_fr }}
+                                {% elseif d.status == 'error' %}{{ d.errorMessage ?? '—' }}
+                                {% endif %}
+                            </span>
                         </td>
                         <td class="text-end">
-                            {% if r.status in ['error', 'sent'] %}
+                            {% if d.status in ['error', 'sent'] %}
                                 <button type="button" class="btn btn-sm btn-outline-secondary mmt-resend-btn"
-                                        data-id="{{ r.id }}" data-recipient="{{ r.emailAddress ?? '' }}">Renvoyer</button>
+                                        data-id="{{ d.id }}" data-recipient="{{ d.emailAddress }}">Renvoyer</button>
                             {% endif %}
                         </td>
                     </tr>
-                {% else %}
-                    {% include 'partials/empty_state.html.twig' with {
-                        message: 'Aucun destinataire.',
-                        colspan: 5,
-                    } only %}
                 {% endfor %}
+                {% for item in unsent %}
+                    {% set who = item.row_index is not null ? ('Ligne ' ~ item.row_index ~ ' · ' ~ item.label) : item.label %}
+                    <tr data-search="{{ who|lower }}" data-status="unsent">
+                        <td class="text-body-secondary">
+                            {{ who }}
+                            <span class="d-block small">Aucune adresse valide</span>
+                        </td>
+                        <td>
+                            {% include 'partials/status_badge.html.twig' with {
+                                status: 'error',
+                                label: 'Non envoyée',
+                            } only %}
+                        </td>
+                        <td></td>
+                    </tr>
+                {% endfor %}
+                {% if messages is empty and unsent is empty %}
+                    {% include 'partials/empty_state.html.twig' with {
+                        message: 'Aucun message.',
+                        colspan: 3,
+                    } only %}
+                {% endif %}
             </tbody>
         </table>
     </div>

@@ -209,13 +209,17 @@ test('a list is built from blocks, and the page of an e-mail says how its years 
     await expect(total).toContainText(`${plural(members, 'membre')} pour ${year} et 3 contacts.`);
     await expect(total).toContainText('Une personne désignée par plusieurs blocs ne reçoit l\'e-mail qu\'une fois.');
 
-    // --- « Voir les destinataires »: the same people, each with its block. ---
+    // --- « Voir les destinataires »: one row per message (one address each,
+    //     issue #999), each with its block, and the members counted apart. ---
     const recipients = await openModal(
         page,
         'mm-recipients-modal',
         () => page.getByRole('button', { name: 'Voir les destinataires' }).click(),
     );
-    await expect(recipients.getByRole('heading')).toHaveText(`${plural(recipientsTotal, 'destinataire')} en ${year}`);
+    await expect(recipients.getByRole('heading')).toHaveText(
+        `${plural(recipientsTotal, 'message')} en ${year}`
+            + (members > 0 ? ` · ${members} ${members > 1 ? 'animés ciblés' : 'animé ciblé'}` : ''),
+    );
     const rows = recipients.locator('[data-recipients-rows] li');
     await expect(rows).toHaveCount(recipientsTotal);
     await expect(rows.filter({ hasText: GROUP_NAME })).toHaveCount(CONTACTS.length);

@@ -34,3 +34,13 @@ DROP TABLE mass_mail_list_functions;
 DROP TABLE mass_mail_list_sections;
 DROP TABLE mass_mail_list_badges;
 DROP TABLE mass_mail_list_addresses;
+
+-- mass_mail_recipients carried three notions in one row — the message, the
+-- member's history and the notification — and could count none of them
+-- apart (issue #999). It is replaced by mass_mail_deliveries,
+-- mass_mail_targets, mass_mail_delivery_targets and
+-- mass_mail_notified_accounts (schema.sql). Nothing is converted, by the
+-- maintainer's decision (the site is in its test phase): the tracking and
+-- the member-page history of the emails sent before go with the table.
+-- Nothing references it, so it goes whenever.
+DROP TABLE mass_mail_recipients;

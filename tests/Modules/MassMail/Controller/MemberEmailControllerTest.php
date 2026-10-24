@@ -101,7 +101,7 @@ class MemberEmailControllerTest extends TestCase
         $controller = $this->buildController($massMailQuery);
         $response = $controller->show(
             new Request('GET', "/members/{$this->memberYearId}/emails/1", [], [], [], []),
-            ['id' => (string) $this->memberYearId, 'recipient_id' => '1']
+            ['id' => (string) $this->memberYearId, 'target_id' => '1']
         );
 
         $this->assertSame(403, $response->getStatusCode());
@@ -113,12 +113,12 @@ class MemberEmailControllerTest extends TestCase
         $massMailQuery = $this->createMock(MassMailQueryInterface::class);
         $massMailQuery->expects($this->once())->method('findEmailDetailForMember')
             ->with($this->memberId, 5)
-            ->willReturn(['subject' => 'Sujet', 'body_html' => '<p>Corps</p>', 'sent_at' => '2026-01-01 10:00:00', 'section_name' => 'Meute A', 'merge_purged' => false]);
+            ->willReturn(['subject' => 'Sujet', 'body_html' => '<p>Corps</p>', 'sent_at' => '2026-01-01 10:00:00', 'section_name' => 'Meute A', 'merge_purged' => false, 'not_sent' => false, 'other_targets' => []]);
 
         $controller = $this->buildController($massMailQuery);
         $response = $controller->show(
             new Request('GET', "/members/{$this->memberYearId}/emails/5", [], [], [], []),
-            ['id' => (string) $this->memberYearId, 'recipient_id' => '5']
+            ['id' => (string) $this->memberYearId, 'target_id' => '5']
         );
 
         $this->assertSame(200, $response->getStatusCode());
@@ -130,12 +130,12 @@ class MemberEmailControllerTest extends TestCase
         AuthSession::login(1, 'chief@test.example', 'chief');
         $massMailQuery = $this->createStub(MassMailQueryInterface::class);
         $massMailQuery->method('findEmailDetailForMember')
-            ->willReturn(['subject' => 'Sujet', 'body_html' => '<p>Corps</p>', 'sent_at' => '2026-01-01 10:00:00', 'section_name' => 'Meute A', 'merge_purged' => false]);
+            ->willReturn(['subject' => 'Sujet', 'body_html' => '<p>Corps</p>', 'sent_at' => '2026-01-01 10:00:00', 'section_name' => 'Meute A', 'merge_purged' => false, 'not_sent' => false, 'other_targets' => []]);
 
         $controller = $this->buildController($massMailQuery);
         $response = $controller->show(
             new Request('GET', "/members/{$this->memberYearId}/emails/5", [], [], [], []),
-            ['id' => (string) $this->memberYearId, 'recipient_id' => '5']
+            ['id' => (string) $this->memberYearId, 'target_id' => '5']
         );
 
         $this->assertSame(200, $response->getStatusCode());
@@ -159,12 +159,14 @@ class MemberEmailControllerTest extends TestCase
             'sent_at' => '2024-01-01 10:00:00',
             'section_name' => 'Meute A',
             'merge_purged' => true,
+            'not_sent' => false,
+            'other_targets' => [],
         ]);
 
         $controller = $this->buildController($massMailQuery);
         $response = $controller->show(
             new Request('GET', "/members/{$this->memberYearId}/emails/5", [], [], [], []),
-            ['id' => (string) $this->memberYearId, 'recipient_id' => '5']
+            ['id' => (string) $this->memberYearId, 'target_id' => '5']
         );
 
         $this->assertSame(200, $response->getStatusCode());
@@ -186,12 +188,14 @@ class MemberEmailControllerTest extends TestCase
             'sent_at' => '2026-01-01 10:00:00',
             'section_name' => 'Meute A',
             'merge_purged' => false,
+            'not_sent' => false,
+            'other_targets' => [],
         ]);
 
         $controller = $this->buildController($massMailQuery);
         $response = $controller->show(
             new Request('GET', "/members/{$this->memberYearId}/emails/5", [], [], [], []),
-            ['id' => (string) $this->memberYearId, 'recipient_id' => '5']
+            ['id' => (string) $this->memberYearId, 'target_id' => '5']
         );
 
         $this->assertStringNotContainsString('durée de conservation', $response->getBody());
@@ -206,7 +210,7 @@ class MemberEmailControllerTest extends TestCase
         $controller = $this->buildController($massMailQuery);
         $response = $controller->show(
             new Request('GET', "/members/{$this->memberYearId}/emails/999", [], [], [], []),
-            ['id' => (string) $this->memberYearId, 'recipient_id' => '999']
+            ['id' => (string) $this->memberYearId, 'target_id' => '999']
         );
 
         $this->assertSame(404, $response->getStatusCode());
@@ -220,7 +224,7 @@ class MemberEmailControllerTest extends TestCase
         $controller = $this->buildController($massMailQuery);
         $response = $controller->show(
             new Request('GET', '/members/999999/emails/1', [], [], [], []),
-            ['id' => '999999', 'recipient_id' => '1']
+            ['id' => '999999', 'target_id' => '1']
         );
 
         $this->assertSame(404, $response->getStatusCode());

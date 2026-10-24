@@ -31,8 +31,9 @@ use Modules\MassMail\Repository\EmailAttachmentRepository;
 use Modules\MassMail\Repository\EmailRepository;
 use Modules\MassMail\Repository\MailingListRepository;
 use Modules\MassMail\Repository\MemberResolutionRepository;
-use Modules\MassMail\Repository\Recipient;
-use Modules\MassMail\Repository\RecipientRepository;
+use Modules\MassMail\Repository\Delivery;
+use Modules\MassMail\Repository\DeliveryRepository;
+use Modules\MassMail\Repository\TargetRepository;
 use Modules\MassMail\Repository\SuppressedAddressRepository;
 use Modules\MassMail\Service\MailingListService;
 use Modules\MassMail\Api\MassMailException;
@@ -54,7 +55,8 @@ class MassMailServiceTest extends TestCase
 {
     private \PDO $pdo;
     private MassMailService $service;
-    private RecipientRepository $recipientRepository;
+    private DeliveryRepository $deliveryRepository;
+    private TargetRepository $targetRepository;
     private AudienceRepository $audienceRepository;
     private SuppressedAddressRepository $suppressedAddressRepository;
     private ImportJournalRepository $importJournalRepository;
@@ -79,7 +81,8 @@ class MassMailServiceTest extends TestCase
     new MemberProfileRepository($connection, $encryption)
 );
 
-        $this->recipientRepository = new RecipientRepository($this->pdo, $encryption);
+        $this->deliveryRepository = new DeliveryRepository($this->pdo, $encryption);
+        $this->targetRepository = new TargetRepository($this->pdo);
         $this->importJournalRepository = new ImportJournalRepository($this->pdo);
         $emailRepository = new EmailRepository($this->pdo);
         $this->scoutYearResolver = new ScoutYearResolver(
@@ -104,7 +107,8 @@ class MassMailServiceTest extends TestCase
         $this->suppressedAddressRepository = new SuppressedAddressRepository($this->pdo);
         $this->service = new MassMailService(
             $emailRepository,
-            $this->recipientRepository,
+            $this->deliveryRepository,
+            $this->targetRepository,
             new EmailAttachmentRepository($this->pdo),
             new FileRepository($this->pdo),
             $listService,
@@ -179,7 +183,8 @@ class MassMailServiceTest extends TestCase
 
         return new MassMailService(
             new EmailRepository($this->pdo),
-            $this->recipientRepository,
+            $this->deliveryRepository,
+            $this->targetRepository,
             new EmailAttachmentRepository($this->pdo),
             new FileRepository($this->pdo),
             $listService,
@@ -328,10 +333,16 @@ class MassMailServiceTest extends TestCase
         $this->service->moveToTest($email->id, null);
         $this->service->startSending($email->id, null);
 
+        // One message — a message always has an address — and three
+        // targets: the two members without a usable address are targets
+        // left without any message (« Non envoyée »), never an error
+        // message with no address (issue #999).
         $counts = $this->service->getStatusCounts($email->id);
-        $this->assertSame(1, $counts['pending']);
-        $this->assertSame(2, $counts['error']);
-        $this->assertSame(3, $counts['total']);
+        $this->assertSame(['pending' => 1, 'sent' => 0, 'error' => 0, 'total' => 1], $counts);
+        $this->assertSame(3, $this->service->getTargetCount($email->id));
+        $tracking = $this->service->getTrackingData($email->id);
+        $this->assertSame(2, $tracking['targets_without_message']);
+        $this->assertCount(2, $tracking['unsent']);
     }
 
     // ── One journal line per copy ───────────────────────────────────────
@@ -353,17 +364,24 @@ class MassMailServiceTest extends TestCase
         $this->service->moveToTest($email->id, null);
         $this->service->startSending($email->id, null);
 
-        $refused = $this->journalEntries('recipient_not_sendable');
+        $refused = $this->journalEntries('target_not_sent');
         $this->assertCount(1, $refused);
-        $this->assertSame('error', $refused[0]['level'], 'The tracking page calls this an error; so must the journal.');
+        $this->assertSame('error', $refused[0]['level'], 'The tracking page calls this « Non envoyée »; the journal an error.');
         $this->assertStringContainsString('Adresse invalide', $refused[0]['description']);
 
         $context = json_decode((string) $refused[0]['context'], true);
         $this->assertSame($email->id, $context['email_id']);
-        $this->assertNotNull($context['recipient_id']);
+        $this->assertNotNull($context['target_id']);
+        $this->assertNotNull($context['member_id']);
     }
 
-    public function testAnUnsubscribedAddressIsWrittenDownAsWellAsShown(): void
+    /**
+     * A file row whose every address is unsubscribed produces no message
+     * (§2.3 — a message always has an address), and that is written down:
+     * the journal names the line, the tracking page shows it « Aucune
+     * adresse valide ».
+     */
+    public function testAFileRowLeftWithoutAnyAddressIsWrittenDownAsWellAsShown(): void
     {
         $this->suppressedAddressRepository->suppress('optout@test.be');
         $audienceId = $this->createAudience([
@@ -374,9 +392,11 @@ class MassMailServiceTest extends TestCase
         $this->service->moveToTest($email->id, null);
         $this->service->startSending($email->id, null);
 
-        $refused = $this->journalEntries('recipient_not_sendable');
+        $refused = $this->journalEntries('merge_row_not_sent');
         $this->assertCount(1, $refused);
-        $this->assertStringContainsString('Adresse désinscrite des emails groupés', $refused[0]['description']);
+        $this->assertStringContainsString('ligne 2 du fichier', $refused[0]['description']);
+        $this->assertSame(0, $this->service->getStatusCounts($email->id)['total']);
+        $this->assertSame([['label' => 'Adresse du fichier', 'row_index' => 2]], $this->service->getTrackingData($email->id)['unsent']);
     }
 
     /**
@@ -425,7 +445,7 @@ class MassMailServiceTest extends TestCase
         $found = $stmt->fetchAll(\PDO::FETCH_COLUMN);
 
         $this->assertContains('email_sending_started', $found);
-        $this->assertContains('recipient_not_sendable', $found);
+        $this->assertContains('target_not_sent', $found);
     }
 
     /**
@@ -503,8 +523,8 @@ class MassMailServiceTest extends TestCase
         $this->service->moveToTest($email->id, null);
         $sending = $this->service->startSending($email->id, null);
 
-        $recipients = $this->recipientRepository->findByEmailId($sending->id);
-        $this->recipientRepository->recordSendSuccess($recipients[0]->id);
+        $deliveries = $this->deliveryRepository->findByEmailId($sending->id);
+        $this->deliveryRepository->recordSendSuccess($deliveries[0]->id);
 
         $this->service->checkAndMarkSentIfComplete($sending->id);
 
@@ -520,15 +540,15 @@ class MassMailServiceTest extends TestCase
         $this->service->moveToTest($email->id, null);
         $sending = $this->service->startSending($email->id, null);
 
-        $recipients = $this->recipientRepository->findByEmailId($sending->id);
-        $this->recipientRepository->recordSendSuccess($recipients[0]->id);
+        $deliveries = $this->deliveryRepository->findByEmailId($sending->id);
+        $this->deliveryRepository->recordSendSuccess($deliveries[0]->id);
         $this->service->checkAndMarkSentIfComplete($sending->id);
         $this->assertSame(Email::STATUS_SENT, $this->service->findById($sending->id)->status);
 
-        $this->service->resendToRecipient($recipients[0]->id, null);
+        $this->service->resendDelivery($deliveries[0]->id, null);
 
-        $resent = $this->recipientRepository->findById($recipients[0]->id);
-        $this->assertSame(Recipient::STATUS_PENDING, $resent->status);
+        $resent = $this->deliveryRepository->findById($deliveries[0]->id);
+        $this->assertSame(Delivery::STATUS_PENDING, $resent->status);
         $this->assertSame(2, $resent->attempts); // 1 from the original send, +1 from resend
 
         $this->assertSame(Email::STATUS_SENDING, $this->service->findById($sending->id)->status);
@@ -615,24 +635,31 @@ class MassMailServiceTest extends TestCase
         $this->service->moveToTest($email->id, null);
         $this->service->startSending($email->id, null);
 
-        $recipients = $this->recipientRepository->findByEmailId($email->id);
-        $this->assertCount(3, $recipients);
+        $deliveries = $this->deliveryRepository->findByEmailId($email->id);
+        $this->assertCount(3, $deliveries);
+        $links = $this->deliveryRepository->findTargetIdsByEmail($email->id);
 
-        $memberRecipient = $recipients[0];
-        $this->assertSame($memberId, $memberRecipient->memberId);
-        $this->assertSame($this->scoutYearId, $memberRecipient->scoutYearId);
-        $this->assertSame('member@test.be', $memberRecipient->emailAddress);
-        $this->assertNotNull($memberRecipient->audienceRowId);
-        $this->assertSame(Recipient::STATUS_PENDING, $memberRecipient->status);
+        // The Tiers row: one target for that member, one message linked to it.
+        $targets = $this->targetRepository->findByEmailId($email->id);
+        $this->assertCount(1, $targets);
+        $this->assertSame($memberId, $targets[0]->memberId);
+        $this->assertSame($this->scoutYearId, $targets[0]->scoutYearId);
+        $this->assertNotNull($targets[0]->audienceRowId);
 
-        $external = array_values(array_filter($recipients, fn(Recipient $r) => $r->memberId === null));
-        $this->assertCount(2, $external);
-        $this->assertSame(['ext1@test.be', 'ext2@test.be'], array_map(fn(Recipient $r) => $r->emailAddress, $external));
-        foreach ($external as $recipient) {
-            $this->assertNull($recipient->scoutYearId);
-            $this->assertNull($recipient->memberEmailId);
-            $this->assertNotNull($recipient->audienceRowId);
-            $this->assertSame(Recipient::STATUS_PENDING, $recipient->status);
+        $memberMessage = $deliveries[0];
+        $this->assertSame('member@test.be', $memberMessage->emailAddress);
+        $this->assertSame($targets[0]->audienceRowId, $memberMessage->audienceRowId);
+        $this->assertSame([$targets[0]->id], $links[$memberMessage->id]);
+        $this->assertSame(Delivery::STATUS_PENDING, $memberMessage->status);
+
+        // The row without a Tiers: one message per address, no target.
+        $external = array_slice($deliveries, 1);
+        $this->assertSame(['ext1@test.be', 'ext2@test.be'], array_map(fn(Delivery $d) => $d->emailAddress, $external));
+        foreach ($external as $delivery) {
+            $this->assertArrayNotHasKey($delivery->id, $links);
+            $this->assertNull($delivery->memberEmailId);
+            $this->assertNotNull($delivery->audienceRowId);
+            $this->assertSame(Delivery::STATUS_PENDING, $delivery->status);
         }
     }
 
@@ -648,10 +675,11 @@ class MassMailServiceTest extends TestCase
         $this->service->moveToTest($email->id, null);
         $this->service->startSending($email->id, null);
 
-        $recipients = $this->recipientRepository->findByEmailId($email->id);
-        $this->assertSame(Recipient::STATUS_ERROR, $recipients[0]->status);
-        $this->assertSame('Adresse désinscrite des emails groupés', $recipients[0]->errorMessage);
-        $this->assertSame(Recipient::STATUS_PENDING, $recipients[1]->status);
+        // The unsubscribed address gets no message at all (§2.3: the
+        // suppressed addresses are left out of a row); the other one does.
+        $deliveries = $this->deliveryRepository->findByEmailId($email->id);
+        $this->assertSame(['ok@test.be'], array_map(fn(Delivery $d) => $d->emailAddress, $deliveries));
+        $this->assertSame(Delivery::STATUS_PENDING, $deliveries[0]->status);
     }
 
     /**
@@ -675,7 +703,7 @@ class MassMailServiceTest extends TestCase
         $this->suppressedAddressRepository->suppress('perdue@test.be');
     }
 
-    public function testMergeMemberWithoutAnyAddressBecomesAnErrorRowNotARefusal(): void
+    public function testMergeMemberWithoutAnyAddressIsATargetWithoutMessageNotARefusal(): void
     {
         $memberId = $this->createMemberWithEmail(null);
         $audienceId = $this->createAudience([
@@ -686,9 +714,11 @@ class MassMailServiceTest extends TestCase
         $this->service->moveToTest($email->id, null);
         $this->service->startSending($email->id, null);
 
-        $counts = $this->service->getStatusCounts($email->id);
-        $this->assertSame(0, $counts['pending']);
-        $this->assertSame(1, $counts['error']);
+        $this->assertSame(0, $this->service->getStatusCounts($email->id)['total']);
+        $this->assertSame(1, $this->service->getTargetCount($email->id));
+        $this->assertSame(1, $this->service->getTrackingData($email->id)['targets_without_message']);
+        // Nothing to send: finished at once rather than « en cours » for good.
+        $this->assertSame(Email::STATUS_SENT, $this->service->findById($email->id)?->status);
     }
 
     public function testGetMergePreviewRendersTheRowAndFlagsProblems(): void
@@ -768,8 +798,10 @@ class MassMailServiceTest extends TestCase
         $this->service->startSending($email->id, null);
 
         $tracking = $this->service->getTrackingData($email->id);
-        $this->assertSame('ext@test.be', $tracking['recipients'][0]['display_name']);
-        $this->assertNull($tracking['recipients'][0]['section_name']);
+        $this->assertSame('ext@test.be', $tracking['messages'][0]['delivery']->emailAddress);
+        $this->assertSame('', $tracking['messages'][0]['members'], 'a file address concerns no member');
+        $this->assertSame(2, $tracking['messages'][0]['row_index']);
+        $this->assertSame(0, $tracking['target_count']);
     }
 
     // --- Multi-year selection: merge + dedup by address (module addendum) ---
@@ -852,8 +884,8 @@ class MassMailServiceTest extends TestCase
         $this->service->startSending($email->id, null);
 
         $byMember = [];
-        foreach ($this->recipientRepository->findByEmailId($email->id) as $recipient) {
-            $byMember[(int) $recipient->memberId] = $recipient->scoutYearId;
+        foreach ($this->targetRepository->findByEmailId($email->id) as $target) {
+            $byMember[$target->memberId] = $target->scoutYearId;
         }
 
         $this->assertSame([$recent, $older], array_keys($byMember));
@@ -1329,7 +1361,7 @@ class MassMailServiceTest extends TestCase
                 );
             }
             $this->assertNotNull($this->service->findById($email->id));
-            $this->assertSame(1, $this->countWhere('mass_mail_recipients', $email->id), 'its tracking stays');
+            $this->assertSame(1, $this->countWhere('mass_mail_deliveries', $email->id), 'its tracking stays');
         }
     }
 
@@ -1373,7 +1405,8 @@ class MassMailServiceTest extends TestCase
         }
 
         $this->assertSame(Email::STATUS_TEST, $this->service->findById($email->id)?->status);
-        $this->assertSame(0, $this->countWhere('mass_mail_recipients', $email->id));
+        $this->assertSame(0, $this->countWhere('mass_mail_deliveries', $email->id));
+        $this->assertSame(0, $this->countWhere('mass_mail_targets', $email->id));
     }
 
     public function testDeletingRemovesTheAttachmentsAndTheirFilesButNotAFileAnotherEmailStillUses(): void

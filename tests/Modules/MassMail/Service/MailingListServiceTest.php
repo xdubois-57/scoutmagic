@@ -379,13 +379,13 @@ class MailingListServiceTest extends TestCase
     }
 
     /**
-     * Two siblings on one family address are two members and ONE
-     * recipient — `resolveMembersForYears()` collapses them before a send
-     * freezes anything, so a counter that did not would promise a number
-     * the send contradicts, on exactly the units where a shared address
-     * is the norm.
+     * Two siblings on one family address are two MEMBERS — two targets,
+     * each keeping the communication in their history (issue #999, §2.2)
+     * — and the counter counts members, exactly as many as the send
+     * targets. That the address gets one message is the freeze's
+     * business, not the counter's.
      */
-    public function testTheLiveCountCollapsesTwoMembersSharingOneAddress(): void
+    public function testTheLiveCountKeepsTwoMembersSharingOneAddress(): void
     {
         $this->createMemberWithFunction('famille@test.be');
         $this->createMemberWithFunction('famille@test.be');
@@ -393,7 +393,7 @@ class MailingListServiceTest extends TestCase
 
         $count = $this->service->countMembersForCriteria([$this->functionId], [], [], $this->scoutYearId);
 
-        $this->assertSame(2, $count);
+        $this->assertSame(3, $count);
         $listId = $this->listWithGroup([$this->functionId], [], [])->id;
         $this->assertCount(
             $count,
@@ -756,9 +756,11 @@ class MailingListServiceTest extends TestCase
 
     /**
      * Two former members sharing one address — a family address kept for
-     * two children who both left — receive one mail, not two.
+     * two children who both left — are two targets (issue #999): each keeps
+     * the communication in their history. The address still gets one
+     * message, which the freeze decides (MassMailServiceTest).
      */
-    public function testTwoFormerMembersSharingAnAddressAreDeduplicated(): void
+    public function testTwoFormerMembersSharingAnAddressAreTwoTargets(): void
     {
         $yearMinusOne = $this->createScoutYear('2024-2025', '2024-09-01', '2025-08-31');
         $yearMinusTwo = $this->createScoutYear('2023-2024', '2023-09-01', '2024-08-31');
@@ -776,8 +778,9 @@ class MailingListServiceTest extends TestCase
             [$this->scoutYearId]
         );
 
-        $this->assertCount(1, $members);
-        $this->assertSame('famille@test.be', $members[0]['email']);
+        $this->assertCount(2, $members);
+        $this->assertSame(['famille@test.be', 'famille@test.be'], array_column($members, 'email'));
+        $this->assertCount(2, array_unique(array_column($members, 'member_id')));
     }
 
     /**

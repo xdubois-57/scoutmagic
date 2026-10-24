@@ -22,7 +22,7 @@ use Twig\Environment;
  * (member page §4, ARCHITECTURE.md §8.22) — lives in this module rather
  * than core\Http\Controller\MemberController because the content itself
  * (subject/body) is entirely mass_mail's own data; core\Member\
- * MemberPageService only ever links to it (via the recipient id it
+ * MemberPageService only ever links to it (via the target id it
  * already returns from getRecentEmailsForMember()) and never renders it
  * directly. Only registered when mass_mail is enabled — the "Communications
  * récentes" list that links here is likewise hidden when it's disabled.
@@ -37,20 +37,22 @@ class MemberEmailController extends AbstractController
     }
 
     /**
-     * GET /members/{id}/emails/{recipient_id} — role_min: identified,
+     * GET /members/{id}/emails/{target_id} — `{id}` is a `member_years`
+     * id; `{target_id}` is the entry (one target of a communication, issue
+     * #999). role_min: identified,
      * additionally scoped server-side (role_min alone is not the real
      * boundary, same principle as MemberController::show()) to chief/admin
      * or the member themselves via MemberService::canAccess(). On top of
      * that, findEmailDetailForMember() re-verifies server-side that
-     * $recipientId really belongs to this member, so a recipient id from
-     * one member's page can never be reused to read another member's mail.
+     * $targetId really belongs to this member, so a target id from one
+     * member's page can never be reused to read another member's mail.
      *
      * @param array<string, string> $params
      */
     public function show(Request $request, array $params): Response
     {
         $memberYearId = (int) $params['id'];
-        $recipientId = (int) $params['recipient_id'];
+        $targetId = (int) $params['target_id'];
         $userEmail = AuthSession::getEmail() ?? '';
         $userRole = AuthSession::getRole();
 
@@ -67,7 +69,7 @@ class MemberEmailController extends AbstractController
             return new Response('Member not found', 404);
         }
 
-        $detail = $this->massMailQuery->findEmailDetailForMember($profile->memberId, $recipientId);
+        $detail = $this->massMailQuery->findEmailDetailForMember($profile->memberId, $targetId);
         if ($detail === null) {
             return new Response('Not found', 404);
         }

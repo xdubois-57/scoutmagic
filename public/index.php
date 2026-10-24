@@ -9160,7 +9160,9 @@ if ($isEnabled('mass_mail')) {
     $massMailListRepo = new \Modules\MassMail\Repository\MailingListRepository($pdo);
     $massMailResolutionRepo = new \Modules\MassMail\Repository\MemberResolutionRepository($pdo, $encryptionService);
     $massMailEmailRepo = new \Modules\MassMail\Repository\EmailRepository($pdo);
-    $massMailRecipientRepo = new \Modules\MassMail\Repository\RecipientRepository($pdo, $encryptionService);
+    // A message per address, a target per member (issue #999).
+    $massMailDeliveryRepo = new \Modules\MassMail\Repository\DeliveryRepository($pdo, $encryptionService);
+    $massMailTargetRepo = new \Modules\MassMail\Repository\TargetRepository($pdo);
     $massMailAttachmentRepo = new \Modules\MassMail\Repository\EmailAttachmentRepository($pdo);
     $massMailFunctionRepo = new \Core\Import\FunctionRepository($pdo);
     $massMailAudienceRepo = new \Modules\MassMail\Repository\AudienceRepository($pdo, $encryptionService);
@@ -9199,7 +9201,8 @@ if ($isEnabled('mass_mail')) {
         $scoutYearService,
         $settingService,
         $memberService,
-        $memberEmailService
+        $memberEmailService,
+        $massMailSuppressedRepo
     );
     // « This module points at badges by id, so do not let one be deleted
     //   from under a list » — Core\Module\BadgeUsageProvider. Registered
@@ -9213,7 +9216,8 @@ if ($isEnabled('mass_mail')) {
     $massMailAccessService = new \Modules\MassMail\Service\MassMailAccessService($memberService, $sectionService);
     $massMailService = new \Modules\MassMail\Service\MassMailService(
         $massMailEmailRepo,
-        $massMailRecipientRepo,
+        $massMailDeliveryRepo,
+        $massMailTargetRepo,
         $massMailAttachmentRepo,
         $fileRepository,
         $massMailListService,
@@ -9304,7 +9308,7 @@ if ($isEnabled('mass_mail')) {
     );
 
     // The member page's "view as sent" email detail route
-    // (/members/{id}/emails/{recipient_id}, module.json) — lives here, not
+    // (/members/{id}/emails/{target_id}, module.json) — lives here, not
     // in Core\Http\Controller\MemberController, since the content is
     // entirely mass_mail's own data (ARCHITECTURE.md §8.22).
     $frontController->registerController(
@@ -9313,7 +9317,7 @@ if ($isEnabled('mass_mail')) {
             $twig,
             $memberService,
             new \Modules\MassMail\Service\MassMailQueryService(
-                $massMailRecipientRepo,
+                $massMailTargetRepo,
                 $massMailAudienceRepo,
                 new \Modules\MassMail\Service\MergeRenderer()
             )
@@ -9326,7 +9330,7 @@ if ($isEnabled('mass_mail')) {
         \Modules\MassMail\Controller\UnsubscribeController::class,
         new \Modules\MassMail\Controller\UnsubscribeController(
             $twig,
-            $massMailRecipientRepo,
+            $massMailDeliveryRepo,
             $memberEmailService,
             $massMailSuppressedRepo,
             $massMailListBlockService
@@ -11984,7 +11988,8 @@ if ($isEnabled('registration')) {
             $scoutYearService,
             $settingService,
             $memberService,
-            $memberEmailService
+            $memberEmailService,
+            $massMailSuppressedRepo
         );
         // Fresh instances rather than reusing the $massMailAudienceRepo/…
         // variables from the mass_mail block above — they're identical
@@ -11993,7 +11998,8 @@ if ($isEnabled('registration')) {
         // re-registration already carries (phpstan-baseline.neon).
         $massMailService = new \Modules\MassMail\Service\MassMailService(
             $massMailEmailRepo,
-            $massMailRecipientRepo,
+            $massMailDeliveryRepo,
+            $massMailTargetRepo,
             $massMailAttachmentRepo,
             $fileRepository,
             $massMailListService,
@@ -13040,7 +13046,7 @@ if (
 ) {
     $massMailQueryForMember = $isEnabled('mass_mail')
         ? new \Modules\MassMail\Service\MassMailQueryService(
-            $massMailRecipientRepo,
+            $massMailTargetRepo,
             $massMailAudienceRepo,
             new \Modules\MassMail\Service\MergeRenderer()
         )

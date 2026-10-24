@@ -9,14 +9,14 @@ declare(strict_types=1);
 namespace Modules\MassMail\Repository;
 
 use Core\Security\EncryptionService;
-use Modules\MassMail\Service\RecipientEmailLink;
+use Modules\MassMail\Service\TargetEmailLink;
 
 /**
  * mass_mail_audiences / mass_mail_audience_rows — a row's address and
  * its full data map are imported personal data → BLOB + encrypted, only
  * ever decrypted here (SECURITY.md). No blind index anywhere: nothing is
  * ever searched by value in these tables, they are only read back whole
- * (freeze, preview) or by primary key (per-recipient rendering).
+ * (freeze, preview) or by primary key (per-message rendering).
  */
 class AudienceRepository
 {
@@ -185,32 +185,30 @@ class AudienceRepository
     }
 
     /**
-     * The notification deep links of every recipient frozen from these
-     * audiences — what Task\PurgeMergeAudiencesHandler deletes alongside
-     * the audiences themselves (issue #292).
+     * The notification deep links of every target frozen from these
+     * audiences — what Task\PurgeMergeAudiencesHandler deletes alongside the
+     * audiences themselves (issue #292). A mail-merge notification always
+     * points at the target of its own file row (Task\SendBatchHandler), so
+     * the targets of the purged rows name every one of them.
      *
      * Must be called BEFORE deleteById(): `audience_row_id` is what ties a
-     * recipient to its audience, and the purge sets it to NULL. Afterwards
-     * the link is gone and so is any way to find these rows again.
+     * target to its audience, and the purge sets it to NULL. Afterwards the
+     * link is gone and so is any way to find these rows again.
      *
      * `audience_row_id IS NOT NULL` is also what makes this a *merge*
-     * question rather than a mass-mail one. Task\SendBatchHandler
-     * dispatches the same `mass_mail.email_received` type for every send,
-     * merge or not — an ordinary list send's notification carries the one
-     * subject everybody got, has nothing to do with `merge_retention_months`,
-     * and must keep the site-wide promise that an unread notification is
-     * never purged. Only a recipient with an audience row has a
-     * personalised value to erase.
+     * question rather than a mass-mail one: an ordinary list's notification
+     * carries the one subject everybody got, has nothing to do with
+     * `merge_retention_months`, and must keep the site-wide promise that an
+     * unread notification is never purged.
      *
-     * A recipient with no member_years row for the year it was resolved
-     * from yields no link and is skipped by the JOIN — see
-     * Task\SendBatchHandler, which refuses to store a personalised subject
-     * it could not later find.
+     * A target with no member_years row for its year yields no link and is
+     * skipped by the JOIN — Task\SendBatchHandler stores no personalised
+     * subject it could not later find.
      *
      * @param int[] $audienceIds
      * @return string[]
      */
-    public function findRecipientEmailLinksForAudiences(array $audienceIds): array
+    public function findTargetEmailLinksForAudiences(array $audienceIds): array
     {
         if ($audienceIds === []) {
             return [];
@@ -218,34 +216,43 @@ class AudienceRepository
 
         $placeholders = implode(',', array_fill(0, count($audienceIds), '?'));
         $stmt = $this->pdo->prepare(
-            'SELECT my.id AS member_year_id, r.id AS recipient_id
-             FROM mass_mail_recipients r
-             JOIN mass_mail_audience_rows ar ON ar.id = r.audience_row_id
-             JOIN member_years my ON my.member_id = r.member_id AND my.scout_year_id = r.scout_year_id
+            'SELECT my.id AS member_year_id, t.id AS target_id
+             FROM mass_mail_targets t
+             JOIN mass_mail_audience_rows ar ON ar.id = t.audience_row_id
+             JOIN member_years my ON my.member_id = t.member_id AND my.scout_year_id = t.scout_year_id
              WHERE ar.audience_id IN (' . $placeholders . ')'
         );
         $stmt->execute(array_map('intval', array_values($audienceIds)));
 
         return array_map(
-            static fn(array $row): string => RecipientEmailLink::url(
+            static fn(array $row): string => TargetEmailLink::url(
                 (int) $row['member_year_id'],
-                (int) $row['recipient_id']
+                (int) $row['target_id']
             ),
             $stmt->fetchAll(\PDO::FETCH_ASSOC)
         );
     }
 
     /**
-     * Rows cascade via FK; mass_mail_emails.audience_id and
-     * mass_mail_recipients.audience_row_id go to NULL (schema.sql) — but
-     * the SQLite test database doesn't enforce referential actions the
-     * same way, so the two SET NULLs are also issued explicitly here.
+     * Rows cascade via FK; mass_mail_emails.audience_id and the
+     * audience_row_id of the messages and targets go to NULL, the rows of
+     * mass_mail_notified_accounts go with the file rows (schema.sql) — but
+     * the SQLite test database doesn't enforce referential actions the same
+     * way, so each of them is also issued explicitly here, in that order.
      */
     public function deleteById(int $id): void
     {
         $this->pdo->prepare('UPDATE mass_mail_emails SET audience_id = NULL WHERE audience_id = ?')->execute([$id]);
         $this->pdo->prepare(
-            'UPDATE mass_mail_recipients SET audience_row_id = NULL
+            'UPDATE mass_mail_deliveries SET audience_row_id = NULL
+             WHERE audience_row_id IN (SELECT id FROM mass_mail_audience_rows WHERE audience_id = ?)'
+        )->execute([$id]);
+        $this->pdo->prepare(
+            'UPDATE mass_mail_targets SET audience_row_id = NULL
+             WHERE audience_row_id IN (SELECT id FROM mass_mail_audience_rows WHERE audience_id = ?)'
+        )->execute([$id]);
+        $this->pdo->prepare(
+            'DELETE FROM mass_mail_notified_accounts
              WHERE audience_row_id IN (SELECT id FROM mass_mail_audience_rows WHERE audience_id = ?)'
         )->execute([$id]);
         $this->pdo->prepare('DELETE FROM mass_mail_audience_rows WHERE audience_id = ?')->execute([$id]);
