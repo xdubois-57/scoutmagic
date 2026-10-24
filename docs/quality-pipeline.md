@@ -1213,6 +1213,7 @@ access the person (or session) running it has. **The Release workflow's own
 it still cannot read **fails the job**, after the evidence has been uploaded —
 a signed pack must not attest that one of its own sources went unread. Only
 the code-scanning source keeps the warning-and-carry-on rule there.
+
 **The SonarQube release rule, in one sentence:** 100% of findings must be
 fixed, except those that are *all three at once* — software quality
 `MAINTAINABILITY`, severity `LOW`, and tagged `convention`. An issue carries
