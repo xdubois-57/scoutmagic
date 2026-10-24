@@ -632,13 +632,6 @@ class CaptureTransportTest extends TestCase
     }
 
     /**
-     * `error_message` is a plain TEXT column in the very table that
-     * encrypts `recipient` as a BLOB because a recipient is personal
-     * data. PHPMailer glues the address that failed to the SMTP code
-     * that explains it, and on the exempted path a per-recipient refusal
-     * is the ordinary case.
-     */
-    /**
      * The registration e-mails go out with the unit's address in copy
      * (issue #911): the sandbox has to show it, or the only way to check
      * that the copy leaves is to open every raw message.
@@ -738,6 +731,13 @@ class CaptureTransportTest extends TestCase
         $this->assertSame(['unite@example.be'], $this->repository->findPage(10, 0)[0]->cc);
     }
 
+    /**
+     * `error_message` is a plain TEXT column in the very table that
+     * encrypts `recipient` as a BLOB because a recipient is personal
+     * data. PHPMailer glues the address that failed to the SMTP code
+     * that explains it, and on the exempted path a per-recipient refusal
+     * is the ordinary case.
+     */
     public function testAFailureReasonIsStoredWithTheAddressesTakenOut(): void
     {
         $refusing = new class implements MailTransportInterface {
