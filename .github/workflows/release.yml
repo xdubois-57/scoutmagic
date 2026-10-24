@@ -102,14 +102,20 @@ jobs:
   # recorded an open vulnerability while the Release went out anyway would
   # not be worth attaching.
   #
-  # Dependabot alerts are not readable with the workflow token on every
-  # repository. A REFUSED CALL IS NOT A FINDING: the file says so and why,
-  # the job warns and carries on — exactly what the local gate does with
-  # the same `Resource not accessible by integration` answer, and for the
-  # same reason. A missing file reads as an oversight; a file that says
-  # "not available, and here is the URL to read by hand" reads as a fact.
-  # What that costs is written down in docs/quality-pipeline.md's list of
-  # things that are green without having proved anything.
+  # The two sources are not equal here (issue #831).
+  #
+  # Dependabot alerts need the `vulnerability-alerts: read` scope, which
+  # this job asks for below: without it the call is refused with
+  # `Resource not accessible by integration` and the signed pack would
+  # attest that one of its own sources was never read. So an unreadable
+  # Dependabot source REFUSES the release, after the evidence is uploaded
+  # (the file says why and where to read by hand — that is the diagnosis).
+  #
+  # Code scanning keeps the older rule: a REFUSED CALL IS NOT A FINDING,
+  # the file says so and why, the job warns and carries on — what the
+  # local gate does with the same answer. What that costs is written down
+  # in docs/quality-pipeline.md's list of things that are green without
+  # having proved anything.
   github-security-evidence:
     name: GitHub security alerts evidence
     runs-on: ubuntu-24.04
@@ -117,6 +123,7 @@ jobs:
       contents: read
       security-events: read
       checks: read
+      vulnerability-alerts: read
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
@@ -169,11 +176,20 @@ jobs:
         run: |
           set -euo pipefail
           blocked=0
+          unreadable=0
           for source in codeql-open-alerts dependabot-open-alerts; do
             # An object rather than an array is the UNAVAILABLE marker
             # written above — a statement about this token, not a finding.
+            # Tolerated for code scanning; for Dependabot it means the
+            # pack would attest a source nobody read, which is the defect
+            # this check exists to prevent (issue #831).
             if [ "$(jq -r 'type' "evidence/${source}.json")" != "array" ]; then
-              echo "${source}: not readable by this run — see the warning above and the Security tab."
+              if [ "${source}" = "dependabot-open-alerts" ]; then
+                unreadable=1
+                echo "::error::${source}: not readable by this run — a release must not ship without it. Read evidence/${source}.json (uploaded above) for the reason."
+              else
+                echo "${source}: not readable by this run — see the warning above and the Security tab."
+              fi
               continue
             fi
             open="$(jq length "evidence/${source}.json")"
@@ -185,8 +201,13 @@ jobs:
               echo "${source}: none open."
             fi
           done
+          if [ "${unreadable}" -ne 0 ]; then
+            echo "::error::The Dependabot alerts could not be read. Check that the job still has 'vulnerability-alerts: read' and that Dependabot alerts are enabled on the repository, then release again."
+          fi
           if [ "${blocked}" -ne 0 ]; then
             echo "::error::Fix or dismiss them (AGENTS.md § Releases: fix first, release later), then release the commit that does."
+          fi
+          if [ "${blocked}" -ne 0 ] || [ "${unreadable}" -ne 0 ]; then
             exit 1
           fi
 
