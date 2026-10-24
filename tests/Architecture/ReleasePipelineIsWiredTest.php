@@ -326,6 +326,15 @@ final class ReleasePipelineIsWiredTest extends TestCase
      */
     private static function runSecurityVerdict(string $codeql, string $dependabot): array
     {
+        // The verdict script calls jq. Without it `$(jq …)` yields '' inside
+        // a `[ … ]` test, whose status `set -e` ignores, and '' is "not an
+        // array": the refusal case would pass without the detection ever
+        // running. A guard that fails, not skips: a skipped test proves less.
+        exec('command -v jq', $unused, $jqMissing);
+        if ($jqMissing !== 0) {
+            self::fail('jq is required by the verdict script and by this test; install it rather than skip it.');
+        }
+
         $directory = sys_get_temp_dir() . '/release_verdict_' . uniqid();
         mkdir($directory . '/evidence', 0700, true);
         file_put_contents($directory . '/evidence/codeql-open-alerts.json', $codeql);
