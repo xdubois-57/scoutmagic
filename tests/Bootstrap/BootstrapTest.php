@@ -631,27 +631,9 @@ PHP;
             var_export($stateFile, true)
         ));
 
-        $port = random_int(20000, 60000);
-        $process = proc_open(
-            ['php', '-S', "127.0.0.1:{$port}", $router],
-            [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
-            $pipes
-        );
-        $this->assertIsResource($process, 'failed to start php -S for test');
+        [$process, $port] = $this->startHttpServer($router);
 
         try {
-            $connected = false;
-            for ($i = 0; $i < 50; $i++) {
-                $conn = @fsockopen('127.0.0.1', $port, $errno, $errstr, 0.1);
-                if ($conn !== false) {
-                    fclose($conn);
-                    $connected = true;
-                    break;
-                }
-                usleep(50000);
-            }
-            $this->assertTrue($connected, 'php -S never became ready');
-
             $context = stream_context_create([
                 'http' => [
                     'method' => 'POST',
@@ -667,6 +649,63 @@ PHP;
             proc_close($process);
             @unlink($router);
         }
+    }
+
+    /**
+     * Starts php -S on a port the system reports free and waits until it
+     * accepts connections. A port picked at random could already be taken,
+     * and php -S then exits at once; a runner busy with the rest of the
+     * suite can take seconds to bring it up. So the wait runs against a
+     * deadline rather than a count of tries, a server that exits is
+     * started again on a fresh port, and a failure says what php -S
+     * printed.
+     *
+     * @return array{0: resource, 1: int}
+     */
+    private function startHttpServer(string $router): array
+    {
+        $lastOutput = '';
+        for ($attempt = 0; $attempt < 3; $attempt++) {
+            $port = $this->freeLoopbackPort();
+            $process = proc_open(
+                ['php', '-S', "127.0.0.1:{$port}", $router],
+                [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+                $pipes
+            );
+            $this->assertIsResource($process, 'failed to start php -S for test');
+
+            $deadline = microtime(true) + 10.0;
+            while (microtime(true) < $deadline) {
+                $conn = @fsockopen('127.0.0.1', $port, $errno, $errstr, 0.2);
+                if ($conn !== false) {
+                    fclose($conn);
+
+                    return [$process, $port];
+                }
+                if (!proc_get_status($process)['running']) {
+                    break;
+                }
+                usleep(50000);
+            }
+
+            proc_terminate($process);
+            stream_set_blocking($pipes[2], false);
+            $lastOutput = (string) stream_get_contents($pipes[2]);
+            proc_close($process);
+        }
+
+        $this->fail('php -S never became ready: ' . trim($lastOutput));
+    }
+
+    /** A loopback port nothing listens on at the moment of asking. */
+    private function freeLoopbackPort(): int
+    {
+        $server = stream_socket_server('tcp://127.0.0.1:0', $errno, $errstr);
+        $this->assertIsResource($server, "no free loopback port: {$errstr}");
+        $name = (string) stream_socket_get_name($server, false);
+        fclose($server);
+
+        return (int) substr($name, strrpos($name, ':') + 1);
     }
 
     /**
