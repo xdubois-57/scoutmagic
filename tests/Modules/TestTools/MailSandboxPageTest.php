@@ -127,7 +127,8 @@ class MailSandboxPageTest extends TestCase
         bool $hasDkim = false,
         string $rawMessage = "Subject: brut\r\nTo: qui@example.be\r\n\r\ncorps brut",
         bool $delivered = false,
-        ?string $errorMessage = null
+        ?string $errorMessage = null,
+        array $cc = []
     ): int {
         $store = fn(?string $content, string $mime, string $name): ?int => $content === null
             ? null
@@ -146,7 +147,8 @@ class MailSandboxPageTest extends TestCase
             $store($text, 'text/plain', 'corps.txt'),
             $errorMessage,
             [],
-            $delivered
+            $delivered,
+            $cc
         );
     }
 
@@ -196,6 +198,39 @@ class MailSandboxPageTest extends TestCase
         $this->assertStringContainsString('01/03/2026 à 09:30', $body);
         $this->assertStringContainsString('Ko', $body);
         $this->assertStringContainsString('DKIM', $body);
+    }
+
+    public function testTheListShowsTheCopiesOfAMessage(): void
+    {
+        $this->capture('[25SV] Inscription', 'famille@example.be', '2026-03-01 09:30:00', cc: ['unite@example.be', 'tresorier@example.be']);
+
+        $body = $this->list();
+
+        $this->assertStringContainsString('Cc : unite@example.be, tresorier@example.be', $body);
+    }
+
+    public function testAMessageWithoutCopyShowsNoCopyLineInTheList(): void
+    {
+        $this->capture('[25SV] Convocation', 'chef@example.be', '2026-03-01 09:30:00');
+
+        $this->assertStringNotContainsString('Cc :', $this->list());
+    }
+
+    public function testTheDetailPageShowsTheCopiesUnderTheirOwnLabel(): void
+    {
+        $id = $this->capture('[25SV] Inscription', 'famille@example.be', '2026-03-01 09:30:00', cc: ['unite@example.be', 'tresorier@example.be']);
+
+        $body = $this->detail($id);
+
+        $this->assertStringContainsString('Copie (Cc)', $body);
+        $this->assertStringContainsString('unite@example.be, tresorier@example.be', $body);
+    }
+
+    public function testTheDetailPageOfAMessageWithoutCopyHasNoCopyRow(): void
+    {
+        $id = $this->capture('[25SV] Convocation', 'chef@example.be', '2026-03-01 09:30:00');
+
+        $this->assertStringNotContainsString('Copie (Cc)', $this->detail($id));
     }
 
     public function testSearchingBySubjectNarrowsTheList(): void

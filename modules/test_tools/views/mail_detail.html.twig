@@ -13,6 +13,11 @@
     <dt class="col-4 col-lg-2">Destinataire</dt>
     <dd class="col-8 col-lg-10">{{ email.recipient }}</dd>
 
+    {% if email.cc %}
+        <dt class="col-4 col-lg-2">Copie (Cc)</dt>
+        <dd class="col-8 col-lg-10">{{ email.cc|join(', ') }}</dd>
+    {% endif %}
+
     <dt class="col-4 col-lg-2">Expéditeur</dt>
     <dd class="col-8 col-lg-10">{{ email.fromAddress }}</dd>
 
