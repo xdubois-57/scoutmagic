@@ -705,6 +705,27 @@ final class GroupedSendScenariosTest extends TestCase
     }
 
     /**
+     * An account whose login is a member's confirmed SECONDARY address — a
+     * parent who confirmed theirs on the child's page — may open that page
+     * (MemberService::canAccess()), so its notification leads there too,
+     * and not only an account on the Desk address.
+     */
+    public function testANotificationLinksForAnAccountOnAConfirmedSecondaryAddress(): void
+    {
+        $alice = $this->member('Alice', 'alice@x.be');
+        $this->secondary($alice, 'papa@x.be');
+        $parentAccount = $this->account('papa@x.be');
+
+        $email = $this->send($this->mergeEmail([[$alice, null, 'A']], 'Infos camp'));
+
+        $target = $this->targets->findByEmailId($email->id)[0];
+        $memberYearId = (int) ((new MemberYearRepository($this->pdo))->findByMemberAndYear($alice, $this->scoutYearId)['id'] ?? 0);
+        $notifications = (new NotificationRepository($this->pdo, $this->encryption))->findByUserAccountId($parentAccount);
+        $this->assertCount(1, $notifications);
+        $this->assertSame(TargetEmailLink::url($memberYearId, $target->id), $notifications[0]->url);
+    }
+
+    /**
      * The unsubscribe stays per MESSAGE: each one has its own token, one
      * message's token opens nothing on another, the one-click POST works,
      * and a wrong token answers the « invalid » page and does nothing.

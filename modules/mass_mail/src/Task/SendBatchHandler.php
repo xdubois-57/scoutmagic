@@ -540,9 +540,14 @@ class SendBatchHandler implements TaskHandlerInterface
     {
         $pdo = $context->connection->getPdo();
         $memberYears = new MemberYearRepository($pdo);
+        // With the member e-mail repository, canAccess() also answers for an
+        // account on a member's confirmed secondary address — the very
+        // addresses this module now sends to — and not only the Desk one.
         $memberService = new MemberService(
             $memberYears,
-            new \Core\Member\Repository\MemberProfileRepository($context->connection, $context->encryption)
+            new \Core\Member\Repository\MemberProfileRepository($context->connection, $context->encryption),
+            null,
+            new \Core\Member\MemberEmailRepository($pdo, $context->encryption)
         );
 
         $candidates = [];
