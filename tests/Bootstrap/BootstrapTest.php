@@ -623,15 +623,21 @@ PHP;
      */
     private function postStepViaHttpServer(string $docRoot, string $stateFile, int $step): string
     {
+        // The router answers its own readiness path with a token drawn for
+        // this call, so the wait accepts THIS server and not whatever else
+        // may have taken the port between asking for it and binding it.
+        $readyToken = bin2hex(random_bytes(16));
         $router = $this->tempDir . '-router.php';
         file_put_contents($router, sprintf(
-            "<?php\ndefine('BOOTSTRAP_TEST', true);\nrequire %s;\nbootstrapHandleStepRequest(%s, %s);\n",
+            "<?php\nif ((\$_SERVER['REQUEST_URI'] ?? '') === '/ready') {\n    echo %s;\n    return true;\n}\n"
+                . "define('BOOTSTRAP_TEST', true);\nrequire %s;\nbootstrapHandleStepRequest(%s, %s);\n",
+            var_export($readyToken, true),
             var_export(dirname(__DIR__, 2) . '/bootstrap/bootstrap.php', true),
             var_export($docRoot, true),
             var_export($stateFile, true)
         ));
 
-        [$process, $port] = $this->startHttpServer($router);
+        [$process, $port] = $this->startHttpServer($router, $readyToken);
 
         try {
             $context = stream_context_create([
@@ -652,17 +658,17 @@ PHP;
     }
 
     /**
-     * Starts php -S on a port the system reports free and waits until it
-     * accepts connections. A port picked at random could already be taken,
-     * and php -S then exits at once; a runner busy with the rest of the
-     * suite can take seconds to bring it up. So the wait runs against a
-     * deadline rather than a count of tries, a server that exits is
-     * started again on a fresh port, and a failure says what php -S
-     * printed.
+     * Starts php -S on a port the system reports free and waits until its
+     * router answers /ready with $readyToken. A port picked at random could
+     * already be taken, and php -S then exits at once; a runner busy with
+     * the rest of the suite can take seconds to bring it up. So the wait
+     * runs against a deadline rather than a count of tries, a server that
+     * exits is started again on a fresh port, and a failure says what
+     * php -S printed.
      *
      * @return array{0: resource, 1: int}
      */
-    private function startHttpServer(string $router): array
+    private function startHttpServer(string $router, string $readyToken): array
     {
         $lastOutput = '';
         for ($attempt = 0; $attempt < 3; $attempt++) {
@@ -676,10 +682,12 @@ PHP;
 
             $deadline = microtime(true) + 10.0;
             while (microtime(true) < $deadline) {
-                $conn = @fsockopen('127.0.0.1', $port, $errno, $errstr, 0.2);
-                if ($conn !== false) {
-                    fclose($conn);
-
+                $answer = @file_get_contents(
+                    "http://127.0.0.1:{$port}/ready",
+                    false,
+                    stream_context_create(['http' => ['ignore_errors' => true, 'timeout' => 0.5]])
+                );
+                if ($answer === $readyToken) {
                     return [$process, $port];
                 }
                 if (!proc_get_status($process)['running']) {
