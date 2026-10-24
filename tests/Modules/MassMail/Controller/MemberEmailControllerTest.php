@@ -302,6 +302,31 @@ class MemberEmailControllerTest extends TestCase
     }
 
     /**
+     * A chief opening one entry of a whole-unit communication may see
+     * every other member: the first ten, by name, are named and the rest
+     * counted.
+     */
+    public function testConcerneAussiNamesTenMembersAndCountsTheRest(): void
+    {
+        $firstNames = ['Anna', 'Basile', 'Chloe', 'Denis', 'Emma', 'Felix', 'Gaspard', 'Hugo', 'Ines', 'Jules', 'Kevin', 'Louise'];
+        $others = [];
+        foreach ($firstNames as $index => $firstName) {
+            $member = $this->createMember($firstName, 'Famille', strtolower($firstName) . '@test.example');
+            $others[] = ['target_id' => 100 + $index, 'member_id' => $member['member_id'], 'scout_year_id' => $this->scoutYearId];
+        }
+
+        AuthSession::login(1, 'chief@test.example', 'chief');
+        $massMailQuery = $this->createStub(MassMailQueryInterface::class);
+        $massMailQuery->method('findEmailDetailForMember')->willReturn($this->detail(['other_targets' => $others]));
+        $body = $this->show($massMailQuery, 5)->getBody();
+
+        $this->assertStringContainsString('Jules', $body);
+        $this->assertStringNotContainsString('Kevin', $body);
+        $this->assertStringNotContainsString('Louise', $body);
+        $this->assertStringContainsString('et 2 autres animés', $body);
+    }
+
+    /**
      * @param array<string, mixed> $overrides
      * @return array<string, mixed>
      */
