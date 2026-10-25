@@ -728,6 +728,25 @@ class ListBlockFlowTest extends TestCase
     }
 
     /**
+     * A member whose only address they unsubscribed: no message, and the
+     * journal says « désinscrite », not « Adresse invalide » — the address
+     * is fine, the person asked (review of #1030).
+     */
+    public function testAMemberWhoseOnlyAddressIsUnsubscribedIsNotReportedAsInvalid(): void
+    {
+        $memberId = $this->createMember('chef@test.be');
+        $repository = new \Core\Member\MemberEmailRepository($this->pdo, $this->encryption);
+        $repository->markInactive($repository->findOrCreateDeskOverride($memberId, 'chef@test.be')->id);
+
+        $email = $this->sendableEmail();
+        $this->massMailService->startSending($email->id, null);
+
+        $this->assertSame([], $this->deliveryRepository->findByEmailId($email->id));
+        $line = $this->pdo->query("SELECT description FROM event_log WHERE event_type = 'target_not_sent'")->fetchColumn();
+        $this->assertStringContainsString('Adresse désinscrite des emails groupés', (string) $line);
+    }
+
+    /**
      * **« Adresse invalide » pour une adresse parfaitement valide.**
      *
      * When a member's every address is blocked,

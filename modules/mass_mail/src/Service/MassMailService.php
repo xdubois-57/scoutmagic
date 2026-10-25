@@ -1164,8 +1164,13 @@ class MassMailService
         if ($this->memberEmailService->everyAddressIsBlockedForMassMail($memberId, $deskEmail)) {
             return 'Adresse suspendue après des refus répétés';
         }
-        if ($this->memberEmailService->resolveValidAddressesForMassMail($memberId, $deskEmail) !== []) {
-            return 'Adresse désinscrite des emails groupés';
+        // Nothing valid is left: an address the member's page shows
+        // « Inactif » is one they unsubscribed (MemberEmailService::
+        // unsubscribe()), the only way a member's address gets there.
+        foreach ($this->memberEmailService->listForMember($memberId, $deskEmail) as $row) {
+            if ($row->isInactive()) {
+                return 'Adresse désinscrite des emails groupés';
+            }
         }
 
         return 'Adresse invalide';
