@@ -62,9 +62,8 @@ use Modules\MassMail\Api\MassMailDraftInterface;
 class CampaignReminderService
 {
     /**
-     * The audience's columns, which are also the variables the composer
-     * offers. One payment block's worth, and no numbering: a row is one
-     * receivable.
+     * The audience's payment columns. Imported columns follow them in
+     * the composer; these calculated values win on a matching name.
      */
     public const COLUMNS = ['Prénom', 'Montant', 'Communication', 'QR', 'Bénéficiaire', 'IBAN'];
 
@@ -115,6 +114,7 @@ class CampaignReminderService
         $iban = IbanNormalizer::format(IbanNormalizer::normalize($account->iban));
 
         $rows = [];
+        $columns = self::COLUMNS;
         foreach ($demands as $demand) {
             // No `email`: with a member_id, mass_mail sends to that
             // member's addresses and would ignore one given here anyway.
@@ -127,14 +127,15 @@ class CampaignReminderService
                     'QR' => $this->qrTokens->urlFor($demand['receivable_id'], $this->baseUrl),
                     'Bénéficiaire' => $beneficiary,
                     'IBAN' => $iban,
-                ],
+                ] + $demand['merge_data'],
             ];
+            $columns = array_values(array_unique([...$columns, ...array_keys($demand['merge_data'])]));
         }
 
         return $this->massMailDraft->createMergeDraft(
             'Rappel — ' . $campaign->label,
             'Rappel — ' . $campaign->label,
-            self::COLUMNS,
+            $columns,
             $rows,
             $actorRole,
             $actorEmail,
@@ -176,7 +177,7 @@ class CampaignReminderService
      * row of the audience, so a family of seven gets seven reminders and
      * none of the seven is left out.
      *
-     * @return list<array{member_id: int, name: string, amount_cents: int, communication: string, receivable_id: int}>
+     * @return list<array{member_id: int, name: string, amount_cents: int, communication: string, receivable_id: int, merge_data: array<string, string>}>
      */
     private function buildDemands(Campaign $campaign): array
     {
@@ -226,6 +227,7 @@ class CampaignReminderService
                 'amount_cents' => $settlement->amountRemainingCents(),
                 'communication' => $receivable->communication,
                 'receivable_id' => $receivable->id,
+                'merge_data' => $row->mergeData,
             ];
         }
 
