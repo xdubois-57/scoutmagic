@@ -109,9 +109,10 @@ class UnsubscribeController extends AbstractController
         // record of the request has to live somewhere that is not attached
         // to their membership.
         //
-        // Since issue #999 (§2.2) the member freeze reads this table too: an
-        // address unsubscribed through a publipostage or a contact group is
-        // no longer written to as a member's either.
+        // The member freeze does not read this table (MassMailService::
+        // eligibleAddressesOfMember()): a member's address is governed by
+        // the member_emails row deactivated below, which « Réactiver » can
+        // undo — nothing ever removes a row from this one.
         $this->suppressedAddressRepository->suppress($delivery->emailAddress);
 
         // Then every contact group's rows holding this address, in every

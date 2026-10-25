@@ -138,8 +138,7 @@ class ListBlockFlowTest extends TestCase
             null,
             null,
             $memberService,
-            $this->memberEmailService,
-            new SuppressedAddressRepository($this->pdo)
+            $this->memberEmailService
         );
 
         $this->deliveryRepository = new DeliveryRepository($this->pdo, $this->encryption);
@@ -482,6 +481,28 @@ class ListBlockFlowTest extends TestCase
         $email = $this->sendableEmail();
         $this->massMailService->startSending($email->id, null);
         $this->assertCount(count($rows), $this->deliveryRepository->findByEmailId($email->id));
+    }
+
+    /**
+     * A member's address on the module's suppression list — reactivated
+     * after an unsubscribe, or unsubscribed through a contact group — is
+     * still written to as the member's (MassMailService::
+     * eligibleAddressesOfMember()), so the list's page counts it too:
+     * « Voir les destinataires » and the send agree.
+     */
+    public function testAMembersAddressOnTheSuppressionListIsListedLikeTheSendWritesIt(): void
+    {
+        $memberId = $this->createMember('chef@test.be');
+        $this->addSecondaryEmail($memberId, 'perso@test.be');
+        $this->suppressedRepository->suppress('perso@test.be');
+
+        $rows = $this->listService->listRecipients($this->listId, $this->scoutYearId)['rows'];
+
+        $this->assertSame(['chef@test.be', 'perso@test.be'], array_column($rows, 'email'));
+        $this->assertSame(2, $this->listService->summariseList($this->listId, $this->scoutYearId)['total']);
+        $email = $this->sendableEmail();
+        $this->massMailService->startSending($email->id, null);
+        $this->assertCount(2, $this->deliveryRepository->findByEmailId($email->id));
     }
 
     /**

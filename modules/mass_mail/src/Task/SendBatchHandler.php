@@ -726,8 +726,7 @@ class SendBatchHandler implements TaskHandlerInterface
                 // resolves to.
                 null,
                 new \Modules\MassMail\Repository\ListBlockRepository($pdo),
-                new \Modules\MassMail\Repository\ContactRepository($pdo, $context->encryption),
-                suppressedAddresses: new SuppressedAddressRepository($pdo)
+                new \Modules\MassMail\Repository\ContactRepository($pdo, $context->encryption)
             ),
             $memberService,
             $memberEmailService,

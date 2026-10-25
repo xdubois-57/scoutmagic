@@ -9201,8 +9201,7 @@ if ($isEnabled('mass_mail')) {
         $scoutYearService,
         $settingService,
         $memberService,
-        $memberEmailService,
-        $massMailSuppressedRepo
+        $memberEmailService
     );
     // « This module points at badges by id, so do not let one be deleted
     //   from under a list » — Core\Module\BadgeUsageProvider. Registered
@@ -11988,8 +11987,7 @@ if ($isEnabled('registration')) {
             $scoutYearService,
             $settingService,
             $memberService,
-            $memberEmailService,
-            $massMailSuppressedRepo
+            $memberEmailService
         );
         // Fresh instances rather than reusing the $massMailAudienceRepo/…
         // variables from the mass_mail block above — they're identical

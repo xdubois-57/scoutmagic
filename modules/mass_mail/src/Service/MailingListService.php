@@ -109,13 +109,7 @@ class MailingListService
          * them (MassMailService::freezeListRecipients()). Null counts the
          * Desk address alone.
          */
-        private ?MemberEmailService $memberEmailService = null,
-        /**
-         * The unsubscribed addresses, which the send leaves out of every
-         * member's addresses (issue #999, §2.2) — so the list's page leaves
-         * them out too. Null shows them, as if nobody had unsubscribed.
-         */
-        private ?\Modules\MassMail\Repository\SuppressedAddressRepository $suppressedAddresses = null
+        private ?MemberEmailService $memberEmailService = null
     ) {
     }
 
@@ -1289,9 +1283,10 @@ class MailingListService
      * A member is read at every address the send uses: their Desk address
      * when it is well formed, and their valid personal ones
      * (MemberEmailService::resolveValidAddressesForMassMail(), asked with
-     * no Desk address, so reading never creates the Desk override row) —
-     * less the unsubscribed ones (mass_mail_suppressed_addresses), which
-     * the send leaves out too. A contact is read at its address.
+     * no Desk address, so reading never creates the Desk override row). An
+     * unsubscribed member address is « Inactif » and left out there, as at
+     * the send, which no more reads mass_mail_suppressed_addresses for a
+     * member's addresses than this does. A contact is read at its address.
      *
      * One gate of the freeze is deliberately not reproduced: the bounce
      * block (Core\Mail\Feedback\Bounce). A Desk or contact address the far
@@ -1321,16 +1316,6 @@ class MailingListService
                 foreach ($this->memberEmailService?->resolveValidAddressesForMassMail($memberId, null) ?? [] as $row) {
                     $addresses[] = $row->email;
                 }
-                $suppressed = $addresses !== []
-                    ? array_flip(array_map(
-                        static fn(string $a): string => mb_strtolower(trim($a)),
-                        $this->suppressedAddresses?->filterSuppressed($addresses) ?? []
-                    ))
-                    : [];
-                $addresses = array_values(array_filter(
-                    $addresses,
-                    static fn(string $a): bool => !isset($suppressed[mb_strtolower(trim($a))])
-                ));
             }
 
             foreach ($addresses as $address) {
