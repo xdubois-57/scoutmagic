@@ -1454,7 +1454,10 @@ class MassMailService
         }
         // A file row without a Tiers that kept no address at all leaves
         // neither a message nor a target — only the file still knows it.
-        foreach ($rowIndexes as $rowId => $rowIndex) {
+        // Only once the freeze has run: before it, no row has anything yet,
+        // and a draft opened at this URL would list every row as unsent.
+        $frozen = in_array($email->status, [Email::STATUS_SENDING, Email::STATUS_SENT], true);
+        foreach ($frozen ? $rowIndexes : [] as $rowId => $rowIndex) {
             if (!isset($rowsWithSomething[$rowId])) {
                 $unsent[] = ['label' => 'Adresse du fichier', 'row_index' => $rowIndex];
             }

@@ -400,6 +400,24 @@ class MassMailServiceTest extends TestCase
     }
 
     /**
+     * Before the freeze no file row has a message or a target yet, so a
+     * draft or test mail merge opened on its tracking page must not list
+     * every row of its file as unsent.
+     */
+    public function testATrackingPageBeforeTheFreezeListsNoFileRowAsUnsent(): void
+    {
+        $audienceId = $this->createAudience([
+            ['member_id' => null, 'email' => 'row@test.be', 'data' => ['Email' => 'row@test.be']],
+        ]);
+
+        $email = $this->createMergeDraft($audienceId);
+        $this->assertSame([], $this->service->getTrackingData($email->id)['unsent'], 'Draft');
+
+        $this->service->moveToTest($email->id, null);
+        $this->assertSame([], $this->service->getTrackingData($email->id)['unsent'], 'Test');
+    }
+
+    /**
      * SECURITY.md §11 — no e-mail address ever appears in a journal
      * entry. This is the rule the whole feature runs closest to: the
      * natural way to make a per-copy line searchable is to write the
