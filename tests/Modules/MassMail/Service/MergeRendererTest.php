@@ -9,6 +9,17 @@ use PHPUnit\Framework\TestCase;
 
 class MergeRendererTest extends TestCase
 {
+    public function testNumericHeadersSurvivePhpIntegerArrayKeys(): void
+    {
+        $renderer = new MergeRenderer();
+
+        $this->assertSame('Automne', $renderer->renderText('{{2026}}', [2026 => 'Automne']));
+        $this->assertSame('<p>A &amp; B</p>', $renderer->renderHtml('<p>{{2026}}</p>', [2026 => 'A & B']));
+        $this->assertSame('Automne', $renderer->renderText('{{#2026}}Automne{{/2026}}', [2026 => 'oui']));
+        $this->assertSame('', $renderer->renderText('{{#2026}}Automne{{/2026}}', [2026 => '']));
+        $this->assertSame(['2026'], $renderer->findMissingValues('{{2026}}', [2026 => '']));
+    }
+
     private MergeRenderer $renderer;
 
     protected function setUp(): void

@@ -191,6 +191,16 @@ class CampaignReminderServiceTest extends TestCase
         ], $this->draft->rows[0]['values']);
     }
 
+    public function testNumericImportedHeadersRemainUsableMergeVariables(): void
+    {
+        $campaign = $this->campaignWith([['Lucie', 4500, ['2026' => 'Automne']]]);
+
+        $this->service()->createDraft($campaign, 'intendant', 'tresorier@test.be', 7);
+
+        $this->assertSame([...CampaignReminderService::COLUMNS, '2026'], $this->draft->columns);
+        $this->assertSame('Automne', (new MergeRenderer())->renderText('{{2026}}', $this->draft->rows[0]['values']));
+    }
+
     public function testCalculatedColumnsCannotBeOverriddenByCaseOrWhitespaceVariants(): void
     {
         $campaign = $this->campaignWith([

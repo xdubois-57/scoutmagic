@@ -123,7 +123,7 @@ class CampaignReminderService
             // The renderer matches column names without case or padding.
             $mergeData = array_filter(
                 $demand['merge_data'],
-                static fn(string $column): bool => !isset($calculatedColumns[mb_strtolower(trim($column))]),
+                static fn(int|string $column): bool => !isset($calculatedColumns[mb_strtolower(trim((string) $column))]),
                 ARRAY_FILTER_USE_KEY
             );
             // No `email`: with a member_id, mass_mail sends to that
@@ -139,7 +139,7 @@ class CampaignReminderService
                     'IBAN' => $iban,
                 ] + $mergeData,
             ];
-            $columns = array_values(array_unique([...$columns, ...array_keys($mergeData)]));
+            $columns = array_values(array_unique([...$columns, ...array_map('strval', array_keys($mergeData))]));
         }
 
         $emptyValues = array_fill_keys($columns, '');
