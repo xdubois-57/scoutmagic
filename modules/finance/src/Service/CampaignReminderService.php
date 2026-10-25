@@ -115,7 +115,17 @@ class CampaignReminderService
 
         $rows = [];
         $columns = self::COLUMNS;
+        $calculatedColumns = array_fill_keys(
+            array_map(static fn(string $column): string => mb_strtolower(trim($column)), self::COLUMNS),
+            true
+        );
         foreach ($demands as $demand) {
+            // The renderer matches column names without case or padding.
+            $mergeData = array_filter(
+                $demand['merge_data'],
+                static fn(string $column): bool => !isset($calculatedColumns[mb_strtolower(trim($column))]),
+                ARRAY_FILTER_USE_KEY
+            );
             // No `email`: with a member_id, mass_mail sends to that
             // member's addresses and would ignore one given here anyway.
             $rows[] = [
@@ -127,9 +137,15 @@ class CampaignReminderService
                     'QR' => $this->qrTokens->urlFor($demand['receivable_id'], $this->baseUrl),
                     'Bénéficiaire' => $beneficiary,
                     'IBAN' => $iban,
-                ] + $demand['merge_data'],
+                ] + $mergeData,
             ];
-            $columns = array_values(array_unique([...$columns, ...array_keys($demand['merge_data'])]));
+            $columns = array_values(array_unique([...$columns, ...array_keys($mergeData)]));
+        }
+
+        $emptyValues = array_fill_keys($columns, '');
+        foreach ($rows as $index => $row) {
+            // A known column without a value must render empty, not as a token.
+            $rows[$index]['values'] += $emptyValues;
         }
 
         return $this->massMailDraft->createMergeDraft(

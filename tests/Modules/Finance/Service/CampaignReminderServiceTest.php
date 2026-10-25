@@ -157,13 +157,14 @@ class CampaignReminderServiceTest extends TestCase
         $this->assertSame('Premier rappel', $lucie['values']['Remarque']);
         $this->assertSame('Louveteaux', $antoine['values']['Groupe']);
         $this->assertSame('31 octobre', $antoine['values']['Échéance']);
-        $this->assertArrayNotHasKey('Remarque', $antoine['values']);
-        $this->assertArrayNotHasKey('Échéance', $lucie['values']);
+        $this->assertSame('', $antoine['values']['Remarque']);
+        $this->assertSame('', $lucie['values']['Échéance']);
 
         $renderer = new MergeRenderer();
         $body = '<p>{{Prénom}} — {{Groupe}} : {{Remarque}}</p>';
         $this->assertSame([], $renderer->findUnknownTokens($body, $this->draft->columns));
         $this->assertSame('<p>Lucie — Lutins : Premier rappel</p>', $renderer->renderHtml($body, $lucie['values']));
+        $this->assertSame('<p>Antoine — Louveteaux : </p>', $renderer->renderHtml($body, $antoine['values']));
     }
 
     public function testCalculatedPaymentDetailsOverrideImportedColumnsWithTheSameName(): void
@@ -188,6 +189,35 @@ class CampaignReminderServiceTest extends TestCase
             'Bénéficiaire' => 'Unité SV025 Ottignies',
             'IBAN' => 'BE71 0961 2345 6769',
         ], $this->draft->rows[0]['values']);
+    }
+
+    public function testCalculatedColumnsCannotBeOverriddenByCaseOrWhitespaceVariants(): void
+    {
+        $campaign = $this->campaignWith([
+            ['Lucie', 4500, [
+                ' prénom ' => 'Imported name',
+                'mOnTaNt' => '0,01 €',
+                ' COMMUNICATION ' => 'Imported communication',
+                'qr' => 'https://example.invalid/qr',
+                ' bénéficiaire ' => 'Imported beneficiary',
+                'iban' => 'Imported IBAN',
+            ]],
+        ]);
+        $receivable = $this->receivableOf($campaign, 0);
+
+        $this->service()->createDraft($campaign, 'intendant', 'tresorier@test.be', 7);
+
+        $this->assertSame(CampaignReminderService::COLUMNS, $this->draft->columns);
+        $renderer = new MergeRenderer();
+        $this->assertSame(
+            'Lucie | 45,00 € | ' . $receivable->communication . ' | '
+                . $this->tokens->urlFor($receivable->id, 'https://scoutmagic.test')
+                . ' | Unité SV025 Ottignies | BE71 0961 2345 6769',
+            $renderer->renderText(
+                '{{Prénom}} | {{Montant}} | {{Communication}} | {{QR}} | {{Bénéficiaire}} | {{IBAN}}',
+                $this->draft->rows[0]['values']
+            )
+        );
     }
 
     /**
