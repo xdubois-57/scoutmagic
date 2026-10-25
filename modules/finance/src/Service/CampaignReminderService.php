@@ -123,7 +123,8 @@ class CampaignReminderService
             // The renderer matches column names without case or padding.
             $mergeData = array_filter(
                 $demand['merge_data'],
-                static fn(int|string $column): bool => !isset($calculatedColumns[mb_strtolower(trim((string) $column))]),
+                static fn(int|string $column): bool =>
+                    !isset($calculatedColumns[mb_strtolower(trim((string) $column))]),
                 ARRAY_FILTER_USE_KEY
             );
             // No `email`: with a member_id, mass_mail sends to that
@@ -193,7 +194,14 @@ class CampaignReminderService
      * row of the audience, so a family of seven gets seven reminders and
      * none of the seven is left out.
      *
-     * @return list<array{member_id: int, name: string, amount_cents: int, communication: string, receivable_id: int, merge_data: array<string, string>}>
+     * @return list<array{
+     *     member_id: int,
+     *     name: string,
+     *     amount_cents: int,
+     *     communication: string,
+     *     receivable_id: int,
+     *     merge_data: array<string, string>
+     * }>
      */
     private function buildDemands(Campaign $campaign): array
     {
