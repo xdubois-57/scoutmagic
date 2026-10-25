@@ -619,17 +619,30 @@ final class GroupedSendScenariosTest extends TestCase
         $this->assertSame($this->scoutYearId, $years[$both]);
     }
 
-    /** An unsubscribed address is left out of a member's addresses (§2.2). */
-    public function testASuppressedAddressIsExcludedFromAMember(): void
+    /**
+     * A member's unsubscribe sets their address « Inactif », so the next
+     * freeze leaves it out; « Réactiver » on the member page brings it
+     * back, though the address stays on the module's suppression list —
+     * which governs contacts and free mail-merge addresses, never a
+     * member's own (issue #999, review of #1030).
+     */
+    public function testAMembersUnsubscribedAddressIsLeftOutUntilReactivated(): void
     {
         $alice = $this->member('Alice', 'alice@x.be');
         $this->secondary($alice, 'papa@x.be');
+        $memberEmails = new MemberEmailRepository($this->pdo, $this->encryption);
+        $papa = $memberEmails->findByMemberAndEmail($alice, 'papa@x.be');
+        $this->assertNotNull($papa);
+        $memberEmails->markInactive($papa->id);
         $this->suppressed->suppress('PAPA@x.be');
 
         $this->send($this->activeMembersEmail());
-
         $this->assertSame(['alice@x.be'], $this->sent);
-        $this->assertCount(1, $this->entries($alice));
+
+        $memberEmails->reactivate($papa->id);
+        $this->sent = [];
+        $this->send($this->activeMembersEmail('Deuxième'));
+        $this->assertEqualsCanonicalizing(['alice@x.be', 'papa@x.be'], $this->sent);
     }
 
     /** « Renvoyer » sends the message again and notifies nobody again. */

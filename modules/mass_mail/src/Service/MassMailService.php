@@ -992,9 +992,10 @@ class MassMailService
      *   target.
      * - **A member's eligible addresses**: Core\Member\MemberEmailService::
      *   resolveValidAddressesForMassMail() (the valid Desk address, the
-     *   confirmed personal ones, less those suspended after bounces), less
-     *   the unsubscribed addresses of mass_mail_suppressed_addresses — read
-     *   here, since the core's own guard cannot read a module table.
+     *   confirmed personal ones, less those suspended after bounces). An
+     *   unsubscribed member address is « Inactif » and left out there;
+     *   mass_mail_suppressed_addresses is read for contacts and free
+     *   mail-merge addresses only (see eligibleAddressesOfMember()).
      * - **Messages**: ONE per distinct address (compared lowercased) across
      *   every target and every contact of the list, linked to every target
      *   whose address it is. A message whose address only a contact group
@@ -1128,8 +1129,16 @@ class MassMailService
     /**
      * A member's eligible addresses at freeze time (§2.2): the core's
      * resolution — which lazily creates the Desk override row the
-     * unsubscribe will flip — less the unsubscribed ones, one per distinct
-     * address.
+     * unsubscribe will flip — one per distinct address.
+     *
+     * **Not filtered through mass_mail_suppressed_addresses**, as before
+     * issue #999. A member's unsubscribe already sets their address
+     * « Inactif » for every member sharing it (Core\Member\
+     * MemberEmailService::unsubscribe()), which the core's resolution
+     * leaves out; and « Réactiver » on the member page puts it back. The
+     * suppression list has no way out, so reading it here made a member's
+     * unsubscribe permanent. It stays the rule for contacts and the free
+     * addresses of a mail merge, which have no page to reactivate from.
      *
      * @return \Core\Member\MemberEmail[]
      */
@@ -1139,22 +1148,8 @@ class MassMailService
         foreach ($this->memberEmailService->resolveValidAddressesForMassMail($memberId, $deskEmail) as $row) {
             $rows[self::addressKey($row->email)] ??= $row;
         }
-        if ($rows === []) {
-            return [];
-        }
 
-        $suppressed = array_flip(array_map(
-            static fn(string $a): string => self::addressKey($a),
-            $this->suppressedAddressRepository->filterSuppressed(array_map(
-                static fn(\Core\Member\MemberEmail $r): string => $r->email,
-                array_values($rows)
-            ))
-        ));
-
-        return array_values(array_filter(
-            $rows,
-            static fn(\Core\Member\MemberEmail $r): bool => !isset($suppressed[self::addressKey($r->email)])
-        ));
+        return array_values($rows);
     }
 
     /**

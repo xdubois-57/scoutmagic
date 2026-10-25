@@ -74,7 +74,7 @@ qui a échoué.
 
 ## La désinscription
 
-Chaque message porte un lien de désinscription. Une adresse désinscrite
-ne reçoit plus d'envoi groupé, pour tous les animés qui la partagent, et
-ne permet plus de se connecter. Pour revenir, la personne s'adresse à
+Chaque message porte un lien de désinscription. L'adresse ne reçoit
+plus d'envoi groupé, pour tous les animés qui la partagent. Pour
+revenir : « Réactiver » sur la page de l'animé ; un contact s'adresse à
 l'unité.

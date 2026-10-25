@@ -2886,10 +2886,15 @@ per-row missing values; the test send carries the previewed row's values.
 **Unsubscribes (`mass_mail_suppressed_addresses`)** — every one-click
 unsubscribe (a token per MESSAGE, `UnsubscribeController`) stores a
 SHA-256 hash of the lowercased address, whoever asked; a member's message
-also deactivates its `member_emails` row. Every freeze reads the table —
-since issue #999 for the members' addresses too (§2.2): an unsubscribed
-address is left out of a member's addresses and out of a file row's, and a
-contact's is written as a message in error, visible in tracking. The hash
+also deactivates its `member_emails` row, for every member sharing the
+address. The freeze reads the table for the addresses that have no member
+page — a contact's is written as a message in error, visible in tracking,
+and a file row's free address is left out — but **not for a member's own
+addresses**: those are governed by `member_emails`, which the unsubscribe
+already set « Inactif » and which « Réactiver » puts back. Reading the
+table there too, as the chantier of issue #999 first planned, made a
+member's unsubscribe permanent, since nothing ever removes a hash (review
+of #1030; #1032 tracks giving « Réactiver » a say over the table). The hash
 table is never purged: an unsubscribe must outlive any retention window.
 
 **One notification per account and per row (issue #999, §2.6).** The
