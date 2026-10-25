@@ -92,6 +92,9 @@ class AbandonedInstallSweeperTest extends TestCase
     public function testItLeavesAJustCreatedRowAloneEvenWithNoTaskYet(): void
     {
         $fresh = $this->history->create('1.0.0', 'dev-fresh', false, null);
+        // Started at the fixed « now »: left to the real clock, the row
+        // would be in that now's future and pass for the wrong reason.
+        $this->agePending($fresh, 0);
 
         $this->assertSame(0, AbandonedInstallSweeper::sweep($this->history, $this->scheduler, self::now()));
         $this->assertSame('pending', $this->history->findById($fresh)->status);
