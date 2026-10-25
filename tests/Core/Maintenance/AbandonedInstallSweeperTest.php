@@ -28,9 +28,20 @@ class AbandonedInstallSweeperTest extends TestCase
         $this->scheduler = new SchedulerRepository($this->pdo);
     }
 
+    /**
+     * A "now" far from any clock change. started_at is stored naive, and
+     * on the night the clocks go back an hour-old time inside the
+     * repeated hour reads as just written: against the real clock these
+     * cases failed every last Sunday of October.
+     */
+    private static function now(): \DateTimeImmutable
+    {
+        return new \DateTimeImmutable('2026-07-15 12:00:00');
+    }
+
     private function agePending(int $id, int $minutes): void
     {
-        $started = (new \DateTimeImmutable())->sub(new \DateInterval('PT' . $minutes . 'M'));
+        $started = self::now()->sub(new \DateInterval('PT' . $minutes . 'M'));
         $stmt = $this->pdo->prepare('UPDATE update_history SET started_at = ? WHERE id = ?');
         $stmt->execute([$started->format('Y-m-d H:i:s'), $id]);
     }
@@ -51,7 +62,7 @@ class AbandonedInstallSweeperTest extends TestCase
         $orphan = $this->history->create('1.0.0', 'dev-orphan', false, null);
         $this->agePending($orphan, 60);
 
-        $this->assertSame(1, AbandonedInstallSweeper::sweep($this->history, $this->scheduler));
+        $this->assertSame(1, AbandonedInstallSweeper::sweep($this->history, $this->scheduler, self::now()));
 
         $row = $this->history->findById($orphan);
         $this->assertSame('failed', $row->status);
@@ -69,7 +80,7 @@ class AbandonedInstallSweeperTest extends TestCase
         $this->queueInstallFor($waiting, 'scheduled_install');
         $this->agePending($waiting, 60 * 24 * 3);
 
-        $this->assertSame(0, AbandonedInstallSweeper::sweep($this->history, $this->scheduler));
+        $this->assertSame(0, AbandonedInstallSweeper::sweep($this->history, $this->scheduler, self::now()));
         $this->assertSame('pending', $this->history->findById($waiting)->status);
     }
 
@@ -82,7 +93,7 @@ class AbandonedInstallSweeperTest extends TestCase
     {
         $fresh = $this->history->create('1.0.0', 'dev-fresh', false, null);
 
-        $this->assertSame(0, AbandonedInstallSweeper::sweep($this->history, $this->scheduler));
+        $this->assertSame(0, AbandonedInstallSweeper::sweep($this->history, $this->scheduler, self::now()));
         $this->assertSame('pending', $this->history->findById($fresh)->status);
     }
 
@@ -96,7 +107,7 @@ class AbandonedInstallSweeperTest extends TestCase
         $this->agePending($claimed, 60);
         $this->pdo->exec("UPDATE scheduled_actions SET status = 'processing'");
 
-        $this->assertSame(0, AbandonedInstallSweeper::sweep($this->history, $this->scheduler));
+        $this->assertSame(0, AbandonedInstallSweeper::sweep($this->history, $this->scheduler, self::now()));
         $this->assertSame('pending', $this->history->findById($claimed)->status);
     }
 
@@ -111,7 +122,7 @@ class AbandonedInstallSweeperTest extends TestCase
         $this->agePending($superseded, 60);
         $this->pdo->exec("UPDATE scheduled_actions SET status = 'canceled'");
 
-        $this->assertSame(1, AbandonedInstallSweeper::sweep($this->history, $this->scheduler));
+        $this->assertSame(1, AbandonedInstallSweeper::sweep($this->history, $this->scheduler, self::now()));
         $this->assertSame('failed', $this->history->findById($superseded)->status);
     }
 
@@ -121,7 +132,7 @@ class AbandonedInstallSweeperTest extends TestCase
         $this->history->setStatus($running, 'migrating');
         $this->agePending($running, 60);
 
-        $this->assertSame(0, AbandonedInstallSweeper::sweep($this->history, $this->scheduler));
+        $this->assertSame(0, AbandonedInstallSweeper::sweep($this->history, $this->scheduler, self::now()));
         $this->assertSame('migrating', $this->history->findById($running)->status);
     }
 }
