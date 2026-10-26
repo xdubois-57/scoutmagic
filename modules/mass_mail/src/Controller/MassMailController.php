@@ -282,8 +282,8 @@ class MassMailController extends AbstractController
     }
 
     /**
-     * GET /mass-mail/{id}/recipient-count — how many people this would
-     * reach if sent right now.
+     * GET /mass-mail/{id}/recipient-count — how many messages this would
+     * write if sent right now, and for how many members (issue #999).
      *
      * Its own request rather than a field of show(): the list behind an
      * email is live, and the point of the number is that it is true at the

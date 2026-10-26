@@ -58,8 +58,8 @@ l'e-mail, après confirmation.
 ## Suivre l'envoi
 
 L'onglet « Destinataires » d'un e-mail dit à qui il partira : le
-fichier ligne par ligne pour un publipostage, le nombre de personnes que
-la liste désigne à cet instant pour toutes les autres.
+fichier ligne par ligne pour un publipostage, le nombre de messages et
+d'animés ciblés que la liste donne à cet instant pour toutes les autres.
 
 L'onglet « Suivi » montre une ligne par message : son adresse, les
 animés qu'il concerne, son état — envoyé, en attente, ou en erreur avec

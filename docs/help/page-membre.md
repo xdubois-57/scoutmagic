@@ -36,9 +36,12 @@ insignes sur l'uniforme ? » ouvre le guide des insignes de la fédération.
 
 ## Documents et communications
 
-- **Communications récentes** : les derniers e-mails groupés reçus au
-  sujet de cet animé ; touchez un objet pour relire l'e-mail tel qu'il
-  a été envoyé.
+- **Communications récentes** : les dix derniers e-mails groupés
+  destinés à cet animé, une ligne par e-mail même s'il est parti à
+  plusieurs de ses adresses ; touchez un objet pour le relire tel qu'il
+  a été envoyé. « Non envoyée » signale un e-mail qui n'a pu partir vers
+  aucune de ses adresses. Le détail nomme aussi les autres animés
+  concernés que vous pouvez déjà voir.
 - **Documents privés** : des documents qui ne concernent que cet animé.
   Personne d'autre que vous ne les voit — pas même un animateur.
 - **Documents de section** : plannings, papiers de camp et autres

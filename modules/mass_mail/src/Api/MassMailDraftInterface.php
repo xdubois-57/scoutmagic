@@ -53,22 +53,32 @@ interface MassMailDraftInterface
      * precise address and gets no `member_id`; a payment reminder for a
      * child is about that child and gets one.
      *
+     * So a row is ONE person: a payment reminder writes one row per
+     * child (one per receivable), each with that child's `member_id` and
+     * values, rather than one row per household listing its children —
+     * a family of three gets three messages per address, and each child
+     * the reminder on their own page. Nothing in a row has to repeat for
+     * a variable number of people, so a body never needs one block per
+     * child.
+     *
      * $bodyHtml is the draft's starting BODY, sanitized on the way in
      * like any other. It is optional because a caller that has nothing
-     * useful to say leaves the composer empty, and mandatory in practice
-     * for anything whose body is not the same for everybody: a payment
-     * reminder carries one block per receivable, and the number of blocks
-     * is what the caller knows and the composer cannot guess. Such a body
-     * uses sections ({{#Colonne}} … {{/Colonne}}, Service\MergeRenderer)
-     * so a household with one child does not receive the empty blocks the
-     * household with three needs.
+     * useful to say leaves the composer empty; a caller whose message has
+     * a fixed shape (a reminder's first name, amount, structured
+     * communication) writes it here with the row's own variables —
+     * `{{Prénom}}`, `{{Montant}}` — substituted per row by
+     * Service\MergeRenderer like a typed body.
      *
      * @param string $label      what this audience is, for the composer's own listing
      * @param string $subject    the draft's starting subject line
      * @param string[] $columns  column headers, in order
      * @param list<array{email?: string, member_id?: ?int, values: array<string, string>}> $rows
+     *        one row per person: `values` keyed by $columns, `member_id` for a row about a
+     *        member (its `email` is then ignored), `email` otherwise
      * @param string $actorRole  the acting account's role, as Core\Security\Role's string value
      * @param string $actorEmail the acting account's address, for resolving its own sections
+     * @param ?int $actorAccountId the acting account, recorded as the audience's importer and the
+     *        draft's author — null when no account acts
      * @param ?string $bodyHtml  the draft's starting body, or null for an empty composer
      * @return string the draft's edit URL
      *

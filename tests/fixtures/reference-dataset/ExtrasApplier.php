@@ -20,6 +20,8 @@ use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Member\DepartureRepository;
 use Core\Member\DepartureService;
+use Core\Member\MemberEmail;
+use Core\Member\MemberEmailRepository;
 use Core\Member\SectionService;
 use Core\Member\UnitStaffSectionService;
 use Core\Photo\AccountPhotoRepository;
@@ -73,8 +75,9 @@ use Core\Member\Repository\SectionRepository;
  * banners, the gallery album, the section staffs, the mailing lists — now
  * lives in its own `*Blueprint`/`*Seeder` pair, and this file calls them,
  * counts what they wrote and reports what it had to skip. What it still applies itself is the
- * member-level half: section addresses, year offsets, departures, photos and
- * the expected receivables, none of which belongs to a module.
+ * member-level half: section addresses, secondary e-mail addresses, year
+ * offsets, departures, photos and the expected receivables, none of which
+ * belongs to a module.
  */
 final class ExtrasApplier
 {
@@ -145,6 +148,7 @@ final class ExtrasApplier
 
         $counts = [
             'adresses de section' => $this->applySectionEmails(),
+            'adresses e-mail secondaires' => $this->applySecondaryEmails(),
             'décalages d\'année' => $this->applyScoutYearOffsets($yearIds),
             'départs marqués' => $this->applyDepartures($yearIds),
             'badges attribués' => $this->staffSeeder($yearIds)->assignBadges(),
@@ -354,6 +358,49 @@ final class ExtrasApplier
         if ($unitStaff !== null) {
             $service->updateSectionInfo($unitStaff['id'], $unitStaff['name'], UnitBlueprint::UNIT_STAFF_EMAIL);
             $applied++;
+        }
+
+        return $applied;
+    }
+
+    /**
+     * The confirmed secondary addresses ExtrasBlueprint::SECONDARY_EMAILS
+     * declares, written as the confirmation link leaves them: a `manual`
+     * row created pending, then MemberEmailRepository::markValid() — the
+     * call Core\Member\MemberEmailService::confirmEmail() makes.
+     *
+     * Not through MemberEmailService::addEmail(): it sends the
+     * confirmation e-mail and checks the domain in DNS, and the builder
+     * neither sends mail nor depends on the network. What it writes is the
+     * row a confirmed address has, so the mass-mail freeze, the member
+     * page and canAccess() read it exactly as they would a real one.
+     *
+     * An address already on the member is left as it is.
+     */
+    private function applySecondaryEmails(): int
+    {
+        $repository = new MemberEmailRepository($this->pdo, $this->encryption);
+        $applied = 0;
+
+        foreach (ExtrasBlueprint::SECONDARY_EMAILS as $tiers => $addresses) {
+            $memberId = $this->memberIds[$tiers] ?? null;
+            if ($memberId === null) {
+                continue;
+            }
+            foreach ($addresses as $address) {
+                if ($repository->findByMemberAndEmail($memberId, $address) !== null) {
+                    continue;
+                }
+                $repository->markValid($repository->create(
+                    $memberId,
+                    $address,
+                    MemberEmail::SOURCE_MANUAL,
+                    MemberEmail::STATUS_PENDING,
+                    null,
+                    null,
+                ));
+                $applied++;
+            }
         }
 
         return $applied;

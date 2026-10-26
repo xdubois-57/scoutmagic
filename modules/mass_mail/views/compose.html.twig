@@ -136,7 +136,7 @@
                     <p class="form-text small mb-0 mt-1">
                         Fichier Excel (.xlsx), première feuille uniquement, première ligne = en-têtes de colonnes.
                         Colonne « Tiers » (identifiant Desk : l'email part vers toutes les adresses connues du membre)
-                        et/ou colonne « Email » (adresse libre, plusieurs possibles séparées par « ; »).
+                        et/ou colonne « Email » (adresse libre, plusieurs possibles séparées par « ; » ou « , »).
                         Chaque colonne devient une variable utilisable dans le sujet et le message.
                         Les exports Excel du site (membres, réponses de formulaire) sont réutilisables tels quels.
                     </p>
@@ -307,6 +307,7 @@
                             <div>
                                 <span class="text-body-secondary">À :</span>
                                 <span id="mm-merge-preview-recipient"></span>
+                                <span class="d-block small text-body-secondary" id="mm-merge-preview-recipient-note"></span>
                             </div>
                             <div>
                                 <span class="text-body-secondary">Sujet :</span>

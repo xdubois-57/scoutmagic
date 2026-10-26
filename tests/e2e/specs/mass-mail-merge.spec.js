@@ -192,8 +192,11 @@ test('a mail merge refuses a bad file line by line, previews each row, and deliv
     await expect(previousRow).toBeDisabled();
 
     await expect(preview.locator('#mm-merge-preview-position')).toHaveText(/^Ligne \d+ du fichier · 1 \/ 2$/);
-    // Row 1 resolves the Tiers to the seeded member — every known address.
-    await expect(preview.locator('#mm-merge-preview-recipient')).toContainText('toutes ses adresses connues');
+    // Row 1 resolves the Tiers to the seeded member: its address in the
+    // « À : », and beneath it where the messages go — one per known
+    // address of the member, each separately (issue #999).
+    await expect(preview.locator('#mm-merge-preview-recipient')).toContainText('@');
+    await expect(preview.locator('#mm-merge-preview-recipient-note')).toContainText('(Tiers)');
     await expect(preview.locator('#mm-merge-preview-subject')).toContainText(`Camp Kaa — infos ${RUN_TAG}`);
     await expect(preview.locator('#mm-merge-preview-body')).toContainText('Cher Kaa, tu devras payer 145 € pour le camp.');
     // The header of a real message: who it is from, and who this copy

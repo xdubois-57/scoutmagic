@@ -16,6 +16,7 @@ use Core\Import\MemberYearRepository;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Mail\MailService;
+use Core\Member\MemberEmail;
 use Core\Member\MemberEmailRepository;
 use Core\Member\MemberEmailService;
 use Core\Member\MemberService;
@@ -479,21 +480,55 @@ class MassMailServiceTest extends TestCase
 
     // ── How many this would reach, asked before it is sent ──────────────
 
-    public function testTheRecipientCountAnswersWhoRatherThanHowManyAddresses(): void
+    public function testTheCountCountsMessagesAndNamesTheMembersApart(): void
     {
         // « Lancer l'envoi ? » on its own is a question about an unknown
         // quantity, and 42 versus 400 is the difference between one
-        // section and the whole unit.
+        // section and the whole unit. Two siblings on one family address
+        // are one message there and two members (issue #999).
         $this->createMemberWithEmail('un@test.be');
-        $this->createMemberWithEmail('deux@test.be');
-        $this->createMemberWithEmail('trois@test.be');
+        $this->createMemberWithEmail('famille@test.be');
+        $this->createMemberWithEmail('Famille@test.be');
 
         $email = $this->createDraft();
 
         $this->assertSame(
-            ['count' => 3, 'kind' => 'members'],
+            ['count' => 2, 'kind' => 'messages', 'members' => 3, 'rows' => null],
             $this->service->estimateRecipientCount($email->id)
         );
+    }
+
+    /**
+     * The estimate reads a member's Desk address the way the freeze does:
+     * an address merely on the suppression list is still sent to (a
+     * member's unsubscribe lives on member_emails, which « Réactiver »
+     * undoes), one the member page shows « Inactif » is not.
+     */
+    public function testTheEstimateReadsADeskAddressLikeTheSend(): void
+    {
+        $this->createMemberWithEmail('reactive@test.be');
+        $this->suppressedAddressRepository->suppress('reactive@test.be');
+        $email = $this->createDraft();
+        $this->assertSame(1, $this->service->estimateRecipientCount($email->id)['count'], 'Suppressed, still active');
+
+        $inactive = $this->createMemberWithEmail('inactif@test.be');
+        $memberEmails = new MemberEmailRepository($this->pdo, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)));
+        $memberEmails->markInactive($memberEmails->findOrCreateDeskOverride($inactive, 'inactif@test.be')->id);
+        $this->assertSame(1, $this->service->estimateRecipientCount($email->id)['count'], 'Inactif');
+
+        // A manual row the member added at their Desk address and never
+        // confirmed is the row the freeze takes for it, whatever its source.
+        $pending = $this->createMemberWithEmail('attente@test.be');
+        $memberEmails->create(
+            $pending, 'attente@test.be', MemberEmail::SOURCE_MANUAL, MemberEmail::STATUS_PENDING, null, null
+        );
+        $estimate = $this->service->estimateRecipientCount($email->id);
+        $this->assertSame(1, $estimate['count'], 'Pending manual row at the Desk address');
+        $this->assertSame(3, $estimate['members']);
+
+        $this->service->moveToTest($email->id, null);
+        $this->service->startSending($email->id, null);
+        $this->assertCount($estimate['count'], $this->deliveryRepository->findByEmailId($email->id));
     }
 
     public function testAMemberWithNoUsableAddressIsStillSomebodyTheListDesignates(): void
@@ -505,13 +540,15 @@ class MassMailServiceTest extends TestCase
         $this->createMemberWithEmail('valide@test.be');
         $this->createMemberWithEmail(null);
 
-        $this->assertSame(2, $this->service->estimateRecipientCount($this->createDraft()->id)['count']);
+        $estimate = $this->service->estimateRecipientCount($this->createDraft()->id);
+        $this->assertSame(2, $estimate['members']);
+        $this->assertSame(1, $estimate['count'], 'and one message: nothing can go to the other');
     }
 
     public function testAnEmptyListCountsZeroRatherThanFailing(): void
     {
         $this->assertSame(
-            ['count' => 0, 'kind' => 'members'],
+            ['count' => 0, 'kind' => 'messages', 'members' => 0, 'rows' => null],
             $this->service->estimateRecipientCount($this->createDraft()->id)
         );
     }

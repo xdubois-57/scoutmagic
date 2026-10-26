@@ -5,12 +5,27 @@
        (design.md §7.3) — no « Retour » button here. #}
     {% include 'partials/page_header.html.twig' with {
         title: email.subject,
-        subtitle: (email.not_sent|default(false) ? 'Non envoyée · ' ~ email.sent_at|french_date : 'Envoyé le ' ~ email.sent_at|french_date) ~ ' · ' ~ email.section_name,
+        subtitle: (email.not_sent ? 'Non envoyée · ' ~ email.sent_at|french_date : 'Envoyé le ' ~ email.sent_at|french_date) ~ ' · ' ~ email.section_name,
     } only %}
+    {# « Concerne aussi » (issue #999): the other members this same
+       communication was meant for, named only when the reader may already
+       open their page — the controller asked canAccess() for each. A member
+       with no page for that year is named without a link. #}
+    {% if also_concerns|default([]) is not empty %}
+        <p>
+            Cette communication concerne aussi
+            {% for other in also_concerns -%}
+                {%- if not loop.first %}{{ loop.last and also_concerns_more == 0 ? ' et ' : ', ' }}{% endif -%}
+                {%- if other.url %}<a href="{{ other.url }}">{{ other.name }}</a>{% else %}{{ other.name }}{% endif -%}
+            {%- endfor -%}
+            {%- if also_concerns_more > 0 %} et {{ also_concerns_more }} autre{{ also_concerns_more > 1 ? 's' : '' }} animé{{ also_concerns_more > 1 ? 's' : '' }}{% endif -%}
+            .
+        </p>
+    {% endif %}
     {# Nothing of it left for this member — every message in error, or no
        address it could go to. The content is still what was meant for
        them, so it is shown, under a sentence that says so. #}
-    {% if email.not_sent|default(false) %}
+    {% if email.not_sent %}
         <div class="alert alert-warning" role="alert">
             Cet e-mail n'a pas pu être envoyé aux adresses de cet animé. Son contenu est reproduit ci-dessous.
         </div>

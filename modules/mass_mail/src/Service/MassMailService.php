@@ -716,16 +716,18 @@ class MassMailService
     }
 
     /**
-     * The compose dialog's per-recipient preview (mail-merge test mode):
-     * the Nth audience row's rendered subject/body plus what the chief
-     * should double-check — unknown {{tokens}} and columns this row has
-     * no value for.
+     * The compose dialog's per-row preview (mail-merge test mode): the Nth
+     * audience row's rendered subject/body, the addresses it will go to —
+     * one separate message each (issue #999, screen 4 of the mock-up) — and
+     * what the chief should double-check: unknown {{tokens}} and columns
+     * this row has no value for.
      *
      * @return array{
      *     offset: int,
      *     total: int,
      *     row_index: int,
      *     recipient_label: string,
+     *     recipient_note: string,
      *     subject: string,
      *     body_html: string,
      *     unknown_tokens: string[],
@@ -762,12 +764,14 @@ class MassMailService
             ? random_int(0, max(0, $audience->rowCount - 1))
             : max(0, min($offset, $audience->rowCount - 1));
         $row = $this->requireMergeRow($email, $offset);
+        [$label, $note] = $this->describeMergeRowRecipients($row);
 
         return [
             'offset' => $offset,
             'total' => $audience->rowCount,
             'row_index' => $row->rowIndex,
-            'recipient_label' => $this->buildMergeRecipientLabel($row),
+            'recipient_label' => $label,
+            'recipient_note' => $note,
             'subject' => $this->mergeRenderer->renderText($email->subject, $row->data),
             'body_html' => $this->mergeRenderer->renderHtml($email->bodyHtml, $row->data),
             'unknown_tokens' => array_values(array_unique(array_merge(
@@ -796,15 +800,24 @@ class MassMailService
     }
 
     /**
-     * Who the previewed row goes to, without resolving (and lazily
-     * creating) member_email rows during a read-only preview: a member
-     * row shows the member's display name, an external row its own
-     * address(es).
+     * Who the previewed row goes to: the first address in the « À : », and
+     * a note naming the others — each a separate message — and where they
+     * come from. Read without resolving (and lazily creating) member_email
+     * rows during a read-only preview, see previewAddressesOfMember().
+     *
+     * « papa@… » / « et séparément à maman@… — 2 messages, adresses connues
+     * d'Alice Dupont (Tiers) »: no address is ever visible from another, and
+     * the preview says so by not putting them on one line.
+     *
+     * @return array{0: string, 1: string} [label, note]
      */
-    private function buildMergeRecipientLabel(AudienceRow $row): string
+    private function describeMergeRowRecipients(AudienceRow $row): array
     {
         if ($row->memberId === null) {
-            return $row->email ?? '';
+            $addresses = $this->previewFileRowAddresses($row);
+            $origin = count($addresses) > 1 ? 'adresses du fichier' : 'adresse du fichier';
+
+            return $this->recipientsLabel($addresses, $origin . ' — rattachée à aucune fiche');
         }
 
         $resolved = $this->memberResolutionRepository->resolveMergeMembers([$row->memberId]);
@@ -812,33 +825,57 @@ class MassMailService
         $profile = $profileYear !== null
             ? $this->memberService->findProfileByMemberAndYear($row->memberId, $profileYear)
             : null;
+        $addresses = $this->previewAddressesOfMember($row->memberId, $resolved[$row->memberId]['email'] ?? null);
+        $who = $profile !== null ? $profile->getDisplayName() : 'l\'animé';
+        $origin = count($addresses) > 1 ? 'adresses connues de ' : 'adresse connue de ';
 
-        return $profile !== null
-            ? $profile->getDisplayName() . ' (toutes ses adresses connues)'
-            : 'Membre (toutes ses adresses connues)';
+        return $this->recipientsLabel($addresses, $origin . $who . ' (Tiers)');
     }
 
     /**
-     * How many people this email would reach if it were sent right now.
+     * @param string[] $addresses
+     * @return array{0: string, 1: string}
+     */
+    private function recipientsLabel(array $addresses, string $origin): array
+    {
+        if ($addresses === []) {
+            return ['Aucune adresse valide', 'Aucun message ne partira pour cette ligne.'];
+        }
+
+        $first = array_shift($addresses);
+        $count = count($addresses) + 1;
+        $note = $count === 1 ? '1 message, ' . $origin : $count . ' messages, ' . $origin;
+        if ($addresses !== []) {
+            $note = 'et séparément à ' . implode(', ', $addresses) . ' — ' . $note;
+        }
+
+        return [$first, $note];
+    }
+
+    /**
+     * How many messages this email would write if it were sent right now,
+     * and for how many members — asked just before the confirmation
+     * dialog, because « Lancer l'envoi ? » on its own is a question about
+     * an unknown quantity, and a wrong list looks exactly like a right one
+     * until the mail is out.
      *
-     * Asked just before the confirmation dialog, because « Lancer
-     * l'envoi ? » on its own is a question about an unknown quantity. The
-     * difference between forty-two and four hundred is the difference
-     * between a section and the whole unit, and a wrong list selection
-     * looks exactly like a right one until the mail is out — at which
-     * point nothing can be recalled.
+     * **Counts messages and names targets** (issue #999, §2.4). A message is
+     * one address: three siblings on one family address are one message
+     * there and three members; a member with three addresses is three
+     * messages and one member. Both numbers are given because they answer
+     * different questions — « how much mail leaves » and « who is this
+     * for » — and one figure for both was wrong in one direction or the
+     * other on every family.
      *
-     * Counts people, not addresses. A member with three valid addresses
-     * receives one email at each, so the frozen row count is larger; but
-     * the question a manager is answering is "who is this going to?", and
-     * inflating the number with the mechanics of secondary addresses would
-     * make it harder to recognise a wrong list, not easier.
+     * Read the way the freeze reads it, with two deliberate differences
+     * that make it an estimate: nothing is created (the Desk address is
+     * read without its override row being made, see
+     * previewAddressesOfMember()), and the list is re-resolved now — it is
+     * live, and somebody else may edit it before the send.
      *
-     * Deliberately re-resolved rather than cached with the email: the list
-     * behind it is live, and a count from when the dialog's page was
-     * opened is a count from before somebody else edited that list.
-     *
-     * @return array{count: int, kind: string} kind: 'members' | 'rows'
+     * @return array{count: int, kind: string, members: int, rows: ?int}
+     *         count: messages; kind: 'messages'; members: targets;
+     *         rows: the file's rows for a mail merge, null otherwise
      * @throws MassMailException when the email doesn't exist
      * @throws MailingListException when the list behind it can no longer be
      *         resolved — an unknown custom list id, or the external list
@@ -852,28 +889,106 @@ class MassMailService
         $email = $this->requireEmail($id);
 
         if ($email->listType === Email::LIST_TYPE_MAIL_MERGE) {
-            return [
-                'count' => $email->audienceId !== null
-                    ? count($this->audienceRepository->findRowsByAudience($email->audienceId))
-                    : 0,
-                'kind' => 'rows',
-            ];
+            $rows = $email->audienceId !== null
+                ? $this->audienceRepository->findRowsByAudience($email->audienceId)
+                : [];
+            $mergeMembers = $this->memberResolutionRepository->resolveMergeMembers(
+                array_values(array_filter(array_map(fn(AudienceRow $r) => $r->memberId, $rows)))
+            );
+
+            $messages = 0;
+            $members = 0;
+            foreach ($rows as $row) {
+                if ($row->memberId !== null) {
+                    $members++;
+                    $messages += count($this->previewAddressesOfMember(
+                        $row->memberId,
+                        $mergeMembers[$row->memberId]['email'] ?? null
+                    ));
+                    continue;
+                }
+                $messages += count($this->previewFileRowAddresses($row));
+            }
+
+            return ['count' => $messages, 'kind' => 'messages', 'members' => $members, 'rows' => count($rows)];
         }
 
-        return [
-            'count' => count($this->mailingListService->resolveMembersForYears(
-                $email->listType,
-                $email->listId,
-                $email->listSectionId,
-                $this->orderYearsMostRecentFirst($email->scoutYearIds)
-            )),
-            'kind' => 'members',
-        ];
+        $addresses = [];
+        $members = 0;
+        foreach ($this->mailingListService->resolveMembersForYears(
+            $email->listType,
+            $email->listId,
+            $email->listSectionId,
+            $this->orderYearsMostRecentFirst($email->scoutYearIds)
+        ) as $designated) {
+            if ($designated['member_id'] === null) {
+                $address = (string) $designated['email'];
+                if ($this->contactRefusal($address) === null) {
+                    $addresses[self::addressKey($address)] = true;
+                }
+                continue;
+            }
+
+            $members++;
+            foreach ($this->previewAddressesOfMember($designated['member_id'], $designated['email']) as $address) {
+                $addresses[self::addressKey($address)] = true;
+            }
+        }
+
+        return ['count' => count($addresses), 'kind' => 'messages', 'members' => $members, 'rows' => null];
     }
 
     /**
-     * The addresses of a file row without a Tiers that a send writes to:
-     * its Email cell split on `;` and `,`, deduplicated within the row,
+     * A member's eligible addresses read WITHOUT creating anything — for
+     * the estimate and the preview. The freeze goes through
+     * MemberEmailService::resolveValidAddressesForMassMail() with the Desk
+     * address, which lazily creates its override row; reading must not, so
+     * the Desk address is read through listForMember() — its override row
+     * when there is one, so an unsubscribed Desk address stays out — and
+     * kept if well formed, valid and not suspended after bounces, beside
+     * the valid personal ones; deduplicated, compared lowercased. Not
+     * filtered through the suppression list, exactly as the freeze
+     * (eligibleAddressesOfMember()).
+     *
+     * @return string[]
+     */
+    private function previewAddressesOfMember(int $memberId, ?string $deskEmail): array
+    {
+        $addresses = [];
+        if ($deskEmail !== null && filter_var($deskEmail, FILTER_VALIDATE_EMAIL) !== false
+            && $this->bounces?->isBlocked($deskEmail) !== true
+            && $this->deskRowIsValid($memberId, $deskEmail)
+        ) {
+            $addresses[self::addressKey($deskEmail)] = $deskEmail;
+        }
+        foreach ($this->memberEmailService->resolveValidAddressesForMassMail($memberId, null) as $memberEmail) {
+            $addresses[self::addressKey($memberEmail->email)] ??= $memberEmail->email;
+        }
+
+        return array_values($addresses);
+    }
+
+    /**
+     * Whether the member's Desk address is still in service — false once
+     * unsubscribed (« Inactif »), read without creating its override row.
+     * Whatever the source of the row at that address: the freeze's
+     * MemberEmailRepository::findOrCreateDeskOverride() takes an existing
+     * manual row there as the override, pending or inactive included.
+     */
+    private function deskRowIsValid(int $memberId, string $deskEmail): bool
+    {
+        foreach ($this->memberEmailService->listForMember($memberId, $deskEmail) as $row) {
+            if (self::addressKey($row->email) === self::addressKey($deskEmail)) {
+                return $row->isValid();
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * The addresses of a file row without a Tiers that a send would write
+     * to: its Email cell split on `;` and `,`, deduplicated within the row,
      * less the malformed, unsubscribed and suspended ones.
      *
      * @return string[]

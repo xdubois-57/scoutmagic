@@ -34,15 +34,16 @@
     {% if email.status in ['sending', 'sent'] %}
         {#
           Once the send has started the list is frozen: what matters is no
-          longer who it WOULD reach but who it did, address by address —
+          longer who it WOULD reach but who it did, message by message —
           and that is the Suivi tab, which this page must not duplicate.
         #}
         <output class="alert alert-info d-flex gap-2">
             <i class="bi bi-lock flex-shrink-0" aria-hidden="true"></i>
             <span>
                 La liste des destinataires a été figée au lancement de l'envoi :
-                {{ frozen_counts.total }} destinataire{{ frozen_counts.total > 1 ? 's' : '' }}.
-                Le détail, adresse par adresse, est dans l'onglet « Suivi ».
+                {{ frozen_counts.total }} message{{ frozen_counts.total > 1 ? 's' : '' }}, un par adresse{% if frozen_target_count > 0 %},
+                pour {{ frozen_target_count }} animé{{ frozen_target_count > 1 ? 's' : '' }} ciblé{{ frozen_target_count > 1 ? 's' : '' }}{% endif %}.
+                Le détail, message par message, est dans l'onglet « Suivi ».
             </span>
         </output>
     {% elseif email.listType == 'mail_merge' %}
@@ -50,7 +51,8 @@
             <p class="mb-3">
                 <strong>{{ audience.sourceFilename }}</strong> —
                 {{ audience.rowCount }} ligne{{ audience.rowCount > 1 ? 's' : '' }},
-                feuille « {{ audience.sheetName }} ». Un email par ligne.
+                feuille « {{ audience.sheetName }} ». Chaque ligne est une communication : un message
+                distinct part à chacune de ses adresses.
             </p>
             <div class="table-responsive d-none d-md-block">
                 <table class="table table-sm align-middle">
@@ -106,16 +108,18 @@
         {% endif %}
     {% elseif estimate %}
         <p class="fs-5 mb-1">
-            {% if estimate.count == 0 %}
+            {% if estimate.count == 0 and estimate.members == 0 %}
                 Cette liste ne désigne actuellement personne.
             {% else %}
-                {{ estimate.count }} personne{{ estimate.count > 1 ? 's' : '' }}.
+                {{ estimate.count }} message{{ estimate.count > 1 ? 's' : '' }}
+                · {{ estimate.members }} animé{{ estimate.members > 1 ? 's' : '' }} ciblé{{ estimate.members > 1 ? 's' : '' }}.
             {% endif %}
         </p>
         <p class="text-body-secondary small">
-            Compté à l'instant : la liste est vivante, et ce nombre peut changer d'ici l'envoi.
-            Une personne ayant plusieurs adresses connues reçoit un exemplaire à chacune —
-            elle compte pour une ici.
+            Compté à l'instant : la liste est vivante, et ces nombres peuvent changer d'ici l'envoi.
+            Un message part à chaque adresse distincte : une adresse partagée par plusieurs animés n'en
+            reçoit qu'un, un animé ayant plusieurs adresses en reçoit un à chacune. Un animé sans adresse
+            valide est ciblé quand même : l'e-mail apparaîtra « Non envoyée » sur sa fiche.
         </p>
     {% endif %}
 {% endblock %}
