@@ -6,8 +6,9 @@ namespace Tests\Modules\MassMail\Service;
 
 use Core\Security\EncryptionService;
 use Modules\MassMail\Repository\AudienceRepository;
-use Modules\MassMail\Repository\Recipient;
-use Modules\MassMail\Repository\RecipientRepository;
+use Modules\MassMail\Repository\Delivery;
+use Modules\MassMail\Repository\DeliveryRepository;
+use Modules\MassMail\Repository\TargetRepository;
 use Modules\MassMail\Service\MassMailQueryService;
 use Modules\MassMail\Service\MergeRenderer;
 use PHPUnit\Framework\TestCase;
@@ -32,9 +33,9 @@ class MassMailQueryServiceTest extends TestCase
         $pdo = DatabaseTestHelper::createTestDatabase();
         MassMailTestHelper::createTables($pdo);
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
-        $recipientRepository = new RecipientRepository($pdo, $encryption);
+        $recipientRepository = new DeliveryRepository($pdo, $encryption);
         $queryService = new MassMailQueryService(
-            $recipientRepository,
+            new TargetRepository($pdo),
             new AudienceRepository($pdo, $encryption),
             new MergeRenderer()
         );
@@ -53,7 +54,7 @@ class MassMailQueryServiceTest extends TestCase
         $pdo->exec("INSERT INTO members (desk_id) VALUES ('DESK_1')");
         $memberId = (int) $pdo->lastInsertId();
 
-        $recipientRepository->create($emailId, $memberId, $scoutYearId, 'a@test.be', Recipient::STATUS_SENT, null);
+        self::sentTo($pdo, $recipientRepository, $emailId, $memberId, $scoutYearId, ['a@test.be']);
 
         $result = $queryService->getRecentEmailsForMember($memberId, 10);
 
@@ -155,9 +156,9 @@ class MassMailQueryServiceTest extends TestCase
         $pdo = DatabaseTestHelper::createTestDatabase();
         MassMailTestHelper::createTables($pdo);
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
-        $recipientRepository = new RecipientRepository($pdo, $encryption);
+        $recipientRepository = new DeliveryRepository($pdo, $encryption);
         $service = new MassMailQueryService(
-            $recipientRepository,
+            new TargetRepository($pdo),
             new AudienceRepository($pdo, $encryption),
             new MergeRenderer()
         );
@@ -170,14 +171,7 @@ class MassMailQueryServiceTest extends TestCase
         $emailId = (int) $pdo->lastInsertId();
         $pdo->exec("INSERT INTO members (desk_id) VALUES ('DESK_ORD')");
         $memberId = (int) $pdo->lastInsertId();
-        $recipientId = $recipientRepository->create(
-            $emailId,
-            $memberId,
-            $scoutYearId,
-            'a@test.be',
-            Recipient::STATUS_SENT,
-            null
-        );
+        $recipientId = self::sentTo($pdo, $recipientRepository, $emailId, $memberId, $scoutYearId, ['a@test.be']);
 
         $detail = $service->findEmailDetailForMember($memberId, $recipientId);
         $this->assertNotNull($detail);
@@ -197,9 +191,9 @@ class MassMailQueryServiceTest extends TestCase
         $pdo = DatabaseTestHelper::createTestDatabase();
         MassMailTestHelper::createTables($pdo);
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
-        $recipientRepository = new RecipientRepository($pdo, $encryption);
+        $recipientRepository = new DeliveryRepository($pdo, $encryption);
         $audienceRepository = new AudienceRepository($pdo, $encryption);
-        $service = new MassMailQueryService($recipientRepository, $audienceRepository, new MergeRenderer());
+        $service = new MassMailQueryService(new TargetRepository($pdo), $audienceRepository, new MergeRenderer());
 
         [$sectionId, $scoutYearId] = $this->seedSectionAndYear($pdo);
 
@@ -221,10 +215,8 @@ class MassMailQueryServiceTest extends TestCase
         );
         $emailId = (int) $pdo->lastInsertId();
 
-        $recipientRepository->create($emailId, $memberId, $scoutYearId, 'kaa@test.be', Recipient::STATUS_SENT,
-            null, null, $kaaRow);
-        $recipientRepository->create($emailId, $otherMemberId, $scoutYearId, 'emma@test.be', Recipient::STATUS_SENT,
-            null, null, $emmaRow);
+        self::sentTo($pdo, $recipientRepository, $emailId, $memberId, $scoutYearId, ['kaa@test.be'], $kaaRow);
+        self::sentTo($pdo, $recipientRepository, $emailId, $otherMemberId, $scoutYearId, ['emma@test.be'], $emmaRow);
 
         return [
             'pdo' => $pdo,
@@ -232,6 +224,229 @@ class MassMailQueryServiceTest extends TestCase
             'member_id' => $memberId,
             'other_member_id' => $otherMemberId,
         ];
+    }
+
+    /**
+     * One target of $memberId in $emailId and one message per address, each
+     * with its status, linked to it — what the freeze and the batch leave.
+     *
+     * @param string[] $addresses
+     * @param string[] $statuses one per address, 'sent' by default
+     * @return int the target id
+     */
+    private static function sentTo(
+        \PDO $pdo,
+        DeliveryRepository $deliveries,
+        int $emailId,
+        int $memberId,
+        ?int $scoutYearId,
+        array $addresses,
+        ?int $audienceRowId = null,
+        array $statuses = []
+    ): int {
+        $targetId = (new TargetRepository($pdo))->create($emailId, $memberId, $scoutYearId, $audienceRowId);
+        foreach ($addresses as $index => $address) {
+            $status = $statuses[$index] ?? Delivery::STATUS_SENT;
+            $deliveryId = $deliveries->create($emailId, $address, Delivery::STATUS_PENDING, null, null, $audienceRowId);
+            if ($status === Delivery::STATUS_SENT) {
+                $deliveries->recordSendSuccess($deliveryId);
+            } elseif ($status === Delivery::STATUS_ERROR) {
+                $deliveries->recordSendFailure($deliveryId, 'Boîte pleine');
+            }
+            $deliveries->linkTargets($deliveryId, [$targetId]);
+        }
+
+        return $targetId;
+    }
+
+    /**
+     * @return array{pdo: \PDO, service: MassMailQueryService, deliveries: DeliveryRepository,
+     *               section_id: int, year_id: int}
+     */
+    private function historyFixture(): array
+    {
+        $pdo = DatabaseTestHelper::createTestDatabase();
+        MassMailTestHelper::createTables($pdo);
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        [$sectionId, $scoutYearId] = $this->seedSectionAndYear($pdo);
+
+        return [
+            'pdo' => $pdo,
+            'service' => new MassMailQueryService(
+                new TargetRepository($pdo),
+                new AudienceRepository($pdo, $encryption),
+                new MergeRenderer()
+            ),
+            'deliveries' => new DeliveryRepository($pdo, $encryption),
+            'section_id' => $sectionId,
+            'year_id' => $scoutYearId,
+        ];
+    }
+
+    private static function email(\PDO $pdo, int $sectionId, string $subject, string $status = 'sent', string $listType = 'default_active_members'): int
+    {
+        $pdo->prepare(
+            'INSERT INTO mass_mail_emails (subject, body_html, section_id, list_type, status) VALUES (?, ?, ?, ?, ?)'
+        )->execute([$subject, '<p>x</p>', $sectionId, $listType, $status]);
+
+        return (int) $pdo->lastInsertId();
+    }
+
+    private static function member(\PDO $pdo, string $deskId): int
+    {
+        $pdo->prepare('INSERT INTO members (desk_id) VALUES (?)')->execute([$deskId]);
+
+        return (int) $pdo->lastInsertId();
+    }
+
+    /** Issue #999, §5: « 1 animé, 3 adresses » — three messages, ONE entry. */
+    public function testThreeAddressesOfOneMemberAreOneEntry(): void
+    {
+        $f = $this->historyFixture();
+        $alice = self::member($f['pdo'], 'ALICE');
+        $email = self::email($f['pdo'], $f['section_id'], 'Week-end');
+        self::sentTo($f['pdo'], $f['deliveries'], $email, $alice, $f['year_id'], ['a@x.be', 'b@x.be', 'c@x.be']);
+
+        $entries = $f['service']->getRecentEmailsForMember($alice, 10);
+
+        $this->assertCount(1, $entries);
+        $this->assertFalse($entries[0]['not_sent']);
+    }
+
+    /**
+     * §5: « 3 animés ciblés, même adresse familiale » — one message, an
+     * entry on each of the three pages; and « Alice ciblée, Bob non ciblé,
+     * adresse partagée » — nothing on Bob's.
+     */
+    public function testOneFamilyMessageIsAnEntryOnEveryTargetedPageAndOnNoOther(): void
+    {
+        $f = $this->historyFixture();
+        $email = self::email($f['pdo'], $f['section_id'], 'Réunion');
+        $targets = new TargetRepository($f['pdo']);
+        $children = [self::member($f['pdo'], 'C1'), self::member($f['pdo'], 'C2'), self::member($f['pdo'], 'C3')];
+        $notTargeted = self::member($f['pdo'], 'BOB');
+        $family = $f['deliveries']->create($email, 'famille@x.be');
+        $f['deliveries']->recordSendSuccess($family);
+        $f['deliveries']->linkTargets($family, array_map(
+            fn(int $child): int => $targets->create($email, $child, $f['year_id']),
+            $children
+        ));
+
+        foreach ($children as $child) {
+            $this->assertCount(1, $f['service']->getRecentEmailsForMember($child, 10));
+        }
+        $this->assertSame([], $f['service']->getRecentEmailsForMember($notTargeted, 10));
+    }
+
+    /**
+     * §5: « animé ciblé sans aucune adresse autorisée » and « toutes en
+     * erreur » — an entry « Non envoyée », with its content; and while a
+     * message is still pending and none left, no entry yet.
+     */
+    public function testAnEntryIsNotSentWhenNothingLeftAndHiddenWhileStillGoing(): void
+    {
+        $f = $this->historyFixture();
+        $member = self::member($f['pdo'], 'M');
+        $noAddress = self::email($f['pdo'], $f['section_id'], 'Sans adresse');
+        $allFailed = self::email($f['pdo'], $f['section_id'], 'En erreur');
+        $going = self::email($f['pdo'], $f['section_id'], 'En cours', 'sending');
+        $partly = self::email($f['pdo'], $f['section_id'], 'En partie', 'sending');
+        self::sentTo($f['pdo'], $f['deliveries'], $noAddress, $member, $f['year_id'], []);
+        self::sentTo($f['pdo'], $f['deliveries'], $allFailed, $member, $f['year_id'], ['a@x.be', 'b@x.be'], null, ['error', 'error']);
+        self::sentTo($f['pdo'], $f['deliveries'], $going, $member, $f['year_id'], ['a@x.be', 'b@x.be'], null, ['error', 'pending']);
+        self::sentTo($f['pdo'], $f['deliveries'], $partly, $member, $f['year_id'], ['a@x.be', 'b@x.be'], null, ['sent', 'pending']);
+
+        $entries = $f['service']->getRecentEmailsForMember($member, 10);
+        $bySubject = array_column($entries, 'not_sent', 'subject');
+
+        ksort($bySubject);
+        $this->assertSame(['En erreur' => true, 'En partie' => false, 'Sans adresse' => true], $bySubject);
+        $this->assertArrayNotHasKey('En cours', $bySubject, 'still going out and nothing left: not shown yet');
+        $this->assertCount(3, $entries);
+
+        $notSent = array_values(array_filter($entries, fn(array $e) => $e['subject'] === 'En erreur'))[0];
+        $detail = $f['service']->findEmailDetailForMember($member, $notSent['id']);
+        $this->assertNotNull($detail);
+        $this->assertTrue($detail['not_sent']);
+        $this->assertSame('<p>x</p>', $detail['body_html']);
+    }
+
+    /** §5: « 2 campagnes séparées, mêmes destinataires et objet » — 2 entries. */
+    public function testTwoCampaignsWithTheSameSubjectAreTwoEntries(): void
+    {
+        $f = $this->historyFixture();
+        $member = self::member($f['pdo'], 'M');
+        foreach ([1, 2] as $unused) {
+            $email = self::email($f['pdo'], $f['section_id'], 'Même objet');
+            self::sentTo($f['pdo'], $f['deliveries'], $email, $member, $f['year_id'], ['a@x.be']);
+        }
+
+        $this->assertCount(2, $f['service']->getRecentEmailsForMember($member, 10));
+    }
+
+    /** « Communications récentes » shows ten ENTRIES — copies never take two places. */
+    public function testTheLimitCountsEntriesNotMessages(): void
+    {
+        $f = $this->historyFixture();
+        $member = self::member($f['pdo'], 'M');
+        for ($i = 1; $i <= 12; $i++) {
+            $email = self::email($f['pdo'], $f['section_id'], 'Envoi ' . $i);
+            self::sentTo($f['pdo'], $f['deliveries'], $email, $member, $f['year_id'], ['a@x.be', 'b@x.be', 'c@x.be']);
+        }
+
+        $entries = $f['service']->getRecentEmailsForMember($member, 10);
+
+        $this->assertCount(10, $entries);
+        $this->assertCount(10, array_unique(array_column($entries, 'subject')));
+    }
+
+    /**
+     * §5: « 2 lignes pour le même Tiers » — two entries; and « concerne
+     * aussi » is a classic list's: a line has one target, no candidates.
+     */
+    public function testTwoLinesForOneTiersAreTwoEntriesWithNobodyElseConcerned(): void
+    {
+        $f = $this->historyFixture();
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $audiences = new AudienceRepository($f['pdo'], $encryption);
+        $member = self::member($f['pdo'], 'T');
+        $audienceId = $audiences->createAudience('f.xlsx', 'F', ['Prenom'], 2, null);
+        $email = self::email($f['pdo'], $f['section_id'], 'Cotisation {{Prenom}}', 'sent', 'mail_merge');
+        $f['pdo']->exec("UPDATE mass_mail_emails SET audience_id = {$audienceId} WHERE id = {$email}");
+        foreach (['Kaa', 'Baloo'] as $index => $name) {
+            $row = $audiences->createRow($audienceId, $index + 2, $member, null, ['Prenom' => $name]);
+            self::sentTo($f['pdo'], $f['deliveries'], $email, $member, $f['year_id'], ['p@x.be', 'm@x.be'], $row);
+        }
+
+        $entries = $f['service']->getRecentEmailsForMember($member, 10);
+
+        $this->assertEqualsCanonicalizing(['Cotisation Kaa', 'Cotisation Baloo'], array_column($entries, 'subject'));
+        $detail = $f['service']->findEmailDetailForMember($member, $entries[0]['id']);
+        $this->assertSame([], $detail['other_targets'] ?? null);
+    }
+
+    /**
+     * « Concerne aussi »: the other targets of a classic list, every one of
+     * them with its year — the caller filters by canAccess(), never this.
+     */
+    public function testTheDetailListsTheOtherTargetsOfTheSameCommunication(): void
+    {
+        $f = $this->historyFixture();
+        $email = self::email($f['pdo'], $f['section_id'], 'Week-end');
+        $alice = self::member($f['pdo'], 'A');
+        $bob = self::member($f['pdo'], 'B');
+        $aliceTarget = self::sentTo($f['pdo'], $f['deliveries'], $email, $alice, $f['year_id'], ['a@x.be']);
+        $bobTarget = self::sentTo($f['pdo'], $f['deliveries'], $email, $bob, null, ['b@x.be'], null, ['error']);
+        // Still going out: not shown yet, here as on their own page.
+        self::sentTo($f['pdo'], $f['deliveries'], $email, self::member($f['pdo'], 'C'), $f['year_id'], ['c@x.be'], null, ['pending']);
+
+        $detail = $f['service']->findEmailDetailForMember($alice, $aliceTarget);
+
+        $this->assertSame(
+            [['target_id' => $bobTarget, 'member_id' => $bob, 'scout_year_id' => null]],
+            $detail['other_targets'] ?? null
+        );
+        $this->assertNull($f['service']->findEmailDetailForMember($bob, $aliceTarget), 'not Bob\'s entry');
     }
 
     /**

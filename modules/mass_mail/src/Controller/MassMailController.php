@@ -277,6 +277,7 @@ class MassMailController extends AbstractController
             'list_label' => $this->describeList($email),
             'scout_year_labels' => $this->scoutYearLabels($email),
             'frozen_counts' => $this->massMailService->getStatusCounts($email->id),
+            'frozen_target_count' => $this->massMailService->getTargetCount($email->id),
         ]);
     }
 
@@ -696,8 +697,10 @@ class MassMailController extends AbstractController
     }
 
     /**
-     * GET /mass-mail/{id}/tracking — detailed per-recipient tracking page,
-     * the « Suivi » tab of the email's own nav rail (§8.71bis).
+     * GET /mass-mail/{id}/tracking — the per-message tracking page, the
+     * « Suivi » tab of the email's own nav rail (§8.71bis): one line per
+     * message (one address), the members it concerns, and a line for each
+     * member — or file row — left without any message (issue #999).
      *
      * Not in any menu (module.json label: ""): it belongs to one email,
      * and it used to hang off nothing at all — reachable only from a
@@ -720,7 +723,10 @@ class MassMailController extends AbstractController
         return $this->render('@mass_mail/tracking.html.twig', [
             'email' => $data['email'],
             'counts' => $data['counts'],
-            'recipients' => $data['recipients'],
+            'target_count' => $data['target_count'],
+            'targets_without_message' => $data['targets_without_message'],
+            'messages' => $data['messages'],
+            'unsent' => $data['unsent'],
             // The email itself is a page now, so it is a real ancestor —
             // dynamic, hence a controller trail rather than the route's
             // static `breadcrumb.ancestors` (which cannot carry an id).
@@ -731,7 +737,9 @@ class MassMailController extends AbstractController
     }
 
     /**
-     * POST /mass-mail/recipients/{id}/resend
+     * POST /mass-mail/deliveries/{id}/resend — « Renvoyer » one message, to
+     * its one address. Nobody is notified again (Task\SendBatchHandler,
+     * mass_mail_notified_accounts).
      *
      * @param array<string, string> $params
      */
@@ -745,13 +753,13 @@ class MassMailController extends AbstractController
             return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
         }
 
-        $owningEmailId = $this->massMailService->findEmailIdForRecipient((int) $params['id']);
+        $owningEmailId = $this->massMailService->findEmailIdForDelivery((int) $params['id']);
         if ($owningEmailId === null || $this->findVisibleEmail($owningEmailId) === null) {
-            return $this->json(['success' => false, 'error' => 'Destinataire introuvable.'], 404);
+            return $this->json(['success' => false, 'error' => 'Message introuvable.'], 404);
         }
 
         try {
-            $this->massMailService->resendToRecipient((int) $params['id'], AuthSession::getUserAccountId());
+            $this->massMailService->resendDelivery((int) $params['id'], AuthSession::getUserAccountId());
         } catch (MassMailException $e) {
             return $this->json(['success' => false, 'error' => $e->getMessage()], 422);
         }

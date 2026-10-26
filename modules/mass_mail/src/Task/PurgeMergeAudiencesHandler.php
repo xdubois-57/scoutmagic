@@ -25,13 +25,15 @@ use Modules\MassMail\Repository\AudienceRepository;
  *   ORPHAN_RETENTION_DAYS;
  * - an audience still referenced by any draft/test/sending email is
  *   never touched, however old.
- * Deleting an audience nulls mass_mail_emails.audience_id and
- * mass_mail_recipients.audience_row_id — the sent email and its tracking
- * history survive, only the merge values are gone. The external-address
+ * Deleting an audience nulls mass_mail_emails.audience_id and the
+ * audience_row_id of its messages (mass_mail_deliveries) and targets
+ * (mass_mail_targets) — the sent email, its tracking and the members'
+ * history survive, only the merge values are gone — and deletes the rows of
+ * mass_mail_notified_accounts for its file rows. The external-address
  * suppression list is deliberately NOT purged here: an unsubscribe must
  * outlive any retention window.
  *
- * The « Nouvel email » notification of each recipient frozen from a purged
+ * The « Nouvel email » notification of each target frozen from a purged
  * audience goes with it, in the same pass and for the same reason — see the
  * call below. That purge is what lets one of them carry a substituted
  * subject at all (issue #292). A notification of an ordinary, non-merge send
@@ -70,8 +72,8 @@ class PurgeMergeAudiencesHandler implements TaskHandlerInterface
             $repository->findOrphanAudienceIds($now->modify('-' . self::ORPHAN_RETENTION_DAYS . ' days'))
         )));
 
-        // Read BEFORE the deletion loop: `mass_mail_recipients.audience_row_id`
-        // is what ties a notification's recipient to the audience it was
+        // Read BEFORE the deletion loop: `mass_mail_targets.audience_row_id`
+        // is what ties a notification's target to the audience it was
         // frozen from, and deleteById() sets it to NULL. Afterwards there
         // is no way left to find these rows.
         //
@@ -86,13 +88,13 @@ class PurgeMergeAudiencesHandler implements TaskHandlerInterface
         $notificationsPurged = 0;
         $pdo->beginTransaction();
         try {
-            $notificationLinks = $repository->findRecipientEmailLinksForAudiences($ids);
+            $notificationLinks = $repository->findTargetEmailLinksForAudiences($ids);
 
             foreach ($ids as $id) {
                 $repository->deleteById($id);
             }
 
-            // The « Nouvel email » notifications of these same recipients
+            // The « Nouvel email » notifications of these same targets
             // go with them, and that is what lets one of them carry a
             // substituted subject at all (issue #292).
             // `notifications.body` is written once at dispatch and never
@@ -102,7 +104,7 @@ class PurgeMergeAudiencesHandler implements TaskHandlerInterface
             // touches notifications somebody has read.
             //
             // The correlation is the notification's own url, rebuilt for
-            // the recipients just erased, rather than the `type_id` and an
+            // the targets just erased, rather than the `type_id` and an
             // age. That distinction is not cosmetic: Task\SendBatchHandler
             // dispatches this one declared type for EVERY send, so purging
             // by type would also delete the notification of an ordinary
@@ -129,7 +131,7 @@ class PurgeMergeAudiencesHandler implements TaskHandlerInterface
                 'merge_audiences_purged',
                 'info',
                 'Suppression définitive d\'audiences de publipostage (rétention dépassée)',
-                // Counts and a retention, never a recipient or a subject
+                // Counts and a retention, never a member or a subject
                 // (ARCHITECTURE.md §8.6) — this task exists to make such
                 // values stop existing, so it cannot write one down.
                 [

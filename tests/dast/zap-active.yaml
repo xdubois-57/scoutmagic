@@ -83,7 +83,7 @@ env:
         # to the mail transport directly.
         - "\\Q${DAST_TARGET}\\E/mass-mail/.*/status"
         - "\\Q${DAST_TARGET}\\E/mass-mail/.*/test-send"
-        - "\\Q${DAST_TARGET}\\E/mass-mail/recipients/.*"
+        - "\\Q${DAST_TARGET}\\E/mass-mail/deliveries/.*"
         # A request's « E-mail de décision » buttons: envoyer, réessayer,
         # renvoyer — each sends the family's decision e-mail.
         - "\\Q${DAST_TARGET}\\E/config/inscriptions/demandes/.*/e-mail/.*"

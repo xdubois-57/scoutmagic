@@ -107,6 +107,11 @@ class AudienceImportServiceTest extends TestCase
         $this->assertSame(['Tiers' => '456789', 'Email' => '', 'Prenom' => 'Louis', 'Montant' => '145'], $rows[0]->data);
         $this->assertNull($rows[1]->memberId);
         $this->assertSame('parent@example.be', $rows[1]->email);
+        // The tracking page's « ligne N », read without decrypting a row.
+        $this->assertSame(
+            [$rows[0]->id => $rows[0]->rowIndex, $rows[1]->id => $rows[1]->rowIndex],
+            $this->audienceRepository->findRowIndexesByAudience($audience->id)
+        );
     }
 
     public function testRowDataIsStoredEncrypted(): void

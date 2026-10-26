@@ -2,11 +2,11 @@
   "id": "mass_mail",
   "name": "Envoi de mails",
   "description": "Envois groupés et listes de diffusion.",
-  "version": "1.18.0",
+  "version": "1.19.0",
   "enabled_by_default": false,
   "routes": [
     {
-      "path": "/members/{id}/emails/{recipient_id}",
+      "path": "/members/{id}/emails/{target_id}",
       "method": "GET",
       "controller": "Modules\\MassMail\\Controller\\MemberEmailController",
       "action": "show",
@@ -246,7 +246,7 @@
       }
     },
     {
-      "path": "/mass-mail/recipients/{id}/resend",
+      "path": "/mass-mail/deliveries/{id}/resend",
       "method": "POST",
       "controller": "Modules\\MassMail\\Controller\\MassMailController",
       "action": "resend",

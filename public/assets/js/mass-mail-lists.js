@@ -143,6 +143,26 @@
     }
 
     /**
+     * « 3 messages en 2026-2027 · 2 animés ciblés » — the dialog counts
+     * MESSAGES, one per distinct address (issue #999), and names how many
+     * members the list designates: a family address shared by two siblings
+     * is one message and two members, and a member without any address is
+     * a member and no message.
+     *
+     * @param {number} messages
+     * @param {number} targets
+     * @param {string} year
+     * @returns {string}
+     */
+    function recipientsTitle(messages, targets, year) {
+        var title = counted(messages, 'message', 'messages') + ' en ' + year;
+        if (targets > 0) {
+            title += ' · ' + counted(targets, 'animé ciblé', 'animés ciblés');
+        }
+        return title;
+    }
+
+    /**
      * @param {string} tag
      * @param {string} [className]
      * @param {string} [text]
@@ -762,8 +782,11 @@
             }
 
             var recipients = res.data.recipients || [];
-            recipientsTitleEl.textContent = counted(recipients.length, 'destinataire', 'destinataires')
-                + ' en ' + res.data.scout_year_label;
+            recipientsTitleEl.textContent = recipientsTitle(
+                recipients.length,
+                Number(res.data.target_count || 0),
+                res.data.scout_year_label
+            );
             recipients.forEach(function (recipient) {
                 rowsEl.appendChild(recipientRow(recipient, res.data.blocks || {}));
             });

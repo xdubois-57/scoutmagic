@@ -83,6 +83,43 @@ class ModuleManifestTest extends TestCase
         );
     }
 
+    /**
+     * 1.19.0: a message per address, a target per member, a notification
+     * per account (issue #999). The bump is what users see change — the
+     * tracking counts messages, the member page counts communications — and
+     * pinning it here is what makes the next change decide its own.
+     */
+    public function testTheVersionNamesTheMessageTargetSplit(): void
+    {
+        $this->assertSame('1.19.0', $this->manifest->version);
+    }
+
+    /**
+     * « Renvoyer » acts on one MESSAGE now, so its route names one; the
+     * member page's entry is a target, and `{id}` stays a member_years id.
+     */
+    public function testResendAndTheMemberEntryNameWhatTheyActOn(): void
+    {
+        $byPath = [];
+        foreach ($this->manifest->routes as $route) {
+            $byPath[$route['method'] . ' ' . $route['path']] = $route;
+        }
+
+        $this->assertArrayHasKey('POST /mass-mail/deliveries/{id}/resend', $byPath);
+        $this->assertSame('chief', $byPath['POST /mass-mail/deliveries/{id}/resend']['role_min']);
+        $this->assertSame('resend', $byPath['POST /mass-mail/deliveries/{id}/resend']['action']);
+        $this->assertArrayNotHasKey('POST /mass-mail/recipients/{id}/resend', $byPath);
+
+        $this->assertArrayHasKey('GET /members/{id}/emails/{target_id}', $byPath);
+        $this->assertSame('identified', $byPath['GET /members/{id}/emails/{target_id}']['role_min']);
+        // No new sub-route under the core's own /members/{id}/emails/… ones.
+        $memberEmailRoutes = array_filter(
+            array_keys($byPath),
+            static fn(string $key): bool => str_contains($key, ' /members/')
+        );
+        $this->assertSame(['GET /members/{id}/emails/{target_id}'], array_values($memberEmailRoutes));
+    }
+
     public function testTheMailingListPageIsLabelledForWhatItDecides(): void
     {
         $index = array_values(array_filter(

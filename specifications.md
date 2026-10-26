@@ -476,11 +476,17 @@ A section with no member in a given import becomes inactive automatically (kept,
 - SMTP relay or local. DKIM signed. Multipart mandatory.
 - DNS verification page (SPF, DKIM, DMARC) with live status.
 - DMARC report email configurable separately.
-- Mass emails (module `mass_mail`) are addressed to a list, resolved and frozen when the email is sent: one email per
-  address, however many blocks or scout years name it. A custom list is the union of its blocks (« Listes de diffusion »,
-  §4): the scout years chosen on the email page apply to its member groups, its contact groups are always included,
-  and the page says so under the year boxes. Every unsubscription — member, contact or mail-merge recipient — holds
-  for the whole unit and survives any replacement file.
+- Mass emails (module `mass_mail`) are addressed to a list, resolved and frozen when the email is sent. **A message
+  always goes to exactly one address**, and a classic list sends one message per distinct, valid, authorised address,
+  however many members, blocks, contact groups or scout years lead to it — a member with three addresses gets one at
+  each, a family address shared by two members gets one. Separately, **every member the list designates keeps the
+  communication on their page** (one entry, even with several addresses, and « Non envoyée » when nothing could leave
+  for them); sharing an address with a designated member never makes somebody else a recipient. The « Nouvel email »
+  notification goes at most once per account per communication (per row for a mail merge, §24), never again on a
+  resend. A custom list is the union of its blocks (« Listes de diffusion », §4): the scout years chosen on the email
+  page apply to its member groups, its contact groups are always included, and the page says so under the year boxes.
+  Every unsubscription — from any message — holds for the whole unit, members' addresses included, and survives any
+  replacement file. The tracking page counts messages and names how many members were targeted.
 
 ## 9. Scheduler
 
@@ -1326,12 +1332,12 @@ Messages for one of its own business objects, its own standing propositions, and
 
 ## 24. Mail merge — publipostage from an Excel file (module mass_mail)
 
-An extra list type on the composition page: the recipients of one email come from a chief-uploaded Excel file instead of a mailing list, and **each row of the file is one email** — unlike every other list, where one email is sent per address.
+An extra list type on the composition page: the recipients of one email come from a chief-uploaded Excel file instead of a mailing list, and **each row of the file is one communication**, with its own values: **one message per distinct address of the row**, each to that address alone. Addresses are never deduplicated between rows (two rows to one address are two messages), unlike a classic list, where an address shared by several members receives one message (§8).
 
 ### 24.1 The file
 
 - `.xlsx` only, **first sheet only**, first row = column headers.
-- Per row, delivery is resolved in this order: a non-empty **"Tiers"** value designates the member with that Desk identifier — the email goes to every address known for that member; otherwise a non-empty **"Email"** value is the destination (several addresses allowed, separated by `;`); a row with neither, an unknown Tiers, or an invalid address **refuses the whole file**, with an error report naming every offending line at once. Nothing is partially imported.
+- Per row, delivery is resolved in this order: a non-empty **"Tiers"** value designates the member with that Desk identifier — one message goes to each address known for that member, an "Email" column on the same row is ignored for sending, and the row appears once on that member's page (two rows for one Tiers, two entries); otherwise a non-empty **"Email"** value is the destination (several addresses allowed, separated by `;` or `,`) and the row belongs to no member's page and notifies nobody; a row with neither, an unknown Tiers, or an invalid address **refuses the whole file**, with an error report naming every offending line at once. Nothing is partially imported.
 - Header recognition is alias-based (case/accent-insensitive): "Tiers" ≡ "Identifiant Desk"; "Email" ≡ "Email(s)" ≡ "Contact" ≡ "Adresse email" ≡ "Courriel". The site's own Excel exports (member exports, form responses) are therefore reusable as audiences without editing.
 - Every column is a **merge variable**, insertable into the subject and the body from the editor ("Cher {{Prenom}}, tu devras payer {{Montant}} €"). Values are always substituted as text (HTML-escaped in the body). A duplicated Tiers or address across rows is allowed (one row = one email) but reported as a warning at import.
 - The uploaded file itself is deleted immediately after parsing; the imported rows are stored encrypted.
@@ -1340,8 +1346,9 @@ An extra list type on the composition page: the recipients of one email come fro
 
 - Available to **every chief** (deliberate: the file, not a section list, names the recipients). An imported audience can only be used by the account that imported it, or a chef d'unité; every import is journaled.
 - Scout-year selection does not apply — the file defines the audience.
-- The normal draft → test → send workflow is unchanged. Test mode adds a **per-recipient preview** paging through the file's rows with the real substituted values (plus warnings for unknown variables and empty values); the test email carries the previewed row's values. The tracking page works as usual; an external recipient (no member) is shown by their address.
-- External recipients get the same one-click unsubscribe as members; an unsubscribed external address is remembered (as an irreversible hash) and excluded from every future mail merge.
+- The normal draft → test → send workflow is unchanged. Test mode adds a **per-recipient preview** paging through the file's rows with the real substituted values (plus warnings for unknown variables and empty values); the test email carries the previewed row's values. The tracking page shows one line per message with its row number; a row left with no address appears as « Aucune adresse valide ».
+- Every message carries the same one-click unsubscribe; an unsubscribed address is remembered (as an irreversible hash) and excluded from every future mailing.
+- « Nouvel email » notifications: at most one per account and per row; three rows for three children to one family address notify that account three times.
 
 ### 24.3 Retention
 
@@ -1359,7 +1366,7 @@ C'est là qu'un brouillon s'écrit. Un brouillon dure : on le compose en plusieu
 
 La création aussi : « Nouvel email » ouvre `/mass-mail/new`, la même page vide, qui redirige vers le brouillon créé. Le comportement ne change pas — mêmes listes, mêmes années scoutes, même import Excel refusé en entier avec ses lignes fautives, même aperçu par destinataire — mais le dépôt du fichier passe par la zone de dépôt du site, et l'éditeur de texte riche est celui des autres pages.
 
-**Destinataires** répond, avant l'envoi, à la question qu'on se pose en dernier : à qui cela va-t-il partir ? Le fichier ligne par ligne pour un publipostage, le nombre de personnes que la liste désigne à cet instant sinon — recompté à chaque visite, parce qu'une liste est vivante. Une fois l'envoi lancé la liste est figée, et la page renvoie vers **Suivi**, qui dit ce qu'il est advenu de chaque adresse.
+**Destinataires** répond, avant l'envoi, à la question qu'on se pose en dernier : à qui cela va-t-il partir ? Le fichier ligne par ligne pour un publipostage, le nombre de personnes que la liste désigne à cet instant sinon — recompté à chaque visite, parce qu'une liste est vivante. Une fois l'envoi lancé la liste est figée, et la page renvoie vers **Suivi**, qui dit ce qu'il est advenu de chaque message.
 
 ## 25. Leadership module — three lists of people to contact (module leadership)
 
