@@ -283,6 +283,10 @@ class LeadershipController extends AbstractController
      * the composer. The list is computed here again, never taken from the
      * request — a hand-crafted POST cannot add an address to it.
      *
+     * One row per leader, carrying their `member_id`: mass_mail then sends
+     * to that leader's addresses, as for a « Tiers » in an imported file,
+     * and the message appears on the leader's own page.
+     *
      * @param array<string, string> $params
      */
     public function draft(Request $request, array $params): Response
@@ -299,15 +303,25 @@ class LeadershipController extends AbstractController
             return $this->notFound();
         }
 
+        $lines = array_values(array_filter(
+            $this->linesFor($listId, $this->context()),
+            static fn(PersonLine $line): bool => $line->email !== null && $line->email !== ''
+        ));
+        // One grouped read for the whole list, never one per line.
+        $memberIds = $this->repository->findMemberIdsByMemberYearIds(
+            array_map(static fn(PersonLine $line): int => $line->memberYearId, $lines)
+        );
+
         $rows = [];
-        foreach ($this->linesFor($listId, $this->context()) as $line) {
-            if ($line->email === null || $line->email === '') {
-                continue;
-            }
-            $rows[] = [
-                'email' => $line->email,
-                'values' => ['Nom' => $line->fullName, 'Section' => (string) $line->sectionName],
-            ];
+        foreach ($lines as $line) {
+            $values = ['Nom' => $line->fullName, 'Section' => (string) $line->sectionName];
+            $memberId = $memberIds[$line->memberYearId] ?? null;
+            // Attached to the leader (issue #999): the mail goes to their
+            // addresses and appears on their page. A line whose member
+            // could not be found still reaches the address it showed.
+            $rows[] = $memberId !== null
+                ? ['member_id' => $memberId, 'values' => $values]
+                : ['email' => (string) $line->email, 'values' => $values];
         }
 
         try {

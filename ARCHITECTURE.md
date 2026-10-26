@@ -2785,18 +2785,36 @@ row's values as sample hints), usable in the subject and the body alike.
 
 **Import (`Service\AudienceImportService`, `POST /mass-mail/audiences`)** —
 first sheet only, first row = headers. Delivery resolution per row: a
-non-empty "Tiers" value must match `members.desk_id` (the email then goes
-to every currently-valid address of that member, via the exact
-`MemberEmailService::resolveValidAddressesForMassMail()` path list sends
-use, so member-level unsubscribes are honored identically); otherwise the
-row's "Email" column value (several addresses allowed, `;`-separated) must
-validate; neither → refused. Validation is **all-or-nothing by
-specification**: any bad line refuses the entire file, and
+non-empty "Tiers" value must designate a member, found by the rule of
+`Core\Import\MemberRepository::findByDeskId()` in its grouped form
+(`MemberResolutionRepository::findMemberIdsByDeskIds()`, three queries for
+a whole file): a direct match on a member that has not been merged away,
+then `member_desk_id_aliases` — so the old Desk id a merge abandoned, which
+the federation's exports keep carrying, leads to the member kept. It goes
+one step further, always towards the current member: a merged row without
+an alias still leads to the row it was merged into, and a chain of merges
+is followed to its end (a second merge does not repoint the first one's
+alias). The match is the collation's, case-insensitive, so the result is
+keyed by the value as asked rather than as stored —
+`MemberDeskIdLookupOnMysqlTest` holds that on the real engine. The row's
+messages then go to every currently-valid address of that member, via the
+exact `MemberEmailService::resolveValidAddressesForMassMail()` path list
+sends use, so member-level unsubscribes are honored identically; **an Email
+cell on the same row is ignored for delivery** (it stays a merge variable)
+and the import says so in a warning naming the lines. Without a Tiers, the
+row's "Email" column value (several addresses allowed, `;`- or
+`,`-separated) must validate; an address written twice in one cell is
+stored once, with a warning quoting the cell; neither column → refused.
+**One row is one communication**: one message per distinct address of the
+row, never deduplicated across rows (issue #999). Validation is
+**all-or-nothing by specification**: any bad line refuses the entire file —
+an unknown Tiers included, next to rows that resolve — and
 `AudienceImportException` carries every offending line at once (line
 number, column, value, reason) rather than the first one — the chief fixes
 the file once. Duplicate Tiers/addresses across rows are legitimate ("one
-row = one email") but reported as non-blocking warnings. Header
-recognition is alias-based, case/accent-insensitive — `Tiers` ≡
+row = one communication") but reported as non-blocking warnings, beside
+the two per-row ones above (maquette `envois-groupes.html`, écran 5).
+Header recognition is alias-based, case/accent-insensitive — `Tiers` ≡
 `Identifiant Desk`, `Email` ≡ `Email(s)` ≡ `Contact` ≡ `Adresse email` ≡
 `Courriel` — precisely so the site's own exports (`Core\Member\Export`,
 news form responses) re-import as audiences unchanged; every other column
@@ -3134,7 +3152,7 @@ Two attributes state what a box is worth, rather than each caller re-deciding: *
 
 **No offline entry, and that is a decision.** Every page here names members of the unit's staff beside an administrative situation, and §8.25 keeps admin pages out of the offline cache. `Tests\Modules\Leadership\ModuleManifestTest` asserts the manifest's `offline` section stays empty so nobody adds one without saying so out loud.
 
-**Each list page exports itself, and nothing more.** `GET /admin/leadership/{page}/export` writes what that page shows — phone included, one row per line — as an XLSX, and `POST /admin/leadership/draft` opens a mail-merge draft to one list's addresses, recomputing the list server-side rather than trusting the request. Both journal the page or list and a count, never a name (§8.6).
+**Each list page exports itself, and nothing more.** `GET /admin/leadership/{page}/export` writes what that page shows — phone included, one row per line — as an XLSX, and `POST /admin/leadership/draft` opens a mail-merge draft to the people of one list who have an address, recomputing the list server-side rather than trusting the request. Each row of that draft carries the leader's `member_id` (§8.71, issue #999), so the mail goes to the leader's addresses and appears on their page; a `Value\PersonLine` only knows its `member_years.id`, so the controller turns the whole list into member ids with **one** grouped read (`LeadershipRepository::findMemberIdsByMemberYearIds()`), never one query per line — `LeadershipRbacTest` counts it. Both journal the page or list and a count, never a name (§8.6).
 
 **What was deliberately left out.** No per-member or per-section note; no intention field ("souhaite devenir animateur"); no rules engine, score or percentage; no widget on the Staffs page; no public route; and no feature flag beyond `module_registry.enabled`. One thing was left out **because the codebase could not take it yet**: the prompt for this module asked for a per-function "considérer comme candidature" checkbox on Correspondances Desk as a safety net beside the substring detection. `Core\Module\FunctionFlagsProvider` is single-flag (`getLeadLabel()`/`getLeadFlags()`/`setLead()`) and `FunctionsController` accepts a single nullable provider, already taken by `trombinoscope`; adding a second flag means generalising the hook and migrating that module, which is a change to core's extension surface rather than a module feature. The substring detection is the federation-wide mechanism and works on its own; the checkbox stays unbuilt until the hook is deliberately widened.
 
@@ -3329,9 +3347,11 @@ Where the unit has camped, and every stay it made there. The product answers one
 
 **The audience is stored exactly like an imported one, on purpose** — same `mass_mail_audiences` + `mass_mail_audience_rows`, same encryption, same composer, and above all the same `Task\PurgeMergeAudiencesHandler` retention (18 months after the last send, 7 days for an orphan). A parallel mechanism would be a second thing to get wrong and a second place to forget when the retention rules change.
 
-**`member_id` stays null, even when the address belongs to a member we know.** Resolving it would send to *every* address that member has ever registered, and the respondent answered with one precise address — the one they expect the reply on. The consequence is deliberate and is the reason this is written down: unsubscribing then goes through `mass_mail_suppressed_addresses` rather than through their `member_emails` row.
+**A row may carry a `member_id`, and then means exactly what a Tiers means in an imported file** (§8.61, issue #999): `MergeDraftService` writes it to `mass_mail_audience_rows.member_id`, stores no address of its own for that row (the freeze sends to the member's addresses, as for an imported Tiers row), and the row appears in that member's history. It is the CALLER's decision and is never looked up from an address. Finance's reminders (one row per receivable, for the child) and leadership's drafts (one row per leader) are the consumers it exists for.
 
-**Rows are deduplicated by address**, compared lowercased and trimmed, first row winning. Two answers from one family address are one mail, not two.
+**A form's respondent gets no `member_id`, even when the address belongs to a member we know.** Resolving one would send to *every* address that member has ever registered, and the respondent answered with one precise address — the one they expect the reply on. The consequence is deliberate and is the reason this is written down: unsubscribing then goes through `mass_mail_suppressed_addresses` rather than through their `member_emails` row, and the mail appears on no member page.
+
+**Rows are never merged.** One row is one communication, exactly like a line of an imported file: two answers from one family address are **two e-mails**, each with its own values. The service used to deduplicate by address, first row winning, and so silently lost the second answer's values — the second child's size, the second registration's amount. A row with neither a member nor an address is dropped, and none left at all is refused rather than leaving an empty draft.
 
 **The columns come from one definition** — `Modules\News\Service\ResponseColumns`, read by the export and by the merge alike (§8.71quater). This paragraph used to say the two «cannot describe the same form differently» while they already did, and to justify the four payment columns being merge-only.
 
@@ -3741,7 +3761,9 @@ Four situations the automatic matching cannot settle on its own, four different 
 
 **Nothing is ever sent from here.** The button prepares a mail-merge draft — its audience, a starting text, the payment details and each receivable's QR — and hands the treasurer the composer. They read it, edit it, and send it themselves. That is also why "familles notifiées" is a *separate* gesture: the mail leaves by hand, so the site cannot know when the request actually went out, and a notification fired at draft time would announce a message nobody has written yet. `mass_mail` is an optional dependency (§7.5): disabled, the button is not offered and campaigns work unchanged.
 
-**One autonomous block per receivable, never a table.** A table of three lines invites one transfer for the total; three separate blocks — a first name, an amount, a communication, a QR — invite three transfers, which is what makes each payment identifiable when it lands. The instruction carries its own reason ("c'est ce qui nous permet d'identifier chaque paiement"), because "one transfer per child" unexplained reads as bureaucracy.
+**One row per receivable, attached to its child — one mail, one payment block** (issue #999, lot C). Each row of the draft's audience is one receivable still due and carries the child's `member_id`, so `mass_mail` treats it exactly as an imported line with a « Tiers » (§8.71): its messages go to that child's eligible addresses, its email is not even passed, and the reminder appears on that child's page. A family of three children sharing an address receives three mails. Every mail therefore carries exactly **one** payment block — a first name, an amount, a communication, a QR — and "one transfer per child" holds by construction: a table of three lines invites one transfer for the total, one block invites one transfer, which is what makes each payment identifiable when it lands. The instruction still carries its own reason ("c'est ce qui nous permet d'identifier chaque paiement"), because the rule unexplained reads as bureaucracy. Who is reminded did not change — a receivable still due, settled and abandoned ones left out, a child with no address in Desk left out; where the mail goes is `mass_mail`'s rule for a member, not finance's.
+
+The draft used to be one row per **family address**, with one `{{#Prénom N}}` section per child up to a cap of six — and the seventh child was dropped by a `continue` without a word, while the mail itself belonged to no child's page. Both went with the grouping: the columns are now `Prénom`, `Montant`, `Communication`, `QR`, `Bénéficiaire`, `IBAN`, filled on every row, and the body holds no section at all. Finance stores no template — the starting body is built in code and handed to the draft — so nothing on an installed site needed converting: a draft created before the change keeps the audience it was created with, whose numbered columns its own body names, and a body pasted from one into a new reminder shows its numbered variables in the composer's preview as unknown (`MergeRenderer::findUnknownTokens()`), never silently blank.
 
 **The QR is a URL, not an attachment, and the reason is a security decision somebody already made.** `Core\Security\HtmlSanitizer`'s `URL_SCHEME_ALLOWLIST` is `http`, `https`, `mailto`, `tel` — an allowlist whose own comment records that a blocklist "always misses one; `vbscript:` survived the old check". So `cid:` and `data:` are both refused, and widening the list to carry an inline image would reopen exactly the hole that comment describes closing. The QR therefore travels the way the editor's "Insérer une image" button already sends one: an absolute `https` URL to a route that serves the PNG.
 
@@ -3749,7 +3771,7 @@ The route is `role_min: public` and **the token is the whole authorization** —
 
 **Two things the QR must not get wrong.** It encodes what is STILL DUE, refreshed at request time rather than read from a possibly stale allocation: a parent who paid half yesterday and opens the mail today must not be shown the full amount again and pay it. And the body repeats IBAN, amount and communication **in text under every code**, because many mail clients block remote images by default — an image that does not load must never leave somebody without a way to pay.
 
-**Two mail-merge mechanics this needed, both fixed in `mass_mail` rather than worked around.** A personalised body is not the same *length* for everybody, so `MergeRenderer` gained sections — `{{#Colonne}} … {{/Colonne}}`, kept only for rows whose value is filled — and a household with one child no longer receives the empty blocks the household with three needs. And a token that ends up inside an `href` or a `src` comes back percent-encoded, because the rich-text sanitizer parses the body with DOMDocument, which URL-encodes every URI attribute on the way out: `{{QR 1}}` is *stored* as `%7B%7BQR%201%7D%7D`. Left unrecognised the variable would never substitute and every recipient would get a broken image — silently. `MergeRenderer` reads both shapes; the sanitizer's encoding stays as it is, being correct for every other URL it handles.
+**Two mail-merge mechanics this needed, both fixed in `mass_mail` rather than worked around.** When a household's mail carried one block per child, a personalised body was not the same *length* for everybody, so `MergeRenderer` gained sections — `{{#Colonne}} … {{/Colonne}}`, kept only for rows whose value is filled. The reminder no longer uses them (one row per receivable has nothing conditional), and they stay a general mechanism of the mail merge. And a token that ends up inside an `href` or a `src` comes back percent-encoded, because the rich-text sanitizer parses the body with DOMDocument, which URL-encodes every URI attribute on the way out: `{{QR}}` is *stored* as `%7B%7BQR%7D%7D`. Left unrecognised the variable would never substitute and every recipient would get a broken image — silently. `MergeRenderer` reads both shapes; the sanitizer's encoding stays as it is, being correct for every other URL it handles.
 
 ### 8.84bis The sheet of payment labels (`Modules\Finance\Service\PaymentLabelService`)
 

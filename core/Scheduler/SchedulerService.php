@@ -143,7 +143,7 @@ class SchedulerService
             $moduleId,
             $taskKey,
             $reference,
-            (new \DateTimeImmutable())->modify('+' . max(0, $delaySeconds) . ' seconds'),
+            self::secondsFromNow($delaySeconds),
             $payload
         );
     }
@@ -207,6 +207,20 @@ class SchedulerService
     }
 
     /**
+     * Now plus exactly that many elapsed seconds.
+     *
+     * Never `modify('+N seconds')`: PHP applies that relative unit to the
+     * wall clock, so across the autumn change of time « +86400 seconds »
+     * lands 25 hours later in Europe/Brussels — a daily task drifted by an
+     * hour, and the statistics handler's own test went red every last
+     * Saturday of October. A `DateInterval` is added to the timestamp.
+     */
+    public static function secondsFromNow(int $delaySeconds, ?\DateTimeImmutable $now = null): \DateTimeImmutable
+    {
+        return ($now ?? new \DateTimeImmutable())->add(new \DateInterval('PT' . max(0, $delaySeconds) . 'S'));
+    }
+
+    /**
      * seed() said as a delay — the shape every bootstrap() wants.
      *
      * @param array<string, mixed> $payload
@@ -222,7 +236,7 @@ class SchedulerService
             $moduleId,
             $taskKey,
             $reference,
-            (new \DateTimeImmutable())->modify('+' . max(0, $delaySeconds) . ' seconds'),
+            self::secondsFromNow($delaySeconds),
             $payload
         );
     }
@@ -304,7 +318,7 @@ class SchedulerService
         ?string $reference = null,
         ?int $requestedByUserAccountId = null
     ): int {
-        $runAt = (new \DateTimeImmutable())->modify("+{$delaySeconds} seconds");
+        $runAt = self::secondsFromNow($delaySeconds);
         return $this->schedule($moduleId, $taskKey, $runAt, $payload, $reference, $requestedByUserAccountId);
     }
 

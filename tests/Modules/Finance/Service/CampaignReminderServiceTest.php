@@ -74,17 +74,11 @@ class CampaignReminderServiceTest extends TestCase
         $this->memberIds['Timeo'] = $this->createMember('Timéo', 'roskam@test.be');
     }
 
-    // ── one block per receivable, never a table ─────────────────────────
-
-    /**
-     * A table of three lines invites one transfer for the total; three
-     * separate blocks invite three transfers — which is what makes each
-     * payment identifiable when it lands.
-     */
+    // ── one row per receivable, attached to its child ──────────────────
 
     /**
      * The composer's URL travels back untouched. `MassMailDraftInterface`
-     * names the screen a draft is written on; finance is one of its two
+     * names the screen a draft is written on; finance is one of its
      * callers and rewriting that address here — appending a filter, say —
      * is exactly how one caller ends up repaired and the other not.
      */
@@ -97,7 +91,12 @@ class CampaignReminderServiceTest extends TestCase
         $this->assertSame('/mass-mail/1', $url);
     }
 
-    public function testAHouseholdGetsOneMailWithOneBlockPerChild(): void
+    /**
+     * One row per receivable, each carrying its child's member_id and no
+     * address of its own: mass_mail sends it to that child's addresses
+     * and files it on that child's page (issue #999).
+     */
+    public function testEachReceivableIsOneRowAttachedToItsChild(): void
     {
         $campaign = $this->campaignWith([
             ['Lucie', 4500],
@@ -107,48 +106,82 @@ class CampaignReminderServiceTest extends TestCase
 
         $this->service()->createDraft($campaign, 'intendant', 'tresorier@test.be', 7);
 
-        $rowsByEmail = [];
+        $this->assertCount(3, $this->draft->rows, 'one row per receivable, never one per address');
+        $this->assertSame(
+            [$this->memberIds['Lucie'], $this->memberIds['Antoine'], $this->memberIds['Timeo']],
+            array_map(static fn(array $row): ?int => $row['member_id'] ?? null, $this->draft->rows)
+        );
         foreach ($this->draft->rows as $row) {
-            $rowsByEmail[$row['email']] = $row['values'];
+            $this->assertArrayNotHasKey('email', $row, 'the member decides where it goes, not an address');
         }
-
-        $this->assertCount(2, $rowsByEmail, 'one row per address, never one per child');
-        $this->assertSame('Lucie', $rowsByEmail['famille@test.be']['Prénom 1']);
-        $this->assertSame('Antoine', $rowsByEmail['famille@test.be']['Prénom 2']);
-        $this->assertSame('90,00 €', $rowsByEmail['famille@test.be']['Total']);
-        $this->assertSame('Timéo', $rowsByEmail['roskam@test.be']['Prénom 1']);
-        $this->assertSame('', $rowsByEmail['roskam@test.be']['Prénom 2'], 'the second block is empty for this family');
+        $this->assertSame('Timéo', $this->draft->rows[2]['values']['Prénom']);
+        $this->assertSame('38,25 €', $this->draft->rows[2]['values']['Montant']);
     }
 
     /**
-     * The body is a template with one SECTION per block, so the household
-     * with one child does not receive the empty block the household with
-     * two needs. Rendered here through the real MergeRenderer.
+     * Lucie and Antoine share their family's address. They used to be one
+     * mail with two blocks, which belonged to neither child's page; they
+     * are now two rows, each with its own amount and communication.
      */
-    public function testTheRenderedBodyHasExactlyAsManyBlocksAsTheFamilyHasChildren(): void
+    public function testTwoChildrenOfOneFamilyAreTwoRows(): void
     {
-        $campaign = $this->campaignWith([
-            ['Lucie', 4500],
-            ['Antoine', 4500],
-            ['Timeo', 3825],
-        ]);
-        $service = $this->service();
-        $service->createDraft($campaign, 'intendant', 'tresorier@test.be', 7);
+        $campaign = $this->campaignWith([['Lucie', 4500], ['Antoine', 3000]]);
 
-        $renderer = new MergeRenderer();
-        $rowsByEmail = [];
-        foreach ($this->draft->rows as $row) {
-            $rowsByEmail[$row['email']] = $row['values'];
+        $this->service()->createDraft($campaign, 'intendant', 'tresorier@test.be', 7);
+
+        $this->assertCount(2, $this->draft->rows);
+        [$lucie, $antoine] = $this->draft->rows;
+        $this->assertSame($this->memberIds['Lucie'], $lucie['member_id'] ?? null);
+        $this->assertSame($this->memberIds['Antoine'], $antoine['member_id'] ?? null);
+        $this->assertSame(['Lucie', '45,00 €'], [$lucie['values']['Prénom'], $lucie['values']['Montant']]);
+        $this->assertSame(['Antoine', '30,00 €'], [$antoine['values']['Prénom'], $antoine['values']['Montant']]);
+        $this->assertNotSame($lucie['values']['Communication'], $antoine['values']['Communication']);
+        $this->assertNotSame($lucie['values']['QR'], $antoine['values']['QR']);
+    }
+
+    /**
+     * The body used to carry at most six blocks, and a seventh child was
+     * dropped by a `continue` without a word. One row per receivable has
+     * no cap: seven children are seven reminders.
+     */
+    public function testSevenChildrenAreSevenRowsAndNoneIsLeftOut(): void
+    {
+        $names = ['Lucie', 'Antoine', 'Zoé', 'Hugo', 'Emma', 'Noah', 'Louise'];
+        foreach (array_slice($names, 2) as $name) {
+            $this->memberIds[$name] = $this->createMember($name, 'famille@test.be');
         }
 
-        $family = $renderer->renderHtml((string) $this->draft->bodyHtml, $rowsByEmail['famille@test.be']);
-        $single = $renderer->renderHtml((string) $this->draft->bodyHtml, $rowsByEmail['roskam@test.be']);
+        $campaign = $this->campaignWith(array_map(static fn(string $name): array => [$name, 4500], $names));
 
-        $this->assertSame(2, substr_count($family, '<img'));
-        $this->assertSame(1, substr_count($single, '<img'));
-        $this->assertStringContainsString('Lucie', $family);
-        $this->assertStringContainsString('Antoine', $family);
-        $this->assertStringNotContainsString('Antoine', $single);
+        $this->service()->createDraft($campaign, 'intendant', 'tresorier@test.be', 7);
+
+        $this->assertCount(7, $this->draft->rows);
+        $this->assertSame($names, array_map(static fn(array $row): string => $row['values']['Prénom'], $this->draft->rows));
+        $this->assertSame($this->memberIds['Louise'], $this->draft->rows[6]['member_id'] ?? null, 'the seventh child is there');
+    }
+
+    /**
+     * Every row fills every variable, so nothing in the body is
+     * conditional: no section, no numbered column, one payment block.
+     */
+    public function testTheTemplateHasNoSectionsAndOnePaymentBlock(): void
+    {
+        $campaign = $this->campaignWith([['Lucie', 4500], ['Antoine', 4500]]);
+        $this->service()->createDraft($campaign, 'intendant', 'tresorier@test.be', 7);
+
+        $body = (string) $this->draft->bodyHtml;
+        $this->assertStringNotContainsString('{{#', $body);
+        $this->assertStringNotContainsString('{{/', $body);
+        $this->assertDoesNotMatchRegularExpression('/\{\{[^}]*\d\s*\}\}/u', $body, 'no numbered variable');
+        $this->assertSame(CampaignReminderService::COLUMNS, $this->draft->columns);
+        $this->assertSame([], (new MergeRenderer())->findUnknownTokens($body, $this->draft->columns));
+
+        foreach ($this->draft->rows as $row) {
+            $this->assertSame(CampaignReminderService::COLUMNS, array_keys($row['values']), 'every column, every row');
+            $rendered = (new MergeRenderer())->renderHtml($body, $row['values']);
+            $this->assertSame(1, substr_count($rendered, '<img'), 'one QR per mail');
+            $this->assertStringContainsString($row['values']['Prénom'], $rendered);
+        }
     }
 
     /**
@@ -165,17 +198,17 @@ class CampaignReminderServiceTest extends TestCase
         $body = (new MergeRenderer())->renderHtml((string) $this->draft->bodyHtml, $values);
 
         $this->assertStringContainsString('BE71 0961 2345 6769', $body, 'the IBAN in text');
-        $this->assertStringContainsString($values['Communication 1'], $body, 'the communication in text');
+        $this->assertStringContainsString($values['Communication'], $body, 'the communication in text');
         $this->assertStringContainsString('38,25 €', $body, 'the amount in text');
         $this->assertStringContainsString('bloque les images', $body, 'and it says what to do when the code is invisible');
     }
 
     public function testTheBodySaysWhyItAsksForOneTransferPerChild(): void
     {
-        $this->assertStringContainsString(
-            "d'identifier chaque paiement",
-            $this->service()->draftBody(2)
-        );
+        $body = $this->service()->draftBody();
+
+        $this->assertStringContainsString('Un virement par enfant', $body);
+        $this->assertStringContainsString("d'identifier chaque paiement", $body);
     }
 
     // ── the QR travels as a URL ─────────────────────────────────────────
@@ -190,7 +223,7 @@ class CampaignReminderServiceTest extends TestCase
         $campaign = $this->campaignWith([['Timeo', 3825]]);
         $this->service()->createDraft($campaign, 'intendant', 'tresorier@test.be', 7);
 
-        $url = $this->draft->rows[0]['values']['QR 1'];
+        $url = $this->draft->rows[0]['values']['QR'];
         $receivableId = (int) $this->rows->findByCampaignId($campaign->id)[0]->id;
         $receivable = $this->receivables->findBySource(CampaignService::SOURCE_MODULE, $receivableId)[0];
 
@@ -202,7 +235,7 @@ class CampaignReminderServiceTest extends TestCase
      * The whole round trip, which is where this used to break: the
      * starting body is sanitized on the way into the draft, and the
      * sanitizer parses it with DOMDocument, which percent-encodes every
-     * URI attribute — so `{{QR 1}}` is STORED as `%7B%7BQR%201%7D%7D`.
+     * URI attribute — so `{{QR}}` is STORED as `%7B%7BQR%7D%7D`.
      * Left at that the variable would never substitute and every parent
      * would get a broken image, silently. MergeRenderer recognises the
      * encoded shape, so what matters is that the URL is right after
@@ -215,11 +248,10 @@ class CampaignReminderServiceTest extends TestCase
 
         $stored = (new \Core\Security\HtmlSanitizer())->sanitize((string) $this->draft->bodyHtml);
         $this->assertSame(1, substr_count($stored, '<img'), 'the image tag itself survives');
-        $this->assertStringContainsString('{{#Prénom 1}}', $stored, 'and so do the sections, which are plain text');
 
         $rendered = (new MergeRenderer())->renderHtml($stored, $this->draft->rows[0]['values']);
         $this->assertStringContainsString(
-            'src="' . htmlspecialchars($this->draft->rows[0]['values']['QR 1'], ENT_QUOTES) . '"',
+            'src="' . htmlspecialchars($this->draft->rows[0]['values']['QR'], ENT_QUOTES) . '"',
             $rendered
         );
         $this->assertStringNotContainsString('%7B%7B', $rendered, 'no token is left unsubstituted');
@@ -253,9 +285,9 @@ class CampaignReminderServiceTest extends TestCase
 
         $this->service()->createDraft($campaign, 'intendant', 'tresorier@test.be', 7);
 
-        $values = $this->draft->rows[0]['values'];
-        $this->assertSame('Antoine', $values['Prénom 1'], 'Lucie has paid and is gone from the reminder');
-        $this->assertSame('45,00 €', $values['Total']);
+        $this->assertCount(1, $this->draft->rows, 'Lucie has paid and is gone from the reminder');
+        $this->assertSame($this->memberIds['Antoine'], $this->draft->rows[0]['member_id'] ?? null);
+        $this->assertSame('45,00 €', $this->draft->rows[0]['values']['Montant']);
     }
 
     /**
@@ -273,7 +305,27 @@ class CampaignReminderServiceTest extends TestCase
 
         $this->service()->createDraft($campaign, 'intendant', 'tresorier@test.be', 7);
 
-        $this->assertSame('25,00 €', $this->draft->rows[0]['values']['Montant 1']);
+        $this->assertSame('25,00 €', $this->draft->rows[0]['values']['Montant']);
+    }
+
+    /**
+     * WHO is reminded did not change with the attachment to the child: a
+     * child without any address in Desk is still left out, and only that
+     * child.
+     */
+    public function testAChildWithoutAnAddressInDeskIsLeftOut(): void
+    {
+        $this->pdo->prepare(
+            'UPDATE member_years SET email_encrypted = NULL, email_blind_index = NULL WHERE member_id = ?'
+        )->execute([$this->memberIds['Antoine']]);
+        $campaign = $this->campaignWith([['Lucie', 4500], ['Antoine', 4500]]);
+
+        $this->service()->createDraft($campaign, 'intendant', 'tresorier@test.be', 7);
+
+        $this->assertSame(
+            [$this->memberIds['Lucie']],
+            array_map(static fn(array $row): ?int => $row['member_id'] ?? null, $this->draft->rows)
+        );
     }
 
     public function testACampaignWhereEverythingIsSettledRefusesToBuildADraft(): void
@@ -414,7 +466,7 @@ final class RecordingDraftProvider implements MassMailDraftInterface
     public string $subject = '';
     /** @var string[] */
     public array $columns = [];
-    /** @var list<array{email: string, values: array<string, string>}> */
+    /** @var list<array{email?: string, member_id?: ?int, values: array<string, string>}> */
     public array $rows = [];
     public ?string $bodyHtml = null;
 
