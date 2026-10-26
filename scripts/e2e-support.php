@@ -2275,8 +2275,9 @@ function e2eSeedSharedAddressSiblings(string $instanceDir, string $stamp): array
 
     $pdo->beginTransaction();
     try {
-        $pdo->prepare('INSERT INTO sections (age_branch_id, desk_code, name, is_visible, is_active) VALUES (?, ?, ?, 1, 1)')
-            ->execute([$ageBranchId, $fixture['section']['desk_code'], $fixture['section']['name']]);
+        $pdo->prepare(
+            'INSERT INTO sections (age_branch_id, desk_code, name, is_visible, is_active) VALUES (?, ?, ?, 1, 1)'
+        )->execute([$ageBranchId, $fixture['section']['desk_code'], $fixture['section']['name']]);
         $sectionId = (int) $pdo->lastInsertId();
 
         $emails = new Core\Member\MemberEmailRepository($pdo, $encryption);

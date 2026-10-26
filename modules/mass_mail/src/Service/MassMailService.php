@@ -889,7 +889,9 @@ class MassMailService
         $email = $this->requireEmail($id);
 
         if ($email->listType === Email::LIST_TYPE_MAIL_MERGE) {
-            $rows = $email->audienceId !== null ? $this->audienceRepository->findRowsByAudience($email->audienceId) : [];
+            $rows = $email->audienceId !== null
+                ? $this->audienceRepository->findRowsByAudience($email->audienceId)
+                : [];
             $mergeMembers = $this->memberResolutionRepository->resolveMergeMembers(
                 array_values(array_filter(array_map(fn(AudienceRow $r) => $r->memberId, $rows)))
             );

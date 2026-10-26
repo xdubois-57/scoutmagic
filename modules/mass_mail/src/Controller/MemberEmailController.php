@@ -157,7 +157,9 @@ class MemberEmailController extends AbstractController
             $named[] = [
                 'member_id' => $other['member_id'],
                 'name' => $name,
-                'url' => $otherMemberYearId !== null ? TargetEmailLink::url($otherMemberYearId, $other['target_id']) : null,
+                'url' => $otherMemberYearId !== null
+                    ? TargetEmailLink::url($otherMemberYearId, $other['target_id'])
+                    : null,
             ];
         }
 
