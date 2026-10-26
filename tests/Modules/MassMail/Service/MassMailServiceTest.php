@@ -16,6 +16,7 @@ use Core\Import\MemberYearRepository;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Mail\MailService;
+use Core\Member\MemberEmail;
 use Core\Member\MemberEmailRepository;
 use Core\Member\MemberEmailService;
 use Core\Member\MemberService;
@@ -513,9 +514,17 @@ class MassMailServiceTest extends TestCase
         $inactive = $this->createMemberWithEmail('inactif@test.be');
         $memberEmails = new MemberEmailRepository($this->pdo, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)));
         $memberEmails->markInactive($memberEmails->findOrCreateDeskOverride($inactive, 'inactif@test.be')->id);
+        $this->assertSame(1, $this->service->estimateRecipientCount($email->id)['count'], 'Inactif');
+
+        // A manual row the member added at their Desk address and never
+        // confirmed is the row the freeze takes for it, whatever its source.
+        $pending = $this->createMemberWithEmail('attente@test.be');
+        $memberEmails->create(
+            $pending, 'attente@test.be', MemberEmail::SOURCE_MANUAL, MemberEmail::STATUS_PENDING, null, null
+        );
         $estimate = $this->service->estimateRecipientCount($email->id);
-        $this->assertSame(1, $estimate['count'], 'Inactif');
-        $this->assertSame(2, $estimate['members']);
+        $this->assertSame(1, $estimate['count'], 'Pending manual row at the Desk address');
+        $this->assertSame(3, $estimate['members']);
 
         $this->service->moveToTest($email->id, null);
         $this->service->startSending($email->id, null);

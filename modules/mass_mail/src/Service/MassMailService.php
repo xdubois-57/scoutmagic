@@ -971,11 +971,14 @@ class MassMailService
     /**
      * Whether the member's Desk address is still in service — false once
      * unsubscribed (« Inactif »), read without creating its override row.
+     * Whatever the source of the row at that address: the freeze's
+     * MemberEmailRepository::findOrCreateDeskOverride() takes an existing
+     * manual row there as the override, pending or inactive included.
      */
     private function deskRowIsValid(int $memberId, string $deskEmail): bool
     {
         foreach ($this->memberEmailService->listForMember($memberId, $deskEmail) as $row) {
-            if ($row->isDeskSourced() && self::addressKey($row->email) === self::addressKey($deskEmail)) {
+            if (self::addressKey($row->email) === self::addressKey($deskEmail)) {
                 return $row->isValid();
             }
         }
