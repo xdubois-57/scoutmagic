@@ -297,8 +297,10 @@ class MemberEmailControllerTest extends TestCase
         $this->assertStringContainsString('Carl', $body);
         $this->assertStringNotContainsString('/emails/43', $body);
 
-        AuthSession::login(1, 'carl@test.example', 'identified');
-        $this->assertStringNotContainsString('Carl', $this->show($massMailQuery, 5)->getBody());
+        AuthSession::login(1, 'member@test.example', 'identified');
+        $identified = $this->show($massMailQuery, 5);
+        $this->assertSame(200, $identified->getStatusCode(), 'A reader of this page, so the filter is what hides Carl');
+        $this->assertStringNotContainsString('Carl', $identified->getBody());
     }
 
     /**

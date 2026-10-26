@@ -867,11 +867,11 @@ class MassMailService
      * for » — and one figure for both was wrong in one direction or the
      * other on every family.
      *
-     * Read the way the freeze reads it, with three deliberate differences
-     * that make it an estimate: nothing is created (a Desk address is taken
-     * as written, see previewAddressesOfMember()), a Desk address stopped by
-     * its own override row is still counted, and the list is re-resolved
-     * now — it is live, and somebody else may edit it before the send.
+     * Read the way the freeze reads it, with two deliberate differences
+     * that make it an estimate: nothing is created (the Desk address is
+     * read without its override row being made, see
+     * previewAddressesOfMember()), and the list is re-resolved now — it is
+     * live, and somebody else may edit it before the send.
      *
      * @return array{count: int, kind: string, members: int, rows: ?int}
      *         count: messages; kind: 'messages'; members: targets;
@@ -941,9 +941,12 @@ class MassMailService
      * the estimate and the preview. The freeze goes through
      * MemberEmailService::resolveValidAddressesForMassMail() with the Desk
      * address, which lazily creates its override row; reading must not, so
-     * the Desk address is taken as written (well formed, not suspended
-     * after bounces) beside the valid personal ones, less the unsubscribed
-     * addresses — deduplicated, compared lowercased.
+     * the Desk address is read through listForMember() — its override row
+     * when there is one, so an unsubscribed Desk address stays out — and
+     * kept if well formed, valid and not suspended after bounces, beside
+     * the valid personal ones; deduplicated, compared lowercased. Not
+     * filtered through the suppression list, exactly as the freeze
+     * (eligibleAddressesOfMember()).
      *
      * @return string[]
      */
@@ -952,6 +955,7 @@ class MassMailService
         $addresses = [];
         if ($deskEmail !== null && filter_var($deskEmail, FILTER_VALIDATE_EMAIL) !== false
             && $this->bounces?->isBlocked($deskEmail) !== true
+            && $this->deskRowIsValid($memberId, $deskEmail)
         ) {
             $addresses[self::addressKey($deskEmail)] = $deskEmail;
         }
@@ -959,7 +963,22 @@ class MassMailService
             $addresses[self::addressKey($memberEmail->email)] ??= $memberEmail->email;
         }
 
-        return $this->withoutSuppressed(array_values($addresses));
+        return array_values($addresses);
+    }
+
+    /**
+     * Whether the member's Desk address is still in service — false once
+     * unsubscribed (« Inactif »), read without creating its override row.
+     */
+    private function deskRowIsValid(int $memberId, string $deskEmail): bool
+    {
+        foreach ($this->memberEmailService->listForMember($memberId, $deskEmail) as $row) {
+            if ($row->isDeskSourced() && self::addressKey($row->email) === self::addressKey($deskEmail)) {
+                return $row->isValid();
+            }
+        }
+
+        return true;
     }
 
     /**

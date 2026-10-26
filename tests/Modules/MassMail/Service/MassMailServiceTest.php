@@ -497,6 +497,31 @@ class MassMailServiceTest extends TestCase
         );
     }
 
+    /**
+     * The estimate reads a member's Desk address the way the freeze does:
+     * an address merely on the suppression list is still sent to (a
+     * member's unsubscribe lives on member_emails, which « Réactiver »
+     * undoes), one the member page shows « Inactif » is not.
+     */
+    public function testTheEstimateReadsADeskAddressLikeTheSend(): void
+    {
+        $this->createMemberWithEmail('reactive@test.be');
+        $this->suppressedAddressRepository->suppress('reactive@test.be');
+        $email = $this->createDraft();
+        $this->assertSame(1, $this->service->estimateRecipientCount($email->id)['count'], 'Suppressed, still active');
+
+        $inactive = $this->createMemberWithEmail('inactif@test.be');
+        $memberEmails = new MemberEmailRepository($this->pdo, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)));
+        $memberEmails->markInactive($memberEmails->findOrCreateDeskOverride($inactive, 'inactif@test.be')->id);
+        $estimate = $this->service->estimateRecipientCount($email->id);
+        $this->assertSame(1, $estimate['count'], 'Inactif');
+        $this->assertSame(2, $estimate['members']);
+
+        $this->service->moveToTest($email->id, null);
+        $this->service->startSending($email->id, null);
+        $this->assertCount($estimate['count'], $this->deliveryRepository->findByEmailId($email->id));
+    }
+
     public function testAMemberWithNoUsableAddressIsStillSomebodyTheListDesignates(): void
     {
         // The count answers "who is this going to?". A member the list
