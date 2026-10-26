@@ -260,6 +260,29 @@ class LeadershipRepositoryTest extends TestCase
         $this->assertSame([], $this->repository->findEarliestSectionPeriodStarts([], $this->currentYearId));
     }
 
+    /**
+     * The member behind each member_years row, across years, and an id
+     * that resolves to nothing is simply absent.
+     */
+    public function testFindMemberIdsByMemberYearIdsMapsEachRowToItsMember(): void
+    {
+        $camille = $this->insertMember('D1');
+        $lou = $this->insertMember('D2');
+        $camilleNow = $this->insertMemberYear($camille, $this->currentYearId, ['last_name' => 'Dupont']);
+        $camilleBefore = $this->insertMemberYear($camille, $this->previousYearId, ['last_name' => 'Dupont']);
+        $louNow = $this->insertMemberYear($lou, $this->currentYearId, ['last_name' => 'Martin']);
+
+        $found = $this->repository->findMemberIdsByMemberYearIds([$camilleNow, $camilleBefore, $louNow, 999, $louNow]);
+        ksort($found);
+
+        $this->assertSame([$camilleNow => $camille, $camilleBefore => $camille, $louNow => $lou], $found);
+    }
+
+    public function testFindMemberIdsByMemberYearIdsWithNobodyAsksNothing(): void
+    {
+        $this->assertSame([], $this->repository->findMemberIdsByMemberYearIds([]));
+    }
+
     public function testFindLastImportAtTakesTheMostRecentOfTheYear(): void
     {
         $this->assertNull($this->repository->findLastImportAt($this->currentYearId));

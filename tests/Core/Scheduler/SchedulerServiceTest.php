@@ -25,6 +25,27 @@ class SchedulerServiceTest extends TestCase
         $this->service = new SchedulerService($this->repo);
     }
 
+    /**
+     * A delay is elapsed time, whatever the wall clock does: across the
+     * autumn change of time a day is still 86 400 seconds, not 25 hours.
+     */
+    public function testADelayIsElapsedSecondsAcrossTheChangeOfTime(): void
+    {
+        $zone = new \DateTimeZone('Europe/Brussels');
+        $beforeAutumn = new \DateTimeImmutable('2026-10-24 08:00:00', $zone);
+        $beforeSpring = new \DateTimeImmutable('2027-03-27 08:00:00', $zone);
+
+        foreach ([$beforeAutumn, $beforeSpring] as $now) {
+            $later = SchedulerService::secondsFromNow(86400, $now);
+            $this->assertSame(86400, $later->getTimestamp() - $now->getTimestamp(), $now->format('c'));
+        }
+        // A negative delay is « now », as it always was for the re-arms.
+        $this->assertSame(
+            $beforeAutumn->getTimestamp(),
+            SchedulerService::secondsFromNow(-5, $beforeAutumn)->getTimestamp()
+        );
+    }
+
     public function testScheduleCreatesAction(): void
     {
         $runAt = new \DateTimeImmutable('+1 hour');

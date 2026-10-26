@@ -12,9 +12,8 @@ related: campagnes, rapprochement, mes-paiements, publipostage
 ---
 
 Le bouton « Brouillon de rappel », sur l'écran d'une campagne, prépare un
-publipostage à destination des familles qui doivent encore quelque
-chose : les adresses, le montant de chacun, sa communication et son code
-QR.
+publipostage pour chaque enfant dont la famille doit encore quelque
+chose : son montant, sa communication et son code QR.
 
 ## Il n'envoie rien
 
@@ -27,21 +26,28 @@ Les créances déjà réglées ou abandonnées sont laissées de côté, et le
 montant demandé est ce qui **reste** dû : une famille qui a payé la
 moitié la semaine passée ne se voit pas redemander le tout.
 
-## Un bloc par enfant
+## Un e-mail par enfant
 
-Chaque enfant a son propre bloc dans le message, avec son propre montant
-et son propre code. C'est ce qui invite à un virement par enfant plutôt
-qu'à un seul virement groupé — et un virement par créance, c'est un
-paiement qui se rattache tout seul à son arrivée.
+Chaque enfant reçoit son propre e-mail, avec son propre montant et son
+propre code. Une famille de trois enfants reçoit donc trois e-mails, et
+une fratrie de sept en reçoit sept. C'est ce qui invite à un virement
+par enfant plutôt qu'à un seul virement groupé — et un virement par
+créance, c'est un paiement qui se rattache tout seul à son arrivée.
+
+Chaque rappel est rattaché à l'enfant : il part aux adresses connues sur
+sa fiche et apparaît dans les communications de cette fiche. Un enfant
+sans adresse dans Desk n'est pas repris dans le brouillon.
 
 Le montant, l'IBAN et la communication sont répétés en toutes lettres
-sous chaque code : beaucoup de logiciels de messagerie bloquent les
-images par défaut, et un code invisible ne doit jamais laisser un parent
-sans moyen de payer.
+sous le code : beaucoup de logiciels de messagerie bloquent les images
+par défaut, et un code invisible ne doit jamais laisser un parent sans
+moyen de payer.
 
 > Le texte du brouillon est un point de départ, pas un formulaire. Vous
-> pouvez le réécrire entièrement — gardez seulement les blocs de
-> variables, qui sont ce qui remplit le message de chaque famille.
+> pouvez le réécrire entièrement — gardez les variables (prénom,
+> montant, communication, QR, bénéficiaire, IBAN), qui remplissent
+> l'e-mail de chaque enfant : sans l'IBAN en toutes lettres, un parent
+> dont la messagerie bloque les images ne peut pas payer.
 
 ## Notifier les familles
 

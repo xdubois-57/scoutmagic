@@ -10,6 +10,8 @@ use Core\Config\ScoutYearService;
 use Core\Config\SettingRepository;
 use Core\Config\SettingService;
 use Core\Database\Connection;
+use Core\Database\InstrumentedPdo;
+use Core\Database\QueryCounter;
 use Core\Http\FrontController;
 use Core\Http\Request;
 use Core\Http\Router;
@@ -63,7 +65,8 @@ class LeadershipRbacTest extends TestCase
 
     protected function setUp(): void
     {
-        $this->pdo = DatabaseTestHelper::createTestDatabase();
+        // Instrumented, so the draft's grouped read can be counted.
+        $this->pdo = DatabaseTestHelper::createTestDatabase(new InstrumentedPdo('sqlite::memory:'));
         LeadershipTestHelper::createTables($this->pdo);
 
         $stmt = $this->pdo->prepare(
@@ -586,10 +589,102 @@ class LeadershipRbacTest extends TestCase
         $this->assertCount(1, $this->draft->calls);
         $this->assertSame('Encadrement — Candidats au dernier import', $this->draft->calls[0]['label']);
         $this->assertSame(
-            [['email' => 'candidat@example.org', 'values' => ['Nom' => 'Prénom1 Nom1', 'Section' => 'Louveteaux']]],
-            $this->draft->calls[0]['rows']
+            [['member_id' => $this->memberIdOf('D1'), 'values' => ['Nom' => 'Prénom1 Nom1', 'Section' => 'Louveteaux']]],
+            $this->draft->calls[0]['rows'],
+            'attached to the leader, whose addresses mass_mail then uses — no address of its own'
         );
         $this->assertJournaled('leadership_list_draft_created', '"recipient_count":1');
+    }
+
+    /**
+     * Each row carries its leader's member_id, read from the lines'
+     * member_years ids in ONE grouped query: four leaders cost exactly
+     * what one costs, never one more query per line (issue #999).
+     */
+    public function testEachDraftRowCarriesItsLeaderAndTheReadIsGrouped(): void
+    {
+        AuthSession::login(1, 'chef-unite@test.be', 'admin');
+        $this->seedCandidateAndSteward();
+
+        $one = $this->countedDraft('obligations-candidates');
+        $this->assertCount(1, $this->draft->calls[0]['rows']);
+
+        foreach ([3, 4, 5] as $index) {
+            $this->addCandidate($index, 'candidat' . $index . '@example.org');
+        }
+        $four = $this->countedDraft('obligations-candidates');
+        $rows = $this->draft->calls[1]['rows'];
+
+        $this->assertCount(4, $rows);
+        $this->assertEqualsCanonicalizing(
+            [$this->memberIdOf('D1'), $this->memberIdOf('D3'), $this->memberIdOf('D4'), $this->memberIdOf('D5')],
+            array_map(static fn(array $row): ?int => $row['member_id'] ?? null, $rows)
+        );
+        foreach ($rows as $row) {
+            $this->assertArrayNotHasKey('email', $row);
+        }
+        $this->assertSame($one, $four, 'three more leaders, not one query more');
+    }
+
+    /** The queries one draft request issues, from the request in. */
+    private function countedDraft(string $listId): int
+    {
+        $token = \Core\Security\CsrfGuard::generateToken();
+        $frontController = $this->frontController('/admin/leadership/draft', 'LeadershipController', 'draft', 'POST');
+
+        QueryCounter::reset();
+        $response = $frontController->handle(
+            new Request('POST', '/admin/leadership/draft', [], ['list' => $listId, '_csrf_token' => $token], [], [])
+        );
+        $count = QueryCounter::count();
+
+        $this->assertSame(302, $response->getStatusCode());
+
+        return $count;
+    }
+
+    private function memberIdOf(string $deskId): int
+    {
+        $stmt = $this->pdo->prepare('SELECT id FROM members WHERE desk_id = ?');
+        $stmt->execute([$deskId]);
+
+        return (int) $stmt->fetchColumn();
+    }
+
+    /** One more 17-year-old candidate in the section seedCandidateAndSteward() created. */
+    private function addCandidate(int $index, string $email): void
+    {
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $sectionStmt = $this->pdo->prepare('SELECT id FROM sections WHERE desk_code = ?');
+        $sectionStmt->execute(['LOUV']);
+        $sectionId = (int) $sectionStmt->fetchColumn();
+        $functionStmt = $this->pdo->prepare('SELECT id FROM functions WHERE desk_code = ?');
+        $functionStmt->execute(['CAND']);
+        $functionId = (int) $functionStmt->fetchColumn();
+
+        $stmt = $this->pdo->prepare('INSERT INTO members (desk_id) VALUES (?)');
+        $stmt->execute(['D' . $index]);
+        $memberId = (int) $this->pdo->lastInsertId();
+
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted, birth_date_encrypted, email_encrypted)
+             VALUES (?, ?, ?, ?, ?, ?)'
+        );
+        $stmt->execute([
+            $memberId,
+            $this->scoutYearId,
+            $encryption->encrypt('Prénom' . $index, 'member_years.first_name'),
+            $encryption->encrypt('Nom' . $index, 'member_years.last_name'),
+            $encryption->encrypt((new \DateTimeImmutable('today'))->modify('-17 years')->format('Y-m-d'), 'member_years.birth_date'),
+            $encryption->encrypt($email, 'member_years.email'),
+        ]);
+        $memberYearId = (int) $this->pdo->lastInsertId();
+
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO member_functions (member_year_id, function_id, section_id, start_date, is_main_function)
+             VALUES (?, ?, ?, ?, 1)'
+        );
+        $stmt->execute([$memberYearId, $functionId, $sectionId, '2025-09-01']);
     }
 
     public function testAnUnknownListIsNotADraft(): void
@@ -824,7 +919,7 @@ class LeadershipRbacTest extends TestCase
 /** Records the drafts asked for, and answers a composer URL. */
 final class RecordingMassMailDraft implements \Modules\MassMail\Api\MassMailDraftInterface
 {
-    /** @var list<array{label: string, rows: list<array{email: string, values: array<string, string>}>}> */
+    /** @var list<array{label: string, rows: list<array{email?: string, member_id?: ?int, values: array<string, string>}>}> */
     public array $calls = [];
 
     public function createMergeDraft(

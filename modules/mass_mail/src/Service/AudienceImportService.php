@@ -17,12 +17,17 @@ use PhpOffice\PhpSpreadsheet\Reader\Xlsx as XlsxReader;
  * Turns an uploaded Excel file into a stored mail-merge audience.
  * First sheet only, first row = headers, one email per data row.
  *
- * Delivery resolution per row (module spec):
- * - a non-empty "Tiers" value → the member with that members.desk_id
- *   (the email later goes to every address known for them); an unknown
- *   Tiers refuses the file;
- * - otherwise a non-empty "Email" value → that address (several allowed,
- *   separated by ";" or ","); an invalid address refuses the file;
+ * Delivery resolution per row (module spec, ARCHITECTURE.md §8.61):
+ * - a non-empty "Tiers" value → the CURRENT member it designates, found
+ *   the way the Desk import finds one (an alias or a merged member's old
+ *   Desk id leads to the member kept); the row's messages later go to
+ *   the addresses known for that member, so its "Email" cell is ignored
+ *   for delivery — stays a merge variable — and a warning says so. An
+ *   unknown Tiers refuses the file;
+ * - otherwise a non-empty "Email" value → those addresses (several
+ *   allowed, separated by ";" or ","; an address written twice in one
+ *   cell is kept once, with a warning); an invalid address refuses the
+ *   file;
  * - neither → the file is refused.
  * Validation is all-or-nothing: any error refuses the WHOLE file, and
  * the AudienceImportException lists every offending line at once.
@@ -97,9 +102,12 @@ class AudienceImportService
 
         $errors = [];
         $resolved = [];
+        $ignoredEmailLines = [];
+        $repeatedInCell = [];
         foreach ($dataRows as $row) {
             $lineNo = $row['line'];
             $tiersValue = $tiersColumn !== null ? trim($row['data'][$tiersColumn] ?? '') : '';
+            $emailValue = $emailColumn !== null ? trim($row['data'][$emailColumn] ?? '') : '';
 
             if ($tiersValue !== '') {
                 $memberId = $memberIdsByDeskId[$tiersValue] ?? null;
@@ -107,11 +115,13 @@ class AudienceImportService
                     $errors[] = "Ligne {$lineNo} — aucun membre ne correspond au Tiers « {$tiersValue} ».";
                     continue;
                 }
+                if ($emailValue !== '') {
+                    $ignoredEmailLines[] = $lineNo;
+                }
                 $resolved[] = ['line' => $lineNo, 'member_id' => $memberId, 'email' => null, 'data' => $row['data']];
                 continue;
             }
 
-            $emailValue = $emailColumn !== null ? trim($row['data'][$emailColumn] ?? '') : '';
             if ($emailValue === '') {
                 $errors[] = $tiersColumn !== null && $emailColumn !== null
                     ? "Ligne {$lineNo} — ni « Tiers » ni « Email » renseignés pour cette ligne."
@@ -132,10 +142,15 @@ class AudienceImportService
                 continue;
             }
 
+            $distinct = self::distinctAddresses($addresses);
+            if (count($distinct) < count($addresses)) {
+                $repeatedInCell[] = ['line' => $lineNo, 'cell' => $emailValue];
+            }
+
             $resolved[] = [
                 'line' => $lineNo,
                 'member_id' => null,
-                'email' => implode('; ', $addresses),
+                'email' => implode('; ', $distinct),
                 'data' => $row['data']
             ];
         }
@@ -177,7 +192,13 @@ class AudienceImportService
         $audience = $this->audienceRepository->findById($audienceId);
         \assert($audience !== null);
 
-        return new AudienceImportResult($audience, $this->buildWarnings($resolved));
+        return new AudienceImportResult(
+            $audience,
+            array_merge(
+                $this->buildWarnings($resolved),
+                self::rowWarnings($ignoredEmailLines, $repeatedInCell)
+            )
+        );
     }
 
     /**
@@ -301,6 +322,49 @@ class AudienceImportService
             array_map('trim', (array) preg_split('/[;,]/', $value)),
             fn(string $a) => $a !== ''
         ));
+    }
+
+    /**
+     * The addresses of one cell with every repetition dropped, compared
+     * lowercased — one row sends one message per DISTINCT address, so the
+     * same address written twice is still one message for that row. The
+     * first spelling is the one kept.
+     *
+     * @param string[] $addresses
+     * @return string[]
+     */
+    private static function distinctAddresses(array $addresses): array
+    {
+        $distinct = [];
+        foreach ($addresses as $address) {
+            $distinct[mb_strtolower($address)] ??= $address;
+        }
+        return array_values($distinct);
+    }
+
+    /**
+     * The two warnings that concern a single row (maquette envois-groupes,
+     * écran 5), after the cross-row ones: an Email cell that a Tiers on the
+     * same row makes irrelevant for delivery, and an address repeated
+     * inside one cell. Neither blocks the import — both describe what the
+     * send will do, which is not what the file seems to say.
+     *
+     * @param int[] $ignoredEmailLines
+     * @param list<array{line: int, cell: string}> $repeatedInCell
+     * @return string[]
+     */
+    private static function rowWarnings(array $ignoredEmailLines, array $repeatedInCell): array
+    {
+        $warnings = [];
+        if ($ignoredEmailLines !== []) {
+            $warnings[] = (count($ignoredEmailLines) > 1 ? 'Lignes ' : 'Ligne ') . implode(', ', $ignoredEmailLines)
+                . " : la colonne Email est ignorée, les messages partent aux adresses connues de l'animé (Tiers).";
+        }
+        foreach ($repeatedInCell as $row) {
+            $warnings[] = "Ligne {$row['line']} : « {$row['cell']} » — l'adresse en double ne recevra qu'un message "
+                . 'pour cette ligne.';
+        }
+        return $warnings;
     }
 
     /**
