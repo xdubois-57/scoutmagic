@@ -603,7 +603,8 @@ class CaptureTransportTest extends TestCase
                 ?int $bodyTextFileId,
                 ?string $errorMessage,
                 array $attachments,
-                bool $delivered = false
+                bool $delivered = false,
+                array $cc = []
             ): int {
                 throw new \RuntimeException('écriture impossible');
             }
@@ -628,6 +629,106 @@ class CaptureTransportTest extends TestCase
         $this->assertSame('error', $entry['level']);
         $this->assertSame('test_tools', $entry['category']);
         $this->assertStringNotContainsString('@', (string) $entry['description']);
+    }
+
+    /**
+     * The registration e-mails go out with the unit's address in copy
+     * (issue #911): the sandbox has to show it, or the only way to check
+     * that the copy leaves is to open every raw message.
+     */
+    public function testTheCopiesOfAMessageAreCapturedWithIt(): void
+    {
+        $this->service()->send(
+            to: 'famille@example.be',
+            subject: 'Inscription reçue',
+            bodyHtml: '<p>Bonjour</p>',
+            bodyText: 'Bonjour',
+            cc: ['Unite@Example.be', 'tresorier@example.be']
+        );
+
+        $email = $this->repository->findPage(10, 0)[0];
+
+        $this->assertSame('famille@example.be', $email->recipient);
+        $this->assertSame(['unite@example.be', 'tresorier@example.be'], $email->cc);
+    }
+
+    public function testAMessageWithoutCopyHasNone(): void
+    {
+        $this->service()->send(
+            to: 'famille@example.be',
+            subject: 'Inscription reçue',
+            bodyHtml: '<p>Bonjour</p>',
+            bodyText: 'Bonjour'
+        );
+
+        $this->assertSame([], $this->repository->findPage(10, 0)[0]->cc);
+        $this->assertNull($this->pdo->query('SELECT cc FROM captured_emails')->fetchColumn());
+    }
+
+    /**
+     * Like the recipient, a copy is personal data: BLOB, never in clear.
+     */
+    public function testTheCopiesAreStoredEncrypted(): void
+    {
+        $this->service()->send(
+            to: 'famille@example.be',
+            subject: 'Inscription reçue',
+            bodyHtml: '<p>Bonjour</p>',
+            bodyText: 'Bonjour',
+            cc: ['unite@example.be']
+        );
+
+        $stored = (string) $this->pdo->query('SELECT cc FROM captured_emails')->fetchColumn();
+
+        $this->assertNotSame('', $stored);
+        $this->assertStringNotContainsString('unite@example.be', $stored);
+    }
+
+    /**
+     * Each encrypted column has its own context (SECURITY.md §30): a
+     * recipient ciphertext copied into the `cc` column by someone with
+     * write access to the database must fail authentication instead of
+     * showing up as a copy.
+     */
+    public function testARecipientCiphertextRelocatedIntoTheCopyColumnDoesNotDecrypt(): void
+    {
+        $this->service()->send(
+            to: 'famille@example.be',
+            subject: 'Inscription reçue',
+            bodyHtml: '<p>Bonjour</p>',
+            bodyText: 'Bonjour'
+        );
+        $this->pdo->exec('UPDATE captured_emails SET cc = recipient');
+
+        $this->expectException(\Core\Security\DecryptionException::class);
+
+        $this->repository->findPage(10, 0);
+    }
+
+    public function testTheCopiesOfARefusedDeliveryAreFiledToo(): void
+    {
+        $refusing = new class implements MailTransportInterface {
+            public function deliver(PHPMailer $mail, MailPurpose $purpose): void
+            {
+                throw new \RuntimeException('SMTP Error: 421 service unavailable');
+            }
+        };
+
+        try {
+            $this->service(transport: $this->exemptingTransport($refusing))->send(
+                to: 'famille@example.be',
+                subject: 'Votre lien de connexion',
+                bodyHtml: '<p>Connectez-vous</p>',
+                bodyText: 'Connectez-vous',
+                purpose: MailPurpose::MagicLink,
+                cc: ['unite@example.be']
+            );
+            $this->fail('a MailException was expected');
+        } catch (MailException) {
+            // Expected.
+        }
+
+        $this->assertSame(['unite@example.be'], $this->repository->findPage(10, 0)[0]->cc);
     }
 
     /**

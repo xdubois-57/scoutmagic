@@ -168,6 +168,9 @@
                     </span>
                 </div>
                 <div class="small text-body-secondary">{{ email.recipient }}</div>
+                {% if email.cc %}
+                    <div class="small text-body-secondary">Cc : {{ email.cc|join(', ') }}</div>
+                {% endif %}
                 <div class="d-flex flex-wrap gap-2 mt-2">
                     <span class="badge text-bg-light">{{ (email.sizeBytes / 1024)|round(1) }} Ko</span>
                     {% if email.attachmentCount > 0 %}
