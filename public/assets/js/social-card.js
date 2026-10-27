@@ -229,6 +229,9 @@
         return capped;
     }
 
+    /** @type {boolean|null} The probe's answer, asked once per page. */
+    let filterBlurs = null;
+
     /**
      * Whether `ctx.filter` really blurs in this browser, tested on a
      * 16 px canvas: a 4 px black square drawn through `blur(2px)` leaves
@@ -260,9 +263,6 @@
 
         return filterBlurs;
     }
-
-    /** @type {boolean|null} The probe's answer, asked once per page. */
-    let filterBlurs = null;
 
     /**
      * Which way this page blurs: the browser's own filter when it has one,
