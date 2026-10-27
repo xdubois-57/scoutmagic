@@ -92,14 +92,18 @@ class SosAdminController extends AbstractController
         $transitionsPage = max(1, (int) $request->getQuery('transitions_page', 1));
         $transitions = $this->buildPlannedTransitions($year, $month, $effectiveYear->id, $transitionsPage);
 
-        return $this->render('@sos_staff/dashboard.html.twig', [
+        $page = [
             'sos_page' => self::PAGE_DASHBOARD,
-            'sos_number' => $this->providerConfigService->getSosNumber(),
             'month_param' => sprintf('%04d-%02d', $year, $month),
             'planned_transitions' => $transitions['entries'],
             'planned_transitions_page' => $transitions['page'],
             'planned_transitions_total_pages' => $transitions['total_pages'],
-        ] + $this->redirectBlockContext($this->buildRedirectStatus($effectiveYear->id)));
+        ];
+
+        return $this->render(
+            '@sos_staff/dashboard.html.twig',
+            $page + $this->redirectBlockContext($this->buildRedirectStatus($effectiveYear->id))
+        );
     }
 
     /**

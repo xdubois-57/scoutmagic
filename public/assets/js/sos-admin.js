@@ -98,7 +98,7 @@
     var currentMonth = data.month;
     // The planning's island carries the month it shows; the dashboard has no
     // island and names the month its list is drawn for on the list itself.
-    var monthParam = data.monthParam || (transitionsList && transitionsList.dataset.month) || '';
+    var monthParam = data.monthParam || transitionsList?.dataset.month || '';
     /** Roster order — decides who "wins" a day several people are marked on. */
     /** @type {number[]} */
     var orderedMemberIds = data.orderedMemberIds || [];
