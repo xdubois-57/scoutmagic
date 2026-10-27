@@ -62,9 +62,8 @@ use Modules\MassMail\Api\MassMailDraftInterface;
 class CampaignReminderService
 {
     /**
-     * The audience's columns, which are also the variables the composer
-     * offers. One payment block's worth, and no numbering: a row is one
-     * receivable.
+     * The audience's payment columns. Imported columns follow them in
+     * the composer; these calculated values win on a matching name.
      */
     public const COLUMNS = ['Prénom', 'Montant', 'Communication', 'QR', 'Bénéficiaire', 'IBAN'];
 
@@ -115,7 +114,19 @@ class CampaignReminderService
         $iban = IbanNormalizer::format(IbanNormalizer::normalize($account->iban));
 
         $rows = [];
+        $columns = self::COLUMNS;
+        $calculatedColumns = array_fill_keys(
+            array_map(static fn(string $column): string => mb_strtolower(trim($column)), self::COLUMNS),
+            true
+        );
         foreach ($demands as $demand) {
+            // The renderer matches column names without case or padding.
+            $mergeData = array_filter(
+                $demand['merge_data'],
+                static fn(int|string $column): bool =>
+                    !isset($calculatedColumns[mb_strtolower(trim((string) $column))]),
+                ARRAY_FILTER_USE_KEY
+            );
             // No `email`: with a member_id, mass_mail sends to that
             // member's addresses and would ignore one given here anyway.
             $rows[] = [
@@ -127,14 +138,21 @@ class CampaignReminderService
                     'QR' => $this->qrTokens->urlFor($demand['receivable_id'], $this->baseUrl),
                     'Bénéficiaire' => $beneficiary,
                     'IBAN' => $iban,
-                ],
+                ] + $mergeData,
             ];
+            $columns = array_values(array_unique([...$columns, ...array_map('strval', array_keys($mergeData))]));
+        }
+
+        $emptyValues = array_fill_keys($columns, '');
+        foreach ($rows as $index => $row) {
+            // A known column without a value must render empty, not as a token.
+            $rows[$index]['values'] += $emptyValues;
         }
 
         return $this->massMailDraft->createMergeDraft(
             'Rappel — ' . $campaign->label,
             'Rappel — ' . $campaign->label,
-            self::COLUMNS,
+            $columns,
             $rows,
             $actorRole,
             $actorEmail,
@@ -176,7 +194,14 @@ class CampaignReminderService
      * row of the audience, so a family of seven gets seven reminders and
      * none of the seven is left out.
      *
-     * @return list<array{member_id: int, name: string, amount_cents: int, communication: string, receivable_id: int}>
+     * @return list<array{
+     *     member_id: int,
+     *     name: string,
+     *     amount_cents: int,
+     *     communication: string,
+     *     receivable_id: int,
+     *     merge_data: array<string, string>
+     * }>
      */
     private function buildDemands(Campaign $campaign): array
     {
@@ -226,6 +251,7 @@ class CampaignReminderService
                 'amount_cents' => $settlement->amountRemainingCents(),
                 'communication' => $receivable->communication,
                 'receivable_id' => $receivable->id,
+                'merge_data' => $row->mergeData,
             ];
         }
 

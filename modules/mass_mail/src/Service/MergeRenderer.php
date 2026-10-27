@@ -83,7 +83,7 @@ class MergeRenderer
     }
 
     /**
-     * @param array<string, string> $data {header: value}
+     * @param array<array-key, string> $data {header: value}; PHP casts numeric headers to integer keys
      */
     public function renderHtml(string $template, array $data): string
     {
@@ -96,7 +96,7 @@ class MergeRenderer
      * Plain-text context (the subject) — no HTML escaping, the value is
      * used verbatim as text.
      *
-     * @param array<string, string> $data
+     * @param array<array-key, string> $data
      */
     public function renderText(string $template, array $data): string
     {
@@ -114,13 +114,13 @@ class MergeRenderer
      * for ever on an untouched unknown section, and nesting is out of
      * scope (see the class docblock).
      *
-     * @param array<string, string> $data
+     * @param array<array-key, string> $data
      */
     private function resolveSections(string $template, array $data): string
     {
         $byLower = [];
         foreach ($data as $column => $value) {
-            $byLower[mb_strtolower(trim($column))] = $value;
+            $byLower[mb_strtolower(trim((string) $column))] = $value;
         }
 
         return (string) preg_replace_callback(
@@ -168,7 +168,7 @@ class MergeRenderer
      * template actually uses — the test preview's "3 lignes sans valeur
      * pour Montant" style warning is built from this.
      *
-     * @param array<string, string> $data
+     * @param array<array-key, string> $data
      * @return string[]
      */
     public function findMissingValues(string $template, array $data): array
@@ -180,7 +180,7 @@ class MergeRenderer
 
         $byLower = [];
         foreach ($data as $column => $value) {
-            $byLower[mb_strtolower(trim($column))] = ['name' => $column, 'value' => $value];
+            $byLower[mb_strtolower(trim((string) $column))] = ['name' => (string) $column, 'value' => $value];
         }
 
         $missing = [];
@@ -191,17 +191,17 @@ class MergeRenderer
             }
         }
 
-        return array_keys($missing);
+        return array_map('strval', array_keys($missing));
     }
 
     /**
-     * @param array<string, string> $data
+     * @param array<array-key, string> $data
      */
     private function render(string $template, array $data, bool $escapeHtml): string
     {
         $byLower = [];
         foreach ($data as $column => $value) {
-            $byLower[mb_strtolower(trim($column))] = $value;
+            $byLower[mb_strtolower(trim((string) $column))] = $value;
         }
 
         return $this->engine->substitute(

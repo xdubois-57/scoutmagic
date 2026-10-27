@@ -139,6 +139,97 @@ class CampaignReminderServiceTest extends TestCase
         $this->assertNotSame($lucie['values']['QR'], $antoine['values']['QR']);
     }
 
+    public function testImportedColumnsBecomeMergeVariablesOfEachChildReminder(): void
+    {
+        $campaign = $this->campaignWith([
+            ['Lucie', 4500, ['Groupe' => 'Lutins', 'Remarque' => 'Premier rappel']],
+            ['Antoine', 3000, ['Groupe' => 'Louveteaux', 'Échéance' => '31 octobre']],
+        ]);
+
+        $this->service()->createDraft($campaign, 'intendant', 'tresorier@test.be', 7);
+
+        $this->assertSame(
+            [...CampaignReminderService::COLUMNS, 'Groupe', 'Remarque', 'Échéance'],
+            $this->draft->columns
+        );
+        [$lucie, $antoine] = $this->draft->rows;
+        $this->assertSame('Lutins', $lucie['values']['Groupe']);
+        $this->assertSame('Premier rappel', $lucie['values']['Remarque']);
+        $this->assertSame('Louveteaux', $antoine['values']['Groupe']);
+        $this->assertSame('31 octobre', $antoine['values']['Échéance']);
+        $this->assertSame('', $antoine['values']['Remarque']);
+        $this->assertSame('', $lucie['values']['Échéance']);
+
+        $renderer = new MergeRenderer();
+        $body = '<p>{{Prénom}} — {{Groupe}} : {{Remarque}}</p>';
+        $this->assertSame([], $renderer->findUnknownTokens($body, $this->draft->columns));
+        $this->assertSame('<p>Lucie — Lutins : Premier rappel</p>', $renderer->renderHtml($body, $lucie['values']));
+        $this->assertSame('<p>Antoine — Louveteaux : </p>', $renderer->renderHtml($body, $antoine['values']));
+    }
+
+    public function testCalculatedPaymentDetailsOverrideImportedColumnsWithTheSameName(): void
+    {
+        $campaign = $this->campaignWith([
+            ['Lucie', 4500, array_fill_keys(CampaignReminderService::COLUMNS, 'Imported override')],
+        ]);
+        $receivable = $this->receivableOf($campaign, 0);
+        $this->transactions->create(
+            $this->accountId, $this->scoutYearId, 'REF-1', '2026-02-18',
+            'Acompte ' . $receivable->communication, 20.00, null, null, 'import', null
+        );
+
+        $this->service()->createDraft($campaign, 'intendant', 'tresorier@test.be', 7);
+
+        $this->assertSame(CampaignReminderService::COLUMNS, $this->draft->columns);
+        $this->assertSame([
+            'Prénom' => 'Lucie',
+            'Montant' => '25,00 €',
+            'Communication' => $receivable->communication,
+            'QR' => $this->tokens->urlFor($receivable->id, 'https://scoutmagic.test'),
+            'Bénéficiaire' => 'Unité SV025 Ottignies',
+            'IBAN' => 'BE71 0961 2345 6769',
+        ], $this->draft->rows[0]['values']);
+    }
+
+    public function testNumericImportedHeadersRemainUsableMergeVariables(): void
+    {
+        $campaign = $this->campaignWith([['Lucie', 4500, ['2026' => 'Automne']]]);
+
+        $this->service()->createDraft($campaign, 'intendant', 'tresorier@test.be', 7);
+
+        $this->assertSame([...CampaignReminderService::COLUMNS, '2026'], $this->draft->columns);
+        $this->assertSame('Automne', (new MergeRenderer())->renderText('{{2026}}', $this->draft->rows[0]['values']));
+    }
+
+    public function testCalculatedColumnsCannotBeOverriddenByCaseOrWhitespaceVariants(): void
+    {
+        $campaign = $this->campaignWith([
+            ['Lucie', 4500, [
+                ' prénom ' => 'Imported name',
+                'mOnTaNt' => '0,01 €',
+                ' COMMUNICATION ' => 'Imported communication',
+                'qr' => 'https://example.invalid/qr',
+                ' bénéficiaire ' => 'Imported beneficiary',
+                'iban' => 'Imported IBAN',
+            ]],
+        ]);
+        $receivable = $this->receivableOf($campaign, 0);
+
+        $this->service()->createDraft($campaign, 'intendant', 'tresorier@test.be', 7);
+
+        $this->assertSame(CampaignReminderService::COLUMNS, $this->draft->columns);
+        $renderer = new MergeRenderer();
+        $this->assertSame(
+            'Lucie | 45,00 € | ' . $receivable->communication . ' | '
+                . $this->tokens->urlFor($receivable->id, 'https://scoutmagic.test')
+                . ' | Unité SV025 Ottignies | BE71 0961 2345 6769',
+            $renderer->renderText(
+                '{{Prénom}} | {{Montant}} | {{Communication}} | {{QR}} | {{Bénéficiaire}} | {{IBAN}}',
+                $this->draft->rows[0]['values']
+            )
+        );
+    }
+
     /**
      * The body used to carry at most six blocks, and a seventh child was
      * dropped by a `continue` without a word. One row per receivable has
@@ -390,7 +481,7 @@ class CampaignReminderServiceTest extends TestCase
     }
 
     /**
-     * @param array<int, array{0: string, 1: int}> $lines first name, amount in cents
+     * @param array<int, array{0: string, 1: int, 2?: array<string, string>}> $lines first name, amount in cents, imported columns
      */
     private function campaignWith(array $lines): Campaign
     {
@@ -405,9 +496,10 @@ class CampaignReminderServiceTest extends TestCase
         );
 
         $sequence = 0;
-        foreach ($lines as [$firstName, $amountCents]) {
+        foreach ($lines as $line) {
+            [$firstName, $amountCents] = $line;
             $sequence++;
-            $rowId = $this->rows->create($campaignId, $this->memberIds[$firstName], $amountCents, $sequence, []);
+            $rowId = $this->rows->create($campaignId, $this->memberIds[$firstName], $amountCents, $sequence, $line[2] ?? []);
             $this->receivables->create(
                 CampaignService::SOURCE_MODULE,
                 $rowId,
