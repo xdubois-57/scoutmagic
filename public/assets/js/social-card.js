@@ -258,6 +258,8 @@
                 filterBlurs = ctx.getImageData(6 - PROBE_RADIUS, 8, 1, 1).data[3] > 0;
             }
         } catch (error) {
+            // A context that cannot be read back is « not proven to blur »:
+            // the answer is already false, and the pixel path takes over.
             filterBlurs = false;
         }
 
@@ -271,7 +273,9 @@
      * @returns {'filter'|'pixels'}
      */
     function blurEngine() {
-        return (filterBlurs === null ? probeFilterBlur() : filterBlurs) ? 'filter' : 'pixels';
+        const works = filterBlurs === null ? probeFilterBlur() : filterBlurs;
+
+        return works ? 'filter' : 'pixels';
     }
 
     /**
@@ -446,6 +450,8 @@
             ctx.imageSmoothingQuality = 'high';
             ctx.drawImage(buffer, 0, 0, work, work, 0, 0, SIZE, SIZE);
         } catch (error) {
+            // Unreadable pixels, refused memory: said to the caller as
+            // « not blurred », never papered over with a sharp draw.
             return false;
         }
 
