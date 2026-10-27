@@ -369,18 +369,24 @@ describe('drawCard', () => {
     });
 
     it('never blurs the text or the veil, whatever the photo got', () => {
-        card().drawCard(canvas, {
+        // The filter engine is forced, and the draw's answer and the calls
+        // it made are asserted: without them a draw that stopped before the
+        // text (no context to blur in, as in jsdom) left nothing to loop
+        // over, and the test passed having checked nothing.
+        const drawn = card().drawCard(canvas, {
             image: { width: 1200, height: 1200 },
             title: 'Week-end',
             address: 'unite.be',
             blurRatio: 0.2,
+            blurEngine: 'filter',
         });
 
-        ctx.calls
-            .filter((call) => call.op === 'fillText' || call.op === 'gradient')
-            .forEach((call) => {
-                expect(call.filter === undefined || call.filter === 'none').toBe(true);
-            });
+        expect(drawn).toBe(true);
+        const overlay = ctx.calls.filter((call) => call.op === 'fillText' || call.op === 'gradient');
+        expect(overlay.length).toBeGreaterThan(0);
+        overlay.forEach((call) => {
+            expect(call.filter === undefined || call.filter === 'none').toBe(true);
+        });
     });
 
     it('veils from 378 px down to the foot, transparent at the top', () => {
@@ -710,6 +716,21 @@ describe('drawCard without ctx.filter', () => {
         // And the result is drawn unfiltered, over the whole square.
         const grown = ctx.calls.find((call) => call.op === 'drawImage');
         expect(grown).toMatchObject({ sw: 135, sh: 135, dx: 0, dy: 0, dw: 1080, dh: 1080, filter: 'none' });
+    });
+
+    it('still lays the veil and the text over a photo it blurred by hand', () => {
+        const { ctx, canvas } = withWorkArea();
+
+        const drawn = card().drawCard(canvas, {
+            image: photo, title: 'Week-end', address: 'unite.be', blurRatio: 0.1, blurEngine: 'pixels',
+        });
+
+        expect(drawn).toBe(true);
+        const overlay = ctx.calls.filter((call) => call.op === 'fillText' || call.op === 'gradient');
+        expect(overlay.length).toBeGreaterThan(0);
+        overlay.forEach((call) => {
+            expect(call.filter === undefined || call.filter === 'none').toBe(true);
+        });
     });
 
     it('reduces less for a small radius, where the grid would show', () => {
