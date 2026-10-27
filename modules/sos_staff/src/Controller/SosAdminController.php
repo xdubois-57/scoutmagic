@@ -833,9 +833,11 @@ class SosAdminController extends AbstractController
     }
 
     /**
-     * Sorted future-first (descending run_at) for display; the single
-     * nearest upcoming transition is flagged is_next for highlighting.
-     * Capped at 10 entries per page.
+     * Every transition from the first of the given month onward (the
+     * month's own, already-run ones included, for context), sorted
+     * future-first (descending run_at) for display; the single nearest
+     * upcoming transition is flagged is_next for highlighting. Capped at 10
+     * entries per page.
      *
      * @return array{
      *     entries: array<int, array{date: string, run_at: string, label: string, status: string, is_next: bool}>,
@@ -845,10 +847,13 @@ class SosAdminController extends AbstractController
      */
     private function buildPlannedTransitions(int $year, int $month, int $scoutYearId, int $page = 1): array
     {
-        $monthPrefix = sprintf('%04d-%02d', $year, $month);
+        // From the first of the month ON, not that month alone: the list is
+        // about what is still to come, and a handover scheduled for the 1st
+        // must show on the 31st (it is the next one, a few hours away).
+        $from = sprintf('%04d-%02d-01', $year, $month);
         $rows = array_values(array_filter(
             $this->schedulerService->findAllForTask(OnCallService::MODULE_ID, OnCallService::TASK_KEY, 500),
-            fn(array $row) => str_starts_with((string) $row['reference'], $monthPrefix) && $row['status'] !== 'canceled'
+            fn(array $row) => (string) $row['reference'] >= $from && $row['status'] !== 'canceled'
         ));
         usort($rows, fn(array $a, array $b) => $a['run_at'] <=> $b['run_at']);
 

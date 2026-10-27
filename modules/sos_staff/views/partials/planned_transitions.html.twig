@@ -5,7 +5,7 @@
 #}
 {% if planned_transitions is empty %}
     <div class="mb-4">
-        {% include 'partials/empty_state.html.twig' with { message: 'Aucune redirection planifiée ce mois-ci.', compact: true } only %}
+        {% include 'partials/empty_state.html.twig' with { message: 'Aucune redirection planifiée.', compact: true } only %}
     </div>
 {% else %}
     <ul class="list-group mb-2">

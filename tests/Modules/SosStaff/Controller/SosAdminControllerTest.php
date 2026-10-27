@@ -838,6 +838,39 @@ class SosAdminControllerTest extends TestCase
         $this->assertLessThan($posPast, $highlightPos);
     }
 
+    /**
+     * The list is about what is still to come: a handover scheduled for the
+     * 1st of next month is the NEXT one on the 31st, and the dashboard — which
+     * has no month to browse — must show it, highlighted.
+     */
+    public function testTheDashboardListsTransitionsOfLaterMonthsToo(): void
+    {
+        $memberId = $this->createStaffduMember('Akela', '+32470000001');
+        $schedulerService = new SchedulerService($this->schedulerRepository);
+        $nextMonth = new \DateTimeImmutable('first day of next month 10:00');
+        $schedulerService->schedule(
+            OnCallService::MODULE_ID,
+            OnCallService::TASK_KEY,
+            $nextMonth,
+            ['member_id' => $memberId],
+            $nextMonth->format('Y-m-d')
+        );
+
+        $body = $this->dashboard();
+
+        $this->assertStringContainsString($nextMonth->format('d/m/Y H:i'), $body);
+        $this->assertSame(1, substr_count($body, 'Prochain changement'));
+        $this->assertStringNotContainsString('Aucune redirection planifiée', $body);
+    }
+
+    public function testTheNextTransitionRowKeepsItsHighlightRuleInTheStylesheet(): void
+    {
+        $css = (string) file_get_contents(dirname(__DIR__, 4) . '/public/assets/css/app.css');
+
+        $this->assertMatchesRegularExpression('/\.sos-next-transition\s*\{[^}]*background-color/', $css);
+        $this->assertMatchesRegularExpression('/\.sos-next-transition\s*\{[^}]*border-left/', $css);
+    }
+
     public function testPlannedTransitionsPaginateBeyondTenEntries(): void
     {
         $memberId = $this->createStaffduMember('Akela', '+32470000001');
