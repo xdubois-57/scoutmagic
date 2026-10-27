@@ -1067,10 +1067,13 @@ membre n'est visible **que par ce membre lui-même**, jamais par un chef consult
 Finances" de la section 2.4 : (a) qu'une campagne de paiement facture un montant à chaque membre d'une liste, avec
 **une créance et une communication structurée par membre** — une famille de trois enfants reçoit trois demandes ; (b)
 que le fichier Excel chargé pour créer la campagne est conservé chiffré au repos, avec une copie de ses colonnes
-servant à personnaliser les rappels, et que ces deux éléments sont supprimés lorsque l'année scoute de la campagne
-sort de la fenêtre de conservation des imports Desk (2 années scoutes par défaut) — la campagne, ses montants et ses
-créances étant, eux, conservés comme données comptables ; (c) que la note interne écrite par un trésorier au sujet
-d'une créance est du texte libre chiffré au repos, visible des seuls trésoriers autorisés sur le compte, **jamais**
+servant à personnaliser les rappels dans la campagne, et que ces deux éléments sont supprimés lorsque l’année scoute
+de la campagne sort de la fenêtre de conservation des imports Desk (2 années scoutes par défaut) — la campagne, ses montants et ses
+créances étant, eux, conservés comme données comptables. Les variables copiées dans un rappel déjà préparé suivent
+la conservation du publipostage : 18 mois après le dernier envoi, sans suppression tant qu’un brouillon, un test ou
+un envoi en cours les utilise, et sept jours pour une audience sans message associé. La purge de la source de campagne
+ne supprime pas cette copie et n’empêche pas l’envoi du brouillon existant ; (c) que la note interne écrite par un
+trésorier au sujet d'une créance est du texte libre chiffré au repos, visible des seuls trésoriers autorisés sur le compte, **jamais**
 communiquée à la famille ni reprise dans un rappel, et jamais inscrite dans le journal d'audit ; (d) que le membre
 facturé est désigné par son identifiant interne et jamais par un nom réenregistré dans la campagne ; (e) qu'aucune
 donnée de carte bancaire n'est jamais collectée — les paiements se font par virement ; (f) que lorsque le trésorier
