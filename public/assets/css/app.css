@@ -864,10 +864,11 @@ body.cookie-banner-visible {
    (modules/sos_staff/views/partials/planned_transitions.html.twig). It was an
    inline <style> of the old single page; the list now lives on the
    dashboard AND is redrawn by the pagination endpoint, so the rule belongs
-   to the stylesheet (AGENTS.md § CSS). */
-.sos-next-transition {
+   to the stylesheet (AGENTS.md § CSS). Two classes, so it outranks
+   Bootstrap's `.list-group-item` border and background without !important. */
+.list-group-item.sos-next-transition {
     background-color: var(--bs-warning-bg-subtle, #fff3cd);
-    border-left: 4px solid var(--bs-warning, #ffc107) !important;
+    border-left: 4px solid var(--bs-warning, #ffc107);
 }
 
 /* A phone number (Core\View\PhoneExtension, public/assets/js/phone-link.js,
