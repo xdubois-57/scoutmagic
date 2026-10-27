@@ -1082,6 +1082,30 @@ class SosAdminControllerTest extends TestCase
         );
         $this->assertStringContainsString('id="sos-day-sheet-title"', $header[1]);
         $this->assertMatchesRegularExpression('/<button[^>]*data-bs-dismiss="offcanvas"[^>]*>.*?Fermer\s*<\/button>/s', $header[1]);
+        // Bootstrap pushes only its own .btn-close to the far edge of the
+        // header: a labelled button has to ask for it, or it sits against the
+        // title instead of at the right (seen on a phone).
+        $this->assertMatchesRegularExpression('/<button[^>]*class="[^"]*\bms-auto\b[^"]*"[^>]*data-bs-dismiss/', $header[1]);
+    }
+
+    /**
+     * Today's row on the phone list: Bootstrap's `.table-warning` is a pale
+     * yellow with black text in EVERY theme, while the row's « Par défaut —
+     * … » line is `text-body-secondary`, light grey in the dark theme — light
+     * grey on pale yellow, unreadable. The row takes the theme's own subtle
+     * warning colours, so they change together. (The browser scenario
+     * measures the contrast; this keeps the rule from being dropped.)
+     */
+    public function testTodaysRowTakesTheThemesOwnWarningColoursNotBootstrapsFixedYellow(): void
+    {
+        $css = (string) file_get_contents(dirname(__DIR__, 4) . '/public/assets/css/app.css');
+
+        $this->assertSame(1, preg_match('/\.sos-day-row\.table-warning\s*\{([^}]*)\}/', $css, $rule));
+        $this->assertMatchesRegularExpression('/--bs-table-bg:\s*var\(--bs-warning-bg-subtle\)/', $rule[1]);
+        $this->assertMatchesRegularExpression('/--bs-table-color:\s*var\(--bs-body-color\)/', $rule[1]);
+        // Still marked the way the script and the scenarios look for it.
+        $this->createStaffduMember('Akela', '+32470000001');
+        $this->assertStringContainsString('table-warning', $this->planning());
     }
 
     public function testTheFullScreenRuleOfTheDaySheetIsInTheStylesheet(): void

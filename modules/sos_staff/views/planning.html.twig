@@ -150,8 +150,10 @@
        however long the roster is. #}
     <div class="offcanvas offcanvas-bottom sos-day-sheet d-md-none" tabindex="-1" id="sos-day-sheet" aria-labelledby="sos-day-sheet-title" data-date="">
         <div class="offcanvas-header border-bottom">
-            <h2 class="offcanvas-title h5 mb-0" id="sos-day-sheet-title">Journée</h2>
-            <button type="button" class="btn btn-outline-secondary btn-sm tap-target text-nowrap" data-bs-dismiss="offcanvas">
+            <h2 class="offcanvas-title h5 mb-0 me-3" id="sos-day-sheet-title">Journée</h2>
+            {# `ms-auto`: Bootstrap pushes only its own .btn-close to the far
+               edge of the header, so a labelled button has to ask for it. #}
+            <button type="button" class="btn btn-outline-secondary btn-sm tap-target text-nowrap ms-auto flex-shrink-0 d-inline-flex align-items-center gap-1" data-bs-dismiss="offcanvas">
                 <i class="bi bi-x-lg" aria-hidden="true"></i> Fermer
             </button>
         </div>

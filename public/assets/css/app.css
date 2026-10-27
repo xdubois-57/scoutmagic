@@ -860,6 +860,21 @@ body.cookie-banner-visible {
     overscroll-behavior: contain;
 }
 
+/* Today's row in the SOS planning's phone list
+   (modules/sos_staff/views/planning.html.twig). Bootstrap's `.table-warning`
+   fixes a pale-yellow background and black text whatever the theme, while
+   the row's « Par défaut — … » line and its dot use `text-body-secondary`,
+   which turns light grey in the dark theme: light grey on pale yellow, and
+   the line vanished. The row takes the theme's own subtle-warning colours
+   and body text instead (amber on dark, pale yellow on light), so every
+   colour on it changes with the theme together. The class stays — the
+   marker the tests and the script look for. */
+.sos-day-row.table-warning {
+    --bs-table-bg: var(--bs-warning-bg-subtle);
+    --bs-table-color: var(--bs-body-color);
+    --bs-table-border-color: var(--bs-warning-border-subtle);
+}
+
 /* The next planned redirection in the SOS dashboard's list
    (modules/sos_staff/views/partials/planned_transitions.html.twig). It was an
    inline <style> of the old single page; the list now lives on the

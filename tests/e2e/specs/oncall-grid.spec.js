@@ -327,6 +327,38 @@ test('on a phone the month is a list of days, and one sheet edits any of them', 
     // ---------------------------------------------------------------
     const firstRow = dayList.locator('.sos-day-row').first();
     await expect(firstRow, 'the current month opens on today').toHaveClass(/table-warning/);
+
+    // Today's row must stay READABLE in both themes. Bootstrap's
+    // `.table-warning` is a fixed pale yellow, while the row's « Par défaut »
+    // line is `text-body-secondary` — light grey in the dark theme, which
+    // made it vanish on a phone. Measured as WCAG contrast of the line's
+    // colour against the cell's background, in each theme.
+    for (const theme of ['light', 'dark']) {
+        await page.evaluate((value) => document.documentElement.setAttribute('data-bs-theme', value), theme);
+        const contrast = await firstRow.evaluate((row) => {
+            const channels = (color) => color.match(/[\d.]+/g).map(Number);
+            const luminance = ([r, g, b]) => {
+                const [lr, lg, lb] = [r, g, b].map((value) => {
+                    const v = value / 255;
+                    return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+                });
+                return 0.2126 * lr + 0.7152 * lg + 0.0722 * lb;
+            };
+            const line = row.querySelector('[data-day-target]');
+            const background = channels(getComputedStyle(row.querySelector('td')).backgroundColor).slice(0, 3);
+            // `text-body-secondary` is a 75 %-opaque colour: measuring it as
+            // if it were solid would overstate the contrast, so it is
+            // composited over the background it is actually drawn on.
+            const [fr, fg, fb, alpha = 1] = channels(getComputedStyle(line).color);
+            const foreground = [fr, fg, fb].map((value, i) => alpha * value + (1 - alpha) * background[i]);
+            const lighter = Math.max(luminance(foreground), luminance(background));
+            const darker = Math.min(luminance(foreground), luminance(background));
+            return (lighter + 0.05) / (darker + 0.05);
+        });
+        expect(contrast, `today's row is readable in the ${theme} theme`).toBeGreaterThanOrEqual(4.5);
+    }
+    // Back to the theme the rest of the scenario was written for.
+    await page.evaluate(() => document.documentElement.removeAttribute('data-bs-theme'));
     await expect(main.getByRole('link', { name: "Aller à aujourd'hui" })).toBeVisible();
 
     // ---------------------------------------------------------------
@@ -376,6 +408,18 @@ test('on a phone the month is a list of days, and one sheet edits any of them', 
     const closeButton = sheet.getByRole('button', { name: 'Fermer' });
     await expect(closeButton, 'an obvious way back to the planning').toBeVisible();
     await expect(closeButton).toContainText('Fermer');
+    // At the right edge of the header, not against the title: Bootstrap
+    // pushes only its own .btn-close there, a labelled button must ask.
+    // Measured with a SHORT title: a long date fills the line and pushes the
+    // button to the edge by itself, which hid the defect from this scenario.
+    const sheetTitle = page.locator('#sos-day-sheet-title');
+    await sheetTitle.evaluate((node) => { node.textContent = 'Jour'; });
+    const closeBox = await closeButton.boundingBox();
+    expect(
+        sheetBox.x + sheetBox.width - (closeBox.x + closeBox.width),
+        'the close button sits at the right edge of the header',
+    ).toBeLessThanOrEqual(24);
+    await sheetTitle.evaluate((node, label) => { node.textContent = label; }, rowLabel);
 
     // The harness's unit chief is the roster's one member; their full name
     // is compared against itself rather than against a string written here.
