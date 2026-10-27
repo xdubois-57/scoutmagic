@@ -226,17 +226,7 @@
         padding-bottom: 0.5rem;
     }
 
-    /* The next planned redirection in the SOS dashboard's list
-   (modules/sos_staff/views/partials/planned_transitions.html.twig). It was an
-   inline <style> of the old single page; the list now lives on the
-   dashboard AND is redrawn by the pagination endpoint, so the rule belongs
-   to the stylesheet (AGENTS.md § CSS). */
-.sos-next-transition {
-    background-color: var(--bs-warning-bg-subtle, #fff3cd);
-    border-left: 4px solid var(--bs-warning, #ffc107) !important;
-}
-
-/* A phone number (Core\View\PhoneExtension) is the one target of its
+    /* A phone number (Core\View\PhoneExtension) is the one target of its
        cell and opens the sheet of actions (D10, D11 of
        docs/chantiers/CHANTIER-telephone.md). Without touch it has become
        text with « Copier », so nothing here grows a desktop table row. */
@@ -868,6 +858,16 @@ body.cookie-banner-visible {
     /* Keeps the last member's buttons clear of a phone's home indicator. */
     padding-bottom: calc(var(--bs-offcanvas-padding-y) + env(safe-area-inset-bottom, 0px));
     overscroll-behavior: contain;
+}
+
+/* The next planned redirection in the SOS dashboard's list
+   (modules/sos_staff/views/partials/planned_transitions.html.twig). It was an
+   inline <style> of the old single page; the list now lives on the
+   dashboard AND is redrawn by the pagination endpoint, so the rule belongs
+   to the stylesheet (AGENTS.md § CSS). */
+.sos-next-transition {
+    background-color: var(--bs-warning-bg-subtle, #fff3cd);
+    border-left: 4px solid var(--bs-warning, #ffc107) !important;
 }
 
 /* A phone number (Core\View\PhoneExtension, public/assets/js/phone-link.js,

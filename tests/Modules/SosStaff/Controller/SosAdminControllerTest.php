@@ -843,7 +843,7 @@ class SosAdminControllerTest extends TestCase
      * 1st of next month is the NEXT one on the 31st, and the dashboard — which
      * has no month to browse — must show it, highlighted.
      */
-    public function testTheDashboardListsTransitionsOfLaterMonthsToo(): void
+    public function testTheDashboardListsTheNextMonthsTransitionsToo(): void
     {
         $memberId = $this->createStaffduMember('Akela', '+32470000001');
         $schedulerService = new SchedulerService($this->schedulerRepository);
@@ -856,9 +856,21 @@ class SosAdminControllerTest extends TestCase
             $nextMonth->format('Y-m-d')
         );
 
+        // …but not a term ahead: the page shows the furthest first, so an
+        // open-ended window would bury the next handover on a later page.
+        $farAway = new \DateTimeImmutable('first day of +3 months 10:00');
+        $schedulerService->schedule(
+            OnCallService::MODULE_ID,
+            OnCallService::TASK_KEY,
+            $farAway,
+            ['member_id' => $memberId],
+            $farAway->format('Y-m-d')
+        );
+
         $body = $this->dashboard();
 
         $this->assertStringContainsString($nextMonth->format('d/m/Y H:i'), $body);
+        $this->assertStringNotContainsString($farAway->format('d/m/Y H:i'), $body);
         $this->assertSame(1, substr_count($body, 'Prochain changement'));
         $this->assertStringNotContainsString('Aucune redirection planifiée', $body);
     }
@@ -869,6 +881,17 @@ class SosAdminControllerTest extends TestCase
 
         $this->assertMatchesRegularExpression('/\.sos-next-transition\s*\{[^}]*background-color/', $css);
         $this->assertMatchesRegularExpression('/\.sos-next-transition\s*\{[^}]*border-left/', $css);
+
+        // At the top level: inside an @media block it would apply on some
+        // devices only (it once landed in the touch-only block). Counting
+        // braces up to the rule gives its depth.
+        $before = substr($css, 0, (int) strpos($css, '.sos-next-transition {'));
+        $before = (string) preg_replace('~/\*.*?\*/~s', '', $before);
+        $this->assertSame(
+            substr_count($before, '{'),
+            substr_count($before, '}'),
+            '.sos-next-transition must not sit inside an @media block'
+        );
     }
 
     public function testPlannedTransitionsPaginateBeyondTenEntries(): void

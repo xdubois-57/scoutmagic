@@ -833,11 +833,11 @@ class SosAdminController extends AbstractController
     }
 
     /**
-     * Every transition from the first of the given month onward (the
-     * month's own, already-run ones included, for context), sorted
-     * future-first (descending run_at) for display; the single nearest
-     * upcoming transition is flagged is_next for highlighting. Capped at 10
-     * entries per page.
+     * The transitions of the given month and the next (the month's own,
+     * already-run ones included, for context), sorted future-first
+     * (descending run_at) for display; the single nearest upcoming
+     * transition is flagged is_next for highlighting. Capped at 10 entries
+     * per page.
      *
      * @return array{
      *     entries: array<int, array{date: string, run_at: string, label: string, status: string, is_next: bool}>,
@@ -847,13 +847,20 @@ class SosAdminController extends AbstractController
      */
     private function buildPlannedTransitions(int $year, int $month, int $scoutYearId, int $page = 1): array
     {
-        // From the first of the month ON, not that month alone: the list is
+        // The given month AND the next, not that month alone: the list is
         // about what is still to come, and a handover scheduled for the 1st
-        // must show on the 31st (it is the next one, a few hours away).
-        $from = sprintf('%04d-%02d-01', $year, $month);
+        // must show on the 31st (it is the next one, a few hours away). Two
+        // months and no more, because the page shows the FURTHEST first —
+        // an open-ended window would fill page 1 with handovers planned a
+        // term ahead and push the next one, the one that matters, away.
+        $firstOfMonth = DateInput::firstOfMonth($year, $month);
+        $from = $firstOfMonth->format('Y-m-d');
+        $until = $firstOfMonth->modify('+2 months')->format('Y-m-d');
         $rows = array_values(array_filter(
             $this->schedulerService->findAllForTask(OnCallService::MODULE_ID, OnCallService::TASK_KEY, 500),
-            fn(array $row) => (string) $row['reference'] >= $from && $row['status'] !== 'canceled'
+            fn(array $row) => (string) $row['reference'] >= $from
+                && (string) $row['reference'] < $until
+                && $row['status'] !== 'canceled'
         ));
         usort($rows, fn(array $a, array $b) => $a['run_at'] <=> $b['run_at']);
 
