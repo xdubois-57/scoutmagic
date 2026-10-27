@@ -153,9 +153,13 @@ class OnCallService
         $today = $at->format('Y-m-d');
         // Built exactly as the scheduler builds a transition's run_at, so
         // the two cannot disagree about which side of the hour a moment is.
-        $changeover = new \DateTimeImmutable($today . ' ' . $this->settingsService->getTransitionHour() . ':00');
-        $date = $at >= $changeover ? $today : $at->modify('-1 day')->format('Y-m-d');
-        $previousDate = (new \DateTimeImmutable($date))->modify('-1 day')->format('Y-m-d');
+        $changeover = DateInput::requireFromStorage(
+            $today . ' ' . $this->settingsService->getTransitionHour() . ':00',
+            'sos_staff transition_hour'
+        );
+        $effective = $at >= $changeover ? $at : $at->modify('-1 day');
+        $date = $effective->format('Y-m-d');
+        $previousDate = $effective->modify('-1 day')->format('Y-m-d');
 
         return [
             'date' => $date,
