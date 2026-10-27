@@ -337,17 +337,23 @@ test('on a phone the month is a list of days, and one sheet edits any of them', 
         await page.evaluate((value) => document.documentElement.setAttribute('data-bs-theme', value), theme);
         const contrast = await firstRow.evaluate((row) => {
             const channels = (color) => color.match(/[\d.]+/g).map(Number);
-            const luminance = (color) => {
-                const [r, g, b] = channels(color).slice(0, 3).map((value) => {
+            const luminance = ([r, g, b]) => {
+                const [lr, lg, lb] = [r, g, b].map((value) => {
                     const v = value / 255;
                     return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
                 });
-                return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+                return 0.2126 * lr + 0.7152 * lg + 0.0722 * lb;
             };
             const line = row.querySelector('[data-day-target]');
-            const foreground = luminance(getComputedStyle(line).color);
-            const background = luminance(getComputedStyle(row.querySelector('td')).backgroundColor);
-            return (Math.max(foreground, background) + 0.05) / (Math.min(foreground, background) + 0.05);
+            const background = channels(getComputedStyle(row.querySelector('td')).backgroundColor).slice(0, 3);
+            // `text-body-secondary` is a 75 %-opaque colour: measuring it as
+            // if it were solid would overstate the contrast, so it is
+            // composited over the background it is actually drawn on.
+            const [fr, fg, fb, alpha = 1] = channels(getComputedStyle(line).color);
+            const foreground = [fr, fg, fb].map((value, i) => alpha * value + (1 - alpha) * background[i]);
+            const lighter = Math.max(luminance(foreground), luminance(background));
+            const darker = Math.min(luminance(foreground), luminance(background));
+            return (lighter + 0.05) / (darker + 0.05);
         });
         expect(contrast, `today's row is readable in the ${theme} theme`).toBeGreaterThanOrEqual(4.5);
     }
