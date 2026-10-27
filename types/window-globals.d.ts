@@ -129,6 +129,7 @@ interface Window {
         // (issue #928), and which way the card is therefore blurred.
         probeFilterBlur: () => boolean;
         blurEngine: () => 'filter' | 'pixels';
+        blurFailure: () => string;
         blurPixels: (pixels: Uint8ClampedArray, width: number, height: number, sigma: number) => void;
         // CardRenderer's geometry, so a test can state the
         // correspondence instead of restating the numbers.

@@ -232,6 +232,22 @@
     /** @type {boolean|null} The probe's answer, asked once per page. */
     let filterBlurs = null;
 
+    /** @type {string} Why the last blur attempt failed, for whoever has to diagnose a device. */
+    let lastBlurFailure = '';
+
+    /**
+     * Keeps the reason a blur step failed — readable from a console as
+     * `ScoutMagicCard.blurFailure()`, which is how a real iPhone's
+     * behaviour gets told apart from a guess (issue #928).
+     *
+     * @param {string} step
+     * @param {unknown} error
+     */
+    function noteBlurFailure(step, error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        lastBlurFailure = step + ': ' + reason;
+    }
+
     /**
      * Whether `ctx.filter` really blurs in this browser, tested on a
      * 16 px canvas: a 4 px black square drawn through `blur(2px)` leaves
@@ -259,8 +275,9 @@
             }
         } catch (error) {
             // A context that cannot be read back is « not proven to blur »:
-            // the answer is already false, and the pixel path takes over.
+            // the pixel path takes over, and the reason is kept.
             filterBlurs = false;
+            noteBlurFailure('probe', error);
         }
 
         return filterBlurs;
@@ -452,6 +469,8 @@
         } catch (error) {
             // Unreadable pixels, refused memory: said to the caller as
             // « not blurred », never papered over with a sharp draw.
+            noteBlurFailure('pixels', error);
+
             return false;
         }
 
@@ -688,5 +707,8 @@
         probeFilterBlur: probeFilterBlur,
         blurEngine: blurEngine,
         blurPixels: blurPixels,
+        blurFailure: function () {
+            return lastBlurFailure;
+        },
     };
 }());

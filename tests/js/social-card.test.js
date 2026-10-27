@@ -617,6 +617,8 @@ describe('knowing whether the browser can blur', () => {
     it('says no, rather than throwing, when the probe cannot run', () => {
         probeCanvas(255, { throws: true });
         expect(card().probeFilterBlur()).toBe(false);
+        // And keeps why, so a device can be diagnosed from its console.
+        expect(card().blurFailure()).toBe('probe: blocked');
 
         probeCanvas(255, { noContext: true });
         expect(card().probeFilterBlur()).toBe(false);
@@ -753,6 +755,7 @@ describe('drawCard without ctx.filter', () => {
 
         // Never a sharp photo standing in for a blurred one.
         expect(drawn).toBe(false);
+        expect(card().blurFailure()).toBe('pixels: blocked');
         expect(ctx.calls.filter((call) => call.op === 'drawImage')).toHaveLength(0);
         expect(ctx.calls.filter((call) => call.op === 'fillText')).toHaveLength(0);
     });
