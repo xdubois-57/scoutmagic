@@ -1,0 +1,23 @@
+{% extends "base.html.twig" %}
+
+{% block title %}Gérer le téléphone d'urgence — {{ site_name }}{% endblock %}
+
+{% block content %}
+    {% include 'partials/page_header.html.twig' with { title: "Gérer le téléphone d'urgence" } only %}
+
+    {% include '@sos_staff/partials/nav.html.twig' %}
+
+    {% include '@sos_staff/partials/redirect_status.html.twig' %}
+
+    <h2 class="h5 mb-3">Redirections planifiées</h2>
+    {# `data-month` is the month the list is drawn for: this page has no
+       month to browse, and sos-admin.js hands it back to the pagination
+       endpoint. #}
+    <div id="planned-transitions-list" data-month="{{ month_param }}">
+        {% include '@sos_staff/partials/planned_transitions.html.twig' %}
+    </div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ asset('/assets/js/sos-admin.js') }}" defer></script>
+{% endblock %}

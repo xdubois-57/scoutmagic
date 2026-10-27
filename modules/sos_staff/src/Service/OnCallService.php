@@ -132,6 +132,43 @@ class OnCallService
     }
 
     /**
+     * Who the planning says should be receiving the calls AT $at — the
+     * "attendu" the dashboard compares the provider's real state with
+     * (issue #1026).
+     *
+     * **Not simply « today's target ».** A day's duty starts at the
+     * changeover hour, not at midnight: computeAndScheduleTransitions()
+     * schedules each change at `{date} {hour}`. Before that hour the line
+     * is still the previous day's, so answering with today's target would
+     * flag a perfectly healthy redirection every morning of a handover, and
+     * the correction would run the handover ahead of its own scheduled
+     * transition (and notify early). `previous_member_id` is the holder
+     * before that one — the same pair a scheduled transition carries.
+     *
+     * @param int[] $orderedStaffMemberIds
+     * @return array{date: string, member_id: ?int, previous_member_id: ?int}
+     */
+    public function resolveExpectedTargetAt(\DateTimeImmutable $at, array $orderedStaffMemberIds): array
+    {
+        $today = $at->format('Y-m-d');
+        // Built exactly as the scheduler builds a transition's run_at, so
+        // the two cannot disagree about which side of the hour a moment is.
+        $changeover = DateInput::requireFromStorage(
+            $today . ' ' . $this->settingsService->getTransitionHour() . ':00',
+            'sos_staff transition_hour'
+        );
+        $effective = $at >= $changeover ? $at : $at->modify('-1 day');
+        $date = $effective->format('Y-m-d');
+        $previousDate = $effective->modify('-1 day')->format('Y-m-d');
+
+        return [
+            'date' => $date,
+            'member_id' => $this->resolveTargetForDate($date, $orderedStaffMemberIds),
+            'previous_member_id' => $this->resolveTargetForDate($previousDate, $orderedStaffMemberIds),
+        ];
+    }
+
+    /**
      * Who actually receives the calls, for every day of a month, plus how
      * many people are marked on call that day.
      *

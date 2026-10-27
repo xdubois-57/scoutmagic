@@ -291,6 +291,62 @@ class OnCallServiceTest extends TestCase
         $this->assertNull($this->service->resolveTargetForDate('2026-07-06', [1]));
     }
 
+    /**
+     * Issue #1026: a day's duty starts at the changeover hour, so before
+     * it the line is still the previous day's. The dashboard compares the
+     * provider's real state with THIS, and a flat « today's target » would
+     * flag a healthy redirection every morning of a handover.
+     */
+    public function testTheExpectedTargetIsStillYesterdaysBeforeTheChangeoverHour(): void
+    {
+        $this->onCallRepository->replaceRange('2026-07-01', '2026-07-31', [
+            new OnCallAssignment(1, '2026-07-04', OnCallAssignment::STATE_ONCALL),
+            new OnCallAssignment(2, '2026-07-05', OnCallAssignment::STATE_ONCALL),
+        ]);
+
+        $expected = $this->service->resolveExpectedTargetAt(new \DateTimeImmutable('2026-07-05 09:59:00'), [1, 2]);
+
+        $this->assertSame(
+            ['date' => '2026-07-04', 'member_id' => 1, 'previous_member_id' => null],
+            $expected
+        );
+    }
+
+    public function testTheExpectedTargetIsTodaysFromTheChangeoverHourOn(): void
+    {
+        $this->onCallRepository->replaceRange('2026-07-01', '2026-07-31', [
+            new OnCallAssignment(1, '2026-07-04', OnCallAssignment::STATE_ONCALL),
+            new OnCallAssignment(2, '2026-07-05', OnCallAssignment::STATE_ONCALL),
+        ]);
+
+        $expected = $this->service->resolveExpectedTargetAt(new \DateTimeImmutable('2026-07-05 10:00:00'), [1, 2]);
+
+        $this->assertSame(
+            ['date' => '2026-07-05', 'member_id' => 2, 'previous_member_id' => 1],
+            $expected
+        );
+    }
+
+    public function testTheExpectedTargetIsNullWhenNobodyIsOnDutyAndThatMeansTheDefaultNumber(): void
+    {
+        $expected = $this->service->resolveExpectedTargetAt(new \DateTimeImmutable('2026-07-05 12:00:00'), [1, 2]);
+
+        $this->assertNull($expected['member_id']);
+        $this->assertNull($expected['previous_member_id']);
+    }
+
+    public function testTheExpectedTargetCrossesAMonthBoundary(): void
+    {
+        $this->onCallRepository->replaceRange('2026-06-01', '2026-06-30', [
+            new OnCallAssignment(1, '2026-06-30', OnCallAssignment::STATE_ONCALL),
+        ]);
+
+        $expected = $this->service->resolveExpectedTargetAt(new \DateTimeImmutable('2026-07-01 08:00:00'), [1]);
+
+        $this->assertSame('2026-06-30', $expected['date']);
+        $this->assertSame(1, $expected['member_id']);
+    }
+
     public function testSaveMonthIncludesScoutYearIdInScheduledPayload(): void
     {
         $this->service->saveMonth(2026, 7, [

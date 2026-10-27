@@ -836,6 +836,41 @@ body.cookie-banner-visible {
     }
 }
 
+/* The SOS planning's day sheet (modules/sos_staff/views/planning.html.twig,
+   issue #1024) — one offcanvas, opened on a phone to choose who is on duty
+   that day. Bootstrap's bottom offcanvas is 30vh tall, which kept the
+   roster in a thin strip under a greyed-out planning with the second member
+   cut off at the screen's edge: here it takes the whole usable height, and
+   only its body scrolls (.offcanvas-body already does), so the day and the
+   « Fermer » button never leave the screen. `dvh` is the height the screen
+   really has while a mobile browser's address bar is showing; `100%` of a
+   fixed element is the fallback for a browser without it. Parameterizes
+   Bootstrap's own variable — duplicates no component (AGENTS.md § CSS). */
+.sos-day-sheet {
+    --bs-offcanvas-height: 100%;
+}
+@supports (height: 100dvh) {
+    .sos-day-sheet {
+        --bs-offcanvas-height: 100dvh;
+    }
+}
+.sos-day-sheet .offcanvas-body {
+    /* Keeps the last member's buttons clear of a phone's home indicator. */
+    padding-bottom: calc(var(--bs-offcanvas-padding-y) + env(safe-area-inset-bottom, 0px));
+    overscroll-behavior: contain;
+}
+
+/* The next planned redirection in the SOS dashboard's list
+   (modules/sos_staff/views/partials/planned_transitions.html.twig). It was an
+   inline <style> of the old single page; the list now lives on the
+   dashboard AND is redrawn by the pagination endpoint, so the rule belongs
+   to the stylesheet (AGENTS.md § CSS). Two classes, so it outranks
+   Bootstrap's `.list-group-item` border and background without !important. */
+.list-group-item.sos-next-transition {
+    background-color: var(--bs-warning-bg-subtle, #fff3cd);
+    border-left: 4px solid var(--bs-warning, #ffc107);
+}
+
 /* A phone number (Core\View\PhoneExtension, public/assets/js/phone-link.js,
    docs/chantiers/CHANTIER-telephone.md). The number's own 44px touch
    target is in the pointer:coarse block at the top of this file. The

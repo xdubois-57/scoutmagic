@@ -33,7 +33,7 @@ Lis aussi, avant IT-01 :
 - `tests/Core/Service/TextNormalizerServiceTest.php` et
   `tests/Core/Member/Export/MemberExportRowBuilderTest.php`, qui exercent tous deux
   `normalizePhone()` ;
-- `core/View/templates/partials/help_panel.html.twig` et `modules/sos_staff/views/admin.html.twig`,
+- `core/View/templates/partials/help_panel.html.twig` et `modules/sos_staff/views/planning.html.twig`,
   les deux endroits qui utilisent déjà un `offcanvas-bottom` ;
 - un script de `public/assets/js/` qui teste `matchMedia` (`camps-map.js`, `push-invitation.js`) et
   son pendant dans `tests/js/` : la convention JS et Vitest du dépôt.

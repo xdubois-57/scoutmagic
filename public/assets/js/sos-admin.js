@@ -3,10 +3,15 @@
  * Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
  */
 
-// SOS Staff d'U admin page (modules/sos_staff/views/admin.html.twig): the
-// default-number / transition-hour / notification settings, the duty roster
-// in its two layouts, and the AJAX pagination of the planned-redirections
-// list. Extracted from the template's inline <script> so the Vitest suite can
+// SOS Staff d'U admin pages (modules/sos_staff/views/): one script for the
+// three sub-pages of /admin/sos (issue #1026), each of which loads it and
+// uses only its own part —
+//   - the dashboard: the « Réactiver / Resynchroniser la redirection » button
+//     and the AJAX pagination of the planned-redirections list;
+//   - the planning: the duty roster in its two layouts;
+//   - the settings: the default-number / transition-hour / notification
+//     controls.
+// Extracted from the template's inline <script> so the Vitest suite can
 // exercise the production code directly (tests/js/sos-admin.test.js) — an
 // inline template script is invisible to both Vitest and `npm run typecheck`.
 //
@@ -68,9 +73,11 @@
     var saveStatus = document.getElementById('oncall-save-status');
     var sheet = document.getElementById('sos-day-sheet');
     var dayList = document.getElementById('sos-day-list');
+    var statusBlock = document.getElementById('sos-status-banner');
 
     // A no-op on every other page of the site: this file is a page script.
-    if (!defaultNumberSelect && !transitionHourInput && !emailToggle && !transitionsList && !saveStatus) {
+    if (!defaultNumberSelect && !transitionHourInput && !emailToggle && !transitionsList && !saveStatus
+        && !statusBlock) {
         return;
     }
 
@@ -89,7 +96,9 @@
     var settledSequence = 0;
     var currentYear = data.year;
     var currentMonth = data.month;
-    var monthParam = data.monthParam || '';
+    // The planning's island carries the month it shows; the dashboard has no
+    // island and names the month its list is drawn for on the list itself.
+    var monthParam = data.monthParam || transitionsList?.dataset.month || '';
     /** Roster order — decides who "wins" a day several people are marked on. */
     /** @type {number[]} */
     var orderedMemberIds = data.orderedMemberIds || [];
@@ -536,9 +545,8 @@
 
     // Phone layout: three named buttons, each setting its own state. Bound
     // directly rather than by delegation — every one of them is on the page
-    // at load (the sheet renders the roster once for the whole month, the
-    // « Ma disponibilité » rows are server-rendered), so nothing appears
-    // later that a delegated listener would be needed for.
+    // at load (the sheet renders the roster once for the whole month), so
+    // nothing appears later that a delegated listener would be needed for.
     document.querySelectorAll('.sos-state-button').forEach(function (node) {
         var button = /** @type {HTMLElement} */ (node);
         button.addEventListener('click', function () {
@@ -622,6 +630,82 @@
             }
         });
     }
+
+    // --- « Réactiver / Resynchroniser la redirection » (dashboard) ---
+
+    /** One operation at a time: the button is disabled while it runs, and this covers the click that beat the disabling. */
+    var redirectInFlight = false;
+
+    /**
+     * Asks the server to put the provider's real state back on the
+     * destination the planning expects, and redraws the block once — and
+     * only once — the server has READ IT BACK from the provider.
+     *
+     * Nothing is sent but the CSRF token: the destination is worked out on
+     * the server, at this moment, and a number from the page could not
+     * steer the emergency line. The outcome is the site's toast and nothing
+     * else — no confirmation dialog before, no message left in the page
+     * after (issue #1026). A refusal leaves the block as it was, button
+     * included, which is how the visitor tries again.
+     *
+     * @param {HTMLButtonElement} button
+     * @returns {Promise<void>}
+     */
+    async function resynchronizeRedirect(button) {
+        if (redirectInFlight) {
+            return;
+        }
+        redirectInFlight = true;
+        button.setAttribute('aria-busy', 'true');
+        button.querySelector('[data-redirect-spinner]')?.classList.remove('d-none');
+
+        try {
+            var res = await api.withDisabled(button, function () {
+                return api.postJson('/admin/sos/redirection', {});
+            });
+            if (!succeeded(res)) {
+                toastFailure(res);
+                return;
+            }
+
+            var block = document.getElementById('sos-status-banner');
+            if (block && typeof res.data.html === 'string') {
+                block.outerHTML = res.data.html;
+                bindRedirectButton();
+                // The button that had focus is gone with the old block: put
+                // the focus on the new block's title so a keyboard or
+                // screen-reader visitor lands on the result, not on <body>.
+                var title = document.getElementById('sos-status-title');
+                if (title) {
+                    title.setAttribute('tabindex', '-1');
+                    title.focus();
+                }
+            }
+            window.ScoutMagicToast.show(res.data.message || 'Redirection vérifiée.', { variant: 'success' });
+        } finally {
+            redirectInFlight = false;
+            // Only matters when the block was NOT replaced (a refusal): the
+            // old button is still the one on screen.
+            button.removeAttribute('aria-busy');
+            button.querySelector('[data-redirect-spinner]')?.classList.add('d-none');
+        }
+    }
+
+    /**
+     * Binds the correction button, if the block currently has one. Called
+     * again after a redrawn block comes in: the old button, and its
+     * listener, went with the old block.
+     */
+    function bindRedirectButton() {
+        const button = /** @type {HTMLButtonElement|null} */ (document.getElementById('sos-redirect-sync'));
+        if (button) {
+            button.addEventListener('click', function () {
+                void resynchronizeRedirect(button);
+            });
+        }
+    }
+
+    bindRedirectButton();
 
     // --- Planned redirections list (AJAX pagination, no page reload) ---
 

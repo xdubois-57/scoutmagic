@@ -7731,12 +7731,7 @@ if ($isEnabled('sos_staff')) {
             $schedulerService,
             $scoutYearResolver,
             $journalService,
-            // « Ma disponibilité » needs to know which roster member the
-            // signed-in visitor is — a convenience tab, never a rule: the
-            // route stays role_min admin and the month tab still edits
-            // anybody.
-            $memberService,
-            // The admin page's section-activity columns consume the
+            // The planning's section-activity columns consume the
             // calendar module's read Api (§7.5) and no-op when it's
             // disabled ($calendarServiceForOthers is then still null).
             $calendarServiceForOthers

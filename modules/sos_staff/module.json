@@ -2,7 +2,7 @@
   "id": "sos_staff",
   "name": "Téléphone d'urgence",
   "description": "Dévie le numéro d'urgence de l'unité vers le staff de garde.",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -22,6 +22,57 @@
           "Espace chefs d'U"
         ]
       }
+    },
+    {
+      "path": "/admin/sos/planning",
+      "method": "GET",
+      "controller": "Modules\\SosStaff\\Controller\\SosAdminController",
+      "action": "planning",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": "",
+      "breadcrumb": {
+        "label": "Planning des gardes",
+        "parents": [
+          "Espace chefs d'U"
+        ],
+        "ancestors": [
+          {
+            "label": "Gérer le téléphone d'urgence",
+            "path": "/admin/sos"
+          }
+        ]
+      }
+    },
+    {
+      "path": "/admin/sos/reglages",
+      "method": "GET",
+      "controller": "Modules\\SosStaff\\Controller\\SosAdminController",
+      "action": "settings",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": "",
+      "breadcrumb": {
+        "label": "Réglages du téléphone d'urgence",
+        "parents": [
+          "Espace chefs d'U"
+        ],
+        "ancestors": [
+          {
+            "label": "Gérer le téléphone d'urgence",
+            "path": "/admin/sos"
+          }
+        ]
+      }
+    },
+    {
+      "path": "/admin/sos/redirection",
+      "method": "POST",
+      "controller": "Modules\\SosStaff\\Controller\\SosAdminController",
+      "action": "resynchronizeRedirect",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
     },
     {
       "path": "/admin/sos/default-number",

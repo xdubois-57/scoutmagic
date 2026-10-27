@@ -131,7 +131,15 @@ class RedirectService
         $this->notifyHandover($newMemberId, $previousMemberId, $scoutYearId);
     }
 
-    private function resolveNumber(?int $memberId, int $scoutYearId): ?string
+    /**
+     * The number a redirection to $memberId means — the member's mobile, or
+     * the default number when the member is null or has none. apply() takes
+     * its target from here, and so does the dashboard when it decides
+     * whether the provider's real state is the expected one (issue #1026):
+     * two readings of « where should the calls go » would be two rules.
+     * Null means no valid destination exists at all.
+     */
+    public function resolveNumber(?int $memberId, int $scoutYearId): ?string
     {
         if ($memberId === null) {
             return $this->settingsService->getDefaultNumber($scoutYearId);

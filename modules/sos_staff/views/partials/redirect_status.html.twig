@@ -1,0 +1,70 @@
+{#
+  « Redirection actuelle » — where the calls go RIGHT NOW, as read from the
+  provider, not what the planning says they should (issue #750): the
+  planning is the rule, this is the fact.
+
+  Since issue #1026 it also carries the one correction the page can make.
+  The button appears only when the provider's real state and the
+  destination the planning expects are both known and DIFFER:
+
+      inactive, a destination expected      → « Réactiver la redirection »
+      active, but on another number         → « Resynchroniser la redirection »
+      conform / unreadable / no destination → no button
+
+  Shared between dashboard.html.twig and SosAdminController's answer to the
+  correction (which hands the refreshed block back to public/assets/js/
+  sos-admin.js), so the two can never drift. `redirect_action` is
+  'reactivate', 'resync' or null.
+#}
+<section class="border rounded-3 p-3 mb-4" id="sos-status-banner" aria-labelledby="sos-status-title">
+    <div class="d-flex align-items-start gap-2">
+        {% if live_state.error %}
+            {% set dot_class = 'text-danger' %}
+        {% elseif live_state.active %}
+            {% set dot_class = 'text-success' %}
+        {% else %}
+            {% set dot_class = 'text-body-secondary' %}
+        {% endif %}
+        <i class="bi bi-circle-fill small mt-1 {{ dot_class }}" aria-hidden="true"></i>
+        <div>
+            {% if live_state.error %}
+                <h2 class="h6 mb-1 text-danger" id="sos-status-title">État de la redirection illisible chez le fournisseur</h2>
+                <p class="small mb-0">{{ live_state.error }}</p>
+            {% elseif live_state.active %}
+                <h2 class="h6 mb-1" id="sos-status-title">Redirection active chez le fournisseur</h2>
+                <p class="small mb-0">
+                    Les appels{% if sos_number %} au {{ sos_number }}{% endif %} sont actuellement redirigés vers
+                    <strong>{% if live_state.label %}{{ live_state.label }} — {% endif %}{{ live_state.number }}</strong>.
+                </p>
+            {% else %}
+                <h2 class="h6 mb-1" id="sos-status-title">Redirection inactive chez le fournisseur</h2>
+                <p class="small mb-0">
+                    Les appels{% if sos_number %} au {{ sos_number }}{% endif %} ne sont actuellement redirigés vers aucun
+                    téléphone.
+                </p>
+            {% endif %}
+
+            {% if redirect_action %}
+                <p class="small mb-2 mt-2" id="sos-redirect-expected">
+                    D'après les gardes, les appels devraient être redirigés vers
+                    <strong>{% if redirect_expected_label %}{{ redirect_expected_label }} — {% endif %}{{ redirect_expected_number }}</strong>.
+                </p>
+                {# One click starts it — no confirmation (issue #1026). The
+                   script disables the button while the provider is being
+                   asked and shows the spinner; the outcome is the site's
+                   toast, never text left in the page. #}
+                <button type="button" class="btn btn-sm btn-primary" id="sos-redirect-sync"
+                        data-redirect-action="{{ redirect_action }}">
+                    <span class="spinner-border spinner-border-sm me-1 d-none" aria-hidden="true" data-redirect-spinner></span>
+                    <span data-redirect-label>{{ redirect_action == 'reactivate' ? 'Réactiver la redirection' : 'Resynchroniser la redirection' }}</span>
+                </button>
+            {% elseif redirect_expected_number is null and not live_state.error %}
+                <p class="small text-warning-emphasis mb-0 mt-2" id="sos-redirect-no-destination">
+                    <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
+                    Aucun destinataire valide n'est disponible (ni garde, ni numéro par défaut utilisable) : la
+                    redirection ne peut pas être corrigée d'ici.
+                </p>
+            {% endif %}
+        </div>
+    </div>
+</section>

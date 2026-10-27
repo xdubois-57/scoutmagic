@@ -1,0 +1,109 @@
+{% extends "base.html.twig" %}
+
+{% block title %}Réglages du téléphone d'urgence — {{ site_name }}{% endblock %}
+
+{% block content %}
+    {% include 'partials/page_header.html.twig' with { title: "Réglages du téléphone d'urgence" } only %}
+
+    {% include '@sos_staff/partials/nav.html.twig' %}
+
+    {# ==================================================================
+       The three settings, unchanged: they used to sit at the bottom of the
+       planning page (issue #750: no accordion, a click to reach three
+       controls was one too many) and moved here in issue #1026. Each
+       control still saves exactly as it did (design.md §7.13).
+       ================================================================== #}
+    <section class="mb-4" id="sos-settings" aria-label="Réglages">
+        <div>
+            <p class="text-body-secondary small">L'enregistrement est automatique — il n'y a pas de bouton « Enregistrer », sauf pour le numéro par défaut.</p>
+            <div class="row g-3">
+                <div class="col-12 col-md-6">
+                    {% if staff_options is empty %}
+                        {# A <label> pointing at a control that is not rendered
+                           is a label for nothing — this branch has no select,
+                           so it carries a heading instead. #}
+                        <p class="form-label small mb-1">Numéro par défaut</p>
+                        <p class="text-danger small mb-0">
+                            <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
+                            Aucun membre du Staff d'U n'a de numéro de mobile enregistré — impossible de définir un numéro par défaut.
+                            Complétez un numéro de mobile pour au moins un membre du Staff d'U.
+                        </p>
+                    {% else %}
+                        {#
+                          An explicit button, unlike the two controls beside
+                          it. This select decides which phone the unit's SOS
+                          number rings on every day nobody is on duty, and it
+                          used to save on `change` — so a mis-click, or an
+                          arrow key on a focused select, re-routed the unit's
+                          emergency line with nothing to confirm and nothing
+                          to cancel. The button is disabled until the value
+                          actually differs from what is stored, which is also
+                          what makes an accidental change visible.
+                        #}
+                        <div class="d-flex gap-2 align-items-end">
+                            {# `data-saved-value` is what sos-admin.js compares
+                               against to decide whether « Enregistrer » may be
+                               pressed at all. #}
+                            {% include 'partials/form_field.html.twig' with {
+                                field_id: 'default-number-member', label: 'Numéro par défaut',
+                                type: 'select', size: 'sm', wrapper_class: 'flex-grow-1',
+                                data: { 'saved-value': default_number_selection_member_id },
+                                options: staff_options|default([])|map(option => {
+                                    value: option.member_id,
+                                    label: option.label ~ ' (' ~ option.mobile ~ ')',
+                                    selected: default_number_selection_member_id == option.member_id,
+                                }),
+                            } only %}
+                            <button type="button" class="btn btn-sm btn-primary text-nowrap" id="default-number-save" disabled>
+                                Enregistrer
+                            </button>
+                        </div>
+                        <p class="text-body-secondary small mt-1 mb-0">
+                            Numéro utilisé les jours sans garde explicite. Il doit toujours s'agir d'un membre du Staff d'U —
+                            par défaut, le/la responsable de la section Staff d'U ; choisissez un autre membre ci-dessus pour l'imposer explicitement.
+                        </p>
+                        {# Shown ONLY when saving would really change who the
+                           line rings today, i.e. when today has no explicit
+                           on-call and the default number governs it. A
+                           permanent warning that is wrong half the time ends
+                           up ignored. #}
+                        {% if today_uses_default_number %}
+                            <p class="text-warning-emphasis small mt-1 mb-0" id="default-number-immediate-warning">
+                                <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
+                                Aujourd'hui n'a pas de garde attribuée : enregistrer ce numéro redirigera les appels immédiatement
+                                et préviendra les personnes concernées par e-mail.
+                            </p>
+                        {% endif %}
+                        <div class="text-danger small mt-1 d-none" id="default-number-error" role="alert"></div>
+                    {% endif %}
+                </div>
+                <div class="col-6 col-md-3">
+                    {% include 'partials/form_field.html.twig' with {
+                        field_id: 'transition-hour', label: 'Heure de changement de garde',
+                        type: 'time', value: transition_hour, size: 'sm', wrapper_class: '',
+                    } only %}
+                </div>
+                <div class="col-12 col-md-3">
+                    {# The switch and its label inside ONE .form-check:
+                       a label outside it left the switch drawn over the
+                       start of the sentence below (issue #750). #}
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" role="switch" id="email-notifications-toggle"
+                               aria-checked="{{ email_notifications_enabled ? 'true' : 'false' }}"
+                               aria-describedby="email-notifications-help"
+                               {{ email_notifications_enabled ? 'checked' : '' }}>
+                        <label class="form-check-label small" for="email-notifications-toggle">Notifications de garde</label>
+                    </div>
+                    <p class="text-body-secondary small mt-1 mb-0" id="email-notifications-help">
+                        Prévient la personne vers qui le numéro SOS est redirigé quand sa garde commence, et celle
+                        dont la garde se termine. Chacun choisit ses canaux dans ses préférences de notifications.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </section>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ asset('/assets/js/sos-admin.js') }}" defer></script>
+{% endblock %}

@@ -1,0 +1,23 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{#
+  The three sub-pages of « Gérer le téléphone d'urgence » (issue #1026),
+  through the site's one page picker (design.md §7.6): the same rail every
+  other module's sub-pages use. The page opens on the first.
+
+  `sos_page` is the path of the page being drawn, handed over by
+  SosAdminController — a rail that read the request's own path would break
+  the moment a page were rendered from anywhere but its route.
+#}
+{% include 'partials/page_picker.html.twig' with {
+    picker_id: 'sos-page-picker',
+    pages: [
+        { url: '/admin/sos', label: 'Tableau de bord' },
+        { url: '/admin/sos/planning', label: 'Planning' },
+        { url: '/admin/sos/reglages', label: 'Réglages' },
+    ],
+    current_path: sos_page,
+    aria_label: "Pages du téléphone d'urgence",
+} only %}
