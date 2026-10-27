@@ -12,7 +12,6 @@ use Core\Http\Controller\AbstractController;
 use Core\Http\Request;
 use Core\Http\Response;
 use Core\Journal\JournalService;
-use Core\Member\MemberService;
 use Core\Member\SectionService;
 use Core\Scheduler\SchedulerService;
 use Core\ScoutYear\ScoutYearResolver;
@@ -33,12 +32,22 @@ use Modules\SosStaff\Service\SosSettingsService;
 use Twig\Environment;
 
 /**
- * /admin/sos — the duty-roster planning page (module spec §2). role_min
- * admin (chief d'unité) — day-to-day planning, distinct from /config/sos
- * (superadmin, holds the API credentials).
+ * /admin/sos — the duty-roster pages (module spec §2), in three sub-pages
+ * (issue #1026): the dashboard (where the calls go now, and what is
+ * planned), the planning, and the settings. role_min admin (chief d'unité)
+ * — day-to-day planning, distinct from /config/sos (superadmin, holds the
+ * API credentials).
  */
 class SosAdminController extends AbstractController
 {
+    /**
+     * The sub-pages, in the order the rail shows them. The first is the
+     * page /admin/sos itself opens on.
+     */
+    private const PAGE_DASHBOARD = '/admin/sos';
+    private const PAGE_PLANNING = '/admin/sos/planning';
+    private const PAGE_SETTINGS = '/admin/sos/reglages';
+
     public function __construct(
         protected Environment $twig,
         private ProviderConfigService $providerConfigService,
@@ -49,28 +58,63 @@ class SosAdminController extends AbstractController
         private SchedulerService $schedulerService,
         private ScoutYearResolver $scoutYearResolver,
         private JournalService $journalService,
-        private MemberService $memberService,
         private ?CalendarEventLookupInterface $calendarEvents = null
     ) {
     }
 
     /**
+     * Tableau de bord — where the calls go RIGHT NOW (as read from the
+     * provider), the one correction that can be made from here, and what is
+     * planned to change.
+     *
      * @param array<string, string> $params
      */
     public function index(Request $request, array $params): Response
     {
-        $role = Role::fromString(AuthSession::getRole());
-
-        // Issue #750: with no telephony provider, nothing below has any
-        // effect — a planning would route calls to nowhere. One warning,
-        // a link for whoever can configure it, and nothing else.
-        if ($this->providerConfigService->getActiveProvider() === null) {
-            return $this->render('@sos_staff/admin.html.twig', [
-                'provider_configured' => false,
-                'can_configure' => $role->hasAccess(Role::SUPERADMIN),
-            ]);
+        // The planning used to live on this very page: a bookmark or a
+        // notification link carrying a month still lands on that month.
+        $requestedMonth = $request->getQuery('month');
+        if (is_string($requestedMonth) && $requestedMonth !== '') {
+            return $this->redirect(self::PAGE_PLANNING . '?month=' . rawurlencode($requestedMonth));
         }
 
+        if ($this->providerConfigService->getActiveProvider() === null) {
+            return $this->renderNotConfigured();
+        }
+
+        $role = Role::fromString(AuthSession::getRole());
+        $effectiveYear = $this->scoutYearResolver->getEffectiveYear(ScoutYearSession::getPreviewId(), $role);
+
+        // The list follows the CURRENT month: this page has no month to
+        // browse, and what is about to change is what it is for.
+        $year = (int) date('Y');
+        $month = (int) date('n');
+        $transitionsPage = max(1, (int) $request->getQuery('transitions_page', 1));
+        $transitions = $this->buildPlannedTransitions($year, $month, $effectiveYear->id, $transitionsPage);
+
+        return $this->render('@sos_staff/dashboard.html.twig', [
+            'sos_page' => self::PAGE_DASHBOARD,
+            'sos_number' => $this->providerConfigService->getSosNumber(),
+            'month_param' => sprintf('%04d-%02d', $year, $month),
+            'planned_transitions' => $transitions['entries'],
+            'planned_transitions_page' => $transitions['page'],
+            'planned_transitions_total_pages' => $transitions['total_pages'],
+        ] + $this->redirectBlockContext($this->buildRedirectStatus($effectiveYear->id)));
+    }
+
+    /**
+     * Planning — the month of duties, on a phone as a list of days plus one
+     * full-screen sheet, on a computer as the grid.
+     *
+     * @param array<string, string> $params
+     */
+    public function planning(Request $request, array $params): Response
+    {
+        if ($this->providerConfigService->getActiveProvider() === null) {
+            return $this->renderNotConfigured();
+        }
+
+        $role = Role::fromString(AuthSession::getRole());
         $effectiveYear = $this->scoutYearResolver->getEffectiveYear(ScoutYearSession::getPreviewId(), $role);
 
         $staffOptions = $this->settingsService->getStaffOptions($effectiveYear->id);
@@ -84,30 +128,15 @@ class SosAdminController extends AbstractController
         $nextMonth = $month === 12 ? 1 : $month + 1;
         $nextYear = $month === 12 ? $year + 1 : $year;
 
-        $transitionsPage = max(1, (int) $request->getQuery('transitions_page', 1));
-        $transitions = $this->buildPlannedTransitions($year, $month, $effectiveYear->id, $transitionsPage);
-
         $sectionActivity = $this->buildSectionActivity($year, $month, $role);
         $defaultMemberId = $this->settingsService->resolveDefaultNumberMemberId($effectiveYear->id);
 
         $today = (new \DateTimeImmutable())->format('Y-m-d');
 
-        return $this->render('@sos_staff/admin.html.twig', [
-            'provider_configured' => true,
-            'sos_number' => $this->providerConfigService->getSosNumber(),
-            'live_state' => $this->resolveLiveState($effectiveYear->id),
+        return $this->render('@sos_staff/planning.html.twig', [
+            'sos_page' => self::PAGE_PLANNING,
             'staff_options' => $staffOptions,
-            'default_number_selection_member_id' => $defaultMemberId,
             'default_number_label' => $this->labelFromOptions($staffOptions, $defaultMemberId),
-            // §4b: the warning beside the default-number picker is shown
-            // only when saving would really change who the SOS line rings
-            // — exactly the condition applyImmediatelyIfTodayUsesDefault()
-            // acts on. A permanent warning that is wrong half the time
-            // ends up ignored.
-            'today_uses_default_number' => $this->onCallService
-                ->resolveTargetForDate($today, $orderedStaffMemberIds) === null,
-            'transition_hour' => $this->settingsService->getTransitionHour(),
-            'email_notifications_enabled' => $this->settingsService->isEmailNotificationsEnabled(),
             'year' => $year,
             'month' => $month,
             'today' => $today,
@@ -120,7 +149,6 @@ class SosAdminController extends AbstractController
             'section_activity' => $sectionActivity,
             // The phone layout only (the desktop .sos-grid still renders
             // `days` whole, and is not concerned by any of this).
-            'mobile_tab' => $request->getQuery('tab') === 'me' ? 'me' : 'month',
             'mobile_days' => $this->buildMobileDays(
                 $grid,
                 $sectionActivity,
@@ -128,12 +156,253 @@ class SosAdminController extends AbstractController
                 $staffOptions,
                 $today
             ),
-            'my_member_id' => $this->resolveSignedInStaffMemberId($staffOptions, $effectiveYear->id),
             'ordered_staff_member_ids' => array_map('intval', $orderedStaffMemberIds),
-            'planned_transitions' => $transitions['entries'],
-            'planned_transitions_page' => $transitions['page'],
-            'planned_transitions_total_pages' => $transitions['total_pages'],
         ]);
+    }
+
+    /**
+     * Réglages — the three settings that used to sit at the bottom of the
+     * planning page, unchanged.
+     *
+     * @param array<string, string> $params
+     */
+    public function settings(Request $request, array $params): Response
+    {
+        if ($this->providerConfigService->getActiveProvider() === null) {
+            return $this->renderNotConfigured();
+        }
+
+        $role = Role::fromString(AuthSession::getRole());
+        $effectiveYear = $this->scoutYearResolver->getEffectiveYear(ScoutYearSession::getPreviewId(), $role);
+
+        $staffOptions = $this->settingsService->getStaffOptions($effectiveYear->id);
+        $orderedStaffMemberIds = array_column($staffOptions, 'member_id');
+        $today = (new \DateTimeImmutable())->format('Y-m-d');
+
+        return $this->render('@sos_staff/settings.html.twig', [
+            'sos_page' => self::PAGE_SETTINGS,
+            'staff_options' => $staffOptions,
+            'default_number_selection_member_id' => $this->settingsService
+                ->resolveDefaultNumberMemberId($effectiveYear->id),
+            // §4b: the warning beside the default-number picker is shown
+            // only when saving would really change who the SOS line rings
+            // — exactly the condition applyImmediatelyIfTodayUsesDefault()
+            // acts on. A permanent warning that is wrong half the time
+            // ends up ignored.
+            'today_uses_default_number' => $this->onCallService
+                ->resolveTargetForDate($today, $orderedStaffMemberIds) === null,
+            'transition_hour' => $this->settingsService->getTransitionHour(),
+            'email_notifications_enabled' => $this->settingsService->isEmailNotificationsEnabled(),
+        ]);
+    }
+
+    /**
+     * « Réactiver / Resynchroniser la redirection » (issue #1026): puts the
+     * provider's real state back on the destination the planning expects.
+     *
+     * **Nothing the browser sends decides anything.** The destination is
+     * worked out here, now, by the same rules the scheduled transitions
+     * use (OnCallService::resolveExpectedTargetAt() and
+     * RedirectService::resolveNumber()); the request body carries the CSRF
+     * token and nothing else. Neither the month the visitor was browsing
+     * nor a number they could have typed into the request can steer the
+     * emergency line.
+     *
+     * The change itself is RedirectService::apply() — the check, the
+     * provider call, the read-back, the journal, the handover
+     * notifications — and the state is then read from the provider once
+     * more here: an acknowledgement of the request is not a success, only a
+     * redirection that reads back as the expected one is. The planning and
+     * the transitions already scheduled are not touched.
+     *
+     * @param array<string, string> $params
+     */
+    public function resynchronizeRedirect(Request $request, array $params): Response
+    {
+        $data = $this->decodeAndAuthorize($request);
+        if ($data instanceof Response) {
+            return $data;
+        }
+
+        if ($this->providerConfigService->getActiveProvider() === null) {
+            return $this->json(['success' => false, 'error' => "La téléphonie n'est pas encore configurée."], 409);
+        }
+
+        $role = Role::fromString(AuthSession::getRole());
+        $scoutYearId = $this->scoutYearResolver->getEffectiveYear(ScoutYearSession::getPreviewId(), $role)->id;
+
+        $status = $this->buildRedirectStatus($scoutYearId);
+        if ($status['live_state']['error'] !== null) {
+            return $this->json([
+                'success' => false,
+                'error' => "Impossible de lire l'état de la redirection chez le fournisseur : "
+                    . $status['live_state']['error'],
+            ], 409);
+        }
+        if ($status['expected_number'] === null) {
+            return $this->json([
+                'success' => false,
+                'error' => "Aucun destinataire valide : ni garde aujourd'hui, ni numéro par défaut utilisable.",
+            ], 409);
+        }
+        if ($status['action'] === null) {
+            // Someone else — or the scheduler — got there first. It was read
+            // from the provider just now, so saying so is true.
+            return $this->json([
+                'success' => true,
+                'message' => 'La redirection est déjà conforme.',
+                'html' => $this->renderRedirectBlock($status),
+            ]);
+        }
+
+        $this->journalService->log(
+            'sos_staff',
+            'redirect_manual_requested',
+            'info',
+            $status['action'] === 'reactivate'
+                ? 'Réactivation manuelle de la redirection demandée'
+                : 'Resynchronisation manuelle de la redirection demandée',
+            ['member_id' => $status['expected_member_id']],
+            AuthSession::getUserAccountId()
+        );
+
+        try {
+            // The member the line is leaving, if it was on one, is told the
+            // same way a scheduled handover tells them.
+            $this->redirectService->apply(
+                $status['expected_member_id'],
+                $status['live_state']['active'] ? $status['live_state']['member_id'] : null,
+                $scoutYearId
+            );
+        } catch (SosException $e) {
+            return $this->json(['success' => false, 'error' => $e->getMessage()], 502);
+        }
+
+        $after = $this->buildRedirectStatus($scoutYearId);
+        if ($after['live_state']['error'] !== null || $after['action'] !== null) {
+            return $this->json([
+                'success' => false,
+                'error' => "La redirection n'a pas pu être vérifiée chez le fournisseur — réessayez.",
+            ], 502);
+        }
+
+        return $this->json([
+            'success' => true,
+            'message' => $status['action'] === 'reactivate'
+                ? 'Redirection réactivée et vérifiée.'
+                : 'Redirection resynchronisée et vérifiée.',
+            'html' => $this->renderRedirectBlock($after),
+        ]);
+    }
+
+    /**
+     * Without a provider nothing on these pages has any effect — a planning
+     * would route calls to nowhere (issue #750) — so each sub-page says so
+     * once, with a link for whoever can configure it, and shows nothing else.
+     */
+    private function renderNotConfigured(): Response
+    {
+        $role = Role::fromString(AuthSession::getRole());
+
+        return $this->render('@sos_staff/not_configured.html.twig', [
+            'can_configure' => $role->hasAccess(Role::SUPERADMIN),
+        ]);
+    }
+
+    /**
+     * What the dashboard's « Redirection actuelle » block shows and offers.
+     *
+     * The provider's real state is compared with where the planning says
+     * the calls should be going NOW (see
+     * OnCallService::resolveExpectedTargetAt() for why that is not simply
+     * today's target). The correction is offered only when both are known
+     * and they differ; an unreadable provider or the lack of any valid
+     * destination is information, never a misalignment to «fix».
+     *
+     * @return array{
+     *   live_state: array{active: bool, number: ?string, label: ?string, member_id: ?int, error: ?string},
+     *   expected_member_id: ?int,
+     *   expected_number: ?string,
+     *   expected_label: ?string,
+     *   action: ?string
+     * }
+     */
+    private function buildRedirectStatus(int $scoutYearId): array
+    {
+        $live = $this->resolveLiveState($scoutYearId);
+
+        $staffOptions = $this->settingsService->getStaffOptions($scoutYearId);
+        $expectedMemberId = $this->onCallService->resolveExpectedTargetAt(
+            new \DateTimeImmutable(),
+            array_column($staffOptions, 'member_id')
+        )['member_id'];
+        $expectedNumber = $this->redirectService->resolveNumber($expectedMemberId, $scoutYearId);
+
+        $action = null;
+        if ($live['error'] === null && $expectedNumber !== null) {
+            if (!$live['active']) {
+                $action = 'reactivate';
+            } elseif ($live['number'] !== $expectedNumber) {
+                $action = 'resync';
+            }
+        }
+
+        $expectedLabel = null;
+        foreach ($staffOptions as $option) {
+            if ($option['mobile'] === $expectedNumber) {
+                $expectedLabel = $option['label'];
+                break;
+            }
+        }
+
+        return [
+            'live_state' => $live,
+            'expected_member_id' => $expectedMemberId,
+            'expected_number' => $expectedNumber,
+            'expected_label' => $expectedLabel,
+            'action' => $action,
+        ];
+    }
+
+    /**
+     * @param array{
+     *   live_state: array{active: bool, number: ?string, label: ?string, member_id: ?int, error: ?string},
+     *   expected_member_id: ?int,
+     *   expected_number: ?string,
+     *   expected_label: ?string,
+     *   action: ?string
+     * } $status
+     * @return array<string, mixed>
+     */
+    private function redirectBlockContext(array $status): array
+    {
+        return [
+            'sos_number' => $this->providerConfigService->getSosNumber(),
+            'live_state' => $status['live_state'],
+            'redirect_action' => $status['action'],
+            'redirect_expected_number' => $status['expected_number'],
+            'redirect_expected_label' => $status['expected_label'],
+        ];
+    }
+
+    /**
+     * The block alone, for the answer to the correction — the same partial
+     * the dashboard includes, so the two can never drift.
+     *
+     * @param array{
+     *   live_state: array{active: bool, number: ?string, label: ?string, member_id: ?int, error: ?string},
+     *   expected_member_id: ?int,
+     *   expected_number: ?string,
+     *   expected_label: ?string,
+     *   action: ?string
+     * } $status
+     */
+    private function renderRedirectBlock(array $status): string
+    {
+        return $this->renderToString(
+            '@sos_staff/partials/redirect_status.html.twig',
+            $this->redirectBlockContext($status)
+        );
     }
 
     /**
@@ -210,35 +479,6 @@ class SosAdminController extends AbstractController
         }
 
         return $rows;
-    }
-
-    /**
-     * Which Staff d'U roster member the signed-in visitor IS, for the
-     * « Ma disponibilité » tab — null when they are not on the roster
-     * (an admin who is not a chef d'unité, a login linked to no member).
-     *
-     * This is a CONVENIENCE, never an authorization rule: /admin/sos stays
-     * role_min admin and the « Le mois » tab still edits anybody through
-     * the day sheet (SECURITY.md §3 — a filtered view is UI, never the
-     * boundary).
-     *
-     * @param array<int, array{member_id: int, label: string, mobile: string}> $staffOptions
-     */
-    private function resolveSignedInStaffMemberId(array $staffOptions, int $scoutYearId): ?int
-    {
-        $email = AuthSession::getEmail();
-        if ($email === null || $email === '') {
-            return null;
-        }
-
-        $rosterIds = array_map('intval', array_column($staffOptions, 'member_id'));
-        foreach ($this->memberService->getLinkedMembers($email, $scoutYearId) as $profile) {
-            if (in_array($profile->memberId, $rosterIds, true)) {
-                return $profile->memberId;
-            }
-        }
-
-        return null;
     }
 
     /**
@@ -510,33 +750,41 @@ class SosAdminController extends AbstractController
     }
 
     /**
-     * @return array{active: bool, number: ?string, label: ?string, error: ?string}
+     * @return array{active: bool, number: ?string, label: ?string, member_id: ?int, error: ?string}
      */
     private function resolveLiveState(int $scoutYearId): array
     {
         $provider = $this->providerConfigService->getActiveProvider();
         if ($provider === null) {
-            return ['active' => false, 'number' => null, 'label' => null, 'error' => 'Aucun fournisseur de téléphonie '
-                . 'actif configuré.'];
+            return ['active' => false, 'number' => null, 'label' => null, 'member_id' => null, 'error' => 'Aucun '
+                . 'fournisseur de téléphonie actif configuré.'];
         }
 
         try {
             $state = $provider->readForwardingState();
         } catch (ProviderException $e) {
-            return ['active' => false, 'number' => null, 'label' => null, 'error' => $e->getMessage()];
+            return [
+                'active' => false, 'number' => null, 'label' => null, 'member_id' => null,
+                'error' => $e->getMessage(),
+            ];
         }
 
         $label = null;
+        $memberId = null;
         if ($state->number !== null) {
             foreach ($this->settingsService->getStaffOptions($scoutYearId) as $option) {
                 if ($option['mobile'] === $state->number) {
                     $label = $option['label'];
+                    $memberId = (int) $option['member_id'];
                     break;
                 }
             }
         }
 
-        return ['active' => $state->active, 'number' => $state->number, 'label' => $label, 'error' => null];
+        return [
+            'active' => $state->active, 'number' => $state->number, 'label' => $label, 'member_id' => $memberId,
+            'error' => null,
+        ];
     }
 
     /**

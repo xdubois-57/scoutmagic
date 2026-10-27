@@ -2128,7 +2128,7 @@ Days with nobody on duty forward to a **default number**, and that default is al
 
 Saving the grid computes the day-to-day changes and schedules **one background transition per actual change**, at the changeover hour the administrator chose — and a change whose moment has already passed today is applied straight away rather than waiting for tomorrow. A transition is a sequence, not a single call: check the current state, set the forwarding, verify it afterwards, notify, journal. A technical failure is journaled **and** emailed to a superadmin, rather than left as a silent no-op on an emergency line. The person taking over and the one handing over are emailed too, when that setting is on.
 
-The page shows the **real** state of the forwarding, read live from the operator — not what the site believes it set — and the list of the transitions still to come. A forwarding that no longer matches the grid usually means the background tasks are not running: without a real cron at the host, they run late.
+The dashboard shows the **real** state of the forwarding, read live from the operator — not what the site believes it set — and the list of the transitions still to come. A forwarding that no longer matches the grid usually means the background tasks are not running: without a real cron at the host, they run late; §38.6 is the button that puts it right in the meantime.
 
 Duty data older than a year — the assignments and the transitions scheduled for them — is purged whenever the grid is saved; there is no separate nightly task for it, and nothing to run by hand.
 
@@ -2140,6 +2140,18 @@ The telephony provider is pluggable; OVH is the one implemented. Its credentials
 
 Consecutive duty days appear as single read-only events on the animateurs' calendar (§27) — **computed live from the duty grid** as virtual events, never written into the calendar's own storage, so the grid stays the single source of truth and the two can never disagree. They are consequently not editable from the calendar page: the duty grid is where the rota changes, and a calendar-side edit could never reach the telephony forwarding anyway. With the Calendrier module disabled, this does nothing at all.
 
+
+### 38.6 The three pages, and putting a wrong redirection right
+
+The unit chiefs' page « Gérer le téléphone d'urgence » is three sub-pages on the site's usual rail, in this order: **Tableau de bord** (the page it opens on), **Planning** and **Réglages**. Nothing was added or removed but the layout, and the permissions are those of the single page it replaces — the technical configuration of the operator stays on its own page, reserved to the super-administrator (§38.4).
+
+- **Tableau de bord** — « Redirection actuelle » (the real state read from the operator and, when active, who the calls really reach), then « Redirections planifiées » (the transitions still to come, the next one highlighted, paged).
+- **Planning** — the month: on a phone the list of days with who really receives the calls, the section activities, and the month navigation; on a computer the grid. Touching a day on a phone opens **the whole screen** — the date at the top, a labelled « Fermer » to come back, the Staff d'U members scrolling underneath each with its three named choices **Garde / Indispo / Rien** — never a strip at the bottom of the page with the second member cut off. Saving is automatic, with the same rules as before. The « Ma disponibilité » tab is gone: the planning has always let a chief set everybody's duties.
+- **Réglages** — the default number (with its « Enregistrer » button and its immediate-effect warning), the changeover hour and the duty notifications, unchanged.
+
+**Correcting the redirection.** The dashboard compares the operator's real state with where the planning says the calls should go *right now*: the member on duty, else the default number — and « right now » respects the changeover hour, so until it strikes the expected destination is still the previous day's. When the two agree there is no button. When the redirection is **inactive** where a destination is expected the block offers « Réactiver la redirection »; when it is **active on another number**, « Resynchroniser la redirection ». When the operator cannot be read, or no valid destination exists (no duty and no usable default number), the block says so and offers nothing: that is information, not a misalignment to fix.
+
+One click starts it, with no confirmation. The destination is worked out again on the server when the click arrives — it depends neither on the month being browsed nor on anything the browser sends — and the change goes through the same sequence as a scheduled one: check, change, read-back, journal, and the usual notification to whoever takes the duty and whoever leaves it. The operator is then read once more, and **only a redirection that reads back as the expected one is reported as done**: a green toast « Redirection réactivée et vérifiée. » / « Redirection resynchronisée et vérifiée. » and the block redrawn without reloading the page. A refusal, an unreachable operator or a state that does not read back right is a red toast, the problem stays on screen and the button can be pressed again; while an operation runs the button is disabled, so repeated clicks start nothing. The planning and the transitions already scheduled are left exactly as they were.
 
 ## 39. Intelligence artificielle (module llm_connector)
 

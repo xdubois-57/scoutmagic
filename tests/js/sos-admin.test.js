@@ -24,7 +24,11 @@
 //   - a {success:false} body and an HTTP 500 that is not JSON are both
 //     failures, never a silent "Enregistré.";
 //   - a server message containing markup is shown as text;
-//   - the transitions pagination never writes a failed response into the page.
+//   - the transitions pagination never writes a failed response into the page;
+//   - the dashboard's « Réactiver / Resynchroniser la redirection » button
+//     (issue #1026): one click, no dialog, nothing sent but the CSRF token,
+//     one operation at a time, the block redrawn only from the server's
+//     answer, and a toast — never text left in the page — for the outcome.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
@@ -839,42 +843,155 @@ describe('sos-admin.js', () => {
         });
     });
 
-    describe('« Ma disponibilité » — the same buttons, no sheet', () => {
-        /** The tab as the template renders it: one row per day, one member. */
-        const MY_TAB_DOM = `
-            <div class="list-group" id="sos-my-availability">
-                <div class="list-group-item" id="sos-day-2026-03-01">
-                    <span>dim 1</span>
-                    <div class="btn-group">
-                        <button type="button" class="btn btn-sm sos-state-button btn-success"
-                                data-member-id="4" data-date="2026-03-01" data-state="oncall"
-                                aria-pressed="true">Garde</button>
-                        <button type="button" class="btn btn-sm sos-state-button btn-outline-secondary"
-                                data-member-id="4" data-date="2026-03-01" data-state="unavailable"
-                                aria-pressed="false">Indispo</button>
-                        <button type="button" class="btn btn-sm sos-state-button btn-outline-secondary"
-                                data-member-id="4" data-date="2026-03-01" data-state=""
-                                aria-pressed="false">Rien</button>
-                    </div>
-                </div>
-            </div>
-            <div id="oncall-save-status"></div>`;
+    describe('« Réactiver / Resynchroniser la redirection » — the dashboard (issue #1026)', () => {
+        const BLOCK_BEFORE = `
+            <section id="sos-status-banner">
+                <h2 id="sos-status-title">Redirection inactive chez le fournisseur</h2>
+                <button type="button" id="sos-redirect-sync" data-redirect-action="reactivate">
+                    <span class="spinner-border d-none" data-redirect-spinner></span>
+                    <span data-redirect-label>Réactiver la redirection</span>
+                </button>
+            </section>`;
+        const BLOCK_AFTER = `
+            <section id="sos-status-banner">
+                <h2 id="sos-status-title">Redirection active chez le fournisseur</h2>
+            </section>`;
 
-        it('saves the month from a row that never opens a sheet', async () => {
-            document.body.innerHTML = MY_TAB_DOM;
+        /** The dashboard: no island, no grid — the block and the planned list. */
+        function dashboardDom() {
+            installIsland('sos-admin-data', undefined);
+            document.body.innerHTML = BLOCK_BEFORE
+                + '<div id="planned-transitions-list" data-month="2026-05">'
+                + '<ul class="list-group"><li>page 1</li></ul><nav><a href="#" data-transitions-page="2">2</a></nav></div>';
+        }
+
+        const button = () => document.getElementById('sos-redirect-sync');
+        const click = () => button().dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+
+        beforeEach(() => {
+            dashboardDom();
+        });
+
+        it('starts on one click, with no dialog, sending the CSRF token and nothing else', async () => {
+            global.fetch = mockFetch({
+                '/admin/sos/redirection': { success: true, message: 'Redirection réactivée et vérifiée.', html: BLOCK_AFTER },
+            });
             await boot();
 
-            document
-                .querySelector('.sos-state-button[data-state="unavailable"]')
-                .dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+            click();
             await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
 
-            const { url, body } = lastRequest();
-            expect(url).toBe('/admin/sos/oncall');
-            expect(body.cells).toContainEqual({ member_id: 4, date: '2026-03-01', state: 'unavailable' });
-            expect(document.querySelector('.sos-state-button[data-state="unavailable"]').classList
-                .contains('btn-danger')).toBe(true);
-            expect(document.getElementById('oncall-save-status').textContent).toBe('Enregistrement…');
+            const { url, opts, body } = lastRequest();
+            expect(url).toBe('/admin/sos/redirection');
+            expect(opts.method).toBe('POST');
+            // The destination is the server's to work out: no number, no
+            // member, no month rides on this request.
+            expect(body).toEqual({ _csrf_token: 'tok-123' });
+            expect(window.ScoutMagicConfirm.ask).not.toHaveBeenCalled();
+        });
+
+        it('redraws the block from the answer and says so with the green toast, once', async () => {
+            global.fetch = mockFetch({
+                '/admin/sos/redirection': { success: true, message: 'Redirection réactivée et vérifiée.', html: BLOCK_AFTER },
+            });
+            await boot();
+
+            click();
+            await vi.waitFor(() => expect(window.ScoutMagicToast.show).toHaveBeenCalled());
+
+            expect(document.getElementById('sos-status-title').textContent).toBe('Redirection active chez le fournisseur');
+            expect(button()).toBeNull();
+            expect(window.ScoutMagicToast.show).toHaveBeenCalledTimes(1);
+            expect(window.ScoutMagicToast.show)
+                .toHaveBeenCalledWith('Redirection réactivée et vérifiée.', { variant: 'success' });
+            // Focus moves to the new block, the old button having gone with the old one.
+            expect(document.activeElement).toBe(document.getElementById('sos-status-title'));
+        });
+
+        it('makes the work perceptible and allows no second operation while one runs', async () => {
+            let finish;
+            global.fetch = vi.fn(() => new Promise((resolve) => {
+                finish = () => resolve({
+                    ok: true,
+                    status: 200,
+                    json: () => Promise.resolve({ success: true, message: 'Redirection réactivée et vérifiée.', html: BLOCK_AFTER }),
+                });
+            }));
+            await boot();
+
+            click();
+            await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+            expect(button().disabled).toBe(true);
+            expect(button().getAttribute('aria-busy')).toBe('true');
+            expect(button().querySelector('[data-redirect-spinner]').classList.contains('d-none')).toBe(false);
+
+            // Clicks that beat the disabling, or a keyboard repeat, start nothing.
+            click();
+            click();
+            expect(fetch).toHaveBeenCalledTimes(1);
+
+            finish();
+            await vi.waitFor(() => expect(window.ScoutMagicToast.show).toHaveBeenCalled());
+            expect(fetch).toHaveBeenCalledTimes(1);
+        });
+
+        it('a refusal gets the red toast, leaves the problem on screen and allows another try', async () => {
+            global.fetch = mockFetch({
+                '/admin/sos/redirection': { success: false, error: 'Le changement de redirection du numéro SOS a échoué.' },
+            });
+            await boot();
+
+            click();
+            await vi.waitFor(() => expect(window.ScoutMagicToast.show).toHaveBeenCalled());
+
+            expect(window.ScoutMagicToast.show).toHaveBeenCalledTimes(1);
+            expect(window.ScoutMagicToast.show).toHaveBeenCalledWith(
+                'Le changement de redirection du numéro SOS a échoué.',
+                { variant: 'error' },
+            );
+            expect(document.getElementById('sos-status-title').textContent).toContain('inactive');
+            expect(button().disabled).toBe(false);
+            expect(button().querySelector('[data-redirect-spinner]').classList.contains('d-none')).toBe(true);
+            expect(button().hasAttribute('aria-busy')).toBe(false);
+
+            click();
+            await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+        });
+
+        it('an HTTP error page is a failure too, never a success', async () => {
+            global.fetch = vi.fn(() => htmlErrorResponse());
+            await boot();
+
+            click();
+            await vi.waitFor(() => expect(window.ScoutMagicToast.show).toHaveBeenCalled());
+
+            expect(window.ScoutMagicToast.show)
+                .toHaveBeenCalledWith('Erreur : réponse serveur invalide.', { variant: 'error' });
+            expect(document.getElementById('sos-status-title').textContent).toContain('inactive');
+        });
+
+        it('answers clicks on a button the redrawn block brought in', async () => {
+            // A block that, once redrawn, still has something to correct.
+            global.fetch = mockFetch({
+                '/admin/sos/redirection': { success: true, message: 'Redirection resynchronisée et vérifiée.', html: BLOCK_BEFORE },
+            });
+            await boot();
+
+            click();
+            await vi.waitFor(() => expect(window.ScoutMagicToast.show).toHaveBeenCalledTimes(1));
+            click();
+            await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+        });
+
+        it('is the only thing on the page that needs no island: the list pages for the month it names', async () => {
+            await boot();
+
+            document.querySelector('[data-transitions-page="2"]').dispatchEvent(
+                new MouseEvent('click', { bubbles: true, cancelable: true }),
+            );
+            await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
+
+            expect(String(fetch.mock.calls[0][0])).toContain('month=2026-05');
         });
     });
 

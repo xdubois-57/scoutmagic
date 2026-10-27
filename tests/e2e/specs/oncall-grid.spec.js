@@ -1,5 +1,7 @@
-// End-to-end: the SOS on-call duty grid — a three-state cell cycle whose
-// every click re-posts the whole month.
+// End-to-end: the SOS Staff d'U pages (/admin/sos and its two sub-pages,
+// issue #1026) — the dashboard's one-click correction of the redirection,
+// the duty grid's three-state cell cycle whose every click re-posts the
+// whole month, and the phone's full-screen day sheet (issue #1024).
 //
 // WHY THIS SCENARIO EXISTS
 // ----------------------------------------------------------------------------
@@ -12,10 +14,10 @@
 // roster is what the unit's public emergency number redirects to, so
 // "the grid still saves" is worth its own scenario.
 //
-// This first scenario is the DESKTOP grid and nothing else. The phone
-// layout is no longer a second rendering of the same cells — it is a list
-// of days plus one edit sheet, at a viewport where the grid does not
-// exist at all — so it has a scenario of its own further down.
+// The DESKTOP grid and the PHONE layout are two scenarios of their own: the
+// phone layout is not a second rendering of the same cells — it is a list
+// of days plus one edit sheet, at a viewport where the grid does not exist
+// at all.
 //
 // WHAT IT DELIBERATELY LEAVES ALONE
 // ----------------------------------------------------------------------------
@@ -56,7 +58,7 @@ async function resetOnCallRoster(page) {
     // closed context, a session that expired, a page that never loaded —
     // all of them mean "nothing to restore", not "something went wrong".
     try {
-        await page.goto('/admin/sos', { waitUntil: 'domcontentloaded' });
+        await page.goto('/admin/sos/planning', { waitUntil: 'domcontentloaded' });
         await waitForSosJsReady(page);
 
         // The two months these scenarios can have written to: the one the
@@ -98,7 +100,26 @@ test.afterEach(async ({ page }) => {
     await resetOnCallRoster(page);
 });
 
-test('the duty grid cycles a cell through its three states, saving the month on every click', async ({ page }) => {
+// ============================================================================
+// The dashboard corrects a wrong redirection in ONE click (issue #1026).
+//
+// WHY THIS SCENARIO EXISTS
+// ----------------------------------------------------------------------------
+// The correction is a button, a POST that asks the provider to change and
+// then READS IT BACK, and a block redrawn from the answer — three pieces of
+// browser-side wiring (the script loaded on a page with no grid, the CSRF
+// token, the swap) that PHPUnit sees only as strings and Vitest only in
+// jsdom. The harness's simulated line (scripts/e2e-support.php) starts with
+// no forwarding while the unit chief, the roster's only member and so the
+// default number, is the expected destination: a redirection that is
+// INACTIVE where one is expected, which is exactly the « Réactiver » case.
+//
+// IT RUNS FIRST ON PURPOSE. The simulated line keeps what was written to it
+// for the whole run, and the scenarios below move it (saving a duty for a
+// day already due applies the redirection). Run later, this one would find
+// a redirection that is already right and nothing to correct.
+// ============================================================================
+test('the dashboard reactivates an inactive redirection in one click, and moves between the three sub-pages', async ({ page }) => {
     /** @type {string[]} */
     const pageErrors = [];
     page.on('pageerror', (error) => pageErrors.push(error.message));
@@ -113,6 +134,69 @@ test('the duty grid cycles a cell through its three states, saving the month on 
     await loginAsAdmin(page);
     await answerCookieBanner(page);
     await page.goto('/admin/sos', { waitUntil: 'load' });
+    await waitForSosJsReady(page);
+
+    // The page opens on the dashboard, with the same rail as the site's
+    // other sub-pages: three tabs, in this order.
+    const rail = page.locator('#sos-page-picker');
+    await expect(rail.getByRole('link')).toHaveText(['Tableau de bord', 'Planning', 'Réglages']);
+    await expect(rail.getByRole('link', { name: 'Tableau de bord' })).toHaveAttribute('aria-current', 'page');
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+    await expect(page.locator('#planned-transitions-list')).toBeVisible();
+
+    const block = page.locator('#sos-status-banner');
+    await expect(block.getByRole('heading', { level: 2 })).toContainText('Redirection inactive');
+    const button = block.getByRole('button', { name: 'Réactiver la redirection' });
+    await expect(button).toBeVisible();
+
+    // One click. No dialog is asked for, and the outcome is the site's
+    // toast, with the verification behind it.
+    const answered = waitForServerResponse(page, (response) => response.url().includes('/admin/sos/redirection'));
+    await button.click();
+    expect((await answered).ok()).toBe(true);
+    await expect(page.locator('.toast-body', { hasText: 'Redirection réactivée et vérifiée.' }).last()).toBeVisible();
+
+    // The block was redrawn from what the provider now says; nothing is
+    // left to correct, and no success text was written into the page.
+    await expect(block.getByRole('heading', { level: 2 })).toContainText('Redirection active');
+    await expect(page.locator('#sos-redirect-sync')).toHaveCount(0);
+    await page.reload({ waitUntil: 'load' });
+    await expect(page.locator('#sos-redirect-sync'), 'the provider really changed').toHaveCount(0);
+
+    // The two other sub-pages, one click each way.
+    await rail.getByRole('link', { name: 'Planning' }).click();
+    await waitForSosJsReady(page);
+    await expect(page).toHaveURL(/\/admin\/sos\/planning$/);
+    await expect(page.locator('#sos-page-picker').getByRole('link', { name: 'Planning' }))
+        .toHaveAttribute('aria-current', 'page');
+    await expect(page.locator('#oncall-save-status')).toBeAttached();
+
+    await page.locator('#sos-page-picker').getByRole('link', { name: 'Réglages' }).click();
+    await waitForSosJsReady(page);
+    await expect(page).toHaveURL(/\/admin\/sos\/reglages$/);
+    await expect(page.locator('#default-number-member')).toBeVisible();
+    await expect(page.locator('#transition-hour')).toBeVisible();
+    await expect(page.locator('#email-notifications-toggle')).toBeAttached();
+
+    expect(serverErrors, 'the application returned a server error').toEqual([]);
+    expect(pageErrors, 'uncaught JavaScript error in the browser').toEqual([]);
+});
+
+test('the duty grid cycles a cell through its three states, saving the month on every click', async ({ page }) => {
+    /** @type {string[]} */
+    const pageErrors = [];
+    page.on('pageerror', (error) => pageErrors.push(error.message));
+    /** @type {string[]} */
+    const serverErrors = [];
+    page.on('response', (response) => {
+        if (response.status() >= 500) {
+            serverErrors.push(`HTTP ${response.status()} on ${response.url()}`);
+        }
+    });
+
+    await loginAsAdmin(page);
+    await answerCookieBanner(page);
+    await page.goto('/admin/sos/planning', { waitUntil: 'load' });
     await waitForSosJsReady(page);
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
 
@@ -172,11 +256,6 @@ test('the duty grid cycles a cell through its three states, saving the month on 
     await waitForSosJsReady(page);
     await expect(cellAgain(), 'the cleared cell must survive a reload too').toHaveText('');
 
-    // The planned-transitions block rendered (its pagination is AJAX-fed
-    // when there is more than a page of them; an empty roster just says
-    // so).
-    await expect(page.locator('#planned-transitions-list')).toBeVisible();
-
     expect(serverErrors, 'the application returned a server error').toEqual([]);
     expect(pageErrors, 'uncaught JavaScript error in the browser').toEqual([]);
 });
@@ -226,7 +305,7 @@ test('on a phone the month is a list of days, and one sheet edits any of them', 
     await answerCookieBanner(page);
     await page.setViewportSize(PHONE);
 
-    await page.goto('/admin/sos', { waitUntil: 'load' });
+    await page.goto('/admin/sos/planning', { waitUntil: 'load' });
     await waitForSosJsReady(page);
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
 
@@ -286,6 +365,18 @@ test('on a phone the month is a list of days, and one sheet edits any of them', 
     // off the page rather than composed here, so this survives any month.
     await expect(page.locator('#sos-day-sheet-title')).toHaveText(rowLabel);
 
+    // ---------------------------------------------------------------
+    // Issue #1024: on a phone the sheet is the WHOLE usable screen, not a
+    // 30vh strip under a greyed-out planning. Measured, not assumed: the
+    // class that asks for it is worth nothing if a rule stops applying.
+    // ---------------------------------------------------------------
+    const sheetBox = await sheet.boundingBox();
+    expect(sheetBox.y, 'the sheet starts at the top of the screen').toBeLessThanOrEqual(1);
+    expect(sheetBox.height, 'and reaches the bottom of it').toBeGreaterThanOrEqual(PHONE.height - 1);
+    const closeButton = sheet.getByRole('button', { name: 'Fermer' });
+    await expect(closeButton, 'an obvious way back to the planning').toBeVisible();
+    await expect(closeButton).toContainText('Fermer');
+
     // The harness's unit chief is the roster's one member; their full name
     // is compared against itself rather than against a string written here.
     const memberName = (await sheet.locator('[data-member-name]').first().textContent()).trim();
@@ -329,18 +420,38 @@ test('on a phone the month is a list of days, and one sheet edits any of them', 
     await expect(rowTarget()).toContainText('Par défaut');
 
     // ---------------------------------------------------------------
-    // « Ma disponibilité » — the same month, the signed-in member only,
-    // editable without opening anything. The harness's super-admin is
-    // also the unit's chef d'unité (scripts/e2e-support.php), so they
-    // are on the roster and the tab has rows.
+    // Issue #1024: a long roster scrolls INSIDE the sheet and nothing is
+    // cut off at the bottom of the screen. The harness has one Staff d'U
+    // member, so the roster is made long here by repeating that member's
+    // block in the page — the sheet's own behaviour is what is measured,
+    // not the data behind it.
     // ---------------------------------------------------------------
-    await main.getByRole('link', { name: 'Ma disponibilité' }).click();
-    const mine = page.locator('#sos-my-availability');
-    await expect(mine).toBeVisible();
-    const myRow = mine.locator('.list-group-item').first();
-    await expect(myRow.getByRole('button', { name: 'Garde', exact: true })).toBeVisible();
-    await expect(myRow.getByRole('button', { name: 'Indispo', exact: true })).toBeVisible();
-    await expect(myRow.getByRole('button', { name: 'Rien', exact: true })).toBeVisible();
+    await rowAgain().click();
+    await expect(sheet).toBeVisible();
+    await sheet.evaluate((node) => {
+        const block = node.querySelector('[data-sheet-member-id]');
+        for (let i = 0; i < 14; i += 1) {
+            block.parentElement.appendChild(block.cloneNode(true));
+        }
+    });
+    const body = sheet.locator('.offcanvas-body');
+    expect(
+        await body.evaluate((node) => node.scrollHeight > node.clientHeight),
+        'a long roster overflows the body, which scrolls',
+    ).toBe(true);
+    const lastBlock = sheet.locator('[data-sheet-member-id]').last();
+    await lastBlock.scrollIntoViewIfNeeded();
+    const lastRien = lastBlock.getByRole('button', { name: 'Rien', exact: true });
+    await expect(lastRien).toBeInViewport({ ratio: 1 });
+    // The header never scrolls away with the roster: the day and the way
+    // back stay in view.
+    await expect(page.locator('#sos-day-sheet-title')).toBeInViewport({ ratio: 1 });
+    await expect(closeButton).toBeInViewport({ ratio: 1 });
+
+    // « Fermer » brings the planning back.
+    await closeButton.click();
+    await expect(sheet).toBeHidden();
+    await expect(dayList).toBeVisible();
 
     expect(serverErrors, 'the application returned a server error').toEqual([]);
     expect(pageErrors, 'uncaught JavaScript error in the browser').toEqual([]);
@@ -371,7 +482,7 @@ test('the default-number warning shows only when today has no on-call', async ({
 
     await loginAsAdmin(page);
     await answerCookieBanner(page);
-    await page.goto('/admin/sos', { waitUntil: 'load' });
+    await page.goto('/admin/sos/planning', { waitUntil: 'load' });
     await waitForSosJsReady(page);
 
     // Today according to the SERVER, never to this process's clock: the
@@ -382,9 +493,18 @@ test('the default-number warning shows only when today has no on-call', async ({
     const today = await todayCell.getAttribute('data-date');
     const cellAgain = () => page.locator(`tr.is-today td.sos-oncall-cell[data-date="${today}"]`).first();
 
-    // The settings sit in plain sight at the bottom of the page since
-    // #750 — no accordion to open first.
+    // The warning belongs to the default-number control, which lives in
+    // Réglages since issue #1026: the planning edits, the settings page
+    // is where it is read back.
     const warning = page.locator('#default-number-immediate-warning');
+    async function openSettings() {
+        await page.goto('/admin/sos/reglages', { waitUntil: 'load' });
+        await waitForSosJsReady(page);
+    }
+    async function openPlanning() {
+        await page.goto('/admin/sos/planning', { waitUntil: 'load' });
+        await waitForSosJsReady(page);
+    }
 
     /** Click today's cell once and wait for the full-month save to answer. */
     async function cycleToday() {
@@ -399,22 +519,23 @@ test('the default-number warning shows only when today has no on-call', async ({
 
     // As provisioned, nobody is on call today — so the save really would
     // re-route the line, and the warning is there to say so.
+    await openSettings();
     await expect(warning).toBeVisible();
     await expect(warning).toContainText("Aujourd'hui n'a pas de garde attribuée");
 
     // Put somebody on call today: the default number no longer governs it,
     // so saving one would change nothing today and the warning must go.
+    await openPlanning();
     await cycleToday();
-    await page.reload({ waitUntil: 'load' });
-    await waitForSosJsReady(page);
+    await openSettings();
     await expect(warning, 'a day with an explicit duty is not re-routed by the default number').toHaveCount(0);
 
     // Back through « indisponible » to blank — which also leaves the shared
     // instance exactly as it was found.
+    await openPlanning();
     await cycleToday();
     await cycleToday();
-    await page.reload({ waitUntil: 'load' });
-    await waitForSosJsReady(page);
+    await openSettings();
     await expect(warning).toBeVisible();
 
     expect(serverErrors, 'the application returned a server error').toEqual([]);

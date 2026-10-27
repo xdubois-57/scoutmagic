@@ -453,6 +453,37 @@ class RedirectServiceTest extends TestCase
         self::assertStringContainsString('[adresse]', $notificationFailures[0]);
     }
 
+    /**
+     * Issue #1026: the dashboard asks the SAME question apply() asks —
+     * where does a redirection to this member mean? — so that « expected »
+     * and « applied » can never be two rules.
+     */
+    public function testResolveNumberIsTheMembersMobileThenTheDefaultNumberThenNothing(): void
+    {
+        $this->memberService->method('findProfileByMemberAndYear')->willReturnMap([
+            [1, 100, $this->profile(1, 'Akela', '+32470000001', null)],
+            [2, 100, $this->profile(2, 'Baloo', null, null)],
+            [3, 100, null],
+        ]);
+        $this->settingsService->method('getDefaultNumber')->willReturn('+32470999999');
+
+        $service = $this->service();
+
+        self::assertSame('+32470000001', $service->resolveNumber(1, 100));
+        self::assertSame('+32470999999', $service->resolveNumber(2, 100), 'a member without a mobile');
+        self::assertSame('+32470999999', $service->resolveNumber(3, 100), 'a member not on the roster that year');
+        self::assertSame('+32470999999', $service->resolveNumber(null, 100), 'nobody on duty');
+    }
+
+    public function testResolveNumberIsNullWhenNoDestinationExistsAtAll(): void
+    {
+        $this->memberService->method('findProfileByMemberAndYear')->willReturn(null);
+        $this->settingsService->method('getDefaultNumber')->willReturn(null);
+
+        self::assertNull($this->service()->resolveNumber(1, 100));
+        self::assertNull($this->service()->resolveNumber(null, 100));
+    }
+
     public function testApplyFallsBackToDefaultNumberWhenNoOneOnCall(): void
     {
         $provider = $this->createMock(PhoneProviderInterface::class);

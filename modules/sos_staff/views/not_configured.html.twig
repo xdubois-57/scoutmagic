@@ -1,0 +1,20 @@
+{% extends "base.html.twig" %}
+
+{% block title %}Gérer le téléphone d'urgence — {{ site_name }}{% endblock %}
+
+{% block content %}
+    {% include 'partials/page_header.html.twig' with { title: "Gérer le téléphone d'urgence" } only %}
+
+    {# Issue #750: without a provider nothing on these pages has any
+       effect, so each of the three says so once and shows nothing else —
+       no rail either, since there is nothing to move between. #}
+    <div class="alert alert-warning" id="sos-not-configured">
+        <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
+        La téléphonie n'est pas encore configurée : le numéro SOS ne peut être redirigé vers personne.
+        {% if can_configure %}
+            <a href="/config/sos" class="alert-link">Configurer SOS Staff d'U</a>.
+        {% else %}
+            Un super-administrateur doit d'abord la configurer (Configuration › SOS Staff d'U).
+        {% endif %}
+    </div>
+{% endblock %}
