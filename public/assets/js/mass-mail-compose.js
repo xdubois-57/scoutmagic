@@ -390,6 +390,9 @@
         // from would be somebody else's business. That belongs to the
         // position indicator above, which is where it went.
         setText('mm-merge-preview-recipient', preview.recipient_label);
+        // Every other address of the line, each a separate message — never
+        // in the « À : », since no address is ever visible from another.
+        setText('mm-merge-preview-recipient-note', preview.recipient_note || '');
         setText('mm-merge-preview-subject', preview.subject);
         const body = el('mm-merge-preview-body');
         // Server-rendered: the body was sanitized at save time and every
@@ -449,17 +452,23 @@
         const res = await api.getJson('/mass-mail/' + DATA.emailId + '/recipient-count');
         const data = res.data;
         if (!data?.success) return uncountedSentence(data?.error);
-        if (data.count === 0) return 'Cette liste ne désigne actuellement personne. ';
+        const members = Number(data.members || 0);
+        const rows = Number(data.rows || 0);
+        if (data.count === 0 && members === 0 && rows === 0) return 'Cette liste ne désigne actuellement personne. ';
 
-        const plural = data.count > 1;
-        let noun;
-        if (data.kind === 'rows') {
-            noun = plural ? 'lignes du fichier' : 'ligne du fichier';
-        } else {
-            noun = plural ? 'personnes' : 'personne';
+        // Messages — one per address — and, apart, the members it is meant
+        // for (issue #999): a family address shared by three siblings is one
+        // message and three members, and one figure for both was wrong one
+        // way or the other on every family.
+        let sentence = 'Cet email partira en ' + data.count + ' ' + (data.count > 1 ? 'messages' : 'message');
+        if (rows > 0) {
+            sentence += ' pour ' + rows + ' ' + (rows > 1 ? 'lignes du fichier' : 'ligne du fichier');
+        }
+        if (members > 0) {
+            sentence += ' · ' + members + ' ' + (members > 1 ? 'animés ciblés' : 'animé ciblé');
         }
 
-        return 'Cet email partira à ' + data.count + ' ' + noun + '. ';
+        return sentence + '. ';
     }
 
     /**

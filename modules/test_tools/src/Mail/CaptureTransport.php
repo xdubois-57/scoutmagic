@@ -278,7 +278,8 @@ final class CaptureTransport implements MailTransportInterface
             bodyTextFileId: $bodyTextFileId,
             errorMessage: null,
             attachments: $attachments,
-            delivered: $delivered
+            delivered: $delivered,
+            cc: self::copiesOf($mail)
         );
     }
 
@@ -313,8 +314,24 @@ final class CaptureTransport implements MailTransportInterface
                 $mail->ErrorInfo !== '' ? $mail->ErrorInfo : $e->getMessage()
             ),
             attachments: $attachments,
-            delivered: false
+            delivered: false,
+            cc: self::copiesOf($mail)
         );
+    }
+
+    /**
+     * The visible copies, which the library keeps apart from the `To:`
+     * addresses (issue #911). Only the addresses: the display names are
+     * not what an operator checking that a copy left is looking for.
+     *
+     * @return list<string>
+     */
+    private static function copiesOf(PHPMailer $mail): array
+    {
+        return array_values(array_map(
+            static fn(array $copy): string => (string) $copy[0],
+            $mail->getCcAddresses()
+        ));
     }
 
     private static function recipientOf(PHPMailer $mail): string

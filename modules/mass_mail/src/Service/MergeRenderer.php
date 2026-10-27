@@ -26,9 +26,10 @@ use Core\Template\TokenSyntax;
  * **Sections — {{#Colonne}} … {{/Colonne}} — keep the enclosed markup
  * only for the rows whose value for that column is filled.** They exist
  * because a personalised body is not always the same LENGTH for
- * everybody: a payment reminder carries one autonomous block per
- * receivable, and a household with one child must not receive the two
- * empty blocks the household with three needs. Escaping makes the
+ * everybody: a line of the file may fill an optional paragraph — a
+ * second contact person, a remaining balance — that another line leaves
+ * empty, and the line that leaves it empty must not receive it blank.
+ * Escaping makes the
  * obvious alternative impossible on purpose — a whole block cannot be
  * passed in as one HTML value — so the variable part has to be
  * expressible in the template itself.

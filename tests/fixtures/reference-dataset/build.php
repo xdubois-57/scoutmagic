@@ -262,10 +262,10 @@ printf(
 
 // 6. Les extras : tout ce que Desk ne connaît pas, appliqué par les vrais
 //    services — photos par le pipeline de téléversement, décalages d'année,
-//    départs, badges, adresses de section, créances attendues, et les
-//    semeurs par domaine (calendrier, actualités, camps, inscriptions,
-//    bannières, galerie, locations, responsables de section, listes de
-//    diffusion).
+//    départs, badges, adresses de section, adresses e-mail secondaires,
+//    créances attendues, et les semeurs par domaine (calendrier,
+//    actualités, camps, inscriptions, bannières, galerie, locations,
+//    responsables de section, listes de diffusion).
 $extras = new ExtrasApplier($pdo, $encryption, $context->storagePath(), $datasetRoot, $superadminId);
 $extraResult = $extras->apply($yearIds, $finance->accountIds()['unite'] ?? 0);
 echo "\nExtras appliqués :\n";

@@ -131,7 +131,14 @@ class DateFilterExtension extends AbstractExtension
         return self::read($date)?->format('Y-m-d\TH:i') ?? '';
     }
 
-    public static function relativeDate(mixed $date): string
+    /**
+     * $now is for tests only — Twig always calls this with the date alone.
+     * A naive stored timestamp is ambiguous for the hour the clocks repeat
+     * in autumn, and an age computed against the real "now" around that
+     * night is off by one hour; a test needs a "now" of its own to say
+     * anything stable.
+     */
+    public static function relativeDate(mixed $date, ?\DateTimeImmutable $now = null): string
     {
         if ($date === null || $date === '') {
             return '';
@@ -149,7 +156,7 @@ class DateFilterExtension extends AbstractExtension
         if ($then === null) {
             return '';
         }
-        $seconds = (new \DateTimeImmutable('now'))->getTimestamp() - $then->getTimestamp();
+        $seconds = ($now ?? new \DateTimeImmutable('now'))->getTimestamp() - $then->getTimestamp();
 
         // A clock skew (or a timestamp a second into the future) reads as
         // "just now" rather than a negative age.

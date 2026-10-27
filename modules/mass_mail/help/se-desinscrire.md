@@ -16,8 +16,10 @@ en bas. Il ouvre cette page, qui demande confirmation avant quoi que ce
 soit : un lien cliqué par erreur, ou ouvert automatiquement par votre
 boîte mail, ne vous désinscrit de rien.
 
-Vous n'avez pas besoin de compte ni de mot de passe. Le lien vaut pour
-votre adresse et pour elle seule.
+Vous n'avez pas besoin de compte ni de mot de passe. Chaque message
+porte son propre lien, qui vaut pour l'adresse à laquelle il a été
+envoyé et pour elle seule : si l'unité vous écrit à deux adresses,
+chacune se désinscrit depuis son message.
 
 ## Ce que la désinscription arrête
 
@@ -34,10 +36,10 @@ y penser.
 
 ## Revenir en arrière
 
-Dites-le à l'unité — l'adresse de contact est en bas de chaque page du
-site. Il n'y a pas de bouton pour se réinscrire soi-même : cela
-reviendrait à laisser n'importe qui remettre une adresse dans une liste
-qu'elle a demandé à quitter.
+Pour une adresse d'animé : « Réactiver » sur la carte « Adresses email »
+de la page de l'animé, une fois connecté avec une autre adresse ou par
+l'unité. Pour une adresse qui n'est pas celle d'un animé, dites-le à
+l'unité — l'adresse de contact est en bas de chaque page du site.
 
 ## Si la page dit que le lien n'est pas valable
 

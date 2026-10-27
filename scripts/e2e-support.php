@@ -39,6 +39,12 @@ declare(strict_types=1);
  *                              (created if missing) and print its id —
  *                              the one state no page can move backwards;
  *                              see e2eSetPublicYear().
+ *   seed-shared-address-siblings <instance> <stamp>
+ *                              Seed two siblings in a section of their
+ *                              own, sharing a family address that is also
+ *                              an account's login, each with an address
+ *                              of their own, and print them as JSON — see
+ *                              e2eSeedSharedAddressSiblings().
  *   relax-human-check          Lift the public-form rate limit and form
  *                              lifetime on the instance — scripts/dast.sh,
  *                              active profiles only; see e2eRelaxHumanCheck().
@@ -139,6 +145,25 @@ function e2eSupportMain(array $argv): void
             require_once $repoRoot . '/vendor/autoload.php';
             e2eApplyApplicationClock();
             echo e2eSetPublicYear($label), "\n";
+            exit(0);
+
+        case 'seed-shared-address-siblings':
+            $instanceDir = $argv[2] ?? '';
+            $stamp = $argv[3] ?? '';
+            if ($instanceDir === '' || !is_file($instanceDir . '/storage/config/secrets.enc')
+                || preg_match('/^[0-9a-z]{1,16}$/', $stamp) !== 1) {
+                fwrite(
+                    STDERR,
+                    "Usage: e2e-support.php seed-shared-address-siblings <instance-dir> <stamp: [0-9a-z]{1,16}>\n"
+                );
+                exit(1);
+            }
+            require_once $repoRoot . '/vendor/autoload.php';
+            e2eApplyApplicationClock();
+            echo json_encode(
+                e2eSeedSharedAddressSiblings($instanceDir, $stamp),
+                JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE
+            ), "\n";
             exit(0);
 
         case 'relax-human-check':
@@ -2122,6 +2147,205 @@ function e2eSetPublicYear(string $label): int
         ->setInternal(Core\ScoutYear\ScoutYearResolver::SETTING_PUBLIC_YEAR, (string) $yearId);
 
     return $yearId;
+}
+
+/**
+ * What e2eSeedSharedAddressSiblings() writes, without writing it — the
+ * part a typo would break silently, kept pure so it is unit-tested
+ * (Tests\Core\System\E2eSharedAddressSiblingsTest).
+ *
+ * Two siblings of one household, the shape issue #999 is about: the
+ * family address is the Desk address of BOTH (a Desk export gives every
+ * child of a home the parents' address), and each has a confirmed
+ * secondary address of their own. The family address is also the login
+ * of an account — the parents' — so the notification rule (one per
+ * account and per communication) has an account to be about.
+ *
+ * Everything carries the run's stamp: `--repeat-each` replays a scenario
+ * against ONE instance, and a second section of the same name would make
+ * the list picker ambiguous. The addresses are in .invalid (RFC 6761 —
+ * never a real mailbox), the names invented, and the Desk ids keep away
+ * from the `E2E-ADMIN` / `E2E-MEMBER` the other fixtures are found by.
+ *
+ * @return array{
+ *     section: array{name: string, desk_code: string},
+ *     family_email: string,
+ *     siblings: list<array{first_name: string, last_name: string, desk_id: string, own_email: string}>
+ * }
+ */
+function e2eSharedAddressSiblings(string $stamp): array
+{
+    return [
+        'section' => ['name' => "Fratrie E2E {$stamp}", 'desk_code' => "E2E-FRAT-{$stamp}"],
+        'family_email' => "famille-{$stamp}@example.invalid",
+        'siblings' => [
+            [
+                'first_name' => 'Hathi',
+                'last_name' => 'Jungle',
+                'desk_id' => "E2E-SIB-H-{$stamp}",
+                'own_email' => "hathi-{$stamp}@example.invalid",
+            ],
+            [
+                'first_name' => 'Rikki',
+                'last_name' => 'Jungle',
+                'desk_id' => "E2E-SIB-R-{$stamp}",
+                'own_email' => "rikki-{$stamp}@example.invalid",
+            ],
+        ],
+    ];
+}
+
+/**
+ * Seed the household e2eSharedAddressSiblings() describes into the
+ * running instance, and return what a scenario needs to find it again:
+ * the section's name, each sibling's `member_years` id (the `{id}` of
+ * /members/{id}) and Desk id, the three addresses, and the family
+ * account's password.
+ *
+ * Seeded by the scenario that needs it (tests/e2e/specs/
+ * mass-mail-shared-address.spec.js), not at provisioning: two more
+ * members and a section would change what every scenario before it sees
+ * — the member picker, the section lists, « Membres actifs » — for a
+ * shape only this one asks about.
+ *
+ * Written the way e2eSeedSectionWithBothMembers() writes the Meute: a
+ * section in the harness's branch, a `member_years` row and a
+ * membership period per sibling, and a `member_functions` row on the
+ * harness's `identified` function, which is what a « Section - … » list
+ * resolves members by (Modules\MassMail\Repository\
+ * MemberResolutionRepository::resolveSectionMembers()). The secondary
+ * addresses go through Core\Member\MemberEmailRepository and are
+ * confirmed with its own markValid(), the state a parent reaches by
+ * clicking the confirmation link; the account through
+ * Core\Security\UserAccountRepository, as e2eSeedOrdinaryMember() does.
+ * It resolves to `identified` through the Desk address it shares with
+ * both children, and may open both pages (Core\Member\MemberService::
+ * canAccess()).
+ *
+ * The password is generated per call and printed, like every other
+ * password of the harness never committed.
+ *
+ * @return array{
+ *     section_name: string,
+ *     family_email: string,
+ *     family_password: string,
+ *     siblings: list<array{first_name: string, desk_id: string, own_email: string, member_year_id: int}>
+ * }
+ */
+function e2eSeedSharedAddressSiblings(string $instanceDir, string $stamp): array
+{
+    $secrets = (new Core\Security\SecretManager(
+        $instanceDir . '/storage/keys/master.key',
+        $instanceDir . '/storage/config/secrets.enc'
+    ))->readSecrets();
+    $encryption = Core\Security\EncryptionService::fromEncodedKeys(
+        (string) ($secrets['encryption_key'] ?? ''),
+        (string) ($secrets['blind_index_key'] ?? '')
+    );
+
+    $config = e2eDatabaseConfig();
+    $pdo = new PDO(
+        sprintf('mysql:host=%s;port=%d;dbname=%s;charset=utf8mb4', $config['host'], $config['port'], $config['name']),
+        $config['user'],
+        $config['password'],
+        [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]
+    );
+
+    $fixture = e2eSharedAddressSiblings($stamp);
+    $familyEmail = $fixture['family_email'];
+    $scoutYear = (new Core\Config\ScoutYearService($pdo))->getCurrentYear();
+    $scoutYearId = (int) $scoutYear['id'];
+    $startDate = e2eFixtureStartDate($scoutYear);
+
+    // The branch and the function e2eSeedSectionWithBothMembers() created
+    // at provisioning — looked up, not re-created, so the household sits in
+    // the same branch and holds the same `identified` function as the Meute.
+    $lookup = static function (string $sql, string $code) use ($pdo): int {
+        $statement = $pdo->prepare($sql);
+        $statement->execute([$code]);
+        $id = $statement->fetchColumn();
+        if ($id === false) {
+            throw new RuntimeException("E2E fixture '{$code}' is missing — was the instance provisioned?");
+        }
+
+        return (int) $id;
+    };
+    $ageBranchId = $lookup('SELECT id FROM age_branches WHERE desk_code = ?', 'E2E-BR');
+    $functionId = $lookup('SELECT id FROM functions WHERE desk_code = ?', 'E2E-FCT');
+
+    $pdo->beginTransaction();
+    try {
+        $pdo->prepare(
+            'INSERT INTO sections (age_branch_id, desk_code, name, is_visible, is_active) VALUES (?, ?, ?, 1, 1)'
+        )->execute([$ageBranchId, $fixture['section']['desk_code'], $fixture['section']['name']]);
+        $sectionId = (int) $pdo->lastInsertId();
+
+        $emails = new Core\Member\MemberEmailRepository($pdo, $encryption);
+        $seeded = [];
+        foreach ($fixture['siblings'] as $sibling) {
+            $pdo->prepare('INSERT INTO members (desk_id) VALUES (?)')->execute([$sibling['desk_id']]);
+            $memberId = (int) $pdo->lastInsertId();
+
+            $pdo->prepare(
+                'INSERT INTO member_years'
+                . ' (member_id, scout_year_id, first_name_encrypted, last_name_encrypted, email_encrypted,'
+                . ' email_blind_index, is_active)'
+                . ' VALUES (?, ?, ?, ?, ?, ?, 1)'
+            )->execute([
+                $memberId,
+                $scoutYearId,
+                $encryption->encrypt($sibling['first_name'], 'member_years.first_name'),
+                $encryption->encrypt($sibling['last_name'], 'member_years.last_name'),
+                $encryption->encrypt($familyEmail, 'member_years.email'),
+                $encryption->blindIndex($familyEmail, 'email'),
+            ]);
+            $memberYearId = (int) $pdo->lastInsertId();
+
+            $pdo->prepare(
+                'INSERT INTO member_section_periods (member_id, section_id, scout_year_id, start_date, end_date)'
+                . ' VALUES (?, ?, ?, ?, NULL)'
+            )->execute([$memberId, $sectionId, $scoutYearId, $startDate]);
+            $pdo->prepare(
+                'INSERT INTO member_functions (member_year_id, function_id, section_id, age_branch_id, start_date,'
+                . ' is_main_function) VALUES (?, ?, ?, ?, ?, 1)'
+            )->execute([$memberYearId, $functionId, $sectionId, $ageBranchId, $startDate]);
+
+            $ownEmailId = $emails->create(
+                $memberId,
+                $sibling['own_email'],
+                Core\Member\MemberEmail::SOURCE_MANUAL,
+                Core\Member\MemberEmail::STATUS_PENDING,
+                null,
+                null
+            );
+            $emails->markValid($ownEmailId);
+
+            $seeded[] = [
+                'first_name' => $sibling['first_name'],
+                'desk_id' => $sibling['desk_id'],
+                'own_email' => $sibling['own_email'],
+                'member_year_id' => $memberYearId,
+            ];
+        }
+
+        $password = 'E2e-' . bin2hex(random_bytes(16));
+        $accounts = new Core\Security\UserAccountRepository($pdo, $encryption);
+        $account = $accounts->create($familyEmail, false);
+        $accounts->updatePasswordHash($account->id, password_hash($password, PASSWORD_DEFAULT));
+        $accounts->updateProfile($account->id, 'Parent', 'Jungle');
+
+        $pdo->commit();
+    } catch (Throwable $e) {
+        $pdo->rollBack();
+        throw $e;
+    }
+
+    return [
+        'section_name' => $fixture['section']['name'],
+        'family_email' => $familyEmail,
+        'family_password' => $password,
+        'siblings' => $seeded,
+    ];
 }
 
 /**

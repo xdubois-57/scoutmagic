@@ -337,9 +337,10 @@ class MailingListController extends AbstractController
 
     /**
      * GET /admin/listes-de-diffusion/lists/{id}/recipients?year={id} —
-     * « Voir les destinataires »: the people the list writes to for one
-     * year, resolved and deduplicated as the send resolves it, each with
-     * the blocks that bring them.
+     * « Voir les destinataires »: the messages the list writes for one
+     * year — one per distinct address, resolved as the send resolves it,
+     * each naming the members it concerns and the blocks that bring it —
+     * and how many members it designates.
      *
      * The year is one an email can target, or the effective year the
      * page counts for; anything else is refused rather than resolved, so
@@ -369,9 +370,14 @@ class MailingListController extends AbstractController
             $blocks[$block->id] = ['kind' => $block->kind, 'label' => $this->blockLabel($block)];
         }
 
+        $recipients = $this->mailingListService->listRecipients($list->id, $yearId);
+
         return $this->json([
             'success' => true,
             'scout_year_label' => $years[$yearId],
+            // One row per message, i.e. per distinct address (issue #999),
+            // beside how many members the list designates — a member
+            // without any address is a target and in no row.
             'recipients' => array_map(
                 static fn(array $r): array => [
                     'name' => $r['name'],
@@ -379,8 +385,9 @@ class MailingListController extends AbstractController
                     'email' => $r['email'],
                     'block_ids' => $r['block_ids'],
                 ],
-                $this->mailingListService->listRecipients($list->id, $yearId)
+                $recipients['rows']
             ),
+            'target_count' => $recipients['targets'],
             'blocks' => $blocks,
         ]);
     }

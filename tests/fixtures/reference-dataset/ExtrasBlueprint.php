@@ -128,6 +128,30 @@ final class ExtrasBlueprint
         return $emails;
     }
 
+    /**
+     * Confirmed secondary e-mail addresses, Tiers => addresses.
+     *
+     * A secondary address is the one member address a Desk export never
+     * carries: a parent adds it from the member page and confirms it from
+     * that mailbox (Core\Member\MemberEmailService). No earlier version of
+     * this dataset had one, so every mass mailing reached the Desk address
+     * alone and the instance could not show what issue #999 is about — a
+     * family address shared by siblings NEXT TO another address they share.
+     *
+     * The Delvaux children (scenario 17) already share their parents' Desk
+     * address; the second parent's address is added to all three, as it
+     * would be on every child's page of one home. A communication to the
+     * unit then makes one message per address — two, not six — and one
+     * entry on each child's page (README §8.3).
+     *
+     * @var array<string, list<string>>
+     */
+    public const SECONDARY_EMAILS = [
+        'T0020' => ['parent.delvaux@example.org'],
+        'T0021' => ['parent.delvaux@example.org'],
+        'T0022' => ['parent.delvaux@example.org'],
+    ];
+
     /** 1 September of the scout year's start year, plus $days. */
     public static function dateIn(string $yearLabel, int $days): string
     {

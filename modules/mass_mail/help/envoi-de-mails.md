@@ -1,7 +1,7 @@
 ---
 id: envoi-de-mails
 title: Envoyer un e-mail groupé
-summary: Du brouillon au test, puis l'envoi et son suivi, destinataire par destinataire.
+summary: Du brouillon au test, puis l'envoi et son suivi, message par message.
 category: Espace animateurs
 role_min: chief
 discovery: 1
@@ -27,9 +27,12 @@ si le module Inscriptions est actif, la liste des inscriptions
 encodées de l'année. Un animateur envoie depuis sa propre section, à
 sa section ou aux animateurs ; le Staff d'Unité n'a pas cette limite.
 
-Cocher plusieurs années fusionne les listes en supprimant les
-doublons : chaque adresse ne reçoit qu'un exemplaire. Les pièces
-jointes s'ajoutent une fois le brouillon créé.
+Un message part toujours à une seule adresse, et une seule fois par
+adresse : deux animés qui partagent l'adresse familiale n'y reçoivent
+qu'un exemplaire, un animé qui a trois adresses en reçoit un à chacune.
+Chaque animé désigné garde l'e-mail sur sa page, même partagé ; cocher
+plusieurs années n'en fait pas des doublons. Les pièces jointes
+s'ajoutent une fois le brouillon créé.
 
 Pour une liste créée par l'unité, l'année ne vaut que pour ses groupes
 de membres : ses groupes de contacts reçoivent l'e-mail quelle que soit
@@ -55,22 +58,23 @@ l'e-mail, après confirmation.
 ## Suivre l'envoi
 
 L'onglet « Destinataires » d'un e-mail dit à qui il partira : le
-fichier ligne par ligne pour un publipostage, le nombre de personnes que
-la liste désigne à cet instant pour toutes les autres. À vérifier avant
-de lancer l'envoi.
+fichier ligne par ligne pour un publipostage, le nombre de messages et
+d'animés ciblés que la liste donne à cet instant pour toutes les autres.
 
-L'onglet « Suivi » montre la progression et, pour chaque destinataire,
-son état : envoyé, en attente, ou en erreur avec le motif. Le bouton
-« Renvoyer » relance un destinataire précis. Chaque membre retrouve
-par ailleurs les e-mails reçus au bas de sa page personnelle.
+L'onglet « Suivi » montre une ligne par message : son adresse, les
+animés qu'il concerne, son état — envoyé, en attente, ou en erreur avec
+le motif. Un animé ciblé sans adresse valide y figure « Non envoyée ».
+« Renvoyer » relance ce message vers son adresse, sans nouvelle
+notification. Chaque animé retrouve l'e-mail sur sa page, une seule
+fois.
 
-Le « Journal » garde une ligne par exemplaire, parti ou non : un envoi
-à sept personnes y laisse sept lignes, avec le numéro de l'e-mail —
-celui de son adresse de page — et le motif de ce qui a échoué.
+Le « Journal » garde une ligne par message, parti ou non, avec le
+numéro de l'e-mail — celui de son adresse de page — et le motif de ce
+qui a échoué.
 
 ## La désinscription
 
-Chaque e-mail porte un lien de désinscription. Une adresse désinscrite
-ne reçoit plus rien et ne permet plus de se connecter, pour tous les
-animés qui la partagent — la personne peut se réinscrire depuis la
-page de son animé, carte « Adresses email ».
+Chaque message porte un lien de désinscription. L'adresse ne reçoit
+plus d'envoi groupé, pour tous les animés qui la partagent. Pour
+revenir : « Réactiver » sur la page de l'animé ; un contact s'adresse à
+l'unité.

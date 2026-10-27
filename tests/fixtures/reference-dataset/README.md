@@ -349,8 +349,8 @@ une cible pour ce script.
    huit comptes qu'aucun relevé ne peut atteindre ; `completeSectionAccounts()`
    les complète par `FinanceService::updateAccount()`, qui normalise l'IBAN
    avant l'index aveugle et synchronise la catégorie de virement.
-6. **Les extras et les semeurs par domaine** : adresses de section, décalages
-   d'année, départs, badges et photos, puis calendrier, actualités, camps,
+6. **Les extras et les semeurs par domaine** : adresses de section, adresses
+   e-mail secondaires, décalages d'année, départs, badges et photos, puis calendrier, actualités, camps,
    inscriptions, bannières, galerie, locations et responsables de section.
 7. **La campagne de paiement**, après les extras : elle a besoin des membres
    (`finance_campaign_rows.member_id` est obligatoire, et une ligne qui ne
@@ -439,6 +439,7 @@ services** — jamais une écriture directe dans `member_photos`,
 | Extra | Ce qu'il apporte |
 |---|---|
 | Adresses de section | Une par section, plus le Staff d'U. `sections.email` existait et restait vide, ce qui faisait passer les surfaces « écrire à la section » pour cassées plutôt que pour non configurées. |
+| Adresses e-mail secondaires | Une adresse confirmée, celle du second parent, sur les trois enfants Delvaux (scénario 17), qui partagent déjà l'adresse Desk de leurs parents. Aucune adresse secondaire n'existait : chaque envoi groupé n'atteignait que l'adresse Desk, et l'instance ne montrait pas ce que #999 règle — une communication à l'unité fait **un message par adresse** (deux pour cette famille, pas six) et **une entrée sur la fiche de chaque enfant**. Écrite comme la laisse le lien de confirmation (`MemberEmailRepository::markValid()`), sans l'e-mail de confirmation ni la vérification DNS de `MemberEmailService::addEmail()`. |
 | Décalages d'année | 2 membres, dont `T0009` en A1 — l'héritage par-dessus l'année manquante (scénario 5). |
 | Départs marqués | 3, avec commentaire : deux qui se réalisent, un qui ne se réalise pas. C'est à quoi ressemble une grille « Départs » en mars. |
 | Badges | `Trésorier` et `Infirmier` sur une personne de **chaque section, chaque année** — une règle, pas une liste — plus cinq attributions épinglées sur des personnes nommées. |
@@ -653,6 +654,7 @@ Où porter une modification :
 | Le local en location, son tarif, ses réservations | `RentalBlueprint.php` |
 | Quels badges chaque section porte | `StaffBlueprint.php` |
 | Une liste de diffusion, ses blocs | `MailingListBlueprint.php`, et `mailing/` pour les contacts |
+| Une adresse e-mail secondaire | `ExtrasBlueprint::SECONDARY_EMAILS` |
 
 Seuls les quatre premiers touchent des fichiers **générés** — les autres sont
 lus au moment de la construction, et n'ont rien à régénérer. Après une
@@ -934,7 +936,7 @@ production** — voir l'avertissement en tête de ce fichier.
 | intendant | l'email de `T0016` | Intendant des Pionniers les trois années (scénario 11) : voit les Finances sans être chef. |
 | chef de section | l'email de `T0014` | Animateur qui change de section entre A1 et A2 (scénario 9). |
 | animé | l'email de `T0012` | Éclaireur qui gagne son totem entre A1 et A2 (scénario 7). |
-| parent | l'email de `T0020` | Aîné d'une fratrie de trois partageant l'email d'un parent (scénario 17). |
+| parent | l'email de `T0020` | Aîné d'une fratrie de trois partageant l'email d'un parent (scénario 17). Le second parent, `parent.delvaux@example.org`, est une adresse secondaire confirmée sur les trois fiches (§8.3) : un envoi à l'unité laisse une notification à ce compte et une entrée sur chaque fiche. |
 
 Les cinq derniers ne sont pas des identités parallèles : le builder retrouve le
 compte que l'import Desk a créé pour ce membre et lui pose un mot de passe. Le

@@ -35,8 +35,9 @@ use Modules\MassMail\Repository\ContactRepository;
 use Modules\MassMail\Repository\ListBlockRepository;
 use Modules\MassMail\Repository\MailingListRepository;
 use Modules\MassMail\Repository\MemberResolutionRepository;
-use Modules\MassMail\Repository\Recipient;
-use Modules\MassMail\Repository\RecipientRepository;
+use Modules\MassMail\Repository\Delivery;
+use Modules\MassMail\Repository\DeliveryRepository;
+use Modules\MassMail\Repository\TargetRepository;
 use Modules\MassMail\Repository\SuppressedAddressRepository;
 use Modules\MassMail\Service\ContactGroupImportService;
 use Modules\MassMail\Service\ListBlockService;
@@ -77,7 +78,8 @@ class ListBlockFlowTest extends TestCase
     private ListBlockService $blockService;
     private ContactGroupImportService $contactGroups;
     private ContactRepository $contactRepository;
-    private RecipientRepository $recipientRepository;
+    private DeliveryRepository $deliveryRepository;
+    private TargetRepository $targetRepository;
     private SuppressedAddressRepository $suppressedRepository;
     private \Core\Mail\Feedback\Bounce\BounceStateRepository $bounceStates;
     private MemberEmailService $memberEmailService;
@@ -139,12 +141,14 @@ class ListBlockFlowTest extends TestCase
             $this->memberEmailService
         );
 
-        $this->recipientRepository = new RecipientRepository($this->pdo, $this->encryption);
+        $this->deliveryRepository = new DeliveryRepository($this->pdo, $this->encryption);
+        $this->targetRepository = new TargetRepository($this->pdo);
         $this->suppressedRepository = new SuppressedAddressRepository($this->pdo);
 
         $this->massMailService = new MassMailService(
             new EmailRepository($this->pdo),
-            $this->recipientRepository,
+            $this->deliveryRepository,
+            $this->targetRepository,
             new EmailAttachmentRepository($this->pdo),
             new FileRepository($this->pdo),
             $this->listService,
@@ -212,7 +216,7 @@ class ListBlockFlowTest extends TestCase
             $this->listService->resolveMembersForYears('custom', $emptyId, null, [$this->scoutYearId])
         );
         $this->assertSame(0, $this->listService->summariseList($emptyId, $this->scoutYearId)['total']);
-        $this->assertSame([], $this->listService->listRecipients($emptyId, $this->scoutYearId));
+        $this->assertSame(['rows' => [], 'targets' => 0], $this->listService->listRecipients($emptyId, $this->scoutYearId));
     }
 
     /** And the send treats it as a list that resolves to zero recipients today. */
@@ -224,7 +228,7 @@ class ListBlockFlowTest extends TestCase
         $email = $this->sendableEmail();
         $sent = $this->massMailService->startSending($email->id, null);
 
-        $this->assertSame([], $this->recipientRepository->findByEmailId($email->id));
+        $this->assertSame([], $this->deliveryRepository->findByEmailId($email->id));
         // No batch will ever touch it: it is finished, not left sending.
         $this->assertSame(Email::STATUS_SENT, $sent->status);
     }
@@ -284,20 +288,25 @@ class ListBlockFlowTest extends TestCase
     }
 
     /**
-     * The deduplication has to work on the NORMALISED address: the two
-     * halves of the union share no identifier at all, so a member id
-     * cannot be what catches this.
+     * The deduplication works on the NORMALISED address, and at the freeze
+     * (issue #999): the resolution returns the member and the contact, the
+     * send writes that address ONE message, concerning the member.
      */
-    public function testAContactThatIsAlsoAMembersDeskAddressCountsOnce(): void
+    public function testAContactThatIsAlsoAMembersDeskAddressIsOneMessageConcerningTheMember(): void
     {
         $this->createMember('chef@test.be');
         $this->contactGroup($this->listId, 'Le même', ['  CHEF@Test.BE ']);
 
         $resolved = $this->listService->resolveMembersForYears('custom', $this->listId, null, [$this->scoutYearId]);
+        $this->assertCount(2, $resolved, 'a member and a contact: the resolution compares members, not addresses');
 
-        $this->assertCount(1, $resolved);
-        $this->assertSame('chef@test.be', $resolved[0]['email']);
-        $this->assertNotNull($resolved[0]['member_id']);
+        $email = $this->sendableEmail();
+        $this->massMailService->startSending($email->id, null);
+
+        $deliveries = $this->deliveryRepository->findByEmailId($email->id);
+        $this->assertCount(1, $deliveries);
+        $this->assertSame('chef@test.be', $deliveries[0]->emailAddress);
+        $this->assertCount(1, $this->deliveryRepository->findTargetIdsForDelivery($deliveries[0]->id));
     }
 
     public function testAContactPresentInTwoGroupsIsWrittenToOnce(): void
@@ -312,8 +321,8 @@ class ListBlockFlowTest extends TestCase
         $this->massMailService->startSending($email->id, null);
 
         $addresses = array_map(
-            static fn(Recipient $r): string => (string) $r->emailAddress,
-            $this->recipientRepository->findByEmailId($email->id)
+            static fn(Delivery $r): string => (string) $r->emailAddress,
+            $this->deliveryRepository->findByEmailId($email->id)
         );
         sort($addresses);
         $this->assertSame(['cure@paroisse.be', 'jeunesse@wavre.be'], $addresses);
@@ -392,12 +401,12 @@ class ListBlockFlowTest extends TestCase
         $this->assertSame(3, $summary['members']);
         $this->assertSame(3, $summary['contacts']);
         $this->assertSame(1, $summary['contacts_unsubscribed']);
-        // Three members, plus the one active contact who is not a member.
+        // Three members' addresses, plus the one active contact who is not
+        // a member: four messages — what the send writes.
         $this->assertSame(4, $summary['total']);
-        $this->assertSame(
-            count($this->listService->resolveMembersForYears('custom', $this->listId, null, [$this->scoutYearId])),
-            $summary['total']
-        );
+        $email = $this->sendableEmail();
+        $this->massMailService->startSending($email->id, null);
+        $this->assertCount($summary['total'], $this->deliveryRepository->findByEmailId($email->id));
         $this->assertSame(
             [
                 $this->memberGroupId => ['count' => 2, 'unsubscribed' => 0],
@@ -428,15 +437,18 @@ class ListBlockFlowTest extends TestCase
         $this->contactGroup($this->listId, 'Désinscrits', ['parti@exemple.be']);
         $this->blockService->unsubscribeEverywhere('parti@exemple.be');
 
-        $rows = $this->listService->listRecipients($this->listId, $this->scoutYearId);
+        $recipients = $this->listService->listRecipients($this->listId, $this->scoutYearId);
+        $rows = $recipients['rows'];
 
         $this->assertSame(['cure@paroisse.be', 'chef@test.be'], array_column($rows, 'email'));
+        // Two members designated, one of them without any address.
+        $this->assertSame(2, $recipients['targets']);
 
         [$contact, $member] = $rows;
-        $this->assertNull($contact['member_id']);
+        $this->assertSame([], $contact['member_ids']);
         $this->assertSame([$contacts], $contact['block_ids']);
 
-        $this->assertNotNull($member['member_id']);
+        $this->assertCount(1, $member['member_ids']);
         $this->assertSame('Akela Dupont', $member['name']);
         $this->assertSame('Akela', $member['display_name']);
         $this->assertSame([$this->memberGroupId, $second, $contacts], $member['block_ids']);
@@ -455,10 +467,10 @@ class ListBlockFlowTest extends TestCase
         $this->addSecondaryEmail($memberId, 'perso@test.be');
         $contacts = $this->contactGroup($this->listId, 'Partenaires', ['PERSO@test.be', 'cure@paroisse.be']);
 
-        $rows = $this->listService->listRecipients($this->listId, $this->scoutYearId);
+        $rows = $this->listService->listRecipients($this->listId, $this->scoutYearId)['rows'];
 
         $this->assertSame(['cure@paroisse.be', 'perso@test.be'], array_column($rows, 'email'));
-        $this->assertSame($memberId, $rows[1]['member_id']);
+        $this->assertSame([$memberId], $rows[1]['member_ids']);
         $this->assertSame('Perso Dupont', $rows[1]['name']);
         $this->assertSame([$this->memberGroupId, $contacts], $rows[1]['block_ids']);
 
@@ -468,12 +480,35 @@ class ListBlockFlowTest extends TestCase
         // And the send agrees: one row for the member, one for the contact.
         $email = $this->sendableEmail();
         $this->massMailService->startSending($email->id, null);
-        $this->assertCount(count($rows), $this->recipientRepository->findByEmailId($email->id));
+        $this->assertCount(count($rows), $this->deliveryRepository->findByEmailId($email->id));
     }
 
     /**
-     * A contact holding a member's SECOND address is that member, as the
-     * freeze sees it: one row, credited with both groups, counted once.
+     * A member's address on the module's suppression list — reactivated
+     * after an unsubscribe, or unsubscribed through a contact group — is
+     * still written to as the member's (MassMailService::
+     * eligibleAddressesOfMember()), so the list's page counts it too:
+     * « Voir les destinataires » and the send agree.
+     */
+    public function testAMembersAddressOnTheSuppressionListIsListedLikeTheSendWritesIt(): void
+    {
+        $memberId = $this->createMember('chef@test.be');
+        $this->addSecondaryEmail($memberId, 'perso@test.be');
+        $this->suppressedRepository->suppress('perso@test.be');
+
+        $rows = $this->listService->listRecipients($this->listId, $this->scoutYearId)['rows'];
+
+        $this->assertSame(['chef@test.be', 'perso@test.be'], array_column($rows, 'email'));
+        $this->assertSame(2, $this->listService->summariseList($this->listId, $this->scoutYearId)['total']);
+        $email = $this->sendableEmail();
+        $this->massMailService->startSending($email->id, null);
+        $this->assertCount(2, $this->deliveryRepository->findByEmailId($email->id));
+    }
+
+    /**
+     * One row per MESSAGE (issue #999): a member with two addresses is two
+     * rows, both theirs, and a contact holding the second one is that
+     * member's row, credited with both groups — not a third.
      */
     public function testAContactOnAMembersSecondAddressIsListedAsThatMember(): void
     {
@@ -481,12 +516,34 @@ class ListBlockFlowTest extends TestCase
         $this->addSecondaryEmail($memberId, 'perso@test.be');
         $contacts = $this->contactGroup($this->listId, 'Le même', ['PERSO@test.be']);
 
-        $rows = $this->listService->listRecipients($this->listId, $this->scoutYearId);
+        $rows = $this->listService->listRecipients($this->listId, $this->scoutYearId)['rows'];
 
-        $this->assertSame(['chef@test.be'], array_column($rows, 'email'));
-        $this->assertSame($memberId, $rows[0]['member_id']);
-        $this->assertSame([$this->memberGroupId, $contacts], $rows[0]['block_ids']);
+        $this->assertSame(['chef@test.be', 'perso@test.be'], array_column($rows, 'email'));
+        $this->assertSame([[$memberId], [$memberId]], array_column($rows, 'member_ids'));
+        $this->assertSame([$this->memberGroupId], $rows[0]['block_ids']);
+        $this->assertSame([$this->memberGroupId, $contacts], $rows[1]['block_ids']);
+        $this->assertSame(2, $this->listService->summariseList($this->listId, $this->scoutYearId)['total']);
+    }
+
+    /**
+     * Two designated siblings on one family address: ONE row naming both,
+     * and two members designated (issue #999 — the dialog counts messages
+     * and names the targets).
+     */
+    public function testAFamilyAddressIsOneRowNamingEveryMemberItConcerns(): void
+    {
+        $this->createMember('famille@test.be', null, 'Alice');
+        $this->createMember('famille@test.be', null, 'Bob');
+
+        $recipients = $this->listService->listRecipients($this->listId, $this->scoutYearId);
+
+        $this->assertCount(1, $recipients['rows']);
+        $this->assertSame('Alice Dupont, Bob Dupont', $recipients['rows'][0]['name']);
+        $this->assertNull($recipients['rows'][0]['display_name']);
+        $this->assertCount(2, $recipients['rows'][0]['member_ids']);
+        $this->assertSame(2, $recipients['targets']);
         $this->assertSame(1, $this->listService->summariseList($this->listId, $this->scoutYearId)['total']);
+        $this->assertSame(2, $this->listService->summariseList($this->listId, $this->scoutYearId)['members']);
     }
 
     /**
@@ -501,7 +558,7 @@ class ListBlockFlowTest extends TestCase
         $this->createMember('', null, 'Sans adresse');
         $this->contactGroup($this->listId, 'Partenaires', ['cure@paroisse.be']);
 
-        $rows = $this->listService->listRecipients($this->listId, $this->scoutYearId);
+        $rows = $this->listService->listRecipients($this->listId, $this->scoutYearId)['rows'];
         $summary = $this->listService->summariseList($this->listId, $this->scoutYearId);
 
         $this->assertSame(['cure@paroisse.be', 'chef@test.be'], array_column($rows, 'email'));
@@ -523,15 +580,15 @@ class ListBlockFlowTest extends TestCase
         $email = $this->sendableEmail();
         $this->massMailService->startSending($email->id, null);
 
-        $recipients = $this->recipientRepository->findByEmailId($email->id);
+        $recipients = $this->deliveryRepository->findByEmailId($email->id);
         $this->assertCount(2, $recipients);
 
         $external = $this->recipientFor($recipients, 'jeunesse@wavre.be');
-        $this->assertNull($external->memberId);
-        $this->assertNull($external->scoutYearId);
+        // A message concerning no target — no history, no notification.
+        $this->assertSame([], $this->deliveryRepository->findTargetIdsForDelivery($external->id));
         $this->assertNull($external->memberEmailId);
         $this->assertNull($external->audienceRowId);
-        $this->assertSame(Recipient::STATUS_PENDING, $external->status);
+        $this->assertSame(Delivery::STATUS_PENDING, $external->status);
     }
 
     /**
@@ -549,8 +606,8 @@ class ListBlockFlowTest extends TestCase
         $email = $this->sendableEmail();
         $this->massMailService->startSending($email->id, null);
 
-        $recipient = $this->recipientFor($this->recipientRepository->findByEmailId($email->id), 'jeunesse@wavre.be');
-        $this->assertSame(Recipient::STATUS_ERROR, $recipient->status);
+        $recipient = $this->recipientFor($this->deliveryRepository->findByEmailId($email->id), 'jeunesse@wavre.be');
+        $this->assertSame(Delivery::STATUS_ERROR, $recipient->status);
         $this->assertSame('Adresse désinscrite des emails groupés', $recipient->errorMessage);
     }
 
@@ -589,8 +646,8 @@ class ListBlockFlowTest extends TestCase
         $email = $this->sendableEmail();
         $this->massMailService->startSending($email->id, null);
 
-        $recipient = $this->recipientFor($this->recipientRepository->findByEmailId($email->id), 'jeunesse@wavre.be');
-        $this->assertSame(Recipient::STATUS_ERROR, $recipient->status);
+        $recipient = $this->recipientFor($this->deliveryRepository->findByEmailId($email->id), 'jeunesse@wavre.be');
+        $this->assertSame(Delivery::STATUS_ERROR, $recipient->status);
         $this->assertSame('Adresse suspendue après des refus répétés', $recipient->errorMessage);
     }
 
@@ -661,12 +718,32 @@ class ListBlockFlowTest extends TestCase
         $this->massMailService->moveToTest($email->id, null);
         $this->massMailService->startSending($email->id, null);
 
-        $recipient = $this->recipientFor(
-            $this->recipientRepository->findByEmailId($email->id),
-            'jeunesse@wavre.be'
+        // §2.3: a row's suspended addresses are left out, and a row left
+        // with none produces no message — the tracking page names the line.
+        $this->assertSame([], $this->deliveryRepository->findByEmailId($email->id));
+        $this->assertSame(
+            [['label' => 'Adresse du fichier', 'row_index' => 2]],
+            $this->massMailService->getTrackingData($email->id)['unsent']
         );
-        $this->assertSame(Recipient::STATUS_ERROR, $recipient->status);
-        $this->assertSame('Adresse suspendue après des refus répétés', $recipient->errorMessage);
+    }
+
+    /**
+     * A member whose only address they unsubscribed: no message, and the
+     * journal says « désinscrite », not « Adresse invalide » — the address
+     * is fine, the person asked (review of #1030).
+     */
+    public function testAMemberWhoseOnlyAddressIsUnsubscribedIsNotReportedAsInvalid(): void
+    {
+        $memberId = $this->createMember('chef@test.be');
+        $repository = new \Core\Member\MemberEmailRepository($this->pdo, $this->encryption);
+        $repository->markInactive($repository->findOrCreateDeskOverride($memberId, 'chef@test.be')->id);
+
+        $email = $this->sendableEmail();
+        $this->massMailService->startSending($email->id, null);
+
+        $this->assertSame([], $this->deliveryRepository->findByEmailId($email->id));
+        $line = $this->pdo->query("SELECT description FROM event_log WHERE event_type = 'target_not_sent'")->fetchColumn();
+        $this->assertStringContainsString('Adresse désinscrite des emails groupés', (string) $line);
     }
 
     /**
@@ -704,17 +781,19 @@ class ListBlockFlowTest extends TestCase
         $email = $this->sendableEmail();
         $this->massMailService->startSending($email->id, null);
 
-        $recipients = $this->recipientRepository->findByEmailId($email->id);
-        $this->assertNotSame([], $recipients);
-
-        $frozen = $recipients[0];
-        $this->assertSame(Recipient::STATUS_ERROR, $frozen->status);
-        $this->assertSame(
+        // No message — a message always has an address — and a target left
+        // without one, whose journal line says WHY.
+        $this->assertSame([], $this->deliveryRepository->findByEmailId($email->id));
+        $this->assertSame([$memberId], array_map(
+            static fn($t) => $t->memberId,
+            $this->targetRepository->findByEmailId($email->id)
+        ));
+        $line = $this->pdo->query("SELECT description FROM event_log WHERE event_type = 'target_not_sent'")->fetchColumn();
+        $this->assertStringContainsString(
             'Adresse suspendue après des refus répétés',
-            $frozen->errorMessage,
+            (string) $line,
             'the address is not malformed — saying so costs the reader the one page that would help.'
         );
-        unset($memberId);
     }
 
     /** And an address that never bounced goes through untouched. */
@@ -725,8 +804,8 @@ class ListBlockFlowTest extends TestCase
         $email = $this->sendableEmail();
         $this->massMailService->startSending($email->id, null);
 
-        $recipient = $this->recipientFor($this->recipientRepository->findByEmailId($email->id), 'jeunesse@wavre.be');
-        $this->assertSame(Recipient::STATUS_PENDING, $recipient->status);
+        $recipient = $this->recipientFor($this->deliveryRepository->findByEmailId($email->id), 'jeunesse@wavre.be');
+        $this->assertSame(Delivery::STATUS_PENDING, $recipient->status);
     }
 
     /**
@@ -746,10 +825,10 @@ class ListBlockFlowTest extends TestCase
 
         $email = $this->sendableEmail();
         $this->massMailService->startSending($email->id, null);
-        $recipient = $this->recipientFor($this->recipientRepository->findByEmailId($email->id), 'jeunesse@wavre.be');
+        $recipient = $this->recipientFor($this->deliveryRepository->findByEmailId($email->id), 'jeunesse@wavre.be');
 
         $token = 'a' . str_repeat('b', 63);
-        $this->recipientRepository->setUnsubscribeTokenHash($recipient->id, \Core\Security\CapabilityToken::hash($token));
+        $this->deliveryRepository->setUnsubscribeTokenHash($recipient->id, \Core\Security\CapabilityToken::hash($token));
 
         $response = $this->unsubscribeController()->unsubscribe(
             new Request('POST', '/mass-mail/unsubscribe/' . $recipient->id, ['token' => $token], [], [], []),
@@ -766,9 +845,9 @@ class ListBlockFlowTest extends TestCase
     }
 
     /**
-     * @param Recipient[] $recipients
+     * @param Delivery[] $recipients
      */
-    private function recipientFor(array $recipients, string $address): Recipient
+    private function recipientFor(array $recipients, string $address): Delivery
     {
         foreach ($recipients as $recipient) {
             if ($recipient->emailAddress === $address) {
@@ -796,10 +875,9 @@ class ListBlockFlowTest extends TestCase
     }
 
     /**
-     * The dedup at resolution time only knows a member's DESK address —
-     * it is the one the criteria carry. A member is written to at every
-     * valid address they have, so the freeze is the only place that can
-     * see a contact matching a member's SECOND one.
+     * The freeze compares every address of every target with every
+     * contact: a contact matching a member's SECOND address is that
+     * member's message, not a second mail.
      */
     public function testAContactMatchingAMembersSecondAddressIsNotASecondMail(): void
     {
@@ -810,15 +888,18 @@ class ListBlockFlowTest extends TestCase
         $email = $this->sendableEmail();
         $this->massMailService->startSending($email->id, null);
 
-        $recipients = $this->recipientRepository->findByEmailId($email->id);
+        $recipients = $this->deliveryRepository->findByEmailId($email->id);
         $addresses = array_map(
-            static fn(Recipient $r): string => mb_strtolower((string) $r->emailAddress),
+            static fn(Delivery $r): string => mb_strtolower((string) $r->emailAddress),
             $recipients
         );
 
         $this->assertSame(['chef@test.be', 'perso@test.be'], $addresses);
-        // The one row kept is the member's, not a nameless contact.
-        $this->assertNotNull($this->recipientFor($recipients, 'perso@test.be')->memberId);
+        // The one message kept concerns the member, not a nameless contact.
+        $this->assertNotSame(
+            [],
+            $this->deliveryRepository->findTargetIdsForDelivery($this->recipientFor($recipients, 'perso@test.be')->id)
+        );
     }
 
     /**
@@ -833,11 +914,11 @@ class ListBlockFlowTest extends TestCase
         $email = $this->sendableEmail();
         $this->massMailService->startSending($email->id, null);
 
-        $recipient = $this->recipientFor($this->recipientRepository->findByEmailId($email->id), 'chef@test.be');
+        $recipient = $this->recipientFor($this->deliveryRepository->findByEmailId($email->id), 'chef@test.be');
         $this->assertNotNull($recipient->memberEmailId, 'a member recipient, unsubscribing through member_emails');
 
         $token = 'a' . str_repeat('b', 63);
-        $this->recipientRepository->setUnsubscribeTokenHash($recipient->id, \Core\Security\CapabilityToken::hash($token));
+        $this->deliveryRepository->setUnsubscribeTokenHash($recipient->id, \Core\Security\CapabilityToken::hash($token));
         $this->unsubscribeController()->unsubscribe(
             new Request('POST', '/mass-mail/unsubscribe/' . $recipient->id, ['token' => $token], [], [], []),
             ['id' => (string) $recipient->id]
@@ -920,7 +1001,7 @@ class ListBlockFlowTest extends TestCase
     {
         return new UnsubscribeController(
             $this->createStub(Environment::class),
-            $this->recipientRepository,
+            $this->deliveryRepository,
             $this->memberEmailService,
             $this->suppressedRepository,
             $this->blockService

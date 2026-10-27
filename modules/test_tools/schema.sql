@@ -28,6 +28,12 @@ CREATE TABLE captured_emails (
     -- decrypted only in Modules\TestTools\Repository\CapturedEmailRepository.
     recipient BLOB NOT NULL,
     recipient_blind_index CHAR(64) NOT NULL,
+    -- The visible copies (`Cc:`), one normalised address per line, as
+    -- personal as `recipient` and encrypted the same way, under its own
+    -- context (`captured_emails.cc`). NULL when the
+    -- message had none. Not searchable: nothing asks "which messages were
+    -- copied to X", only "who was copied on this one" (issue #911).
+    cc BLOB NULL,
     -- Organisational addresses (the site's own From, and the Reply-To the
     -- sending feature chose), in clear per design.md §2.6's "Section email
     -- (organizational)" row.

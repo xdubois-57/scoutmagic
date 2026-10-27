@@ -30,6 +30,7 @@ final class CapturedEmail
      *     int,
      *     array{id: int, file_name: string, mime_type: string, size_bytes: int, file_id: int|null}
      * > $attachments
+     * @param list<string> $cc The visible copies, in clear (decrypted by the Repository).
      */
     public function __construct(
         public readonly int $id,
@@ -46,7 +47,8 @@ final class CapturedEmail
         public readonly ?int $bodyHtmlFileId,
         public readonly ?int $bodyTextFileId,
         public readonly ?string $errorMessage,
-        public readonly array $attachments = []
+        public readonly array $attachments = [],
+        public readonly array $cc = []
     ) {
     }
 

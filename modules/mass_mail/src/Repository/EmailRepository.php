@@ -11,7 +11,7 @@ namespace Modules\MassMail\Repository;
 /**
  * mass_mail_emails — subject/body hold no personal data (module spec:
  * admin-authored content, not imported data) so this repository never
- * touches EncryptionService, unlike Repository\RecipientRepository.
+ * touches EncryptionService, unlike Repository\DeliveryRepository.
  *
  * An email's scout year(s) live in the mass_mail_email_scout_years
  * junction table (module addendum: an email may target several years at
@@ -156,7 +156,15 @@ class EmailRepository
                 return false;
             }
             $this->pdo->prepare('DELETE FROM mass_mail_email_scout_years WHERE email_id = ?')->execute([$id]);
-            $this->pdo->prepare('DELETE FROM mass_mail_recipients WHERE email_id = ?')->execute([$id]);
+            // Nothing is frozen before 'sending', so these find nothing —
+            // deleted all the same, for an engine without the cascades.
+            $this->pdo->prepare(
+                'DELETE FROM mass_mail_delivery_targets
+                 WHERE delivery_id IN (SELECT id FROM mass_mail_deliveries WHERE email_id = ?)'
+            )->execute([$id]);
+            $this->pdo->prepare('DELETE FROM mass_mail_deliveries WHERE email_id = ?')->execute([$id]);
+            $this->pdo->prepare('DELETE FROM mass_mail_targets WHERE email_id = ?')->execute([$id]);
+            $this->pdo->prepare('DELETE FROM mass_mail_notified_accounts WHERE email_id = ?')->execute([$id]);
             $this->pdo->prepare('DELETE FROM mass_mail_attachments WHERE email_id = ?')->execute([$id]);
             $this->pdo->commit();
         } catch (\Throwable $e) {

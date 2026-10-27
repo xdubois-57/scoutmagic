@@ -24,14 +24,16 @@ use Core\Security\HtmlSanitizer;
 use Modules\MassMail\Api\MassMailException;
 use Modules\MassMail\Repository\AudienceRepository;
 use Modules\MassMail\Repository\AudienceRow;
+use Modules\MassMail\Repository\Delivery;
+use Modules\MassMail\Repository\DeliveryRepository;
 use Modules\MassMail\Repository\Email;
 use Modules\MassMail\Repository\EmailAttachment;
 use Modules\MassMail\Repository\EmailAttachmentRepository;
 use Modules\MassMail\Repository\EmailRepository;
 use Modules\MassMail\Repository\MemberResolutionRepository;
-use Modules\MassMail\Repository\Recipient;
-use Modules\MassMail\Repository\RecipientRepository;
 use Modules\MassMail\Repository\SuppressedAddressRepository;
+use Modules\MassMail\Repository\Target;
+use Modules\MassMail\Repository\TargetRepository;
 
 /**
  * Owns the whole email lifecycle (module spec's "Workflow des statuts") —
@@ -45,7 +47,10 @@ class MassMailService
 
     public function __construct(
         private EmailRepository $emailRepository,
-        private RecipientRepository $recipientRepository,
+        /** The messages, one address each (issue #999). */
+        private DeliveryRepository $deliveryRepository,
+        /** Who each communication is meant for — the history and the notification. */
+        private TargetRepository $targetRepository,
         private EmailAttachmentRepository $attachmentRepository,
         private FileRepository $fileRepository,
         private MailingListService $mailingListService,
@@ -184,129 +189,143 @@ class MassMailService
     }
 
     /**
-     * One journal entry for a copy that LEFT.
+     * One journal entry for a message that LEFT.
      *
-     * The three methods below exist because « Lot d'emails de masse
-     * envoyé — 6 envoyés, 1 erreur » is not a trace of anything: it says
-     * that something went wrong to somebody, and there is no search that
-     * turns it into *which* copy, *why*, or even *when*, since a batch
-     * covers several emails at once. A mailing to seven people now leaves
-     * seven lines in /admin/journal, one per copy, and the one that did
-     * not go is a line of its own.
+     * The methods below exist because « Lot d'emails de masse envoyé — 6
+     * envoyés, 1 erreur » is not a trace of anything: it says that
+     * something went wrong to somebody, and there is no search that turns
+     * it into *which* message, *why*, or even *when*, since a batch covers
+     * several emails at once. A mailing of seven messages leaves seven
+     * lines in /admin/journal, one per message, and the one that did not
+     * go is a line of its own.
      *
-     * **No address, ever** (SECURITY.md §11). What identifies a line is
-     * the email id, the recipient row id and — when the recipient is a
-     * member rather than a bare address — the member id, which is the
-     * only personal reference the journal is allowed to carry. Those are
-     * the same keys the tracking page (`/mass-mail/{id}/tracking`) is
-     * built on, so the two read together: the journal says what happened
-     * and when, the tracking page says to whom.
+     * **No address, ever** (SECURITY.md §11). What identifies a line is the
+     * email id, the message (delivery) id and — when the message concerns
+     * members — their member ids, the only personal reference the journal
+     * is allowed to carry. Those are the keys the tracking page
+     * (`/mass-mail/{id}/tracking`) is built on, so the two read together:
+     * the journal says what happened and when, the tracking page says to
+     * whom.
      *
      * The email id also travels in the DESCRIPTION and not only in the
      * context, and that is the point of the wording rather than a
      * decoration: `/admin/journal`'s search box matches `description`
      * alone (`Core\Journal\JournalRepository::buildFilters()`), so
      * searching « #12 » has to be enough to pull the whole story of email
-     * 12 — start, every copy, end — out of a journal holding everything
+     * 12 — start, every message, end — out of a journal holding everything
      * else the site did that week.
+     *
+     * @param int[] $memberIds the members the message concerns, none for a contact's
      */
-    public function journalRecipientSent(int $emailId, int $recipientId, ?int $memberId): void
+    public function journalDeliverySent(int $emailId, int $deliveryId, array $memberIds): void
     {
-        $this->logRecipientEvent(
-            'recipient_sent',
+        $this->logDeliveryEvent(
+            'delivery_sent',
             'info',
-            self::emailPrefix($emailId) . ' : envoi réussi au destinataire #' . $recipientId,
+            self::emailPrefix($emailId) . ' : message #' . $deliveryId . ' envoyé',
             $emailId,
-            $recipientId,
-            $memberId
+            $deliveryId,
+            $memberIds
         );
     }
 
     /**
-     * One journal entry for a copy the transport REFUSED — it was
-     * attempted, and it bounced back.
+     * One journal entry for a message the transport REFUSED — it was
+     * attempted, and it bounced back. `error`, like the message's own
+     * status and like the red on the tracking page: a journal filing the
+     * same fact under « info » would hide it from the reader who came to
+     * /admin/journal having filtered on « Erreur » to find it.
      *
-     * `error` rather than `info`, unlike the entry this replaces: the
-     * recipient row is written as `Recipient::STATUS_ERROR` and the
-     * tracking page shows it in red, so a journal that files the same
-     * fact under « info » disagrees with the rest of the site — and
-     * disagrees precisely with the reader who came to /admin/journal
-     * having filtered on « Erreur » to find it.
-     *
+     * @param int[] $memberIds
      * @param array<string, mixed> $extra technical detail (the transport's own message)
      */
-    public function journalRecipientSendFailed(
+    public function journalDeliverySendFailed(
         int $emailId,
-        int $recipientId,
-        ?int $memberId,
+        int $deliveryId,
+        array $memberIds,
         array $extra = []
     ): void {
-        $this->logRecipientEvent(
-            'recipient_send_failed',
+        $this->logDeliveryEvent(
+            'delivery_send_failed',
             'error',
-            self::emailPrefix($emailId) . ' : échec d\'envoi au destinataire #' . $recipientId,
+            self::emailPrefix($emailId) . ' : échec d\'envoi du message #' . $deliveryId,
             $emailId,
-            $recipientId,
-            $memberId,
+            $deliveryId,
+            $memberIds,
             $extra
         );
     }
 
     /**
-     * One journal entry for a copy that was never even attempted —
-     * refused when the recipient list was frozen, because the address is
-     * unusable or because its owner asked not to be written to again.
-     *
-     * This is the hole the whole feature was reported through. Such a row
-     * is created straight in `Recipient::STATUS_ERROR` and never reaches
-     * `Task\SendBatchHandler`, so it passed through no code that wrote
-     * anything down: an email to seven people came back « six sent, one
-     * error » with the error existing on exactly one screen, and nothing
-     * in the journal — not even a line saying a copy had been dropped.
+     * One journal entry for a message that was never even attempted —
+     * refused when the mailing was frozen (a contact whose address is
+     * unusable, unsubscribed or suspended after bounces), or found
+     * unrenderable by the batch (a purged publipostage row). Such a message
+     * is written straight in `Delivery::STATUS_ERROR` and never goes through
+     * the transport, so without this line it would exist on one screen and
+     * nowhere in the journal.
      *
      * $reason is the site's own French sentence (« Adresse invalide »,
-     * « Adresse désinscrite des emails groupés »), which is what the
-     * recipient row already stores — never anything derived from the
-     * address itself.
+     * « Adresse désinscrite des emails groupés »), which is what the message
+     * row already stores — never anything derived from the address itself.
+     *
+     * @param int[] $memberIds
      */
-    public function journalRecipientNotSendable(
+    public function journalDeliveryNotSendable(
         int $emailId,
-        int $recipientId,
-        ?int $memberId,
+        int $deliveryId,
+        array $memberIds,
         string $reason
     ): void {
-        $this->logRecipientEvent(
-            'recipient_not_sendable',
+        $this->logDeliveryEvent(
+            'delivery_not_sendable',
             'error',
-            self::emailPrefix($emailId) . ' : rien n\'est parti vers le destinataire #' . $recipientId
-                . ' — ' . $reason,
+            self::emailPrefix($emailId) . ' : rien n\'est parti pour le message #' . $deliveryId . ' — ' . $reason,
             $emailId,
-            $recipientId,
-            $memberId,
+            $deliveryId,
+            $memberIds,
             ['reason' => $reason]
         );
     }
 
     /**
-     * The one place these entries are actually written, so the shape of
-     * the context is decided once: the three keys every per-copy entry
-     * carries, plus whatever the caller adds.
+     * One journal entry for a member the communication is meant for and to
+     * whom no message at all could be written — no eligible address. The
+     * target exists (it reads « Non envoyée » on the member page and in the
+     * tracking), and this is the line that says why.
+     */
+    private function journalTargetWithoutMessage(int $emailId, int $targetId, int $memberId, string $reason): void
+    {
+        $this->journalService->log(
+            'mass_mail',
+            'target_not_sent',
+            'error',
+            self::emailPrefix($emailId) . ' : aucun message pour l\'animé ciblé #' . $targetId . ' — ' . $reason,
+            ['email_id' => $emailId, 'target_id' => $targetId, 'member_id' => $memberId, 'reason' => $reason],
+            null
+        );
+    }
+
+    /**
+     * The one place the per-message entries are actually written, so the
+     * shape of the context is decided once.
      *
-     * `$userId` is deliberately null on all three. A batch runs in the
-     * scheduler with nobody logged in, and attributing a copy to the
-     * chief who pressed « Lancer l'envoi » minutes or hours earlier would
-     * be a guess dressed up as a record — `email_sending_started` already
-     * carries that person, once, which is where it belongs.
+     * `$userId` is deliberately null. A batch runs in the scheduler with
+     * nobody logged in, and attributing a message to the chief who pressed
+     * « Lancer l'envoi » minutes or hours earlier would be a guess dressed
+     * up as a record — `email_sending_started` already carries that person,
+     * once, which is where it belongs.
      *
+     * @param int[] $memberIds
      * @param array<string, mixed> $extra
      */
-    private function logRecipientEvent(
+    private function logDeliveryEvent(
         string $type,
         string $level,
         string $description,
         int $emailId,
-        int $recipientId,
-        ?int $memberId,
+        int $deliveryId,
+        array $memberIds,
         array $extra = []
     ): void {
         $this->journalService->log(
@@ -316,8 +335,8 @@ class MassMailService
             $description,
             array_merge([
                 'email_id' => $emailId,
-                'recipient_id' => $recipientId,
-                'member_id' => $memberId,
+                'delivery_id' => $deliveryId,
+                'member_ids' => array_values($memberIds),
             ], $extra),
             null
         );
@@ -376,10 +395,10 @@ class MassMailService
     }
 
     /**
-     * Which email an attachment belongs to, and which email a recipient
-     * row belongs to — the two ids the routes carry that are not an
-     * email's own, and that a caller therefore has to resolve before it
-     * can ask whether this session may touch that email at all.
+     * Which email an attachment belongs to, and which email a message
+     * belongs to — the two ids the routes carry that are not an email's
+     * own, and that a caller therefore has to resolve before it can ask
+     * whether this session may touch that email at all.
      */
     public function findEmailIdForAttachment(int $attachmentId): ?int
     {
@@ -387,26 +406,34 @@ class MassMailService
     }
 
     /** @see self::findEmailIdForAttachment() */
-    public function findEmailIdForRecipient(int $recipientId): ?int
+    public function findEmailIdForDelivery(int $deliveryId): ?int
     {
-        return $this->recipientRepository->findById($recipientId)?->emailId;
+        return $this->deliveryRepository->findById($deliveryId)?->emailId;
     }
 
     /**
-     * Recipient count for the list page's row (0 for a draft/test email —
-     * the list is only frozen once sending starts).
+     * How many messages the list page's row counts (0 for a draft/test
+     * email — nothing is frozen before sending starts).
      */
     public function getRecipientCount(int $emailId): int
     {
-        return $this->recipientRepository->countGroupedByStatus($emailId)['total'];
+        return $this->deliveryRepository->countGroupedByStatus($emailId)['total'];
     }
 
     /**
+     * Messages by status — one per address, never people.
+     *
      * @return array{pending: int, sent: int, error: int, total: int}
      */
     public function getStatusCounts(int $emailId): array
     {
-        return $this->recipientRepository->countGroupedByStatus($emailId);
+        return $this->deliveryRepository->countGroupedByStatus($emailId);
+    }
+
+    /** How many members a started email was meant for — its targets. */
+    public function getTargetCount(int $emailId): int
+    {
+        return count($this->targetRepository->findByEmailId($emailId));
     }
 
     /**
@@ -689,16 +716,18 @@ class MassMailService
     }
 
     /**
-     * The compose dialog's per-recipient preview (mail-merge test mode):
-     * the Nth audience row's rendered subject/body plus what the chief
-     * should double-check — unknown {{tokens}} and columns this row has
-     * no value for.
+     * The compose dialog's per-row preview (mail-merge test mode): the Nth
+     * audience row's rendered subject/body, the addresses it will go to —
+     * one separate message each (issue #999, screen 4 of the mock-up) — and
+     * what the chief should double-check: unknown {{tokens}} and columns
+     * this row has no value for.
      *
      * @return array{
      *     offset: int,
      *     total: int,
      *     row_index: int,
      *     recipient_label: string,
+     *     recipient_note: string,
      *     subject: string,
      *     body_html: string,
      *     unknown_tokens: string[],
@@ -735,12 +764,14 @@ class MassMailService
             ? random_int(0, max(0, $audience->rowCount - 1))
             : max(0, min($offset, $audience->rowCount - 1));
         $row = $this->requireMergeRow($email, $offset);
+        [$label, $note] = $this->describeMergeRowRecipients($row);
 
         return [
             'offset' => $offset,
             'total' => $audience->rowCount,
             'row_index' => $row->rowIndex,
-            'recipient_label' => $this->buildMergeRecipientLabel($row),
+            'recipient_label' => $label,
+            'recipient_note' => $note,
             'subject' => $this->mergeRenderer->renderText($email->subject, $row->data),
             'body_html' => $this->mergeRenderer->renderHtml($email->bodyHtml, $row->data),
             'unknown_tokens' => array_values(array_unique(array_merge(
@@ -769,15 +800,24 @@ class MassMailService
     }
 
     /**
-     * Who the previewed row goes to, without resolving (and lazily
-     * creating) member_email rows during a read-only preview: a member
-     * row shows the member's display name, an external row its own
-     * address(es).
+     * Who the previewed row goes to: the first address in the « À : », and
+     * a note naming the others — each a separate message — and where they
+     * come from. Read without resolving (and lazily creating) member_email
+     * rows during a read-only preview, see previewAddressesOfMember().
+     *
+     * « papa@… » / « et séparément à maman@… — 2 messages, adresses connues
+     * d'Alice Dupont (Tiers) »: no address is ever visible from another, and
+     * the preview says so by not putting them on one line.
+     *
+     * @return array{0: string, 1: string} [label, note]
      */
-    private function buildMergeRecipientLabel(AudienceRow $row): string
+    private function describeMergeRowRecipients(AudienceRow $row): array
     {
         if ($row->memberId === null) {
-            return $row->email ?? '';
+            $addresses = $this->previewFileRowAddresses($row);
+            $origin = count($addresses) > 1 ? 'adresses du fichier' : 'adresse du fichier';
+
+            return $this->recipientsLabel($addresses, $origin . ' — rattachée à aucune fiche');
         }
 
         $resolved = $this->memberResolutionRepository->resolveMergeMembers([$row->memberId]);
@@ -785,33 +825,57 @@ class MassMailService
         $profile = $profileYear !== null
             ? $this->memberService->findProfileByMemberAndYear($row->memberId, $profileYear)
             : null;
+        $addresses = $this->previewAddressesOfMember($row->memberId, $resolved[$row->memberId]['email'] ?? null);
+        $who = $profile !== null ? $profile->getDisplayName() : 'l\'animé';
+        $origin = count($addresses) > 1 ? 'adresses connues de ' : 'adresse connue de ';
 
-        return $profile !== null
-            ? $profile->getDisplayName() . ' (toutes ses adresses connues)'
-            : 'Membre (toutes ses adresses connues)';
+        return $this->recipientsLabel($addresses, $origin . $who . ' (Tiers)');
     }
 
     /**
-     * How many people this email would reach if it were sent right now.
+     * @param string[] $addresses
+     * @return array{0: string, 1: string}
+     */
+    private function recipientsLabel(array $addresses, string $origin): array
+    {
+        if ($addresses === []) {
+            return ['Aucune adresse valide', 'Aucun message ne partira pour cette ligne.'];
+        }
+
+        $first = array_shift($addresses);
+        $count = count($addresses) + 1;
+        $note = $count === 1 ? '1 message, ' . $origin : $count . ' messages, ' . $origin;
+        if ($addresses !== []) {
+            $note = 'et séparément à ' . implode(', ', $addresses) . ' — ' . $note;
+        }
+
+        return [$first, $note];
+    }
+
+    /**
+     * How many messages this email would write if it were sent right now,
+     * and for how many members — asked just before the confirmation
+     * dialog, because « Lancer l'envoi ? » on its own is a question about
+     * an unknown quantity, and a wrong list looks exactly like a right one
+     * until the mail is out.
      *
-     * Asked just before the confirmation dialog, because « Lancer
-     * l'envoi ? » on its own is a question about an unknown quantity. The
-     * difference between forty-two and four hundred is the difference
-     * between a section and the whole unit, and a wrong list selection
-     * looks exactly like a right one until the mail is out — at which
-     * point nothing can be recalled.
+     * **Counts messages and names targets** (issue #999, §2.4). A message is
+     * one address: three siblings on one family address are one message
+     * there and three members; a member with three addresses is three
+     * messages and one member. Both numbers are given because they answer
+     * different questions — « how much mail leaves » and « who is this
+     * for » — and one figure for both was wrong in one direction or the
+     * other on every family.
      *
-     * Counts people, not addresses. A member with three valid addresses
-     * receives one email at each, so the frozen row count is larger; but
-     * the question a manager is answering is "who is this going to?", and
-     * inflating the number with the mechanics of secondary addresses would
-     * make it harder to recognise a wrong list, not easier.
+     * Read the way the freeze reads it, with two deliberate differences
+     * that make it an estimate: nothing is created (the Desk address is
+     * read without its override row being made, see
+     * previewAddressesOfMember()), and the list is re-resolved now — it is
+     * live, and somebody else may edit it before the send.
      *
-     * Deliberately re-resolved rather than cached with the email: the list
-     * behind it is live, and a count from when the dialog's page was
-     * opened is a count from before somebody else edited that list.
-     *
-     * @return array{count: int, kind: string} kind: 'members' | 'rows'
+     * @return array{count: int, kind: string, members: int, rows: ?int}
+     *         count: messages; kind: 'messages'; members: targets;
+     *         rows: the file's rows for a mail merge, null otherwise
      * @throws MassMailException when the email doesn't exist
      * @throws MailingListException when the list behind it can no longer be
      *         resolved — an unknown custom list id, or the external list
@@ -825,38 +889,154 @@ class MassMailService
         $email = $this->requireEmail($id);
 
         if ($email->listType === Email::LIST_TYPE_MAIL_MERGE) {
-            return [
-                'count' => $email->audienceId !== null
-                    ? count($this->audienceRepository->findRowsByAudience($email->audienceId))
-                    : 0,
-                'kind' => 'rows',
-            ];
+            $rows = $email->audienceId !== null
+                ? $this->audienceRepository->findRowsByAudience($email->audienceId)
+                : [];
+            $mergeMembers = $this->memberResolutionRepository->resolveMergeMembers(
+                array_values(array_filter(array_map(fn(AudienceRow $r) => $r->memberId, $rows)))
+            );
+
+            $messages = 0;
+            $members = 0;
+            foreach ($rows as $row) {
+                if ($row->memberId !== null) {
+                    $members++;
+                    $messages += count($this->previewAddressesOfMember(
+                        $row->memberId,
+                        $mergeMembers[$row->memberId]['email'] ?? null
+                    ));
+                    continue;
+                }
+                $messages += count($this->previewFileRowAddresses($row));
+            }
+
+            return ['count' => $messages, 'kind' => 'messages', 'members' => $members, 'rows' => count($rows)];
         }
 
-        return [
-            'count' => count($this->mailingListService->resolveMembersForYears(
-                $email->listType,
-                $email->listId,
-                $email->listSectionId,
-                $this->orderYearsMostRecentFirst($email->scoutYearIds)
-            )),
-            'kind' => 'members',
-        ];
+        $addresses = [];
+        $members = 0;
+        foreach ($this->mailingListService->resolveMembersForYears(
+            $email->listType,
+            $email->listId,
+            $email->listSectionId,
+            $this->orderYearsMostRecentFirst($email->scoutYearIds)
+        ) as $designated) {
+            if ($designated['member_id'] === null) {
+                $address = (string) $designated['email'];
+                if ($this->contactRefusal($address) === null) {
+                    $addresses[self::addressKey($address)] = true;
+                }
+                continue;
+            }
+
+            $members++;
+            foreach ($this->previewAddressesOfMember($designated['member_id'], $designated['email']) as $address) {
+                $addresses[self::addressKey($address)] = true;
+            }
+        }
+
+        return ['count' => count($addresses), 'kind' => 'messages', 'members' => $members, 'rows' => null];
     }
 
     /**
-     * test → sending. Freezes the recipient list right now (module spec:
-     * "le système fige la liste des destinataires") — every member the
-     * list resolves to at this exact instant is expanded into ALL of
-     * their currently-valid addresses (module addendum, multi-email
-     * support: Desk + secondary, via Core\Member\MemberEmailService), one
-     * mass_mail_recipients row per address, each address copied in
-     * (encrypted) and tagged with the Core\Member\MemberEmail row it maps
-     * to (member_email_id — what the one-click unsubscribe link is built
-     * from later, in Task\SendBatchHandler). A member with no usable
-     * address at all gets a single row written straight to 'error', never
-     * 'pending'. The actual sending is left to Task\SendBatchHandler,
-     * kicked off here with an immediate first run.
+     * A member's eligible addresses read WITHOUT creating anything — for
+     * the estimate and the preview. The freeze goes through
+     * MemberEmailService::resolveValidAddressesForMassMail() with the Desk
+     * address, which lazily creates its override row; reading must not, so
+     * the Desk address is read through listForMember() — its override row
+     * when there is one, so an unsubscribed Desk address stays out — and
+     * kept if well formed, valid and not suspended after bounces, beside
+     * the valid personal ones; deduplicated, compared lowercased. Not
+     * filtered through the suppression list, exactly as the freeze
+     * (eligibleAddressesOfMember()).
+     *
+     * @return string[]
+     */
+    private function previewAddressesOfMember(int $memberId, ?string $deskEmail): array
+    {
+        $addresses = [];
+        if ($deskEmail !== null && filter_var($deskEmail, FILTER_VALIDATE_EMAIL) !== false
+            && $this->bounces?->isBlocked($deskEmail) !== true
+            && $this->deskRowIsValid($memberId, $deskEmail)
+        ) {
+            $addresses[self::addressKey($deskEmail)] = $deskEmail;
+        }
+        foreach ($this->memberEmailService->resolveValidAddressesForMassMail($memberId, null) as $memberEmail) {
+            $addresses[self::addressKey($memberEmail->email)] ??= $memberEmail->email;
+        }
+
+        return array_values($addresses);
+    }
+
+    /**
+     * Whether the member's Desk address is still in service — false once
+     * unsubscribed (« Inactif »), read without creating its override row.
+     * Whatever the source of the row at that address: the freeze's
+     * MemberEmailRepository::findOrCreateDeskOverride() takes an existing
+     * manual row there as the override, pending or inactive included.
+     */
+    private function deskRowIsValid(int $memberId, string $deskEmail): bool
+    {
+        foreach ($this->memberEmailService->listForMember($memberId, $deskEmail) as $row) {
+            if (self::addressKey($row->email) === self::addressKey($deskEmail)) {
+                return $row->isValid();
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * The addresses of a file row without a Tiers that a send would write
+     * to: its Email cell split on `;` and `,`, deduplicated within the row,
+     * less the malformed, unsubscribed and suspended ones.
+     *
+     * @return string[]
+     */
+    private function previewFileRowAddresses(AudienceRow $row): array
+    {
+        return array_values(array_filter(
+            $this->withoutSuppressed($this->splitRowAddresses($row)),
+            fn(string $address): bool => filter_var($address, FILTER_VALIDATE_EMAIL) !== false
+                && $this->bounces?->isBlocked($address) !== true
+        ));
+    }
+
+    /**
+     * @param string[] $addresses
+     * @return string[] the same, in order, less every unsubscribed one
+     */
+    private function withoutSuppressed(array $addresses): array
+    {
+        if ($addresses === []) {
+            return [];
+        }
+        $suppressed = array_flip(array_map(
+            static fn(string $a): string => self::addressKey($a),
+            $this->suppressedAddressRepository->filterSuppressed($addresses)
+        ));
+
+        return array_values(array_filter(
+            $addresses,
+            static fn(string $a): bool => !isset($suppressed[self::addressKey($a)])
+        ));
+    }
+
+    /** The form two addresses are compared under: one message per distinct key. */
+    private static function addressKey(string $address): string
+    {
+        return mb_strtolower(trim($address));
+    }
+
+    /**
+     * test → sending. Freezes the mailing right now (module spec: « le
+     * système fige la liste des destinataires ») into its TARGETS — the
+     * members it is meant for — and its MESSAGES — one per address, each to
+     * exactly one address (issue #999, §2.1 to §2.3 of
+     * docs/chantiers/CHANTIER-envois-groupes.md). Both are written in the
+     * same transaction as the status change, which is what makes a second
+     * freeze of the same email impossible. The actual sending is left to
+     * Task\SendBatchHandler, kicked off here with an immediate first run.
      *
      * @throws MassMailException when the email doesn't exist or isn't in test
      * @throws MailingListException when the list can no longer be resolved — the
@@ -872,10 +1052,10 @@ class MassMailService
 
         // One transaction (issue #755): the claim — a compare-and-set, so an
         // email deleted or started by another request since it was read
-        // above does not start here — and the recipients it freezes. A
-        // batch never sees half of them, a deletion waits and then finds
-        // it started, and a failed freeze leaves the email in test.
-        [$validCount, $invalidCount] = $this->emailRepository->atomically(function () use ($id, $email): array {
+        // above does not start here — and everything it freezes. A batch
+        // never sees half of it, a deletion waits and then finds it
+        // started, and a failed freeze leaves the email in test.
+        $frozen = $this->emailRepository->atomically(function () use ($id, $email): array {
             if (!$this->emailRepository->transitionStatus($id, Email::STATUS_TEST, Email::STATUS_SENDING)) {
                 throw new MassMailException(
                     "Cet e-mail a été modifié ou supprimé entre-temps : l'envoi n'a pas été lancé."
@@ -894,14 +1074,21 @@ class MassMailService
             'email_sending_started',
             'info',
             self::emailPrefix($id) . ' : envoi démarré',
-            ['email_id' => $id, 'recipient_count' => $validCount, 'invalid_address_count' => $invalidCount],
+            [
+                'email_id' => $id,
+                'message_count' => $frozen['pending'],
+                'refused_message_count' => $frozen['refused'],
+                'target_count' => $frozen['targets'],
+                'targets_without_message' => $frozen['targets_without_message'],
+            ],
             $actorId
         );
 
-        // Nothing to send — a custom list without a block, say: no batch
-        // will ever touch this email, so it is finished now rather than
-        // left « en cours d'envoi » for good.
-        if ($validCount === 0) {
+        // Nothing to send — a custom list without a block, a list of
+        // members without an address: no batch will ever touch this email,
+        // so it is finished now rather than left « en cours d'envoi » for
+        // good.
+        if ($frozen['pending'] === 0) {
             $this->checkAndMarkSentIfComplete($id, $actorId);
         }
 
@@ -909,229 +1096,223 @@ class MassMailService
     }
 
     /**
-     * The classic list freeze — every member the list resolves to right
-     * now, expanded into all their currently-valid addresses.
+     * The classic list freeze (§2.2).
      *
-     * A custom list also resolves to **the contacts of its contact
-     * groups** (`mass_mail_block_contacts`), which arrive here with
-     * `member_id` null, already deduplicated against the members and
-     * against each other — a contact carried by two groups arrives once —
-     * by `MailingListService::resolveMembersForYears()`, which has also
-     * applied the email's years to the member groups only. Such a recipient is
-     * written with `member_id`, `scout_year_id` and `member_email_id` all
-     * null and no `audience_row_id` — the shape that tells it apart from
-     * an external mail-merge recipient, which is exactly the distinction
-     * `Controller\UnsubscribeController` needs to send an unsubscribe to
-     * the right table.
+     * - **Targets**: every member the list designates for the chosen years,
+     *   once each (Service\MailingListService::resolveMembersForYears() —
+     *   a member brought by two criteria, groups or years is one target,
+     *   with the most recent year). Nobody is dropped for sharing an
+     *   address with another target, and nobody is added for sharing one
+     *   with a target: an address is never a reason to create or remove a
+     *   target.
+     * - **A member's eligible addresses**: Core\Member\MemberEmailService::
+     *   resolveValidAddressesForMassMail() (the valid Desk address, the
+     *   confirmed personal ones, less those suspended after bounces). An
+     *   unsubscribed member address is « Inactif » and left out there;
+     *   mass_mail_suppressed_addresses is read for contacts and free
+     *   mail-merge addresses only (see eligibleAddressesOfMember()).
+     * - **Messages**: ONE per distinct address (compared lowercased) across
+     *   every target and every contact of the list, linked to every target
+     *   whose address it is. A message whose address only a contact group
+     *   brings concerns no target.
+     * - A target left with no eligible address has no message: it reads
+     *   « Non envoyée » on the member page and in the tracking.
      *
-     * @return array{0: int, 1: int} [valid recipient rows, invalid-address rows]
+     * A contact's address that is malformed, unsubscribed or suspended
+     * after bounces is written as a message in error rather than dropped in
+     * silence, so the tracking page says why somebody was not written to —
+     * as it always did for contacts.
+     *
+     * @return array{pending: int, refused: int, targets: int, targets_without_message: int}
      */
     private function freezeListRecipients(Email $email): array
     {
-        $members = $this->mailingListService->resolveMembersForYears(
+        $designated = $this->mailingListService->resolveMembersForYears(
             $email->listType,
             $email->listId,
             $email->listSectionId,
-            $this->orderYearsMostRecentFirst(
-                $email->scoutYearIds
-            )
+            $this->orderYearsMostRecentFirst($email->scoutYearIds)
         );
 
-        $validCount = 0;
-        $invalidCount = 0;
-
-        // Two passes: the members of every member group first, and the
-        // contacts of every contact group second — because only the first
-        // pass knows the whole set of addresses a member is actually
-        // written to.
-        //
-        // Service\MailingListService already dropped a contact equal to a
-        // member's DESK address, which is the only one it can see. A
-        // member is frozen here at every valid address they have
-        // (member_emails included), so a contact matching a member's
-        // SECOND address would otherwise be a second mail to the same
-        // person — which is exactly what « le site compare les adresses,
-        // pas les fiches » promises does not happen. The set below is
-        // what makes that promise true, and it can only be built once the
-        // member rows are written.
-        $writtenAddresses = [];
+        /** @var array<string, array{email: string, member_email_id: ?int, target_ids: int[]}> $messages */
+        $messages = [];
         $contacts = [];
+        $targetCount = 0;
+        $withoutMessage = 0;
 
-        foreach ($members as $member) {
+        foreach ($designated as $member) {
             if ($member['member_id'] === null) {
                 $contacts[] = (string) $member['email'];
                 continue;
             }
 
+            $targetId = $this->targetRepository->create($email->id, $member['member_id'], $member['scout_year_id']);
+            $targetCount++;
+
             $deskEmail = $member['email'] !== null && filter_var($member['email'], FILTER_VALIDATE_EMAIL) !== false
                 ? $member['email']
                 : null;
-            $addresses = $this->memberEmailService->resolveValidAddressesForMassMail($member['member_id'], $deskEmail);
+            $addresses = $this->eligibleAddressesOfMember($member['member_id'], $deskEmail);
 
             if ($addresses === []) {
-                // **Empty has two causes, and they call for opposite
-                // things.** An address that is merely suspended is well
-                // formed and worked until it stopped: reporting it as
-                // « Adresse invalide » sends a chef d'unité hunting for a
-                // typo that is not there, when what they need is the
-                // Rebonds page. The raw-address paths below already say
-                // « suspendue » — this one said « invalide » for both.
-                $reason = $this->memberEmailService->everyAddressIsBlockedForMassMail(
-                    $member['member_id'],
-                    $deskEmail
-                )
-                    ? 'Adresse suspendue après des refus répétés'
-                    : 'Adresse invalide';
-
-                $recipientId = $this->recipientRepository->create(
+                $this->journalTargetWithoutMessage(
                     $email->id,
+                    $targetId,
                     $member['member_id'],
-                    $member['scout_year_id'],
-                    null,
-                    Recipient::STATUS_ERROR,
-                    $reason
+                    $this->reasonForNoAddress($member['member_id'], $deskEmail)
                 );
-                $this->journalRecipientNotSendable(
-                    $email->id,
-                    $recipientId,
-                    $member['member_id'],
-                    $reason
-                );
-                $invalidCount++;
+                $withoutMessage++;
                 continue;
             }
 
             foreach ($addresses as $memberEmail) {
-                $this->recipientRepository->create(
-                    $email->id,
-                    $member['member_id'],
-                    $member['scout_year_id'],
-                    $memberEmail->email,
-                    Recipient::STATUS_PENDING,
-                    null,
-                    $memberEmail->id
-                );
-                $writtenAddresses[mb_strtolower(trim($memberEmail->email))] = true;
-                $validCount++;
+                $key = self::addressKey($memberEmail->email);
+                $messages[$key] ??= [
+                    'email' => $memberEmail->email,
+                    'member_email_id' => $memberEmail->id,
+                    'target_ids' => [],
+                ];
+                $messages[$key]['target_ids'][] = $targetId;
             }
         }
 
+        $refused = 0;
+        $refusedKeys = [];
         foreach ($contacts as $contact) {
-            $key = mb_strtolower(trim($contact));
-            if (isset($writtenAddresses[$key])) {
-                // Already written to as a member, at this very address.
-                // No row at all rather than an error row: nothing went
-                // wrong and nobody was left out — the person IS a
-                // recipient, once, which is what the count must say.
+            $key = self::addressKey($contact);
+            if (isset($messages[$key]) || isset($refusedKeys[$key])) {
+                // Already a message at this very address, concerning the
+                // members it belongs to — the contact is that message, once.
                 continue;
             }
-            $writtenAddresses[$key] = true;
 
-            [$validCount, $invalidCount] = $this->freezeContactRecipient(
-                $email,
-                $contact,
-                $validCount,
-                $invalidCount
-            );
+            $refusal = $this->contactRefusal($contact);
+            if ($refusal !== null) {
+                $deliveryId = $this->deliveryRepository->create($email->id, $contact, Delivery::STATUS_ERROR, $refusal);
+                $this->journalDeliveryNotSendable($email->id, $deliveryId, [], $refusal);
+                $refused++;
+                $refusedKeys[$key] = true;
+                continue;
+            }
+            $messages[$key] = ['email' => $contact, 'member_email_id' => null, 'target_ids' => []];
         }
 
-        return [$validCount, $invalidCount];
+        $pending = 0;
+        foreach ($messages as $message) {
+            $deliveryId = $this->deliveryRepository->create(
+                $email->id,
+                $message['email'],
+                Delivery::STATUS_PENDING,
+                null,
+                $message['member_email_id']
+            );
+            $this->deliveryRepository->linkTargets($deliveryId, $message['target_ids']);
+            $pending++;
+        }
+
+        return [
+            'pending' => $pending,
+            'refused' => $refused,
+            'targets' => $targetCount,
+            'targets_without_message' => $withoutMessage,
+        ];
     }
 
     /**
-     * One contact of a custom list's contact groups, frozen as its own
-     * recipient row.
-     *
-     * The module's external suppression list is honoured here too: a
-     * mail-merge unsubscribe and a contact's unsubscribe are the same
-     * request from the same person, and an address that asked not to be
-     * written to through one path must not be written to through the
-     * other. The row is written all the same, as an explicit error rather
-     * than a silent omission — the tracking page then says why somebody
-     * was not written to, which « 312 contacts, 304 envoyés » never did.
-     *
-     * @return array{0: int, 1: int} [valid recipient rows, invalid-address rows]
+     * Why a contact's address may not be written to, or null when it may —
+     * malformed, unsubscribed (the module's suppression list: a mail-merge
+     * unsubscribe and a contact's unsubscribe are the same request from the
+     * same person), or suspended after bounces (roadmap IT-05: a bounce
+     * block applies to the ADDRESS, and a contact never goes through
+     * MemberEmailService, which filters members').
      */
-    private function freezeContactRecipient(
-        Email $email,
-        string $address,
-        int $validCount,
-        int $invalidCount
-    ): array {
+    private function contactRefusal(string $address): ?string
+    {
         if (filter_var($address, FILTER_VALIDATE_EMAIL) === false) {
-            $recipientId = $this->recipientRepository->create(
-                $email->id,
-                null,
-                null,
-                $address,
-                Recipient::STATUS_ERROR,
-                'Adresse invalide'
-            );
-            $this->journalRecipientNotSendable($email->id, $recipientId, null, 'Adresse invalide');
-            return [$validCount, $invalidCount + 1];
+            return 'Adresse invalide';
         }
-
         if ($this->suppressedAddressRepository->isSuppressed($address)) {
-            $recipientId = $this->recipientRepository->create(
-                $email->id,
-                null,
-                null,
-                $address,
-                Recipient::STATUS_ERROR,
-                'Adresse désinscrite des emails groupés'
-            );
-            $this->journalRecipientNotSendable(
-                $email->id,
-                $recipientId,
-                null,
-                'Adresse désinscrite des emails groupés'
-            );
-            return [$validCount, $invalidCount + 1];
+            return 'Adresse désinscrite des emails groupés';
         }
-
-        // A bounce block applies to the ADDRESS, so it has to be honoured
-        // on this path too (roadmap IT-05). Member-resolved recipients are
-        // filtered in `MemberEmailService::resolveValidAddressesForMassMail()`,
-        // which never sees a contact: without this check, an address the
-        // far end has refused twice keeps being written to through a
-        // custom list — the one hole in the rule the whole feature exists
-        // for. Written as an explicit error row, like the suppression just
-        // above, so the tracking page says why.
         if ($this->bounces?->isBlocked($address) === true) {
-            $recipientId = $this->recipientRepository->create(
-                $email->id,
-                null,
-                null,
-                $address,
-                Recipient::STATUS_ERROR,
-                'Adresse suspendue après des refus répétés'
-            );
-            $this->journalRecipientNotSendable(
-                $email->id,
-                $recipientId,
-                null,
-                'Adresse suspendue après des refus répétés'
-            );
-            return [$validCount, $invalidCount + 1];
+            return 'Adresse suspendue après des refus répétés';
         }
 
-        $this->recipientRepository->create($email->id, null, null, $address, Recipient::STATUS_PENDING, null);
-
-        return [$validCount + 1, $invalidCount];
+        return null;
     }
 
     /**
-     * The mail-merge freeze — one email PER AUDIENCE ROW (module spec),
-     * never re-resolved from member tables. A row with a Tiers expands to
-     * every currently-valid address of that member (same
-     * MemberEmailService resolution as any list send, so an unsubscribed
-     * member address is honored here too); a row without one sends to its
-     * own "Email" column value(s), each first checked against the
-     * external suppression list (Repository\SuppressedAddressRepository).
-     * Every recipient row keeps its audience_row_id so Task\
-     * SendBatchHandler can render this row's own variables.
+     * A member's eligible addresses at freeze time (§2.2): the core's
+     * resolution — which lazily creates the Desk override row the
+     * unsubscribe will flip — one per distinct address.
      *
-     * @return array{0: int, 1: int} [valid recipient rows, error rows]
+     * **Not filtered through mass_mail_suppressed_addresses**, as before
+     * issue #999. A member's unsubscribe already sets their address
+     * « Inactif » for every member sharing it (Core\Member\
+     * MemberEmailService::unsubscribe()), which the core's resolution
+     * leaves out; and « Réactiver » on the member page puts it back. The
+     * suppression list has no way out, so reading it here made a member's
+     * unsubscribe permanent. It stays the rule for contacts and the free
+     * addresses of a mail merge, which have no page to reactivate from.
+     *
+     * @return \Core\Member\MemberEmail[]
+     */
+    private function eligibleAddressesOfMember(int $memberId, ?string $deskEmail): array
+    {
+        $rows = [];
+        foreach ($this->memberEmailService->resolveValidAddressesForMassMail($memberId, $deskEmail) as $row) {
+            $rows[self::addressKey($row->email)] ??= $row;
+        }
+
+        return array_values($rows);
+    }
+
+    /**
+     * **Empty has three causes, and they call for different things.** An
+     * address merely suspended is well formed and worked until it stopped:
+     * reporting it as « Adresse invalide » sends a chef d'unité hunting for
+     * a typo that is not there, when what they need is the Rebonds page.
+     * One the person unsubscribed is their request, not a fault.
+     */
+    private function reasonForNoAddress(int $memberId, ?string $deskEmail): string
+    {
+        if ($this->memberEmailService->everyAddressIsBlockedForMassMail($memberId, $deskEmail)) {
+            return 'Adresse suspendue après des refus répétés';
+        }
+        // Nothing valid is left: an address the member's page shows
+        // « Inactif » is one they unsubscribed (MemberEmailService::
+        // unsubscribe()), the only way a member's address gets there.
+        foreach ($this->memberEmailService->listForMember($memberId, $deskEmail) as $row) {
+            if ($row->isInactive()) {
+                return 'Adresse désinscrite des emails groupés';
+            }
+        }
+
+        return 'Adresse invalide';
+    }
+
+    /**
+     * The mail-merge freeze (§2.3) — ONE communication PER FILE ROW, never
+     * re-resolved from the member tables, and never deduplicated between
+     * rows: two rows to the same address are two messages, each with its own
+     * values.
+     *
+     * - A row with a Tiers is one target, for that member (two rows for the
+     *   same Tiers, two targets), and one message per distinct eligible
+     *   address of the member (§2.2), each linked to that target. The
+     *   row's Email column is not read for sending.
+     * - A row without a Tiers has no target — no history, no notification,
+     *   whoever the addresses belong to — and one message per distinct
+     *   address of its Email cell, split on `;` and `,` as at the import,
+     *   less the malformed, unsubscribed and suspended ones.
+     * - A row left with no address has no message (a message always has
+     *   one): with a Tiers its target reads « Non envoyée »; with or without,
+     *   the tracking page shows the row « Aucune adresse valide ».
+     *
+     * Every message keeps its audience_row_id so Task\SendBatchHandler can
+     * render this row's own variables.
+     *
+     * @return array{pending: int, refused: int, targets: int, targets_without_message: int}
      */
     private function freezeMergeRecipients(Email $email): array
     {
@@ -1149,139 +1330,92 @@ class MassMailService
             array_values(array_filter(array_map(fn(AudienceRow $r) => $r->memberId, $rows)))
         );
 
-        $validCount = 0;
-        $invalidCount = 0;
+        $pending = 0;
+        $targetCount = 0;
+        $withoutMessage = 0;
         foreach ($rows as $row) {
             if ($row->memberId !== null) {
                 $profile = $mergeMembers[$row->memberId] ?? null;
-                $deskEmail = $profile !== null && $profile['email'] !== null && filter_var(
-                    $profile['email'],
-                    FILTER_VALIDATE_EMAIL
-                ) !== false
+                $targetId = $this->targetRepository->create(
+                    $email->id,
+                    $row->memberId,
+                    $profile['scout_year_id'] ?? null,
+                    $row->id
+                );
+                $targetCount++;
+
+                $deskEmail = $profile !== null && $profile['email'] !== null
+                    && filter_var($profile['email'], FILTER_VALIDATE_EMAIL) !== false
                     ? $profile['email']
                     : null;
-                $addresses = $this->memberEmailService->resolveValidAddressesForMassMail($row->memberId, $deskEmail);
+                $addresses = $this->eligibleAddressesOfMember($row->memberId, $deskEmail);
 
                 if ($addresses === []) {
-                    // Same distinction as the list path above, for the
-                    // same reason.
-                    $reason = $this->memberEmailService->everyAddressIsBlockedForMassMail(
-                        $row->memberId,
-                        $deskEmail
-                    )
-                        ? 'Adresse suspendue après des refus répétés'
-                        : 'Adresse invalide';
-
-                    $recipientId = $this->recipientRepository->create(
+                    $this->journalTargetWithoutMessage(
                         $email->id,
+                        $targetId,
                         $row->memberId,
-                        $profile['scout_year_id'] ?? null,
-                        null,
-                        Recipient::STATUS_ERROR,
-                        $reason,
-                        null,
-                        $row->id
+                        $this->reasonForNoAddress($row->memberId, $deskEmail)
                     );
-                    $this->journalRecipientNotSendable(
-                        $email->id,
-                        $recipientId,
-                        $row->memberId,
-                        $reason
-                    );
-                    $invalidCount++;
+                    $withoutMessage++;
                     continue;
                 }
 
                 foreach ($addresses as $memberEmail) {
-                    $this->recipientRepository->create(
+                    $deliveryId = $this->deliveryRepository->create(
                         $email->id,
-                        $row->memberId,
-                        $profile['scout_year_id'] ?? null,
                         $memberEmail->email,
-                        Recipient::STATUS_PENDING,
+                        Delivery::STATUS_PENDING,
                         null,
                         $memberEmail->id,
                         $row->id
                     );
-                    $validCount++;
+                    $this->deliveryRepository->linkTargets($deliveryId, [$targetId]);
+                    $pending++;
                 }
                 continue;
             }
 
-            foreach ($this->splitRowAddresses($row) as $address) {
-                if ($this->suppressedAddressRepository->isSuppressed($address)) {
-                    $recipientId = $this->recipientRepository->create(
-                        $email->id,
-                        null,
-                        null,
-                        $address,
-                        Recipient::STATUS_ERROR,
-                        'Adresse désinscrite des emails groupés',
-                        null,
-                        $row->id
-                    );
-                    $this->journalRecipientNotSendable(
-                        $email->id,
-                        $recipientId,
-                        null,
-                        'Adresse désinscrite des emails groupés'
-                    );
-                    $invalidCount++;
-                    continue;
-                }
-
-                // **The same gate as the list path, for the same reason.**
-                // A merge audience row without a Tiers carries a raw
-                // address — `AudienceImportService` writes one whenever an
-                // imported line has an « Email » column and no match — and
-                // that address reaches no member table, so nothing else
-                // filters it: `resolveValidAddressesForMassMail()` above
-                // drops blocked addresses, but only for rows that HAVE a
-                // member, and `MailService::send()`'s own gate never fires
-                // because merge recipients do not vouch. Without this, an
-                // address suspended after two permanent bounces kept being
-                // written to through a mail-merge campaign — the very
-                // « keeps being written to through a list » this check
-                // exists to close, arriving by the other list type.
-                if ($this->bounces?->isBlocked($address) === true) {
-                    $recipientId = $this->recipientRepository->create(
-                        $email->id,
-                        null,
-                        null,
-                        $address,
-                        Recipient::STATUS_ERROR,
-                        'Adresse suspendue après des refus répétés',
-                        null,
-                        $row->id
-                    );
-                    $this->journalRecipientNotSendable(
-                        $email->id,
-                        $recipientId,
-                        null,
-                        'Adresse suspendue après des refus répétés'
-                    );
-                    $invalidCount++;
-                    continue;
-                }
-
-                $this->recipientRepository->create(
+            $addresses = $this->previewFileRowAddresses($row);
+            if ($addresses === []) {
+                $this->journalService->log(
+                    'mass_mail',
+                    'merge_row_not_sent',
+                    'error',
+                    self::emailPrefix($email->id) . ' : aucun message pour la ligne ' . $row->rowIndex
+                        . ' du fichier — Aucune adresse valide',
+                    ['email_id' => $email->id, 'audience_row_id' => $row->id, 'row_index' => $row->rowIndex],
+                    null
+                );
+                continue;
+            }
+            foreach ($addresses as $address) {
+                $this->deliveryRepository->create(
                     $email->id,
-                    null,
-                    null,
                     $address,
-                    Recipient::STATUS_PENDING,
+                    Delivery::STATUS_PENDING,
                     null,
                     null,
                     $row->id
                 );
-                $validCount++;
+                $pending++;
             }
         }
 
-        return [$validCount, $invalidCount];
+        return [
+            'pending' => $pending,
+            'refused' => 0,
+            'targets' => $targetCount,
+            'targets_without_message' => $withoutMessage,
+        ];
     }
 
     /**
+     * A file row's Email cell, split on `;` and `,` — the two separators
+     * the import accepts — trimmed, deduplicated within the row (compared
+     * lowercased): an address written twice on one line gets one message
+     * for that line.
+     *
      * @return string[]
      */
     private function splitRowAddresses(AudienceRow $row): array
@@ -1289,13 +1423,22 @@ class MassMailService
         if ($row->email === null) {
             return [];
         }
-        return array_values(array_filter(array_map('trim', explode(';', $row->email)), fn(string $a) => $a !== ''));
+
+        $addresses = [];
+        foreach (preg_split('/[;,]/', $row->email) ?: [] as $part) {
+            $address = trim($part);
+            if ($address !== '') {
+                $addresses[self::addressKey($address)] ??= $address;
+            }
+        }
+
+        return array_values($addresses);
     }
 
     /**
      * Called once per email actually touched by a processed batch (Task\
-     * SendBatchHandler) — flips 'sending' → 'sent' the moment no 'pending'
-     * row remains for it.
+     * SendBatchHandler) — flips 'sending' → 'sent' the moment no message
+     * of it is 'pending' any more.
      */
     public function checkAndMarkSentIfComplete(int $emailId, ?int $actorId = null): void
     {
@@ -1303,7 +1446,7 @@ class MassMailService
         if ($email === null || $email->status !== Email::STATUS_SENDING) {
             return;
         }
-        if ($this->recipientRepository->hasPending($emailId)) {
+        if ($this->deliveryRepository->hasPending($emailId)) {
             return;
         }
 
@@ -1320,68 +1463,146 @@ class MassMailService
     }
 
     /**
-     * Tracking page's "Renvoyer" action — available for both 'error' and
-     * already-'sent' recipient rows (module spec). Resets the recipient to
-     * 'pending' so the next batch picks it up; if the parent email had
-     * already reached the terminal 'sent' status, it's put back to
-     * 'sending' so its own status honestly reflects that work remains.
+     * « Renvoyer » — one MESSAGE, to its one address, available for an
+     * 'error' and an already-'sent' message alike (module spec). Back to
+     * 'pending' so the next batch picks it up; an email that had already
+     * reached 'sent' is put back to 'sending' so its own status honestly
+     * reflects that work remains. Nobody is notified again: the accounts
+     * already notified for this communication are recorded
+     * (mass_mail_notified_accounts), and a resend finds them there.
      *
-     * @throws MassMailException when the recipient doesn't exist
+     * @throws MassMailException when the message doesn't exist
      */
-    public function resendToRecipient(int $recipientId, ?int $actorId): void
+    public function resendDelivery(int $deliveryId, ?int $actorId): void
     {
-        $recipient = $this->recipientRepository->findById($recipientId);
-        if ($recipient === null) {
-            throw new MassMailException('Destinataire introuvable.');
+        $delivery = $this->deliveryRepository->findById($deliveryId);
+        if ($delivery === null) {
+            throw new MassMailException('Message introuvable.');
         }
 
-        $this->recipientRepository->resend($recipientId);
+        $this->deliveryRepository->resend($deliveryId);
 
-        $email = $this->emailRepository->findById($recipient->emailId);
+        $email = $this->emailRepository->findById($delivery->emailId);
         if ($email !== null && $email->status === Email::STATUS_SENT) {
-            $this->emailRepository->updateStatus($recipient->emailId, Email::STATUS_SENDING);
+            $this->emailRepository->updateStatus($delivery->emailId, Email::STATUS_SENDING);
         }
 
         $this->ensureBatchTaskScheduled(true);
 
         $this->journalService->log(
             'mass_mail',
-            'recipient_resent',
+            'delivery_resent',
             'info',
-            self::emailPrefix($recipient->emailId) . ' : renvoi demandé au destinataire #' . $recipientId,
-            [
-                'email_id' => $recipient->emailId,
-                'recipient_id' => $recipientId,
-                'member_id' => $recipient->memberId,
-            ],
+            self::emailPrefix($delivery->emailId) . ' : renvoi demandé pour le message #' . $deliveryId,
+            ['email_id' => $delivery->emailId, 'delivery_id' => $deliveryId],
             $actorId
         );
     }
 
     /**
+     * The tracking page (§2.4, screen 3 of the mock-up): one line per
+     * MESSAGE — its address, the members it concerns, and for a mail merge
+     * the line of the file — then one line per target left without any
+     * message, and for a mail merge one per file row left without any
+     * message. The counts count messages; `target_count` names how many
+     * members the communication was meant for.
+     *
      * @return array{
      *     email: Email,
      *     counts: array{pending: int, sent: int, error: int, total: int},
-     *     recipients: array<int, array{recipient: Recipient, display_name: string, section_name: ?string}>
+     *     target_count: int,
+     *     targets_without_message: int,
+     *     messages: list<array{delivery: Delivery, members: string, row_index: ?int}>,
+     *     unsent: list<array{label: string, row_index: ?int}>
      * }
      * @throws MassMailException when the email doesn't exist
      */
     public function getTrackingData(int $id): array
     {
         $email = $this->requireEmail($id);
-        $counts = $this->recipientRepository->countGroupedByStatus($id);
-        $rows = $this->recipientRepository->findByEmailId($id);
+        $counts = $this->deliveryRepository->countGroupedByStatus($id);
+        $deliveries = $this->deliveryRepository->findByEmailId($id);
+        $targets = $this->targetRepository->findByEmailId($id);
+        $targetIdsByDelivery = $this->deliveryRepository->findTargetIdsByEmail($id);
 
-        // Resolve every member recipient in a fixed number of queries
-        // instead of five per recipient (a 600-recipient campaign used to
-        // cost ~3000). Grouped by each recipient's OWN resolved year, not
-        // the email's set as a whole — a member pulled in via the
-        // "previous year" list only has a valid profile for that year, not
-        // necessarily the current one.
+        $names = $this->targetNames($targets);
+        $rowIndexes = $this->audienceRowIndexes($email);
+
+        $targetsWithMessage = [];
+        $messages = [];
+        foreach ($deliveries as $delivery) {
+            $concerned = [];
+            foreach ($targetIdsByDelivery[$delivery->id] ?? [] as $targetId) {
+                $targetsWithMessage[$targetId] = true;
+                $concerned[] = $names[$targetId] ?? 'Membre inconnu';
+            }
+            $concerned = array_values(array_unique($concerned));
+            sort($concerned, SORT_FLAG_CASE | SORT_STRING);
+
+            $messages[] = [
+                'delivery' => $delivery,
+                'members' => implode(', ', $concerned),
+                'row_index' => $delivery->audienceRowId !== null
+                    ? ($rowIndexes[$delivery->audienceRowId] ?? null)
+                    : null,
+            ];
+        }
+
+        $unsent = [];
+        $rowsWithSomething = [];
+        foreach ($deliveries as $delivery) {
+            if ($delivery->audienceRowId !== null) {
+                $rowsWithSomething[$delivery->audienceRowId] = true;
+            }
+        }
+        foreach ($targets as $target) {
+            if ($target->audienceRowId !== null) {
+                $rowsWithSomething[$target->audienceRowId] = true;
+            }
+            if (isset($targetsWithMessage[$target->id])) {
+                continue;
+            }
+            $unsent[] = [
+                'label' => $names[$target->id] ?? 'Membre inconnu',
+                'row_index' => $target->audienceRowId !== null ? ($rowIndexes[$target->audienceRowId] ?? null) : null,
+            ];
+        }
+        // A file row without a Tiers that kept no address at all leaves
+        // neither a message nor a target — only the file still knows it.
+        // Only once the freeze has run: before it, no row has anything yet,
+        // and a draft opened at this URL would list every row as unsent.
+        $frozen = in_array($email->status, [Email::STATUS_SENDING, Email::STATUS_SENT], true);
+        foreach ($frozen ? $rowIndexes : [] as $rowId => $rowIndex) {
+            if (!isset($rowsWithSomething[$rowId])) {
+                $unsent[] = ['label' => 'Adresse du fichier', 'row_index' => $rowIndex];
+            }
+        }
+
+        return [
+            'email' => $email,
+            'counts' => $counts,
+            'target_count' => count($targets),
+            'targets_without_message' => count($targets) - count($targetsWithMessage),
+            'messages' => $messages,
+            'unsent' => $unsent,
+        ];
+    }
+
+    /**
+     * Each target's display name, in a fixed number of queries rather than
+     * five per target — grouped by each target's OWN year, since a member
+     * pulled in via the "previous year" list only has a valid profile for
+     * that year.
+     *
+     * @param Target[] $targets
+     * @return array<int, string> keyed by target id
+     */
+    private function targetNames(array $targets): array
+    {
         $memberIdsByYear = [];
-        foreach ($rows as $recipient) {
-            if ($recipient->memberId !== null && $recipient->scoutYearId !== null) {
-                $memberIdsByYear[$recipient->scoutYearId][] = $recipient->memberId;
+        foreach ($targets as $target) {
+            if ($target->scoutYearId !== null) {
+                $memberIdsByYear[$target->scoutYearId][] = $target->memberId;
             }
         }
 
@@ -1396,29 +1617,33 @@ class MassMailService
         }
         $profiles = $this->sectionService->hydrateMemberProfiles(array_values($memberYearIdByPair));
 
-        $recipients = [];
-        foreach ($rows as $recipient) {
-            // An external mail-merge recipient (no member) is shown by
-            // their address — the only identity they have here.
-            if ($recipient->memberId === null || $recipient->scoutYearId === null) {
-                $recipients[] = [
-                    'recipient' => $recipient,
-                    'display_name' => $recipient->emailAddress ?? 'Destinataire externe',
-                    'section_name' => null,
-                ];
-                continue;
-            }
-
-            $memberYearId = $memberYearIdByPair[$recipient->scoutYearId . ':' . $recipient->memberId] ?? null;
+        $names = [];
+        foreach ($targets as $target) {
+            $memberYearId = $target->scoutYearId !== null
+                ? ($memberYearIdByPair[$target->scoutYearId . ':' . $target->memberId] ?? null)
+                : null;
             $profile = $memberYearId !== null ? ($profiles[$memberYearId] ?? null) : null;
-            $recipients[] = [
-                'recipient' => $recipient,
-                'display_name' => $profile !== null ? $profile->getDisplayName() : 'Membre inconnu',
-                'section_name' => $profile?->getMainFunction()?->sectionName,
-            ];
+            if ($profile !== null) {
+                $names[$target->id] = $profile->getDisplayName();
+            }
         }
 
-        return ['email' => $email, 'counts' => $counts, 'recipients' => $recipients];
+        return $names;
+    }
+
+    /**
+     * The file line of every row of a mail merge's audience, while it
+     * exists — empty for a classic list and after the purge.
+     *
+     * @return array<int, int> row_index keyed by audience row id
+     */
+    private function audienceRowIndexes(Email $email): array
+    {
+        if ($email->listType !== Email::LIST_TYPE_MAIL_MERGE || $email->audienceId === null) {
+            return [];
+        }
+
+        return $this->audienceRepository->findRowIndexesByAudience($email->audienceId);
     }
 
     /**

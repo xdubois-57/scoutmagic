@@ -236,4 +236,23 @@ class MemberShowTemplateTest extends TestCase
 
         $this->assertStringNotContainsString('Mon niveau de formation', $html);
     }
+
+    /**
+     * « Communications récentes » lists a communication nothing of which
+     * left for this member (issue #999) — and must say so, never let it
+     * read as sent.
+     */
+    public function testACommunicationNotSentIsMarkedNonEnvoyee(): void
+    {
+        $item = ['id' => 7, 'subject' => 'Réunion', 'sent_at' => '2026-01-01 10:00:00', 'section_name' => 'Meute A', 'merge_purged' => false];
+        $context = ['mass_mail_enabled' => true];
+
+        $notSent = $this->render($this->makeMember(), true, $context + ['recent_mass_mail_emails' => [$item + ['not_sent' => true]]]);
+        $sent = $this->render($this->makeMember(), true, $context + ['recent_mass_mail_emails' => [$item + ['not_sent' => false]]]);
+
+        $this->assertStringContainsString('Réunion', $notSent);
+        $this->assertStringContainsString('Non envoyée', $notSent);
+        $this->assertStringContainsString('Réunion', $sent);
+        $this->assertStringNotContainsString('Non envoyée', $sent);
+    }
 }

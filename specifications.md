@@ -171,7 +171,7 @@ The sheet never shows a number the page itself would not: who sees which number 
 | Page | Content |
 |---|---|
 | {Member display name} × N | One page per linked member, two-column layout (same grid/stacking as Accueil, §4.1). Header: photo (replaceable by the member themselves outside configuration mode), display name, section, scout year. Right column: branch card (federation logo + link, per the member's age branch). Left column, in order: section name/email; section responsable (full legal name + postal address); badges assigned within the section; Staff d'U "Référent {section}" badge holders; next upcoming section event and links to Trombinoscope/Calendrier filtered on that section (both optional modules); the member's own functions this year; recent mass-mail communications with a "view as sent" detail page (module, optional); private documents — the member's own, for the year shown (the Staff d'Unité read them from the admin member sheet instead, §41.7); photo galleries linked to the member's sections this scout year (module, optional); **their own formation level** — the level reached, in French, and nothing else: no milestones and no next step, because the path stopped being a single queue once Pi-days and the Woodbadge got boxes of their own, and the tracking belongs on Espace chefs d'U > Formations (module `leadership`, optional, and self-only: a chief on somebody else's page never sees it); known contact emails (self-service: add/delete/resend verification/reactivate); all personal info from Desk with a mandatory note that it can't be edited here. Chiefs can adjust a member's scout year offset (+1/0/-1) when age-vs-section mismatch requires it. |
-| {Member email detail} | One page per mass-mail email received, reachable only from the member's own page — subject, section, sent date, full body as actually sent |
+| {Member email detail} | One page per mass-mail communication meant for the member — one per list communication, one per mail-merge row (§8, §24) — reachable from the member's own page and from the « Nouvel email » notification: subject, section, sent date, full body as actually sent; « Non envoyée » when nothing could leave for them; for a list communication, the other members it concerns whom the reader may already open, each with a link |
 | Réinscription {année cible} (module registration) | One card per animé the account is linked to — animés only, so a parent who is also an animateur gets no card for themselves — asking whether the child comes back next scout year. **No member id in the URL**: the children come from the signed-in address, and a save re-derives that same list, so a forged request naming somebody else's child is refused. A card asks only what there is to choose: a child who stays in their section, or who moves into a branch with a single visible section, gets a sentence and a free comment; a child moving into a branch with several gets the preferred section (« Peu importe » included), the « avec qui » fields, then the comment. A departure asks only for an optional reason. The « avec qui » fields are plain text with **no autocompletion, no validation and no feedback of any kind** — the form behaves identically whether or not a name matches somebody, which is what keeps one family from learning who the other families' children are. A family may change their answer as often as they like while the campaign is open. See §18.5 |
 | Les animateurs (module trombinoscope) | Every section's chief/chief-d'unité staff, grouped by section, with the section's designated "responsable" highlighted, each animateur's own contact details (behind the module's single setting) and each section's own address. Accepts `?section={id}` to preselect a section (also used by the member page's own link above). Carries a « Télécharger le PDF » action producing the printable version (§34). |
 | Photos (module gallery) | Photo/video albums (identified: view; chief: manage — see §4.3). Opening a media fills the screen; **one control** offers to save it at the best quality the site keeps of it. Each file is named after the photo's own name plus its media id — so two photos two phones both called `IMG_1234` are saved as two files rather than one overwriting the other — and the whole album's ZIP names its entries exactly the same way. |
@@ -476,11 +476,17 @@ A section with no member in a given import becomes inactive automatically (kept,
 - SMTP relay or local. DKIM signed. Multipart mandatory.
 - DNS verification page (SPF, DKIM, DMARC) with live status.
 - DMARC report email configurable separately.
-- Mass emails (module `mass_mail`) are addressed to a list, resolved and frozen when the email is sent: one email per
-  address, however many blocks or scout years name it. A custom list is the union of its blocks (« Listes de diffusion »,
-  §4): the scout years chosen on the email page apply to its member groups, its contact groups are always included,
-  and the page says so under the year boxes. Every unsubscription — member, contact or mail-merge recipient — holds
-  for the whole unit and survives any replacement file.
+- Mass emails (module `mass_mail`) are addressed to a list, resolved and frozen when the email is sent. **A message
+  always goes to exactly one address**, and a classic list sends one message per distinct, valid, authorised address,
+  however many members, blocks, contact groups or scout years lead to it — a member with three addresses gets one at
+  each, a family address shared by two members gets one. Separately, **every member the list designates keeps the
+  communication on their page** (one entry, even with several addresses, and « Non envoyée » when nothing could leave
+  for them); sharing an address with a designated member never makes somebody else a recipient. The « Nouvel email »
+  notification goes at most once per account per communication (per row for a mail merge, §24), never again on a
+  resend. A custom list is the union of its blocks (« Listes de diffusion », §4): the scout years chosen on the email
+  page apply to its member groups, its contact groups are always included, and the page says so under the year boxes.
+  Every unsubscription — from any message — holds for the whole unit, members' addresses included, and survives any
+  replacement file. The tracking page counts messages and names how many members were targeted.
 
 ## 9. Scheduler
 
@@ -1326,12 +1332,12 @@ Messages for one of its own business objects, its own standing propositions, and
 
 ## 24. Mail merge — publipostage from an Excel file (module mass_mail)
 
-An extra list type on the composition page: the recipients of one email come from a chief-uploaded Excel file instead of a mailing list, and **each row of the file is one email** — unlike every other list, where one email is sent per address.
+An extra list type on the composition page: the recipients of one email come from a chief-uploaded Excel file instead of a mailing list, and **each row of the file is one communication**, with its own values: **one message per distinct address of the row**, each to that address alone. Addresses are never deduplicated between rows (two rows to one address are two messages), unlike a classic list, where an address shared by several members receives one message (§8).
 
 ### 24.1 The file
 
 - `.xlsx` only, **first sheet only**, first row = column headers.
-- Per row, delivery is resolved in this order: a non-empty **"Tiers"** value designates the member with that Desk identifier — the email goes to every address known for that member; otherwise a non-empty **"Email"** value is the destination (several addresses allowed, separated by `;`); a row with neither, an unknown Tiers, or an invalid address **refuses the whole file**, with an error report naming every offending line at once. Nothing is partially imported.
+- Per row, delivery is resolved in this order: a non-empty **"Tiers"** value designates the member with that Desk identifier — one message goes to each address known for that member, an "Email" column on the same row is ignored for sending (it stays a variable, and the import warns, naming the lines), and the row appears once on that member's page (two rows for one Tiers, two entries); otherwise a non-empty **"Email"** value is the destination (several addresses allowed, separated by `;` or `,`; an address written twice in one cell gets one message, with a warning quoting the cell) and the row belongs to no member's page and notifies nobody; a row with neither, an unknown Tiers, or an invalid address **refuses the whole file**, with an error report naming every offending line at once. Nothing is partially imported.
 - Header recognition is alias-based (case/accent-insensitive): "Tiers" ≡ "Identifiant Desk"; "Email" ≡ "Email(s)" ≡ "Contact" ≡ "Adresse email" ≡ "Courriel". The site's own Excel exports (member exports, form responses) are therefore reusable as audiences without editing.
 - Every column is a **merge variable**, insertable into the subject and the body from the editor ("Cher {{Prenom}}, tu devras payer {{Montant}} €"). Values are always substituted as text (HTML-escaped in the body). A duplicated Tiers or address across rows is allowed (one row = one email) but reported as a warning at import.
 - The uploaded file itself is deleted immediately after parsing; the imported rows are stored encrypted.
@@ -1340,8 +1346,9 @@ An extra list type on the composition page: the recipients of one email come fro
 
 - Available to **every chief** (deliberate: the file, not a section list, names the recipients). An imported audience can only be used by the account that imported it, or a chef d'unité; every import is journaled.
 - Scout-year selection does not apply — the file defines the audience.
-- The normal draft → test → send workflow is unchanged. Test mode adds a **per-recipient preview** paging through the file's rows with the real substituted values (plus warnings for unknown variables and empty values); the test email carries the previewed row's values. The tracking page works as usual; an external recipient (no member) is shown by their address.
-- External recipients get the same one-click unsubscribe as members; an unsubscribed external address is remembered (as an irreversible hash) and excluded from every future mail merge.
+- The normal draft → test → send workflow is unchanged. Test mode adds a **per-row preview** paging through the file's rows with the real substituted values (plus warnings for unknown variables and empty values), naming the addresses the row will go to, each separately; the test email carries the previewed row's values. The tracking page shows one line per message with its row number; a row left with no address appears as « Aucune adresse valide ».
+- Every message carries the same one-click unsubscribe; an unsubscribed address is remembered (as an irreversible hash) and excluded from every future mailing.
+- « Nouvel email » notifications: at most one per account and per row; three rows for three children to one family address notify that account three times.
 
 ### 24.3 Retention
 
@@ -1359,7 +1366,7 @@ C'est là qu'un brouillon s'écrit. Un brouillon dure : on le compose en plusieu
 
 La création aussi : « Nouvel email » ouvre `/mass-mail/new`, la même page vide, qui redirige vers le brouillon créé. Le comportement ne change pas — mêmes listes, mêmes années scoutes, même import Excel refusé en entier avec ses lignes fautives, même aperçu par destinataire — mais le dépôt du fichier passe par la zone de dépôt du site, et l'éditeur de texte riche est celui des autres pages.
 
-**Destinataires** répond, avant l'envoi, à la question qu'on se pose en dernier : à qui cela va-t-il partir ? Le fichier ligne par ligne pour un publipostage, le nombre de personnes que la liste désigne à cet instant sinon — recompté à chaque visite, parce qu'une liste est vivante. Une fois l'envoi lancé la liste est figée, et la page renvoie vers **Suivi**, qui dit ce qu'il est advenu de chaque adresse.
+**Destinataires** répond, avant l'envoi, à la question qu'on se pose en dernier : à qui cela va-t-il partir ? Le fichier ligne par ligne pour un publipostage, sinon le nombre de messages (un par adresse distincte) et d'animés ciblés que la liste donne à cet instant — recompté à chaque visite, parce qu'une liste est vivante. Une fois l'envoi lancé la liste est figée, et la page renvoie vers **Suivi**, qui dit ce qu'il est advenu de chaque message.
 
 ## 25. Leadership module — three lists of people to contact (module leadership)
 
@@ -2179,9 +2186,9 @@ Three conditions must hold for capture to be wired at all — a reference or loc
 
 A state block carries the switch, its state in plain French and — **only when armed** — the sign-in-link exception as a checkbox, with the consequence of whichever state it is in written out: unticked, the warning that sign-in links now land on this page, so the operator should sign in with a password or a passkey rather than lock themselves out of the switch; ticked, that they still reach their recipient and continue to be filed here as « Remis au destinataire ». Only when armed, because with the capture off every e-mail leaves regardless and a control that changes nothing is worse than no control. **Ticking or unticking it is journaled, in both directions**, like the switch itself.
 
-Below it, the captured messages: subject, recipient, date, size, attachment count, DKIM badge, a « Remis au destinataire » badge on the ones the exception let out, newest first, paginated, with the whole view state in the query string and no cookie. **Two searches that cost different things**: the subject is stored in clear and searched plainly; the recipient is encrypted and therefore matched **only on an exact address** — a partial address finds nothing rather than quietly scanning everything; and an opt-in third search decrypts and reads the bodies, **bounded** (200 messages) because there is no index to lean on, which the page states rather than silently stopping.
+Below it, the captured messages: subject, recipient (and, on a line of its own, the visible copies « Cc : … » when the message has any — the registration e-mails go out with the unit's address in copy, and the copy must be checkable without opening every raw message, issue #911), date, size, attachment count, DKIM badge, a « Remis au destinataire » badge on the ones the exception let out, newest first, paginated, with the whole view state in the query string and no cookie. **Two searches that cost different things**: the subject is stored in clear and searched plainly; the recipient is encrypted and therefore matched **only on an exact address** — a partial address finds nothing rather than quietly scanning everything; and an opt-in third search decrypts and reads the bodies, **bounded** (200 messages) because there is no index to lean on, which the page states rather than silently stopping.
 
-A message opens in five tabs — HTML preview, plain text, headers, raw MIME source, attachments — plus an `.eml` download. **The HTML preview always renders in a sandboxed frame** with neither scripts nor same-origin access, never inline in the page. Attachments and the `.eml` download through the site's ordinary file access, so nothing here introduces a file-access exception.
+The detail page lists the copies under « Copie (Cc) » when there are some. They are stored encrypted like the recipient and are not searchable. A message opens in five tabs — HTML preview, plain text, headers, raw MIME source, attachments — plus an `.eml` download. **The HTML preview always renders in a sandboxed frame** with neither scripts nor same-origin access, never inline in the page. Attachments and the `.eml` download through the site's ordinary file access, so nothing here introduces a file-access exception.
 
 ### 40.3 Storage and retention
 

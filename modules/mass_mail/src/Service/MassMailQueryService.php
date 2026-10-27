@@ -11,42 +11,38 @@ namespace Modules\MassMail\Service;
 use Modules\MassMail\Api\MassMailQueryInterface;
 use Modules\MassMail\Repository\AudienceRepository;
 use Modules\MassMail\Repository\Email;
-use Modules\MassMail\Repository\RecipientRepository;
+use Modules\MassMail\Repository\TargetRepository;
 
 /**
  * The concrete implementation behind Api\MassMailQueryInterface — a thin
  * wrapper so the public API surface never exposes Repository\
- * RecipientRepository (or PDO) directly to other modules/core.
+ * TargetRepository (or PDO) directly to other modules/core.
+ *
+ * **One entry per target** (issue #999, §2.5): the member's history counts
+ * communications meant for them, never the messages that carried them —
+ * three addresses are one line — and a communication nothing of which
+ * reached them stays listed, « Non envoyée ».
  *
  * **It is also where a publipostage gets its variables back** (issue
  * #287). A mail merge is stored once, as a template, and substituted per
- * recipient in local variables just before the send (Task\
- * SendBatchHandler) — nothing writes a personalised copy anywhere. So
- * every surface that reads the e-mail back afterwards was showing
- * `Bonjour {{Prenom}}` to somebody whose mailbox holds `Bonjour Kaa`:
- * the member page's « Communications récentes », the detail page behind
- * it, and — until it was handed the rendered subject at the source — the
- * notification.
+ * line just before the send (Task\SendBatchHandler) — nothing writes a
+ * personalised copy anywhere. **Rendered at READ time, from the target's
+ * own file row, rather than stored per target at send time**: storing it
+ * would be a second copy of the same personal data, and it would outlive
+ * the retention that is supposed to remove it — Task\
+ * PurgeMergeAudiencesHandler erases a merge audience 18 months after the
+ * last send precisely so those values stop existing. Reading through the
+ * row means the personalisation disappears everywhere at once.
  *
- * **Rendered at READ time, from the recipient's own audience row, rather
- * than stored per recipient at send time.** Storing it would mean a
- * second copy of the same personal data, and above all it would outlive
- * the retention that is supposed to remove it: `Task\
- * PurgeMergeAudiencesHandler` erases a merge audience 18 months after the
- * last send precisely so those values stop existing, and a frozen copy
- * per recipient would quietly survive that. Reading through the audience
- * row means the personalisation disappears everywhere at once, on the day
- * it is meant to.
- *
- * The price is that a purged row cannot be rendered at all, and the
- * honest answer there is to SAY so rather than show the raw template
- * (which reads as a bug) or a body with every value blanked out (which
- * reads as a different bug). `merge_purged` carries that to the view.
+ * The price is that a purged row cannot be rendered at all, and the honest
+ * answer there is to SAY so rather than show the raw template (which reads
+ * as a bug) or a body with every value blanked out (which reads as a
+ * different bug). `merge_purged` carries that to the view.
  */
 class MassMailQueryService implements MassMailQueryInterface
 {
     public function __construct(
-        private RecipientRepository $recipientRepository,
+        private TargetRepository $targetRepository,
         private AudienceRepository $audienceRepository,
         private MergeRenderer $mergeRenderer
     ) {
@@ -54,89 +50,101 @@ class MassMailQueryService implements MassMailQueryInterface
 
     public function getRecentEmailsForMember(int $memberId, int $limit): array
     {
-        $rows = $this->recipientRepository->findRecentSentForMember($memberId, $limit);
+        $entries = $this->targetRepository->findRecentEntriesForMember($memberId, $limit);
 
         // One query for the whole page rather than one per line — this is
         // the member page's list, and it is drawn on every visit.
         $audienceRowIds = [];
-        foreach ($rows as $row) {
-            if ($row['audience_row_id'] !== null) {
-                $audienceRowIds[] = $row['audience_row_id'];
+        foreach ($entries as $entry) {
+            if ($entry['audience_row_id'] !== null) {
+                $audienceRowIds[] = $entry['audience_row_id'];
             }
         }
         $audienceRows = $this->audienceRepository->findRowsByIds($audienceRowIds);
 
-        return array_map(function (array $row) use ($audienceRows): array {
-            $data = $this->mergeDataFor($row, $audienceRows);
-            $isMerge = $row['list_type'] === Email::LIST_TYPE_MAIL_MERGE;
+        return array_map(function (array $entry) use ($audienceRows): array {
+            $data = $this->mergeDataFor($entry, $audienceRows);
+            $isMerge = $entry['list_type'] === Email::LIST_TYPE_MAIL_MERGE;
 
             return [
-                'id' => $row['id'],
+                'id' => $entry['id'],
                 'subject' => $data === null
-                    ? $row['subject']
-                    : $this->mergeRenderer->renderText($row['subject'], $data),
-                'sent_at' => $row['sent_at'],
-                'section_name' => $row['section_name'],
+                    ? $entry['subject']
+                    : $this->mergeRenderer->renderText($entry['subject'], $data),
+                'sent_at' => $entry['sent_at'],
+                'section_name' => $entry['section_name'],
                 // Same flag, same reason, as the detail below: a purged
                 // publipostage falls back to the stored SUBJECT, which is
                 // the template. A line reading « Camp de {{Prenom}} » with
-                // nothing to explain it is the very symptom this change
-                // exists to remove, and it would be odd for the list to
-                // keep it while the page behind it explains itself.
+                // nothing to explain it is the very symptom this exists to
+                // remove.
                 'merge_purged' => $isMerge && $data === null,
+                'not_sent' => $entry['not_sent'],
             ];
-        }, $rows);
+        }, $entries);
     }
 
-    public function findEmailDetailForMember(int $memberId, int $recipientId): ?array
+    public function findEmailDetailForMember(int $memberId, int $targetId): ?array
     {
-        $detail = $this->recipientRepository->findSentDetailForMember($recipientId, $memberId);
-        if ($detail === null) {
+        $entry = $this->targetRepository->findEntryForMember($targetId, $memberId);
+        if ($entry === null) {
             return null;
         }
 
-        $isMerge = $detail['list_type'] === Email::LIST_TYPE_MAIL_MERGE;
-        $row = $detail['audience_row_id'] !== null
-            ? $this->audienceRepository->findRowsByIds([$detail['audience_row_id']])[$detail['audience_row_id']] ?? null
+        $isMerge = $entry['list_type'] === Email::LIST_TYPE_MAIL_MERGE;
+        $row = $entry['audience_row_id'] !== null
+            ? $this->audienceRepository->findRowsByIds([$entry['audience_row_id']])[$entry['audience_row_id']] ?? null
             : null;
+
+        // « Concerne aussi » is a classic list's: a publipostage line has
+        // one target, and two lines naming two children are two
+        // communications, not one concerning both.
+        $others = [];
+        if (!$isMerge) {
+            $others = $this->targetRepository->findOtherEntriesOfEmail($entry['email_id'], $targetId);
+        }
 
         if (!$isMerge || $row === null) {
             return [
-                'subject' => $detail['subject'],
-                'body_html' => $detail['body_html'],
-                'sent_at' => $detail['sent_at'],
-                'section_name' => $detail['section_name'],
+                'subject' => $entry['subject'],
+                'body_html' => $entry['body_html'],
+                'sent_at' => $entry['sent_at'],
+                'section_name' => $entry['section_name'],
                 // True only for a publipostage whose row is gone: an
                 // ordinary list has nothing to substitute and nothing to
                 // have lost.
                 'merge_purged' => $isMerge,
+                'not_sent' => $entry['not_sent'],
+                'other_targets' => $others,
             ];
         }
 
         return [
-            'subject' => $this->mergeRenderer->renderText($detail['subject'], $row->data),
-            'body_html' => $this->mergeRenderer->renderHtml($detail['body_html'], $row->data),
-            'sent_at' => $detail['sent_at'],
-            'section_name' => $detail['section_name'],
+            'subject' => $this->mergeRenderer->renderText($entry['subject'], $row->data),
+            'body_html' => $this->mergeRenderer->renderHtml($entry['body_html'], $row->data),
+            'sent_at' => $entry['sent_at'],
+            'section_name' => $entry['section_name'],
             'merge_purged' => false,
+            'not_sent' => $entry['not_sent'],
+            'other_targets' => [],
         ];
     }
 
     /**
-     * This line's own substitution values, or null when there is nothing
+     * This entry's own substitution values, or null when there is nothing
      * to substitute — an ordinary list, or a publipostage whose audience
      * has been purged.
      *
-     * @param array{list_type: string, audience_row_id: int|null, ...} $row
+     * @param array{list_type: string, audience_row_id: int|null, ...} $entry
      * @param array<int, \Modules\MassMail\Repository\AudienceRow> $audienceRows
      * @return array<string, string>|null
      */
-    private function mergeDataFor(array $row, array $audienceRows): ?array
+    private function mergeDataFor(array $entry, array $audienceRows): ?array
     {
-        if ($row['list_type'] !== Email::LIST_TYPE_MAIL_MERGE || $row['audience_row_id'] === null) {
+        if ($entry['list_type'] !== Email::LIST_TYPE_MAIL_MERGE || $entry['audience_row_id'] === null) {
             return null;
         }
 
-        return ($audienceRows[$row['audience_row_id']] ?? null)?->data;
+        return ($audienceRows[$entry['audience_row_id']] ?? null)?->data;
     }
 }

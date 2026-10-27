@@ -14,7 +14,9 @@ use Core\Scheduler\TaskContext;
 use Core\Security\EncryptionService;
 use Core\Security\UserAccountRepository;
 use Modules\MassMail\Repository\AudienceRepository;
-use Modules\MassMail\Service\RecipientEmailLink;
+use Modules\MassMail\Repository\DeliveryRepository;
+use Modules\MassMail\Repository\NotifiedAccountRepository;
+use Modules\MassMail\Service\TargetEmailLink;
 use Modules\MassMail\Task\PurgeMergeAudiencesHandler;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
@@ -111,11 +113,11 @@ class PurgeMergeAudiencesHandlerTest extends TestCase
         return (int) $this->pdo->lastInsertId();
     }
 
-    private function createRecipient(int $emailId, ?int $audienceRowId): int
+    /** One target of the fixture member — what a notification links to. */
+    private function createTarget(int $emailId, ?int $audienceRowId): int
     {
         $stmt = $this->pdo->prepare(
-            "INSERT INTO mass_mail_recipients (email_id, member_id, scout_year_id, audience_row_id, status)
-             VALUES (?, ?, ?, ?, 'sent')"
+            'INSERT INTO mass_mail_targets (email_id, member_id, scout_year_id, audience_row_id) VALUES (?, ?, ?, ?)'
         );
         $stmt->execute([$emailId, $this->memberId, $this->scoutYearId, $audienceRowId]);
 
@@ -131,12 +133,12 @@ class PurgeMergeAudiencesHandlerTest extends TestCase
      *
      * @return array{audienceId: int, notificationId: int}
      */
-    private function createMergeRecipientWithNotification(string $subject, string $sentAt): array
+    private function createMergeTargetWithNotification(string $subject, string $sentAt): array
     {
         $audienceId = $this->createAudience('2020-01-01 00:00:00');
         $emailId = $this->createEmail($audienceId, 'sent', $sentAt);
         $rowId = $this->audienceRepository->createRow($audienceId, 0, null, 'a@test.be', ['Prenom' => 'Kaa']);
-        $recipientId = $this->createRecipient($emailId, $rowId);
+        $targetId = $this->createTarget($emailId, $rowId);
 
         return [
             'audienceId' => $audienceId,
@@ -144,7 +146,7 @@ class PurgeMergeAudiencesHandlerTest extends TestCase
                 'mass_mail.email_received',
                 $subject,
                 $sentAt,
-                RecipientEmailLink::url($this->memberYearId, $recipientId)
+                TargetEmailLink::url($this->memberYearId, $targetId)
             ),
         ];
     }
@@ -202,9 +204,9 @@ class PurgeMergeAudiencesHandlerTest extends TestCase
         $oldAudience = $this->createAudience('2020-01-01 00:00:00');
         $oldEmail = $this->createEmail($oldAudience, 'sent', '2020-06-01 00:00:00');
         $oldRowId = $this->audienceRepository->createRow($oldAudience, 2, null, 'a@test.be', ['Prenom' => 'A']);
-        $this->pdo->prepare(
-            "INSERT INTO mass_mail_recipients (email_id, audience_row_id, status) VALUES (?, ?, 'sent')"
-        )->execute([$oldEmail, $oldRowId]);
+        $deliveries = new DeliveryRepository($this->pdo, $this->encryption);
+        $deliveries->create($oldEmail, 'a@test.be', 'sent', null, null, $oldRowId);
+        $targetId = $this->createTarget($oldEmail, $oldRowId);
 
         $recentAudience = $this->createAudience('2020-01-01 00:00:00');
         $this->createEmail($recentAudience, 'sent', (new \DateTimeImmutable('-1 month'))->format('Y-m-d H:i:s'));
@@ -218,10 +220,50 @@ class PurgeMergeAudiencesHandlerTest extends TestCase
         $stmt = $this->pdo->prepare('SELECT audience_id FROM mass_mail_emails WHERE id = ?');
         $stmt->execute([$oldEmail]);
         $this->assertNull($stmt->fetchColumn() ?: null);
-        $row = $this->pdo->query('SELECT audience_row_id, status FROM mass_mail_recipients')->fetch(\PDO::FETCH_ASSOC);
+        $row = $this->pdo->query('SELECT audience_row_id, status FROM mass_mail_deliveries')->fetch(\PDO::FETCH_ASSOC);
         $this->assertNull($row['audience_row_id']);
         $this->assertSame('sent', $row['status']);
+        // The member's entry survives too — « personnalisation effacée ».
+        $target = $this->pdo->query('SELECT id, audience_row_id FROM mass_mail_targets')->fetch(\PDO::FETCH_ASSOC);
+        $this->assertSame($targetId, (int) $target['id']);
+        $this->assertNull($target['audience_row_id']);
         $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM mass_mail_audience_rows')->fetchColumn());
+    }
+
+    /**
+     * Two lines of one family — two children — notified to the same parent
+     * account: two rows of mass_mail_notified_accounts, (email, row 1,
+     * account) and (email, row 2, account). With SET NULL the purge would
+     * bring both to (email, NULL, account) and break the unique key; the
+     * CASCADE (and the explicit delete SQLite needs) removes them, and the
+     * purge goes through, taking both notifications with it (issue #999,
+     * §2.1).
+     */
+    public function testAPurgeRemovesTheNotificationsOfTwoLinesNotifiedToOneAccount(): void
+    {
+        $accountId = (new UserAccountRepository($this->pdo, $this->encryption))->create('parent@test.be')->id;
+        $audienceId = $this->createAudience('2020-01-01 00:00:00');
+        $emailId = $this->createEmail($audienceId, 'sent', '2020-06-01 00:00:00');
+        $notified = new NotifiedAccountRepository($this->pdo);
+
+        foreach (['Kaa', 'Baloo'] as $index => $child) {
+            $rowId = $this->audienceRepository->createRow($audienceId, $index + 2, $this->memberId, null, ['Prenom' => $child]);
+            $targetId = $this->createTarget($emailId, $rowId);
+            $this->assertTrue($notified->claim($emailId, $rowId, $accountId));
+            $this->insertNotification(
+                'mass_mail.email_received',
+                'Camp de ' . $child,
+                '2020-06-01 00:00:00',
+                TargetEmailLink::url($this->memberYearId, $targetId)
+            );
+        }
+        $this->assertSame(2, $notified->countForEmail($emailId));
+
+        (new PurgeMergeAudiencesHandler())->handle([], $this->buildContext());
+
+        $this->assertNull($this->audienceRepository->findById($audienceId));
+        $this->assertSame(0, $notified->countForEmail($emailId));
+        $this->assertSame([], $this->notificationIds(), 'both lines\' notifications go with the audience');
     }
 
     public function testNeverPurgesAnAudienceStillReferencedByADraft(): void
@@ -258,8 +300,8 @@ class PurgeMergeAudiencesHandlerTest extends TestCase
      */
     public function testPurgesTheUnreadNotificationOfAPurgedAudiencesRecipient(): void
     {
-        $purged = $this->createMergeRecipientWithNotification('Camp de Kaa', '2020-06-01 00:00:00');
-        $kept = $this->createMergeRecipientWithNotification(
+        $purged = $this->createMergeTargetWithNotification('Camp de Kaa', '2020-06-01 00:00:00');
+        $kept = $this->createMergeTargetWithNotification(
             'Camp de Baloo',
             (new \DateTimeImmutable('-1 month'))->format('Y-m-d H:i:s')
         );
@@ -291,18 +333,18 @@ class PurgeMergeAudiencesHandlerTest extends TestCase
         // A merge IS purged in the same run — without one the handler has
         // nothing to delete and this test would pass on the broken code
         // too.
-        $merge = $this->createMergeRecipientWithNotification('Camp de Kaa', '2020-06-01 00:00:00');
+        $merge = $this->createMergeTargetWithNotification('Camp de Kaa', '2020-06-01 00:00:00');
 
         // No audience_row_id: a criteria-resolved recipient of a plain list
         // send, the case the schema calls out as NULL. Same type, same age,
         // same member — only the audience row tells them apart.
         $email = $this->createEmail(null, 'sent', '2020-06-01 00:00:00');
-        $recipientId = $this->createRecipient($email, null);
+        $targetId = $this->createTarget($email, null);
         $this->insertNotification(
             'mass_mail.email_received',
             'Réunion de rentrée',
             '2020-06-01 00:00:00',
-            RecipientEmailLink::url($this->memberYearId, $recipientId)
+            TargetEmailLink::url($this->memberYearId, $targetId)
         );
 
         (new PurgeMergeAudiencesHandler())->handle([], $this->buildContext());
@@ -323,17 +365,17 @@ class PurgeMergeAudiencesHandlerTest extends TestCase
         // Again, a merge that IS purged in the same run, so the assertion
         // below is about the draft and not about a handler that did
         // nothing at all.
-        $this->createMergeRecipientWithNotification('Camp de Baloo', '2020-06-01 00:00:00');
+        $this->createMergeTargetWithNotification('Camp de Baloo', '2020-06-01 00:00:00');
 
         $audience = $this->createAudience('2020-01-01 00:00:00');
         $this->createEmail($audience, 'draft', null);
         $rowId = $this->audienceRepository->createRow($audience, 0, null, 'a@test.be', ['Prenom' => 'Kaa']);
-        $recipientId = $this->createRecipient($this->createEmail($audience, 'sent', '2020-06-01 00:00:00'), $rowId);
+        $targetId = $this->createTarget($this->createEmail($audience, 'sent', '2020-06-01 00:00:00'), $rowId);
         $this->insertNotification(
             'mass_mail.email_received',
             'Camp de Kaa',
             '2020-06-01 00:00:00',
-            RecipientEmailLink::url($this->memberYearId, $recipientId)
+            TargetEmailLink::url($this->memberYearId, $targetId)
         );
 
         (new PurgeMergeAudiencesHandler())->handle([], $this->buildContext());
@@ -353,14 +395,14 @@ class PurgeMergeAudiencesHandlerTest extends TestCase
     {
         $audience = $this->createAudience('2020-01-01 00:00:00');
         $rowId = $this->audienceRepository->createRow($audience, 0, null, 'a@test.be', ['Prenom' => 'Kaa']);
-        $recipientId = $this->createRecipient($this->createEmail($audience, 'sent', '2020-06-01 00:00:00'), $rowId);
+        $targetId = $this->createTarget($this->createEmail($audience, 'sent', '2020-06-01 00:00:00'), $rowId);
 
         // Same url, another type: still not this module's to delete.
         $this->insertNotification(
             'calendar.event_created',
             'Réunion de 2019',
             '2019-01-01 00:00:00',
-            RecipientEmailLink::url($this->memberYearId, $recipientId)
+            TargetEmailLink::url($this->memberYearId, $targetId)
         );
 
         (new PurgeMergeAudiencesHandler())->handle([], $this->buildContext());
@@ -396,7 +438,7 @@ class PurgeMergeAudiencesHandlerTest extends TestCase
                 'mass_mail.email_received',
                 'Camp de Kaa ' . $i,
                 '2020-06-01 00:00:00',
-                RecipientEmailLink::url($this->memberYearId, $this->createRecipient($emailId, $rowId))
+                TargetEmailLink::url($this->memberYearId, $this->createTarget($emailId, $rowId))
             );
         }
         $this->assertSame($expected, (int) $this->pdo->query('SELECT COUNT(*) FROM notifications')->fetchColumn());
@@ -428,7 +470,7 @@ class PurgeMergeAudiencesHandlerTest extends TestCase
      */
     public function testARollbackLeavesTheAudienceForTheNextRun(): void
     {
-        $merge = $this->createMergeRecipientWithNotification('Camp de Kaa', '2020-06-01 00:00:00');
+        $merge = $this->createMergeTargetWithNotification('Camp de Kaa', '2020-06-01 00:00:00');
 
         $this->pdo->exec('DROP TABLE notifications');
 

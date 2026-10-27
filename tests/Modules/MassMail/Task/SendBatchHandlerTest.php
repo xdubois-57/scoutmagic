@@ -29,9 +29,10 @@ use Core\Security\EncryptionService;
 use Core\Security\UserAccountRepository;
 use Minishlink\WebPush\WebPush;
 use Modules\MassMail\Repository\Email;
-use Modules\MassMail\Repository\Recipient;
-use Modules\MassMail\Repository\RecipientRepository;
-use Modules\MassMail\Service\RecipientEmailLink;
+use Modules\MassMail\Repository\Delivery;
+use Modules\MassMail\Repository\DeliveryRepository;
+use Modules\MassMail\Repository\TargetRepository;
+use Modules\MassMail\Service\TargetEmailLink;
 use Modules\MassMail\Task\SendBatchHandler;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
@@ -50,7 +51,10 @@ class SendBatchHandlerTest extends TestCase
 {
     private \PDO $pdo;
     private EncryptionService $encryption;
-    private RecipientRepository $recipientRepository;
+    private DeliveryRepository $deliveryRepository;
+    private TargetRepository $targetRepository;
+    /** The fixture member's one target in the fixture email. */
+    private int $targetId;
     private UserAccountRepository $userAccountRepository;
     private int $emailId;
     private int $memberId;
@@ -61,7 +65,8 @@ class SendBatchHandlerTest extends TestCase
         $this->pdo = DatabaseTestHelper::createTestDatabase();
         MassMailTestHelper::createTables($this->pdo);
         $this->encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
-        $this->recipientRepository = new RecipientRepository($this->pdo, $this->encryption);
+        $this->deliveryRepository = new DeliveryRepository($this->pdo, $this->encryption);
+        $this->targetRepository = new TargetRepository($this->pdo);
         $this->userAccountRepository = new UserAccountRepository($this->pdo, $this->encryption);
 
         $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('2025-2026', '2025-09-01', '2026-08-31', 1)");
@@ -79,8 +84,12 @@ class SendBatchHandlerTest extends TestCase
         $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('DESK_1')");
         $this->memberId = (int) $this->pdo->lastInsertId();
 
+        // One member, three addresses: one target, three messages, each
+        // linked to it (issue #999).
+        $this->targetId = $this->targetRepository->create($this->emailId, $this->memberId, $this->scoutYearId);
         for ($i = 0; $i < 3; $i++) {
-            $this->recipientRepository->create($this->emailId, $this->memberId, $this->scoutYearId, "member{$i}@test.be", Recipient::STATUS_PENDING, null);
+            $deliveryId = $this->deliveryRepository->create($this->emailId, "member{$i}@test.be");
+            $this->deliveryRepository->linkTargets($deliveryId, [$this->targetId]);
         }
 
         // How fast the mailing lane may go is a property of the relay
@@ -108,6 +117,29 @@ class SendBatchHandlerTest extends TestCase
 
     private ?BulkCadence $bulkCadence = null;
 
+    /**
+     * The fixture member's row for the year, at $email — the address the
+     * message went to is theirs, which is what lets the account behind it
+     * see the entry (MemberService::canAccess()).
+     */
+    private function giveTheMemberAYearAt(string $email, ?int $memberId = null, string $firstName = 'Jean'): int
+    {
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted,
+                                       email_encrypted, email_blind_index) VALUES (?, ?, ?, ?, ?, ?)'
+        );
+        $stmt->execute([
+            $memberId ?? $this->memberId,
+            $this->scoutYearId,
+            $this->encryption->encrypt($firstName, 'member_years.first_name'),
+            $this->encryption->encrypt('Dupont', 'member_years.last_name'),
+            $this->encryption->encrypt($email, 'member_years.email'),
+            $this->encryption->blindIndex(strtolower($email), 'email'),
+        ]);
+
+        return (int) $this->pdo->lastInsertId();
+    }
+
     // ── Le « De : » qui part vraiment (issue #418) ─────────────────────
 
     /**
@@ -127,7 +159,7 @@ class SendBatchHandlerTest extends TestCase
      */
     private function seedCopyOfOneSend(): ?\Core\Mail\Feedback\Seed\SeedCopyContent
     {
-        $this->pdo->exec('DELETE FROM mass_mail_recipients WHERE id NOT IN (SELECT MIN(id) FROM mass_mail_recipients)');
+        $this->pdo->exec('DELETE FROM mass_mail_deliveries WHERE id NOT IN (SELECT MIN(id) FROM mass_mail_deliveries)');
 
         $copy = null;
         $mailService = $this->mailServiceDouble();
@@ -340,7 +372,7 @@ class SendBatchHandlerTest extends TestCase
             'the batch is the FIRST two pending recipients, in order, each exactly once'
         );
 
-        $counts = $this->recipientRepository->countGroupedByStatus($this->emailId);
+        $counts = $this->deliveryRepository->countGroupedByStatus($this->emailId);
         $this->assertSame(2, $counts['sent']);
         $this->assertSame(1, $counts['pending']);
 
@@ -351,7 +383,7 @@ class SendBatchHandlerTest extends TestCase
     public function testDoesNotRescheduleWhenNoPendingRemain(): void
     {
         // Shrink to 1 recipient so a single batch (size 2) drains everything.
-        $this->pdo->exec("DELETE FROM mass_mail_recipients WHERE id NOT IN (SELECT MIN(id) FROM mass_mail_recipients)");
+        $this->pdo->exec("DELETE FROM mass_mail_deliveries WHERE id NOT IN (SELECT MIN(id) FROM mass_mail_deliveries)");
 
         $mailService = $this->mailServiceDouble();
         $handler = new SendBatchHandler();
@@ -402,7 +434,7 @@ class SendBatchHandlerTest extends TestCase
             'the receipt failing must not change WHO the batch wrote to'
         );
 
-        $counts = $this->recipientRepository->countGroupedByStatus($this->emailId);
+        $counts = $this->deliveryRepository->countGroupedByStatus($this->emailId);
         $this->assertSame(2, $counts['sent'], 'both copies left, so both are sent whatever the receipt did.');
         $this->assertSame(1, $counts['pending']);
 
@@ -482,8 +514,8 @@ class SendBatchHandlerTest extends TestCase
         $handler = new SendBatchHandler();
         $handler->handle([], $this->buildContext($mailService));
 
-        $recipients = $this->recipientRepository->findByEmailId($this->emailId);
-        $errored = array_values(array_filter($recipients, fn(Recipient $r) => $r->status === Recipient::STATUS_ERROR));
+        $recipients = $this->deliveryRepository->findByEmailId($this->emailId);
+        $errored = array_values(array_filter($recipients, fn(Delivery $r) => $r->status === Delivery::STATUS_ERROR));
         $this->assertNotEmpty($errored);
 
         foreach ($errored as $recipient) {
@@ -500,8 +532,8 @@ class SendBatchHandlerTest extends TestCase
         $handler = new SendBatchHandler();
         $handler->handle([], $this->buildContext($mailService));
 
-        $recipients = $this->recipientRepository->findByEmailId($this->emailId);
-        $errored = array_values(array_filter($recipients, fn(Recipient $r) => $r->status === Recipient::STATUS_ERROR));
+        $recipients = $this->deliveryRepository->findByEmailId($this->emailId);
+        $errored = array_values(array_filter($recipients, fn(Delivery $r) => $r->status === Delivery::STATUS_ERROR));
         $this->assertNotEmpty($errored);
         foreach ($errored as $recipient) {
             $this->assertStringNotContainsString('@test.be', (string) $recipient->errorMessage);
@@ -526,8 +558,8 @@ class SendBatchHandlerTest extends TestCase
         $handler->handle([], $this->buildContext($mailService));
 
         $errored = array_values(array_filter(
-            $this->recipientRepository->findByEmailId($this->emailId),
-            fn(Recipient $r) => $r->status === Recipient::STATUS_ERROR
+            $this->deliveryRepository->findByEmailId($this->emailId),
+            fn(Delivery $r) => $r->status === Delivery::STATUS_ERROR
         ));
         $this->assertNotEmpty($errored);
         foreach ($errored as $recipient) {
@@ -569,7 +601,7 @@ class SendBatchHandlerTest extends TestCase
             sys_get_temp_dir()
         ));
 
-        $failures = array_values(array_filter($logged, fn(array $e) => $e['type'] === 'recipient_send_failed'));
+        $failures = array_values(array_filter($logged, fn(array $e) => $e['type'] === 'delivery_send_failed'));
         $this->assertNotEmpty($failures);
         $this->assertSame('554 5.7.1 Relay access denied', $failures[0]['context']['mail_error']);
     }
@@ -606,7 +638,7 @@ class SendBatchHandlerTest extends TestCase
             $this->bulkCadence
         ));
 
-        $sent = array_values(array_filter($logged, fn(array $e) => $e['type'] === 'recipient_sent'));
+        $sent = array_values(array_filter($logged, fn(array $e) => $e['type'] === 'delivery_sent'));
         // The « Masse » lane's provider sends two per lot (setUp()), and
         // this run sends that lot.
         $this->assertCount(2, $sent);
@@ -614,8 +646,9 @@ class SendBatchHandlerTest extends TestCase
             $this->assertSame('info', $entry['level']);
             $this->assertStringContainsString('#' . $this->emailId, $entry['description']);
             $this->assertSame($this->emailId, $entry['context']['email_id']);
-            $this->assertSame($this->memberId, $entry['context']['member_id']);
-            $this->assertNotNull($entry['context']['recipient_id']);
+            // The members the message concerns — never its address.
+            $this->assertSame([$this->memberId], $entry['context']['member_ids']);
+            $this->assertNotNull($entry['context']['delivery_id']);
             // SECURITY.md §11 — never the address, on the success path
             // any more than on the failure one.
             $this->assertStringNotContainsString('@', $entry['description']);
@@ -653,7 +686,7 @@ class SendBatchHandlerTest extends TestCase
             sys_get_temp_dir()
         ));
 
-        $failures = array_values(array_filter($logged, fn(array $e) => $e['type'] === 'recipient_send_failed'));
+        $failures = array_values(array_filter($logged, fn(array $e) => $e['type'] === 'delivery_send_failed'));
         $this->assertNotEmpty($failures);
         $this->assertSame('error', $failures[0]['level']);
         $this->assertStringContainsString('#' . $this->emailId, $failures[0]['description']);
@@ -667,8 +700,8 @@ class SendBatchHandlerTest extends TestCase
      */
     public function testEverySendIncludesListUnsubscribeHeadersFooterAndAToken(): void
     {
-        $this->pdo->exec("DELETE FROM mass_mail_recipients WHERE id NOT IN (SELECT MIN(id) FROM mass_mail_recipients)");
-        $recipientBefore = $this->recipientRepository->findByEmailId($this->emailId)[0];
+        $this->pdo->exec("DELETE FROM mass_mail_deliveries WHERE id NOT IN (SELECT MIN(id) FROM mass_mail_deliveries)");
+        $recipientBefore = $this->deliveryRepository->findByEmailId($this->emailId)[0];
 
         $capturedTo = null;
         $capturedExtraHeaders = null;
@@ -701,7 +734,7 @@ class SendBatchHandlerTest extends TestCase
         $this->assertStringContainsString('/mass-mail/unsubscribe/', $capturedBodyHtml);
         $this->assertStringContainsString('Se désinscrire des emails groupés', $capturedBodyHtml);
 
-        $stmt = $this->pdo->prepare('SELECT unsubscribe_token_hash FROM mass_mail_recipients WHERE id = ?');
+        $stmt = $this->pdo->prepare('SELECT unsubscribe_token_hash FROM mass_mail_deliveries WHERE id = ?');
         $stmt->execute([$recipientBefore->id]);
         $this->assertNotNull($stmt->fetchColumn());
     }
@@ -726,8 +759,8 @@ class SendBatchHandlerTest extends TestCase
      */
     public function testTheSeedCopyOfAMergeCarriesNoRecipientsValues(): void
     {
-        $this->pdo->exec("DELETE FROM mass_mail_recipients WHERE id NOT IN (SELECT MIN(id) FROM mass_mail_recipients)");
-        $recipient = $this->recipientRepository->findByEmailId($this->emailId)[0];
+        $this->pdo->exec("DELETE FROM mass_mail_deliveries WHERE id NOT IN (SELECT MIN(id) FROM mass_mail_deliveries)");
+        $recipient = $this->deliveryRepository->findByEmailId($this->emailId)[0];
 
         $audienceRepository = new \Modules\MassMail\Repository\AudienceRepository($this->pdo, $this->encryption);
         $audienceId = $audienceRepository->createAudience('camp.xlsx', 'Camp', ['Prenom'], 1, null);
@@ -741,7 +774,7 @@ class SendBatchHandlerTest extends TestCase
               WHERE id = ?"
         );
         $update->execute([$audienceId, $this->emailId]);
-        $this->pdo->prepare('UPDATE mass_mail_recipients SET audience_row_id = ? WHERE id = ?')
+        $this->pdo->prepare('UPDATE mass_mail_deliveries SET audience_row_id = ? WHERE id = ?')
             ->execute([$rowId, $recipient->id]);
 
         $sentTo = null;
@@ -786,7 +819,7 @@ class SendBatchHandlerTest extends TestCase
     /** An ordinary mailing personalises no subject, so the copy keeps it. */
     public function testTheSeedCopyOfAnOrdinaryMailingKeepsTheCampaignsSubject(): void
     {
-        $this->pdo->exec("DELETE FROM mass_mail_recipients WHERE id NOT IN (SELECT MIN(id) FROM mass_mail_recipients)");
+        $this->pdo->exec("DELETE FROM mass_mail_deliveries WHERE id NOT IN (SELECT MIN(id) FROM mass_mail_deliveries)");
 
         $sentTo = null;
         $copy = null;
@@ -808,7 +841,7 @@ class SendBatchHandlerTest extends TestCase
 
     public function testMarksParentEmailSentOnceAllRecipientsProcessed(): void
     {
-        $this->pdo->exec("DELETE FROM mass_mail_recipients WHERE id NOT IN (SELECT MIN(id) FROM mass_mail_recipients)");
+        $this->pdo->exec("DELETE FROM mass_mail_deliveries WHERE id NOT IN (SELECT MIN(id) FROM mass_mail_deliveries)");
 
         $mailService = $this->mailServiceDouble();
         $handler = new SendBatchHandler();
@@ -841,18 +874,53 @@ class SendBatchHandlerTest extends TestCase
         return $notificationService;
     }
 
+    /**
+     * A notification is best-effort: the copy has left by the time it is
+     * attempted. One that throws — here dispatch() itself — must neither
+     * turn that message into an error nor stop the rest of the batch, and
+     * it is journaled without the address.
+     */
+    public function testAFailingNotificationCostsNeitherTheMessageNorTheRestOfTheBatch(): void
+    {
+        $deliveries = $this->deliveryRepository->findByEmailId($this->emailId);
+        $this->giveTheMemberAYearAt($deliveries[0]->emailAddress);
+        foreach ($deliveries as $delivery) {
+            $this->userAccountRepository->create($delivery->emailAddress);
+        }
+        $notificationService = $this->createMock(NotificationService::class);
+        $notificationService->method('dispatch')->willThrowException(new \RuntimeException('push down'));
+
+        (new SendBatchHandler())->handle([], $this->buildContextWithNotifications($this->mailServiceDouble(), $notificationService));
+
+        $statuses = $this->pdo->query(
+            'SELECT status FROM mass_mail_deliveries WHERE email_id = ' . (int) $this->emailId
+        )->fetchAll(\PDO::FETCH_COLUMN);
+        // The batch holds two of the three: both sent, none turned into an
+        // error, and the third still queued for the next batch.
+        $counts = array_count_values($statuses);
+        ksort($counts);
+        $this->assertSame(['pending' => 1, 'sent' => 2], $counts);
+        $rescheduled = $this->pdo->query(
+            "SELECT COUNT(*) FROM scheduled_actions WHERE module_id = 'mass_mail' AND task_key = 'send_batch' AND status = 'pending'"
+        )->fetchColumn();
+        $this->assertSame(1, (int) $rescheduled);
+        $logged = $this->pdo->query(
+            "SELECT context FROM event_log WHERE event_type = 'notification_failed'"
+        )->fetchAll(\PDO::FETCH_COLUMN);
+        $this->assertNotSame([], $logged);
+        foreach ($this->deliveryRepository->findByEmailId($this->emailId) as $delivery) {
+            $this->assertStringNotContainsString($delivery->emailAddress, implode(' ', $logged));
+        }
+    }
+
     public function testDispatchesEmailReceivedNotificationWhenRecipientHasALoginAccount(): void
     {
-        $this->pdo->exec("DELETE FROM mass_mail_recipients WHERE id NOT IN (SELECT MIN(id) FROM mass_mail_recipients)");
-        $recipient = $this->recipientRepository->findByEmailId($this->emailId)[0];
+        $this->pdo->exec("DELETE FROM mass_mail_deliveries WHERE id NOT IN (SELECT MIN(id) FROM mass_mail_deliveries)");
+        $recipient = $this->deliveryRepository->findByEmailId($this->emailId)[0];
 
         $account = $this->userAccountRepository->create($recipient->emailAddress);
 
-        $stmt = $this->pdo->prepare(
-            'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted) VALUES (?, ?, ?, ?)'
-        );
-        $stmt->execute([$this->memberId, $this->scoutYearId, $this->encryption->encrypt('Jean', 'member_years.first_name'), $this->encryption->encrypt('Dupont', 'member_years.last_name')]);
-        $memberYearId = (int) $this->pdo->lastInsertId();
+        $memberYearId = $this->giveTheMemberAYearAt($recipient->emailAddress);
 
         $mailService = $this->mailServiceDouble();
         $notificationService = $this->buildNotificationService();
@@ -864,7 +932,7 @@ class SendBatchHandlerTest extends TestCase
         $this->assertCount(1, $notifications);
         $this->assertSame('mass_mail.email_received', $notifications[0]->typeId);
         $this->assertSame('Sujet', $notifications[0]->body);
-        $this->assertSame('/members/' . $memberYearId . '/emails/' . $recipient->id, $notifications[0]->url);
+        $this->assertSame('/members/' . $memberYearId . '/emails/' . $this->targetId, $notifications[0]->url);
     }
 
     /**
@@ -884,19 +952,11 @@ class SendBatchHandlerTest extends TestCase
      */
     public function testThePersonalisedSubjectIsWrittenNowThatItCanBePurged(): void
     {
-        $this->pdo->exec("DELETE FROM mass_mail_recipients WHERE id NOT IN (SELECT MIN(id) FROM mass_mail_recipients)");
-        $recipient = $this->recipientRepository->findByEmailId($this->emailId)[0];
+        $this->pdo->exec("DELETE FROM mass_mail_deliveries WHERE id NOT IN (SELECT MIN(id) FROM mass_mail_deliveries)");
+        $recipient = $this->deliveryRepository->findByEmailId($this->emailId)[0];
         $account = $this->userAccountRepository->create($recipient->emailAddress);
 
-        $stmt = $this->pdo->prepare(
-            'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted) VALUES (?, ?, ?, ?)'
-        );
-        $stmt->execute([
-            $this->memberId,
-            $this->scoutYearId,
-            $this->encryption->encrypt('Jean', 'member_years.first_name'),
-            $this->encryption->encrypt('Dupont', 'member_years.last_name'),
-        ]);
+        $this->giveTheMemberAYearAt($recipient->emailAddress);
 
         // Turn the fixture's ordinary email into a publipostage whose
         // subject carries a variable, and give this recipient a row.
@@ -908,7 +968,7 @@ class SendBatchHandlerTest extends TestCase
              WHERE id = ?"
         );
         $update->execute([$audienceId, $this->emailId]);
-        $this->pdo->prepare('UPDATE mass_mail_recipients SET audience_row_id = ? WHERE id = ?')
+        $this->pdo->prepare('UPDATE mass_mail_deliveries SET audience_row_id = ? WHERE id = ?')
             ->execute([$rowId, $recipient->id]);
 
         $handler = new SendBatchHandler();
@@ -931,7 +991,7 @@ class SendBatchHandlerTest extends TestCase
         // erase.
         $memberYearId = (int) $this->pdo->query('SELECT id FROM member_years')->fetchColumn();
         $this->assertSame(
-            RecipientEmailLink::url($memberYearId, $recipient->id),
+            TargetEmailLink::url($memberYearId, $this->targetId),
             $notifications[0]->url
         );
     }
@@ -951,8 +1011,8 @@ class SendBatchHandlerTest extends TestCase
      */
     public function testAPersonalisedSubjectIsNotWrittenWhenNoLinkCanBeBuilt(): void
     {
-        $this->pdo->exec("DELETE FROM mass_mail_recipients WHERE id NOT IN (SELECT MIN(id) FROM mass_mail_recipients)");
-        $recipient = $this->recipientRepository->findByEmailId($this->emailId)[0];
+        $this->pdo->exec("DELETE FROM mass_mail_deliveries WHERE id NOT IN (SELECT MIN(id) FROM mass_mail_deliveries)");
+        $recipient = $this->deliveryRepository->findByEmailId($this->emailId)[0];
         $account = $this->userAccountRepository->create($recipient->emailAddress);
 
         // Deliberately NO member_years row: that is the whole scenario.
@@ -964,7 +1024,7 @@ class SendBatchHandlerTest extends TestCase
              WHERE id = ?"
         );
         $update->execute([$audienceId, $this->emailId]);
-        $this->pdo->prepare('UPDATE mass_mail_recipients SET audience_row_id = ? WHERE id = ?')
+        $this->pdo->prepare('UPDATE mass_mail_deliveries SET audience_row_id = ? WHERE id = ?')
             ->execute([$rowId, $recipient->id]);
 
         $handler = new SendBatchHandler();
@@ -989,19 +1049,11 @@ class SendBatchHandlerTest extends TestCase
      */
     public function testAMergeWhoseSubjectIsTheSameForEverybodyKeepsItsSubjectInTheNotification(): void
     {
-        $this->pdo->exec("DELETE FROM mass_mail_recipients WHERE id NOT IN (SELECT MIN(id) FROM mass_mail_recipients)");
-        $recipient = $this->recipientRepository->findByEmailId($this->emailId)[0];
+        $this->pdo->exec("DELETE FROM mass_mail_deliveries WHERE id NOT IN (SELECT MIN(id) FROM mass_mail_deliveries)");
+        $recipient = $this->deliveryRepository->findByEmailId($this->emailId)[0];
         $account = $this->userAccountRepository->create($recipient->emailAddress);
 
-        $stmt = $this->pdo->prepare(
-            'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted) VALUES (?, ?, ?, ?)'
-        );
-        $stmt->execute([
-            $this->memberId,
-            $this->scoutYearId,
-            $this->encryption->encrypt('Jean', 'member_years.first_name'),
-            $this->encryption->encrypt('Dupont', 'member_years.last_name'),
-        ]);
+        $this->giveTheMemberAYearAt($recipient->emailAddress);
 
         $audienceRepository = new \Modules\MassMail\Repository\AudienceRepository($this->pdo, $this->encryption);
         $audienceId = $audienceRepository->createAudience('camp.xlsx', 'Camp', ['Prenom'], 1, null);
@@ -1012,7 +1064,7 @@ class SendBatchHandlerTest extends TestCase
                     list_type = 'mail_merge', audience_id = ? WHERE id = ?"
         );
         $update->execute([$audienceId, $this->emailId]);
-        $this->pdo->prepare('UPDATE mass_mail_recipients SET audience_row_id = ? WHERE id = ?')
+        $this->pdo->prepare('UPDATE mass_mail_deliveries SET audience_row_id = ? WHERE id = ?')
             ->execute([$rowId, $recipient->id]);
 
         $handler = new SendBatchHandler();
@@ -1028,7 +1080,7 @@ class SendBatchHandlerTest extends TestCase
 
     public function testDoesNotDispatchWhenRecipientHasNoLoginAccount(): void
     {
-        $this->pdo->exec("DELETE FROM mass_mail_recipients WHERE id NOT IN (SELECT MIN(id) FROM mass_mail_recipients)");
+        $this->pdo->exec("DELETE FROM mass_mail_deliveries WHERE id NOT IN (SELECT MIN(id) FROM mass_mail_deliveries)");
 
         $mailService = $this->mailServiceDouble();
         $notificationService = $this->buildNotificationService();
@@ -1059,8 +1111,8 @@ class SendBatchHandlerTest extends TestCase
         $emailId = (int) $this->pdo->lastInsertId();
 
         $rowId = $data !== null ? $audienceRepository->createRow($audienceId, 2, null, 'ext@test.be', $data) : null;
-        $recipientId = $this->recipientRepository->create(
-            $emailId, null, null, 'ext@test.be', Recipient::STATUS_PENDING, null, null, $rowId
+        $recipientId = $this->deliveryRepository->create(
+            $emailId, 'ext@test.be', Delivery::STATUS_PENDING, null, null, $rowId
         );
 
         return [$emailId, $recipientId];
@@ -1068,7 +1120,7 @@ class SendBatchHandlerTest extends TestCase
 
     public function testMergeRecipientGetsTheirOwnRenderedSubjectAndBody(): void
     {
-        $this->pdo->exec('DELETE FROM mass_mail_recipients');
+        $this->pdo->exec('DELETE FROM mass_mail_deliveries');
         $this->pdo->exec('DELETE FROM mass_mail_emails');
         [$emailId] = $this->createMergeEmailWithRecipient(['Prenom' => 'Louis', 'Montant' => '145']);
 
@@ -1093,13 +1145,13 @@ class SendBatchHandlerTest extends TestCase
         // The unsubscribe footer still applies to an external recipient.
         $this->assertStringContainsString('/mass-mail/unsubscribe/', $capturedBody);
 
-        $counts = $this->recipientRepository->countGroupedByStatus($emailId);
+        $counts = $this->deliveryRepository->countGroupedByStatus($emailId);
         $this->assertSame(1, $counts['sent']);
     }
 
     public function testMergeValuesAreHtmlEscapedInTheRenderedBody(): void
     {
-        $this->pdo->exec('DELETE FROM mass_mail_recipients');
+        $this->pdo->exec('DELETE FROM mass_mail_deliveries');
         $this->pdo->exec('DELETE FROM mass_mail_emails');
         $this->createMergeEmailWithRecipient(['Prenom' => '<script>alert(1)</script>', 'Montant' => '1']);
 
@@ -1117,7 +1169,7 @@ class SendBatchHandlerTest extends TestCase
 
     public function testMergeRecipientWhoseAudienceRowWasPurgedFailsExplicitly(): void
     {
-        $this->pdo->exec('DELETE FROM mass_mail_recipients');
+        $this->pdo->exec('DELETE FROM mass_mail_deliveries');
         $this->pdo->exec('DELETE FROM mass_mail_emails');
         [$emailId] = $this->createMergeEmailWithRecipient(null); // no audience row at all
 
@@ -1126,8 +1178,8 @@ class SendBatchHandlerTest extends TestCase
 
         (new SendBatchHandler())->handle([], $this->buildContext($mailService));
 
-        $recipients = $this->recipientRepository->findByEmailId($emailId);
-        $this->assertSame(Recipient::STATUS_ERROR, $recipients[0]->status);
+        $recipients = $this->deliveryRepository->findByEmailId($emailId);
+        $this->assertSame(Delivery::STATUS_ERROR, $recipients[0]->status);
         $this->assertSame('Données de publipostage purgées', $recipients[0]->errorMessage);
     }
 }

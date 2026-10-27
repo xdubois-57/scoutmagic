@@ -8,9 +8,10 @@
 // module via vi.resetModules() + await import().
 //
 // The fixture mirrors modules/mass_mail/views/tracking.html.twig: the
-// two filter controls, and three recipient rows whose `data-search`
-// haystack the SERVER lowercased (which is why the file lowercases only
-// the needle).
+// two filter controls, and three message rows — one address each, issue
+// #999 — whose `data-search` haystack (the address and the members the
+// message concerns) the SERVER lowercased (which is why the file
+// lowercases only the needle).
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 function recipient(id, search, status, resendable) {
@@ -164,7 +165,7 @@ describe('mass-mail-tracking.js', () => {
         // (#485).
         //
         // Both claims are pinned, and the second one is why: the resend is
-        // QUEUED, not sent — `resendToRecipient()` puts the row back to
+        // QUEUED, not sent — `resendDelivery()` puts the message back to
         // `pending` and schedules a batch — so a message promising an
         // immediate departure would contradict the « En attente » the page
         // reloads onto. Asserting « rappel » alone would have let that
@@ -179,6 +180,8 @@ describe('mass-mail-tracking.js', () => {
             expect(options.message).toContain('rappel');
             expect(options.message).toContain('en attente');
             expect(options.message).not.toContain('immédiatement');
+            // A resend notifies nobody again (issue #999, §2.6), and says so.
+            expect(options.message).toContain('Aucune nouvelle notification');
         });
 
         it('sends nothing when the question is answered no', async () => {
@@ -192,13 +195,13 @@ describe('mass-mail-tracking.js', () => {
             expect(btn.disabled).toBe(false);
         });
 
-        it('POSTs to the recipient\'s own URL with the CSRF token', async () => {
+        it('POSTs to the message\'s own URL with the CSRF token', async () => {
             await boot();
             document.querySelector('.mmt-resend-btn[data-id="2"]').click();
 
             await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
             const [url, opts] = fetch.mock.calls[0];
-            expect(url).toBe('/mass-mail/recipients/2/resend');
+            expect(url).toBe('/mass-mail/deliveries/2/resend');
             expect(opts.method).toBe('POST');
             expect(JSON.parse(opts.body)).toEqual({ _csrf_token: 'tok-123' });
         });

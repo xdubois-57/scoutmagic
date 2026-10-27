@@ -347,9 +347,15 @@ class MemberPageService
     }
 
     /**
-     * §4 — "Communications récentes": only when mass_mail is enabled.
+     * §4 — "Communications récentes": only when mass_mail is enabled. The
+     * ten latest ENTRIES — one per communication meant for this member,
+     * however many addresses it went to (issue #999); `not_sent` marks one
+     * nothing of which left, which the page still lists, « Non envoyée ».
      *
-     * @return array<int, array{id: int, subject: string, sent_at: string, section_name: string}>
+     * @return array<int, array{
+     *     id: int, subject: string, sent_at: string, section_name: string,
+     *     merge_purged: bool, not_sent: bool
+     * }>
      */
     private function getRecentMassMailEmails(MemberProfile $profile): array
     {

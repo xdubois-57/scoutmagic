@@ -56,9 +56,27 @@ class TwigFactoryTest extends TestCase
     {
         $twig = TwigFactory::create(dirname(__DIR__, 3) . '/core/View/templates');
         $filter = $this->relativeDateFilter($twig);
-        $twoHoursAgo = AppClock::now()->modify('-2 hours')->format('Y-m-d H:i:s');
+        $now = self::fixedNow();
 
-        $this->assertSame('il y a 2 heures', $filter($twoHoursAgo));
+        $this->assertSame('il y a 2 heures', $filter(self::storedAgo($now, '-2 hours'), $now));
+    }
+
+    /**
+     * A "now" far from any clock change. Against the real one, the night
+     * the clocks go back (Europe/Brussels, last Sunday of October) moved
+     * « -1 hour » on the wall clock two real hours away, and a naive time
+     * inside the repeated hour cannot be told apart from the one an hour
+     * earlier — these cases failed every year from 02:00 to 04:00.
+     */
+    private static function fixedNow(): \DateTimeImmutable
+    {
+        return new \DateTimeImmutable('2026-07-15 12:00:00', AppClock::zone());
+    }
+
+    /** What a writer on the application clock stored $offset before $now. */
+    private static function storedAgo(\DateTimeImmutable $now, string $offset): string
+    {
+        return $now->modify($offset)->format('Y-m-d H:i:s');
     }
 
     /**
@@ -78,9 +96,9 @@ class TwigFactoryTest extends TestCase
     public function testRelativeDateRendersCoarseFrenchAges(string $offset, string $expected): void
     {
         $twig = TwigFactory::create(dirname(__DIR__, 3) . '/core/View/templates');
-        $stored = AppClock::now()->modify($offset)->format('Y-m-d H:i:s');
+        $now = self::fixedNow();
 
-        $this->assertSame($expected, $this->relativeDateFilter($twig)($stored));
+        $this->assertSame($expected, $this->relativeDateFilter($twig)(self::storedAgo($now, $offset), $now));
     }
 
     /**

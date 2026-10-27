@@ -36,7 +36,8 @@ use Modules\MassMail\Repository\EmailAttachmentRepository;
 use Modules\MassMail\Repository\EmailRepository;
 use Modules\MassMail\Repository\MailingListRepository;
 use Modules\MassMail\Repository\MemberResolutionRepository;
-use Modules\MassMail\Repository\RecipientRepository;
+use Modules\MassMail\Repository\DeliveryRepository;
+use Modules\MassMail\Repository\TargetRepository;
 use Modules\MassMail\Repository\SuppressedAddressRepository;
 use Modules\MassMail\Service\MailingListService;
 use Modules\MassMail\Service\MassMailAccessService;
@@ -93,7 +94,8 @@ class MergeDraftServiceTest extends TestCase
 
         $massMailService = new MassMailService(
             $this->emailRepository,
-            new RecipientRepository($this->pdo, $encryption),
+            new DeliveryRepository($this->pdo, $encryption),
+            new TargetRepository($this->pdo),
             new EmailAttachmentRepository($this->pdo),
             new FileRepository($this->pdo),
             new MailingListService(

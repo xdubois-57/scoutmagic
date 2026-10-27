@@ -6,6 +6,8 @@ namespace Tests\Integration;
 
 use Core\Database\Connection;
 use Core\Maintenance\BackupService;
+use Core\Member\MemberEmail;
+use Core\Member\MemberEmailRepository;
 use Core\Security\EncryptionService;
 use Core\Security\UserAccountRepository;
 use Modules\Finance\Repository\AccountRepository;
@@ -228,6 +230,45 @@ final class ReferenceDatasetBuilderTest extends TestCase
                 $emails[$section['name']] ?? null,
                 "The section « {$section['name']} » does not carry the declared address.",
             );
+        }
+    }
+
+    /**
+     * The Delvaux children share their parents' Desk address and, since
+     * issue #999, the second parent's confirmed address — the shape a test
+     * instance needs to show one message per address and one entry per
+     * child. Read back through the repository the mass-mail freeze reads
+     * (Core\Member\MemberEmailService::resolveValidAddressesForMassMail()
+     * takes the same valid `manual` rows), so a row written pending, or
+     * under another source, fails here rather than vanishing from every
+     * mailing in silence.
+     */
+    public function testTheDeclaredSecondaryAddressesAreConfirmedOnTheirMembers(): void
+    {
+        $counts = $this->applyExtras()['counts'];
+
+        $declared = array_sum(array_map('count', ExtrasBlueprint::SECONDARY_EMAILS));
+        self::assertSame($declared, $counts['adresses e-mail secondaires']);
+
+        $repository = new MemberEmailRepository($this->pdo, $this->encryption);
+        foreach (ExtrasBlueprint::SECONDARY_EMAILS as $tiers => $addresses) {
+            $statement = $this->pdo->prepare('SELECT id FROM members WHERE desk_id = ?');
+            $statement->execute([$tiers]);
+            $memberId = (int) $statement->fetchColumn();
+            self::assertGreaterThan(0, $memberId, "Member {$tiers} is not in the dataset any more.");
+
+            $valid = array_map(
+                static fn(MemberEmail $row): string => $row->email,
+                $repository->findValidByMember($memberId),
+            );
+            sort($valid);
+            $expected = $addresses;
+            sort($expected);
+            self::assertSame($expected, $valid, "Member {$tiers} does not carry its declared secondary addresses.");
+            foreach ($repository->findValidByMember($memberId) as $row) {
+                self::assertSame(MemberEmail::SOURCE_MANUAL, $row->source);
+                self::assertNotNull($row->confirmedAt, "The address of {$tiers} was never confirmed.");
+            }
         }
     }
 

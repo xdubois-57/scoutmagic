@@ -1,5 +1,5 @@
 // Shared end-to-end helpers: sign in as one of the throwaway instance's
-// two accounts — the super-admin, or the ordinary member — through the
+// accounts — the super-admin, the ordinary member, or one a scenario seeded — through the
 // real login form.
 //
 // Not a shortcut around authentication — there is deliberately no
@@ -46,8 +46,32 @@ export function logoutControl(page) {
  * @param {string} passwordVariable
  */
 async function loginWithPassword(page, emailVariable, passwordVariable) {
+    const { email, password } = credentialsFrom(emailVariable, passwordVariable);
+    await signIn(page, email, password);
+}
+
+/**
+ * Sign in with an address and a password the caller holds — an account a
+ * scenario seeded itself (scripts/e2e-support.php
+ * seed-shared-address-siblings prints its password), rather than one of
+ * the accounts scripts/e2e.sh exports. Same form, same checks.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {string} email
+ * @param {string} password
+ */
+export async function loginWithCredentials(page, email, password) {
+    await signIn(page, email, password);
+}
+
+/**
+ * @param {import('@playwright/test').Page} page
+ * @param {string} email
+ * @param {string} password
+ */
+async function signIn(page, email, password) {
     await page.goto('/login', { waitUntil: 'domcontentloaded' });
-    await submitPasswordForm(page, emailVariable, passwordVariable);
+    await fillPasswordForm(page, email, password);
 
     // auth.js redirects to / on success and reveals an inline error
     // otherwise. Waiting on the redirect (rather than on the fetch) is
@@ -76,6 +100,16 @@ async function loginWithPassword(page, emailVariable, passwordVariable) {
  * @param {string} passwordVariable
  */
 async function submitPasswordForm(page, emailVariable, passwordVariable) {
+    const { email, password } = credentialsFrom(emailVariable, passwordVariable);
+    await fillPasswordForm(page, email, password);
+}
+
+/**
+ * @param {string} emailVariable
+ * @param {string} passwordVariable
+ * @returns {{ email: string, password: string }}
+ */
+function credentialsFrom(emailVariable, passwordVariable) {
     const email = process.env[emailVariable];
     const password = process.env[passwordVariable];
 
@@ -87,6 +121,15 @@ async function submitPasswordForm(page, emailVariable, passwordVariable) {
         );
     }
 
+    return { email, password };
+}
+
+/**
+ * @param {import('@playwright/test').Page} page
+ * @param {string} email
+ * @param {string} password
+ */
+async function fillPasswordForm(page, email, password) {
     // Three tabs (magic link, password, passkey) each carry their own
     // "Adresse email" field, so every locator below is scoped to the
     // password tab's panel rather than matched page-wide. The panel id is
