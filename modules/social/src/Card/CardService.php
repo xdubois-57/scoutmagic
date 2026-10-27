@@ -66,6 +66,18 @@ class CardService
     /** The strongest blur the slider offers — past this the photo is a smear. */
     public const MAX_BLUR_RATIO = 0.2;
 
+    /**
+     * Where the composer stops cautioning about recognisable faces: 30 %
+     * of the slider's travel, inclusive (issue #928).
+     *
+     * A choice of presentation made by the maintainer, not a measurement
+     * of anonymity — no strength of blur is promised to hide anyone, and
+     * the sentence the composer shows from here up does not say so. It is
+     * stated here, once, and handed to the page, so the composer's JS
+     * carries no second copy of the number.
+     */
+    public const BLUR_CAUTION_RATIO = 0.06;
+
     /** How long Meta has to fetch the card. Publishing takes seconds; retries within the hour are covered. */
     public const LIFETIME_MINUTES = 60;
 

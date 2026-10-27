@@ -17,7 +17,7 @@ let asked;
 /** Whether the form was submitted, and with which submitter. */
 let submitted;
 
-function buildPage({ shared = true, groupsTicked = false, sharp = false, caption = 'Les photos sont en ligne', failed = null } = {}) {
+function buildPage({ shared = true, groupsTicked = false, sharp = false, weak = false, caption = 'Les photos sont en ligne', failed = null } = {}) {
     const failedAttribute = failed === null ? '' : `data-failed-shares='${JSON.stringify(failed)}'`;
     document.body.innerHTML = `
         <form>
@@ -39,6 +39,7 @@ function buildPage({ shared = true, groupsTicked = false, sharp = false, caption
                 <input type="checkbox" name="groups[]" value="3" ${groupsTicked ? 'checked' : ''}>
             </div>
             <span data-card-blur-sharp ${sharp ? '' : 'hidden'}>Cette photo de la galerie part sans flou.</span>
+            <span data-card-blur-weak ${weak ? '' : 'hidden'}>Le flou est faible : les visages peuvent rester reconnaissables.</span>
             <button type="submit" name="action" value="publish" data-publish-confirm>Publier</button>
         </form>
     `;
@@ -188,6 +189,17 @@ describe('the confirmation', () => {
         await settle();
 
         expect(asked.content[asked.content.length - 1].text).toBe('Cette photo de la galerie part sans flou.');
+    });
+
+    it('carries the weak-blur caution too, since « sans flou » would be false there', async () => {
+        buildPage({ weak: true });
+        await load();
+        button().click();
+        await settle();
+
+        const last = asked.content[asked.content.length - 1].text;
+        expect(last).toBe('Le flou est faible : les visages peuvent rester reconnaissables.');
+        expect(asked.content.map((b) => b.text).join(' ')).not.toContain('sans flou');
     });
 
     it('does not carry it when the slider is not at Net', async () => {

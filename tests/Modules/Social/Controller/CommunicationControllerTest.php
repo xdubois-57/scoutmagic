@@ -1100,6 +1100,33 @@ final class CommunicationControllerTest extends TestCase
     }
 
     /**
+     * Issue #928: the composer says three different things along the
+     * slider, and the threshold between the last two is the server's —
+     * the page hands it to the script rather than the script keeping its
+     * own copy of the number.
+     */
+    public function testTheBlurSliderCarriesTheServersCautionThresholdAndEveryOneOfItsSentences(): void
+    {
+        $this->loginAuthor();
+
+        $html = $this->controller()
+            ->createFromSource($this->get(), ['kind' => 'album', 'id' => (string) self::ALBUM_ID])
+            ->getBody();
+
+        $this->assertStringContainsString(
+            'data-card-blur-caution-below="' . CardService::BLUR_CAUTION_RATIO . '"',
+            $html
+        );
+        $this->assertStringContainsString('data-card-blur-sharp', $html);
+        $this->assertStringContainsString('Le flou est faible : les visages peuvent rester reconnaissables.', $html);
+        $this->assertStringContainsString('data-card-blur-weak', $html);
+        $this->assertStringContainsString('data-card-blur-blurred', $html);
+        $this->assertStringContainsString('data-card-blur-unavailable', $html);
+        // « pas les visages » was a guarantee nobody can give.
+        $this->assertStringNotContainsString('pas les visages', $html);
+    }
+
+    /**
      * An album's cover is the album's to change, so the composer offers
      * neither button — and the title it shows cannot be typed over.
      */
