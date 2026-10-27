@@ -57,3 +57,17 @@ vous qui envoyez le message depuis la page de publipostage.
 
 Le geste est séparé pour cette raison, et la date qu'il enregistre est ce
 qui vous dit, la fois suivante, si les familles ont déjà été relancées.
+
+## Conservation des variables
+
+Les colonnes libres de votre fichier sont copiées dans le publipostage
+lors de la préparation du rappel. Cette copie suit la conservation du
+publipostage : 18 mois après le dernier envoi qui l'utilise. Elle reste
+conservée tant qu'un brouillon, un test ou un envoi en cours l'utilise ;
+une copie sans message associé est supprimée après sept jours.
+
+Le fichier source de la campagne et ses colonnes conservées dans la
+campagne suivent la durée des imports Desk, deux années scoutes par
+défaut. Leur suppression ne supprime pas les variables d'un rappel déjà
+préparé : vous pouvez toujours envoyer ce brouillon. Les nouveaux rappels
+préparés après cette suppression ne disposent plus de ces colonnes libres.

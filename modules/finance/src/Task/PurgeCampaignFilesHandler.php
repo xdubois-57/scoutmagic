@@ -34,8 +34,9 @@ use Modules\Finance\Repository\CampaignRowRepository;
  * that somebody can later ask where a number came from.
  *
  * **What goes and what stays.** The file goes, and so does the copy of
- * its columns kept for the reminder's merge variables — keeping a copy of
- * data we have promised to delete would make the promise decorative. The
+ * its columns in finance_campaign_rows.merge_data. Audiences already
+ * copied into mass_mail are correspondence and follow that module's own
+ * retention policy, including its protection of active drafts. The
  * campaign, its rows, its amounts and its receivables stay: those are the
  * unit's financial history, they were never temporary, and once the file
  * is gone they name nobody but by an internal identifier.
