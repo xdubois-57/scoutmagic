@@ -105,6 +105,29 @@
      * box-blur passes browsers approximate it with.
      */
     const BLUR_REACH = 3;
+
+    /**
+     * Safari has no `CanvasRenderingContext2D.filter` (issue #928): the
+     * assignment is accepted — it just sets an ordinary property — and
+     * every draw after it is sharp. So the card looked blurred to nobody
+     * and, worse, was EXPORTED sharp: a gallery photo leaving unblurred
+     * while the slider said otherwise. The capability is therefore tested
+     * by what it does to pixels ({@see probeFilterBlur}), never by the
+     * property being there.
+     *
+     * Where the filter does not work the photo is blurred by hand
+     * ({@see blurPixels}): reduced first, so the work is a few hundred
+     * thousand pixels and not a million, then blurred with three box
+     * passes — the textbook approximation of a Gaussian — and grown back.
+     * That is what GD does on the server, in the same order.
+     */
+    const PROBE_SIZE = 16;
+    /** The probe's blur radius, and where a pixel that moved is looked for. */
+    const PROBE_RADIUS = 2;
+    /** The reduction aims at a work radius of about this many pixels. */
+    const PIXEL_BLUR_WORK_RADIUS = 2;
+    /** Never reduce further than this, or the growing back shows its grid. */
+    const PIXEL_BLUR_MAX_SHRINK = 8;
     const TITLE_COLOUR = 'rgb(255, 255, 255)';
     const ADDRESS_COLOUR = 'rgb(230, 233, 236)';
 
@@ -207,16 +230,67 @@
     }
 
     /**
+     * Whether `ctx.filter` really blurs in this browser, tested on a
+     * 16 px canvas: a 4 px black square drawn through `blur(2px)` leaves
+     * some alpha two pixels outside itself, and the same draw through a
+     * browser that ignores the filter leaves exactly none.
+     *
+     * Any failure to run the probe — no second context, pixels that cannot
+     * be read back — answers false, because every consumer of the answer
+     * has a way of blurring that does not depend on it.
+     *
+     * @returns {boolean}
+     */
+    function probeFilterBlur() {
+        filterBlurs = false;
+        try {
+            const probe = document.createElement('canvas');
+            probe.width = PROBE_SIZE;
+            probe.height = PROBE_SIZE;
+            const ctx = probe.getContext('2d', { willReadFrequently: true });
+            if (ctx) {
+                ctx.filter = 'blur(' + PROBE_RADIUS + 'px)';
+                ctx.fillStyle = 'rgb(0, 0, 0)';
+                ctx.fillRect(6, 6, 4, 4);
+                filterBlurs = ctx.getImageData(6 - PROBE_RADIUS, 8, 1, 1).data[3] > 0;
+            }
+        } catch (error) {
+            filterBlurs = false;
+        }
+
+        return filterBlurs;
+    }
+
+    /** @type {boolean|null} The probe's answer, asked once per page. */
+    let filterBlurs = null;
+
+    /**
+     * Which way this page blurs: the browser's own filter when it has one,
+     * otherwise by hand.
+     *
+     * @returns {'filter'|'pixels'}
+     */
+    function blurEngine() {
+        return (filterBlurs === null ? probeFilterBlur() : filterBlurs) ? 'filter' : 'pixels';
+    }
+
+    /**
      * The source image, centre-cropped to a square and drawn to fill the
      * card — which is also the « reduce before blurring » the chantier
      * asks for: a multi-megapixel photo is down to 1080 before the filter
      * ever runs, and blurring it at full size exhausts a phone's memory.
      *
+     * Answers false only when the photo was meant to be blurred and could
+     * not be: the caller must then draw nothing rather than a sharp card.
+     *
      * @param {CanvasRenderingContext2D} ctx
      * @param {HTMLImageElement|ImageBitmap|HTMLCanvasElement} image
      * @param {number} blurRatio
+     * @param {'filter'|'pixels'|undefined} [engine] forced by a test; the page lets the probe decide
+     * @returns {boolean}
      */
-    function drawBackground(ctx, image, blurRatio) {
+    function drawBackground(ctx, image, blurRatio, engine) {
+        let drawn = true;
         ctx.save();
         ctx.fillStyle = BACKDROP;
         ctx.fillRect(0, 0, SIZE, SIZE);
@@ -238,11 +312,15 @@
                 // padding below either.
                 ctx.filter = 'none';
                 ctx.drawImage(image, sx, sy, side, side, 0, 0, SIZE, SIZE);
-            } else {
+            } else if ((engine || blurEngine()) === 'filter') {
                 drawBlurred(ctx, image, sx, sy, side, radius);
+            } else {
+                drawn = blurByPixels(ctx, image, sx, sy, side, radius);
             }
         }
         ctx.restore();
+
+        return drawn;
     }
 
     /**
@@ -323,6 +401,118 @@
     }
 
     /**
+     * The crop blurred without `ctx.filter`: reduced, blurred in place
+     * with {@see blurPixels}, grown back.
+     *
+     * The reduction is what makes this affordable on a phone — at the
+     * default strength the work area is 135 px square — and it is also
+     * exact enough: a blur of radius R on the full square is a blur of
+     * R / k on a copy k times smaller. Edges are clamped by the blur
+     * itself, so there is no vignette to pad against.
+     *
+     * Answers false when the pixels cannot be read or written (a context
+     * that will not give them up, memory refused): the one outcome that
+     * must not be papered over with a sharp draw.
+     *
+     * @param {CanvasRenderingContext2D} ctx
+     * @param {HTMLImageElement|ImageBitmap|HTMLCanvasElement} image
+     * @param {number} sx
+     * @param {number} sy
+     * @param {number} side
+     * @param {number} radius
+     * @returns {boolean}
+     */
+    function blurByPixels(ctx, image, sx, sy, side, radius) {
+        const shrink = Math.min(
+            PIXEL_BLUR_MAX_SHRINK,
+            Math.max(1, Math.floor(radius / PIXEL_BLUR_WORK_RADIUS))
+        );
+        const work = Math.ceil(SIZE / shrink);
+        try {
+            const buffer = document.createElement('canvas');
+            buffer.width = work;
+            buffer.height = work;
+            const edge = buffer.getContext('2d', { willReadFrequently: true });
+            if (!edge) {
+                return false;
+            }
+            edge.drawImage(image, sx, sy, side, side, 0, 0, work, work);
+            const pixels = edge.getImageData(0, 0, work, work);
+            blurPixels(pixels.data, work, work, radius * work / SIZE);
+            edge.putImageData(pixels, 0, 0);
+
+            ctx.filter = 'none';
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = 'high';
+            ctx.drawImage(buffer, 0, 0, work, work, 0, 0, SIZE, SIZE);
+        } catch (error) {
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * A Gaussian of standard deviation `sigma`, as three box blurs along
+     * each axis, applied in place to RGBA bytes. Edges repeat the outermost
+     * pixel, which is what GD does and what keeps the border from
+     * darkening.
+     *
+     * Three boxes of width w approximate a Gaussian of sigma
+     * sqrt((w² − 1) / 4) — hence the width below.
+     *
+     * @param {Uint8ClampedArray} pixels
+     * @param {number} width
+     * @param {number} height
+     * @param {number} sigma
+     */
+    function blurPixels(pixels, width, height, sigma) {
+        const half = Math.max(1, Math.round((Math.sqrt(4 * sigma * sigma + 1) - 1) / 2));
+        const scratch = new Uint8ClampedArray(pixels.length);
+        // Rows into the scratch, columns back: each pass ends in `pixels`.
+        for (let pass = 0; pass < 3; pass++) {
+            boxBlurAxis(pixels, scratch, width, height, half, true);
+            boxBlurAxis(scratch, pixels, width, height, half, false);
+        }
+    }
+
+    /**
+     * One box blur, along rows or columns, with a running sum: the cost
+     * does not grow with the radius.
+     *
+     * @param {Uint8ClampedArray} from
+     * @param {Uint8ClampedArray} to
+     * @param {number} width
+     * @param {number} height
+     * @param {number} half
+     * @param {boolean} horizontal
+     */
+    function boxBlurAxis(from, to, width, height, half, horizontal) {
+        const lines = horizontal ? height : width;
+        const length = horizontal ? width : height;
+        const step = horizontal ? 4 : width * 4;
+        const lineStep = horizontal ? width * 4 : 4;
+        const span = 2 * half + 1;
+        const last = length - 1;
+        for (let line = 0; line < lines; line++) {
+            const base = line * lineStep;
+            for (let channel = 0; channel < 4; channel++) {
+                const at = function (index) {
+                    return from[base + Math.min(Math.max(index, 0), last) * step + channel];
+                };
+                let sum = 0;
+                for (let k = -half; k <= half; k++) {
+                    sum += at(k);
+                }
+                for (let i = 0; i < length; i++) {
+                    to[base + i * step + channel] = Math.round(sum / span);
+                    sum += at(i + half + 1) - at(i - half);
+                }
+            }
+        }
+    }
+
+    /**
      * A darkening that grows towards the foot, where the text sits, so a
      * white title stays legible over a white sky.
      *
@@ -395,7 +585,11 @@
      * usable rather than publish a blank square.
      *
      * @param {HTMLCanvasElement} canvas
-     * @param {{image: (HTMLImageElement|ImageBitmap|HTMLCanvasElement|null), title: string, address: string, blurRatio: number}} card
+     * It also returns false when the photo had to be blurred and the
+     * browser could not do it, by either means: nothing is drawn then, so
+     * that no sharp card is ever mistaken for a blurred one (issue #928).
+     *
+     * @param {{image: (HTMLImageElement|ImageBitmap|HTMLCanvasElement|null), title: string, address: string, blurRatio: number, blurEngine?: ('filter'|'pixels')}} card
      * @returns {boolean}
      */
     function drawCard(canvas, card) {
@@ -410,7 +604,9 @@
         canvas.width = SIZE;
         canvas.height = SIZE;
         if (card?.image) {
-            drawBackground(ctx, card.image, card.blurRatio);
+            if (!drawBackground(ctx, card.image, card.blurRatio, card.blurEngine)) {
+                return false;
+            }
         } else {
             ctx.save();
             ctx.fillStyle = BACKDROP;
@@ -483,5 +679,8 @@
         drawCard: drawCard,
         toJpeg: toJpeg,
         cardConstants: cardConstants,
+        probeFilterBlur: probeFilterBlur,
+        blurEngine: blurEngine,
+        blurPixels: blurPixels,
     };
 }());

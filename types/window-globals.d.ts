@@ -121,8 +121,15 @@ interface Window {
             title: string;
             address: string;
             blurRatio: number;
+            // Forced by a test; the page lets the probe decide.
+            blurEngine?: 'filter' | 'pixels';
         }) => boolean;
         toJpeg: (canvas: HTMLCanvasElement) => Promise<Blob | null>;
+        // Whether `ctx.filter` really blurs here, found out from pixels
+        // (issue #928), and which way the card is therefore blurred.
+        probeFilterBlur: () => boolean;
+        blurEngine: () => 'filter' | 'pixels';
+        blurPixels: (pixels: Uint8ClampedArray, width: number, height: number, sigma: number) => void;
         // CardRenderer's geometry, so a test can state the
         // correspondence instead of restating the numbers.
         cardConstants: () => {

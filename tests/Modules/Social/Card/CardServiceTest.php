@@ -116,6 +116,19 @@ final class CardServiceTest extends TestCase
     }
 
     /**
+     * Issue #928: 30 % of the slider's travel, which is not 0.30 — the
+     * slider stops at 0.20. The constant is the maintainer's choice of
+     * where to start reassuring, stated once and read by the composer.
+     */
+    public function testTheCautionThresholdIsThirtyPercentOfTheSlidersTravel(): void
+    {
+        $this->assertEqualsWithDelta(0.3 * CardService::MAX_BLUR_RATIO, CardService::BLUR_CAUTION_RATIO, 1e-12);
+        $this->assertLessThan(CardService::MAX_BLUR_RATIO, CardService::BLUR_CAUTION_RATIO);
+        // The site's default starting position is inside the caution zone.
+        $this->assertLessThan(CardService::BLUR_CAUTION_RATIO, CardService::DEFAULT_BLUR_RATIO);
+    }
+
+    /**
      * A value outside the slider's range is brought back into it rather
      * than refused: it can only have got there by hand in the database,
      * and a composer that would not open is worse than one that opens on

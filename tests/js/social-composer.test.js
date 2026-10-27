@@ -94,6 +94,7 @@ function page({
     title = 'Week-end',
     slider = false,
     canvas = true,
+    cautionBelow = '0.06',
 } = {}) {
     document.body.innerHTML = `
         <form data-card-form>
@@ -113,11 +114,14 @@ function page({
           <input type="text" id="communication-title" value="${title}">
           ${slider ? `
             <input type="range" id="communication-blur" name="blur_ratio"
-                   min="0" max="0.2" step="0.005" value="${blur}" data-card-blur-input>
+                   min="0" max="0.2" step="0.005" value="${blur}" data-card-blur-input
+                   ${cautionBelow === null ? '' : `data-card-blur-caution-below="${cautionBelow}"`}>
             <p>
               <span data-card-blur-sharp hidden>Cette photo de la galerie part sans flou.</span>
-              <span data-card-blur-blurred hidden>On devine l'ambiance, pas les visages.</span>
+              <span data-card-blur-weak hidden>Le flou est faible : les visages peuvent rester reconnaissables.</span>
+              <span data-card-blur-blurred hidden>Le flou est important.</span>
             </p>
+            <p data-card-blur-unavailable hidden>Votre navigateur ne peut pas montrer le flou en direct.</p>
           ` : ''}
           <p data-card-title-missing hidden>Donnez d'abord un titre à l'image.</p>
           <div data-card-upload-field>
@@ -148,7 +152,9 @@ function page({
         uploadInput: document.querySelector('[data-card-upload-input]'),
         uploadField: document.querySelector('[data-card-upload-field]'),
         sharpNote: document.querySelector('[data-card-blur-sharp]'),
+        weakNote: document.querySelector('[data-card-blur-weak]'),
         blurredNote: document.querySelector('[data-card-blur-blurred]'),
+        unavailableNote: document.querySelector('[data-card-blur-unavailable]'),
     };
 }
 
@@ -156,8 +162,10 @@ function page({
 function engine({ drawSucceeds = true } = {}) {
     const draws = [];
 
-    return {
+    const double = {
         draws,
+        /** Flip to make the NEXT draws fail, as a browser that cannot blur does. */
+        succeeds: drawSucceeds,
         wrapTitle: () => [],
         fitLine: (line) => line,
         toJpeg: () => Promise.resolve(null),
@@ -168,9 +176,11 @@ function engine({ drawSucceeds = true } = {}) {
         drawCard: (canvas, card) => {
             draws.push({ canvas, ...card });
 
-            return drawSucceeds;
+            return double.succeeds;
         },
     };
+
+    return double;
 }
 
 /**
@@ -462,27 +472,79 @@ describe('the blur slider', () => {
         expect(card.draws[card.draws.length - 1].blurRatio).toBe(0);
     });
 
-    it('warns, in words, only when the photo is about to leave sharp', async () => {
+    /** Which of the three sentences is showing, by name. */
+    function showing(dom) {
+        return [
+            ['sharp', dom.sharpNote],
+            ['weak', dom.weakNote],
+            ['blurred', dom.blurredNote],
+        ].filter(([, note]) => !note.hidden).map(([name]) => name);
+    }
+
+    function move(dom, value) {
+        dom.blurField.value = String(value);
+        dom.blurField.dispatchEvent(new Event('input'));
+    }
+
+    // Issue #928: the threshold is 30 % of the slider's travel, 0.06 of
+    // 0.20, INCLUSIVE — and « sans flou » is only true at zero.
+    it.each([
+        [0, 'sharp'],
+        [0.005, 'weak'],
+        [0.025, 'weak'],
+        [0.055, 'weak'],
+        [0.06, 'blurred'],
+        [0.065, 'blurred'],
+        [0.2, 'blurred'],
+    ])('says exactly one thing at %s: %s', async (value, expected) => {
         const dom = page({ slider: true, blur: '0.025' });
         window.ScoutMagicCard = engine();
         await run();
 
-        // Blurred to start with: the reassuring half shows, the warning
-        // does not.
-        expect(dom.sharpNote.hidden).toBe(true);
-        expect(dom.blurredNote.hidden).toBe(false);
+        move(dom, value);
 
-        dom.blurField.value = '0';
-        dom.blurField.dispatchEvent(new Event('input'));
+        expect(showing(dom)).toEqual([expected]);
+    });
 
-        expect(dom.sharpNote.hidden).toBe(false);
-        expect(dom.blurredNote.hidden).toBe(true);
+    it('says the right thing when the page opens, at the site\'s default', async () => {
+        // 0.025 is 12.5 % of the travel: a caution, from the first paint.
+        const dom = page({ slider: true, blur: '0.025' });
+        window.ScoutMagicCard = engine();
+        await run();
 
-        dom.blurField.value = '0.05';
-        dom.blurField.dispatchEvent(new Event('input'));
+        expect(showing(dom)).toEqual(['weak']);
+    });
 
-        expect(dom.sharpNote.hidden).toBe(true);
-        expect(dom.blurredNote.hidden).toBe(false);
+    it('goes back and forth across the threshold without keeping a stale sentence', async () => {
+        const dom = page({ slider: true, blur: '0.025' });
+        window.ScoutMagicCard = engine();
+        await run();
+
+        const path = [0.1, 0, 0.055, 0.06, 0.055, 0, 0.2, 0.01];
+        const expected = ['blurred', 'sharp', 'weak', 'blurred', 'weak', 'sharp', 'blurred', 'weak'];
+        path.forEach((value, index) => {
+            move(dom, value);
+            expect(showing(dom)).toEqual([expected[index]]);
+        });
+    });
+
+    it('reads the threshold from the page, not from a number of its own', async () => {
+        const dom = page({ slider: true, blur: '0.1', cautionBelow: '0.15' });
+        window.ScoutMagicCard = engine();
+        await run();
+
+        expect(showing(dom)).toEqual(['weak']);
+        move(dom, 0.15);
+        expect(showing(dom)).toEqual(['blurred']);
+    });
+
+    it('cautions at every position when the page does not say where the threshold is', async () => {
+        // The wrong way to be wrong is to reassure.
+        const dom = page({ slider: true, blur: '0.2', cautionBelow: null });
+        window.ScoutMagicCard = engine();
+        await run();
+
+        expect(showing(dom)).toEqual(['weak']);
     });
 
     it('says which it is before the first frame, not after it', async () => {
@@ -508,6 +570,88 @@ describe('the blur slider', () => {
 
         expect(dom.blurField).toBeNull();
         expect(card.draws[0].blurRatio).toBe(0.05);
+    });
+});
+
+describe('a browser that cannot blur the photo (issue #928)', () => {
+    async function drawn(blur = '0.025') {
+        const dom = page({ slider: true, blur });
+        const card = engine();
+        window.ScoutMagicCard = card;
+        await run();
+        images[0].fire('load');
+        flush();
+
+        return { dom, card };
+    }
+
+    it('keeps the server\'s image, and says so, when the first draw cannot blur', async () => {
+        const dom = page({ slider: true, blur: '0.025' });
+        const card = engine({ drawSucceeds: false });
+        window.ScoutMagicCard = card;
+        await run();
+        images[0].fire('load');
+        flush();
+
+        expect(card.draws).toHaveLength(1);
+        expect(dom.canvas.hidden).toBe(true);
+        expect(document.querySelector('[data-card-preview]')).not.toBeNull();
+        expect(dom.unavailableNote.hidden).toBe(false);
+    });
+
+    it('puts the server\'s image back when a later draw cannot blur', async () => {
+        const { dom, card } = await drawn();
+        expect(dom.canvas.hidden).toBe(false);
+        expect(document.querySelector('[data-card-preview]')).toBeNull();
+        expect(dom.unavailableNote.hidden).toBe(true);
+
+        card.succeeds = false;
+        dom.blurField.value = '0.1';
+        dom.blurField.dispatchEvent(new Event('input'));
+        flush();
+
+        // Not an emptied canvas, not a stale one: the image the server
+        // composed, and a sentence saying it does not follow the slider.
+        expect(dom.canvas.hidden).toBe(true);
+        expect(document.querySelector('[data-card-preview]')).not.toBeNull();
+        expect(dom.canvas.previousElementSibling).toBe(document.querySelector('[data-card-preview]'));
+        expect(dom.unavailableNote.hidden).toBe(false);
+    });
+
+    it('takes the canvas back, and drops the sentence, when drawing works again', async () => {
+        const { dom, card } = await drawn();
+        card.succeeds = false;
+        dom.blurField.value = '0.1';
+        dom.blurField.dispatchEvent(new Event('input'));
+        flush();
+
+        card.succeeds = true;
+        dom.blurField.value = '0';
+        dom.blurField.dispatchEvent(new Event('input'));
+        flush();
+
+        expect(dom.canvas.hidden).toBe(false);
+        expect(document.querySelector('[data-card-preview]')).toBeNull();
+        expect(dom.unavailableNote.hidden).toBe(true);
+    });
+
+    it('never exports the emptied canvas: the server composes the card instead', async () => {
+        const { dom, card } = await drawn();
+        const exported = vi.fn(() => Promise.resolve({ size: 9, type: 'image/jpeg' }));
+        card.toJpeg = exported;
+        card.succeeds = false;
+        dom.blurField.value = '0.1';
+        dom.blurField.dispatchEvent(new Event('input'));
+
+        dom.publish.click();
+        confirmed(dom);
+        await settle();
+
+        expect(exported).not.toHaveBeenCalled();
+        expect(dom.cardField.files).toHaveLength(0);
+        expect(submits).toBe(1);
+        // The slider travels with the form, so the server composes at it.
+        expect(dom.form.contains(dom.blurField)).toBe(true);
     });
 });
 

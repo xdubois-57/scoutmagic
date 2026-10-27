@@ -58,7 +58,23 @@
         document.querySelector('[data-card-title-missing]')
     );
     const sharpNote = /** @type {HTMLElement|null} */ (document.querySelector('[data-card-blur-sharp]'));
+    const weakNote = /** @type {HTMLElement|null} */ (document.querySelector('[data-card-blur-weak]'));
     const blurredNote = /** @type {HTMLElement|null} */ (document.querySelector('[data-card-blur-blurred]'));
+    const unavailableNote = /** @type {HTMLElement|null} */ (
+        document.querySelector('[data-card-blur-unavailable]')
+    );
+    /**
+     * Where the slider stops being a weak blur, as the server states it
+     * (`CardService::BLUR_CAUTION_RATIO`, 30 % of the slider's travel).
+     * A page that does not say leaves it at infinity, so that every
+     * position still reads as a caution: the wrong way to be wrong is
+     * to reassure.
+     */
+    const cautionBelow = (function () {
+        const stated = Number.parseFloat(blurField?.dataset.cardBlurCautionBelow || '');
+
+        return Number.isNaN(stated) ? Number.POSITIVE_INFINITY : stated;
+    }());
     const address = canvas?.dataset.cardAddress || '';
     const backgroundUrl = canvas?.dataset.cardBackground || '';
     /** The canvas carries the strength the server computed; the slider then owns it. */
@@ -152,23 +168,52 @@
     }
 
     /**
-     * Says, in words and only when it is true, that a gallery photo is
-     * about to leave recognisable.
+     * Says, in words and only when it is true, how recognisable the photo
+     * will be. Three sentences, exactly one of them showing:
      *
-     * Two sentences rather than one that changes: a screen reader
-     * announces a replaced sentence as new text either way, and two
-     * elements let the page say the reassuring half too.
+     *  - at « Net », the photo leaves as it is;
+     *  - below the caution threshold, it is blurred but faces can still be
+     *    recognised — and « sans flou » would be false, so it is not said;
+     *  - from the threshold up, it is strongly blurred. That is a choice of
+     *    presentation, not a promise of anonymity, and the sentence does
+     *    not make one.
+     *
+     * Two or three elements rather than one that changes: a screen reader
+     * announces a replaced sentence as new text either way.
      */
     function sayWhatTheBlurMeans() {
         if (!blurField) {
             return;
         }
-        const sharp = blur() <= 0;
+        const value = blur();
+        const sharp = value <= 0;
+        const weak = !sharp && value < cautionBelow;
         if (sharpNote) {
             sharpNote.hidden = !sharp;
         }
+        if (weakNote) {
+            weakNote.hidden = !weak;
+        }
         if (blurredNote) {
-            blurredNote.hidden = sharp;
+            blurredNote.hidden = sharp || weak;
+        }
+    }
+
+    /**
+     * Says that the preview is not following the slider — only when that
+     * is the case, and only for as long as it is.
+     *
+     * A browser that can neither filter nor blur by hand must not show a
+     * sharp image while the slider says otherwise, and must not publish
+     * one either: it shows the server's own image, which keeps the
+     * strength it was last saved with, and the publication is then
+     * composed by the server at the slider's position.
+     *
+     * @param {boolean} unavailable
+     */
+    function sayWhetherThePreviewFollows(unavailable) {
+        if (unavailableNote) {
+            unavailableNote.hidden = !unavailable;
         }
     }
 
@@ -214,7 +259,18 @@
             address: address,
             blurRatio: blur(),
         });
-        if (!drawn || shown) {
+        if (!drawn) {
+            // The photo had to be blurred and this browser could not. The
+            // engine has cleared the canvas rather than leave a sharp
+            // photo on it, so the server's image comes back to stand in
+            // and « Publier » stops exporting a canvas: it posts no card
+            // and the server composes one at the slider's position.
+            giveTheCardBackToTheServer();
+
+            return;
+        }
+        sayWhetherThePreviewFollows(false);
+        if (shown) {
             return;
         }
 
@@ -225,6 +281,15 @@
             // of them stale, is what a screen reader would announce twice.
             fallback.remove();
         }
+    }
+
+    function giveTheCardBackToTheServer() {
+        shown = false;
+        canvas.hidden = true;
+        if (fallback && !fallback.isConnected) {
+            canvas.before(fallback);
+        }
+        sayWhetherThePreviewFollows(true);
     }
 
     function schedule() {
@@ -444,7 +509,10 @@
                 .then(function () {
                     draw();
 
-                    return engine.toJpeg(canvas);
+                    // A fresh draw that could not blur has just emptied the
+                    // canvas: exporting it would publish a blank square.
+                    // The server composes the card instead.
+                    return shown ? engine.toJpeg(canvas) : null;
                 })
                 .then(postWith, function () {
                     postWith(null);
