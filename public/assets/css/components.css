@@ -1479,3 +1479,12 @@
 .registration-capacity-input {
     max-width: 8rem;
 }
+
+/* Staff contact details keep their text on one axis, including wrapped lines. */
+.staff-contact-row {
+    display: grid;
+    grid-template-columns: 1.25em minmax(0, 1fr);
+    gap: 0.5rem;
+    align-items: start;
+    overflow-wrap: anywhere;
+}
