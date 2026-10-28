@@ -63,7 +63,8 @@
                            mirrors an option's existing text on selection. #}
                         <p class="small text-break mt-1 mb-0">
                             Choix sélectionné :
-                            <output id="default-number-preview" for="default-number-member">{% for option in staff_options %}{% if option.member_id == default_number_selection_member_id %}{{ option.label }} ({{ option.mobile }}){% endif %}{% endfor %}</output>
+                            {% set selected_option = staff_options|filter(option => option.member_id == default_number_selection_member_id)|first %}
+                            <output id="default-number-preview" for="default-number-member">{% if selected_option %}{{ selected_option.label }} ({{ selected_option.mobile }}){% else %}Le choix enregistré n’est plus proposé. Sélectionnez un membre.{% endif %}</output>
                         </p>
                         <p class="text-body-secondary small mt-1 mb-0">
                             Numéro utilisé les jours sans garde explicite. Il doit toujours s'agir d'un membre du Staff d'U —

@@ -1002,6 +1002,20 @@ class SosAdminControllerTest extends TestCase
         $this->assertStringContainsString('Fennec (Jean Dupont)', $this->dashboard());
     }
 
+    public function testDefaultNumberPreviewExplainsWhenTheSavedMemberIsNoLongerOffered(): void
+    {
+        $former = $this->createStaffduMember('Fennec', '+32470000001');
+        $this->createStaffduMember('Fennec', '+32470000002', 'Pierre', 'Martin');
+        $this->settingsService->setDefaultNumberFromMember($former);
+        $stmt = $this->pdo->prepare('UPDATE member_years SET mobile_encrypted = NULL WHERE member_id = ?');
+        $stmt->execute([$former]);
+
+        $body = $this->settingsPage();
+        preg_match('/id="default-number-preview"[^>]*>(.*?)<\/output>/s', $body, $preview);
+        $this->assertSame('Le choix enregistré n’est plus proposé. Sélectionnez un membre.', $preview[1] ?? '');
+        $this->assertStringContainsString('Fennec (Pierre Martin) (+32470000002)', $body);
+    }
+
     public function testThePlanningNamesThePersonWhoActuallyReceivesTheCallsOnADay(): void
     {
         $akela = $this->createStaffduMember('Akela', '+32470000001');
