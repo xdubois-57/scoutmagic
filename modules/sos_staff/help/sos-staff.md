@@ -15,6 +15,11 @@ Le numéro SOS de l'unité sonne toujours chez quelqu'un : l'onglet
 jour. Le renvoi d'appel se programme tout seul d'après les gardes
 attribuées.
 
+Les membres sont identifiés par leur totem suivi du prénom et du nom,
+par exemple **Fennec (Jean Dupont)**. Sans totem, le prénom et le nom
+suffisent. Deux personnes partageant un totem restent ainsi distinctes,
+dans le planning comme dans les réglages du numéro par défaut.
+
 ## Sur ordinateur : la grille
 
 La grille du mois croise les jours et les membres du Staff d'Unité.

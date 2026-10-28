@@ -111,7 +111,7 @@ class SosVirtualEventProvider implements VirtualEventProviderInterface
                 // streaks all fall outside the window.
                 $label ??= $this->memberService
                     ->findProfileByMemberAndYear($memberId, $viewer->scoutYearId)
-                    ?->getDisplayName() ?? 'Membre';
+                    ?->getDisplayNameFull() ?? 'Membre';
 
                 $events[] = new VirtualEvent(
                     uid: self::streakUid($memberId, $start),

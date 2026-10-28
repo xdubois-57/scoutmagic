@@ -133,7 +133,12 @@ class SosSettingsServiceTest extends TestCase
     /**
      * @return int member_id (persistent identity)
      */
-    private function createStaffduMember(string $totem, ?string $mobile): int
+    private function createStaffduMember(
+        string $totem,
+        ?string $mobile,
+        string $firstName = 'Jean',
+        string $lastName = 'Dupont'
+    ): int
     {
         $staffduId = $this->unitStaffSectionService->ensureSection();
 
@@ -146,8 +151,8 @@ class SosSettingsServiceTest extends TestCase
         );
         $stmt->execute([
             $memberId, $this->scoutYearId,
-            $this->encryption->encrypt('Jean', 'member_years.first_name'),
-            $this->encryption->encrypt('Dupont', 'member_years.last_name'),
+            $this->encryption->encrypt($firstName, 'member_years.first_name'),
+            $this->encryption->encrypt($lastName, 'member_years.last_name'),
             $this->encryption->encrypt($totem, 'member_years.totem'),
             $mobile !== null ? $this->encryption->encrypt($mobile, 'member_years.mobile') : null,
         ]);
@@ -234,8 +239,34 @@ class SosSettingsServiceTest extends TestCase
         $options = $this->service->getStaffOptions($this->scoutYearId);
 
         $this->assertCount(1, $options);
-        $this->assertSame('Akela', $options[0]['label']);
+        $this->assertSame('Akela (Jean Dupont)', $options[0]['label']);
         $this->assertSame('+32470000001', $options[0]['mobile']);
+    }
+
+    public function testStaffLabelsDistinguishSharedTotemsAndKeepTheCommonSectionTotemFormat(): void
+    {
+        $first = $this->createStaffduMember('Fennec', '+32470000001');
+        $second = $this->createStaffduMember('Fennec', '+32470000002', 'Pierre', 'Martin');
+        $withoutTotem = $this->createStaffduMember('', '+32470000003', 'Élie', 'Wathelet');
+        $memberYear = $this->memberYearRepository->findByMemberAndYear($first, $this->scoutYearId);
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO member_section_totems (member_year_id, section_id, totem_encrypted) VALUES (?, ?, ?)'
+        );
+        $stmt->execute([
+            $memberYear['id'], $this->unitStaffSectionService->ensureSection(),
+            $this->encryption->encrypt('Akela', 'member_section_totems.totem'),
+        ]);
+
+        $labels = array_column($this->service->getStaffOptions($this->scoutYearId), 'label', 'member_id');
+        ksort($labels);
+        $this->assertSame([
+            $first => 'Fennec – Akela (Jean Dupont)',
+            $second => 'Fennec (Pierre Martin)',
+            $withoutTotem => 'Élie Wathelet',
+        ], $labels);
+        foreach ($labels as $memberId => $label) {
+            $this->assertSame($label, $this->service->labelForMember($memberId, $this->scoutYearId));
+        }
     }
 
     public function testGetStaffOptionsExcludesMembersWithoutMobile(): void
@@ -327,7 +358,7 @@ class SosSettingsServiceTest extends TestCase
     {
         $memberId = $this->createStaffduMember('Akela', '+32470000001');
 
-        $this->assertSame('Akela', $this->service->labelForMember($memberId, $this->scoutYearId));
+        $this->assertSame('Akela (Jean Dupont)', $this->service->labelForMember($memberId, $this->scoutYearId));
     }
 
     public function testLabelForMemberReturnsNullWhenNoRowForThatYear(): void
