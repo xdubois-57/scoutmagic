@@ -446,22 +446,14 @@ class EmailTemplateRendererTest extends TestCase
         self::assertStringStartsWith('Bien à vous', substr($email->bodyText, (int) strpos($email->bodyText, 'Bien à vous')));
     }
 
-    /**
-     * The call to action of half the e-mails this site sends is a link
-     * whose address IS a variable. What the editor stores is not what the
-     * administrator typed: the sanitizer serialises through DOM, and DOM
-     * percent-encodes a URL attribute — `href="%7B%7B%20login_url%20%7D%7D"`.
-     * Matched only in its literal spelling, the placeholder was never
-     * substituted, and every customised e-mail went out with its button
-     * pointing at the escaped placeholder itself.
-     */
+    /** A saved editor link must still substitute after HTML5 sanitization. */
     public function testAPlaceholderInsideALinkSurvivesTheSanitisersUrlEncoding(): void
     {
         $stored = (new HtmlSanitizer())->sanitize('<p><a href="{{ login_url }}">Se connecter</a></p>');
         self::assertStringContainsString(
-            '%7B%7B',
+            '{{ login_url }}',
             $stored,
-            'Precondition: this test is about what the sanitizer does to a placeholder in an href.'
+            'HTML5 parsing must preserve the token in a link target.'
         );
 
         $this->overrides->save('super_admin_granted', 'Sujet', $stored, null);
@@ -474,6 +466,17 @@ class EmailTemplateRendererTest extends TestCase
 
         self::assertStringContainsString('href="https://u.example/login"', $email->bodyHtml);
         self::assertStringNotContainsString('%7B%7B', $email->bodyHtml);
+    }
+
+    public function testPartiallyEncodedAndHistoricalLinkVariablesStillSubstitute(): void
+    {
+        foreach (['{{%20login_url%20}}', '%7B%7B login_url %7D%7D', '%7b%7blogin_url%7d%7d'] as $token) {
+            $this->overrides->save('super_admin_granted', 'Sujet', '<a href="' . $token . '">Lien</a>', null);
+            $email = $this->renderer->render('super_admin_granted', [
+                'site_name' => 'U', 'granted_by' => 'akela@example.be', 'login_url' => 'https://u.example/login',
+            ]);
+            self::assertStringContainsString('href="https://u.example/login"', $email->bodyHtml);
+        }
     }
 
     public function testAnUnknownTemplateIdIsARefusalRatherThanAnEmptyMessage(): void

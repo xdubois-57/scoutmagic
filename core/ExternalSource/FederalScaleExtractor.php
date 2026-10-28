@@ -105,7 +105,7 @@ final class FederalScaleExtractor
      * non-breaking spaces flattened — « 57,50&nbsp;€ » is how a CMS
      * writes an amount.
      *
-     * The markup goes through libxml's error-recovering parser first, for
+     * The markup goes through PHP's bundled HTML5 parser first, for
      * the reason FederalScaleLookupService::extractText() documents at
      * length: the federal fees page carries an unbalanced quote and an
      * unterminated end tag just before the cotisations block, and
@@ -115,41 +115,11 @@ final class FederalScaleExtractor
      */
     public static function text(string $html): string
     {
-        $html = self::repairMarkup($html);
-        $stripped = preg_replace('#<(script|style|noscript)\b[^>]*>.*?</\1>#is', ' ', $html) ?? $html;
-        $stripped = preg_replace('#<(br|/p|/div|/li|/tr|/h[1-6]|/title)\s*/?>#i', "\n", $stripped) ?? $stripped;
-        $text = html_entity_decode(strip_tags($stripped), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $text = \Core\Template\HtmlTextExtractor::extract($html);
         $text = str_replace(["\u{a0}", "\u{202f}"], ' ', $text);
         $text = preg_replace('/[ \t]+/u', ' ', $text) ?? $text;
 
         return trim(preg_replace('/\s*\n\s*/u', "\n", $text) ?? $text);
-    }
-
-    /**
-     * Third-party markup, re-emitted well-formed by libxml; the input
-     * untouched when libxml refuses it outright. The XML encoding
-     * declaration stops `loadHTML()` from reading a page with no
-     * `<meta charset>` as ISO-8859-1.
-     */
-    private static function repairMarkup(string $html): string
-    {
-        if (trim($html) === '') {
-            return $html;
-        }
-
-        $document = new \DOMDocument();
-        $previous = libxml_use_internal_errors(true);
-        $loaded = $document->loadHTML('<?xml encoding="utf-8" ?>' . $html, LIBXML_NONET);
-        libxml_clear_errors();
-        libxml_use_internal_errors($previous);
-
-        if (!$loaded) {
-            return $html;
-        }
-
-        $repaired = $document->saveHTML();
-
-        return is_string($repaired) && trim($repaired) !== '' ? $repaired : $html;
     }
 
     private static function toCents(string $amount): int

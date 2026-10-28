@@ -16,6 +16,12 @@ class HtmlSanitizerTest extends TestCase
         $this->sanitizer = new HtmlSanitizer();
     }
 
+    public function testTrackingLinkSurvivesHtml5Parsing(): void
+    {
+        $html = $this->sanitizer->sanitize('<p><a href="{{ lien_suivi }}">Suivre</a></p>');
+        $this->assertStringContainsString('href="{{ lien_suivi }}"', $html);
+    }
+
     public function testAllowedTagsPassThrough(): void
     {
         $html = '<p>Hello <strong>world</strong></p>';

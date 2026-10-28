@@ -78,22 +78,12 @@ final class TokenSyntax
     }
 
     /**
-     * A token that ended up inside an `href` or a `src` comes back
-     * percent-encoded: the rich-text sanitizer parses the body with
-     * DOMDocument, which URL-encodes every URI attribute on the way out,
-     * so `{{QR 1}}` is stored as `%7B%7BQR%201%7D%7D`. Left alone, the
-     * variable would simply never substitute and the recipient would get a
-     * broken link — silently, which is the worst of both. Recognised here
-     * rather than "fixed" in the sanitizer, whose encoding is correct for
-     * every other URL it handles.
-     *
-     * Deliberately not parameterised by the name pattern: what has to be
-     * recognised is the encoding, and a name that decodes to something the
-     * catalogue does not know is reported as unknown afterwards like any
-     * other.
+     * Old stored templates and pasted URLs can encode braces and spaces
+     * independently. Decode only token regions, never an entire URL.
+     * The HTML5 sanitizer preserves literal braces in new templates.
      */
     public function encodedPattern(): string
     {
-        return '/%7B%7B(.*?)%7D%7D/i';
+        return '/(?:%7B|\{){2}(.*?)(?:%7D|\}){2}/i';
     }
 }

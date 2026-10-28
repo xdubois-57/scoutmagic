@@ -56,22 +56,13 @@ class HtmlSanitizer
             return '';
         }
 
-        // Wrap in a container for DOMDocument parsing
-        $wrapped = '<div>' . $html . '</div>';
-
-        $doc = new \DOMDocument('1.0', 'UTF-8');
-
-        // Suppress warnings from malformed HTML
-        $prev = libxml_use_internal_errors(true);
-        $doc->loadHTML(
-            '<?xml encoding="UTF-8">' . $wrapped,
-            LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD
+        // PHP's bundled HTML5 parser keeps recovery independent of system libxml.
+        $doc = \Dom\HTMLDocument::createFromString(
+            '<!doctype html><html><head></head><body>' . $html . '</body></html>',
+            LIBXML_NOERROR,
+            'UTF-8'
         );
-        libxml_clear_errors();
-        libxml_use_internal_errors($prev);
-
-        // Find the wrapper div
-        $body = $doc->getElementsByTagName('div')->item(0);
+        $body = $doc->body;
         if ($body === null) {
             return '';
         }
@@ -84,10 +75,10 @@ class HtmlSanitizer
             $output .= $doc->saveHTML($child);
         }
 
-        return trim($output);
+        return trim(str_replace('&nbsp;', "\u{00A0}", $output));
     }
 
-    private function walkNode(\DOMNode $node, \DOMDocument $doc): void
+    private function walkNode(\Dom\Node $node, \Dom\HTMLDocument $doc): void
     {
         // Process children in reverse (removal-safe)
         $children = [];
@@ -96,7 +87,7 @@ class HtmlSanitizer
         }
 
         foreach ($children as $child) {
-            if ($child instanceof \DOMElement) {
+            if ($child instanceof \Dom\Element) {
                 $tagName = strtolower($child->tagName);
 
                 // Strip with content entirely
@@ -116,7 +107,7 @@ class HtmlSanitizer
 
                 // Recurse into allowed tags
                 $this->walkNode($child, $doc);
-            } elseif (!($child instanceof \DOMText)) {
+            } elseif (!($child instanceof \Dom\Text)) {
                 // Keep only text nodes. Everything else here — comments,
                 // processing instructions (otherwise re-serialized verbatim),
                 // CDATA sections — has no place in sanitized rich text and is
@@ -126,7 +117,7 @@ class HtmlSanitizer
         }
     }
 
-    private function replaceWithChildren(\DOMElement $element, \DOMNode $parent, \DOMDocument $doc): void
+    private function replaceWithChildren(\Dom\Element $element, \Dom\Node $parent, \Dom\HTMLDocument $doc): void
     {
         $insertedNodes = [];
         // Clone children first to avoid iterator invalidation
@@ -144,7 +135,7 @@ class HtmlSanitizer
 
         // Walk newly inserted nodes to sanitize them
         foreach ($insertedNodes as $inserted) {
-            if ($inserted instanceof \DOMElement) {
+            if ($inserted instanceof \Dom\Element) {
                 $tagName = strtolower($inserted->tagName);
 
                 if (in_array($tagName, self::STRIP_WITH_CONTENT, true)) {
@@ -163,14 +154,14 @@ class HtmlSanitizer
         }
     }
 
-    private function sanitizeAttributes(\DOMElement $element, string $tagName): void
+    private function sanitizeAttributes(\Dom\Element $element, string $tagName): void
     {
         $allowedAttrs = self::ALLOWED[$tagName] ?? [];
 
         // Collect attributes to remove
         $toRemove = [];
         foreach ($element->attributes as $attr) {
-            /** @var \DOMAttr $attr */
+            /** @var \Dom\Attr $attr */
             $attrName = strtolower($attr->name);
 
             // Remove event handlers
