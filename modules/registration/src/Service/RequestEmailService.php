@@ -234,7 +234,9 @@ class RequestEmailService
      * recorded on that row and answered as FAILED, so the task moves on. A
      * failure before the transport says nothing left; one during it says
      * it is not certain whether the family received it — the fiche offers
-     * « Réessayer » either way, and nothing is resent on its own.
+     * « Réessayer » for a terminal failure. The poller schedules bounded
+     * recovery only for confirmed temporary refusals (issue #918); an
+     * uncertain outcome is never retried automatically.
      *
      * @param callable(int): string $yearLabel
      * @return string self::SCHEDULED_* — sent, failed (recorded on the
@@ -374,10 +376,12 @@ class RequestEmailService
         } catch (RegistrationException $e) {
             // Gated here, at the write: the row keeps a sentence a chief
             // may read, never the transport's own text (send() journals
-            // that).
+            // safe failure metadata).
             $this->decisionEmails->recordFailure(
                 $attempt,
-                DecisionEmail::FAILURE_MAIL_TRANSPORT,
+                DecisionEmailRetryPolicy::isTemporary($e->getPrevious())
+                    ? DecisionEmail::FAILURE_MAIL_TEMPORARY
+                    : DecisionEmail::FAILURE_MAIL_TRANSPORT,
                 UserFacingMessage::from($e, "L'e-mail n'a pas pu être envoyé à la famille.")
             );
 
@@ -483,9 +487,8 @@ class RequestEmailService
                     'request_id' => $request->id,
                     'content_key' => $contentKey,
                     // Core\Mail\MailException is built from PHPMailer's
-                    // ErrorInfo — raw SMTP English, and the reason this
-                    // never goes in the sentence below.
-                    'mail_error' => $e->getMessage(),
+                    // ErrorInfo; only the exception class is journaled here.
+                    'error_class' => $e::class,
                 ]
             );
 

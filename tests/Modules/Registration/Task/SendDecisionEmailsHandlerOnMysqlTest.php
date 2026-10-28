@@ -256,6 +256,7 @@ class SendDecisionEmailsHandlerOnMysqlTest extends TestCase
     {
         $mail = $this->createStub(MailService::class);
         $calls = 0;
+        $mail->method('withoutDeferral')->willReturnSelf();
         $mail->method('send')->willReturnCallback(function (string $to) use (&$calls): bool {
             $calls++;
             if ($calls === $this->dieAtSend) {

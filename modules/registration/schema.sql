@@ -528,16 +528,21 @@ CREATE TABLE registration_decision_emails (
     attempted_at DATETIME NULL,
     sent_at DATETIME NULL,
     failed_at DATETIME NULL,
-    failure_code ENUM('body_not_written', 'mail_transport', 'interrupted') NULL,
+    failure_code ENUM('body_not_written', 'mail_transport', 'interrupted', 'mail_temporary') NULL,
     failure_message VARCHAR(500) NULL,
     cancelled_at DATETIME NULL,
     cancel_reason ENUM('decision_changed') NULL,
     superseded_at DATETIME NULL,
     active_request_id INT UNSIGNED NULL,
+    -- Only scheduler-claimed attempts participate in bounded recovery.
+    automatic_attempt TINYINT(1) NOT NULL DEFAULT 0,
+    automatic_retry_count SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+    recovery_processed_at DATETIME NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_rde_request FOREIGN KEY (registration_request_id) REFERENCES registration_requests(id) ON DELETE CASCADE,
     UNIQUE INDEX idx_rde_active_request (active_request_id),
     INDEX idx_rde_state_due (state, due_at),
+    INDEX idx_rde_recovery (automatic_attempt, state, recovery_processed_at, superseded_at, id),
     INDEX idx_rde_request (registration_request_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

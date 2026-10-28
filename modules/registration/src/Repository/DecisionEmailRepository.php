@@ -20,9 +20,10 @@ use Core\Service\DateInput;
  * conditional UPDATE naming the state it moves from — 'scheduled' to
  * 'sending' (the claim), 'sending' to 'sent' or 'failed' — so a row that
  * has been sent, has failed or was cancelled stays exactly what it was,
- * and a retry or a resend is a row of its own. The one write that touches
- * a final row is supersedeForRequest(), and it only dates the moment that
- * row stopped describing the request's decision.
+ * and a retry or a resend is a row of its own. supersedeForRequest()
+ * dates the moment a row stopped describing the request's decision.
+ * The recovery marker is
+ * operational bookkeeping only; it never rewrites an outcome or attempt.
  *
  * Nothing here is personal data: an id, a decision, dates, and a French
  * sentence written for a chief. The address the e-mail went to is the
@@ -201,14 +202,15 @@ class DecisionEmailRepository
      * only if it still is scheduled and still describes the request's
      * decision. True for exactly one of any number of concurrent callers.
      */
-    public function claim(int $id, \DateTimeImmutable $now): bool
+    public function claim(int $id, \DateTimeImmutable $now, bool $automatic = false): bool
     {
         $stamp = self::format($now);
         $stmt = $this->pdo->prepare(
-            "UPDATE registration_decision_emails SET state = 'sending', attempted_at = ?, updated_at = ?
+            "UPDATE registration_decision_emails
+             SET state = 'sending', attempted_at = ?, updated_at = ?, automatic_attempt = ?
              WHERE id = ? AND state = 'scheduled' AND superseded_at IS NULL"
         );
-        $stmt->execute([$stamp, $stamp, $id]);
+        $stmt->execute([$stamp, $stamp, $automatic ? 1 : 0, $id]);
 
         return $stmt->rowCount() === 1;
     }
@@ -395,6 +397,100 @@ class DecisionEmailRepository
         $stmt->execute([$requestId]);
     }
 
+    /** Records a dead automatic sender, without ever scheduling its delivery again. */
+    public function failStaleAutomaticSending(
+        \DateTimeImmutable $staleBefore,
+        \DateTimeImmutable $now,
+        string $message
+    ): void {
+        $stmt = $this->pdo->prepare(
+            "UPDATE registration_decision_emails
+             SET state = 'failed', failed_at = ?, failure_code = 'interrupted', failure_message = ?,
+                 active_request_id = NULL, updated_at = ?
+             WHERE automatic_attempt = 1 AND state = 'sending' AND superseded_at IS NULL AND attempted_at <= ?"
+        );
+        $stamp = self::format($now);
+        $stmt->execute([$stamp, $message, $stamp, self::format($staleBefore)]);
+    }
+
+    /** The counter commits with the new retry and its parent's recovery marker. */
+    public function setAutomaticRetryCount(int $id, int $count): void
+    {
+        if (!$this->pdo->inTransaction()) {
+            throw new \LogicException('Retry metadata must be written inside the recovery transaction.');
+        }
+        $stmt = $this->pdo->prepare(
+            "UPDATE registration_decision_emails SET automatic_retry_count = ? WHERE id = ? AND state = 'scheduled'"
+        );
+        $stmt->execute([$count, $id]);
+        if ($stmt->rowCount() !== 1) {
+            throw new \LogicException('The new scheduled retry could not be recorded.');
+        }
+    }
+
+    /** @return array{scout_year_id: int, status: string}|null */
+    public function recoveryContext(int $requestId): ?array
+    {
+        $stmt = $this->pdo->prepare('SELECT scout_year_id, status FROM registration_requests WHERE id = ?');
+        $stmt->execute([$requestId]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+        return $row === false ? null : [
+            'scout_year_id' => (int) $row['scout_year_id'],
+            'status' => (string) $row['status'],
+        ];
+    }
+
+    /** @return list<DecisionEmail> */
+    public function findUnprocessedAutomaticFailures(int $limit, int $retryLimit): array
+    {
+        $stmt = $this->pdo->prepare(
+            "SELECT e.* FROM registration_decision_emails e
+             WHERE e.state = 'failed' AND e.automatic_attempt = 1
+               AND e.recovery_processed_at IS NULL AND e.superseded_at IS NULL
+               AND NOT EXISTS (SELECT 1 FROM registration_decision_emails newer
+                   WHERE newer.registration_request_id = e.registration_request_id AND newer.id > e.id
+                     AND newer.superseded_at IS NULL)
+             ORDER BY CASE WHEN e.failure_code = 'mail_temporary' AND e.automatic_retry_count < ?
+                 THEN 0 ELSE 1 END, e.id LIMIT ?"
+        );
+        $stmt->bindValue(1, $retryLimit, \PDO::PARAM_INT);
+        $stmt->bindValue(2, max(1, $limit), \PDO::PARAM_INT);
+        $stmt->execute();
+        return array_map(
+            static fn(array $row): DecisionEmail => self::hydrate($row),
+            $stmt->fetchAll(\PDO::FETCH_ASSOC)
+        );
+    }
+
+    /**
+     * The marker and the retry/notification writes commit together. A
+     * competing worker loses the conditional update; a crash rolls it back.
+     * @param callable(): bool $action False leaves recovery pending.
+     */
+    public function processAutomaticFailure(int $id, \DateTimeImmutable $now, callable $action): bool
+    {
+        $this->pdo->beginTransaction();
+        try {
+            $stmt = $this->pdo->prepare(
+                "UPDATE registration_decision_emails SET recovery_processed_at = ?
+                 WHERE id = ? AND state = 'failed' AND automatic_attempt = 1
+                   AND recovery_processed_at IS NULL AND superseded_at IS NULL"
+            );
+            $stmt->execute([self::format($now), $id]);
+            if ($stmt->rowCount() !== 1 || !$action()) {
+                $this->pdo->rollBack();
+                return false;
+            }
+            $this->pdo->commit();
+            return true;
+        } catch (\Throwable $e) {
+            if ($this->pdo->inTransaction()) {
+                $this->pdo->rollBack();
+            }
+            throw $e;
+        }
+    }
+
     private static function assertFailureCode(string $failureCode): void
     {
         if (!in_array($failureCode, DecisionEmail::FAILURE_CODES, true)) {
@@ -432,7 +528,9 @@ class DecisionEmailRepository
             cancelledAt: $date('cancelled_at'),
             cancelReason: $row['cancel_reason'] !== null ? (string) $row['cancel_reason'] : null,
             supersededAt: $date('superseded_at'),
-            createdAt: DateInput::requireFromStorage((string) $row['created_at'], 'created_at')
+            createdAt: DateInput::requireFromStorage((string) $row['created_at'], 'created_at'),
+            automaticAttempt: (bool) $row['automatic_attempt'],
+            automaticRetryCount: (int) $row['automatic_retry_count']
         );
     }
 }
