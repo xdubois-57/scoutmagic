@@ -187,7 +187,7 @@ class DecisionEmailService
      */
     public function claim(int $emailId): bool
     {
-        return $this->repository->claim($emailId, new \DateTimeImmutable());
+        return $this->repository->claim($emailId, new \DateTimeImmutable(), true);
     }
 
     /**

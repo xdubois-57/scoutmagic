@@ -17,6 +17,7 @@ use Core\View\EditableContentService;
 use Modules\Registration\Repository\DecisionEmailRepository;
 use Modules\Registration\Repository\RegistrationRequestRepository;
 use Modules\Registration\Service\DecisionEmailService;
+use Modules\Registration\Service\DecisionEmailRecoveryService;
 use Modules\Registration\Service\FamilyEmailCopyService;
 use Modules\Registration\Service\RequestEmailService;
 
@@ -48,6 +49,12 @@ use Modules\Registration\Service\RequestEmailService;
  * sees « en attente ». The e-mail carries the request's own tracking link,
  * read back and never renewed (issue #932), and the unit is in copy as for
  * a manual send (D9) — the same path, RequestEmailService::deliverAttempt().
+ *
+ * Known temporary failures are recovered by DecisionEmailRecoveryService:
+ * two delayed retries, then a generic staff notification. A queue-less
+ * MailService clone keeps those retries out of the generic deferred queue.
+ * Recovery also runs on an empty send batch, so a crash between recording
+ * a failure and scheduling its retry does not lose it.
  *
  * **It runs whatever the switch says**: switching the automatic sending
  * off cancels nothing (D7), so e-mails planned before still leave at their
@@ -106,9 +113,6 @@ class SendDecisionEmailsHandler implements TaskHandlerInterface
         try {
             $due = $decisionEmails->findDue(self::BATCH_SIZE, $this->now ?? new \DateTimeImmutable());
             $full = count($due) >= self::BATCH_SIZE;
-            if ($due === []) {
-                return;
-            }
 
             $requests = new RegistrationRequestRepository(
                 $pdo,
@@ -118,7 +122,7 @@ class SendDecisionEmailsHandler implements TaskHandlerInterface
             );
             $emailService = new RequestEmailService(
                 $requests,
-                $context->mailService,
+                $context->mailService->withoutDeferral(),
                 new EditableContentService(new EditableContentRepository($pdo)),
                 $context->journal,
                 (string) ($context->settings->get('base_url') ?: ''),
@@ -142,6 +146,17 @@ class SendDecisionEmailsHandler implements TaskHandlerInterface
                 $counts[$emailService->sendScheduled($email, $yearLabel)]++;
             }
 
+            $recoveryFull = (new DecisionEmailRecoveryService(
+                $decisionEmailRepository,
+                $decisionEmails,
+                $context->userAccounts,
+                $context->notifications,
+                $context->journal
+            ))->recover($this->now ?? new \DateTimeImmutable(), self::BATCH_SIZE);
+            $full = $full || $recoveryFull;
+            if ($due === []) {
+                return;
+            }
             $context->journal->log(
                 'registration',
                 'registration_decision_emails_auto_sent',

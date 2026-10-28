@@ -8,7 +8,7 @@ question: Comment envoyer automatiquement l'e-mail d'acceptation ou de refus ?
 question: Combien de temps après la décision la famille reçoit-elle l'e-mail ?
 question: Que deviennent les e-mails prévus si je désactive l'envoi automatique ?
 paths: /config/inscriptions/reglages
-related: envoyer-l-e-mail-de-decision, acceptation-automatique-des-demandes, decider-une-demande, rediger-les-e-mails-de-demande, capacites-et-listes-d-attente
+related: echec-envoi-decision, envoyer-l-e-mail-de-decision, acceptation-automatique-des-demandes, decider-une-demande, rediger-les-e-mails-de-demande, capacites-et-listes-d-attente
 ---
 
 Par défaut, l'e-mail d'acceptation ou de refus s'envoie à la main,
@@ -53,6 +53,13 @@ vérifiez auprès d'elle avant de choisir « Réessayer ». Un échec reste
 visible dans l'« Historique » de la fiche ; l'e-mail dont le texte aurait
 perdu son lien de suivi n'est jamais envoyé sans lui et y est noté
 « Échec ».
+
+## Si l'envoi échoue
+
+Les erreurs temporaires donnent lieu à deux réessais bornés, puis à une
+notification aux administrateurs si l'échec persiste. Voir l'aide
+**Résoudre un échec d'e-mail de décision**, qui explique aussi quand
+intervenir à la main.
 
 ## Le désactiver
 
