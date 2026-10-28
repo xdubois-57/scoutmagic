@@ -147,12 +147,16 @@
     if (defaultNumberSelect && defaultNumberSave) {
         var defaultNumberError = document.getElementById('default-number-error');
         var savedNumber = defaultNumberSelect.dataset.savedValue || '';
+        var defaultNumberPreview = document.getElementById('default-number-preview');
 
         var syncSaveState = function () {
             defaultNumberSave.disabled = defaultNumberSelect.value === savedNumber;
         };
 
         defaultNumberSelect.addEventListener('change', function () {
+            if (defaultNumberPreview) {
+                defaultNumberPreview.textContent = defaultNumberSelect.selectedOptions[0]?.textContent || '';
+            }
             if (defaultNumberError) {
                 defaultNumberError.textContent = '';
                 defaultNumberError.classList.add('d-none');

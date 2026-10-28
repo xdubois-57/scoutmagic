@@ -104,7 +104,7 @@ class SosVirtualEventProviderTest extends TestCase
         $events = $this->collect($provider, '2026-09-01', '2026-09-30');
 
         $this->assertCount(1, $events);
-        $this->assertSame("SOS Staff d'U : Akela", $events[0]->title);
+        $this->assertSame("SOS Staff d'U : Akela (Jean Dupont)", $events[0]->title);
         $this->assertSame('2026-09-04', $events[0]->startDate);
         $this->assertSame('2026-09-06', $events[0]->endDate);
         $this->assertSame(self::DEFAULT_CALENDAR_ID, $events[0]->calendarId);

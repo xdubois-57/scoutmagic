@@ -264,7 +264,12 @@ class SosAdminControllerTest extends TestCase
     /**
      * @return int member_id (persistent identity)
      */
-    private function createStaffduMember(string $totem, string $mobile): int
+    private function createStaffduMember(
+        string $totem,
+        string $mobile,
+        string $firstName = 'Jean',
+        string $lastName = 'Dupont'
+    ): int
     {
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $staffduId = (new UnitStaffSectionService(new \Core\Member\Repository\UnitStaffSectionRepository($this->pdo)))->ensureSection();
@@ -278,7 +283,8 @@ class SosAdminControllerTest extends TestCase
         );
         $stmt->execute([
             $memberId, $this->scoutYearId,
-            $encryption->encrypt('Jean', 'member_years.first_name'), $encryption->encrypt('Dupont', 'member_years.last_name'),
+            $encryption->encrypt($firstName, 'member_years.first_name'),
+            $encryption->encrypt($lastName, 'member_years.last_name'),
             $encryption->encrypt($totem, 'member_years.totem'), $encryption->encrypt($mobile, 'member_years.mobile'),
         ]);
         $memberYearId = (int) $this->pdo->lastInsertId();
@@ -953,6 +959,48 @@ class SosAdminControllerTest extends TestCase
     // calls, one edit sheet for the whole month, and the « Ma
     // disponibilité » tab.
     // ------------------------------------------------------------------
+
+    public function testSharedTotemsAreDistinguishedInServerRenderedPlanningAndSettings(): void
+    {
+        $first = $this->createStaffduMember('Fennec', '+32470000001');
+        $second = $this->createStaffduMember('Fennec', '+32470000002', 'Pierre', 'Martin');
+        $third = $this->createStaffduMember('', '+32470000003', 'Élie', 'Wathelet');
+        $this->settingsService->setDefaultNumberFromMember($first);
+        $today = (new \DateTimeImmutable())->format('Y-m-d');
+        $this->onCallRepository->replaceRange($today, $today, [
+            new OnCallAssignment($second, $today, OnCallAssignment::STATE_ONCALL),
+        ]);
+        $body = $this->planning();
+        $dom = new \DOMDocument();
+        @$dom->loadHTML('<?xml encoding="UTF-8">' . $body);
+        $xpath = new \DOMXPath($dom);
+        $labels = [$first => 'Fennec (Jean Dupont)', $second => 'Fennec (Pierre Martin)', $third => 'Élie Wathelet'];
+        foreach ($labels as $id => $label) {
+            $this->assertSame($label, trim($xpath->evaluate(
+                'string(//*[@data-sheet-member-id="' . $id . '"]//*[@data-member-name])'
+            )));
+            $this->assertSame('État de ' . $label, $xpath->evaluate(
+                'string(//*[@data-sheet-member-id="' . $id . '"]//fieldset/legend)'
+            ));
+        }
+        $headers = $xpath->query('//th[contains(@class,"sos-col-header")]/span');
+        $this->assertEqualsCanonicalizing(array_values($labels), array_map(
+            static fn(\DOMNode $node): string => trim($node->textContent), iterator_to_array($headers)
+        ));
+        $this->assertSame('Fennec (Pierre Martin)', trim($xpath->evaluate(
+            'string(//*[@id="sos-day-' . $today . '"]//*[@data-day-target])'
+        )));
+        $this->assertStringContainsString('Par défaut — Fennec (Jean Dupont)', $body);
+        $settings = $this->settingsPage();
+        $this->assertMatchesRegularExpression(
+            '/id="default-number-preview"[^>]*>Fennec \(Jean Dupont\) \(\+32470000001\)<\/output>/',
+            $settings
+        );
+        foreach ($labels as $label) {
+            $this->assertStringContainsString($label . ' (+3247000000', $settings);
+        }
+        $this->assertStringContainsString('Fennec (Jean Dupont)', $this->dashboard());
+    }
 
     public function testThePlanningNamesThePersonWhoActuallyReceivesTheCallsOnADay(): void
     {
