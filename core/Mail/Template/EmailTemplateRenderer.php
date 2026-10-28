@@ -212,6 +212,8 @@ class EmailTemplateRenderer
      */
     private function substitute(EmailTemplate $template, string $text, array $context, bool $intoHtml): string
     {
+        $text = (new \Core\Template\TokenEngine(\Core\Template\TokenSyntax::freeText()))
+            ->decodeEncodedTokens($text);
         $variables = $template->variables;
         usort(
             $variables,
@@ -240,35 +242,10 @@ class EmailTemplateRenderer
         return $text;
     }
 
-    /**
-     * Every spelling a placeholder can reasonably arrive in.
-     *
-     * The two obvious ones are what the insertion button writes
-     * (`{{ name }}`) and what somebody typing it by hand produces
-     * (`{{name}}`). The percent-encoded twins are not obvious at all, and
-     * they are the ones that mattered: a placeholder written inside a
-     * link — « Suivre ma demande », the call to action of half the e-mails
-     * this site sends — is stored as
-     * `href="%7B%7B%20tracking_url%20%7D%7D"`, because the sanitizer
-     * serialises through DOM and DOM encodes a URL attribute. Matching
-     * only the literal spelling left that button pointing at the escaped
-     * placeholder itself, in every customised e-mail, with nothing on the
-     * page to suggest anything was wrong.
-     *
-     * Both hex cases, because the encoder's choice is not ours to assume.
-     *
-     * @return list<string>
-     */
+    /** @return list<string> Literal editor spellings, after token-local decoding. */
     private static function placeholdersFor(string $name): array
     {
-        $spellings = [];
-        foreach (['{{ ' . $name . ' }}', '{{' . $name . '}}'] as $literal) {
-            $spellings[] = $literal;
-            $spellings[] = str_replace(['{', '}', ' '], ['%7B', '%7D', '%20'], $literal);
-            $spellings[] = str_replace(['{', '}', ' '], ['%7b', '%7d', '%20'], $literal);
-        }
-
-        return $spellings;
+        return ['{{ ' . $name . ' }}', '{{' . $name . '}}'];
     }
 
     private function reportUndeclared(EmailTemplate $template, string $text): void

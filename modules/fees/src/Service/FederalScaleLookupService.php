@@ -449,68 +449,18 @@ class FederalScaleLookupService
      * year included. No error anywhere: the model was asked to read a year
      * off a page it was never shown.
      *
-     * So the bytes go through libxml's error-recovering HTML parser first
-     * and come back as well-formed markup, exactly the idiom
-     * `Core\Http\UrlMetadataFetcher::parse()` already
-     * uses on third-party pages. A page libxml cannot parse at all falls
-     * through unrepaired — the crude pass then does what it always did,
-     * which is more than nothing.
-     *
-     * Repairing rather than replacing `strip_tags()` with a `<[^>]*>`
-     * regex is deliberate: that regex would fix this page and break on a
-     * `>` inside an attribute value, trading a rare catastrophic loss for
-     * a common small one. Here the parser settles both.
+     * PHP's HTML5 parser repairs the tree; HtmlTextExtractor then reads
+     * text nodes directly. Serializing the repaired tree before stripping
+     * tags would retain malformed attribute names and lose the text again.
      */
     public static function extractText(string $html): string
     {
-        $repaired = self::repairMarkup($html);
-        $stripped = preg_replace('#<(script|style|noscript)\b[^>]*>.*?</\1>#is', ' ', $repaired) ?? $repaired;
-        $stripped = preg_replace('#<(br|/p|/div|/li|/tr|/h[1-6])\s*/?>#i', "\n", $stripped) ?? $stripped;
-        $text = html_entity_decode(strip_tags($stripped), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $text = \Core\Template\HtmlTextExtractor::extract($html);
         $text = str_replace(["\u{a0}", '<<<PAGE', 'PAGE>>>'], [' ', ' ', ' '], $text);
         $text = preg_replace('/[ \t]+/u', ' ', $text) ?? $text;
         $text = preg_replace('/\s*\n\s*/u', "\n", $text) ?? $text;
 
         return mb_substr(trim($text), 0, self::MAX_PROMPT_CHARS);
-    }
-
-    /**
-     * Third-party markup, re-emitted well-formed by libxml so that the
-     * crude pass above cannot lose the document on a single stray
-     * character. See {@see self::extractText()} for the failure this
-     * exists to prevent.
-     *
-     * The XML encoding declaration is the same fix `Core\Http\UrlMetadataFetcher`
-     * carries: `loadHTML()` assumes ISO-8859-1 for a document with no
-     * `<meta charset>`, which turns « année » into mojibake before any
-     * cotisation is read. It is consumed by the parser and never appears
-     * in the output.
-     *
-     * Returns the input untouched when libxml refuses it outright, which
-     * leaves the caller exactly where it was before this pass existed.
-     */
-    private static function repairMarkup(string $html): string
-    {
-        if (trim($html) === '') {
-            return $html;
-        }
-
-        $document = new \DOMDocument();
-        $previous = libxml_use_internal_errors(true);
-        // A malformed page is the normal case here, so libxml's complaints
-        // are noise by construction: this method's whole purpose is to
-        // recover from them.
-        $loaded = $document->loadHTML('<?xml encoding="utf-8" ?>' . $html, LIBXML_NONET);
-        libxml_clear_errors();
-        libxml_use_internal_errors($previous);
-
-        if (!$loaded) {
-            return $html;
-        }
-
-        $repaired = $document->saveHTML();
-
-        return is_string($repaired) && trim($repaired) !== '' ? $repaired : $html;
     }
 
     /**

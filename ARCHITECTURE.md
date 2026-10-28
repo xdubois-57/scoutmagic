@@ -3811,7 +3811,7 @@ The route is `role_min: public` and **the token is the whole authorization** —
 
 **Two things the QR must not get wrong.** It encodes what is STILL DUE, refreshed at request time rather than read from a possibly stale allocation: a parent who paid half yesterday and opens the mail today must not be shown the full amount again and pay it. And the body repeats IBAN, amount and communication **in text under every code**, because many mail clients block remote images by default — an image that does not load must never leave somebody without a way to pay.
 
-**Two mail-merge mechanics this needed, both fixed in `mass_mail` rather than worked around.** When a household's mail carried one block per child, a personalised body was not the same *length* for everybody, so `MergeRenderer` gained sections — `{{#Colonne}} … {{/Colonne}}`, kept only for rows whose value is filled. The reminder no longer uses them (one row per receivable has nothing conditional), and they stay a general mechanism of the mail merge. And a token that ends up inside an `href` or a `src` comes back percent-encoded, because the rich-text sanitizer parses the body with DOMDocument, which URL-encodes every URI attribute on the way out: `{{QR}}` is *stored* as `%7B%7BQR%7D%7D`. Left unrecognised the variable would never substitute and every recipient would get a broken image — silently. `MergeRenderer` reads both shapes; the sanitizer's encoding stays as it is, being correct for every other URL it handles.
+**Two mail-merge mechanics this needed, both fixed in `mass_mail` rather than worked around.** When a household's mail carried one block per child, a personalised body was not the same *length* for everybody, so `MergeRenderer` gained sections — `{{#Colonne}} … {{/Colonne}}`, kept only for rows whose value is filled. The reminder no longer uses them (one row per receivable has nothing conditional), and they stay a general mechanism of the mail merge. Historical templates can carry percent-encoded tokens in an `href` or a `src`, such as `%7B%7BQR%7D%7D`. `MergeRenderer` still decodes those and partially encoded forms. Since #1014 the HTML5 sanitizer preserves literal braces in newly saved templates; no stored template needs rewriting.
 
 ### 8.84bis The sheet of payment labels (`Modules\Finance\Service\PaymentLabelService`)
 
@@ -5614,13 +5614,11 @@ contract's prose would become a candidate. Neither is more correct than the
 other; they are two vocabularies, and the engine never decides between
 them.
 
-**The percent-encoded rescue is recognition, not a fix.** A token that ends
-up inside an `href` or a `src` comes back as `%7B%7BQR%201%7D%7D`: the
-rich-text sanitizer parses the body with `DOMDocument`, which URL-encodes
-every URI attribute on the way out. Left alone the variable never
-substitutes and the recipient gets a broken link, silently. It is decoded
-here rather than "fixed" in the sanitizer, whose encoding is correct for
-every other URL it handles.
+**The percent-encoded rescue preserves historical templates.** Older
+sanitizers stored URL tokens as `%7B%7BQR%201%7D%7D`. Since #1014 the
+HTML5 sanitizer preserves literal braces, but saved templates and pasted
+URLs can still carry fully or partially encoded tokens. Decoding is confined
+to token regions, leaving unrelated URL encoding untouched.
 
 **The repair pass is the piece that was missing, and it is what lets a
 document editor be rich text at all.** A `contenteditable` surface splits a
@@ -6685,3 +6683,14 @@ Frontend unit tests are a complement to, never a replacement for, PHPUnit's inte
 A fourth, non-test mechanism runs alongside these three: JavaScript static analysis (`npm run typecheck`, TypeScript's `checkJs` over `public/assets/js/`, no build step — see `AGENTS.md` § Static analysis and docs/developpement.md § Analyse statique JavaScript) is the JavaScript equivalent of `vendor/bin/phpstan analyse` — it catches unresolved identifiers, wrong argument counts, and statically-detectable invalid property access *before* any test runs, which is a different guarantee than Vitest exercising behavior at runtime.
 
 Automated tests are mandatory for every feature and must be kept up to date as the codebase evolves. The RBAC guard must have explicit test coverage on every role boundary.
+
+
+### HTML parsing portability (#1014)
+
+Rich-text sanitization and URL metadata use PHP 8.4's bundled
+`Dom\HTMLDocument` HTML5 parser, independent of the host's libxml2 HTML
+parser. Federal fee extraction reads text nodes directly through
+`Core\Template\HtmlTextExtractor`; serializing malformed attribute names
+before `strip_tags()` can otherwise lose the rest of the page. New rich-text
+URL tokens retain literal braces; `TokenEngine` continues to decode historical
+and partially percent-encoded tokens without decoding unrelated URLs.

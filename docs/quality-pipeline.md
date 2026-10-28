@@ -354,7 +354,7 @@ cannot drift apart. Because they are called, a pull request shows them as
 | Job | What it runs | Engine |
 |---|---|---|
 | `Checks / test` | `phpstan analyse --memory-limit=512M`, then `phpunit --coverage-clover --log-junit` | MySQL 8 |
-| `Checks / database-mariadb` | the whole PHPUnit suite, `--log-junit` | MariaDB 10.11 |
+| `Checks / database-mariadb` | the whole PHPUnit suite on both runner images, `--log-junit` | MariaDB 10.11 |
 | `Checks / javascript-tests` | `npm ci`, `npm run typecheck`, `npm run test:coverage` | — |
 | `Checks / End-to-end (browser)` | `npm run e2e` with `E2E_COVERAGE=1` | MySQL 8 |
 | `Checks / Authorization matrix` | `./scripts/dast.sh --profile=standard` | MySQL 8 |
@@ -2028,3 +2028,10 @@ like if the thing had not run at all. When the answer is "the same", the
 signal is not a signal. Where that distinction is known, it is written down
 next to the thing it concerns — in the steward skill, in
 `claude-review.yml`'s header, and here.
+
+
+La portabilité HTML (#1014) est vérifiée par la suite MariaDB sur Ubuntu 24.04
+et 26.04. Les autres tâches utilisent Ubuntu 26.04. Le parseur HTML5 intégré
+à PHP remplace le parseur HTML dépendant de la libxml2 du système ; les
+anciens jetons encodés restent pris en charge. Les artefacts MariaDB portent
+le suffixe de l'image afin que les deux résultats restent distincts.

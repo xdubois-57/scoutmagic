@@ -121,6 +121,16 @@ class TokenEngineTest extends TestCase
         );
     }
 
+    public function testMixedEncodedTokensAreRecognisedAndDecodedWithoutChangingOtherUrls(): void
+    {
+        foreach (['{{%20nom%20}}', '%7B%7B nom %7D%7D', '%7b{nom}%7D'] as $token) {
+            $this->assertTrue($this->freeText()->containsToken($token));
+            $decoded = $this->freeText()->decodeEncodedTokens($token);
+            $this->assertSame('Alice', $this->freeText()->substitute($decoded, fn() => 'Alice', false));
+        }
+        $this->assertSame('/photo%20de%20groupe', $this->freeText()->decodeEncodedTokens('/photo%20de%20groupe'));
+    }
+
     public function testContainsTokenSeesAPercentEncodedOneToo(): void
     {
         $this->assertTrue($this->freeText()->containsToken('<a href="%7B%7BQR%201%7D%7D">x</a>'));

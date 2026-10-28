@@ -555,3 +555,9 @@ interruptions on 2026-09-05, and it is why auto-merge is enabled at all
 § Auto-merge). Two failure modes to know: auto-merge never updates a branch
 that has fallen behind `main`, and it is disarmed in silence by a change of
 base branch or a push from an account without write access.
+
+
+Pour la portabilité HTML (#1014), `database-mariadb` exécute la suite complète
+sur Ubuntu 24.04 et 26.04 ; les autres tâches PHP utilisent Ubuntu 26.04.
+Un échec propre à une image se reproduit avec cette image et PHP 8.4, sans
+réintroduire `DOMDocument::loadHTML()` pour contourner la différence.
