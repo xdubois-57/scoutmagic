@@ -4,6 +4,10 @@ declare(strict_types=1);
 
 namespace Tests\Modules\MassMail\Service;
 
+use Modules\MassMail\Repository\ContactRepository;
+
+use Modules\MassMail\Service\AddressReactivationService;
+
 use Core\Badge\MemberBadgeRepository;
 use Core\Config\ScoutYearService;
 use Core\Config\SettingRepository;
@@ -716,6 +720,35 @@ class MassMailServiceTest extends TestCase
             $this->assertNotNull($delivery->audienceRowId);
             $this->assertSame(Delivery::STATUS_PENDING, $delivery->status);
         }
+    }
+
+    public function testReactivationAffectsFutureFreeAddressSendsButNeverAnExistingFreeze(): void
+    {
+        $this->suppressedAddressRepository->suppress('optout@test.be');
+        $audienceId = $this->createAudience([
+            ['member_id' => null, 'email' => 'optout@test.be', 'data' => ['Email' => 'optout@test.be']],
+            ['member_id' => null, 'email' => 'ok@test.be', 'data' => ['Email' => 'ok@test.be']],
+        ]);
+        $first = $this->createMergeDraft($audienceId);
+        $this->service->moveToTest($first->id, null);
+        $this->service->startSending($first->id, null);
+        $frozen = $this->deliveryRepository->findByEmailId($first->id);
+        $this->assertSame(['ok@test.be'], array_column($frozen, 'emailAddress'));
+
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $journal = new JournalService(new JournalRepository($this->pdo));
+        $reactivation = new \Core\Member\EmailAddressReactivationService(
+            new MemberEmailRepository($this->pdo, $encryption), $journal,
+            new AddressReactivationService($this->pdo, new ContactRepository($this->pdo, $encryption),
+                $this->suppressedAddressRepository, $journal)
+        );
+        $reactivation->reactivate('optout@test.be', null);
+        $this->assertEquals($frozen, $this->deliveryRepository->findByEmailId($first->id));
+        $next = $this->createMergeDraft($audienceId);
+        $this->service->moveToTest($next->id, null);
+        $this->service->startSending($next->id, null);
+        $this->assertSame(['optout@test.be', 'ok@test.be'],
+            array_column($this->deliveryRepository->findByEmailId($next->id), 'emailAddress'));
     }
 
     public function testStartSendingHonorsTheExternalSuppressionList(): void

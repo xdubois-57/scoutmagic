@@ -62,6 +62,22 @@ class MemberShowTemplateTest extends TestCase
         ]);
     }
 
+    public function testReactivationHasOneGenericConfirmationAndIsOnlyOfferedOnAnOwnedInactiveAddress(): void
+    {
+        $row = new \Core\Member\MemberEmail(7, 1, 'parent@example.org', 'manual', 'inactive',
+            null, null, null, null, new \DateTimeImmutable(), new \DateTimeImmutable());
+        $html = $this->render($this->makeMember(), true, ['member_emails' => [$row]]);
+        $doc = new \DOMDocument();
+        @$doc->loadHTML($html);
+        $form = (new \DOMXPath($doc))->query('//form[@action="/members/1/emails/7/reactivate"]')->item(0);
+        $this->assertNotNull($form);
+        $this->assertStringContainsString('toutes les fiches', $form->getAttribute('data-confirm'));
+        $this->assertSame('Réactiver', $form->getAttribute('data-confirm-label'));
+        $this->assertSame("Réactiver l'adresse e-mail ?", $form->getAttribute('data-confirm-title'));
+        $this->assertStringNotContainsString('/emails/7/reactivate',
+            $this->render($this->makeMember(), false, ['member_emails' => [$row]]));
+    }
+
     private function makeMember(): MemberProfile
     {
         return new MemberProfile(

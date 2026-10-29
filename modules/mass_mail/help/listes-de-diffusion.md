@@ -9,7 +9,7 @@ question: Comment écrire aux intendants de toutes les sections ?
 question: Comment écrire aux animateurs et au trésorier en une seule liste ?
 question: Pourquoi ne puis-je pas supprimer une liste de diffusion ?
 paths: /admin/listes-de-diffusion, /admin/listes-de-diffusion/*
-related: groupes-de-contacts, anciens, envoi-de-mails, publipostage
+related: reactiver-une-adresse, groupes-de-contacts, anciens, envoi-de-mails, publipostage
 ---
 
 Cette page décide **à qui l'unité écrit**. Elle ne compose aucun
@@ -78,3 +78,9 @@ envois qui s'en servaient reste lisible.
 
 La cadence d'envoi n'est pas ici : c'est un réglage du site entier, sur
 « Configuration > Réglages ».
+
+
+## Réactiver une adresse
+
+Sur demande, utilisez le formulaire de réactivation. Voir
+**Rétablir les e-mails groupés d'une adresse**.

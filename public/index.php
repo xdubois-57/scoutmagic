@@ -2752,6 +2752,11 @@ $memberDocumentService = new \Core\Member\MemberDocumentService($memberDocumentR
 // Member page "Adresses email" — multi-email support per member (Core\
 // Member\MemberEmailService). $memberEmailRepository was already built
 // above, before $roleResolver.
+// The shared handle is filled by the optional mass_mail block below (§7.5/7.6).
+$addressReactivationRegistry = new \Core\Member\AddressReactivationRegistry();
+$emailAddressReactivation = new \Core\Member\EmailAddressReactivationService(
+    $memberEmailRepository, $journalService, $addressReactivationRegistry
+);
 $memberEmailService = new \Core\Member\MemberEmailService(
     $memberEmailRepository,
     $mailService,
@@ -2772,7 +2777,8 @@ $memberEmailService = new \Core\Member\MemberEmailService(
     new \Core\Mail\Feedback\Bounce\BounceService(
         new \Core\Mail\Feedback\Bounce\BounceStateRepository($pdo, $encryptionService),
         $journalService
-    )
+    ),
+    $emailAddressReactivation
 );
 
 // Scout year resolution (public / staff / session-preview priority)
@@ -9152,6 +9158,10 @@ $massMailDraftForOthers = null;
 
 if ($isEnabled('mass_mail')) {
     \Core\Debug\RequestTimeline::mark('module_mass_mail');
+    $frontController->registerController(
+        \Modules\MassMail\Controller\AddressReactivationController::class,
+        new \Modules\MassMail\Controller\AddressReactivationController($twig, $emailAddressReactivation)
+    );
     $massMailListRepo = new \Modules\MassMail\Repository\MailingListRepository($pdo);
     $massMailResolutionRepo = new \Modules\MassMail\Repository\MemberResolutionRepository($pdo, $encryptionService);
     $massMailEmailRepo = new \Modules\MassMail\Repository\EmailRepository($pdo);
@@ -9176,6 +9186,9 @@ if ($isEnabled('mass_mail')) {
     // has to work with registration disabled too.
     $massMailBlockRepo = new \Modules\MassMail\Repository\ListBlockRepository($pdo);
     $massMailContactRepo = new \Modules\MassMail\Repository\ContactRepository($pdo, $encryptionService);
+    $addressReactivationRegistry->provide(new \Modules\MassMail\Service\AddressReactivationService(
+        $pdo, $massMailContactRepo, $massMailSuppressedRepo, $journalService
+    ));
     $massMailListBlockService = new \Modules\MassMail\Service\ListBlockService(
         $massMailBlockRepo,
         $massMailContactRepo,

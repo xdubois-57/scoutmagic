@@ -165,6 +165,16 @@ class ContactRepository
         return (int) $this->pdo->lastInsertId();
     }
 
+    public function reactivateEverywhere(string $email): int
+    {
+        $stmt = $this->pdo->prepare(
+            'UPDATE mass_mail_block_contacts SET unsubscribed_at = NULL
+             WHERE email_blind_index = ? AND unsubscribed_at IS NOT NULL'
+        );
+        $stmt->execute([$this->blindIndex($email)]);
+        return $stmt->rowCount();
+    }
+
     /**
      * The unsubscribe, and the reason the blind index carries an index of
      * its own: **every** row holding this address, in **every** group of

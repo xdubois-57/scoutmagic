@@ -569,14 +569,18 @@ supprimé dès sa lecture, dont le nom facultatif et l'adresse sont chiffrés au
 irréversible de l'adresse servant uniquement au dédoublonnage dans le groupe et à la propagation de la désinscription ;
 que ces contacts appartiennent à leur groupe et qu'il n'existe aucun carnet d'adresses global ; que la désinscription
 vaut en revanche pour tous les groupes de toutes les listes à la fois et survit à la suppression d'un groupe ; et
-qu'une adresse désinscrite est conservée, marquée, définitivement exclue des envois et ne peut être ni retirée ni
-réabonnée par un fichier ; (d) conserver intégralement
+qu'une adresse désinscrite est conservée, marquée, exclue des envois et ne peut être ni retirée ni
+réabonnée par un fichier ; qu'une réactivation explicite et confirmée depuis une fiche d'animé, ou par un chef
+d'unité à la demande du titulaire dans « Listes de diffusion », rétablit cette adresse sur toutes les fiches et tous les
+groupes, retire l'empreinte de désinscription et autorise les futurs publipostages, sans toucher aux adresses en attente
+de confirmation, aux blocages pour rebonds ni aux envois déjà lancés ; (d) conserver intégralement
 le paragraphe « Publipostage depuis un fichier Excel » : un
 animateur peut importer un fichier Excel dont chaque ligne définit un email (membre identifié par son numéro Desk «
 Tiers » ou adresse libre de la colonne « Email », y compris hors de l'unité), toutes les valeurs importées sont
 chiffrées au repos, le fichier est supprimé dès sa lecture, les données importées sont purgées automatiquement et
 définitivement 18 mois après l'envoi (durée fixe non modifiable), et la désinscription d'un destinataire externe est
-conservée sous forme d'empreinte irréversible de l'adresse, sans limite de durée ; (e) conserver, dans la liste des
+conservée sous forme d'empreinte irréversible de l'adresse, sans limite de durée jusqu'à une réactivation explicitement
+demandée et confirmée ; (e) conserver, dans la liste des
 durées de conservation de la section 3.1, l'exception qui accompagne (d) : la notification « Nouvel email » d'un
 publipostage est supprimée avec les données importées qu'elle décrit, lue ou non, alors que toute autre notification
 non lue est conservée sans limite — son texte peut reprendre le sujet personnalisé du destinataire, et le garder

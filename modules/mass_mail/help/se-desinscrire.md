@@ -37,9 +37,13 @@ y penser.
 ## Revenir en arrière
 
 Pour une adresse d'animé : « Réactiver » sur la carte « Adresses email »
-de la page de l'animé, une fois connecté avec une autre adresse ou par
-l'unité. Pour une adresse qui n'est pas celle d'un animé, dites-le à
-l'unité — l'adresse de contact est en bas de chaque page du site.
+de la page de l'animé, une fois connecté avec une autre adresse, puis
+confirmez l'action. Cela rétablit la même adresse dans toutes les fiches,
+les groupes de contacts et les prochains publipostages.
+
+Sans accès à une fiche, demandez à l'unité de réactiver votre adresse :
+elle dispose de cette action dans « Listes de diffusion ». Son adresse
+de contact est en bas de chaque page du site.
 
 ## Si la page dit que le lien n'est pas valable
 

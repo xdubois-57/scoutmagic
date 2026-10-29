@@ -57,7 +57,8 @@ class MemberEmailService
          * means « rien n'a jamais rebondi », which is the correct answer
          * there, never a silent failure.
          */
-        private ?BounceService $bounces = null
+        private ?BounceService $bounces = null,
+        private ?EmailAddressReactivationService $reactivation = null
     ) {
     }
 
@@ -314,16 +315,8 @@ class MemberEmailService
             throw new MemberEmailException("Cette adresse n'est pas désinscrite.");
         }
 
-        $this->repository->reactivate($emailId);
-
-        $this->journalService->log(
-            'core',
-            'member_email_reactivated',
-            'info',
-            'Adresse email réactivée',
-            ['member_id' => $memberId, 'member_email_id' => $emailId],
-            $actorId
-        );
+        ($this->reactivation ?? new EmailAddressReactivationService($this->repository, $this->journalService))
+            ->reactivate($row->email, $actorId);
 
         $updated = $this->repository->findById($emailId);
         \assert($updated !== null);
@@ -489,8 +482,10 @@ class MemberEmailService
      * (see schema/core.sql) — being unable to log in AND no longer
      * receiving unit communications is significant enough that it always
      * triggers the two notification emails below, never silently.
+     *
+     * @param (callable(callable): void)|null $deferNotification Queue until the owning transaction commits.
      */
-    public function unsubscribe(int $memberEmailId): void
+    public function unsubscribe(int $memberEmailId, ?callable $deferNotification = null): void
     {
         $triggerRow = $this->repository->findById($memberEmailId);
         if ($triggerRow === null) {
@@ -530,7 +525,14 @@ class MemberEmailService
             }
         }
 
-        $this->sendUnsubscribeNotifications($triggerRow->email, $affectedMemberNames);
+        $notify = function () use ($triggerRow, $affectedMemberNames): void {
+            $this->sendUnsubscribeNotifications($triggerRow->email, $affectedMemberNames);
+        };
+        if ($deferNotification !== null) {
+            $deferNotification($notify);
+        } else {
+            $notify();
+        }
     }
 
     private function virtualDeskRow(int $memberId, string $deskEmail): MemberEmail

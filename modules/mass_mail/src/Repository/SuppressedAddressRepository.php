@@ -13,7 +13,7 @@ namespace Modules\MassMail\Repository;
  * (non-member) mail-merge recipients. Only ever a SHA-256 hash of the
  * normalized address, never the address itself: this table is checked by
  * exact match at freeze time and nothing ever needs the address back.
- * Never purged — an unsubscribe must outlive any retention window.
+ * Never purged by retention; only an explicitly confirmed reactivation removes it.
  */
 class SuppressedAddressRepository
 {
@@ -90,6 +90,23 @@ class SuppressedAddressRepository
         $stmt = $this->pdo->prepare('SELECT 1 FROM mass_mail_suppressed_addresses WHERE email_hash = ? LIMIT 1');
         $stmt->execute([self::hash($address)]);
         return $stmt->fetchColumn() !== false;
+    }
+
+    public function reactivate(string $address): bool
+    {
+        $stmt = $this->pdo->prepare('DELETE FROM mass_mail_suppressed_addresses WHERE email_hash = ?');
+        $stmt->execute([self::hash($address)]);
+        return $stmt->rowCount() === 1;
+    }
+
+    /**
+     * @template T
+     * @param callable(): T $action
+     * @return T
+     */
+    public function atomically(callable $action): mixed
+    {
+        return \Core\Database\TransactionScope::run($this->pdo, $action);
     }
 
     private static function hash(string $address): string

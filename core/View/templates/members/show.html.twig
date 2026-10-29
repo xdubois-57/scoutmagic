@@ -406,7 +406,10 @@
                                         </form>
                                     {% endif %}
                                     {% if row.status == 'inactive' %}
-                                        <form method="post" action="/members/{{ member.memberYearId }}/emails/{{ row.id }}/reactivate">
+                                        <form method="post" action="/members/{{ member.memberYearId }}/emails/{{ row.id }}/reactivate"
+                                              data-confirm="Cette adresse a été désactivée à la suite d'une désinscription. Sa réactivation permettra de nouveau de recevoir les e-mails groupés de l'unité, pour toutes les fiches et tous les groupes qui l'utilisent."
+                                              data-confirm-title="Réactiver l'adresse e-mail ?" data-confirm-label="Réactiver"
+                                              data-confirm-variant="primary">
                                             {{ csrf_field()|raw }}
                                             <button type="submit" class="btn btn-sm btn-outline-primary">Réactiver</button>
                                         </form>

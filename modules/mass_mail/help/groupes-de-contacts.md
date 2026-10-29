@@ -59,9 +59,9 @@ Quand quelqu'un clique sur le lien de désinscription au bas d'un e-mail,
 son adresse est désinscrite dans **tous** les groupes de toutes les listes :
 la désinscription vaut pour toute l'unité.
 
-La ligne reste ensuite visible, grisée. Aucun fichier ne la retire ni ne la
-réabonne : un désabonnement qu'un tableur peut annuler ne vaut rien. Elle
-reste vraie même si le groupe est retiré de la liste.
+La ligne reste visible, grisée, même si le groupe est retiré. Un fichier
+ne retire ni ne réabonne une adresse désinscrite. Sur demande du
+titulaire, utilisez « Réactiver une adresse e-mail » dans « Listes de diffusion ».
 
 Quelqu'un présent dans deux blocs d'une liste, ou à la fois contact et
 membre, ne reçoit qu'un seul e-mail : le site compare les adresses.

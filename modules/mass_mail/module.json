@@ -2,7 +2,7 @@
   "id": "mass_mail",
   "name": "Envoi de mails",
   "description": "Envois groupés et listes de diffusion.",
-  "version": "1.19.0",
+  "version": "1.20.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -313,6 +313,15 @@
       "method": "GET",
       "controller": "Modules\\MassMail\\Controller\\ContactGroupController",
       "action": "template",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/admin/listes-de-diffusion/adresses/reactivate",
+      "method": "POST",
+      "controller": "Modules\\MassMail\\Controller\\AddressReactivationController",
+      "action": "reactivate",
       "menu": "espace_admin",
       "role_min": "admin",
       "label": ""

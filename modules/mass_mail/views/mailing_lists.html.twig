@@ -97,6 +97,27 @@
     {% if recipient_counts is not empty %}
         <p class="form-text">« ≈ » : le nombre est calculé pour l'année scoute effective ; l'e-mail peut viser une autre année.</p>
     {% endif %}
+
+    <section class="card mt-4" aria-labelledby="reactivate-address-title">
+        <div class="card-body">
+            <h2 class="h5" id="reactivate-address-title">Réactiver une adresse e-mail</h2>
+            <p class="small text-body-secondary" id="reactivate-address-help">
+                À la demande du titulaire, rétablissez les e-mails groupés pour cette adresse dans toutes les
+                fiches, tous les groupes de contacts et les publipostages. Les envois déjà lancés ne changent pas.
+                Une suspension pour rebonds doit être levée séparément.
+            </p>
+            <form method="post" action="/admin/listes-de-diffusion/adresses/reactivate"
+                  data-confirm="Le titulaire a demandé à recevoir de nouveau les e-mails groupés. Réactiver cette adresse dans toutes les fiches et tous les groupes qui l'utilisent ?"
+                  data-confirm-title="Réactiver l'adresse e-mail ?" data-confirm-label="Réactiver"
+                  data-confirm-variant="primary">
+                {{ csrf_field()|raw }}
+                <label class="form-label" for="reactivate-address-email">Adresse e-mail</label>
+                <input type="email" class="form-control mb-3" id="reactivate-address-email" name="email"
+                       required maxlength="254" autocomplete="off" aria-describedby="reactivate-address-help">
+                <button type="submit" class="btn btn-outline-primary">Réactiver</button>
+            </form>
+        </div>
+    </section>
 </div>
 
 {% include '@mass_mail/partials/_list_identity_dialog.html.twig' with { list: null } only %}
