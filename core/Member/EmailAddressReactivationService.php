@@ -33,8 +33,18 @@ final class EmailAddressReactivationService
         try {
             return $this->restore($email, $actorId);
         } catch (\PDOException $error) {
-            $this->journal->log('core', 'email_address_reactivation_failed', 'warning',
-                "La réactivation d'une adresse e-mail a échoué.", ['error_class' => $error::class], $actorId);
+            try {
+                $this->journal->log(
+                    'core',
+                    'email_address_reactivation_failed',
+                    'warning',
+                    "La réactivation d'une adresse e-mail a échoué.",
+                    ['error_class' => $error::class],
+                    $actorId
+                );
+            } catch (\PDOException) {
+                // An unavailable journal must not hide the original failure or the retry message.
+            }
             throw new MemberEmailException("L'adresse n'a pas pu être réactivée. Réessayez plus tard.", 0, $error);
         }
     }
@@ -47,8 +57,12 @@ final class EmailAddressReactivationService
             $rows = $this->members->reactivateInactiveByEmail($email);
             foreach ($rows as $row) {
                 $this->journal->log(
-                    'core', 'member_email_reactivated', 'info', 'Adresse email réactivée',
-                    ['member_id' => $row['member_id'], 'member_email_id' => $row['id']], $actorId
+                    'core',
+                    'member_email_reactivated',
+                    'info',
+                    'Adresse email réactivée',
+                    ['member_id' => $row['member_id'], 'member_email_id' => $row['id']],
+                    $actorId
                 );
             }
             return count($rows) + $mailingChanges;

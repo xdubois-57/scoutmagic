@@ -2755,7 +2755,9 @@ $memberDocumentService = new \Core\Member\MemberDocumentService($memberDocumentR
 // The shared handle is filled by the optional mass_mail block below (§7.5/7.6).
 $addressReactivationRegistry = new \Core\Member\AddressReactivationRegistry();
 $emailAddressReactivation = new \Core\Member\EmailAddressReactivationService(
-    $memberEmailRepository, $journalService, $addressReactivationRegistry
+    $memberEmailRepository,
+    $journalService,
+    $addressReactivationRegistry
 );
 $memberEmailService = new \Core\Member\MemberEmailService(
     $memberEmailRepository,
@@ -9186,9 +9188,14 @@ if ($isEnabled('mass_mail')) {
     // has to work with registration disabled too.
     $massMailBlockRepo = new \Modules\MassMail\Repository\ListBlockRepository($pdo);
     $massMailContactRepo = new \Modules\MassMail\Repository\ContactRepository($pdo, $encryptionService);
-    $addressReactivationRegistry->provide(new \Modules\MassMail\Service\AddressReactivationService(
-        $pdo, $massMailContactRepo, $massMailSuppressedRepo, $journalService
-    ));
+    $addressReactivationRegistry->provide(
+        new \Modules\MassMail\Service\AddressReactivationService(
+            $pdo,
+            $massMailContactRepo,
+            $massMailSuppressedRepo,
+            $journalService
+        )
+    );
     $massMailListBlockService = new \Modules\MassMail\Service\ListBlockService(
         $massMailBlockRepo,
         $massMailContactRepo,

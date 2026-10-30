@@ -34,7 +34,8 @@ class AddressReactivationController extends AbstractController
         }
         try {
             $changed = $this->reactivation->reactivate(
-                (string) $request->getBody('email', ''), AuthSession::getUserAccountId()
+                (string) $request->getBody('email', ''),
+                AuthSession::getUserAccountId()
             );
             FlashMessage::set(
                 $changed > 0 ? 'success' : 'warning',

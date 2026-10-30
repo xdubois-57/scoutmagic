@@ -34,8 +34,12 @@ final class TransactionScope
     private static function rollback(\PDO $pdo): void
     {
         // A deadlock or a disconnected server may already have rolled back.
-        if ($pdo->inTransaction()) {
-            $pdo->rollBack();
+        try {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+        } catch (\PDOException) {
+            // Losing the connection during rollback must not replace the work's original error.
         }
     }
 }

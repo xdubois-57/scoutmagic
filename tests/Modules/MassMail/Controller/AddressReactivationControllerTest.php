@@ -97,4 +97,13 @@ final class AddressReactivationControllerTest extends TestCase
         $this->post('external@example.org');
         $this->assertSame("L'adresse n'a pas pu être réactivée. Réessayez plus tard.", FlashMessage::get()['message']);
     }
+
+    public function testAnUnavailableJournalStillReturnsTheRetryMessageAndRollsBack(): void
+    {
+        $this->pdo->prepare('DROP TABLE event_log')->execute();
+        $this->post('external@example.org');
+        $flash = FlashMessage::get();
+        $this->assertSame(['error', "L'adresse n'a pas pu être réactivée. Réessayez plus tard.", true],
+            [$flash['type'], $flash['message'], $this->suppressed->isSuppressed('external@example.org')]);
+    }
 }

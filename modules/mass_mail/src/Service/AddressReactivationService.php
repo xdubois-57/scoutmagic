@@ -32,9 +32,12 @@ final class AddressReactivationService implements AddressReactivationInterface
         $contacts = $this->contacts->reactivateEverywhere($email);
         if ($contacts > 0 || $suppression) {
             $this->journal->log(
-                'mass_mail', 'mailing_address_reactivated', 'info',
+                'mass_mail',
+                'mailing_address_reactivated',
+                'info',
                 'Adresse réinscrite aux e-mails groupés',
-                ['contacts' => $contacts, 'suppression_lifted' => $suppression], $actorId
+                ['contacts' => $contacts, 'suppression_lifted' => $suppression],
+                $actorId
             );
         }
         return $contacts + ($suppression ? 1 : 0);

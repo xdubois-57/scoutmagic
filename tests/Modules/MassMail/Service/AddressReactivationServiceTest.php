@@ -233,6 +233,51 @@ class AddressReactivationServiceTest extends TestCase
             $this->pdo->query('SELECT event_type FROM event_log')->fetchAll(\PDO::FETCH_COLUMN));
     }
 
+    public function testAFailedFailureJournalPreservesTheRetryMessageAndOriginalError(): void
+    {
+        $this->enableModule();
+        $original = new \PDOException('deliberate reactivation audit failure');
+        $repository = new class($this->pdo, $original) extends JournalRepository {
+            /** @var list<string> */
+            public array $attempts = [];
+
+            public function __construct(\PDO $pdo, private \PDOException $original)
+            {
+                parent::__construct($pdo);
+            }
+
+            public function insert(string $category, string $type, string $level, string $description,
+                ?string $contextJson, ?int $userId, ?string $ipAddress = null): void
+            {
+                $this->attempts[] = $type;
+                if ($type === 'email_address_reactivation_failed') {
+                    throw new \PDOException('deliberate failure audit outage');
+                }
+                parent::insert($category, $type, $level, $description, $contextJson, $userId, $ipAddress);
+                throw $this->original;
+            }
+        };
+        $service = new EmailAddressReactivationService(
+            $this->members, new JournalService($repository), $this->registry
+        );
+        $caught = null;
+        try {
+            $service->reactivate('shared@example.org', $this->actor);
+        } catch (MemberEmailException $error) {
+            $caught = $error;
+        }
+        $this->assertSame(
+            ["L'adresse n'a pas pu être réactivée. Réessayez plus tard.", $original,
+                ['member_email_reactivated', 'email_address_reactivation_failed']],
+            [$caught?->getMessage(), $caught?->getPrevious(), $repository->attempts]
+        );
+        $this->assertStillInactive();
+        $count = $this->pdo->prepare('SELECT COUNT(*) FROM event_log');
+        $count->execute();
+        $this->assertSame(0, (int) $count->fetchColumn());
+        $this->assertFalse($this->pdo->inTransaction());
+    }
+
     public function testUnsubscribeCommitsTheSameStoresBeforeSendingAnyNotification(): void
     {
         $this->enableModule();

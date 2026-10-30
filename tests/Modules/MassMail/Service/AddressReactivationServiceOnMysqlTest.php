@@ -19,7 +19,7 @@ final class AddressReactivationServiceOnMysqlTest extends AddressReactivationSer
     public function testTwoWorkersCannotRestoreOrJournalTheSameAddressTwice(): void
     {
         $other = self::productionEngineConnection(self::$productionEngineDatabase)->getPdo();
-        $other->exec('SET SESSION innodb_lock_wait_timeout = 1');
+        $other->prepare('SET SESSION innodb_lock_wait_timeout = 1')->execute();
         $owner = $this->serviceOn($this->pdo);
         $contender = $this->serviceOn($other);
         $this->pdo->beginTransaction();

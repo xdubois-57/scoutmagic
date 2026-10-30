@@ -66,4 +66,25 @@ final class TransactionScopeTest extends TestCase
             $this->assertSame($error, $caught);
         }
     }
+
+    public function testARollbackFailurePreservesTheWorkError(): void
+    {
+        $pdo = new class('sqlite::memory:') extends \PDO {
+            public int $rollbackAttempts = 0;
+
+            public function rollBack(): bool
+            {
+                ++$this->rollbackAttempts;
+                throw new \PDOException('deliberate rollback failure');
+            }
+        };
+        $error = new \RuntimeException('original work failure');
+        $caught = null;
+        try {
+            TransactionScope::run($pdo, static fn() => throw $error);
+        } catch (\Throwable $failure) {
+            $caught = $failure;
+        }
+        $this->assertSame([$error, 1, true], [$caught, $pdo->rollbackAttempts, $pdo->inTransaction()]);
+    }
 }

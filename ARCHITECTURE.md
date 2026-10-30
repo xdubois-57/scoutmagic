@@ -2917,7 +2917,9 @@ Neither path sends mail. The confirmation's replay marker lasts only for
 the synchronous submit, so a later decision on the same form asks again.
 Unsubscribe follows the same lock order in one transaction and sends its
 notifications only after commit. Failure rolls the changes back; re-importing a file
-alone still cannot undo an unsubscribe.
+alone still cannot undo an unsubscribe. A failed rollback or failure-audit write
+does not replace the original error; reactivation still returns its safe retry
+message when the journal is unavailable.
 
 **One notification per account and per row (issue #999, §2.6).** The
 account concerned is the one whose login is the address of a sent message
