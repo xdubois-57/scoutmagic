@@ -987,6 +987,13 @@ final class UxConventionsTest extends TestCase
      * « reprendre » would have left the harmless one unguarded too.
      */
     private const UNDO_THAT_STILL_ASKS = [
+        // The maintainer explicitly requires a single consent confirmation
+        // for restoring future mail across an address's uses (#1032, design.md §7.5).
+        '/members/{{ member.memberYearId }}/emails/{{ row.id }}/reactivate' =>
+            'restores future group mail for the same address across members and contact groups',
+        '/admin/listes-de-diffusion/adresses/reactivate' =>
+            'the admin restores the address everywhere at its holder\'s explicit request',
+
         '/admin/attestations/{{ batch.id }}/reprendre' =>
             'takes a batch back, DELETING the published documents; « reprendre » is retract here, not undo',
     ];

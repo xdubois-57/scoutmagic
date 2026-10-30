@@ -585,6 +585,7 @@ describe('the delegated data-confirm form handler', () => {
         const form = formWith({ 'data-confirm': 'Annuler cette réservation ?' });
 
         const replay = submit(form);
+        replay.mockImplementation(() => expect(form.dataset.confirmed).toBe('1'));
         expect(replay).not.toHaveBeenCalled();
         expect(document.getElementById('sm-confirm-modal-body').textContent)
             .toBe('Annuler cette réservation ?');
@@ -594,8 +595,38 @@ describe('the delegated data-confirm form handler', () => {
         await Promise.resolve();
 
         expect(replay).toHaveBeenCalled();
-        // The replayed submit must not ask a second time.
-        expect(form.dataset.confirmed).toBe('1');
+        // The replay is guarded; a later action gets a fresh confirmation.
+        expect(form.dataset.confirmed).toBeUndefined();
+    });
+
+    it('clears the replay guard with the legacy submit fallback too', async () => {
+        await loadConfirm();
+        const form = formWith({ 'data-confirm': 'Réactiver cette adresse ?' });
+        form.requestSubmit = undefined;
+        form.submit = vi.fn(() => expect(form.dataset.confirmed).toBe('1'));
+        form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+        buttonLabelled('Confirmer').click();
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(form.submit).toHaveBeenCalledTimes(1);
+        expect(form.dataset.confirmed).toBeUndefined();
+    });
+
+    it('asks again for a later decision on the same form, without a reload', async () => {
+        await loadConfirm();
+        const form = formWith({ 'data-confirm': 'Réactiver cette adresse ?' });
+        const first = submit(form);
+        buttonLabelled('Confirmer').click();
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(first).toHaveBeenCalledTimes(1);
+
+        const second = submit(form);
+        expect(modal()).not.toBeNull();
+        buttonLabelled('Annuler').click();
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(second).not.toHaveBeenCalled();
     });
 
     it('leaves the form alone when the visitor declines', async () => {
@@ -809,9 +840,7 @@ describe('the delegated data-confirm form handler', () => {
             await Promise.resolve();
             await Promise.resolve();
 
-            // A second decision on the same form — the replay guard is
-            // cleared the way a fresh page load would.
-            delete form.dataset.confirmed;
+            // A second decision on the same form needs its own confirmation.
             submit(form);
             /** @type {HTMLTextAreaElement} */ (
                 document.getElementById('sm-confirm-modal-input')

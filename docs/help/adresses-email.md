@@ -46,7 +46,11 @@ ajouter au plus cinq adresses par animé.
 
 Le lien de désinscription au bas d'un e-mail groupé passe l'adresse en
 « Inactif » — pour tous les animés qui la partagent. « Réactiver » la
-remet en service sans nouvelle confirmation, e-mails groupés compris.
+rétablit après confirmation de l'action, sans nouvel e-mail de vérification.
+La même adresse redevient active sur les autres fiches qui la partagent,
+dans tous les groupes de contacts et pour les prochains publipostages.
+Les autres adresses et les envois déjà lancés ne changent pas.
+Une suspension pour rebonds se lève séparément.
 « Supprimer » retire
 définitivement une adresse en attente ou inactive.
 

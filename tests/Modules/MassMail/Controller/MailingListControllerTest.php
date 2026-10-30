@@ -199,6 +199,24 @@ class MailingListControllerTest extends TestCase
         $this->assertStringContainsString('data-list-identity-save', $html);
     }
 
+    public function testTheAdminPageOffersOneConfirmedAddressWideRestoration(): void
+    {
+        $twig = \Tests\TestTwig::create(['mass_mail']);
+        $html = $this->controller($twig)->index(new Request('GET', '/admin/listes-de-diffusion', [], [], [], []), [])
+            ->getBody();
+        $doc = new \DOMDocument();
+        @$doc->loadHTML($html);
+        $xpath = new \DOMXPath($doc);
+        $forms = $xpath->query('//form[@action="/admin/listes-de-diffusion/adresses/reactivate"]');
+        $this->assertCount(1, $forms);
+        $this->assertStringContainsString('Le titulaire a demandé', $forms->item(0)->getAttribute('data-confirm'));
+        $this->assertSame('Réactiver', $forms->item(0)->getAttribute('data-confirm-label'));
+        $this->assertCount(1, $xpath->query(
+            './/input[@name="email" and @type="email" and @required]', $forms->item(0)
+        ));
+        $this->assertCount(1, $xpath->query('.//input[@name="_csrf_token"]', $forms->item(0)));
+    }
+
     public function testShowAnswersNotFoundForAnUnknownList(): void
     {
         $response = $this->controller->show(new Request('GET', '/admin/listes-de-diffusion/999', [], [], [], []), [

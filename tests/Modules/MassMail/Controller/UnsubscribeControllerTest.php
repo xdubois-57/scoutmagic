@@ -39,6 +39,9 @@ class UnsubscribeControllerTest extends TestCase
         $this->recipientRepository = $this->createMock(DeliveryRepository::class);
         $this->memberEmailService = $this->createMock(MemberEmailService::class);
         $this->suppressedAddressRepository = $this->createMock(SuppressedAddressRepository::class);
+        $this->suppressedAddressRepository->method('atomically')->willReturnCallback(
+            static fn(callable $action): mixed => $action()
+        );
         $this->controller = new UnsubscribeController(
             $this->createStub(Environment::class),
             $this->recipientRepository,

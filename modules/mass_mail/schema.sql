@@ -76,7 +76,7 @@ CREATE TABLE IF NOT EXISTS mass_mail_audience_rows (
 -- only ever checked by exact match at freeze time, a blind-index-like
 -- pattern with nothing to decrypt back). Honored by MassMailService::
 -- startSending() for every future mail-merge send; never purged (an
--- unsubscribe must outlive any retention window).
+-- unsubscribe must outlive any retention window); only an explicit reactivation removes it.
 CREATE TABLE IF NOT EXISTS mass_mail_suppressed_addresses (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     email_hash VARCHAR(64) NOT NULL,

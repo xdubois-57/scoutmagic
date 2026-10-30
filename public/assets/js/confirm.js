@@ -742,10 +742,16 @@
 
             var replay = function () {
                 form.dataset.confirmed = '1';
-                if (form.requestSubmit) {
-                    form.requestSubmit(/** @type {any} */ (submitter));
-                } else {
-                    form.submit();
+                try {
+                    if (form.requestSubmit) {
+                        form.requestSubmit(/** @type {any} */ (submitter));
+                    } else {
+                        form.submit();
+                    }
+                } finally {
+                    // Only the synchronous replay is confirmed. A later
+                    // decision (including after history navigation) must ask again.
+                    delete form.dataset.confirmed;
                 }
             };
 

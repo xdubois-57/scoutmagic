@@ -549,6 +549,17 @@ helpers; a page-level primary action that happens to call an AI
     consequence and that no e-mail is sent
     (`docs/chantiers/CHANTIER-annee-scoute.md` §2.8). The step's disc
     keeps the no-dialog rule (§7.15).
+  - **Réactivation des e-mails groupés (#1032)** : le mainteneur demande
+    explicitement une confirmation unique pour les deux actions
+    `/members/{id}/emails/{email_id}/reactivate` et
+    `/admin/listes-de-diffusion/adresses/reactivate`. Elles remettent une
+    adresse en service sur toutes les fiches et tous les groupes qui la
+    partagent et autorisent les prochains envois groupés. Le dialogue
+    générique rappelle cette portée, propose « Annuler » et « Réactiver »,
+    puis soumet directement après l'accord. Il n'envoie aucun e-mail.
+    L'accord vaut seulement pour cette soumission ; une nouvelle action
+    demande un nouvel accord. Cette exception ne change pas la règle des
+    autres actions qui annulent une opération.
   - Held by `UxConventionsTest::testEveryDestructivePostFormAsksFirst()`
     for the first list and `testNoUndoAsksForConfirmation()` for the
     second. Its allowlist is NOT the exceptions above — those never match

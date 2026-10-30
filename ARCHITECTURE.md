@@ -2899,9 +2899,27 @@ and a file row's free address is left out — but **not for a member's own
 addresses**: those are governed by `member_emails`, which the unsubscribe
 already set « Inactif » and which « Réactiver » puts back. Reading the
 table there too, as the chantier of issue #999 first planned, made a
-member's unsubscribe permanent, since nothing ever removes a hash (review
-of #1030; #1032 tracks giving « Réactiver » a say over the table). The hash
-table is never purged: an unsubscribe must outlive any retention window.
+member's unsubscribe permanent (review of #1030). Since #1032, confirmed
+reactivation restores every inactive member row sharing that address, the
+contact flags and the suppression hash together. Retention never purges
+an unsubscribe; only an explicit reactivation removes it.
+
+**Address-wide reactivation (#1032).** `Core\Member\EmailAddressReactivationService`
+uses one shared-PDO transaction for inactive member rows, the optional
+`Modules\MassMail\Api\AddressReactivationInterface` provider and their audit
+entries. Pending addresses, bounce blocks and frozen deliveries are untouched.
+`AddressReactivationRegistry` is the mutable handle passed to core before the
+module's block runs; disabled means no module table is read. The member action
+keeps its ownership/temporary-session guards and requires the generic
+`data-confirm` dialog. The admin-only POST on `/admin/listes-de-diffusion/adresses/reactivate`
+uses the same operation for a contact or free address at its holder's request.
+Neither path sends mail. The confirmation's replay marker lasts only for
+the synchronous submit, so a later decision on the same form asks again.
+Unsubscribe follows the same lock order in one transaction and sends its
+notifications only after commit. Failure rolls the changes back; re-importing a file
+alone still cannot undo an unsubscribe. A failed rollback or failure-audit write
+does not replace the original error; reactivation still returns its safe retry
+message when the journal is unavailable.
 
 **One notification per account and per row (issue #999, §2.6).** The
 account concerned is the one whose login is the address of a sent message

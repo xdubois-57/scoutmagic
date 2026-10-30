@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Tests\Modules\MassMail\Service;
 
+use Modules\MassMail\Service\AddressReactivationService;
+
 use Core\Config\SettingRepository;
 use Core\Config\SettingService;
 use Core\Journal\JournalService;
@@ -445,6 +447,26 @@ class ContactGroupImportServiceTest extends TestCase
      * chief confirms and the summary the save returns (and journals) both
      * count it among the unsubscribed — and say the same thing.
      */
+    public function testAnExplicitReactivationSurvivesALaterRealExcelRoundTrip(): void
+    {
+        $this->repository->create($this->blockId, 'Commune', 'jeunesse@wavre.be');
+        $this->repository->unsubscribeEverywhere('jeunesse@wavre.be');
+        $this->suppressedRepository->suppress('jeunesse@wavre.be');
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $journal = $this->createStub(JournalService::class);
+        $reactivation = new \Core\Member\EmailAddressReactivationService(
+            new \Core\Member\MemberEmailRepository($this->pdo, $encryption), $journal,
+            new AddressReactivationService($this->pdo, $this->repository, $this->suppressedRepository, $journal)
+        );
+        $reactivation->reactivate('jeunesse@wavre.be', null);
+        $path = $this->spreadsheet([['Nom', 'Adresse'], ['Commune corrigée', 'JEUNESSE@wavre.be']]);
+        $preview = $this->service->analyse($this->blockId, $path);
+        $this->assertSame(0, $preview->summary['kept_unsubscribed']);
+        $this->service->apply($this->blockId, $preview->contacts, null);
+        $this->assertFalse($this->repository->findForBlock($this->blockId)[0]->isUnsubscribed());
+        $this->assertSame('Commune corrigée', $this->repository->findForBlock($this->blockId)[0]->name);
+    }
+
     public function testASuppressedLineIsCountedAsUnsubscribedByThePreviewAndTheSave(): void
     {
         $this->repository->create($this->blockId, 'Reste', 'reste@test.be');

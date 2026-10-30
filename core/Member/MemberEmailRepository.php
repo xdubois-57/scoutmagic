@@ -304,6 +304,37 @@ class MemberEmailRepository
         $stmt->execute([$id]);
     }
 
+    /** @return list<array{id: int, member_id: int}> Rows actually restored, never pending addresses. */
+    public function reactivateInactiveByEmail(string $email): array
+    {
+        $stmt = $this->pdo->prepare(
+            "SELECT id, member_id FROM member_emails WHERE email_blind_index = ? AND status = 'inactive' ORDER BY id"
+        );
+        $stmt->execute([$this->encryption->blindIndex(strtolower(trim($email)), 'email')]);
+        $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+        $update = $this->pdo->prepare(
+            "UPDATE member_emails SET status = 'valid', deactivated_at = NULL WHERE id = ? AND status = 'inactive'"
+        );
+        $restored = [];
+        foreach ($rows as $row) {
+            $update->execute([(int) $row['id']]);
+            if ($update->rowCount() === 1) {
+                $restored[] = ['id' => (int) $row['id'], 'member_id' => (int) $row['member_id']];
+            }
+        }
+        return $restored;
+    }
+
+    /**
+     * @template T
+     * @param callable(): T $action
+     * @return T
+     */
+    public function atomically(callable $action): mixed
+    {
+        return \Core\Database\TransactionScope::run($this->pdo, $action);
+    }
+
     /**
      * Unsubscribe (mass-mail mechanism only — never reachable from the
      * member's own page directly).
