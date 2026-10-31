@@ -335,7 +335,10 @@ class CardRenderer
         // on purpose: this build's bicubic crashes PHP on a small source.
         $overlay = imagescale($small, self::SIZE, self::SIZE, IMG_BILINEAR_FIXED);
         if ($overlay === false) {
+            // Hard-edged, like the browser's fallback, but the text keeps
+            // its contrast: a card with no veil at all is the worse one.
             imagedestroy($small);
+            $this->plainVeil($card, $box);
 
             return;
         }
@@ -345,6 +348,26 @@ class CardRenderer
         imagecopy($card, $overlay, 0, 0, 0, 0, self::SIZE, self::SIZE);
         imagedestroy($small);
         imagedestroy($overlay);
+    }
+
+    /**
+     * The veil without the glow: a darkened rectangle over the block's box
+     * grown by `VEIL_PAD`, for the day the scaling that builds the glow
+     * fails. The browser falls back to the same thing.
+     *
+     * @param array{left: float, top: float, right: float, bottom: float} $box
+     */
+    private function plainVeil(\GdImage $card, array $box): void
+    {
+        imagealphablending($card, true);
+        imagefilledrectangle(
+            $card,
+            (int) round($box['left'] - self::VEIL_PAD),
+            (int) round($box['top'] - self::VEIL_PAD),
+            (int) round($box['right'] + self::VEIL_PAD),
+            (int) round($box['bottom'] + self::VEIL_PAD),
+            (int) imagecolorallocatealpha($card, 0, 0, 0, self::VEIL_ALPHA)
+        );
     }
 
     /**

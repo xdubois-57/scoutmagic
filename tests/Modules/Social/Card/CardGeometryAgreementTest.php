@@ -105,6 +105,20 @@ final class CardGeometryAgreementTest extends TestCase
         ];
     }
 
+    /**
+     * The widest line is stated in the browser as a formula over the zone's
+     * constants; the server's is the same formula, checked here against both
+     * the number and its parts so that a change on the PHP side alone fails.
+     */
+    public function testTheWidestLineIsTheSameWidthInBothLanguages(): void
+    {
+        self::assertSame(750, self::serverConstant('MAX_TEXT_WIDTH'));
+        self::assertSame(
+            CardRenderer::SIZE - 2 * self::serverConstant('SAFE_LEFT') - 2 * self::serverConstant('TEXT_INSET'),
+            self::serverConstant('MAX_TEXT_WIDTH')
+        );
+    }
+
     #[\PHPUnit\Framework\Attributes\DataProvider('constants')]
     public function testTheBrowserCarriesTheSameConstantAsTheServer(string $pattern, int|float|string $value): void
     {

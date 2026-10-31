@@ -45,9 +45,11 @@ test.describe('the card text block stays inside the common zone', () => {
         await page.goto('/', { waitUntil: 'domcontentloaded' });
         await page.addScriptTag({ url: ENGINE });
         const loaded = await page.evaluate(async () => {
-            await document.fonts.load('700 74.67px "ScoutMagic Card"');
+            // `check()` answers true for a family nobody declared, so it proves
+            // nothing: the faces `load()` returns are what has to be there.
+            const faces = await document.fonts.load('700 74.67px "ScoutMagic Card"');
 
-            return document.fonts.check('700 74.67px "ScoutMagic Card"');
+            return faces.length > 0 && faces.every((face) => face.status === 'loaded');
         });
         // Without the site's face the measurement would be of a fallback.
         expect(loaded, 'the card\'s own face did not load').toBe(true);
@@ -68,6 +70,8 @@ test.describe('the card text block stays inside the common zone', () => {
                     image: photo, title: text, address: 'unite.example.be', blurRatio: 0, blurEngine: 'filter',
                 });
                 const data = card.getContext('2d').getImageData(0, 0, 1080, 1080).data;
+                // Pixels above the address's band: the title's, and only its.
+                let aboveAddress = 0;
                 let minX = 1e9;
                 let maxX = -1;
                 let minY = 1e9;
@@ -80,14 +84,19 @@ test.describe('the card text block stays inside the common zone', () => {
                             maxX = Math.max(maxX, x);
                             minY = Math.min(minY, y);
                             maxY = Math.max(maxY, y);
+                            if (y < 700) {
+                                aboveAddress++;
+                            }
                         }
                     }
                 }
 
-                return { minX, maxX, minY, maxY };
+                return { minX, maxX, minY, maxY, aboveAddress };
             }, title);
 
             expect(bounds.maxX, 'no text was drawn').toBeGreaterThan(-1);
+            // The address alone must not be able to satisfy the checks below.
+            expect(bounds.aboveAddress, 'the title is drawn above the address').toBeGreaterThan(0);
             // The zone, columns 135..945 and rows 257..823, and twenty
             // pixels of margin inside it for overshoot and a different crop.
             expect(bounds.minX, 'left').toBeGreaterThanOrEqual(135 + 20);

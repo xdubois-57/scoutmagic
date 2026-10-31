@@ -246,6 +246,36 @@ final class CardRendererTest extends TestCase
         // 80 × (70 / 127) is about 44, and GD's interpolation and 7-bit alpha move it a few levels.
         self::assertGreaterThan(36, $grey(300, 700), 'the glow is darker than it should be');
         self::assertLessThan(52, $grey(300, 700), 'the glow is not as dark as it should be');
+        // Inside the glow's feather — 90 px left of the block's full part — the
+        // photo is darkened part of the way: neither untouched (80) nor full (about 44).
+        // A hard edge in the veil would put this on one side or the other.
+        self::assertGreaterThan(57, $grey(200, 700), 'the glow has no feather: it is as dark as its full part');
+        self::assertLessThan(73, $grey(200, 700), 'the glow has no feather: it stops dead');
+        imagedestroy($card);
+    }
+
+    /**
+     * When the scaling that builds the glow fails, the veil is not simply
+     * dropped: a plain darkened rectangle keeps the text readable.
+     */
+    public function testWhenTheGlowCannotBeBuiltAPlainRectangleKeepsTheTextReadable(): void
+    {
+        $card = imagecreatetruecolor(CardRenderer::SIZE, CardRenderer::SIZE);
+        self::assertNotFalse($card);
+        imagefill($card, 0, 0, (int) imagecolorallocate($card, 80, 80, 80));
+
+        $method = new \ReflectionMethod(CardRenderer::class, 'plainVeil');
+        $method->invoke(
+            new CardRenderer(),
+            $card,
+            ['left' => 300.0, 'top' => 520.0, 'right' => 780.0, 'bottom' => 790.0]
+        );
+
+        $grey = static fn (int $x, int $y): int => (int) (imagecolorat($card, $x, $y) & 0xFF);
+        self::assertEqualsWithDelta(80 * (70 / 127), $grey(540, 650), 2, 'inside the block');
+        self::assertSame(80, $grey(200, 650), 'left of the block');
+        self::assertSame(80, $grey(540, 400), 'above the block');
+        self::assertSame(80, $grey(540, 900), 'below the block');
         imagedestroy($card);
     }
 
