@@ -63,6 +63,19 @@ final class CardGeometryAgreementTest extends TestCase
     }
 
     /**
+     * `CardRenderer`'s own constant, read from the class: a number changed
+     * on the PHP side alone then fails here, instead of being compared with
+     * a second copy typed into this file.
+     */
+    private static function serverConstant(string $name): int|float|string
+    {
+        $value = (new \ReflectionClassConstant(CardRenderer::class, $name))->getValue();
+        self::assertTrue(\is_int($value) || \is_float($value) || \is_string($value));
+
+        return $value;
+    }
+
+    /**
      * @return array<string, array{string, int|float|string}>
      */
     public static function constants(): array
@@ -71,20 +84,39 @@ final class CardGeometryAgreementTest extends TestCase
 
         return [
             'the square\'s side' => ['SIZE = %s;', $size],
-            // round(1080 * 0.06) = 65, the same in both languages.
-            'the inner margin' => ['MARGIN = Math.round(SIZE * %s);', 0.06],
-            'the title\'s size' => ['TITLE_SIZE = %s;', 66],
-            'the three-line cap' => ['TITLE_MAX_LINES = %s;', 3],
-            // round(66 * 1.25) = 83: 82.5 rounds up in PHP and in JS.
+            // The zone every common crop keeps, columns 135..945, rows 257..823.
+            'the zone\'s left edge' => ['SAFE_LEFT = %s;', self::serverConstant('SAFE_LEFT')],
+            'the zone\'s foot' => ['SAFE_BOTTOM = %s;', self::serverConstant('SAFE_BOTTOM')],
+            'the inset inside the zone' => ['TEXT_INSET = %s;', self::serverConstant('TEXT_INSET')],
+            'the address\'s baseline' => ['ADDRESS_BASELINE = %s;', self::serverConstant('ADDRESS_BASELINE')],
+            'the widest line' => ['MAX_TEXT_WIDTH = SIZE - 2 * SAFE_LEFT - 2 * TEXT_INSET;', ''],
+            'the title\'s size' => ['TITLE_SIZE = %s;', self::serverConstant('TITLE_SIZE')],
+            'the three-line cap' => ['TITLE_MAX_LINES = %s;', self::serverConstant('TITLE_MAX_LINES')],
+            // round(56 * 1.25) = 70.
             'the title\'s line height' => ['TITLE_LINE_HEIGHT = Math.round(TITLE_SIZE * %s);', 1.25],
-            'the address\'s size' => ['ADDRESS_SIZE = %s;', 34],
-            // round(34 * 1.9) = 65 (64.6).
+            'the address\'s size' => ['ADDRESS_SIZE = %s;', self::serverConstant('ADDRESS_SIZE')],
+            // round(30 * 1.9) = 57.
             'the gap above the address' => ['ADDRESS_TO_TITLE = Math.round(ADDRESS_SIZE * %s);', 1.9],
-            // (int) (1080 * 0.35) = 378, and Math.trunc gives the same.
-            'where the veil starts' => ['VEIL_START_Y = Math.trunc(SIZE * %s);', 0.35],
+            'the veil\'s full part, around the block' => ['VEIL_PAD = %s;', self::serverConstant('VEIL_PAD')],
+            'the veil\'s fade' => ['VEIL_FEATHER = %s;', self::serverConstant('VEIL_FEATHER')],
+            'the veil\'s grid' => ['VEIL_CELL = %s;', self::serverConstant('VEIL_CELL')],
             'the backdrop grey' => ['BACKDROP = \'rgb(%s)\';', '73, 80, 87'],
             'the export quality' => ['JPEG_QUALITY = %s;', 0.88],
         ];
+    }
+
+    /**
+     * The widest line is stated in the browser as a formula over the zone's
+     * constants; the server's is the same formula, checked here against both
+     * the number and its parts so that a change on the PHP side alone fails.
+     */
+    public function testTheWidestLineIsTheSameWidthInBothLanguages(): void
+    {
+        self::assertSame(750, self::serverConstant('MAX_TEXT_WIDTH'));
+        self::assertSame(
+            CardRenderer::SIZE - 2 * self::serverConstant('SAFE_LEFT') - 2 * self::serverConstant('TEXT_INSET'),
+            self::serverConstant('MAX_TEXT_WIDTH')
+        );
     }
 
     #[\PHPUnit\Framework\Attributes\DataProvider('constants')]
@@ -110,10 +142,10 @@ final class CardGeometryAgreementTest extends TestCase
     public function testTheVeilsDarknessIsConvertedFromGdsInvertedAlpha(): void
     {
         self::assertStringContainsString(
-            'VEIL_FOOT_ALPHA = (127 - 70) / 127;',
+            'VEIL_FULL_ALPHA = (127 - 70) / 127;',
             $this->script,
             'The veil must be as dark as GD drew it. GD\'s 127 is TRANSPARENT, so copying 70 straight'
-            . ' into a canvas alpha would make the foot almost opaque instead of 45% black.'
+            . ' into a canvas alpha would make the band almost opaque instead of 45% black.'
         );
         // About 0.4488 — stated with a tolerance so the sentence above is
         // checkable by a reader without pinning a float literal whose last

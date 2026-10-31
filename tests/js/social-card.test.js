@@ -100,10 +100,16 @@ function recordingContext(perCharPerPx = 0.5) {
             };
         },
         fillText(text, x, y) {
-            calls.push({ op: 'fillText', text, x, y, fillStyle: this.fillStyle, size: fontSize });
+            calls.push({ op: 'fillText', text, x, y, fillStyle: this.fillStyle, size: fontSize, align: this.textAlign });
         },
         measureText(text) {
             return { width: String(text).length * fontSize * perCharPerPx };
+        },
+        createImageData(width, height) {
+            return { width, height, data: new Uint8ClampedArray(width * height * 4) };
+        },
+        putImageData(image) {
+            calls.push({ op: 'putImageData', image });
         },
     };
 }
@@ -126,11 +132,20 @@ function offscreenRecorder() {
         getContext: () => ctx,
     };
     const real = document.createElement.bind(document);
-    vi.spyOn(document, 'createElement').mockImplementation(
-        (tag) => (tag === 'canvas' ? buffer : real(tag))
-    );
+    const made = { canvases: 0 };
+    // Only the FIRST canvas the engine asks for is the double: that is the
+    // blur's, built before the veil's own small canvas, which stays a real
+    // (context-less) jsdom element and takes the veil's plain fallback.
+    vi.spyOn(document, 'createElement').mockImplementation((tag) => {
+        if (tag !== 'canvas') {
+            return real(tag);
+        }
+        made.canvases += 1;
 
-    return { ctx, buffer };
+        return made.canvases === 1 ? buffer : real(tag);
+    });
+
+    return { ctx, buffer, made };
 }
 
 function canvasWith(ctx) {
@@ -152,28 +167,36 @@ describe('the card geometry matches the server that drew it before', () => {
     it('reproduces CardRenderer to the pixel', () => {
         expect(card().cardConstants()).toMatchObject({
             size: 1080,
-            // round(1080 * 0.06) = 65, and 1080 - 2 * 65.
-            margin: 65,
-            maxTextWidth: 950,
-            titleSize: 66,
+            // The zone every common crop keeps: columns 135..945, rows
+            // 257..823 (issue #929), and the inset the text keeps inside it.
+            safeLeft: 135,
+            safeBottom: 823,
+            textInset: 30,
+            addressBaseline: 780,
+            // 1080 - 2 * 135 - 2 * 30.
+            maxTextWidth: 750,
+            titleSize: 56,
             titleMaxLines: 3,
-            // round(66 * 1.25) = 83 (82.5 rounds up, as PHP's round does).
-            titleLineHeight: 83,
-            addressSize: 34,
-            // round(34 * 1.9) = 65 (64.6).
-            addressToTitle: 65,
-            // (int) (1080 * 0.35) = 378.
-            veilStartY: 378,
+            // round(56 * 1.25) = 70.
+            titleLineHeight: 70,
+            addressSize: 30,
+            // round(30 * 1.9) = 57.
+            addressToTitle: 57,
+            // The veil is a glow: full 20 px around the block, gone 160 px further out,
+            // computed on a grid of 10 px cells.
+            veilPad: 20,
+            veilFeather: 160,
+            veilCell: 10,
             backdrop: 'rgb(73, 80, 87)',
             jpegQuality: 0.88,
         });
     });
 
     it('converts GD\'s inverted alpha rather than inventing a darkness', () => {
-        // GD: 127 is transparent, 0 opaque, and VEIL_ALPHA = 70 at the
-        // foot. The same darkness on canvas's 0..1 scale is (127-70)/127.
-        expect(card().cardConstants().veilFootAlpha).toBeCloseTo(57 / 127, 10);
-        expect(card().cardConstants().veilFootAlpha).toBeCloseTo(0.4488, 4);
+        // GD: 127 is transparent, 0 opaque, and VEIL_ALPHA = 70 where the
+        // veil is fullest. The same darkness on canvas's 0..1 scale is (127-70)/127.
+        expect(card().cardConstants().veilFullAlpha).toBeCloseTo(57 / 127, 10);
+        expect(card().cardConstants().veilFullAlpha).toBeCloseTo(0.4488, 4);
     });
 });
 
@@ -382,21 +405,83 @@ describe('drawCard', () => {
         });
 
         expect(drawn).toBe(true);
-        const overlay = ctx.calls.filter((call) => call.op === 'fillText' || call.op === 'gradient');
-        expect(overlay.length).toBeGreaterThan(0);
+        // The text, and the veil — here the plain rectangle it falls back to
+        // when there is no second canvas to build the glow in.
+        const overlay = ctx.calls.filter((call) => call.op === 'fillText'
+            || (call.op === 'fillRect' && String(call.fillStyle).startsWith('rgba(0, 0, 0,')));
+        expect(overlay.length).toBeGreaterThan(1);
         overlay.forEach((call) => {
             expect(call.filter === undefined || call.filter === 'none').toBe(true);
         });
     });
 
-    it('veils from 378 px down to the foot, transparent at the top', () => {
-        card().drawCard(canvas, { image: null, title: 'T', address: '', blurRatio: 0 });
+    // Issue #929. The veil is a glow hugging the text block, in both languages.
+    it('falls back to a plain darkened rectangle over the block when it cannot build the glow', () => {
+        // jsdom hands out a canvas with no context, which is the case.
+        card().drawCard(canvas, { image: null, title: 'Camp', address: '', blurRatio: 0 });
 
-        const gradient = ctx.calls.find((call) => call.op === 'gradient');
-        expect(gradient).toMatchObject({ x0: 0, y0: 378, x1: 0, y1: 1080 });
-        expect(gradient.stops[0]).toMatchObject({ offset: 0, colour: 'rgba(0, 0, 0, 0)' });
-        expect(gradient.stops[1].offset).toBe(1);
-        expect(gradient.stops[1].colour).toContain('0.448');
+        const veil = ctx.calls.find((call) => call.op === 'fillRect' && String(call.fillStyle).startsWith('rgba(0, 0, 0,'));
+        expect(veil).toBeDefined();
+        // Around the one line of title, grown by the 20 px the glow is full for.
+        expect(veil.y).toBeGreaterThan(257);
+        expect(veil.y + veil.h).toBeLessThan(823 + 20 + 1);
+        expect(veil.w).toBeLessThan(950);
+    });
+
+    it('builds the glow on a grid and stretches it over the whole card, smoothed', () => {
+        const small = offscreenRecorder();
+        card().drawCard(canvas, { image: null, title: 'Camp', address: 'unite.be', blurRatio: 0 });
+
+        const put = small.ctx.calls.find((call) => call.op === 'putImageData');
+        expect(put).toBeDefined();
+        // 1080 / 10 cells a side, four bytes each.
+        expect(put.image.width).toBe(108);
+        expect(put.image.height).toBe(108);
+        const alphaAt = (cx, cy) => put.image.data[(cy * 108 + cx) * 4 + 3];
+        const full = Math.round(255 * card().cardConstants().veilFullAlpha);
+        // Behind the block: as dark as the veil gets. At the corners: nothing.
+        expect(alphaAt(54, 70)).toBe(full);
+        expect(alphaAt(0, 0)).toBe(0);
+        expect(alphaAt(107, 107)).toBe(0);
+        expect(alphaAt(54, 5)).toBe(0);
+        // And it is the grid that is drawn over the card, with smoothing on.
+        const stretched = ctx.calls.find((call) => call.op === 'drawImage' && call.sw === 108);
+        expect(stretched).toMatchObject({ sh: 108, dx: 0, dy: 0, dw: 1080, dh: 1080, filter: 'none' });
+        expect(ctx.imageSmoothingEnabled).toBe(true);
+    });
+
+    it('lets a longer title dim more of the card, because the glow follows the block', () => {
+        const dimmedCells = (title) => {
+            vi.restoreAllMocks();
+            const target = canvasWith(recordingContext());
+            const small = offscreenRecorder();
+            card().drawCard(target, { image: null, title, address: 'unite.be', blurRatio: 0 });
+            const put = small.ctx.calls.find((call) => call.op === 'putImageData');
+
+            return Array.from({ length: 108 * 108 }, (_, i) => put.image.data[i * 4 + 3]).filter((a) => a > 0).length;
+        };
+
+        expect(dimmedCells('aaaa bbbb cccc dddd eeee ffff gggg hhhh iiii'))
+            .toBeGreaterThan(dimmedCells('Camp'));
+    });
+
+    // The same sample points, and the same strengths, as
+    // `CardRendererTest::veilSamples()`: one function in two languages.
+    it.each([
+        [540, 650, 1.0],
+        [290, 650, 1.0],
+        [260, 650, 0.95703125],
+        [200, 650, 0.5],
+        [100, 650, 0.0],
+        [540, 400, 0.31640625],
+        [540, 300, 0.0],
+        [880, 890, 0.2071067812],
+        [800, 810, 1.0],
+        [0, 0, 0.0],
+    ])('computes the veil\'s strength at %i,%i as the server does', (x, y, expected) => {
+        const box = { left: 300, top: 520, right: 780, bottom: 790 };
+
+        expect(card().veilStrength(x, y, box)).toBeCloseTo(expected, 9);
     });
 
     it('fills the backdrop grey behind a photo that does not cover the square', () => {
@@ -458,8 +543,12 @@ describe('drawCard', () => {
 
         card().drawCard(canvas, { image, title: 'T', address: '', blurRatio: 0 });
 
-        expect(buffer.ctx.calls).toHaveLength(0);
-        const drawn = ctx.calls.filter((call) => call.op === 'drawImage');
+        // The only canvas made is the veil's: nothing was built to pad in,
+        // so nothing was drawn into it but the glow's own pixels.
+        expect(buffer.made.canvases).toBe(1);
+        expect(buffer.ctx.calls.filter((call) => call.op === 'drawImage')).toHaveLength(0);
+        // The photo's one draw — the veil's stretched grid is the other.
+        const drawn = ctx.calls.filter((call) => call.op === 'drawImage' && call.sw !== 108);
         expect(drawn).toHaveLength(1);
         expect(drawn[0]).toMatchObject({ dx: 0, dy: 0, dw: 1080, dh: 1080, filter: 'none' });
     });
@@ -479,14 +568,14 @@ describe('drawCard', () => {
         expect(drawn[0]).toMatchObject({ dx: 0, dy: 0, dw: 1080, dh: 1080, filter: 'blur(54px)' });
     });
 
-    it('lays the address at the foot and the title above it, bottom-up', () => {
+    it('centres the address on its baseline and the title above it, bottom-up', () => {
         card().drawCard(canvas, {
             image: null,
-            // At 88 px — the title's point size converted to the
+            // At 74.67 px — the title's point size converted to the
             // pixels GD actually renders — the recording context
-            // measures 44 px a character, so this wraps to exactly two
-            // lines, which is what makes the two baselines below
-            // checkable.
+            // measures 37.3 px a character, so the 750 px line holds 20
+            // of them and this wraps to exactly two lines, which is what
+            // makes the two baselines below checkable.
             title: 'aaaa bbbb cccc dddd eeee ffff',
             address: 'unite.be',
             blurRatio: 0,
@@ -495,39 +584,73 @@ describe('drawCard', () => {
         const texts = ctx.calls.filter((call) => call.op === 'fillText');
         const address = texts[0];
         expect(address.text).toBe('unite.be');
-        // 1080 - 65.
         // The engine's own constant rather than the number: the point
-        // size is 34 and the pixels are 45.33…, and restating either
-        // here would be a second copy free to drift.
-        expect(address).toMatchObject({ x: 65, y: 1015, size: card().cardConstants().addressPixels });
+        // size is 30 and the pixels are 40, and restating either here
+        // would be a second copy free to drift.
+        expect(address).toMatchObject({
+            x: 540, y: 780, align: 'center', size: card().cardConstants().addressPixels,
+        });
 
         const titleLines = texts.slice(1);
         expect(titleLines).toHaveLength(2);
         // Drawn bottom-up: the LAST line of the title is painted first,
         // at the baseline just above the address.
-        expect(titleLines[0].y).toBe(1015 - 65);
-        expect(titleLines[1].y).toBe(1015 - 65 - 83);
+        expect(titleLines[0].y).toBe(780 - 57);
+        expect(titleLines[1].y).toBe(780 - 57 - 70);
         titleLines.forEach((line) => {
             expect(line.size).toBe(card().cardConstants().titlePixels);
-            expect(line.x).toBe(65);
+            expect(line.x).toBe(540);
+            expect(line.align).toBe('center');
         });
     });
 
-    it('puts the title at the foot when there is no address to make room for', () => {
+    it('puts the title on the address\'s baseline when there is no address to make room for', () => {
         card().drawCard(canvas, { image: null, title: 'Week-end', address: '   ', blurRatio: 0 });
 
         const texts = ctx.calls.filter((call) => call.op === 'fillText');
         expect(texts).toHaveLength(1);
         expect(texts[0]).toMatchObject({
             text: 'Week-end',
-            y: 1015,
+            x: 540,
+            y: 780,
             size: card().cardConstants().titlePixels,
         });
     });
 
+    // Issue #929. The text the card really draws, not its constants: for
+    // one, two and three lines — and for a title cut with an ellipsis —
+    // every line, measured the way the engine measured it, stays inside
+    // the zone the common crops keep, with the inset to spare. The
+    // recording context has no glyphs, so the vertical extent is bounded
+    // by the em (ascent) and a quarter of it (descent), which a real face
+    // never exceeds; `tests/e2e/specs/social-card-text-zone.spec.js` reads
+    // the pixels in a real browser.
+    it.each([
+        ['one line', 'Camp 2026', 1],
+        ['two lines', 'aaaa bbbb cccc dddd eeee ffff', 2],
+        ['three lines', 'aaaa bbbb cccc dddd eeee ffff gggg hhhh iiii', 3],
+        ['cut with an ellipsis', 'aaaa bbbb cccc dddd eeee ffff gggg hhhh iiii jjjj kkkk llll mmmm nnnn', 3],
+    ])('keeps every line of a title on %s inside the common zone', (_name, title, lines) => {
+        card().drawCard(canvas, { image: null, title, address: 'unite.example.be', blurRatio: 0 });
+
+        const constants = card().cardConstants();
+        const texts = ctx.calls.filter((call) => call.op === 'fillText');
+        expect(texts).toHaveLength(lines + 1);
+        texts.forEach((text) => {
+            const width = text.text.length * text.size * 0.5;
+            expect(text.x - width / 2, text.text).toBeGreaterThanOrEqual(constants.safeLeft + constants.textInset);
+            expect(text.x + width / 2, text.text).toBeLessThanOrEqual(1080 - constants.safeLeft - constants.textInset);
+            expect(text.y - text.size, text.text).toBeGreaterThanOrEqual(257 + constants.textInset);
+            expect(text.y + text.size / 4, text.text).toBeLessThanOrEqual(constants.safeBottom - constants.textInset);
+        });
+        if (title.length > 60) {
+            expect(texts[1].text.endsWith('…')).toBe(true);
+        }
+    });
+
     it('draws at the pixel size GD renders, not the point size GD is handed', () => {
         // `imagettftext()` takes POINTS and GD renders at 96 dpi, so the
-        // 66 it is handed draws an em of 88 px. Copying the literal into
+        // 56 it is handed draws an em of 74.7 px. Copying the literal into
         // `ctx.font` drew the card's text a quarter too small and made
         // `wrapTitle()` measure with that smaller face — the line breaks
         // diverged from the server's as well as the size. Found in the
@@ -536,13 +659,13 @@ describe('drawCard', () => {
         const constants = card().cardConstants();
         expect(constants.titlePixels).toBeCloseTo(constants.titleSize * 96 / 72, 10);
         expect(constants.addressPixels).toBeCloseTo(constants.addressSize * 96 / 72, 10);
-        expect(constants.titlePixels).toBe(88);
+        expect(constants.titlePixels).toBeCloseTo(74.6667, 3);
 
         card().drawCard(canvas, { image: null, title: 'Week-end', address: 'unite.be', blurRatio: 0 });
         const fonts = ctx.calls.filter((call) => call.op === 'font').map((call) => call.value);
 
-        expect(fonts).toContain('88px "ScoutMagic Card", "DejaVu Sans", sans-serif');
-        expect(fonts.some((font) => font.startsWith('66px'))).toBe(false);
+        expect(fonts).toContain(constants.titlePixels + 'px "ScoutMagic Card", "DejaVu Sans", sans-serif');
+        expect(fonts.some((font) => font.startsWith('56px'))).toBe(false);
     });
 
     it('draws the card with no title at all rather than refusing', () => {
@@ -690,9 +813,17 @@ describe('drawCard without ctx.filter', () => {
         work.putImageData = vi.fn();
         const buffer = { width: 0, height: 0, getContext: () => (options.noContext ? null : work) };
         const real = document.createElement.bind(document);
-        vi.spyOn(document, 'createElement').mockImplementation(
-            (tag) => (tag === 'canvas' ? buffer : real(tag))
-        );
+        let canvases = 0;
+        // Only the first canvas is the work area; the veil's own small
+        // canvas stays a real, context-less one and takes its fallback.
+        vi.spyOn(document, 'createElement').mockImplementation((tag) => {
+            if (tag !== 'canvas') {
+                return real(tag);
+            }
+            canvases += 1;
+
+            return canvases === 1 ? buffer : real(tag);
+        });
 
         return { ctx, canvas, work, buffer, data };
     }
@@ -774,7 +905,9 @@ describe('drawCard without ctx.filter', () => {
         expect(card().drawCard(canvas, {
             image: photo, title: 'T', address: '', blurRatio: 0, blurEngine: 'pixels',
         })).toBe(true);
-        expect(buffer.width).toBe(0);
+        // No work area was built (135 or 540 px): the only canvas is the
+        // veil's own 108-cell grid.
+        expect(buffer.width).toBe(108);
         expect(ctx.calls.filter((call) => call.op === 'drawImage')).toHaveLength(1);
     });
 });
