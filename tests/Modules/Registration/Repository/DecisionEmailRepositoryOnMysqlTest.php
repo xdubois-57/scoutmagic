@@ -76,11 +76,6 @@ class DecisionEmailRepositoryOnMysqlTest extends TestCase
         return $id;
     }
 
-    /**
-     * The premise of the claim: the column admits several NULLs — every
-     * settled e-mail carries one — and refuses a value twice, as SQLSTATE
-     * 23000, the one code the repository reads as "already in play".
-     */
     public function testRecoveryMarkerAndNewAttemptRollBackTogether(): void
     {
         $request = $this->request('accepted');
@@ -130,6 +125,11 @@ class DecisionEmailRepositoryOnMysqlTest extends TestCase
         }));
     }
 
+    /**
+     * The premise of the claim: the column admits several NULLs — every
+     * settled e-mail carries one — and refuses a value twice, as SQLSTATE
+     * 23000, the one code the repository reads as "already in play".
+     */
     public function testTheActiveColumnAdmitsManyNullsAndOneValueOnceAs23000(): void
     {
         $index = $this->pdo->query(

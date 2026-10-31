@@ -149,6 +149,13 @@ Le site est en test et **rien n'a encore été partagé**. Donc :
 - La valeur est **enregistrée avec la communication** et **figée** avec le reste.
 - La confirmation affiche **« Cette photo de la galerie part sans flou. »** quand le curseur est à
   « Net » et que la photo vient de la galerie.
+- **Trois phrases, une seule à la fois** (ticket #928) : « Net » → « part sans flou » ; de 0 exclu à
+  **30 % de la course** (0,06, `CardService::BLUR_CAUTION_RATIO`) → « Le flou est faible : les visages
+  peuvent rester reconnaissables. » ; à partir de 0,06 inclus → flou important, sans promesse
+  d'anonymat. La confirmation de publication reprend aussi l'avertissement de flou faible.
+- **Safari n'a pas `ctx.filter`** : la capacité est testée sur des pixels, et à défaut le flou est fait
+  à la main (réduction, trois passes de flou par boîtes, agrandissement). Si même cela est impossible,
+  rien n'est dessiné, la page le dit et le serveur compose la carte au flou du curseur.
 
 ### Le partage d'une actualité
 

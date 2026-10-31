@@ -335,6 +335,7 @@ describe('drawCard', () => {
             title: 'T',
             address: '',
             blurRatio: 0.025,
+            blurEngine: 'filter',
         });
 
         const drawn = ctx.calls.find((call) => call.op === 'drawImage');
@@ -368,18 +369,24 @@ describe('drawCard', () => {
     });
 
     it('never blurs the text or the veil, whatever the photo got', () => {
-        card().drawCard(canvas, {
+        // The filter engine is forced, and the draw's answer and the calls
+        // it made are asserted: without them a draw that stopped before the
+        // text (no context to blur in, as in jsdom) left nothing to loop
+        // over, and the test passed having checked nothing.
+        const drawn = card().drawCard(canvas, {
             image: { width: 1200, height: 1200 },
             title: 'Week-end',
             address: 'unite.be',
             blurRatio: 0.2,
+            blurEngine: 'filter',
         });
 
-        ctx.calls
-            .filter((call) => call.op === 'fillText' || call.op === 'gradient')
-            .forEach((call) => {
-                expect(call.filter === undefined || call.filter === 'none').toBe(true);
-            });
+        expect(drawn).toBe(true);
+        const overlay = ctx.calls.filter((call) => call.op === 'fillText' || call.op === 'gradient');
+        expect(overlay.length).toBeGreaterThan(0);
+        overlay.forEach((call) => {
+            expect(call.filter === undefined || call.filter === 'none').toBe(true);
+        });
     });
 
     it('veils from 378 px down to the foot, transparent at the top', () => {
@@ -407,7 +414,7 @@ describe('drawCard', () => {
         const buffer = offscreenRecorder();
         const image = { width: 2000, height: 1500 };
 
-        card().drawCard(canvas, { image, title: 'T', address: '', blurRatio: 0.025 });
+        card().drawCard(canvas, { image, title: 'T', address: '', blurRatio: 0.025, blurEngine: 'filter' });
 
         // 0.025 of 1080 is a 27 px radius, and three radii of reach.
         const pad = 81;
@@ -465,7 +472,7 @@ describe('drawCard', () => {
         // here sees a single draw.
         const image = { width: 2000, height: 1500 };
 
-        card().drawCard(canvas, { image, title: 'T', address: '', blurRatio: 0.05 });
+        card().drawCard(canvas, { image, title: 'T', address: '', blurRatio: 0.05, blurEngine: 'filter' });
 
         const drawn = ctx.calls.filter((call) => call.op === 'drawImage');
         expect(drawn).toHaveLength(1);
@@ -558,6 +565,217 @@ describe('drawCard', () => {
     it('says so for a canvas that is not one at all', () => {
         expect(card().drawCard(null, { image: null, title: 'T', address: '', blurRatio: 0 })).toBe(false);
         expect(card().drawCard({}, { image: null, title: 'T', address: '', blurRatio: 0 })).toBe(false);
+    });
+});
+
+// Issue #928. Safari has no `CanvasRenderingContext2D.filter`: assigning it
+// is accepted and every draw stays sharp, so the capability can only be
+// found out by looking at pixels. These doubles are the two browsers.
+describe('knowing whether the browser can blur', () => {
+    /** A probe canvas whose pixel two to the left of the square has `alpha`. */
+    function probeCanvas(alpha, options = {}) {
+        const ctx = {
+            filter: 'none',
+            fillStyle: '',
+            fillRect: vi.fn(),
+            getImageData: options.throws
+                ? () => {
+                    throw new Error('blocked');
+                }
+                : vi.fn(() => ({ data: [0, 0, 0, alpha] })),
+        };
+        const canvas = { width: 0, height: 0, getContext: () => (options.noContext ? null : ctx) };
+        const real = document.createElement.bind(document);
+        vi.spyOn(document, 'createElement').mockImplementation(
+            (tag) => (tag === 'canvas' ? canvas : real(tag))
+        );
+
+        return ctx;
+    }
+
+    it('says yes when the filter smeared the square outside itself', () => {
+        const ctx = probeCanvas(40);
+
+        expect(card().probeFilterBlur()).toBe(true);
+        expect(ctx.filter).toBe('blur(2px)');
+        // Looked at two pixels left of the 6..10 square, on its middle row.
+        expect(ctx.getImageData).toHaveBeenCalledWith(4, 8, 1, 1);
+        expect(card().blurEngine()).toBe('filter');
+    });
+
+    it('says no when the property is accepted but nothing was blurred', () => {
+        // Safari: the assignment sticks (it is an ordinary property
+        // there), so reading it back proves nothing — the pixel is the
+        // only witness.
+        const ctx = probeCanvas(0);
+
+        expect(card().probeFilterBlur()).toBe(false);
+        expect(ctx.filter).toBe('blur(2px)');
+        expect(card().blurEngine()).toBe('pixels');
+    });
+
+    it('says no, rather than throwing, when the probe cannot run', () => {
+        probeCanvas(255, { throws: true });
+        expect(card().probeFilterBlur()).toBe(false);
+        // And keeps why, so a device can be diagnosed from its console.
+        expect(card().blurFailure()).toBe('probe: blocked');
+
+        probeCanvas(255, { noContext: true });
+        expect(card().probeFilterBlur()).toBe(false);
+    });
+});
+
+describe('blurPixels', () => {
+    /** A `width` × 1 strip, left half black, right half white. */
+    function strip(width) {
+        const pixels = new Uint8ClampedArray(width * 4);
+        for (let x = 0; x < width; x++) {
+            const value = x < width / 2 ? 0 : 255;
+            pixels.set([value, value, value, 255], x * 4);
+        }
+
+        return pixels;
+    }
+
+    it('turns a hard edge into a ramp, and keeps the ends where they were', () => {
+        const pixels = strip(64);
+        card().blurPixels(pixels, 64, 1, 3);
+
+        const red = (x) => pixels[x * 4];
+        expect(red(0)).toBe(0);
+        expect(red(63)).toBe(255);
+        // Across the edge the values climb without a jump.
+        for (let x = 1; x < 64; x++) {
+            expect(red(x)).toBeGreaterThanOrEqual(red(x - 1));
+        }
+        expect(red(31)).toBeGreaterThan(0);
+        expect(red(32)).toBeLessThan(255);
+    });
+
+    it('conserves the average, edges included, so the border does not darken', () => {
+        const pixels = new Uint8ClampedArray(16 * 16 * 4).fill(120);
+        card().blurPixels(pixels, 16, 16, 4);
+
+        // A flat photo stays exactly flat: clamping repeats the border.
+        expect(Array.from(pixels).every((value) => value === 120)).toBe(true);
+    });
+
+    it('spreads a wider blur wider', () => {
+        const narrow = strip(128);
+        const wide = strip(128);
+        card().blurPixels(narrow, 128, 1, 2);
+        card().blurPixels(wide, 128, 1, 8);
+
+        // Eight pixels from the edge a wide blur is still far from white.
+        expect(wide[72 * 4]).toBeLessThan(narrow[72 * 4]);
+    });
+});
+
+describe('drawCard without ctx.filter', () => {
+    /** Two canvases: the card, and the work area the pixel blur reads and writes. */
+    function withWorkArea(options = {}) {
+        const ctx = recordingContext();
+        const canvas = canvasWith(ctx);
+        const work = recordingContext();
+        const data = new Uint8ClampedArray(135 * 135 * 4);
+        for (let i = 0; i < 135 * 135; i++) {
+            const value = i % 135 < 68 ? 0 : 255;
+            data.set([value, value, value, 255], i * 4);
+        }
+        work.getImageData = options.cannotRead
+            ? () => {
+                throw new Error('blocked');
+            }
+            : () => ({ data });
+        work.putImageData = vi.fn();
+        const buffer = { width: 0, height: 0, getContext: () => (options.noContext ? null : work) };
+        const real = document.createElement.bind(document);
+        vi.spyOn(document, 'createElement').mockImplementation(
+            (tag) => (tag === 'canvas' ? buffer : real(tag))
+        );
+
+        return { ctx, canvas, work, buffer, data };
+    }
+
+    const photo = { width: 2000, height: 1500 };
+
+    it('shrinks, blurs the pixels and grows the result back to the square', () => {
+        const { ctx, canvas, work, buffer, data } = withWorkArea();
+
+        const drawn = card().drawCard(canvas, {
+            image: photo, title: 'T', address: '', blurRatio: 0.025, blurEngine: 'pixels',
+        });
+
+        expect(drawn).toBe(true);
+        // 27 px radius → reduced eightfold (the cap) to 135 px.
+        expect(buffer.width).toBe(135);
+        expect(work.calls.find((call) => call.op === 'drawImage'))
+            .toMatchObject({ sx: 250, sy: 0, sw: 1500, sh: 1500, dx: 0, dy: 0, dw: 135, dh: 135 });
+        expect(work.putImageData).toHaveBeenCalledTimes(1);
+        // The hard edge in the work area really was softened.
+        expect(data[67 * 4]).toBeGreaterThan(0);
+        expect(data[68 * 4]).toBeLessThan(255);
+        // And the result is drawn unfiltered, over the whole square.
+        const grown = ctx.calls.find((call) => call.op === 'drawImage');
+        expect(grown).toMatchObject({ sw: 135, sh: 135, dx: 0, dy: 0, dw: 1080, dh: 1080, filter: 'none' });
+    });
+
+    it('still lays the veil and the text over a photo it blurred by hand', () => {
+        const { ctx, canvas } = withWorkArea();
+
+        const drawn = card().drawCard(canvas, {
+            image: photo, title: 'Week-end', address: 'unite.be', blurRatio: 0.1, blurEngine: 'pixels',
+        });
+
+        expect(drawn).toBe(true);
+        const overlay = ctx.calls.filter((call) => call.op === 'fillText' || call.op === 'gradient');
+        expect(overlay.length).toBeGreaterThan(0);
+        overlay.forEach((call) => {
+            expect(call.filter === undefined || call.filter === 'none').toBe(true);
+        });
+    });
+
+    it('reduces less for a small radius, where the grid would show', () => {
+        const { buffer, canvas } = withWorkArea();
+
+        card().drawCard(canvas, {
+            image: photo, title: 'T', address: '', blurRatio: 0.005, blurEngine: 'pixels',
+        });
+
+        // 5.4 px → shrink 2 → 540 px.
+        expect(buffer.width).toBe(540);
+    });
+
+    it('draws nothing, and says so, when the pixels cannot be read', () => {
+        const { ctx, canvas } = withWorkArea({ cannotRead: true });
+
+        const drawn = card().drawCard(canvas, {
+            image: photo, title: 'T', address: '', blurRatio: 0.05, blurEngine: 'pixels',
+        });
+
+        // Never a sharp photo standing in for a blurred one.
+        expect(drawn).toBe(false);
+        expect(card().blurFailure()).toBe('pixels: blocked');
+        expect(ctx.calls.filter((call) => call.op === 'drawImage')).toHaveLength(0);
+        expect(ctx.calls.filter((call) => call.op === 'fillText')).toHaveLength(0);
+    });
+
+    it('draws nothing when there is no second context to work in', () => {
+        const { canvas } = withWorkArea({ noContext: true });
+
+        expect(card().drawCard(canvas, {
+            image: photo, title: 'T', address: '', blurRatio: 0.05, blurEngine: 'pixels',
+        })).toBe(false);
+    });
+
+    it('still draws a photo at « Net » in a browser that cannot blur at all', () => {
+        const { ctx, canvas, buffer } = withWorkArea({ noContext: true });
+
+        expect(card().drawCard(canvas, {
+            image: photo, title: 'T', address: '', blurRatio: 0, blurEngine: 'pixels',
+        })).toBe(true);
+        expect(buffer.width).toBe(0);
+        expect(ctx.calls.filter((call) => call.op === 'drawImage')).toHaveLength(1);
     });
 });
 

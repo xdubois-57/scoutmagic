@@ -148,30 +148,29 @@
                             </div>
                         {% endif %}
 
-                        <div class="d-flex flex-wrap gap-3 small">
+                        <div class="d-grid gap-2 small">
                             {% if member.formationLevel %}
-                                <span>
+                                <div class="staff-contact-row">
                                     <i class="bi bi-mortarboard text-body-secondary" aria-hidden="true"></i>
-                                    {{ member.formationLevel }}
-                                </span>
+                                    <span>{{ member.formationLevel }}</span>
+                                </div>
                             {% endif %}
                             {% if member.mobile %}
-                                <span>
+                                <div class="staff-contact-row">
                                     <i class="bi bi-phone text-body-secondary" aria-hidden="true"></i>
-                                    {{ phone(member.mobile, 'text-decoration-none') }}
-                                </span>
+                                    <span>{{ phone(member.mobile, 'text-decoration-none') }}</span>
+                                </div>
                             {% elseif member.phone %}
-                                <span>
+                                <div class="staff-contact-row">
                                     <i class="bi bi-telephone text-body-secondary" aria-hidden="true"></i>
-                                    {{ phone(member.phone, 'text-decoration-none') }}
-                                </span>
+                                    <span>{{ phone(member.phone, 'text-decoration-none') }}</span>
+                                </div>
                             {% endif %}
                             {% if member.email %}
-                                <a href="mailto:{{ member.email }}" class="text-decoration-none text-truncate"
-                                   style="max-width:200px;">
+                                <div class="staff-contact-row">
                                     <i class="bi bi-envelope text-body-secondary" aria-hidden="true"></i>
-                                    {{ member.email }}
-                                </a>
+                                    <a href="mailto:{{ member.email }}" class="text-decoration-none">{{ member.email }}</a>
+                                </div>
                             {% endif %}
                         </div>
                     </div>

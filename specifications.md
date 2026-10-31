@@ -3537,10 +3537,17 @@ parce qu'Instagram ne publie pas de lien.
 - **Une photo de la galerie part au flou que le chef a choisi**, « Net »
   compris. Un curseur va de « Net » à « Très flou », l'aperçu le suit, et
   l'intensité est une proportion du côté de l'image — sur toute l'image,
-  jamais sur des visages détectés. À 5 % du côté, le visage d'un portrait
-  rapproché n'est plus reconnaissable et la scène reste lisible ; à
-  « Net », la photo part telle qu'elle est, et la page le dit avant que ce
-  soit fait : « Cette photo de la galerie part sans flou. » Le flou choisi
+  jamais sur des visages détectés. **La page dit toujours une seule chose
+  vraie** (ticket #928) : à « Net », la photo part telle qu'elle est —
+  « Cette photo de la galerie part sans flou. » ; de là jusqu'à **30 % de
+  la course du curseur** (0,06 du côté, borne incluse du côté du flou
+  important, `CardService::BLUR_CAUTION_RATIO`), le flou est faible et les
+  visages peuvent rester reconnaissables — « Le flou est faible : les
+  visages peuvent rester reconnaissables. » ; à partir de là, le flou est
+  important, ce qui est **un choix de présentation du mainteneur et non une
+  garantie d'anonymat** : le texte ne promet pas que personne ne se
+  reconnaît. Le seuil est un choix du site, jamais une preuve ; le flou est
+  appliqué sur toute l'image, jamais sur des visages détectés. Le flou choisi
   est enregistré avec la communication et figé avec elle, si bien qu'une
   destination publiée plus tard reçoit la même carte. Le réglage non
   modifiable qui imposait autrefois un minimum dit désormais **où le
@@ -3715,7 +3722,7 @@ album avec un texte neuf est précisément ce que cette version permet, donc
 un verdict calculé à l'affichage parlerait d'un message que le chef vient
 de réécrire. Elle dit aussi, comme avant, qu'une publication est
 publique et hors du site, et reprend l'avertissement du composeur quand
-une photo de la galerie part sans flou. Elle n'interdit rien.
+une photo de la galerie part sans flou ou à flou faible. Elle n'interdit rien.
 
 **Une publication échouée du même message est relancée au clic** (décision
 du 20/10/2026, ticket #881). Le composeur prérempli ne lit aucun
