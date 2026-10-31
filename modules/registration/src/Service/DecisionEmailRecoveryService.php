@@ -48,9 +48,13 @@ final class DecisionEmailRecoveryService
                 ) ? 1 : 0;
             } catch (\Throwable $error) {
                 // A rolled-back marker leaves this failure eligible next pass.
-                $this->journal->log('registration', 'decision_email_recovery_failed', 'warning',
+                $this->journal->log(
+                    'registration',
+                    'decision_email_recovery_failed',
+                    'warning',
                     "La prise en charge d'un échec d'e-mail de décision sera réessayée.",
-                    ['email_id' => $failure->id, 'error_class' => $error::class]);
+                    ['email_id' => $failure->id, 'error_class' => $error::class]
+                );
             }
         }
         return $processed >= $limit;
