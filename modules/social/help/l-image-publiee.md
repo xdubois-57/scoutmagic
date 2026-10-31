@@ -20,11 +20,20 @@ est envoyée — avec une exception sur la Page Facebook, décrite dans
 Quand l'image vient de la galerie, un **curseur** va de « Net » à « Très
 flou », et l'aperçu suit le curseur pendant que vous le déplacez.
 
-- **Floutée**, on devine l'ambiance, pas les visages. Pour voir les
-  photos, il faut venir sur le site, là où seuls les membres les voient.
 - **Nette**, la photo part reconnaissable. C'est permis, et la page vous
   le dit en toutes lettres avant : « Cette photo de la galerie part sans
   flou. »
+- **Peu floutée** — jusqu'à 30 % de la course du curseur —, les visages
+  peuvent rester reconnaissables : « Le flou est faible ». La page ne dit
+  pas « sans flou », ce serait faux, mais elle ne rassure pas non plus.
+- **Très floutée**, on devine surtout l'ambiance, et une personne peut
+  encore se reconnaître. Ce seuil est un repère, pas une garantie
+  d'anonymat : personne ne le vérifie à votre place. Pour voir les
+  photos, il faut venir sur le site, là où seuls les membres les voient.
+
+Si votre navigateur ne sait pas montrer le flou en direct, la page le dit
+sous le curseur : l'image au-dessus ne suit alors pas le curseur, mais le
+flou que vous avez choisi est bien appliqué à l'image publiée.
 
 C'est à vous de choisir, photo par photo. Une photo de groupe prise de
 loin ne demande pas le même soin qu'un portrait d'enfant.
