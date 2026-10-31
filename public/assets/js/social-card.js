@@ -642,7 +642,7 @@
     function veilStrength(x, y, box) {
         const dx = Math.max(box.left - VEIL_PAD - x, 0, x - (box.right + VEIL_PAD));
         const dy = Math.max(box.top - VEIL_PAD - y, 0, y - (box.bottom + VEIL_PAD));
-        const t = Math.max(0, 1 - Math.sqrt(dx * dx + dy * dy) / VEIL_FEATHER);
+        const t = Math.max(0, 1 - Math.hypot(dx, dy) / VEIL_FEATHER);
 
         return t * t * (3 - 2 * t);
     }

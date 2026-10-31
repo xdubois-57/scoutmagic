@@ -257,7 +257,11 @@ class CardRenderer
         if ($address !== '') {
             $text = $this->fit($address, self::ADDRESS_SIZE, self::MAX_TEXT_WIDTH);
             $width = $this->width($text, self::ADDRESS_SIZE);
-            $addressLine = ['text' => $text, 'x' => $this->centredX($text, self::ADDRESS_SIZE), 'baseline' => $baseline];
+            $addressLine = [
+                'text' => $text,
+                'x' => $this->centredX($text, self::ADDRESS_SIZE),
+                'baseline' => $baseline,
+            ];
             $left = min($left, (self::SIZE - $width) / 2);
             $right = max($right, (self::SIZE + $width) / 2);
             $bottom = $baseline + 0.25 * self::ADDRESS_SIZE * 96 / 72;
@@ -384,10 +388,28 @@ class CardRenderer
 
         if ($layout['address'] !== null) {
             $line = $layout['address'];
-            imagettftext($card, self::ADDRESS_SIZE, 0, $line['x'], $line['baseline'], $soft, $this->fontPath, $line['text']);
+            imagettftext(
+                $card,
+                self::ADDRESS_SIZE,
+                0,
+                $line['x'],
+                $line['baseline'],
+                $soft,
+                $this->fontPath,
+                $line['text']
+            );
         }
         foreach ($layout['title'] as $line) {
-            imagettftext($card, self::TITLE_SIZE, 0, $line['x'], $line['baseline'], $white, $this->fontPath, $line['text']);
+            imagettftext(
+                $card,
+                self::TITLE_SIZE,
+                0,
+                $line['x'],
+                $line['baseline'],
+                $white,
+                $this->fontPath,
+                $line['text']
+            );
         }
     }
 
