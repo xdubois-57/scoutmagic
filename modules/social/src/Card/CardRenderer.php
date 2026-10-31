@@ -13,7 +13,7 @@ use Core\Image\ImageDimensionGuard;
 
 /**
  * Composes the image that is published: a background, a title laid on it,
- * and the site's address at the foot.
+ * and the site's address beneath it.
  *
  * **Square, 1080 px.** Instagram accepts from 4:5 to 1.91:1 and crops its
  * grid to squares; Facebook shows a square whole. One format serves both
@@ -41,14 +41,49 @@ class CardRenderer
 
     private const QUALITY = 88;
 
-    /** Inner margin, as a share of the side. */
-    private const MARGIN = 0.06;
+    /**
+     * **The text lives in the zone every common crop keeps** (issue #929).
+     *
+     * One square goes to every destination, and each of them crops it
+     * differently, centred and in « cover » mode: a discussion thread shows
+     * a 4:3 window (rows 135..945), Instagram's profile grid a 3:4 one
+     * (columns 135..945), a Facebook preview about 1.91:1 (rows 257..823).
+     * Their intersection is columns 135..945 by rows 257..823, and the whole
+     * text block has to sit inside it — with an inset, for glyph overshoot,
+     * the veil and rounding. These are test scenarios, not promises about
+     * what a platform will do next year.
+     */
+    private const SAFE_LEFT = 135;
+    private const SAFE_BOTTOM = 823;
 
-    private const TITLE_SIZE = 66;
+    /** Between the zone's edge and the text: overshoot, rounding, a slightly different crop. */
+    private const TEXT_INSET = 30;
+
+    /**
+     * The address's baseline: the zone's foot less the inset, less the 13 px
+     * a descender reaches below the baseline at this size (0.236 em of 40 px,
+     * rounded up).
+     */
+    private const ADDRESS_BASELINE = 780;
+
+    /** The widest a line of text may be: the zone's width less an inset on each side. */
+    private const MAX_TEXT_WIDTH = self::SIZE - 2 * self::SAFE_LEFT - 2 * self::TEXT_INSET;
+
+    private const TITLE_SIZE = 56;
     private const TITLE_MAX_LINES = 3;
-    private const ADDRESS_SIZE = 34;
+    private const ADDRESS_SIZE = 30;
 
-    /** The veil's alpha at the foot, in GD's scale: 127 is transparent, 0 opaque. */
+    /**
+     * The veil is a band behind the text, not a wash over the foot: it
+     * rises from nothing, holds, and falls back to nothing, so the rest of
+     * the photo is left alone and no edge shows in the full square.
+     */
+    private const VEIL_TOP = 360;
+    private const VEIL_FULL_FROM = 510;
+    private const VEIL_FULL_TO = 810;
+    private const VEIL_BOTTOM = 960;
+
+    /** The veil's alpha where it is fullest, in GD's scale: 127 is transparent, 0 opaque. */
     private const VEIL_ALPHA = 70;
 
     /** DejaVu Sans Bold, shipped with its licence beside it (resources/fonts/README.md). */
@@ -183,42 +218,93 @@ class CardRenderer
     }
 
     /**
-     * A darkening that grows towards the foot, where the text sits, so a
-     * white title stays legible over a white sky.
+     * A band of darkening behind the text, so a white title stays legible
+     * over a white sky without dimming the rest of the photo.
      */
     private function veil(\GdImage $card): void
     {
         imagealphablending($card, true);
-        $start = (int) (self::SIZE * 0.35);
-        for ($y = $start; $y < self::SIZE; $y++) {
-            $progress = ($y - $start) / (self::SIZE - $start);
-            $alpha = (int) round(127 - (127 - self::VEIL_ALPHA) * $progress);
+        for ($y = self::VEIL_TOP; $y < self::VEIL_BOTTOM; $y++) {
+            $alpha = self::veilAlpha($y);
+            if ($alpha >= 127) {
+                continue;
+            }
             $colour = (int) imagecolorallocatealpha($card, 0, 0, 0, $alpha);
             imageline($card, 0, $y, self::SIZE - 1, $y, $colour);
         }
     }
 
+    /**
+     * The veil's alpha on one row, in GD's scale (127 transparent, 0
+     * opaque): a linear ramp up, a plateau, a linear ramp down.
+     */
+    public static function veilAlpha(int $y): int
+    {
+        if ($y <= self::VEIL_TOP || $y >= self::VEIL_BOTTOM) {
+            return 127;
+        }
+        if ($y < self::VEIL_FULL_FROM) {
+            $progress = ($y - self::VEIL_TOP) / (self::VEIL_FULL_FROM - self::VEIL_TOP);
+        } elseif ($y <= self::VEIL_FULL_TO) {
+            $progress = 1.0;
+        } else {
+            $progress = (self::VEIL_BOTTOM - $y) / (self::VEIL_BOTTOM - self::VEIL_FULL_TO);
+        }
+
+        return (int) round(127 - (127 - self::VEIL_ALPHA) * $progress);
+    }
+
+    /**
+     * The block, centred: the address on its fixed baseline, the title
+     * above it, each line centred on the card's vertical axis.
+     *
+     * Laid out from the bottom up, as before, so the address is always in
+     * the same place and a longer title grows upwards into the zone's
+     * spare height rather than down towards its foot.
+     */
     private function writeText(\GdImage $card, string $title, string $address): void
     {
-        $margin = (int) round(self::SIZE * self::MARGIN);
-        $maxWidth = self::SIZE - 2 * $margin;
         $white = (int) imagecolorallocate($card, 255, 255, 255);
         $soft = (int) imagecolorallocate($card, 230, 233, 236);
 
-        $baseline = self::SIZE - $margin;
+        $baseline = self::ADDRESS_BASELINE;
         $address = trim($address);
         if ($address !== '') {
-            $line = $this->fit($address, self::ADDRESS_SIZE, $maxWidth);
-            imagettftext($card, self::ADDRESS_SIZE, 0, $margin, $baseline, $soft, $this->fontPath, $line);
+            $line = $this->fit($address, self::ADDRESS_SIZE, self::MAX_TEXT_WIDTH);
+            imagettftext(
+                $card,
+                self::ADDRESS_SIZE,
+                0,
+                $this->centredX($line, self::ADDRESS_SIZE),
+                $baseline,
+                $soft,
+                $this->fontPath,
+                $line
+            );
             $baseline -= (int) round(self::ADDRESS_SIZE * 1.9);
         }
 
-        $lines = $this->wrap(trim($title), self::TITLE_SIZE, $maxWidth);
+        $lines = $this->wrap(trim($title), self::TITLE_SIZE, self::MAX_TEXT_WIDTH);
         $lineHeight = (int) round(self::TITLE_SIZE * 1.25);
         foreach (array_reverse($lines) as $line) {
-            imagettftext($card, self::TITLE_SIZE, 0, $margin, $baseline, $white, $this->fontPath, $line);
+            imagettftext(
+                $card,
+                self::TITLE_SIZE,
+                0,
+                $this->centredX($line, self::TITLE_SIZE),
+                $baseline,
+                $white,
+                $this->fontPath,
+                $line
+            );
             $baseline -= $lineHeight;
         }
+    }
+
+    /** Where a line starts so that it is centred on the card. */
+    private function centredX(string $line, int $size): int
+    {
+        return (int) round((self::SIZE - $this->width($line, $size)) / 2);
     }
 
     /**

@@ -135,7 +135,10 @@ interface Window {
         // correspondence instead of restating the numbers.
         cardConstants: () => {
             size: number;
-            margin: number;
+            safeLeft: number;
+            safeBottom: number;
+            textInset: number;
+            addressBaseline: number;
             maxTextWidth: number;
             // `titleSize`/`addressSize` are the POINT sizes
             // `imagettftext()` is handed; `titlePixels`/`addressPixels`
@@ -148,8 +151,11 @@ interface Window {
             addressSize: number;
             addressPixels: number;
             addressToTitle: number;
-            veilStartY: number;
-            veilFootAlpha: number;
+            veilTop: number;
+            veilFullFrom: number;
+            veilFullTo: number;
+            veilBottom: number;
+            veilFullAlpha: number;
             backdrop: string;
             jpegQuality: number;
         };
