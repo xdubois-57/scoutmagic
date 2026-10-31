@@ -69,13 +69,20 @@ final class ShellExecutor
     private static ?string $timeoutBinary = null;
 
     /**
-     * Tried in this order, the bare name last. The absolute paths come first
+     * Tried in this order, the bare names last. The absolute paths come first
      * and are not decoration: on a host whose $PATH is empty or wrong — one
      * of the reasons probe() exists — the bare name is not found, and what
      * is kept after the first measurement must still work then, or the
      * bound would turn every command into "command not found".
+     * Ubuntu 26.04 ships uutils timeout alongside GNU gnutimeout. Prefer
+     * GNU when present: uutils 0.10 can leave a TERM-resistant descendant
+     * holding the output open after -k kills its shell.
      */
-    private const TIMEOUT_CANDIDATES = ['/usr/bin/timeout', '/bin/timeout', '/usr/local/bin/timeout', 'timeout'];
+    private const TIMEOUT_CANDIDATES = [
+        '/usr/bin/gnutimeout', '/bin/gnutimeout', '/usr/local/bin/gnutimeout',
+        '/usr/bin/timeout', '/bin/timeout', '/usr/local/bin/timeout',
+        'gnutimeout', 'timeout',
+    ];
 
     public static function isAvailable(): bool
     {

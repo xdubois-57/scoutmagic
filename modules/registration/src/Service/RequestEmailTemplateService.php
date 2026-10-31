@@ -286,7 +286,7 @@ final class RequestEmailTemplateService
         $engine = self::engine();
         $normalise = static function (string $html) use ($sanitizer, $engine): string {
             $html = $engine->decodeEncodedTokens($sanitizer->sanitize($html));
-            $html = (string) preg_replace('/\{\{\s*([a-z0-9_]+)\s*\}\}/', '{{$1}}', $html);
+            $html = $engine->substitute($html, static fn(string $name): string => '{{' . $name . '}}', true);
 
             return (string) preg_replace('/[\s\x{00A0}]+/u', '', $html);
         };

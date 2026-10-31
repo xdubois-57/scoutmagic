@@ -72,8 +72,10 @@ final class TokenEngine
     }
 
     /**
-     * Rewrites `%7B%7BNom%20de%20colonne%7D%7D` back to
-     * `{{Nom de colonne}}` so everything downstream sees one shape.
+     * Restores encoded brace delimiters, leaving names encoded until lookup.
+     * Decoding an unknown name into HTML after sanitization could recreate
+     * markup or break out of an attribute. This pass is idempotent; names
+     * are decoded exactly once, in memory, by TokenSyntax::decodeName().
      *
      * See `TokenSyntax::encodedPattern()` for how a token ends up encoded
      * in the first place.
@@ -82,7 +84,7 @@ final class TokenEngine
     {
         return (string) preg_replace_callback(
             $this->syntax->encodedPattern(),
-            static fn(array $matches): string => '{{' . rawurldecode($matches[1]) . '}}',
+            static fn(array $matches): string => '{{' . $matches[1] . '}}',
             $template
         );
     }
@@ -151,7 +153,7 @@ final class TokenEngine
 
                 // The trial: only a region that spells a real token's name
                 // once the markup is gone is rewritten.
-                if (preg_match($this->syntax->nameOnlyPattern(), $stripped) !== 1) {
+                if ($this->syntax->decodeName($stripped) === null) {
                     return $matches[0];
                 }
 
@@ -164,8 +166,8 @@ final class TokenEngine
     }
 
     /**
-     * Every token the template carries, exactly as the pattern captured
-     * it — untrimmed, duplicates kept, in order.
+     * Every token the template carries, decoded for lookup — untrimmed,
+     * duplicates kept, in order. Names are never written back into HTML.
      *
      * The raw shape is what a caller needs when it has its own idea of
      * what the captured text means: the publipostage's section markers
@@ -176,11 +178,20 @@ final class TokenEngine
      */
     public function rawTokenNames(string $template): array
     {
+        $template = $this->decodeEncodedTokens($template);
         if (preg_match_all($this->syntax->pattern(), $template, $matches) < 1) {
             return [];
         }
 
-        return array_map(static fn($name): string => (string) $name, $matches[1]);
+        $names = [];
+        foreach ($matches[1] as $storedName) {
+            $name = $this->syntax->decodeName((string) $storedName);
+            if ($name !== null) {
+                $names[] = $name;
+            }
+        }
+
+        return $names;
     }
 
     /**
@@ -221,31 +232,36 @@ final class TokenEngine
     /**
      * Substitutes every token the resolver recognises.
      *
-     * `$resolve` receives the token's name exactly as the template spells
-     * it and answers with the RAW, unescaped value — or `null`, which
+     * `$resolve` receives the decoded, trimmed name and answers with the
+     * RAW, unescaped value — or `null`, which
      * leaves the token exactly where it is. Leaving it is the deliberate
      * behaviour for a name nobody recognises: a contract with a visible
      * `{{ prix_ttc }}` in it is obviously wrong to whoever reads it,
      * whereas a silently emptied one reads as a clause that simply says
      * nothing.
      *
-     * **`$escapeHtml` is true wherever the result is HTML**, and that is
-     * the second of this engine's two safety rules. The values come from a
-     * form an anonymous visitor filled in, or from a spreadsheet a chief
+     * **`$escapeHtml` is true for raw values going into HTML**, and that is
+     * the second of this engine's two safety rules. A caller adding HTML
+     * formatting must escape its values itself before passing false. Raw
+     * values come from a form an anonymous visitor filled in, or a spreadsheet a chief
      * uploaded; without escaping, an organisation named
      * `Scouts <de> Nulle Part` is interpreted as markup by dompdf or by a
-     * mail client and silently reshapes the document. It is false only in
-     * a plain-text context — an e-mail subject — where the value is used
-     * verbatim as text.
+     * mail client and silently reshapes the document. A plain-text context
+     * — an e-mail subject — passes false and uses the value verbatim.
      *
      * @param callable(string): (string|null) $resolve
      */
     public function substitute(string $template, callable $resolve, bool $escapeHtml): string
     {
+        $template = $this->decodeEncodedTokens($template);
         $substituted = preg_replace_callback(
             $this->syntax->pattern(),
-            static function (array $matches) use ($resolve, $escapeHtml): string {
-                $value = $resolve(trim((string) $matches[1]));
+            function (array $matches) use ($resolve, $escapeHtml): string {
+                $name = $this->syntax->decodeName((string) $matches[1]);
+                if ($name === null) {
+                    return $matches[0];
+                }
+                $value = $resolve(trim($name));
                 if ($value === null) {
                     return $matches[0];
                 }

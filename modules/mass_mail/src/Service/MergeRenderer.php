@@ -51,11 +51,13 @@ class MergeRenderer
 {
     /**
      * {{#Colonne}} … {{/Colonne}}. The closing marker has to name the
-     * same column, spelled the same way — the opening name is captured
-     * trimmed and back-referenced, so a mismatched pair simply does not
-     * match and stays visible in the preview.
+     * same column, spelled the same way after one decoding pass. Neither
+     * name is decoded back into the HTML. Encoded whitespace before a
+     * marker is accepted too, as in historical URL-encoded templates.
      */
-    private const SECTION_PATTERN = '/\{\{\s*#\s*([^{}#\/]*?)\s*\}\}(.*?)\{\{\s*\/\s*\1\s*\}\}/us';
+    private const SECTION_SPACE = '(?:\s|%20|%09|%0[a-dA-D])*';
+    private const SECTION_PATTERN = '/\{\{' . self::SECTION_SPACE . '(?:#|%23)\s*([^{}#\/]*?)\s*\}\}(.*?)\{\{'
+        . self::SECTION_SPACE . '(?:\/|%2[fF])\s*([^{}#\/]*?)\s*\}\}/us';
 
     private readonly TokenEngine $engine;
 
@@ -126,7 +128,14 @@ class MergeRenderer
         return (string) preg_replace_callback(
             self::SECTION_PATTERN,
             static function (array $matches) use ($byLower): string {
-                $key = mb_strtolower(trim($matches[1]));
+                $syntax = TokenSyntax::freeText();
+                $opening = $syntax->decodeName($matches[1]);
+                $closing = $syntax->decodeName($matches[3]);
+                if ($opening === null || $closing === null || trim($opening) !== trim($closing)
+                    || str_contains($opening, '#') || str_contains($opening, '/')) {
+                    return $matches[0];
+                }
+                $key = mb_strtolower(trim($opening));
                 if (!array_key_exists($key, $byLower)) {
                     return $matches[0];
                 }

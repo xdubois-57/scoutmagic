@@ -354,7 +354,7 @@ cannot drift apart. Because they are called, a pull request shows them as
 | Job | What it runs | Engine |
 |---|---|---|
 | `Checks / test` | `phpstan analyse --memory-limit=512M`, then `phpunit --coverage-clover --log-junit` | MySQL 8 |
-| `Checks / database-mariadb` | the whole PHPUnit suite on both runner images, `--log-junit` | MariaDB 10.11 |
+| `Checks / database-mariadb (ubuntu-24.04)`, `Checks / database-mariadb (ubuntu-26.04)` | the whole PHPUnit suite on the named runner image, `--log-junit` | MariaDB 10.11 |
 | `Checks / javascript-tests` | `npm ci`, `npm run typecheck`, `npm run test:coverage` | — |
 | `Checks / End-to-end (browser)` | `npm run e2e` with `E2E_COVERAGE=1` | MySQL 8 |
 | `Checks / Authorization matrix` | `./scripts/dast.sh --profile=standard` | MySQL 8 |
@@ -1272,7 +1272,7 @@ draft at all.
 | Evidence | Where it comes from |
 |---|---|
 | PHP tests on MySQL 8, with coverage | PHPUnit `--log-junit`, `--coverage-clover` (`Checks / test`) |
-| PHP tests on MariaDB 10.11 | PHPUnit `--log-junit` (`Checks / database-mariadb`) |
+| PHP tests on MariaDB 10.11 | PHPUnit `--log-junit` (`Checks / database-mariadb (ubuntu-24.04)`, `Checks / database-mariadb (ubuntu-26.04)`) |
 | PHP static analysis | PHPStan's verdict, its version, level, paths, baseline size, **and the list of every file it analysed** (from `--debug`; the JSON report lists only files with errors, so on a clean run it is empty) |
 | JavaScript static analysis | `tsc`'s verdict through `npm run typecheck`, its version, baseline size, and the files it checked |
 | JavaScript tests, with coverage | Vitest `--reporter=junit`, plus the lcov |
@@ -2030,8 +2030,8 @@ next to the thing it concerns — in the steward skill, in
 `claude-review.yml`'s header, and here.
 
 
-La portabilité HTML (#1014) est vérifiée par la suite MariaDB sur Ubuntu 24.04
-et 26.04. Les autres tâches utilisent Ubuntu 26.04. Le parseur HTML5 intégré
-à PHP remplace le parseur HTML dépendant de la libxml2 du système ; les
-anciens jetons encodés restent pris en charge. Les artefacts MariaDB portent
-le suffixe de l'image afin que les deux résultats restent distincts.
+HTML portability (#1014) is checked by the MariaDB suite on Ubuntu 24.04
+and 26.04. The other jobs use Ubuntu 26.04. PHP's bundled HTML5 parser
+replaces the HTML parser tied to system libxml2; historical encoded tokens
+remain supported. MariaDB artifacts carry the runner image's suffix so
+the two results remain distinct.

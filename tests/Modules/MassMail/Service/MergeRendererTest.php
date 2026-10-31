@@ -228,4 +228,67 @@ class MergeRendererTest extends TestCase
             $this->renderer->findUnknownTokens('<img src="%7B%7BQR%201%7D%7D">', ['Prénom'])
         );
     }
+
+    public function testAnUnknownEncodedNameCannotUndoSanitization(): void
+    {
+        $encoded = rawurlencode('<img src=x onerror="alert(1)">');
+        $stored = (new \Core\Security\HtmlSanitizer())->sanitize('<p>{{' . $encoded . '}}</p>');
+
+        $this->assertSame('<p>{{' . $encoded . '}}</p>', $this->renderer->renderHtml($stored, []));
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('encodedSections')]
+    public function testEncodedSectionsKeepTheirConditionsAndResolveNamesInMemory(string $opening, string $closing): void
+    {
+        $template = '{{Autre}} ' . $opening . '<p>{{Nom}}</p>' . $closing;
+
+        $this->assertSame([
+            'filled' => '{{Autre}} <p>Élise &lt;&amp;&gt;</p>',
+            'empty' => '{{Autre}} ',
+            'missing' => [],
+        ], [
+            'filled' => $this->renderer->renderHtml($template, ['Prénom 1' => 'Camille', 'Nom' => 'Élise <&>']),
+            'empty' => $this->renderer->renderHtml($template, ['Prénom 1' => '', 'Nom' => 'Élise <&>']),
+            'missing' => $this->renderer->findMissingValues($template, ['Prénom 1' => '', 'Nom' => '']),
+        ]);
+    }
+
+    /** @return array<string, array{string, string}> */
+    public static function encodedSections(): array
+    {
+        return [
+            'literal' => ['{{#Prénom 1}}', '{{/Prénom 1}}'],
+            'historical' => ['%7B%7B%23Pr%C3%A9nom%201%7D%7D', '%7B%7B%2FPr%C3%A9nom%201%7D%7D'],
+            'different encodings of the same name' => ['{{#Pr%C3%A9nom%201}}', '{{/Prénom 1}}'],
+            'encoded padding and markers' => ['{{%20%23%20Pr%C3%A9nom%201%20}}', '{{%20%2f%20Prénom 1%20}}'],
+        ];
+    }
+
+    public function testADifferentlySpelledClosingSectionStillStaysVisible(): void
+    {
+        $template = '{{#Pr%C3%A9nom}}Texte{{/pr%C3%A9nom}}';
+
+        $this->assertSame($template, $this->renderer->renderHtml($template, ['Prénom' => 'Camille']));
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('invalidEncodedSections')]
+    public function testAnInvalidDecodedSectionNameStaysEncoded(string $opening, string $closing): void
+    {
+        $template = '{{#' . $opening . '}}Texte{{/' . $closing . '}}';
+
+        $this->assertSame($template, $this->renderer->renderHtml($template, [
+            'Nom' => 'Camille', 'Nom{' => 'Camille', 'Nom#' => 'Camille', 'Nom/' => 'Camille',
+        ]));
+    }
+
+    /** @return array<string, array{string, string}> */
+    public static function invalidEncodedSections(): array
+    {
+        return [
+            'brace in opening name' => ['Nom%7B', 'Nom'],
+            'brace in closing name' => ['Nom', 'Nom%7B'],
+            'encoded nested marker' => ['Nom%23', 'Nom%23'],
+            'encoded closing marker inside a name' => ['Nom%2F', 'Nom%2F'],
+        ];
+    }
 }

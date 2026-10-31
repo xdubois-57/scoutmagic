@@ -35,10 +35,12 @@ final class TokenSyntax
      * @param string $namePattern A regex fragment matching what sits between the braces,
      *                            with exactly one capturing group's worth of meaning and none of its own.
      * @param string $modifiers   Regex modifiers, appended to every pattern built here.
+     * @param string|null $encodedNamePattern The stored spelling, when encoded bytes need wider matching.
      */
     private function __construct(
         private readonly string $namePattern,
-        private readonly string $modifiers
+        private readonly string $modifiers,
+        private readonly ?string $encodedNamePattern = null
     ) {
     }
 
@@ -55,7 +57,7 @@ final class TokenSyntax
      */
     public static function identifiers(): self
     {
-        return new self('[a-z0-9_]+', '');
+        return new self('[a-z0-9_]+', '', '(?:[a-z0-9_]|%[a-fA-F0-9]{2})+');
     }
 
     /**
@@ -63,7 +65,7 @@ final class TokenSyntax
      */
     public function pattern(): string
     {
-        return '/\{\{\s*(' . $this->namePattern . ')\s*\}\}/' . $this->modifiers;
+        return '/\{\{\s*(' . ($this->encodedNamePattern ?? $this->namePattern) . ')\s*\}\}/' . $this->modifiers;
     }
 
     /**
@@ -75,6 +77,18 @@ final class TokenSyntax
     public function nameOnlyPattern(): string
     {
         return '/^\s*(' . $this->namePattern . ')\s*$/' . $this->modifiers;
+    }
+
+    /**
+     * Decode once for lookup, never for insertion back into HTML. Unknown
+     * names may contain encoded markup or quotes; their stored spelling
+     * must stay encoded. Validation still uses the original vocabulary.
+     */
+    public function decodeName(string $storedName): ?string
+    {
+        $name = rawurldecode($storedName);
+
+        return preg_match($this->nameOnlyPattern(), $name) === 1 ? $name : null;
     }
 
     /**

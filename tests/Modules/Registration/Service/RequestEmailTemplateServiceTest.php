@@ -287,6 +287,24 @@ class RequestEmailTemplateServiceTest extends TestCase
         $this->assertSame(RequestEmailTemplateService::STATE_DEFAULT, $this->service->stateOf(self::RECEIPT));
     }
 
+    public function testAnEncodedSpellingOfTheDefaultStillRemovesTheOverride(): void
+    {
+        $this->service->save(self::RECEIPT, '<p>Mon texte {{prenom_enfant}} {{lien_suivi}}</p>', 7);
+        $default = (string) $this->service->findByKey(self::RECEIPT)->defaultBody;
+        $encoded = str_replace(
+            ['{{ prenom_enfant }}', '{{ lien_suivi }}'],
+            ['{{%20pren%6fm_enfant%20}}', '%7B%7B%20lien_suivi%20%7D%7D'],
+            $default
+        );
+
+        $this->service->save(self::RECEIPT, $encoded, 7);
+
+        $this->assertSame([null, RequestEmailTemplateService::STATE_DEFAULT], [
+            $this->content->get(self::RECEIPT),
+            $this->service->stateOf(self::RECEIPT),
+        ]);
+    }
+
     public function testRestoringTheDefaultForgetsTheUnitsBody(): void
     {
         $this->service->save(self::ALERT, '<p>Nouvelle demande : {{ prenom_enfant }}</p>', 7);
