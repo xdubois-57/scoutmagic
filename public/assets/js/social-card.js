@@ -244,7 +244,12 @@
      * @param {unknown} error
      */
     function noteBlurFailure(step, error) {
-        const reason = error instanceof Error ? error.message : String(error);
+        let reason = 'unknown';
+        if (error instanceof Error) {
+            reason = error.message;
+        } else if (typeof error === 'string') {
+            reason = error;
+        }
         lastBlurFailure = step + ': ' + reason;
     }
 
