@@ -95,13 +95,17 @@
     const ADDRESS_TO_TITLE = Math.round(ADDRESS_SIZE * 1.9);
 
     /**
-     * The veil is a band behind the text: it rises from nothing, holds,
-     * and falls back to nothing, so the rest of the photo is left alone.
+     * **The veil is a soft glow hugging the text, not a stripe across the
+     * photo** (issue #929): full over the block's box grown by `VEIL_PAD`,
+     * then fading to nothing over `VEIL_FEATHER` pixels — by distance to
+     * that box, so its corners are round. Computed on a grid of
+     * `VEIL_CELL`-pixel cells and stretched back with smoothing, as the
+     * server does, so a short title gets a short glow and the rest of the
+     * photo is left alone.
      */
-    const VEIL_TOP = 360;
-    const VEIL_FULL_FROM = 510;
-    const VEIL_FULL_TO = 810;
-    const VEIL_BOTTOM = 960;
+    const VEIL_PAD = 20;
+    const VEIL_FEATHER = 160;
+    const VEIL_CELL = 10;
     // GD's VEIL_ALPHA is 70 on its 127-transparent scale; the same
     // darkness as a canvas alpha is (127 - 70) / 127.
     const VEIL_FULL_ALPHA = (127 - 70) / 127;
@@ -565,60 +569,152 @@
     }
 
     /**
-     * A band of darkening behind the text, so a white title stays legible
-     * over a white sky without dimming the rest of the photo.
-     *
-     * @param {CanvasRenderingContext2D} ctx
-     */
-    function drawVeil(ctx) {
-        ctx.save();
-        ctx.filter = 'none';
-        const span = VEIL_BOTTOM - VEIL_TOP;
-        const gradient = ctx.createLinearGradient(0, VEIL_TOP, 0, VEIL_BOTTOM);
-        gradient.addColorStop(0, 'rgba(0, 0, 0, 0)');
-        gradient.addColorStop((VEIL_FULL_FROM - VEIL_TOP) / span, 'rgba(0, 0, 0, ' + VEIL_FULL_ALPHA + ')');
-        gradient.addColorStop((VEIL_FULL_TO - VEIL_TOP) / span, 'rgba(0, 0, 0, ' + VEIL_FULL_ALPHA + ')');
-        gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
-        ctx.fillStyle = gradient;
-        ctx.fillRect(0, VEIL_TOP, SIZE, span);
-        ctx.restore();
-    }
-
-    /**
-     * The block, centred: the address on its fixed baseline, the title
-     * above it, each line centred on the card's vertical axis — the same
-     * order and the same baselines as GD, so the preview is the card the
-     * server would compose.
+     * Where the block's text goes, and the box it occupies: the address on
+     * its fixed baseline, the title above it, each line centred on the
+     * card's vertical axis — the same order, baselines and box as GD's, so
+     * the preview is the card the server would compose.
      *
      * Laid out from the bottom up so the address is always in the same
      * place and a longer title grows upwards into the zone's spare height.
+     * The box is the ink's extent estimated from the em: the first line's
+     * top a full em above its baseline, the last's foot a quarter em below.
      *
      * @param {CanvasRenderingContext2D} ctx
      * @param {string} title
      * @param {string} address
+     * @returns {{address: ({text: string, baseline: number}|null), title: Array<{text: string, baseline: number}>, box: ({left: number, top: number, right: number, bottom: number}|null)}}
      */
-    function drawText(ctx, title, address) {
+    function layoutText(ctx, title, address) {
+        let baseline = ADDRESS_BASELINE;
+        let left = SIZE;
+        let right = 0;
+        let top = null;
+        let bottom = null;
+        let addressLine = null;
+
+        const trimmedAddress = String(address || '').trim();
+        if (trimmedAddress !== '') {
+            ctx.font = ADDRESS_PIXELS + 'px ' + FONT_FAMILY;
+            const text = fitLine(trimmedAddress, measurer(ctx), MAX_TEXT_WIDTH, false);
+            const width = ctx.measureText(text).width;
+            addressLine = { text: text, baseline: baseline };
+            left = Math.min(left, (SIZE - width) / 2);
+            right = Math.max(right, (SIZE + width) / 2);
+            bottom = baseline + 0.25 * ADDRESS_PIXELS;
+            top = baseline - ADDRESS_PIXELS;
+            baseline -= ADDRESS_TO_TITLE;
+        }
+
+        ctx.font = TITLE_PIXELS + 'px ' + FONT_FAMILY;
+        const measure = measurer(ctx);
+        const titleLines = [];
+        wrapTitle(String(title || ''), measure, MAX_TEXT_WIDTH).slice().reverse().forEach(function (line) {
+            const width = measure(line);
+            titleLines.push({ text: line, baseline: baseline });
+            left = Math.min(left, (SIZE - width) / 2);
+            right = Math.max(right, (SIZE + width) / 2);
+            bottom = bottom === null ? baseline + 0.25 * TITLE_PIXELS : bottom;
+            top = baseline - TITLE_PIXELS;
+            baseline -= TITLE_LINE_HEIGHT;
+        });
+
+        const box = top === null || bottom === null
+            ? null
+            : { left: left, top: top, right: right, bottom: bottom };
+
+        return { address: addressLine, title: titleLines, box: box };
+    }
+
+    /**
+     * How much of the veil is on one point, from 0 (none) to 1 (full): the
+     * box grown by `VEIL_PAD` is full, and the strength falls to nothing
+     * over `VEIL_FEATHER` pixels of distance to it, with a smoothstep so no
+     * edge shows.
+     *
+     * The same function, constant for constant, as `CardRenderer::veilStrength()`
+     * in PHP; both are tested against the same sample points.
+     *
+     * @param {number} x
+     * @param {number} y
+     * @param {{left: number, top: number, right: number, bottom: number}} box
+     * @returns {number}
+     */
+    function veilStrength(x, y, box) {
+        const dx = Math.max(box.left - VEIL_PAD - x, 0, x - (box.right + VEIL_PAD));
+        const dy = Math.max(box.top - VEIL_PAD - y, 0, y - (box.bottom + VEIL_PAD));
+        const t = Math.max(0, 1 - Math.sqrt(dx * dx + dy * dy) / VEIL_FEATHER);
+
+        return t * t * (3 - 2 * t);
+    }
+
+    /**
+     * A glow of darkening behind the text, so a white title stays legible
+     * over a white sky without dimming the rest of the photo.
+     *
+     * @param {CanvasRenderingContext2D} ctx
+     * @param {{left: number, top: number, right: number, bottom: number}|null} box
+     */
+    function drawVeil(ctx, box) {
+        if (box === null) {
+            return;
+        }
+        ctx.save();
+        ctx.filter = 'none';
+        try {
+            const cells = SIZE / VEIL_CELL;
+            const small = document.createElement('canvas');
+            small.width = cells;
+            small.height = cells;
+            const sctx = small.getContext('2d');
+            if (!sctx) {
+                throw new Error('no second context');
+            }
+            const image = sctx.createImageData(cells, cells);
+            for (let cy = 0; cy < cells; cy++) {
+                for (let cx = 0; cx < cells; cx++) {
+                    const strength = veilStrength((cx + 0.5) * VEIL_CELL, (cy + 0.5) * VEIL_CELL, box);
+                    image.data[(cy * cells + cx) * 4 + 3] = Math.round(255 * VEIL_FULL_ALPHA * strength);
+                }
+            }
+            sctx.putImageData(image, 0, 0);
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = 'high';
+            ctx.drawImage(small, 0, 0, cells, cells, 0, 0, SIZE, SIZE);
+        } catch (error) {
+            // No way to build the glow: a plain darkened rectangle over the
+            // block is hard-edged but keeps the text legible, which is what
+            // the veil is for.
+            noteBlurFailure('veil', error);
+            ctx.fillStyle = 'rgba(0, 0, 0, ' + VEIL_FULL_ALPHA + ')';
+            ctx.fillRect(
+                box.left - VEIL_PAD,
+                box.top - VEIL_PAD,
+                box.right - box.left + 2 * VEIL_PAD,
+                box.bottom - box.top + 2 * VEIL_PAD
+            );
+        }
+        ctx.restore();
+    }
+
+    /**
+     * @param {CanvasRenderingContext2D} ctx
+     * @param {{address: ({text: string, baseline: number}|null), title: Array<{text: string, baseline: number}>}} layout
+     */
+    function drawText(ctx, layout) {
         ctx.save();
         ctx.filter = 'none';
         ctx.textBaseline = 'alphabetic';
         ctx.textAlign = 'center';
 
-        let baseline = ADDRESS_BASELINE;
-        const trimmedAddress = String(address || '').trim();
-        if (trimmedAddress !== '') {
+        if (layout.address !== null) {
             ctx.font = ADDRESS_PIXELS + 'px ' + FONT_FAMILY;
             ctx.fillStyle = ADDRESS_COLOUR;
-            const measureAddress = measurer(ctx);
-            ctx.fillText(fitLine(trimmedAddress, measureAddress, MAX_TEXT_WIDTH, false), SIZE / 2, baseline);
-            baseline -= ADDRESS_TO_TITLE;
+            ctx.fillText(layout.address.text, SIZE / 2, layout.address.baseline);
         }
-
         ctx.font = TITLE_PIXELS + 'px ' + FONT_FAMILY;
         ctx.fillStyle = TITLE_COLOUR;
-        const lines = wrapTitle(String(title || ''), measurer(ctx), MAX_TEXT_WIDTH);
-        lines.slice().reverse().forEach(function (line) {
-            ctx.fillText(line, SIZE / 2, baseline);
-            baseline -= TITLE_LINE_HEIGHT;
+        layout.title.forEach(function (line) {
+            ctx.fillText(line.text, SIZE / 2, line.baseline);
         });
         ctx.restore();
     }
@@ -672,8 +768,9 @@
             ctx.fillRect(0, 0, SIZE, SIZE);
             ctx.restore();
         }
-        drawVeil(ctx);
-        drawText(ctx, card ? card.title : '', card ? card.address : '');
+        const layout = layoutText(ctx, card ? card.title : '', card ? card.address : '');
+        drawVeil(ctx, layout.box);
+        drawText(ctx, layout);
 
         return true;
     }
@@ -724,10 +821,9 @@
             addressSize: ADDRESS_SIZE,
             addressPixels: ADDRESS_PIXELS,
             addressToTitle: ADDRESS_TO_TITLE,
-            veilTop: VEIL_TOP,
-            veilFullFrom: VEIL_FULL_FROM,
-            veilFullTo: VEIL_FULL_TO,
-            veilBottom: VEIL_BOTTOM,
+            veilPad: VEIL_PAD,
+            veilFeather: VEIL_FEATHER,
+            veilCell: VEIL_CELL,
             veilFullAlpha: VEIL_FULL_ALPHA,
             backdrop: BACKDROP,
             jpegQuality: JPEG_QUALITY,
@@ -744,6 +840,7 @@
         drawCard: drawCard,
         toJpeg: toJpeg,
         cardConstants: cardConstants,
+        veilStrength: veilStrength,
         probeFilterBlur: probeFilterBlur,
         blurEngine: blurEngine,
         blurPixels: blurPixels,

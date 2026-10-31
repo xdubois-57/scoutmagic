@@ -3531,8 +3531,22 @@ pas chaque nuit.
 Toute publication porte une image composée par le site : un carré de
 1080 px — le format que Facebook et Instagram montrent tous deux en
 entier —, l'image de fond, un titre incrusté (trois lignes au plus,
-raccourci au-delà) et l'adresse du site en pied. L'adresse est sur l'image
-parce qu'Instagram ne publie pas de lien.
+raccourci au-delà) et l'adresse du site juste dessous. L'adresse est sur
+l'image parce qu'Instagram ne publie pas de lien.
+
+**Le bloc titre + adresse est centré dans la zone que tous les recadrages
+courants conservent** (ticket #929). Une seule image part partout, et
+chaque destination la recadre à sa façon, centrée : un fil de discussion
+en 4:3 (lignes 135 à 945), la grille de profil Instagram en 3:4 (colonnes
+135 à 945), un aperçu Facebook d'environ 1,91:1 (lignes 257 à 823). Leur
+intersection — colonnes 135 à 945, lignes 257 à 823 — contient tout le
+texte, avec 30 px de marge, et l'adresse a une ligne de base fixe (780) :
+un titre plus long monte au lieu de descendre. Le titre est en 56 pt, au
+plus 3 lignes sur 750 px, centrées ; l'adresse en 30 pt. Un voile
+sombre et doux, de la taille du bloc, se limite à son voisinage : le reste
+de la photo n'est pas assombri. Ces recadrages sont des scénarios de
+test, pas une promesse sur ce que les plateformes feront demain ; une
+seule image est produite, jamais une par destination.
 
 - **Une photo de la galerie part au flou que le chef a choisi**, « Net »
   compris. Un curseur va de « Net » à « Très flou », l'aperçu le suit, et

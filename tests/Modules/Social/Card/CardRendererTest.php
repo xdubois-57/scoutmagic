@@ -228,40 +228,86 @@ final class CardRendererTest extends TestCase
     }
 
     /**
-     * The veil is a band behind the text, not a wash over the foot: the
-     * photo above and below it is left exactly as it was.
+     * The veil is a glow hugging the text, not a stripe across the photo:
+     * far from the block the photo is left exactly as it was.
      */
     public function testTheVeilLeavesTheRestOfThePhotoAlone(): void
     {
         $jpeg = (new CardRenderer())->render(self::flatPhoto(80), 'Camp 2026', 'a.be', false, 0.0);
         $card = imagecreatefromstring($jpeg);
         self::assertNotFalse($card);
-        $grey = static fn (int $y): int => (int) (imagecolorat($card, 8, $y) & 0xFF);
+        $grey = static fn (int $x, int $y): int => (int) (imagecolorat($card, $x, $y) & 0xFF);
 
-        self::assertEqualsWithDelta(80, $grey(40), 3, 'the top of the photo was darkened');
-        self::assertEqualsWithDelta(80, $grey(300), 3, 'above the band was darkened');
-        self::assertEqualsWithDelta(80, $grey(1040), 3, 'the foot of the photo was darkened');
-        // At its fullest: 80 × (1 − 0.449), about 44.
-        self::assertEqualsWithDelta(80 * (70 / 127), $grey(650), 4, 'the band is not as dark as it should be');
+        self::assertEqualsWithDelta(80, $grey(8, 40), 3, 'the top corner of the photo was darkened');
+        self::assertEqualsWithDelta(80, $grey(540, 200), 3, 'far above the block was darkened');
+        self::assertEqualsWithDelta(80, $grey(8, 700), 3, 'the side of the photo, level with the block, was darkened');
+        self::assertEqualsWithDelta(80, $grey(1070, 1070), 3, 'the foot corner of the photo was darkened');
+        // Level with the title, left of its first letter, inside the glow's full part:
+        // 80 × (70 / 127) is about 44, and GD's interpolation and 7-bit alpha move it a few levels.
+        self::assertGreaterThan(36, $grey(300, 700), 'the glow is darker than it should be');
+        self::assertLessThan(52, $grey(300, 700), 'the glow is not as dark as it should be');
         imagedestroy($card);
     }
 
-    public function testTheVeilsRowsRiseHoldAndFall(): void
+    /**
+     * A short title gets a short glow: the veil follows the block, so a
+     * one-line title does not dim the rows a three-line one needs.
+     */
+    public function testTheGlowFollowsTheBlockSoAShortTitleDimsLess(): void
     {
-        self::assertSame(127, CardRenderer::veilAlpha(0));
-        self::assertSame(127, CardRenderer::veilAlpha(360));
-        self::assertSame(70, CardRenderer::veilAlpha(510));
-        self::assertSame(70, CardRenderer::veilAlpha(660));
-        self::assertSame(70, CardRenderer::veilAlpha(810));
-        self::assertSame(127, CardRenderer::veilAlpha(960));
-        self::assertSame(127, CardRenderer::veilAlpha(1079));
-        // Monotonic on each ramp.
-        for ($y = 360; $y < 510; $y++) {
-            self::assertGreaterThanOrEqual(CardRenderer::veilAlpha($y + 1), CardRenderer::veilAlpha($y));
+        $renderer = new CardRenderer();
+        $dimmed = static function (string $title) use ($renderer): int {
+            $card = imagecreatefromstring($renderer->render(self::flatPhoto(80), $title, 'a.be', false, 0.0));
+            self::assertNotFalse($card);
+            $count = 0;
+            for ($y = 0; $y < CardRenderer::SIZE; $y += 4) {
+                if ((imagecolorat($card, 8, $y) & 0xFF) < 78 || (imagecolorat($card, 540, $y) & 0xFF) < 78) {
+                    $count++;
+                }
+            }
+            imagedestroy($card);
+
+            return $count;
+        };
+
+        self::assertLessThan(
+            $dimmed('Grand jeu de nuit dans les bois de la Hulpe'),
+            $dimmed('Camp'),
+            'a one-line title dims as many rows as a three-line one'
+        );
+    }
+
+    /**
+     * The same function in both languages: these sample points, and the
+     * strengths expected there, are asserted word for word in
+     * `tests/js/social-card.test.js`.
+     */
+    public function testTheVeilsStrengthIsTheOneTheBrowserComputes(): void
+    {
+        $box = ['left' => 300.0, 'top' => 520.0, 'right' => 780.0, 'bottom' => 790.0];
+
+        foreach (self::veilSamples() as [$x, $y, $expected]) {
+            self::assertEqualsWithDelta($expected, CardRenderer::veilStrength($x, $y, $box), 1e-9, "at {$x},{$y}");
         }
-        for ($y = 810; $y < 960; $y++) {
-            self::assertLessThanOrEqual(CardRenderer::veilAlpha($y + 1), CardRenderer::veilAlpha($y));
-        }
+    }
+
+    /**
+     * @return list<array{int, int, float}>
+     */
+    public static function veilSamples(): array
+    {
+        return [
+            [540, 650, 1.0],
+            [290, 650, 1.0],
+            [260, 650, 0.95703125],
+            [200, 650, 0.5],
+            [100, 650, 0.0],
+            [540, 400, 0.31640625],
+            [540, 300, 0.0],
+            [880, 890, 0.2071067812],
+            [800, 810, 1.0],
+            [0, 0, 0.0],
+        ];
     }
 
     public function testSomethingThatIsNotAnImageIsRefusedInFrench(): void

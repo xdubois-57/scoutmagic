@@ -127,6 +127,7 @@ interface Window {
         toJpeg: (canvas: HTMLCanvasElement) => Promise<Blob | null>;
         // Whether `ctx.filter` really blurs here, found out from pixels
         // (issue #928), and which way the card is therefore blurred.
+        veilStrength: (x: number, y: number, box: { left: number; top: number; right: number; bottom: number }) => number;
         probeFilterBlur: () => boolean;
         blurEngine: () => 'filter' | 'pixels';
         blurFailure: () => string;
@@ -151,10 +152,9 @@ interface Window {
             addressSize: number;
             addressPixels: number;
             addressToTitle: number;
-            veilTop: number;
-            veilFullFrom: number;
-            veilFullTo: number;
-            veilBottom: number;
+            veilPad: number;
+            veilFeather: number;
+            veilCell: number;
             veilFullAlpha: number;
             backdrop: string;
             jpegQuality: number;

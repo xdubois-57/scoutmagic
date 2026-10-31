@@ -97,10 +97,9 @@ final class CardGeometryAgreementTest extends TestCase
             'the address\'s size' => ['ADDRESS_SIZE = %s;', self::serverConstant('ADDRESS_SIZE')],
             // round(30 * 1.9) = 57.
             'the gap above the address' => ['ADDRESS_TO_TITLE = Math.round(ADDRESS_SIZE * %s);', 1.9],
-            'where the veil starts' => ['VEIL_TOP = %s;', self::serverConstant('VEIL_TOP')],
-            'where the veil is fullest from' => ['VEIL_FULL_FROM = %s;', self::serverConstant('VEIL_FULL_FROM')],
-            'where the veil is fullest to' => ['VEIL_FULL_TO = %s;', self::serverConstant('VEIL_FULL_TO')],
-            'where the veil ends' => ['VEIL_BOTTOM = %s;', self::serverConstant('VEIL_BOTTOM')],
+            'the veil\'s full part, around the block' => ['VEIL_PAD = %s;', self::serverConstant('VEIL_PAD')],
+            'the veil\'s fade' => ['VEIL_FEATHER = %s;', self::serverConstant('VEIL_FEATHER')],
+            'the veil\'s grid' => ['VEIL_CELL = %s;', self::serverConstant('VEIL_CELL')],
             'the backdrop grey' => ['BACKDROP = \'rgb(%s)\';', '73, 80, 87'],
             'the export quality' => ['JPEG_QUALITY = %s;', 0.88],
         ];
