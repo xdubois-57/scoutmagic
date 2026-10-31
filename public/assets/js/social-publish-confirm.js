@@ -201,14 +201,18 @@
     }
 
     /**
-     * The composer's own sharp-photo hint, when it is showing.
+     * The composer's own caution about a recognisable photo — « sans flou »
+     * or « flou faible », whichever is showing.
      *
      * @returns {Array<{kind: 'box', tone: 'warning', title: string, text: string}>}
      */
-    function sharpWarning() {
-        const hint = form.querySelector('[data-card-blur-sharp]');
+    function recognisableWarning() {
+        const hints = Array.from(form.querySelectorAll('[data-card-blur-sharp], [data-card-blur-weak]'));
+        const hint = hints.find(function (candidate) {
+            return candidate instanceof HTMLElement && !candidate.hidden;
+        });
 
-        return hint instanceof HTMLElement && !hint.hidden
+        return hint instanceof HTMLElement
             ? [{ kind: 'box', tone: 'warning', title: '', text: (hint.textContent || '').trim() }]
             : [];
     }
@@ -222,7 +226,7 @@
                 + ' personne ne pourra le reprendre d’ici.',
             confirmLabel: 'Publier',
             variant: 'primary',
-            content: blocks().concat(sharpWarning()),
+            content: blocks().concat(recognisableWarning()),
         }).then(function (yes) {
             if (!yes) {
                 return;

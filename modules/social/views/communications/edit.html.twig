@@ -146,22 +146,43 @@
             <input type="range" class="form-range" id="communication-blur" name="blur_ratio"
                    min="0" max="{{ blur_max }}" step="0.005" value="{{ blur_ratio }}"
                    data-card-blur-input
+                   data-card-blur-caution-below="{{ blur_caution_below }}"
                    aria-describedby="communication-blur-help">
             <div class="d-flex justify-content-between small text-body-secondary">
                 <span>Net</span>
                 <span>Très flou</span>
             </div>
-            {# The one sentence that matters, and it only appears when it
-               is true: a gallery photo at « Net » leaves recognisable.
-               Said before publishing rather than regretted after. #}
-            <p class="small mt-2 mb-0" id="communication-blur-help">
+            {# One sentence at a time, and only the true one (issue #928):
+               « Net » leaves the photo as it is; below the caution
+               threshold it is blurred but faces can stay recognisable —
+               « sans flou » would be false there; from the threshold up
+               it is strongly blurred, which is a presentation choice and
+               NOT a promise that anyone is unrecognisable. The threshold
+               is the server's (`CardService::BLUR_CAUTION_RATIO`) and the
+               composer reads it from the slider, so the number lives in
+               one place. Said before publishing rather than regretted
+               after. #}
+            <p class="small mt-2 mb-0" id="communication-blur-help" aria-live="polite">
                 <span class="text-warning-emphasis" data-card-blur-sharp hidden>
                     <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
                     Cette photo de la galerie part sans flou.
                 </span>
-                <span class="text-body-secondary" data-card-blur-blurred hidden>
-                    On devine l'ambiance, pas les visages. Pour voir les photos, il faut venir sur le site.
+                <span class="text-warning-emphasis" data-card-blur-weak hidden>
+                    <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
+                    Le flou est faible : les visages peuvent rester reconnaissables.
                 </span>
+                <span class="text-body-secondary" data-card-blur-blurred hidden>
+                    Le flou est important : on devine surtout l'ambiance, mais une personne
+                    peut encore se reconnaître. Pour voir les photos, il faut venir sur le site.
+                </span>
+            </p>
+            {# Said only when this browser can neither filter nor blur by
+               hand: the image above is then the server's, not the
+               slider's, and nothing should let the chief think otherwise. #}
+            <p class="small mt-2 mb-0 text-warning-emphasis" data-card-blur-unavailable hidden>
+                <i class="bi bi-info-circle" aria-hidden="true"></i>
+                Votre navigateur ne peut pas montrer le flou en direct : l'image ci-dessus ne suit
+                pas le curseur. Le flou choisi sera appliqué à la carte publiée.
             </p>
         </div>
     {% endif %}

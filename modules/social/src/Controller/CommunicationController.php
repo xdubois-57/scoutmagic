@@ -1197,6 +1197,7 @@ final class CommunicationController extends AbstractController
             'blur_adjustable' => ($source->imageFromGallery ?? false)
                 && !($communication !== null && $this->isFrozen($communication)),
             'blur_max' => CardService::MAX_BLUR_RATIO,
+            'blur_caution_below' => CardService::BLUR_CAUTION_RATIO,
             'title_max' => self::TITLE_MAX_LENGTH,
             'body_max' => PublishingService::CAPTION_MAX_LENGTH,
         ]);
