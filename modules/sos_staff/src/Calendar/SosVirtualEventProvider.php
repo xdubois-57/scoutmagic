@@ -109,9 +109,7 @@ class SosVirtualEventProvider implements VirtualEventProviderInterface
                 // The display name is resolved once per member per
                 // generation (§7.6) — and not at all for members whose
                 // streaks all fall outside the window.
-                $label ??= $this->memberService
-                    ->findProfileByMemberAndYear($memberId, $viewer->scoutYearId)
-                    ?->getDisplayNameFull() ?? 'Membre';
+                $label ??= $this->memberLabel($memberId, $viewer);
 
                 $events[] = new VirtualEvent(
                     uid: self::streakUid($memberId, $start),
@@ -124,6 +122,17 @@ class SosVirtualEventProvider implements VirtualEventProviderInterface
         }
 
         return $events;
+    }
+
+    private function memberLabel(int $memberId, VirtualEventViewer $viewer): string
+    {
+        $profile = $this->memberService->findProfileByMemberAndYear($memberId, $viewer->scoutYearId);
+        if ($profile === null) {
+            return 'Membre';
+        }
+
+        // A shared feed has calendar visibility without an identified reader.
+        return $viewer->isIdentified() ? $profile->getDisplayNameFull() : $profile->getDisplayName();
     }
 
     /**

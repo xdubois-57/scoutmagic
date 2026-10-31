@@ -999,6 +999,8 @@ class SosAdminControllerTest extends TestCase
         foreach ($labels as $label) {
             $this->assertStringContainsString($label . ' (+3247000000', $settings);
         }
+        // Check the dashboard's fallback label independently of today's duty assignment.
+        $this->onCallRepository->replaceRange($today, $today, []);
         $this->assertStringContainsString('Fennec (Jean Dupont)', $this->dashboard());
     }
 

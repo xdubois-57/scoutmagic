@@ -54,5 +54,8 @@ modifient pas depuis le calendrier. D'anciens évènements
 « SOS Staff d'U : … » écrits avant ce calcul peuvent subsister en
 double ; supprimez-les une fois, ils ne reviendront pas.
 
+Le nom complet apparaît pour une personne identifiée. Les liens de calendrier
+partagés conservent le libellé court : le totem, ou le prénom sans totem.
+
 Le raccordement à l'opérateur se fait sur la page de configuration du
 module, réservée à l'administration du site.
