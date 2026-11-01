@@ -305,6 +305,16 @@ class RequestEmailTemplateServiceTest extends TestCase
         ]);
     }
 
+    public function testUnknownVariableWarningsRespectEachTokensEncodingExactlyOnce(): void
+    {
+        $body = 'Élise : {{%70renom_enfant}} {{ Prenom enfant }} %7B%7B%2570renom_enfant%7D%7D';
+
+        $this->assertSame(['Prenom enfant', '%70renom_enfant'], $this->service->unknownVariablesIn(
+            $this->service->findByKey(self::RECEIPT),
+            $body
+        ));
+    }
+
     public function testRestoringTheDefaultForgetsTheUnitsBody(): void
     {
         $this->service->save(self::ALERT, '<p>Nouvelle demande : {{ prenom_enfant }}</p>', 7);

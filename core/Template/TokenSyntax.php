@@ -35,12 +35,11 @@ final class TokenSyntax
      * @param string $namePattern A regex fragment matching what sits between the braces,
      *                            with exactly one capturing group's worth of meaning and none of its own.
      * @param string $modifiers   Regex modifiers, appended to every pattern built here.
-     * @param string|null $encodedNamePattern The stored spelling, when encoded bytes need wider matching.
      */
     private function __construct(
         private readonly string $namePattern,
         private readonly string $modifiers,
-        private readonly ?string $encodedNamePattern = null
+        private readonly bool $decodeBareNames = false
     ) {
     }
 
@@ -57,15 +56,22 @@ final class TokenSyntax
      */
     public static function identifiers(): self
     {
-        return new self('[a-z0-9_]+', '', '(?:[a-z0-9_]|%[a-fA-F0-9]{2})+');
+        // Percent bytes cannot be literal identifiers, so their encoded
+        // spelling has no competing name in this closed vocabulary.
+        return new self('[a-z0-9_]+', '', true);
     }
 
     /**
-     * `{{ name }}`, with any spacing, capturing the name in group 1.
+     * Candidate tokens, retaining their original opening, name and closing.
+     * Literal delimiters take precedence: percent bytes inside a literal
+     * column name must never be mistaken for encoded closing delimiters.
+     * The vocabulary is checked after decoding an actually encoded token.
      */
     public function pattern(): string
     {
-        return '/\{\{\s*(' . ($this->encodedNamePattern ?? $this->namePattern) . ')\s*\}\}/' . $this->modifiers;
+        return '/(?|(?<opening>\{\{)(?<name>[^{}]*?)(?<closing>\}\})'
+            . '|(?<opening>(?:%7[bB]|\{){2})(?<name>[^{}]*?)(?<closing>(?:%7[dD]|\}){2}))/'
+            . $this->modifiers;
     }
 
     /**
@@ -80,29 +86,15 @@ final class TokenSyntax
     }
 
     /**
-     * Decode once for lookup, never for insertion back into HTML. Unknown
-     * names may contain encoded markup or quotes; their stored spelling
-     * must stay encoded. Validation still uses the original vocabulary.
+     * Decode once for lookup when the delimiters prove encoding, or when
+     * the identifier vocabulary rules out a literal percent name entirely.
+     * A spreadsheet header such as "Code %41" is already its real name.
+     * Unknown encoded names are never inserted back into HTML.
      */
-    public function decodeName(string $storedName): ?string
+    public function decodeName(string $storedName, bool $encoded): ?string
     {
-        $name = rawurldecode($storedName);
-        // A literal spreadsheet header can contain "%FF". Decoding it
-        // must not turn valid text into invalid UTF-8 and hide the token.
-        if (!mb_check_encoding($name, 'UTF-8')) {
-            $name = $storedName;
-        }
+        $name = $encoded || $this->decodeBareNames ? rawurldecode($storedName) : $storedName;
 
         return preg_match($this->nameOnlyPattern(), $name) === 1 ? $name : null;
-    }
-
-    /**
-     * Old stored templates and pasted URLs can encode braces and spaces
-     * independently. Decode only token regions, never an entire URL.
-     * The HTML5 sanitizer preserves literal braces in new templates.
-     */
-    public function encodedPattern(): string
-    {
-        return '/(?:%7B|\{){2}(.*?)(?:%7D|\}){2}/i';
     }
 }

@@ -107,6 +107,65 @@ class MergeRendererTest extends TestCase
         );
     }
 
+    public function testLiteralPercentNamesCannotResolveAnotherColumn(): void
+    {
+        $data = ['Remise %20' => '10', 'Remise' => '20'];
+        $this->assertSame('10', $this->renderer->renderText('{{Remise %20}}', $data));
+    }
+
+    public function testLiteralPercentNamesRemainInHtmlSubstitution(): void
+    {
+        $data = ['Code %41' => '<10>', 'Code A' => '<20>'];
+        $this->assertSame('<p>&lt;10&gt;</p>', $this->renderer->renderHtml('<p>{{Code %41}}</p>', $data));
+    }
+
+    public function testLiteralPercentNamesRemainInMissingWarningsWhenTheOtherColumnIsFilled(): void
+    {
+        $this->assertSame(['Remise %20'], $this->renderer->findMissingValues(
+            '{{Remise %20}}',
+            ['Remise %20' => '', 'Remise' => '20']
+        ));
+    }
+
+    public function testLiteralPercentNamesRemainInUnknownWarningsWhenTheOtherColumnExists(): void
+    {
+        $this->assertSame(['Code %41'], $this->renderer->findUnknownTokens('{{Code %41}}', ['Code A']));
+    }
+
+    public function testALiteralPercentSectionUsesItsOwnColumnsCondition(): void
+    {
+        $this->assertSame('AB', $this->renderer->renderText(
+            'A{{#Code %41}}X{{/Code %41}}B',
+            ['Code %41' => '', 'Code A' => 'filled']
+        ));
+    }
+
+    public function testAnUnknownLiteralPercentSectionCannotUseAnotherColumn(): void
+    {
+        $template = 'A{{#Code %41}}X{{/Code %41}}B';
+        $this->assertSame($template, $this->renderer->renderText($template, ['Code A' => 'filled']));
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('percentHeaderLinks')]
+    public function testSanitizingAndRenderingPreserveTheExactPercentHeaderInALink(string $token): void
+    {
+        $stored = (new \Core\Security\HtmlSanitizer())->sanitize('<a href="' . $token . '">Ouvrir</a>');
+        $rendered = $this->renderer->renderHtml($stored, [
+            'Lien %41' => 'https://unit.example/litteral',
+            'Lien A' => 'https://unit.example/autre-colonne',
+        ]);
+        $document = \Dom\HTMLDocument::createFromString($rendered, LIBXML_NOERROR, 'UTF-8');
+
+        $this->assertSame('https://unit.example/litteral', $document->getElementsByTagName('a')[0]?->getAttribute('href'));
+    }
+
+    /** @return iterable<string, array{string}> */
+    public static function percentHeaderLinks(): iterable
+    {
+        yield 'literal HTML5 placeholder' => ['{{Lien %41}}'];
+        yield 'historical encoded placeholder' => ['%7B%7BLien%20%2541%7D%7D'];
+    }
+
     /** @param array<string, string> $data */
     #[\PHPUnit\Framework\Attributes\DataProvider('sectionRecoveryCases')]
     public function testStrayAndNestedSectionsPreserveTheEstablishedSinglePass(
@@ -146,7 +205,7 @@ class MergeRendererTest extends TestCase
             '{{#Remarque}}avant {{#Note}}interne{{/Note}} après{{/Remarque}}',
         ];
         yield 'stray opener before an encoded valid section' => [
-            '{{#Remarque}} texte {{%23%4Eote}}corps{{%2FNote}}',
+            '{{#Remarque}} texte %7B%7B%23%4Eote%7D%7Dcorps%7B%7B%2FNote%7D%7D',
             ['Remarque' => 'oui', 'Note' => 'oui'],
             '{{#Remarque}} texte corps',
         ];
@@ -312,8 +371,8 @@ class MergeRendererTest extends TestCase
         return [
             'literal' => ['{{#Prénom 1}}', '{{/Prénom 1}}'],
             'historical' => ['%7B%7B%23Pr%C3%A9nom%201%7D%7D', '%7B%7B%2FPr%C3%A9nom%201%7D%7D'],
-            'different encodings of the same name' => ['{{#Pr%C3%A9nom%201}}', '{{/Prénom 1}}'],
-            'encoded padding and markers' => ['{{%20%23%20Pr%C3%A9nom%201%20}}', '{{%20%2f%20Prénom 1%20}}'],
+            'different encodings of the same name' => ['%7B%7B#Pr%C3%A9nom%201%7D%7D', '{{/Prénom 1}}'],
+            'encoded padding and markers' => ['%7B%7B%20%23%20Pr%C3%A9nom%201%20%7D%7D', '%7B%7B%20%2f%20Prénom 1%20%7D%7D'],
         ];
     }
 
@@ -321,7 +380,8 @@ class MergeRendererTest extends TestCase
     {
         $template = '{{#Pr%C3%A9nom}}Texte{{/pr%C3%A9nom}}';
 
-        $this->assertSame($template, $this->renderer->renderHtml($template, ['Prénom' => 'Camille']));
+        $stored = str_replace(['{{', '}}'], ['%7B%7B', '%7D%7D'], $template);
+        $this->assertSame($template, $this->renderer->renderHtml($stored, ['Prénom' => 'Camille']));
     }
 
     #[\PHPUnit\Framework\Attributes\DataProvider('invalidEncodedSections')]
@@ -329,7 +389,8 @@ class MergeRendererTest extends TestCase
     {
         $template = '{{#' . $opening . '}}Texte{{/' . $closing . '}}';
 
-        $this->assertSame($template, $this->renderer->renderHtml($template, [
+        $stored = str_replace(['{{', '}}'], ['%7B%7B', '%7D%7D'], $template);
+        $this->assertSame($template, $this->renderer->renderHtml($stored, [
             'Nom' => 'Camille', 'Nom{' => 'Camille', 'Nom#' => 'Camille', 'Nom/' => 'Camille',
         ]));
     }

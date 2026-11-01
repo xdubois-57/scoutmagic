@@ -114,6 +114,32 @@ class TokenEngineTest extends TestCase
         yield 'ASCII name' => ['Taux %FFtotal'];
         yield 'accented name' => ['Coût %FFtotal'];
         yield 'incomplete UTF-8 escape' => ['Taux %C3total'];
+        yield 'literal encoded space' => ['Remise %20'];
+        yield 'literal encoded letter' => ['Code %41'];
+        yield 'literal encoded percent' => ['Taux %25'];
+        yield 'literal encoded slash' => ['Code %2Fpart'];
+        yield 'literal encoded braces' => ['Code %7Bnom%7D'];
+        yield 'literal encoded closing delimiters' => ['Code %7D%7Dsuite'];
+    }
+
+    public function testLiteralAndEncodedSpellingsKeepTheirDistinctColumnNames(): void
+    {
+        $template = '{{Code %41}} / %7B%7BCode%20%2541%7D%7D / %7B%7BCode%20A%7D%7D';
+        $values = ['Code %41' => '10', 'Code A' => '20'];
+
+        $this->assertSame('10 / 10 / 20', $this->freeText()->substitute(
+            $template,
+            static fn(string $name): ?string => $values[$name] ?? null,
+            false
+        ));
+    }
+
+    public function testALiteralPercentNameIsUnknownEvenWhenItsDecodedSpellingExists(): void
+    {
+        $this->assertSame(['Remise %20'], $this->freeText()->unknownTokens(
+            '{{Remise %20}}',
+            static fn(string $name): bool => $name === 'Remise'
+        ));
     }
 
     public function testTheNormaliserDecidesWhatIsLookedUpAndWhatIsReported(): void
@@ -144,22 +170,25 @@ class TokenEngineTest extends TestCase
     {
         $this->assertSame(
             '<a href="{{QR%201}}">x</a>',
-            $this->freeText()->decodeEncodedTokens('<a href="%7B%7BQR%201%7D%7D">x</a>')
+            $this->freeText()->substitute('<a href="%7B%7BQR%201%7D%7D">x</a>', static fn(): ?string => null, true)
         );
     }
 
     public function testMixedEncodedTokensAreRecognisedAndDecodedWithoutChangingOtherUrls(): void
     {
-        foreach (['{{%20nom%20}}', '%7B%7B nom %7D%7D', '%7b{nom}%7D'] as $token) {
+        foreach (['%7B%7B%20nom%20%7D%7D', '%7B%7B nom %7D%7D', '%7b{nom}%7D'] as $token) {
             $this->assertTrue($this->freeText()->containsToken($token));
-            $decoded = $this->freeText()->decodeEncodedTokens($token);
             $this->assertSame('Alice', $this->freeText()->substitute(
-                $decoded,
+                $token,
                 static fn(string $name): ?string => $name === 'nom' ? 'Alice' : null,
                 false
             ));
         }
-        $this->assertSame('/photo%20de%20groupe', $this->freeText()->decodeEncodedTokens('/photo%20de%20groupe'));
+        $this->assertSame('/photo%20de%20groupe', $this->freeText()->substitute(
+            '/photo%20de%20groupe',
+            static fn(): ?string => null,
+            true
+        ));
     }
 
     #[\PHPUnit\Framework\Attributes\DataProvider('encodedNames')]
@@ -167,7 +196,7 @@ class TokenEngineTest extends TestCase
     {
         $engine = $this->freeText();
         $token = '%7B%7B' . rawurlencode($name) . '%7D%7D';
-        $template = $engine->decodeEncodedTokens($token);
+        $template = $token;
 
         $this->assertSame([
             'value' => 'Camille &lt;&amp;&gt; &quot;M&quot;',
@@ -192,6 +221,7 @@ class TokenEngineTest extends TestCase
             'apostrophe' => ["Nom de l'enfant"],
             'HTML punctuation in a spreadsheet header' => ['Nom <civil> & "référence"'],
             'one decoding pass' => ['Étiquette %20'],
+            'literal percent byte after one decoding pass' => ['Taux %FFtotal'],
         ];
     }
 
@@ -200,17 +230,16 @@ class TokenEngineTest extends TestCase
         $engine = $this->freeText();
         $name = rawurlencode('"><img src=x onerror="alert(1)">');
         $template = '<a href="%7B%7B' . $name . '%7D%7D">Lien</a>';
-        $normalised = $engine->decodeEncodedTokens($template);
+        $normalised = $engine->substitute($template, static fn(): ?string => null, true);
 
         $this->assertSame('<a href="{{' . $name . '}}">Lien</a>', $normalised);
-        $this->assertSame($normalised, $engine->decodeEncodedTokens($normalised));
         $this->assertSame($normalised, $engine->substitute($normalised, static fn(string $key): ?string => null, true));
     }
 
     public function testAnEncodedIdentifierCanBeRepairedAndLookedUp(): void
     {
         $engine = $this->identifiers();
-        $template = $engine->repairTokensSplitByMarkup('{{%20pri<b>%78</b>_total%20}}');
+        $template = $engine->repairTokensSplitByMarkup('%7B%7B%20pri<b>%78</b>_total%20%7D%7D');
 
         $this->assertSame('467,50 €', $engine->substitute(
             $template,
@@ -219,13 +248,46 @@ class TokenEngineTest extends TestCase
         ));
     }
 
+    public function testAPartiallyEncodedIdentifierUsesTheClosedKeywordVocabulary(): void
+    {
+        $resolved = [];
+        $template = '{{prix%5Ftotal}}';
+        $result = $this->identifiers()->substitute($template, static function (string $name) use (&$resolved): string {
+            $resolved[] = $name;
+
+            return '467,50 €';
+        }, true);
+
+        $this->assertSame('467,50 €', $result);
+        $this->assertSame(['prix_total'], $resolved);
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('formattedPercentHeaders')]
+    public function testRepairRetainsTheEncodingOfFreeTextHeaders(string $template): void
+    {
+        $engine = $this->freeText();
+        $values = ['Code %41' => '10', 'Code A' => '20'];
+        $this->assertSame('10', $engine->substitute(
+            $engine->repairTokensSplitByMarkup($template),
+            static fn(string $name): ?string => $values[$name] ?? null,
+            false
+        ));
+    }
+
+    /** @return iterable<string, array{string}> */
+    public static function formattedPercentHeaders(): iterable
+    {
+        yield 'literal name' => ['{{Code %<b>41</b>}}'];
+        yield 'encoded name' => ['%7B%7BCode%20%25<b>41</b>%7D%7D'];
+    }
+
     #[\PHPUnit\Framework\Attributes\DataProvider('invalidEncodedNames')]
     public function testInvalidDecodedNamesStayEncodedAndAreNeverResolved(string $name): void
     {
         $engine = $this->identifiers();
         $token = '{{' . $name . '}}';
         $resolved = [];
-        $result = $engine->substitute($engine->decodeEncodedTokens($token), static function (string $key) use (&$resolved): ?string {
+        $result = $engine->substitute($token, static function (string $key) use (&$resolved): ?string {
             $resolved[] = $key;
 
             return 'Valeur inattendue';

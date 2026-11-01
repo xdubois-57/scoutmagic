@@ -5639,12 +5639,18 @@ existing "mots-clés non reconnus" warning therefore stays the net it was
 meant to be: when the repair declines, it shows on screen rather than in a
 signed contract.
 
-**Order of operations, and it is not negotiable**: sanitize → decode →
-repair → substitute. Sanitizing last would run a sanitizer over a document
+**Order of operations, and it is not negotiable**: sanitize → repair →
+look up the original tokens → substitute. Repairs retain the original
+delimiters: a free-text name is decoded only for a marker whose delimiters
+are percent-encoded, once and in memory, during lookup. A literal column named
+`Code %41` remains distinct from `Code A`; normalizing braces first would
+lose that distinction. Closed identifiers cannot contain literal percent
+bytes, so their unambiguous bare encoded spellings remain supported too.
+Decoded names never become HTML. Sanitizing last
+would run a sanitizer over a document
 that already carries renter-supplied values, and a sanitizer decides what
 markup is allowed, never whether a value should have been markup at all.
-Decoding and repairing after substitution would have nothing left to
-rescue.
+Repairing after substitution would have nothing left to rescue.
 
 **What stays with each module is its catalogue**, plus — for the
 publipostage only — the `{{#Colonne}} … {{/Colonne}}` sections, which mean

@@ -49,16 +49,6 @@ use Core\Template\TokenSyntax;
  */
 class MergeRenderer
 {
-    /**
-     * {{#Colonne}} … {{/Colonne}}. The closing marker has to name the
-     * same column, spelled the same way after one decoding pass. Neither
-     * name is decoded back into the HTML. Encoded whitespace before a
-     * marker is accepted too, as in historical URL-encoded templates.
-     */
-    private const SECTION_SPACE = '(?:\s|%20|%09|%0[a-dA-D])*';
-    private const SECTION_MARKER_PATTERN = '/\{\{' . self::SECTION_SPACE
-        . '(#|%23|\/|%2[fF])([^{}#\/]*)\}\}/u';
-
     private readonly TokenEngine $engine;
 
     public function __construct()
@@ -89,8 +79,6 @@ class MergeRenderer
      */
     public function renderHtml(string $template, array $data): string
     {
-        $template = $this->engine->decodeEncodedTokens($template);
-
         return $this->render($this->resolveSections($template, $data), $data, true);
     }
 
@@ -102,8 +90,6 @@ class MergeRenderer
      */
     public function renderText(string $template, array $data): string
     {
-        $template = $this->engine->decodeEncodedTokens($template);
-
         return $this->render($this->resolveSections($template, $data), $data, false);
     }
 
@@ -178,23 +164,25 @@ class MergeRenderer
      */
     private function sectionMarkers(string $template): array
     {
-        preg_match_all(self::SECTION_MARKER_PATTERN, $template, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE);
-        $syntax = TokenSyntax::freeText();
         $markers = [];
         $closings = [];
-        foreach ($matches as $match) {
-            $name = $syntax->decodeName($match[2][0]);
-            if ($name === null || str_contains($name, '#') || str_contains($name, '/')) {
+        foreach ($this->engine->tokens($template) as $token) {
+            $rawName = trim($token['name']);
+            $marker = substr($rawName, 0, 1);
+            if ($marker !== '#' && $marker !== '/') {
                 continue;
             }
-            $name = trim($name);
-            $opening = $match[1][0] === '#' || $match[1][0] === '%23';
+            $name = trim(substr($rawName, 1));
+            if (str_contains($name, '#') || str_contains($name, '/')) {
+                continue;
+            }
+            $opening = $marker === '#';
             $index = count($markers);
             $markers[] = [
                 'name' => $name,
                 'opening' => $opening,
-                'start' => $match[0][1],
-                'length' => strlen($match[0][0]),
+                'start' => $token['start'],
+                'length' => $token['length'],
             ];
             if (!$opening) {
                 $closings[$name][] = $index;
@@ -232,7 +220,7 @@ class MergeRenderer
         }
 
         return $this->engine->unknownTokens(
-            $this->engine->decodeEncodedTokens($template),
+            $template,
             static fn(string $name): bool => isset($known[mb_strtolower(trim($name))]),
             // A section marker names its column with a leading # or /: the
             // column is what a typo is about, so that is what gets
@@ -254,7 +242,7 @@ class MergeRenderer
         // A column used only to open a section is EXPECTED to be empty
         // for some rows — that is what the section is for — so the
         // sections are resolved first and only what survives is checked.
-        $template = $this->resolveSections($this->engine->decodeEncodedTokens($template), $data);
+        $template = $this->resolveSections($template, $data);
 
         $byLower = [];
         foreach ($data as $column => $value) {

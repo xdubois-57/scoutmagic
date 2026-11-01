@@ -26,14 +26,15 @@ namespace Core\Template;
  *
  * ORDER OF OPERATIONS, AND WHY IT IS NOT NEGOTIABLE
  * --------------------------------------------------------------------
- * sanitize → decode → repair → substitute.
+ * sanitize → repair → look up the original tokens → substitute.
  *
  * Sanitizing last would run a sanitizer over a document that already
  * carries renter-supplied values, and a sanitizer's job is to decide what
  * markup is allowed, not whether a value should have been markup at all.
- * Decoding and repairing before substitution is what makes the two rescue
- * passes below have any effect: after substitution there is no token left
- * to rescue.
+ * Repairs retain the original delimiters, so a free-text name is decoded
+ * only for an actually encoded token. Closed identifiers cannot contain
+ * literal percent bytes and can also rescue a bare encoded name. Decoding
+ * happens in memory during lookup; it never rewrites a name into HTML.
  */
 final class TokenEngine
 {
@@ -67,26 +68,7 @@ final class TokenEngine
      */
     public function containsToken(string $template): bool
     {
-        return preg_match($this->syntax->pattern(), $template) === 1
-            || preg_match($this->syntax->encodedPattern(), $template) === 1;
-    }
-
-    /**
-     * Restores encoded brace delimiters, leaving names encoded until lookup.
-     * Decoding an unknown name into HTML after sanitization could recreate
-     * markup or break out of an attribute. This pass is idempotent; names
-     * are decoded exactly once, in memory, by TokenSyntax::decodeName().
-     *
-     * See `TokenSyntax::encodedPattern()` for how a token ends up encoded
-     * in the first place.
-     */
-    public function decodeEncodedTokens(string $template): string
-    {
-        return (string) preg_replace_callback(
-            $this->syntax->encodedPattern(),
-            static fn(array $matches): string => '{{' . $matches[1] . '}}',
-            $template
-        );
+        return preg_match($this->syntax->pattern(), $template) === 1;
     }
 
     /**
@@ -139,25 +121,25 @@ final class TokenEngine
         //    an empty string would delete somebody's document rather than
         //    decline to repair it.
         $repaired = preg_replace_callback(
-            '/\{\{((?:(?!\{\{|\}\}).)*)\}\}/us',
+            $this->syntax->pattern(),
             function (array $matches): string {
-                if (!str_contains($matches[1], '<')) {
+                if (!str_contains($matches['name'], '<')) {
                     return $matches[0];
                 }
 
                 $stripped = (string) preg_replace(
                     '/<\/?(?:' . implode('|', self::INLINE_TAGS) . ')\b[^>]*>/i',
                     '',
-                    $matches[1]
+                    $matches['name']
                 );
 
                 // The trial: only a region that spells a real token's name
                 // once the markup is gone is rewritten.
-                if ($this->syntax->decodeName($stripped) === null) {
+                if ($this->syntax->decodeName($stripped, self::hasEncodedDelimiters($matches)) === null) {
                     return $matches[0];
                 }
 
-                return '{{' . $stripped . '}}';
+                return $matches['opening'] . $stripped . $matches['closing'];
             },
             $html
         );
@@ -178,20 +160,31 @@ final class TokenEngine
      */
     public function rawTokenNames(string $template): array
     {
-        $template = $this->decodeEncodedTokens($template);
-        if (preg_match_all($this->syntax->pattern(), $template, $matches) < 1) {
+        return array_column($this->tokens($template), 'name');
+    }
+
+    /**
+     * Valid tokens and their original byte positions, without rewriting HTML.
+     * Section renderers use the same name and encoding rules as substitution.
+     *
+     * @return list<array{name: string, start: int, length: int}>
+     */
+    public function tokens(string $template): array
+    {
+        if (preg_match_all($this->syntax->pattern(), $template, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE) < 1) {
             return [];
         }
 
-        $names = [];
-        foreach ($matches[1] as $storedName) {
-            $name = $this->syntax->decodeName((string) $storedName);
+        $tokens = [];
+        foreach ($matches as $match) {
+            $encoded = str_contains($match['opening'][0], '%') || str_contains($match['closing'][0], '%');
+            $name = $this->syntax->decodeName($match['name'][0], $encoded);
             if ($name !== null) {
-                $names[] = $name;
+                $tokens[] = ['name' => $name, 'start' => $match[0][1], 'length' => strlen($match[0][0])];
             }
         }
 
-        return $names;
+        return $tokens;
     }
 
     /**
@@ -253,17 +246,16 @@ final class TokenEngine
      */
     public function substitute(string $template, callable $resolve, bool $escapeHtml): string
     {
-        $template = $this->decodeEncodedTokens($template);
         $substituted = preg_replace_callback(
             $this->syntax->pattern(),
             function (array $matches) use ($resolve, $escapeHtml): string {
-                $name = $this->syntax->decodeName((string) $matches[1]);
+                $name = $this->syntax->decodeName($matches['name'], self::hasEncodedDelimiters($matches));
                 if ($name === null) {
-                    return $matches[0];
+                    return '{{' . $matches['name'] . '}}';
                 }
                 $value = $resolve(trim($name));
                 if ($value === null) {
-                    return $matches[0];
+                    return '{{' . $matches['name'] . '}}';
                 }
 
                 return $escapeHtml ? htmlspecialchars($value, ENT_QUOTES, 'UTF-8') : $value;
@@ -272,5 +264,11 @@ final class TokenEngine
         );
 
         return $substituted ?? $template;
+    }
+
+    /** @param array<array-key, string> $matches */
+    private static function hasEncodedDelimiters(array $matches): bool
+    {
+        return str_contains($matches['opening'], '%') || str_contains($matches['closing'], '%');
     }
 }
