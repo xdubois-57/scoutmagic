@@ -50,6 +50,10 @@ publier et qui la vérifie. Tant que votre zone porte l'ancienne, tous les
 messages échouent à DKIM. La dernière vérification est oubliée du même
 coup — elle décrivait une clé qui n'existe plus.
 
+DKIM exige la clé publique complète dans un unique TXT au sélecteur indiqué.
+Les fragments proposés par l’hébergeur doivent appartenir à ce même
+enregistrement.
+
 Si vous avez plusieurs relais dans vos chaînes, **le SPF doit tous les
 autoriser**. Le jour où le premier tombe, le message part par le suivant ;
 un SPF qui ne le nomme pas fait échouer exactement les messages que le

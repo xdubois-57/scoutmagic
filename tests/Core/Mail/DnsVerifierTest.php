@@ -5,10 +5,24 @@ declare(strict_types=1);
 namespace Tests\Core\Mail;
 
 use Core\Mail\DnsVerifier;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 class DnsVerifierTest extends TestCase
 {
+    // Public halves of two different RSA-2048 keys. Their shared ASN.1
+    // header is exactly why comparing the first 40 characters is unsafe.
+    private const DKIM_KEY = 'MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEApnRDjj9b4AhIw+Krb/vOavLglOLNcm8j'
+        . 'xzsHDtK9vA7ZjIuW//RtcUCjvMkPuFODO3L4FQush3/aukJM9w5ajkXYzSLRDJ5QCnV0EsYLBZfvgmDuqmfOd1G7+7dudr9'
+        . 'mD4gosC33q+BtF4tG532sOZhDIWc2WljLpxKiEKhb2Ck5GWG4MEMEYjtFuuag+IDWh/TDnCzQxn9F+xQsh0rAbd7oHTo8'
+        . 'IdNS/k+/pMs+V3cU1GxJ/cGd+Fivj4F2C41RbprU0xsyMmRcJH04ICHrgupSaT9REXq/nukqCZ9AjgwLrgOBMvxBR2Cwdt'
+        . 's4MUaBMbyFP5OjR020sO3A5UlWBwIDAQAB';
+    private const OTHER_DKIM_KEY = 'MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAmTuvSSVz1ughxWgGp2S6vkc+TYCn6LGJ'
+        . '6uMRVpGJ2qqe7/gEwHrccb7ZpmxpcAOIiZmBvQgeVEgaMlIhBvMfbHIEccm7zIYpbP4RXv30Bffjb8Gy724/GzLCVnLapc92'
+        . 'jnWyq/NHFkqcROclxTSMORvTUjT8Jk4g5lqKO+q9KZT/vM/Dkz8lu7nz1m2ZNb5nYr5ImMTF5Lfb5Db7OwTs5UlSazGrW'
+        . 'io7vtoLQkWKJueoMWnUe3+kJVmJGnBt+sfn3a7OXGylVxzJazdOKndGUMMQKQy0msLQ3ndXbfQoc9DfbuptsP7IL2dSkzl4'
+        . 'EoLFpgMLl9WsSZXHusmnXG2YTQIDAQAB';
+
     /**
      * Uses FakeDnsVerifier (no real record for this host) rather than a
      * live lookup on example.com: that domain genuinely has its own SPF/
@@ -42,6 +56,73 @@ class DnsVerifierTest extends TestCase
         $this->assertSame("v=DKIM1; k=rsa; p={$publicKey}", $result['expected']);
         $this->assertArrayHasKey('exists', $result);
         $this->assertArrayHasKey('actual', $result);
+    }
+
+    /** @param list<string> $records */
+    #[DataProvider('dkimRecords')]
+    public function testDkimRequiresTheCompleteKeyInOneValidRecord(array $records, bool $exists): void
+    {
+        $verifier = new FakeDnsVerifier(['mail._domainkey.example.com' => $records]);
+
+        $this->assertSame([
+            'exists' => $exists,
+            'expected' => 'v=DKIM1; k=rsa; p=' . self::DKIM_KEY,
+            'actual' => $records === [] ? null : implode("\n", $records),
+        ], $verifier->checkDkim('example.com', 'mail', self::DKIM_KEY));
+    }
+
+    /** @return iterable<string, array{list<string>, bool}> */
+    public static function dkimRecords(): iterable
+    {
+        $key = self::DKIM_KEY;
+        $other = self::OTHER_DKIM_KEY;
+        $record = 'v=DKIM1; k=rsa; p=' . $key;
+
+        yield 'exact key' => [[$record], true];
+        yield 'reordered tags and optional trailing separator' => [[" p = {$key} ; k = rsa ; v = DKIM1; "], true];
+        yield 'default version and key type' => [['p=' . $key], true];
+        yield 'spaces and tabs inside the public key' => [["v=DKIM1; k=rsa; p=" . chunk_split($key, 37, " \t")], true];
+        yield 'folded key and folded tags' => [["v=DKIM1;\r\n\tk=rsa; p=" . chunk_split($key, 37, "\r\n ")], true];
+        yield 'different RSA key with the same 40-character prefix' => [['v=DKIM1; k=rsa; p=' . $other], false];
+        yield 'only the shared header' => [['v=DKIM1; k=rsa; p=' . substr($key, 0, 40)], false];
+        yield 'incomplete key beyond the shared header' => [['v=DKIM1; k=rsa; p=' . substr($key, 0, -8)], false];
+        yield 'expected key is only a substring of p' => [[$record . 'AAAA'], false];
+        yield 'public keys are case sensitive' => [['v=DKIM1; k=rsa; p=' . strtolower($key)], false];
+        yield 'key occurs only in notes' => [['v=DKIM1; k=rsa; n=' . $key], false];
+        yield 'wrong key with expected key in notes' => [['v=DKIM1; k=rsa; p=' . $other . '; n=' . $key], false];
+        yield 'no record' => [[], false];
+        yield 'missing public key' => [['v=DKIM1; k=rsa'], false];
+        yield 'revoked public key' => [['v=DKIM1; k=rsa; p='], false];
+        yield 'unrelated record' => [['verification-token=example'], false];
+        yield 'wrong version' => [['v=DKIM2; k=rsa; p=' . $key], false];
+        yield 'wrong key type' => [['v=DKIM1; k=ed25519; p=' . $key], false];
+        yield 'SHA-256 explicitly allowed' => [[$record . '; h=sha256'], true];
+        yield 'SHA-256 in a hash list' => [[$record . "; h=sha1 : \tsha256"], true];
+        yield 'hash restriction excludes SHA-256' => [[$record . '; h=sha1'], false];
+        yield 'hash name must match completely' => [[$record . '; h=sha256other'], false];
+        yield 'empty hash restriction' => [[$record . '; h='], false];
+        yield 'tag names are case sensitive' => [['v=DKIM1; k=rsa; P=' . $key], false];
+        yield 'duplicate key tags' => [[$record . '; p=' . $other], false];
+        yield 'duplicate identical key tags' => [[$record . '; p=' . $key], false];
+        yield 'duplicate version tags' => [[$record . '; v=DKIM1'], false];
+        yield 'malformed tag' => [[$record . '; broken'], false];
+        yield 'empty interior tag' => [['v=DKIM1;; k=rsa; p=' . $key], false];
+        yield 'bare newline' => [["v=DKIM1; k=rsa; p=" . chunk_split($key, 37, "\n")], false];
+        yield 'two keys under the same selector' => [[$record, 'v=DKIM1; k=rsa; p=' . $other], false];
+        yield 'two identical records are still ambiguous' => [[$record, $record], false];
+        yield 'separate TXT records cannot be concatenated' => [[substr($record, 0, 200), substr($record, 200)], false];
+    }
+
+    public function testAnEmptyExpectedKeyCannotValidateAPublishedRecord(): void
+    {
+        $record = 'v=DKIM1; k=rsa; p=' . self::DKIM_KEY;
+        $verifier = new FakeDnsVerifier(['mail._domainkey.example.com' => [$record]]);
+
+        $this->assertSame([
+            'exists' => false,
+            'expected' => 'v=DKIM1; k=rsa; p=',
+            'actual' => $record,
+        ], $verifier->checkDkim('example.com', 'mail', ''));
     }
 
     public function testCheckDmarcReturnsCorrectExpectedValue(): void

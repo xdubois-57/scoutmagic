@@ -260,23 +260,54 @@ class DnsVerifier
         $host = "{$selector}._domainkey.{$domain}";
 
         $records = $this->txtRecordsOrNone($host);
-        $actual = null;
+        $actual = $records === [] ? null : implode("\n", $records);
 
-        foreach ($records as $record) {
-            if (str_contains($record, 'DKIM1') || str_contains($record, 'k=rsa')) {
-                $actual = $record;
-                break;
-            }
-        }
-
-        $exists = false;
-        if ($actual !== null) {
-            // Check if the public key is present in the record
-            $exists = str_contains(str_replace([' ', "\t"], '', $actual), $expectedPublicKey)
-                || str_contains($actual, substr($expectedPublicKey, 0, 40));
-        }
+        // RFC 6376 section 3.6.2.2 requires one TXT RR per selector. PHP already
+        // concatenates the character strings within each RR in its `txt`
+        // field; independent records must never be combined or picked from.
+        $exists = count($records) === 1
+            && $expectedPublicKey !== ''
+            && self::dkimPublicKey($actual ?? '') === $expectedPublicKey;
 
         return ['exists' => $exists, 'expected' => $expected, 'actual' => $actual];
+    }
+
+    /** Read the full p= value, rejecting ambiguous or malformed tag lists. */
+    private static function dkimPublicKey(string $record): ?string
+    {
+        // Only CRLF followed by whitespace is legal folding whitespace.
+        $unfolded = preg_replace('/\r\n[ \t]+/', ' ', $record) ?? '';
+        if (preg_match('/[\x00-\x08\x0A-\x1F\x7F]/', $unfolded)) {
+            return null;
+        }
+
+        $parts = explode(';', trim($unfolded, " \t"));
+        if (end($parts) === '') {
+            array_pop($parts);
+        }
+
+        $tags = [];
+        foreach ($parts as $part) {
+            if (!preg_match('/^([A-Za-z][A-Za-z0-9_]*)[ \t]*=[ \t]*(.*)$/D', trim($part, " \t"), $match)
+                || array_key_exists($match[1], $tags)) {
+                return null;
+            }
+            $tags[$match[1]] = trim($match[2], " \t");
+        }
+
+        // Both tags are optional; their DKIM defaults are DKIM1 and rsa.
+        if (($tags['v'] ?? 'DKIM1') !== 'DKIM1' || ($tags['k'] ?? 'rsa') !== 'rsa') {
+            return null;
+        }
+
+        // PHPMailer signs with rsa-sha256; a restricted key must allow it.
+        if (isset($tags['h']) && !in_array('sha256', array_map('trim', explode(':', $tags['h'])), true)) {
+            return null;
+        }
+
+        $key = str_replace([' ', "\t"], '', $tags['p'] ?? '');
+
+        return $key === '' ? null : $key;
     }
 
     /**
