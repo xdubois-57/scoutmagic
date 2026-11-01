@@ -118,7 +118,7 @@ jobs:
   # having proved anything.
   github-security-evidence:
     name: GitHub security alerts evidence
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
       security-events: read
@@ -232,7 +232,7 @@ jobs:
   # different answers, and only one of them is a pass.
   sonar-evidence:
     name: SonarCloud evidence
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     needs: [checks]
     env:
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
@@ -272,7 +272,7 @@ jobs:
   # only if every gate went green.
   release:
     name: Evidence pack and draft Release
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     needs: [checks, github-security-evidence, sonar-evidence]
     permissions:
       contents: write
@@ -349,7 +349,8 @@ jobs:
             evidence-test/phpunit-mysql8.xml \
             evidence-test/phpstan.txt \
             evidence-test/phpstan-files.txt \
-            evidence-database-mariadb/phpunit-mariadb.xml \
+            evidence-database-mariadb-ubuntu-24.04/phpunit-mariadb.xml \
+            evidence-database-mariadb-ubuntu-26.04/phpunit-mariadb.xml \
             evidence-javascript-tests/vitest-junit.xml \
             evidence-javascript-tests/tsc.txt \
             evidence-e2e-tests/playwright-report/index.html \

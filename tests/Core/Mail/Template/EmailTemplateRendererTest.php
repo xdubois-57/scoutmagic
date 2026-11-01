@@ -158,10 +158,8 @@ class EmailTemplateRendererTest extends TestCase
     }
 
     /**
-     * With `member` and `member_name` both declared, replacing the short
-     * one first would eat the start of the long one. Nothing core declares
-     * such a pair today, which is exactly why this is pinned with a
-     * purpose-built registry rather than left to be discovered.
+     * Shared prefixes still identify separate whole tokens. Nothing core
+     * declares such a pair today, so a purpose-built registry pins it.
      */
     public function testAVariableWhoseNameIsAPrefixOfAnotherIsNotEatenByIt(): void
     {
@@ -203,6 +201,28 @@ class EmailTemplateRendererTest extends TestCase
 
         $email = $this->renderer->render('super_admin_granted', ['site_name' => 'U']);
         self::assertStringContainsString('{{ prenom }}', $email->bodyHtml);
+    }
+
+    public function testOnlyUnknownIdentifiersAreReportedAfterDecodingTheirNamesOnce(): void
+    {
+        $this->customisationService()->customise(
+            'super_admin_granted',
+            'Sujet',
+            '<p>{{%70renom}} {{granted_by}} {{%3Cimg%3E}}</p>',
+            null
+        );
+
+        $this->renderer->render('super_admin_granted', ['granted_by' => 'Camille', 'site_name' => 'U']);
+        $this->renderer->render('super_admin_granted', ['granted_by' => 'Camille', 'site_name' => 'U']);
+        $statement = $this->pdo->prepare('SELECT context FROM event_log WHERE event_type = ?');
+        $statement->execute(['email_template_unknown_variable']);
+
+        self::assertSame([
+            ['template_id' => 'super_admin_granted', 'variables' => ['prenom']],
+        ], array_map(
+            static fn(string $context): mixed => json_decode($context, true, flags: JSON_THROW_ON_ERROR),
+            $statement->fetchAll(\PDO::FETCH_COLUMN)
+        ));
     }
 
     public function testTheTextHalfIsDerivedFromTheCustomisedHtml(): void
@@ -446,22 +466,14 @@ class EmailTemplateRendererTest extends TestCase
         self::assertStringStartsWith('Bien à vous', substr($email->bodyText, (int) strpos($email->bodyText, 'Bien à vous')));
     }
 
-    /**
-     * The call to action of half the e-mails this site sends is a link
-     * whose address IS a variable. What the editor stores is not what the
-     * administrator typed: the sanitizer serialises through DOM, and DOM
-     * percent-encodes a URL attribute — `href="%7B%7B%20login_url%20%7D%7D"`.
-     * Matched only in its literal spelling, the placeholder was never
-     * substituted, and every customised e-mail went out with its button
-     * pointing at the escaped placeholder itself.
-     */
+    /** A saved editor link must still substitute after HTML5 sanitization. */
     public function testAPlaceholderInsideALinkSurvivesTheSanitisersUrlEncoding(): void
     {
         $stored = (new HtmlSanitizer())->sanitize('<p><a href="{{ login_url }}">Se connecter</a></p>');
         self::assertStringContainsString(
-            '%7B%7B',
+            '{{ login_url }}',
             $stored,
-            'Precondition: this test is about what the sanitizer does to a placeholder in an href.'
+            'HTML5 parsing must preserve the token in a link target.'
         );
 
         $this->overrides->save('super_admin_granted', 'Sujet', $stored, null);
@@ -474,6 +486,86 @@ class EmailTemplateRendererTest extends TestCase
 
         self::assertStringContainsString('href="https://u.example/login"', $email->bodyHtml);
         self::assertStringNotContainsString('%7B%7B', $email->bodyHtml);
+    }
+
+    public function testPartiallyEncodedAndHistoricalLinkVariablesStillSubstitute(): void
+    {
+        foreach (['{{%20login_url%20}}', '%7B%7B login_url %7D%7D', '%7b%7blogin_url%7d%7d'] as $token) {
+            $this->overrides->save('super_admin_granted', 'Sujet', '<a href="' . $token . '">Lien</a>', null);
+            $email = $this->renderer->render('super_admin_granted', [
+                'site_name' => 'U', 'granted_by' => 'akela@example.be', 'login_url' => 'https://u.example/login',
+            ]);
+            self::assertStringContainsString('href="https://u.example/login"', $email->bodyHtml);
+        }
+    }
+
+    public function testAValueIsNotInterpretedAsAnotherDeclaredPlaceholder(): void
+    {
+        $this->customisationService()->customise('super_admin_granted', 'Sujet {{granted_by}}', '<p>{{granted_by}}</p>', null);
+
+        $email = $this->renderer->render('super_admin_granted', [
+            'site_name' => 'Unité distincte',
+            'granted_by' => '{{login_url}}',
+            'login_url' => 'https://u.example/a-ne-pas-inserer',
+        ]);
+
+        self::assertSame('Sujet {{login_url}}', $email->subject);
+        self::assertStringContainsString('<p>{{login_url}}</p>', $email->bodyHtml);
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('encodedUnknownVariables')]
+    public function testASanitisedCustomisationCannotRecreateEncodedMarkup(
+        string $opening,
+        string $closing,
+        bool $inAttribute
+    ): void {
+        $payload = $inAttribute ? '" onmouseover="alert(1)' : '<img src="codex-token-payload" onerror="alert(1)">';
+        $encoded = rawurlencode($payload);
+        $token = $opening . $encoded . $closing;
+        $body = $inAttribute ? '<a href="' . $token . '">Lien</a>' : '<p>' . $token . '</p>';
+        $body .= '<p>{{%20granted_by%20}}</p>';
+        $this->customisationService()->customise('super_admin_granted', 'Sujet', $body, null);
+
+        $sentinel = 'Valeur du corps & uniquement du corps';
+        $email = $this->renderer->render('super_admin_granted', [
+            'site_name' => 'Unité de test distincte',
+            'granted_by' => $sentinel,
+        ]);
+        $document = \Dom\HTMLDocument::createFromString($email->bodyHtml, LIBXML_NOERROR, 'UTF-8');
+        $unsafe = [];
+        foreach ($document->getElementsByTagName('*') as $element) {
+            if ($element->getAttribute('src') === 'codex-token-payload') {
+                $unsafe[] = $element->tagName;
+            }
+            foreach ($element->attributes as $attribute) {
+                if (str_starts_with(strtolower($attribute->name), 'on')) {
+                    $unsafe[] = $attribute->name;
+                }
+            }
+        }
+
+        self::assertSame([
+            'unsafe_markup' => [],
+            'unknown_stays_encoded' => true,
+            'declared_value_in_body' => 1,
+        ], [
+            'unsafe_markup' => $unsafe,
+            'unknown_stays_encoded' => str_contains($email->bodyHtml, '{{' . $encoded . '}}'),
+            'declared_value_in_body' => substr_count($email->bodyHtml, htmlspecialchars($sentinel, ENT_QUOTES, 'UTF-8')),
+        ]);
+    }
+
+    /** @return array<string, array{string, string, bool}> */
+    public static function encodedUnknownVariables(): array
+    {
+        $cases = [];
+        foreach ([['{{', '}}'], ['%7B%7B', '%7D%7D'], ['%7b{', '}%7d']] as $index => [$opening, $closing]) {
+            foreach ([false, true] as $inAttribute) {
+                $cases[$index . ($inAttribute ? ' attribute' : ' body')] = [$opening, $closing, $inAttribute];
+            }
+        }
+
+        return $cases;
     }
 
     public function testAnUnknownTemplateIdIsARefusalRatherThanAnEmptyMessage(): void

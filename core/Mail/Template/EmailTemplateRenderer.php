@@ -9,6 +9,8 @@ declare(strict_types=1);
 namespace Core\Mail\Template;
 
 use Core\Journal\JournalService;
+use Core\Template\TokenEngine;
+use Core\Template\TokenSyntax;
 use Twig\Environment;
 
 /**
@@ -198,9 +200,9 @@ class EmailTemplateRenderer
      * as it is: a subject line is not markup, and `&amp;` in one is a
      * mistake rather than an escape.
      *
-     * **Longest name first**, which is not a nicety: with `member` and
-     * `member_name` both declared, replacing the short one first eats the
-     * start of the long one and leaves `Akéla_name` in the message.
+     * Names are decoded only for lookup. A single substitution pass leaves
+     * an unknown encoded name inert and never interprets a value as another
+     * placeholder.
      *
      * A `{{ … }}` naming something the registry does not declare is left
      * exactly as written — an administrator sees their own text back
@@ -212,14 +214,8 @@ class EmailTemplateRenderer
      */
     private function substitute(EmailTemplate $template, string $text, array $context, bool $intoHtml): string
     {
-        $variables = $template->variables;
-        usort(
-            $variables,
-            static fn (EmailTemplateVariable $a, EmailTemplateVariable $b): int
-                => strlen($b->name) <=> strlen($a->name)
-        );
-
-        foreach ($variables as $variable) {
+        $values = [];
+        foreach ($template->variables as $variable) {
             $raw = $context[$variable->name] ?? null;
             if ($raw !== null && !is_scalar($raw)) {
                 continue;
@@ -230,45 +226,17 @@ class EmailTemplateRenderer
                 $value = nl2br(htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'), false);
             }
 
-            foreach (self::placeholdersFor($variable->name) as $placeholder) {
-                $text = str_replace($placeholder, $value, $text);
-            }
+            $values[$variable->name] = $value;
         }
 
         $this->reportUndeclared($template, $text);
 
-        return $text;
-    }
-
-    /**
-     * Every spelling a placeholder can reasonably arrive in.
-     *
-     * The two obvious ones are what the insertion button writes
-     * (`{{ name }}`) and what somebody typing it by hand produces
-     * (`{{name}}`). The percent-encoded twins are not obvious at all, and
-     * they are the ones that mattered: a placeholder written inside a
-     * link — « Suivre ma demande », the call to action of half the e-mails
-     * this site sends — is stored as
-     * `href="%7B%7B%20tracking_url%20%7D%7D"`, because the sanitizer
-     * serialises through DOM and DOM encodes a URL attribute. Matching
-     * only the literal spelling left that button pointing at the escaped
-     * placeholder itself, in every customised e-mail, with nothing on the
-     * page to suggest anything was wrong.
-     *
-     * Both hex cases, because the encoder's choice is not ours to assume.
-     *
-     * @return list<string>
-     */
-    private static function placeholdersFor(string $name): array
-    {
-        $spellings = [];
-        foreach (['{{ ' . $name . ' }}', '{{' . $name . '}}'] as $literal) {
-            $spellings[] = $literal;
-            $spellings[] = str_replace(['{', '}', ' '], ['%7B', '%7D', '%20'], $literal);
-            $spellings[] = str_replace(['{', '}', ' '], ['%7b', '%7d', '%20'], $literal);
-        }
-
-        return $spellings;
+        // HTML values above are already escaped, including their line breaks.
+        return (new TokenEngine(TokenSyntax::identifiers()))->substitute(
+            $text,
+            static fn(string $name): ?string => $values[$name] ?? null,
+            false
+        );
     }
 
     private function reportUndeclared(EmailTemplate $template, string $text): void
@@ -277,11 +245,14 @@ class EmailTemplateRenderer
             return;
         }
 
-        if (preg_match_all('/\{\{\s*([a-z][a-z0-9_]*)\s*\}\}/', $text, $matches) < 1) {
-            return;
+        $declared = [];
+        foreach ($template->variables as $variable) {
+            $declared[$variable->name] = true;
         }
-
-        $unknown = array_values(array_unique($matches[1]));
+        $unknown = (new TokenEngine(TokenSyntax::identifiers()))->unknownTokens(
+            $text,
+            static fn(string $name): bool => isset($declared[$name]) || preg_match('/^[a-z][a-z0-9_]*$/', $name) !== 1
+        );
         if ($unknown === []) {
             return;
         }

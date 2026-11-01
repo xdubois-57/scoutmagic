@@ -38,7 +38,8 @@ final class TokenSyntax
      */
     private function __construct(
         private readonly string $namePattern,
-        private readonly string $modifiers
+        private readonly string $modifiers,
+        private readonly bool $decodeBareNames = false
     ) {
     }
 
@@ -55,15 +56,22 @@ final class TokenSyntax
      */
     public static function identifiers(): self
     {
-        return new self('[a-z0-9_]+', '');
+        // Percent bytes cannot be literal identifiers, so their encoded
+        // spelling has no competing name in this closed vocabulary.
+        return new self('[a-z0-9_]+', '', true);
     }
 
     /**
-     * `{{ name }}`, with any spacing, capturing the name in group 1.
+     * Candidate tokens, retaining their original opening, name and closing.
+     * Literal delimiters take precedence: percent bytes inside a literal
+     * column name must never be mistaken for encoded closing delimiters.
+     * The vocabulary is checked after decoding an actually encoded token.
      */
     public function pattern(): string
     {
-        return '/\{\{\s*(' . $this->namePattern . ')\s*\}\}/' . $this->modifiers;
+        return '/(?|(?<opening>\{\{)(?<name>[^{}]*?)(?<closing>\}\})'
+            . '|(?<opening>(?:%7[bB]|\{){2})(?<name>[^{}]*?)(?<closing>(?:%7[dD]|\}){2}))/'
+            . $this->modifiers;
     }
 
     /**
@@ -78,22 +86,15 @@ final class TokenSyntax
     }
 
     /**
-     * A token that ended up inside an `href` or a `src` comes back
-     * percent-encoded: the rich-text sanitizer parses the body with
-     * DOMDocument, which URL-encodes every URI attribute on the way out,
-     * so `{{QR 1}}` is stored as `%7B%7BQR%201%7D%7D`. Left alone, the
-     * variable would simply never substitute and the recipient would get a
-     * broken link — silently, which is the worst of both. Recognised here
-     * rather than "fixed" in the sanitizer, whose encoding is correct for
-     * every other URL it handles.
-     *
-     * Deliberately not parameterised by the name pattern: what has to be
-     * recognised is the encoding, and a name that decodes to something the
-     * catalogue does not know is reported as unknown afterwards like any
-     * other.
+     * Decode once for lookup when the delimiters prove encoding, or when
+     * the identifier vocabulary rules out a literal percent name entirely.
+     * A spreadsheet header such as "Code %41" is already its real name.
+     * Unknown encoded names are never inserted back into HTML.
      */
-    public function encodedPattern(): string
+    public function decodeName(string $storedName, bool $encoded): ?string
     {
-        return '/%7B%7B(.*?)%7D%7D/i';
+        $name = $encoded || $this->decodeBareNames ? rawurldecode($storedName) : $storedName;
+
+        return preg_match($this->nameOnlyPattern(), $name) === 1 ? $name : null;
     }
 }

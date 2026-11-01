@@ -509,7 +509,7 @@ class MailService
             if (Transport\MailFailure::classify($reason) === Transport\MailFailure::Recipient) {
                 $this->journalFailure($reason);
 
-                throw new MailException($reason);
+                throw new MailException($reason, attemptFailures: $e->attemptFailures);
             }
 
             $payload = $this->payloadFor(
@@ -534,7 +534,10 @@ class MailService
 
             $this->journalFailure($reason);
 
-            throw new MailException(MailErrorRedaction::withoutAddresses($e->getMessage()));
+            throw new MailException(
+                MailErrorRedaction::withoutAddresses($e->getMessage()),
+                attemptFailures: $e->attemptFailures
+            );
         } catch (\Exception $e) {
             $reason = $mail->ErrorInfo ?: $e->getMessage();
             $this->journalFailure($reason);
