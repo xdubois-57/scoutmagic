@@ -89,6 +89,33 @@ class TokenEngineTest extends TestCase
         $this->assertSame(['prix_ttc', 'tva'], $unknown);
     }
 
+    #[\PHPUnit\Framework\Attributes\DataProvider('literalPercentNames')]
+    public function testLiteralPercentBytesRemainInUnknownFreeTextDiagnostics(string $name): void
+    {
+        $this->assertSame(
+            [$name],
+            $this->freeText()->unknownTokens('{{' . $name . '}}', static fn(string $key): bool => false)
+        );
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('literalPercentNames')]
+    public function testLiteralPercentBytesCanNameAFreeTextValue(string $name): void
+    {
+        $this->assertSame('42', $this->freeText()->substitute(
+            '{{' . $name . '}}',
+            static fn(string $key): ?string => $key === $name ? '42' : null,
+            false
+        ));
+    }
+
+    /** @return iterable<string, array{string}> */
+    public static function literalPercentNames(): iterable
+    {
+        yield 'ASCII name' => ['Taux %FFtotal'];
+        yield 'accented name' => ['Coût %FFtotal'];
+        yield 'incomplete UTF-8 escape' => ['Taux %C3total'];
+    }
+
     public function testTheNormaliserDecidesWhatIsLookedUpAndWhatIsReported(): void
     {
         $unknown = $this->freeText()->unknownTokens(

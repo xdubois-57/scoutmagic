@@ -56,8 +56,8 @@ class MergeRenderer
      * marker is accepted too, as in historical URL-encoded templates.
      */
     private const SECTION_SPACE = '(?:\s|%20|%09|%0[a-dA-D])*';
-    private const SECTION_PATTERN = '/\{\{' . self::SECTION_SPACE . '(?:#|%23)\s*([^{}#\/]*?)\s*\}\}(.*?)\{\{'
-        . self::SECTION_SPACE . '(?:\/|%2[fF])\s*([^{}#\/]*?)\s*\}\}/us';
+    private const SECTION_MARKER_PATTERN = '/\{\{' . self::SECTION_SPACE
+        . '(#|%23|\/|%2[fF])([^{}#\/]*)\}\}/u';
 
     private readonly TokenEngine $engine;
 
@@ -125,25 +125,94 @@ class MergeRenderer
             $byLower[mb_strtolower(trim((string) $column))] = $value;
         }
 
-        return (string) preg_replace_callback(
-            self::SECTION_PATTERN,
-            static function (array $matches) use ($byLower): string {
-                $syntax = TokenSyntax::freeText();
-                $opening = $syntax->decodeName($matches[1]);
-                $closing = $syntax->decodeName($matches[3]);
-                if ($opening === null || $closing === null || trim($opening) !== trim($closing)
-                    || str_contains($opening, '#') || str_contains($opening, '/')) {
-                    return $matches[0];
-                }
-                $key = mb_strtolower(trim($opening));
-                if (!array_key_exists($key, $byLower)) {
-                    return $matches[0];
-                }
+        [$markers, $closingIndexes] = $this->sectionMarkers($template);
+        $closingPositions = [];
+        $cursor = 0;
+        $rendered = '';
+        $count = count($markers);
+        for ($index = 0; $index < $count; $index++) {
+            $opening = $markers[$index];
+            if (!$opening['opening']) {
+                continue;
+            }
+            $name = $opening['name'];
+            $closings = $closingIndexes[$name] ?? [];
+            $position = $closingPositions[$name] ?? 0;
+            while (isset($closings[$position]) && $closings[$position] <= $index) {
+                $position++;
+            }
+            $closingPositions[$name] = $position;
+            $closingIndex = $closings[$position] ?? null;
+            if ($closingIndex === null) {
+                // Leave a stray opener visible, then try the next opener.
+                continue;
+            }
+            $closingPositions[$name] = $position + 1;
+            $closing = $markers[$closingIndex];
+            $bodyStart = $opening['start'] + $opening['length'];
+            $end = $closing['start'] + $closing['length'];
+            $rendered .= substr($template, $cursor, $opening['start'] - $cursor);
+            $rendered .= $this->resolveSection(
+                substr($template, $opening['start'], $end - $opening['start']),
+                substr($template, $bodyStart, $closing['start'] - $bodyStart),
+                $name,
+                $byLower
+            );
+            $cursor = $end;
+            // The outer section owns its whole body: never resolve inner
+            // section markers in a second pass through the same block.
+            $index = $closingIndex;
+        }
 
-                return trim($byLower[$key]) !== '' ? $matches[2] : '';
-            },
-            $template
-        );
+        return $rendered . substr($template, $cursor);
+    }
+
+    /**
+     * Names are decoded only as lookup keys; output always uses stored bytes.
+     * Indexing closing markers avoids repeatedly scanning an unmatched tail.
+     *
+     * @return array{
+     *   list<array{name: string, opening: bool, start: int, length: int}>,
+     *   array<array-key, list<int>>
+     * }
+     */
+    private function sectionMarkers(string $template): array
+    {
+        preg_match_all(self::SECTION_MARKER_PATTERN, $template, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE);
+        $syntax = TokenSyntax::freeText();
+        $markers = [];
+        $closings = [];
+        foreach ($matches as $match) {
+            $name = $syntax->decodeName($match[2][0]);
+            if ($name === null || str_contains($name, '#') || str_contains($name, '/')) {
+                continue;
+            }
+            $name = trim($name);
+            $opening = $match[1][0] === '#' || $match[1][0] === '%23';
+            $index = count($markers);
+            $markers[] = [
+                'name' => $name,
+                'opening' => $opening,
+                'start' => $match[0][1],
+                'length' => strlen($match[0][0]),
+            ];
+            if (!$opening) {
+                $closings[$name][] = $index;
+            }
+        }
+
+        return [$markers, $closings];
+    }
+
+    /** @param array<array-key, string> $byLower */
+    private function resolveSection(string $section, string $body, string $name, array $byLower): string
+    {
+        $key = mb_strtolower($name);
+        if (!array_key_exists($key, $byLower)) {
+            return $section;
+        }
+
+        return trim($byLower[$key]) !== '' ? $body : '';
     }
 
     /**

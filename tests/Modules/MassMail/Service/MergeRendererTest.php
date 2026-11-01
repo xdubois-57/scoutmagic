@@ -99,6 +99,59 @@ class MergeRendererTest extends TestCase
         $this->assertSame(['Montant'], $missing);
     }
 
+    public function testLiteralPercentBytesRemainInMissingValueWarnings(): void
+    {
+        $this->assertSame(
+            ['Taux %FFtotal'],
+            $this->renderer->findMissingValues('{{Taux %FFtotal}}', ['Taux %FFtotal' => ''])
+        );
+    }
+
+    /** @param array<string, string> $data */
+    #[\PHPUnit\Framework\Attributes\DataProvider('sectionRecoveryCases')]
+    public function testStrayAndNestedSectionsPreserveTheEstablishedSinglePass(
+        string $template,
+        array $data,
+        string $expected
+    ): void {
+        $this->assertSame($expected, $this->renderer->renderHtml($template, $data));
+    }
+
+    /** @return iterable<string, array{string, array<string, string>, string}> */
+    public static function sectionRecoveryCases(): iterable
+    {
+        yield 'stray opener before a filled section' => [
+            '{{#Remarque}} texte {{#Note}}corps{{/Note}}',
+            ['Remarque' => 'oui', 'Note' => 'oui'],
+            '{{#Remarque}} texte corps',
+        ];
+        yield 'stray opener before an empty section' => [
+            '{{#Remarque}} texte {{#Note}}corps{{/Note}}',
+            ['Remarque' => 'oui', 'Note' => ''],
+            '{{#Remarque}} texte ',
+        ];
+        yield 'nested markers remain literal inside a filled outer section' => [
+            '{{#Remarque}}avant {{#Note}}interne{{/Note}} après{{/Remarque}}',
+            ['Remarque' => 'oui', 'Note' => 'oui'],
+            'avant {{#Note}}interne{{/Note}} après',
+        ];
+        yield 'empty outer section drops the complete nested block' => [
+            '{{#Remarque}}avant {{#Note}}interne{{/Note}} après{{/Remarque}}',
+            ['Remarque' => '', 'Note' => 'oui'],
+            '',
+        ];
+        yield 'unknown outer section keeps its whole block' => [
+            '{{#Remarque}}avant {{#Note}}interne{{/Note}} après{{/Remarque}}',
+            ['Note' => 'oui'],
+            '{{#Remarque}}avant {{#Note}}interne{{/Note}} après{{/Remarque}}',
+        ];
+        yield 'stray opener before an encoded valid section' => [
+            '{{#Remarque}} texte {{%23%4Eote}}corps{{%2FNote}}',
+            ['Remarque' => 'oui', 'Note' => 'oui'],
+            '{{#Remarque}} texte corps',
+        ];
+    }
+
     // ── sections: {{#Colonne}} … {{/Colonne}} ───────────────────────────
 
     /**

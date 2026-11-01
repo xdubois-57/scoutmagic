@@ -87,6 +87,11 @@ final class TokenSyntax
     public function decodeName(string $storedName): ?string
     {
         $name = rawurldecode($storedName);
+        // A literal spreadsheet header can contain "%FF". Decoding it
+        // must not turn valid text into invalid UTF-8 and hide the token.
+        if (!mb_check_encoding($name, 'UTF-8')) {
+            $name = $storedName;
+        }
 
         return preg_match($this->nameOnlyPattern(), $name) === 1 ? $name : null;
     }

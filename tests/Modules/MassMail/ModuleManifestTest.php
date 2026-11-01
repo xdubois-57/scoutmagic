@@ -84,14 +84,12 @@ class ModuleManifestTest extends TestCase
     }
 
     /**
-     * 1.19.0: a message per address, a target per member, a notification
-     * per account (issue #999). The bump is what users see change — the
-     * tracking counts messages, the member page counts communications — and
-     * pinning it here is what makes the next change decide its own.
+     * 1.19.1 restores section pairing and literal percent-byte column names
+     * across HTML parsers. Pin the compatibility fix users receive.
      */
-    public function testTheVersionNamesTheMessageTargetSplit(): void
+    public function testTheVersionNamesTheTemplateCompatibilityFixes(): void
     {
-        $this->assertSame('1.19.0', $this->manifest->version);
+        $this->assertSame('1.19.1', $this->manifest->version);
     }
 
     /**
