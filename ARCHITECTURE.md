@@ -4656,6 +4656,14 @@ record the site has nothing to publish for (no DKIM key, no DMARC report
 asked for) is not missing. Mail still leaves while a record is absent,
 which is why this one is not in `MAIL_KEYS`.
 
+DKIM validation compares the complete, case-sensitive `p=` tag with the
+site's public key, after removing legal folding whitespace. Tag order is
+irrelevant; duplicate or malformed tags and unsupported version/key type
+are rejected. Exactly one TXT RR must exist at the selector (RFC 6376
+§3.6.2.2): PHP joins the character strings within that RR, but separate
+records are never combined or selected from. The setup wizard, manual DNS
+check and daily reading share this verifier (#1052).
+
 **A lane running out is journaled as `security` on the authentication
 lane and `info` on the other two** (`mail_lane_exhausted`). The gap
 between those two words is the gap between an inconvenience and an
