@@ -32,6 +32,7 @@ final class DecisionEmail
     public const FAILURE_MAIL_TRANSPORT = 'mail_transport';
     /** A send was claimed and never reported back — a process that died mid-send. */
     public const FAILURE_INTERRUPTED = 'interrupted';
+    public const FAILURE_MAIL_TEMPORARY = 'mail_temporary';
 
     /** « Annulé suite à un changement de décision » (D8). */
     public const CANCEL_DECISION_CHANGED = 'decision_changed';
@@ -48,6 +49,7 @@ final class DecisionEmail
         self::FAILURE_BODY_NOT_WRITTEN,
         self::FAILURE_MAIL_TRANSPORT,
         self::FAILURE_INTERRUPTED,
+        self::FAILURE_MAIL_TEMPORARY,
     ];
 
     public function __construct(
@@ -66,7 +68,9 @@ final class DecisionEmail
         public readonly ?\DateTimeImmutable $cancelledAt,
         public readonly ?string $cancelReason,
         public readonly ?\DateTimeImmutable $supersededAt,
-        public readonly \DateTimeImmutable $createdAt
+        public readonly \DateTimeImmutable $createdAt,
+        public readonly bool $automaticAttempt = false,
+        public readonly int $automaticRetryCount = 0
     ) {
     }
 

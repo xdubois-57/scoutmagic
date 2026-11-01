@@ -144,6 +144,9 @@ class RegistrationTestHelper
             cancel_reason TEXT,
             superseded_at TEXT,
             active_request_id INTEGER UNIQUE,
+            automatic_attempt INTEGER NOT NULL DEFAULT 0,
+            automatic_retry_count INTEGER NOT NULL DEFAULT 0,
+            recovery_processed_at TEXT,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (registration_request_id) REFERENCES registration_requests(id) ON DELETE CASCADE
