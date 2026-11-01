@@ -8,7 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\OfficialDocuments\Pdf;
 
-use setasign\Fpdi\Tfpdf\Fpdi;
+use Core\Pdf\UnicodePdf;
 
 /**
  * The engine both official documents are produced with: the federation's own
@@ -22,7 +22,8 @@ use setasign\Fpdi\Tfpdf\Fpdi;
  * take the generation down — on a document their parents are asked to sign.
  * tFPDF writes UTF-8 through an embedded TrueType subset; the font is
  * DejaVu Sans, which `setasign/tfpdf` ships in its own `font/unifont/`
- * directory, so there is nothing to vendor and nothing to configure.
+ * directory. UnicodePdf resolves the font in the current installation even
+ * when the metrics cache was copied from another machine or directory.
  *
  * Two properties worth stating because they are easy to lose:
  *
@@ -37,7 +38,7 @@ use setasign\Fpdi\Tfpdf\Fpdi;
  *   governs `Core\Pdf\DocumentPdfService`, which is a dompdf engine —
  *   would print « L&#039;Hoëst » on the form.
  */
-final class OverlayPdf extends Fpdi
+final class OverlayPdf extends UnicodePdf
 {
     /** The one family this module writes in. */
     public const FONT_FAMILY = 'DejaVuSans';
@@ -64,7 +65,7 @@ final class OverlayPdf extends Fpdi
         $this->SetAutoPageBreak(false);
         $this->SetMargins(0, 0, 0);
         $this->SetCompression(true);
-        $this->AddFont(self::FONT_FAMILY, '', 'DejaVuSans.ttf', true);
+        $this->addUnicodeFont(self::FONT_FAMILY, 'DejaVuSans.ttf');
         $this->SetTextColor(0, 0, 0);
         $this->SetDrawColor(0, 0, 0);
     }
