@@ -29,6 +29,7 @@ use Tests\DatabaseTestHelper;
 final class DecisionEmailRetryPolicyTransportTest extends TestCase
 {
     #[DataProvider('providerFailures')]
+    #[\PHPUnit\Framework\Attributes\Group('database')]
     public function testEveryAttemptMustBeAConfirmedTemporaryRefusal(
         string $firstReason,
         string $lastReason,
