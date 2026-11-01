@@ -99,6 +99,118 @@ class MergeRendererTest extends TestCase
         $this->assertSame(['Montant'], $missing);
     }
 
+    public function testLiteralPercentBytesRemainInMissingValueWarnings(): void
+    {
+        $this->assertSame(
+            ['Taux %FFtotal'],
+            $this->renderer->findMissingValues('{{Taux %FFtotal}}', ['Taux %FFtotal' => ''])
+        );
+    }
+
+    public function testLiteralPercentNamesCannotResolveAnotherColumn(): void
+    {
+        $data = ['Remise %20' => '10', 'Remise' => '20'];
+        $this->assertSame('10', $this->renderer->renderText('{{Remise %20}}', $data));
+    }
+
+    public function testLiteralPercentNamesRemainInHtmlSubstitution(): void
+    {
+        $data = ['Code %41' => '<10>', 'Code A' => '<20>'];
+        $this->assertSame('<p>&lt;10&gt;</p>', $this->renderer->renderHtml('<p>{{Code %41}}</p>', $data));
+    }
+
+    public function testLiteralPercentNamesRemainInMissingWarningsWhenTheOtherColumnIsFilled(): void
+    {
+        $this->assertSame(['Remise %20'], $this->renderer->findMissingValues(
+            '{{Remise %20}}',
+            ['Remise %20' => '', 'Remise' => '20']
+        ));
+    }
+
+    public function testLiteralPercentNamesRemainInUnknownWarningsWhenTheOtherColumnExists(): void
+    {
+        $this->assertSame(['Code %41'], $this->renderer->findUnknownTokens('{{Code %41}}', ['Code A']));
+    }
+
+    public function testALiteralPercentSectionUsesItsOwnColumnsCondition(): void
+    {
+        $this->assertSame('AB', $this->renderer->renderText(
+            'A{{#Code %41}}X{{/Code %41}}B',
+            ['Code %41' => '', 'Code A' => 'filled']
+        ));
+    }
+
+    public function testAnUnknownLiteralPercentSectionCannotUseAnotherColumn(): void
+    {
+        $template = 'A{{#Code %41}}X{{/Code %41}}B';
+        $this->assertSame($template, $this->renderer->renderText($template, ['Code A' => 'filled']));
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('percentHeaderLinks')]
+    public function testSanitizingAndRenderingPreserveTheExactPercentHeaderInALink(string $token): void
+    {
+        $stored = (new \Core\Security\HtmlSanitizer())->sanitize('<a href="' . $token . '">Ouvrir</a>');
+        $rendered = $this->renderer->renderHtml($stored, [
+            'Lien %41' => 'https://unit.example/litteral',
+            'Lien A' => 'https://unit.example/autre-colonne',
+        ]);
+        $document = \Dom\HTMLDocument::createFromString($rendered, LIBXML_NOERROR, 'UTF-8');
+
+        $this->assertSame('https://unit.example/litteral', $document->getElementsByTagName('a')[0]?->getAttribute('href'));
+    }
+
+    /** @return iterable<string, array{string}> */
+    public static function percentHeaderLinks(): iterable
+    {
+        yield 'literal HTML5 placeholder' => ['{{Lien %41}}'];
+        yield 'historical encoded placeholder' => ['%7B%7BLien%20%2541%7D%7D'];
+    }
+
+    /** @param array<string, string> $data */
+    #[\PHPUnit\Framework\Attributes\DataProvider('sectionRecoveryCases')]
+    public function testStrayAndNestedSectionsPreserveTheEstablishedSinglePass(
+        string $template,
+        array $data,
+        string $expected
+    ): void {
+        $this->assertSame($expected, $this->renderer->renderHtml($template, $data));
+    }
+
+    /** @return iterable<string, array{string, array<string, string>, string}> */
+    public static function sectionRecoveryCases(): iterable
+    {
+        yield 'stray opener before a filled section' => [
+            '{{#Remarque}} texte {{#Note}}corps{{/Note}}',
+            ['Remarque' => 'oui', 'Note' => 'oui'],
+            '{{#Remarque}} texte corps',
+        ];
+        yield 'stray opener before an empty section' => [
+            '{{#Remarque}} texte {{#Note}}corps{{/Note}}',
+            ['Remarque' => 'oui', 'Note' => ''],
+            '{{#Remarque}} texte ',
+        ];
+        yield 'nested markers remain literal inside a filled outer section' => [
+            '{{#Remarque}}avant {{#Note}}interne{{/Note}} après{{/Remarque}}',
+            ['Remarque' => 'oui', 'Note' => 'oui'],
+            'avant {{#Note}}interne{{/Note}} après',
+        ];
+        yield 'empty outer section drops the complete nested block' => [
+            '{{#Remarque}}avant {{#Note}}interne{{/Note}} après{{/Remarque}}',
+            ['Remarque' => '', 'Note' => 'oui'],
+            '',
+        ];
+        yield 'unknown outer section keeps its whole block' => [
+            '{{#Remarque}}avant {{#Note}}interne{{/Note}} après{{/Remarque}}',
+            ['Note' => 'oui'],
+            '{{#Remarque}}avant {{#Note}}interne{{/Note}} après{{/Remarque}}',
+        ];
+        yield 'stray opener before an encoded valid section' => [
+            '{{#Remarque}} texte %7B%7B%23%4Eote%7D%7Dcorps%7B%7B%2FNote%7D%7D',
+            ['Remarque' => 'oui', 'Note' => 'oui'],
+            '{{#Remarque}} texte corps',
+        ];
+    }
+
     // ── sections: {{#Colonne}} … {{/Colonne}} ───────────────────────────
 
     /**
@@ -227,5 +339,70 @@ class MergeRendererTest extends TestCase
             ['QR 1'],
             $this->renderer->findUnknownTokens('<img src="%7B%7BQR%201%7D%7D">', ['Prénom'])
         );
+    }
+
+    public function testAnUnknownEncodedNameCannotUndoSanitization(): void
+    {
+        $encoded = rawurlencode('<img src=x onerror="alert(1)">');
+        $stored = (new \Core\Security\HtmlSanitizer())->sanitize('<p>{{' . $encoded . '}}</p>');
+
+        $this->assertSame('<p>{{' . $encoded . '}}</p>', $this->renderer->renderHtml($stored, []));
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('encodedSections')]
+    public function testEncodedSectionsKeepTheirConditionsAndResolveNamesInMemory(string $opening, string $closing): void
+    {
+        $template = '{{Autre}} ' . $opening . '<p>{{Nom}}</p>' . $closing;
+
+        $this->assertSame([
+            'filled' => '{{Autre}} <p>Élise &lt;&amp;&gt;</p>',
+            'empty' => '{{Autre}} ',
+            'missing' => [],
+        ], [
+            'filled' => $this->renderer->renderHtml($template, ['Prénom 1' => 'Camille', 'Nom' => 'Élise <&>']),
+            'empty' => $this->renderer->renderHtml($template, ['Prénom 1' => '', 'Nom' => 'Élise <&>']),
+            'missing' => $this->renderer->findMissingValues($template, ['Prénom 1' => '', 'Nom' => '']),
+        ]);
+    }
+
+    /** @return array<string, array{string, string}> */
+    public static function encodedSections(): array
+    {
+        return [
+            'literal' => ['{{#Prénom 1}}', '{{/Prénom 1}}'],
+            'historical' => ['%7B%7B%23Pr%C3%A9nom%201%7D%7D', '%7B%7B%2FPr%C3%A9nom%201%7D%7D'],
+            'different encodings of the same name' => ['%7B%7B#Pr%C3%A9nom%201%7D%7D', '{{/Prénom 1}}'],
+            'encoded padding and markers' => ['%7B%7B%20%23%20Pr%C3%A9nom%201%20%7D%7D', '%7B%7B%20%2f%20Prénom 1%20%7D%7D'],
+        ];
+    }
+
+    public function testADifferentlySpelledClosingSectionStillStaysVisible(): void
+    {
+        $template = '{{#Pr%C3%A9nom}}Texte{{/pr%C3%A9nom}}';
+
+        $stored = str_replace(['{{', '}}'], ['%7B%7B', '%7D%7D'], $template);
+        $this->assertSame($template, $this->renderer->renderHtml($stored, ['Prénom' => 'Camille']));
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('invalidEncodedSections')]
+    public function testAnInvalidDecodedSectionNameStaysEncoded(string $opening, string $closing): void
+    {
+        $template = '{{#' . $opening . '}}Texte{{/' . $closing . '}}';
+
+        $stored = str_replace(['{{', '}}'], ['%7B%7B', '%7D%7D'], $template);
+        $this->assertSame($template, $this->renderer->renderHtml($stored, [
+            'Nom' => 'Camille', 'Nom{' => 'Camille', 'Nom#' => 'Camille', 'Nom/' => 'Camille',
+        ]));
+    }
+
+    /** @return array<string, array{string, string}> */
+    public static function invalidEncodedSections(): array
+    {
+        return [
+            'brace in opening name' => ['Nom%7B', 'Nom'],
+            'brace in closing name' => ['Nom', 'Nom%7B'],
+            'encoded nested marker' => ['Nom%23', 'Nom%23'],
+            'encoded closing marker inside a name' => ['Nom%2F', 'Nom%2F'],
+        ];
     }
 }

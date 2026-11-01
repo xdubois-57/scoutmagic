@@ -156,7 +156,8 @@ class ShellExecutorTest extends TestCase
         $this->assertSame('hello', trim($result['output']));
     }
 
-    public function testEveryExecutionFunctionIsBoundedNotJustTheFirstChoice(): void
+    #[\PHPUnit\Framework\Attributes\DataProvider('commandsToBound')]
+    public function testEveryExecutionFunctionIsBoundedNotJustTheFirstChoice(string $source, float $maximum, int $expectedCode): void
     {
         if (!self::hostHasTimeoutUtility()) {
             $this->markTestSkipped('This host has no timeout utility, which is the case the bound cannot cover.');
@@ -164,7 +165,7 @@ class ShellExecutorTest extends TestCase
 
         $reflection = new \ReflectionClass(ShellExecutor::class);
         $bounded = $reflection->getMethod('bounded');
-        $command = $bounded->invoke(null, 'sleep 5', 1);
+        $command = $bounded->invoke(null, $source, 1);
 
         foreach (['runViaExec', 'runViaShellExec', 'runViaSystem', 'runViaPassthru'] as $backend) {
             $method = $reflection->getMethod($backend);
@@ -173,9 +174,19 @@ class ShellExecutorTest extends TestCase
                 $result = $method->invoke(null, $command);
             });
 
-            $this->assertLessThan(3.0, $seconds, $backend . ' was not bounded.');
-            $this->assertSame(ShellExecutor::TIMED_OUT_RETURN_CODE, $result['returnCode'], $backend);
+            $this->assertLessThan($maximum, $seconds, $backend . ' was not bounded.');
+            $this->assertSame($expectedCode, $result['returnCode'], $backend);
         }
+    }
+
+    /** @return array<string, array{string, float, int}> */
+    public static function commandsToBound(): array
+    {
+        return [
+            'polite stop' => ['sleep 5', 3.0, ShellExecutor::TIMED_OUT_RETURN_CODE],
+            // Raw backends return the utility's signal code. run() alone normalises it to 124.
+            'forced stop also kills descendants' => ['trap "" TERM; sleep 30', 8.0, 137],
+        ];
     }
 
     public function testAHostWithoutTheTimeoutUtilityKeepsTheUnboundedBehaviour(): void

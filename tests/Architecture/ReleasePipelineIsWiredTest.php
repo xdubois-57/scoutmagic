@@ -145,8 +145,16 @@ final class ReleasePipelineIsWiredTest extends TestCase
     public function testEvidenceUploadsAreGuardedAndCollectedByOnePattern(): void
     {
         $checks = self::read(self::CHECKS);
-        preg_match_all('/name: (evidence-[a-z0-9-]+)\n/', $checks, $names);
+        preg_match_all('/name: (evidence-[a-z0-9-]+(?:\$\{\{ matrix\.os \}\})?)\n/', $checks, $names);
         $this->assertGreaterThanOrEqual(7, count($names[1]), 'fewer evidence artifacts than gates');
+        $this->assertContains('evidence-database-mariadb-${{ matrix.os }}', $names[1]);
+        $this->assertStringContainsString('os: [ubuntu-24.04, ubuntu-26.04]', $checks);
+        foreach (['ubuntu-24.04', 'ubuntu-26.04'] as $image) {
+            $this->assertStringContainsString(
+                'evidence-database-mariadb-' . $image . '/phpunit-mariadb.xml',
+                self::read(self::RELEASE)
+            );
+        }
 
         $steps = preg_split('/\n      - name: /', $checks) ?: [];
         foreach ($steps as $step) {
@@ -507,9 +515,10 @@ final class ReleasePipelineIsWiredTest extends TestCase
     {
         foreach (['docs/quality-pipeline.md', '.claude/skills/steward/SKILL.md'] as $file) {
             $contents = self::read($file);
-            foreach (['Checks / test', 'Checks / database-mariadb', 'Checks / End-to-end (browser)', 'Checks / Dynamic scan (passive)', 'All checks'] as $name) {
+            foreach (['Checks / test', 'Checks / database-mariadb (ubuntu-24.04)', 'Checks / database-mariadb (ubuntu-26.04)', 'Checks / End-to-end (browser)', 'Checks / Dynamic scan (passive)', 'All checks'] as $name) {
                 $this->assertStringContainsString('`' . $name . '`', $contents, $file . ' does not name the check ' . $name);
             }
+            $this->assertStringNotContainsString('`Checks / database-mariadb`', $contents, $file . ' still names the old check without its runner image');
         }
 
         $map = self::read('docs/quality-pipeline.md');

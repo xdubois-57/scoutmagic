@@ -384,18 +384,10 @@ class UrlMetadataFetcher
      */
     public function parse(string $html): UrlMetadata
     {
-        $doc = new \DOMDocument();
-        // libxml emits warnings for real-world malformed HTML — irrelevant
-        // here, we only read <meta> tags and the <title>.
-        libxml_use_internal_errors(true);
-        // DOMDocument::loadHTML() defaults to ISO-8859-1 when the document
-        // has no <meta charset> (Google Photos' share page is one such
-        // page) — a real UTF-8 og:title like "Visite … · Saturday 📸" then
-        // decodes as mojibake ("Â·", "ð"...). Prepending a fake XML
-        // encoding declaration forces libxml to read the bytes as UTF-8;
-        // it's stripped automatically and never appears in the parsed DOM.
-        $doc->loadHTML('<?xml encoding="utf-8" ?>' . $html);
-        libxml_use_internal_errors(false);
+        if ($html === '') {
+            return new UrlMetadata(null, null, null, null);
+        }
+        $doc = \Dom\HTMLDocument::createFromString($html, LIBXML_NOERROR, 'UTF-8');
 
         $tags = ['title' => null, 'description' => null, 'image' => null];
         foreach ($doc->getElementsByTagName('meta') as $meta) {
@@ -403,15 +395,15 @@ class UrlMetadataFetcher
             // with name= instead of the spec's property=. property wins on
             // an element carrying both — name is a fallback for a missing
             // property, never an override of it.
-            $property = $meta->getAttribute('property') !== ''
+            $property = ($meta->getAttribute('property') ?? '') !== ''
                 ? $meta->getAttribute('property')
                 : $meta->getAttribute('name');
-            $content = trim($meta->getAttribute('content'));
+            $content = trim($meta->getAttribute('content') ?? '');
             if ($content === '') {
                 continue;
             }
 
-            match (strtolower($property)) {
+            match (strtolower($property ?? '')) {
                 'og:title' => $tags['title'] = $content,
                 'og:description' => $tags['description'] = $content,
                 'og:image' => $tags['image'] = $content,
@@ -427,10 +419,10 @@ class UrlMetadataFetcher
      * never an SVG's <title> further down, which names a drawing rather
      * than the page.
      */
-    private function documentTitle(\DOMDocument $doc): ?string
+    private function documentTitle(\Dom\HTMLDocument $doc): ?string
     {
         foreach ($doc->getElementsByTagName('title') as $title) {
-            if ($title->parentNode?->nodeName !== 'head') {
+            if (strtolower($title->parentNode->nodeName ?? '') !== 'head') {
                 continue;
             }
             $text = trim((string) preg_replace('/\s+/u', ' ', $title->textContent));

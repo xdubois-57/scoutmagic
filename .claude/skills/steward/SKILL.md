@@ -122,7 +122,7 @@ that `ci.yml` calls — which is why a pull request shows them as
 | CI job | Its distinguishing command |
 |---|---|
 | `Checks / test` | `vendor/bin/phpstan analyse --memory-limit=512M`, then `vendor/bin/phpunit --coverage-clover coverage.xml --log-junit phpunit-report.xml` |
-| `Checks / database-mariadb` | `vendor/bin/phpunit --log-junit phpunit-mariadb.xml` against a MariaDB 10.11 reachable through `TEST_DB_*` |
+| `Checks / database-mariadb (ubuntu-24.04)`, `Checks / database-mariadb (ubuntu-26.04)` | `vendor/bin/phpunit --log-junit phpunit-mariadb.xml` against a MariaDB 10.11 reachable through `TEST_DB_*`, on the named runner image |
 | `Checks / javascript-tests` | `npm run typecheck`, then `npm run test:coverage` |
 | `Checks / End-to-end (browser)` | `E2E_COVERAGE=1 npm run e2e` |
 | `Checks / Authorization matrix` | `./scripts/dast.sh --profile=standard` |
@@ -555,3 +555,9 @@ interruptions on 2026-09-05, and it is why auto-merge is enabled at all
 § Auto-merge). Two failure modes to know: auto-merge never updates a branch
 that has fallen behind `main`, and it is disarmed in silence by a change of
 base branch or a push from an account without write access.
+
+
+For HTML portability (#1014), `database-mariadb` runs the complete suite
+on Ubuntu 24.04 and 26.04; the other PHP jobs use Ubuntu 26.04. Reproduce
+an image-specific failure with that image and PHP 8.4, without restoring
+`DOMDocument::loadHTML()` to work around the difference.

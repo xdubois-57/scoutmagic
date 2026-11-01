@@ -49,14 +49,6 @@ use Core\Template\TokenSyntax;
  */
 class MergeRenderer
 {
-    /**
-     * {{#Colonne}} … {{/Colonne}}. The closing marker has to name the
-     * same column, spelled the same way — the opening name is captured
-     * trimmed and back-referenced, so a mismatched pair simply does not
-     * match and stays visible in the preview.
-     */
-    private const SECTION_PATTERN = '/\{\{\s*#\s*([^{}#\/]*?)\s*\}\}(.*?)\{\{\s*\/\s*\1\s*\}\}/us';
-
     private readonly TokenEngine $engine;
 
     public function __construct()
@@ -87,8 +79,6 @@ class MergeRenderer
      */
     public function renderHtml(string $template, array $data): string
     {
-        $template = $this->engine->decodeEncodedTokens($template);
-
         return $this->render($this->resolveSections($template, $data), $data, true);
     }
 
@@ -100,8 +90,6 @@ class MergeRenderer
      */
     public function renderText(string $template, array $data): string
     {
-        $template = $this->engine->decodeEncodedTokens($template);
-
         return $this->render($this->resolveSections($template, $data), $data, false);
     }
 
@@ -123,18 +111,96 @@ class MergeRenderer
             $byLower[mb_strtolower(trim((string) $column))] = $value;
         }
 
-        return (string) preg_replace_callback(
-            self::SECTION_PATTERN,
-            static function (array $matches) use ($byLower): string {
-                $key = mb_strtolower(trim($matches[1]));
-                if (!array_key_exists($key, $byLower)) {
-                    return $matches[0];
-                }
+        [$markers, $closingIndexes] = $this->sectionMarkers($template);
+        $closingPositions = [];
+        $cursor = 0;
+        $rendered = '';
+        $count = count($markers);
+        for ($index = 0; $index < $count; $index++) {
+            $opening = $markers[$index];
+            if (!$opening['opening']) {
+                continue;
+            }
+            $name = $opening['name'];
+            $closings = $closingIndexes[$name] ?? [];
+            $position = $closingPositions[$name] ?? 0;
+            while (isset($closings[$position]) && $closings[$position] <= $index) {
+                $position++;
+            }
+            $closingPositions[$name] = $position;
+            $closingIndex = $closings[$position] ?? null;
+            if ($closingIndex === null) {
+                // Leave a stray opener visible, then try the next opener.
+                continue;
+            }
+            $closingPositions[$name] = $position + 1;
+            $closing = $markers[$closingIndex];
+            $bodyStart = $opening['start'] + $opening['length'];
+            $end = $closing['start'] + $closing['length'];
+            $rendered .= substr($template, $cursor, $opening['start'] - $cursor);
+            $rendered .= $this->resolveSection(
+                substr($template, $opening['start'], $end - $opening['start']),
+                substr($template, $bodyStart, $closing['start'] - $bodyStart),
+                $name,
+                $byLower
+            );
+            $cursor = $end;
+            // The outer section owns its whole body: never resolve inner
+            // section markers in a second pass through the same block.
+            $index = $closingIndex;
+        }
 
-                return trim($byLower[$key]) !== '' ? $matches[2] : '';
-            },
-            $template
-        );
+        return $rendered . substr($template, $cursor);
+    }
+
+    /**
+     * Names are decoded only as lookup keys; output always uses stored bytes.
+     * Indexing closing markers avoids repeatedly scanning an unmatched tail.
+     *
+     * @return array{
+     *   list<array{name: string, opening: bool, start: int, length: int}>,
+     *   array<array-key, list<int>>
+     * }
+     */
+    private function sectionMarkers(string $template): array
+    {
+        $markers = [];
+        $closings = [];
+        foreach ($this->engine->tokens($template) as $token) {
+            $rawName = trim($token['name']);
+            $marker = substr($rawName, 0, 1);
+            if ($marker !== '#' && $marker !== '/') {
+                continue;
+            }
+            $name = trim(substr($rawName, 1));
+            if (str_contains($name, '#') || str_contains($name, '/')) {
+                continue;
+            }
+            $opening = $marker === '#';
+            $index = count($markers);
+            $markers[] = [
+                'name' => $name,
+                'opening' => $opening,
+                'start' => $token['start'],
+                'length' => $token['length'],
+            ];
+            if (!$opening) {
+                $closings[$name][] = $index;
+            }
+        }
+
+        return [$markers, $closings];
+    }
+
+    /** @param array<array-key, string> $byLower */
+    private function resolveSection(string $section, string $body, string $name, array $byLower): string
+    {
+        $key = mb_strtolower($name);
+        if (!array_key_exists($key, $byLower)) {
+            return $section;
+        }
+
+        return trim($byLower[$key]) !== '' ? $body : '';
     }
 
     /**
@@ -154,7 +220,7 @@ class MergeRenderer
         }
 
         return $this->engine->unknownTokens(
-            $this->engine->decodeEncodedTokens($template),
+            $template,
             static fn(string $name): bool => isset($known[mb_strtolower(trim($name))]),
             // A section marker names its column with a leading # or /: the
             // column is what a typo is about, so that is what gets
@@ -176,7 +242,7 @@ class MergeRenderer
         // A column used only to open a section is EXPECTED to be empty
         // for some rows — that is what the section is for — so the
         // sections are resolved first and only what survives is checked.
-        $template = $this->resolveSections($this->engine->decodeEncodedTokens($template), $data);
+        $template = $this->resolveSections($template, $data);
 
         $byLower = [];
         foreach ($data as $column => $value) {

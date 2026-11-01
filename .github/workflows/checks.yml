@@ -63,15 +63,8 @@ permissions:
 
 jobs:
   test:
-    # ubuntu-24.04, never ubuntu-latest, here and in every workflow that
-    # runs the PHP code (release.yml, dev-build.yml,
-    # external-sources-check.yml). GitHub moved ubuntu-latest to 26.04 in
-    # October 2026, and its newer libxml2 parses HTML differently: the
-    # federal fees page lost its amounts, a placeholder inside a link
-    # lost its encoding, and 14 tests failed on code no PR had touched.
-    # That is a portability defect of its own, tracked separately; the
-    # image changes when the code is ready for it, not when GitHub says.
-    runs-on: ubuntu-24.04
+    # PHP's bundled HTML5 parser no longer depends on runner libxml (#1014).
+    runs-on: ubuntu-26.04
 
     # The whole PHP suite runs in this one job, `database`-tagged tests
     # included (phpunit.xml no longer excludes them anywhere) — which is
@@ -216,7 +209,11 @@ jobs:
   # report SonarQube consumes, and duplicating it would double the cost of
   # the slowest job here for nothing.
   database-mariadb:
-    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-26.04]
+    runs-on: ${{ matrix.os }}
 
     services:
       mariadb:
@@ -270,12 +267,12 @@ jobs:
         if: ${{ inputs.evidence }}
         uses: actions/upload-artifact@v4
         with:
-          name: evidence-database-mariadb
+          name: evidence-database-mariadb-${{ matrix.os }}
           path: phpunit-mariadb.xml
           retention-days: 7
 
   javascript-tests:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
 
     steps:
       - uses: actions/checkout@v4
@@ -361,7 +358,7 @@ jobs:
 
   e2e-tests:
     name: End-to-end (browser)
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     # A blocking check like every other job here. The bound is generous
     # enough for a cold Chromium download plus a full schema migration,
     # and tight enough that a hung PHP server fails the run instead of
@@ -515,7 +512,7 @@ jobs:
 
   authorization-matrix:
     name: Authorization matrix
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     # 534 routes replayed as 6 roles — 3204 (route, role) pairs — each
     # answer compared to the role_min the route declares (SECURITY.md
     # § 36). No scanner and no browser, so it is fast enough to be a
@@ -598,7 +595,7 @@ jobs:
 
   dast-passive:
     name: Dynamic scan (passive)
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
       # No security-events: write. This job used to publish ZAP's SARIF to
@@ -746,7 +743,7 @@ jobs:
           retention-days: 7
 
   security:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
 
     steps:
       - uses: actions/checkout@v4
@@ -779,7 +776,7 @@ jobs:
 
   sonarqube:
     name: SonarQube Cloud
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     needs: [test, javascript-tests, e2e-tests]
     # Secrets aren't exposed to pull_request runs triggered from a fork, so
     # SONAR_TOKEN wouldn't be available there — skip cleanly instead of

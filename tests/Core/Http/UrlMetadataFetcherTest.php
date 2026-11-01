@@ -59,6 +59,16 @@ class UrlMetadataFetcherTest extends TestCase
         $this->assertNull($tags->imageUrl);
     }
 
+    public function testAnEmptyHtmlBodyHasNoMetadata(): void
+    {
+        $tags = $this->service->parse('');
+
+        $this->assertNull($tags->ogTitle);
+        $this->assertNull($tags->description);
+        $this->assertNull($tags->imageUrl);
+        $this->assertNull($tags->htmlTitle);
+    }
+
     /**
      * Some sites (and most WordPress SEO plugins) emit the OG tags with
      * name= instead of the spec's property=. Kept from the parallel

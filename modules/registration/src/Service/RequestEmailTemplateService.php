@@ -189,7 +189,7 @@ final class RequestEmailTemplateService
     public static function hasTrackingLink(string $html): bool
     {
         $engine = self::engine();
-        $html = $engine->repairTokensSplitByMarkup($engine->decodeEncodedTokens($html));
+        $html = $engine->repairTokensSplitByMarkup($html);
 
         foreach ($engine->rawTokenNames($html) as $name) {
             if (trim($name) === self::TRACKING_LINK_VARIABLE) {
@@ -216,12 +216,25 @@ final class RequestEmailTemplateService
     public function unknownVariablesIn(RequestEmailTemplate $template, string $body): array
     {
         $engine = self::engine();
-        $body = $engine->repairTokensSplitByMarkup($engine->decodeEncodedTokens($body));
+        $body = $engine->repairTokensSplitByMarkup($body);
 
-        return (new TokenEngine(TokenSyntax::freeText()))->unknownTokens(
-            $body,
-            static fn(string $name): bool => $template->variables->has($name)
-        );
+        $identifiers = [];
+        foreach ($engine->tokens($body) as $token) {
+            $identifiers[$token['start']] = trim($token['name']);
+        }
+
+        // Prefer the substitution engine's name at the same position.
+        // The wider scan still reports typos outside the identifier syntax,
+        // without decoding an already decoded free-text name a second time.
+        $unknown = [];
+        foreach ((new TokenEngine(TokenSyntax::freeText()))->tokens($body) as $token) {
+            $name = $identifiers[$token['start']] ?? trim($token['name']);
+            if ($name !== '' && !$template->variables->has($name)) {
+                $unknown[$name] = true;
+            }
+        }
+
+        return array_map('strval', array_keys($unknown));
     }
 
     /**
@@ -242,7 +255,7 @@ final class RequestEmailTemplateService
     public static function substitute(string $body, array $values): string
     {
         $engine = self::engine();
-        $body = $engine->repairTokensSplitByMarkup($engine->decodeEncodedTokens($body));
+        $body = $engine->repairTokensSplitByMarkup($body);
         $body = $engine->substitute($body, static fn(string $name): ?string => $values[$name] ?? null, true);
 
         return (new HtmlSanitizer())->sanitize($body);
@@ -285,8 +298,8 @@ final class RequestEmailTemplateService
         $sanitizer = new HtmlSanitizer();
         $engine = self::engine();
         $normalise = static function (string $html) use ($sanitizer, $engine): string {
-            $html = $engine->decodeEncodedTokens($sanitizer->sanitize($html));
-            $html = (string) preg_replace('/\{\{\s*([a-z0-9_]+)\s*\}\}/', '{{$1}}', $html);
+            $html = $sanitizer->sanitize($html);
+            $html = $engine->substitute($html, static fn(string $name): string => '{{' . $name . '}}', true);
 
             return (string) preg_replace('/[\s\x{00A0}]+/u', '', $html);
         };
