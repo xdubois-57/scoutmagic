@@ -13,7 +13,7 @@ use Core\Image\ImageDimensionGuard;
 
 /**
  * Composes the image that is published: a background, a title laid on it,
- * and the site's address at the foot.
+ * and the site's address beneath it.
  *
  * **Square, 1080 px.** Instagram accepts from 4:5 to 1.91:1 and crops its
  * grid to squares; Facebook shows a square whole. One format serves both
@@ -41,14 +41,55 @@ class CardRenderer
 
     private const QUALITY = 88;
 
-    /** Inner margin, as a share of the side. */
-    private const MARGIN = 0.06;
+    /**
+     * **The text lives in the zone every common crop keeps** (issue #929).
+     *
+     * One square goes to every destination, and each of them crops it
+     * differently, centred and in « cover » mode: a discussion thread shows
+     * a 4:3 window (rows 135..945), Instagram's profile grid a 3:4 one
+     * (columns 135..945), a Facebook preview about 1.91:1 (rows 257..823).
+     * Their intersection is columns 135..945 by rows 257..823, and the whole
+     * text block has to sit inside it — with an inset, for glyph overshoot,
+     * the veil and rounding. These are test scenarios, not promises about
+     * what a platform will do next year.
+     */
+    private const SAFE_LEFT = 135;
+    private const SAFE_BOTTOM = 823;
 
-    private const TITLE_SIZE = 66;
+    /** Between the zone's edge and the text: overshoot, rounding, a slightly different crop. */
+    private const TEXT_INSET = 30;
+
+    /**
+     * The address's baseline: the zone's foot less the inset, less the 13 px
+     * a descender reaches below the baseline at this size (0.236 em of 40 px,
+     * rounded up) — 780.
+     */
+    private const ADDRESS_BASELINE = self::SAFE_BOTTOM - self::TEXT_INSET - 13;
+
+    /** The widest a line of text may be: the zone's width less an inset on each side. */
+    private const MAX_TEXT_WIDTH = self::SIZE - 2 * self::SAFE_LEFT - 2 * self::TEXT_INSET;
+
+    private const TITLE_SIZE = 56;
     private const TITLE_MAX_LINES = 3;
-    private const ADDRESS_SIZE = 34;
+    private const ADDRESS_SIZE = 30;
 
-    /** The veil's alpha at the foot, in GD's scale: 127 is transparent, 0 opaque. */
+    /**
+     * **The veil is a soft glow hugging the text, not a stripe across the
+     * photo** (issue #929): full over the block's box grown by `VEIL_PAD`,
+     * then fading to nothing over `VEIL_FEATHER` pixels — by distance to
+     * that box, so its corners are round. The rest of the photo is left
+     * alone, and a short title gets a short glow.
+     *
+     * It is computed on a grid of `VEIL_CELL`-pixel cells and stretched
+     * back with a bilinear resample, in GD as in the browser: a smooth
+     * function of the position needs no more resolution than that, and
+     * sampling 108 × 108 cells is about twelve thousand evaluations, not a million.
+     */
+    private const VEIL_PAD = 20;
+    private const VEIL_FEATHER = 160;
+    private const VEIL_CELL = 10;
+
+    /** The veil's alpha where it is fullest, in GD's scale: 127 is transparent, 0 opaque. */
     private const VEIL_ALPHA = 70;
 
     /** DejaVu Sans Bold, shipped with its licence beside it (resources/fonts/README.md). */
@@ -77,8 +118,9 @@ class CardRenderer
             $card = self::blur($card, $blurRatio);
         }
 
-        $this->veil($card);
-        $this->writeText($card, $title, $address);
+        $layout = $this->layout($title, $address);
+        $this->veil($card, $layout['box']);
+        $this->writeText($card, $layout);
 
         ob_start();
         imagejpeg($card, null, self::QUALITY);
@@ -183,42 +225,198 @@ class CardRenderer
     }
 
     /**
-     * A darkening that grows towards the foot, where the text sits, so a
-     * white title stays legible over a white sky.
+     * Where the block's text goes, and the box it occupies: the address on
+     * its fixed baseline, the title above it, each line centred on the
+     * card's vertical axis.
+     *
+     * Laid out from the bottom up, so the address is always in the same
+     * place and a longer title grows upwards into the zone's spare height
+     * rather than down towards its foot.
+     *
+     * The box is the ink's extent, estimated from the em: the first line's
+     * top is a full em above its baseline and the last's foot a quarter em
+     * below it — more than any glyph of the face reaches, which is the safe
+     * side for a veil.
+     *
+     * @return array{
+     *     address: ?array{text: string, x: int, baseline: int},
+     *     title: list<array{text: string, x: int, baseline: int}>,
+     *     box: ?array{left: float, top: float, right: float, bottom: float}
+     * }
      */
-    private function veil(\GdImage $card): void
+    private function layout(string $title, string $address): array
     {
-        imagealphablending($card, true);
-        $start = (int) (self::SIZE * 0.35);
-        for ($y = $start; $y < self::SIZE; $y++) {
-            $progress = ($y - $start) / (self::SIZE - $start);
-            $alpha = (int) round(127 - (127 - self::VEIL_ALPHA) * $progress);
-            $colour = (int) imagecolorallocatealpha($card, 0, 0, 0, $alpha);
-            imageline($card, 0, $y, self::SIZE - 1, $y, $colour);
-        }
-    }
-
-    private function writeText(\GdImage $card, string $title, string $address): void
-    {
-        $margin = (int) round(self::SIZE * self::MARGIN);
-        $maxWidth = self::SIZE - 2 * $margin;
-        $white = (int) imagecolorallocate($card, 255, 255, 255);
-        $soft = (int) imagecolorallocate($card, 230, 233, 236);
-
-        $baseline = self::SIZE - $margin;
+        $baseline = self::ADDRESS_BASELINE;
+        $addressLine = null;
         $address = trim($address);
+        $left = (float) self::SIZE;
+        $right = 0.0;
+        $top = null;
+        $bottom = null;
+
         if ($address !== '') {
-            $line = $this->fit($address, self::ADDRESS_SIZE, $maxWidth);
-            imagettftext($card, self::ADDRESS_SIZE, 0, $margin, $baseline, $soft, $this->fontPath, $line);
+            $text = $this->fit($address, self::ADDRESS_SIZE, self::MAX_TEXT_WIDTH);
+            $width = $this->width($text, self::ADDRESS_SIZE);
+            $addressLine = [
+                'text' => $text,
+                'x' => $this->centredX($text, self::ADDRESS_SIZE),
+                'baseline' => $baseline,
+            ];
+            $left = min($left, (self::SIZE - $width) / 2);
+            $right = max($right, (self::SIZE + $width) / 2);
+            $bottom = $baseline + 0.25 * self::ADDRESS_SIZE * 96 / 72;
+            $top = $baseline - self::ADDRESS_SIZE * 96 / 72;
             $baseline -= (int) round(self::ADDRESS_SIZE * 1.9);
         }
 
-        $lines = $this->wrap(trim($title), self::TITLE_SIZE, $maxWidth);
+        $titleLines = [];
         $lineHeight = (int) round(self::TITLE_SIZE * 1.25);
+        $lines = $this->wrap(trim($title), self::TITLE_SIZE, self::MAX_TEXT_WIDTH);
         foreach (array_reverse($lines) as $line) {
-            imagettftext($card, self::TITLE_SIZE, 0, $margin, $baseline, $white, $this->fontPath, $line);
+            $width = $this->width($line, self::TITLE_SIZE);
+            $titleLines[] = ['text' => $line, 'x' => $this->centredX($line, self::TITLE_SIZE), 'baseline' => $baseline];
+            $left = min($left, (self::SIZE - $width) / 2);
+            $right = max($right, (self::SIZE + $width) / 2);
+            $bottom ??= $baseline + 0.25 * self::TITLE_SIZE * 96 / 72;
+            $top = $baseline - self::TITLE_SIZE * 96 / 72;
             $baseline -= $lineHeight;
         }
+
+        $box = $top === null || $bottom === null
+            ? null
+            : ['left' => $left, 'top' => (float) $top, 'right' => $right, 'bottom' => (float) $bottom];
+
+        return ['address' => $addressLine, 'title' => $titleLines, 'box' => $box];
+    }
+
+    /**
+     * How much of the veil is on one point, from 0 (none) to 1 (full): the
+     * box grown by `VEIL_PAD` is full, and the strength falls to nothing
+     * over `VEIL_FEATHER` pixels of distance to it, with a smoothstep so no
+     * edge shows.
+     *
+     * The same function, constant for constant, as the browser's
+     * (`veilStrength` in public/assets/js/social-card.js); both are tested
+     * against the same sample points.
+     *
+     * @param array{left: float, top: float, right: float, bottom: float} $box
+     */
+    public static function veilStrength(float $x, float $y, array $box): float
+    {
+        $dx = max($box['left'] - self::VEIL_PAD - $x, 0.0, $x - ($box['right'] + self::VEIL_PAD));
+        $dy = max($box['top'] - self::VEIL_PAD - $y, 0.0, $y - ($box['bottom'] + self::VEIL_PAD));
+        $t = max(0.0, 1.0 - sqrt($dx * $dx + $dy * $dy) / self::VEIL_FEATHER);
+
+        return $t * $t * (3 - 2 * $t);
+    }
+
+    /**
+     * A glow of darkening behind the text, so a white title stays legible
+     * over a white sky without dimming the rest of the photo.
+     *
+     * @param array{left: float, top: float, right: float, bottom: float}|null $box
+     */
+    private function veil(\GdImage $card, ?array $box): void
+    {
+        if ($box === null) {
+            return;
+        }
+
+        $cells = intdiv(self::SIZE, self::VEIL_CELL);
+        $small = imagecreatetruecolor($cells, $cells);
+        imagealphablending($small, false);
+        imagesavealpha($small, true);
+        for ($cy = 0; $cy < $cells; $cy++) {
+            for ($cx = 0; $cx < $cells; $cx++) {
+                $strength = self::veilStrength(($cx + 0.5) * self::VEIL_CELL, ($cy + 0.5) * self::VEIL_CELL, $box);
+                $alpha = (int) round(127 - (127 - self::VEIL_ALPHA) * $strength);
+                imagesetpixel($small, $cx, $cy, (int) imagecolorallocatealpha($small, 0, 0, 0, $alpha));
+            }
+        }
+
+        // `imagecopyresampled()` stretches a grid this small in visible
+        // steps; `imagescale()` interpolates, and keeps the alpha. Bilinear
+        // on purpose: this build's bicubic crashes PHP on a small source.
+        $overlay = imagescale($small, self::SIZE, self::SIZE, IMG_BILINEAR_FIXED);
+        if ($overlay === false) {
+            // Hard-edged, like the browser's fallback, but the text keeps
+            // its contrast: a card with no veil at all is the worse one.
+            imagedestroy($small);
+            $this->plainVeil($card, $box);
+
+            return;
+        }
+        imagealphablending($overlay, false);
+        imagesavealpha($overlay, true);
+        imagealphablending($card, true);
+        imagecopy($card, $overlay, 0, 0, 0, 0, self::SIZE, self::SIZE);
+        imagedestroy($small);
+        imagedestroy($overlay);
+    }
+
+    /**
+     * The veil without the glow: a darkened rectangle over the block's box
+     * grown by `VEIL_PAD`, for the day the scaling that builds the glow
+     * fails. The browser falls back to the same thing.
+     *
+     * @param array{left: float, top: float, right: float, bottom: float} $box
+     */
+    private function plainVeil(\GdImage $card, array $box): void
+    {
+        imagealphablending($card, true);
+        imagefilledrectangle(
+            $card,
+            (int) round($box['left'] - self::VEIL_PAD),
+            (int) round($box['top'] - self::VEIL_PAD),
+            (int) round($box['right'] + self::VEIL_PAD),
+            (int) round($box['bottom'] + self::VEIL_PAD),
+            (int) imagecolorallocatealpha($card, 0, 0, 0, self::VEIL_ALPHA)
+        );
+    }
+
+    /**
+     * @param array{
+     *     address: ?array{text: string, x: int, baseline: int},
+     *     title: list<array{text: string, x: int, baseline: int}>,
+     *     box: ?array{left: float, top: float, right: float, bottom: float}
+     * } $layout
+     */
+    private function writeText(\GdImage $card, array $layout): void
+    {
+        $white = (int) imagecolorallocate($card, 255, 255, 255);
+        $soft = (int) imagecolorallocate($card, 230, 233, 236);
+
+        if ($layout['address'] !== null) {
+            $line = $layout['address'];
+            imagettftext(
+                $card,
+                self::ADDRESS_SIZE,
+                0,
+                $line['x'],
+                $line['baseline'],
+                $soft,
+                $this->fontPath,
+                $line['text']
+            );
+        }
+        foreach ($layout['title'] as $line) {
+            imagettftext(
+                $card,
+                self::TITLE_SIZE,
+                0,
+                $line['x'],
+                $line['baseline'],
+                $white,
+                $this->fontPath,
+                $line['text']
+            );
+        }
+    }
+
+    /** Where a line starts so that it is centred on the card. */
+    private function centredX(string $line, int $size): int
+    {
+        return (int) round((self::SIZE - $this->width($line, $size)) / 2);
     }
 
     /**
