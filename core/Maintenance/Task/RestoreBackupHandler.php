@@ -1054,6 +1054,12 @@ class RestoreBackupHandler implements TaskHandlerInterface
         string $source,
         ?int $requestedBy
     ): void {
+        // The resumed pass has finished migrating the restored schema.
+        // Use fresh settings, not the pre-restore request's cached values.
+        (new \Core\Security\SessionGeneration(new \Core\Config\SettingService(
+            new \Core\Config\SettingRepository($context->connection->getPdo())
+        )))->rotate();
+
         $context->journal->log(
             'core',
             'backup_restored',

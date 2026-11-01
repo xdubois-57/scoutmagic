@@ -62,7 +62,7 @@ class AuthControllerHumanCheckTest extends TestCase
         $twig->addGlobal('cookie_consent_given', true);
 
         $this->authService = $this->createMock(AuthService::class);
-        $this->controller = new AuthController($twig, $this->authService);
+        $this->controller = new AuthController($twig, $this->authService, \Tests\SessionGenerationFixture::forPdo());
         $this->controller->setHumanCheck($humanCheck);
     }
 

@@ -40,7 +40,7 @@ class SessionRevalidatorTest extends TestCase
         $this->userRepo = new UserAccountRepository($this->pdo, $this->encryption);
 
         $resolver = new RoleResolver(new MemberYearRepository($this->pdo), $this->encryption, $this->pdo);
-        $this->revalidator = new SessionRevalidator($this->userRepo, $resolver);
+        $this->revalidator = new SessionRevalidator($this->userRepo, $resolver, \Tests\SessionGenerationFixture::forPdo($this->pdo));
 
         $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('2025-2026', '2025-09-01', '2026-08-31', 1)");
         $this->scoutYearId = (int) $this->pdo->lastInsertId();
@@ -65,7 +65,7 @@ class SessionRevalidatorTest extends TestCase
     public function testAnUntouchedSessionSurvives(): void
     {
         $account = $this->userRepo->create('member@test.com', true);
-        AuthSession::login($account->id, $account->email, 'superadmin');
+        AuthSession::login($account->id, $account->email, 'superadmin', \Tests\SessionGenerationFixture::forPdo($this->pdo)->current());
 
         $this->assertTrue($this->revalidator->revalidate(fn(): AuthorizationYears => $this->authorizationYears()));
         $this->assertTrue(AuthSession::isAuthenticated());
@@ -76,6 +76,78 @@ class SessionRevalidatorTest extends TestCase
     {
         $this->assertTrue($this->revalidator->revalidate(fn(): AuthorizationYears => $this->authorizationYears()));
         $this->assertFalse(AuthSession::isAuthenticated());
+    }
+
+    public function testAReusedAccountIdCannotChangeTheAuthenticatedIdentity(): void
+    {
+        AuthSession::login(1, 'previous-installation@example.com', 'superadmin', \Tests\SessionGenerationFixture::forPdo($this->pdo)->current());
+        $replacement = $this->userRepo->create('new-installation@example.com', true);
+        $this->assertSame(1, $replacement->id);
+
+        $survived = $this->revalidator->revalidate(fn(): AuthorizationYears => $this->authorizationYears());
+
+        $this->assertSame([false, false, null], [
+            $survived,
+            AuthSession::isAuthenticated(),
+            AuthSession::getUserAccountId(),
+        ]);
+    }
+
+    public function testEveryOldBrowserIsRejectedEvenWhenTheEmailAndIdAreReused(): void
+    {
+        $account = $this->userRepo->create('same@example.com', true);
+        $generation = \Tests\SessionGenerationFixture::forPdo($this->pdo);
+        AuthSession::login($account->id, $account->email, 'superadmin', $generation->current());
+        $firstBrowser = $_SESSION;
+        AuthSession::login($account->id, $account->email, 'superadmin', $generation->current());
+        $secondBrowser = $_SESSION;
+
+        $generation->rotate();
+        $results = [];
+        foreach ([$firstBrowser, $secondBrowser] as $browser) {
+            $_SESSION = $browser;
+            $results[] = [
+                $this->revalidator->revalidate(fn(): AuthorizationYears => $this->authorizationYears()),
+                AuthSession::getEmail(),
+            ];
+        }
+        AuthSession::login($account->id, $account->email, 'superadmin', $generation->current());
+        $results[] = [
+            $this->revalidator->revalidate(fn(): AuthorizationYears => $this->authorizationYears()),
+            AuthSession::getEmail(),
+        ];
+
+        $this->assertSame([[false, null], [false, null], [true, 'same@example.com']], $results);
+    }
+
+    public function testEquivalentEmailCaseAndWhitespaceDoNotChangeTheIdentity(): void
+    {
+        $account = $this->userRepo->create('same@example.com', true);
+        AuthSession::login($account->id, ' SAME@EXAMPLE.COM ', 'superadmin',
+            \Tests\SessionGenerationFixture::forPdo($this->pdo)->current());
+
+        $this->assertTrue($this->revalidator->revalidate(fn(): AuthorizationYears => $this->authorizationYears()));
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('invalidGenerations')]
+    public function testLegacyAndMalformedSessionsAreRevoked(mixed $generation): void
+    {
+        $account = $this->userRepo->create('same@example.com', true);
+        AuthSession::login($account->id, $account->email, 'superadmin');
+        $_SESSION['_auth']['generation'] = $generation;
+
+        $this->assertSame([false, false], [
+            $this->revalidator->revalidate(fn(): AuthorizationYears => $this->authorizationYears()),
+            AuthSession::isAuthenticated(),
+        ]);
+    }
+
+    public static function invalidGenerations(): iterable
+    {
+        yield 'legacy' => [null];
+        yield 'wrong type' => [[]];
+        yield 'truncated' => ['abc'];
+        yield 'different installation' => [str_repeat('f', 64)];
     }
 
     /**
@@ -89,7 +161,7 @@ class SessionRevalidatorTest extends TestCase
         $account = $this->userRepo->create('victim@test.com', true);
 
         // The attacker's session, established before the reset.
-        AuthSession::login($account->id, $account->email, 'superadmin');
+        AuthSession::login($account->id, $account->email, 'superadmin', \Tests\SessionGenerationFixture::forPdo($this->pdo)->current());
         $this->assertTrue(AuthSession::isAuthenticated());
 
         // The real owner resets their password a moment later.
@@ -108,7 +180,7 @@ class SessionRevalidatorTest extends TestCase
     public function testASessionRestampedAfterThePasswordChangeSurvives(): void
     {
         $account = $this->userRepo->create('owner@test.com', true);
-        AuthSession::login($account->id, $account->email, 'superadmin');
+        AuthSession::login($account->id, $account->email, 'superadmin', \Tests\SessionGenerationFixture::forPdo($this->pdo)->current());
 
         $_SESSION['_auth']['issued_at'] = time() - 60;
         $this->userRepo->updatePasswordHash($account->id, password_hash('BrandNewPassword1!', PASSWORD_DEFAULT));
@@ -126,7 +198,7 @@ class SessionRevalidatorTest extends TestCase
     public function testASessionWithNoIssueTimestampIsRevokedOnlyOnceAStampExists(): void
     {
         $account = $this->userRepo->create('legacy@test.com', true);
-        AuthSession::login($account->id, $account->email, 'superadmin');
+        AuthSession::login($account->id, $account->email, 'superadmin', \Tests\SessionGenerationFixture::forPdo($this->pdo)->current());
         unset($_SESSION['_auth']['issued_at']);
 
         // No password ever set → no stamp → nothing to revoke against.
@@ -143,7 +215,7 @@ class SessionRevalidatorTest extends TestCase
     public function testASessionForADeletedAccountIsRevoked(): void
     {
         $account = $this->userRepo->create('ghost@test.com', true);
-        AuthSession::login($account->id, $account->email, 'superadmin');
+        AuthSession::login($account->id, $account->email, 'superadmin', \Tests\SessionGenerationFixture::forPdo($this->pdo)->current());
 
         $this->pdo->prepare('DELETE FROM user_accounts WHERE id = ?')->execute([$account->id]);
 
@@ -161,7 +233,7 @@ class SessionRevalidatorTest extends TestCase
         $this->createMemberWithFunction('chief@test.com', 'Animateur', 'chief');
         $account = $this->userRepo->create('chief@test.com');
 
-        AuthSession::login($account->id, $account->email, 'chief');
+        AuthSession::login($account->id, $account->email, 'chief', \Tests\SessionGenerationFixture::forPdo($this->pdo)->current());
         $this->assertSame('chief', AuthSession::getRole());
 
         // The function is taken away mid-session.
@@ -179,7 +251,7 @@ class SessionRevalidatorTest extends TestCase
     {
         $this->createMemberWithFunction('rising@test.com', 'Equipier', 'identified');
         $account = $this->userRepo->create('rising@test.com');
-        AuthSession::login($account->id, $account->email, 'identified');
+        AuthSession::login($account->id, $account->email, 'identified', \Tests\SessionGenerationFixture::forPdo($this->pdo)->current());
 
         $this->pdo->exec("UPDATE functions SET role = 'admin' WHERE desk_code = 'Equipier'");
 
@@ -195,7 +267,7 @@ class SessionRevalidatorTest extends TestCase
     {
         $this->createMemberWithFunction('leaver@test.com', 'Animateur', 'chief');
         $account = $this->userRepo->create('leaver@test.com');
-        AuthSession::login($account->id, $account->email, 'chief');
+        AuthSession::login($account->id, $account->email, 'chief', \Tests\SessionGenerationFixture::forPdo($this->pdo)->current());
 
         // They drop out of the unit entirely.
         $this->pdo->exec('DELETE FROM member_functions');
@@ -213,7 +285,7 @@ class SessionRevalidatorTest extends TestCase
     public function testASuperAdminWithNoMemberRecordIsNotRevoked(): void
     {
         $account = $this->userRepo->create('operator@test.com', true);
-        AuthSession::login($account->id, $account->email, 'superadmin');
+        AuthSession::login($account->id, $account->email, 'superadmin', \Tests\SessionGenerationFixture::forPdo($this->pdo)->current());
 
         $this->assertTrue($this->revalidator->revalidate(fn(): AuthorizationYears => $this->authorizationYears()));
         $this->assertTrue(AuthSession::isAuthenticated());
@@ -262,7 +334,7 @@ class SessionRevalidatorTest extends TestCase
     public function testDeactivatingAnAccountDropsItsLiveSessionOnTheNextRequest(): void
     {
         $account = $this->userRepo->create('admin@test.com', true);
-        AuthSession::login($account->id, $account->email, 'superadmin');
+        AuthSession::login($account->id, $account->email, 'superadmin', \Tests\SessionGenerationFixture::forPdo($this->pdo)->current());
         $this->assertTrue($this->revalidator->revalidate(fn(): AuthorizationYears => $this->authorizationYears()));
 
         $this->userRepo->deactivate($account->id);
@@ -274,7 +346,7 @@ class SessionRevalidatorTest extends TestCase
     public function testAnActiveAccountsSessionIsUnaffectedByTheNewColumn(): void
     {
         $account = $this->userRepo->create('admin@test.com', true);
-        AuthSession::login($account->id, $account->email, 'superadmin');
+        AuthSession::login($account->id, $account->email, 'superadmin', \Tests\SessionGenerationFixture::forPdo($this->pdo)->current());
 
         $this->assertTrue($this->revalidator->revalidate(fn(): AuthorizationYears => $this->authorizationYears()));
         $this->assertTrue($this->revalidator->revalidate(fn(): AuthorizationYears => $this->authorizationYears()));
@@ -292,7 +364,7 @@ class SessionRevalidatorTest extends TestCase
         $this->userRepo->deactivate($account->id);
         $this->userRepo->reactivate($account->id);
 
-        AuthSession::login($account->id, $account->email, 'superadmin');
+        AuthSession::login($account->id, $account->email, 'superadmin', \Tests\SessionGenerationFixture::forPdo($this->pdo)->current());
 
         $this->assertTrue($this->revalidator->revalidate(fn(): AuthorizationYears => $this->authorizationYears()));
         $this->assertTrue(AuthSession::isAuthenticated());

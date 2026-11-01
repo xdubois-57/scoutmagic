@@ -40,7 +40,8 @@ class SessionRevalidator
 
     public function __construct(
         private UserAccountRepository $userAccountRepo,
-        private RoleResolver $roleResolver
+        private RoleResolver $roleResolver,
+        private SessionGeneration $sessionGeneration
     ) {
     }
 
@@ -79,11 +80,22 @@ class SessionRevalidator
             return true;
         }
 
+        $generation = AuthSession::getGeneration();
+        if ($generation === null || !hash_equals($this->sessionGeneration->current(), $generation)) {
+            $this->revoke('installation_changed', $userAccountId);
+            return false;
+        }
+
         $account = $this->userAccountRepo->findById($userAccountId);
 
         // The account was deleted out from under a live session.
         if ($account === null) {
             $this->revoke('account_deleted', $userAccountId);
+            return false;
+        }
+
+        if (strtolower(trim(AuthSession::getEmail() ?? '')) !== strtolower(trim($account->email))) {
+            $this->revoke('identity_mismatch', $userAccountId);
             return false;
         }
 

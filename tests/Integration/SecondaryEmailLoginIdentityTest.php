@@ -137,6 +137,7 @@ class SecondaryEmailLoginIdentityTest extends TestCase
         $this->controller = new AuthController(
             $twig,
             $this->authService,
+            \Tests\SessionGenerationFixture::forPdo($this->pdo),
             $this->roleResolver,
             new ScoutYearResolver(new ScoutYearService($this->pdo), $settingService, $memberYearRepo),
             null,
@@ -271,7 +272,7 @@ class SecondaryEmailLoginIdentityTest extends TestCase
 
         $this->pdo->exec("UPDATE member_emails SET status = 'inactive'");
 
-        $revalidator = new SessionRevalidator($this->userRepo, $this->roleResolver);
+        $revalidator = new SessionRevalidator($this->userRepo, $this->roleResolver, \Tests\SessionGenerationFixture::forPdo($this->pdo));
         $this->assertFalse($revalidator->revalidate(fn(): AuthorizationYears => $this->authorizationYears()));
         $this->assertFalse(AuthSession::isAuthenticated());
 

@@ -14,6 +14,8 @@ class AuthSession
 
     /**
      * Log in: store user info in session. Regenerate session ID (SECURITY.md §2).
+     * Authenticators pass the server generation captured before verifying
+     * credentials; sessions without one cannot survive revalidation.
      *
      * 'issued_at' is what makes server-side revocation possible: it is
      * compared against user_accounts.sessions_valid_from on every request
@@ -21,7 +23,7 @@ class AuthSession
      * sessions that PHP's file-based session store gives us no way to
      * enumerate and delete directly.
      */
-    public static function login(int $userAccountId, string $email, string $role): void
+    public static function login(int $userAccountId, string $email, string $role, ?string $generation = null): void
     {
         SessionStore::ensureWritable();
         session_regenerate_id(true);
@@ -31,6 +33,7 @@ class AuthSession
             'email' => $email,
             'role' => $role,
             'issued_at' => time(),
+            'generation' => $generation,
         ]);
     }
 
@@ -111,6 +114,15 @@ class AuthSession
         $issuedAt = $auth['issued_at'] ?? null;
 
         return is_int($issuedAt) ? $issuedAt : null;
+    }
+
+    /** Legacy or malformed sessions have no trustworthy installation epoch. */
+    public static function getGeneration(): ?string
+    {
+        $auth = SessionStore::get(self::SESSION_KEY, []);
+        $value = $auth['generation'] ?? null;
+
+        return is_string($value) && preg_match('/^[a-f0-9]{64}$/D', $value) === 1 ? $value : null;
     }
 
     /**

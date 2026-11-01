@@ -122,6 +122,45 @@ class RestoreBackupRoundTripTest extends TestCase
         $this->assertSame('Unité du Chêne', $this->unitName());
     }
 
+    public function testARestoreCannotReviveEitherCurrentOrArchivedSessions(): void
+    {
+        if (session_status() !== PHP_SESSION_ACTIVE) {
+            ini_set('session.use_cookies', '0');
+            ini_set('session.cache_limiter', '');
+            session_start();
+        }
+        $_SESSION = [];
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $account = (new UserAccountRepository($this->pdo(), $encryption))->create('same@example.com', true);
+        $generation = \Tests\SessionGenerationFixture::forPdo($this->pdo());
+        \Core\Security\AuthSession::login($account->id, $account->email, 'superadmin', $generation->current());
+        $archivedBrowser = $_SESSION;
+        $backupId = $this->takeServerBackup();
+
+        $generation->rotate();
+        \Core\Security\AuthSession::login($account->id, $account->email, 'superadmin', $generation->current());
+        $currentBrowser = $_SESSION;
+        $this->restore(['source' => 'server', 'backup_id' => $backupId]);
+        $this->runResumedPasses();
+
+        $currentGeneration = \Tests\SessionGenerationFixture::forPdo($this->pdo());
+        $revalidator = new \Core\Security\SessionRevalidator(
+            new UserAccountRepository($this->pdo(), $encryption),
+            new \Core\Security\RoleResolver(new \Core\Import\MemberYearRepository($this->pdo()), $encryption, $this->pdo()),
+            $currentGeneration
+        );
+        $survived = [];
+        foreach ([$currentBrowser, $archivedBrowser] as $browser) {
+            $_SESSION = $browser;
+            $survived[] = $revalidator->revalidate(static fn() => new \Core\ScoutYear\AuthorizationYears(1, [1]));
+        }
+        \Core\Security\AuthSession::login($account->id, $account->email, 'superadmin', $currentGeneration->current());
+        $survived[] = $revalidator->revalidate(static fn() => new \Core\ScoutYear\AuthorizationYears(1, [1]));
+
+        $this->assertSame([false, false, true], $survived);
+        $_SESSION = [];
+    }
+
     /**
      * An encrypted archive of this server restores with nobody typing its
      * password (issue #619, IT-03): the site kept the one it generated.

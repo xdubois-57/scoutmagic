@@ -3113,7 +3113,8 @@ $roleLabelMap = [
 // prepared is signed in and thrown out on their first click. Unlike
 // $effectiveScoutYear below, the set does not depend on the role we are
 // about to validate, and it never honours a preview.
-$sessionRevalidator = new \Core\Security\SessionRevalidator($userAccountRepo, $roleResolver);
+$sessionGeneration = new \Core\Security\SessionGeneration($settingService);
+$sessionRevalidator = new \Core\Security\SessionRevalidator($userAccountRepo, $roleResolver, $sessionGeneration);
 $sessionRevalidator->setJournalService($journalService);
 $sessionRevalidator->revalidate(
     static fn(): \Core\ScoutYear\AuthorizationYears => $authorizationYearService->resolve()
@@ -6703,6 +6704,7 @@ $webAuthnService = new WebAuthnService(
 $authController = new AuthController(
     $twig,
     $authService,
+    $sessionGeneration,
     $roleResolver,
     $scoutYearResolver,
     $cookieConsentService,
