@@ -134,7 +134,7 @@ class SosSettingsService
             }
             $options[] = [
                 'member_id' => $profile->memberId,
-                'label' => $profile->getDisplayName(),
+                'label' => $profile->getDisplayNameFull(),
                 'mobile' => $profile->mobile,
             ];
         }
@@ -219,8 +219,8 @@ class SosSettingsService
     }
 
     /**
-     * Display name ("totem ?? prénom") for a Staff d'U member, for the
-     * live-state banner (§2.2: "quelle personne — totem + nom") and the
+     * Full display name (totem with first and last name) for a Staff d'U
+     * member, for the live-state banner (§2.2: "quelle personne — totem + nom") and the
      * planned-redirections list (§2.7). Null if the member has no row for
      * that scout year.
      */
@@ -230,7 +230,7 @@ class SosSettingsService
         if ($memberYear === null) {
             return null;
         }
-        return $this->sectionService->hydrateMemberProfile($memberYear['id'])?->getDisplayName();
+        return $this->sectionService->hydrateMemberProfile($memberYear['id'])?->getDisplayNameFull();
     }
 
     public function getTransitionHour(): string

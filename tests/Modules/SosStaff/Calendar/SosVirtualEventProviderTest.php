@@ -13,6 +13,7 @@ use Modules\Calendar\Api\VirtualEventViewer;
 use Modules\SosStaff\Calendar\SosVirtualEventProvider;
 use Modules\SosStaff\Repository\OnCallAssignment;
 use Modules\SosStaff\Repository\OnCallRepository;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 class SosVirtualEventProviderTest extends TestCase
@@ -59,14 +60,19 @@ class SosVirtualEventProviderTest extends TestCase
         return new VirtualEventViewer(Role::CHIEF, 'chef@unite.be', self::SCOUT_YEAR_ID, $calendarIds);
     }
 
-    private function profile(int $memberId, string $totem): MemberProfile
+    private function profile(
+        int $memberId,
+        ?string $totem,
+        string $firstName = 'Jean',
+        string $lastName = 'Dupont'
+    ): MemberProfile
     {
         return new MemberProfile(
             memberYearId: $memberId * 100,
             memberId: $memberId,
             deskId: 'D' . $memberId,
-            firstName: 'Jean',
-            lastName: 'Dupont',
+            firstName: $firstName,
+            lastName: $lastName,
             totem: $totem,
             quali: null,
             gender: null,
@@ -104,7 +110,7 @@ class SosVirtualEventProviderTest extends TestCase
         $events = $this->collect($provider, '2026-09-01', '2026-09-30');
 
         $this->assertCount(1, $events);
-        $this->assertSame("SOS Staff d'U : Akela", $events[0]->title);
+        $this->assertSame("SOS Staff d'U : Akela (Jean Dupont)", $events[0]->title);
         $this->assertSame('2026-09-04', $events[0]->startDate);
         $this->assertSame('2026-09-06', $events[0]->endDate);
         $this->assertSame(self::DEFAULT_CALENDAR_ID, $events[0]->calendarId);
@@ -120,6 +126,49 @@ class SosVirtualEventProviderTest extends TestCase
 
         $this->assertCount(2, $events);
         $this->assertSame(['2026-09-04', '2026-09-06'], [$events[0]->startDate, $events[1]->startDate]);
+    }
+
+    /** @return array<string, array{Role, ?string, ?string, string}> */
+    public static function anonymousReaders(): array
+    {
+        return [
+            'shared feed' => [Role::PUBLIC, null, 'Fennec', 'Fennec'],
+            'without a totem' => [Role::PUBLIC, null, null, 'Jean'],
+            'role without identity' => [Role::ADMIN, null, 'Fennec', 'Fennec'],
+            'empty identity' => [Role::CHIEF, '', 'Fennec', 'Fennec'],
+        ];
+    }
+
+    #[DataProvider('anonymousReaders')]
+    public function testAnUnidentifiedFeedKeepsTheShortLabelWithoutTheCivilSurname(
+        Role $role,
+        ?string $email,
+        ?string $totem,
+        string $shortLabel
+    ): void {
+        $this->oncall(42, '2026-09-04');
+        $provider = $this->provider(profilesByMemberId: [42 => $this->profile(42, $totem)]);
+        $viewer = new VirtualEventViewer($role, $email, self::SCOUT_YEAR_ID, [self::DEFAULT_CALENDAR_ID]);
+        $events = $this->collect($provider, '2026-09-01', '2026-09-30', $viewer);
+        $ics = (new \Modules\Calendar\Service\IcsBuilder())->build('Animateurs', [], $events);
+        $summaries = array_values(array_filter(explode("\r\n", $ics),
+            static fn(string $line): bool => str_starts_with($line, 'SUMMARY:')));
+
+        $this->assertSame([["SUMMARY:SOS Staff d'U : " . $shortLabel], false],
+            [$summaries, str_contains($ics, 'Dupont')]);
+    }
+
+    public function testAnIdentifiedReaderCanDistinguishTwoMembersWithTheSameTotem(): void
+    {
+        $this->oncall(42, '2026-09-04');
+        $this->oncall(43, '2026-09-04');
+        $provider = $this->provider(profilesByMemberId: [
+            42 => $this->profile(42, 'Fennec'),
+            43 => $this->profile(43, 'Fennec', 'Paul', 'Martin'),
+        ]);
+        $events = $this->collect($provider, '2026-09-01', '2026-09-30');
+        $this->assertSame(["SOS Staff d'U : Fennec (Jean Dupont)", "SOS Staff d'U : Fennec (Paul Martin)"],
+            array_map(static fn(VirtualEvent $event): string => $event->title, $events));
     }
 
     public function testUnavailableDaysAreNotPublished(): void

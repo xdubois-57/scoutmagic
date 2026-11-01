@@ -15,6 +15,11 @@ Le numéro SOS de l'unité sonne toujours chez quelqu'un : l'onglet
 jour. Le renvoi d'appel se programme tout seul d'après les gardes
 attribuées.
 
+Les membres sont identifiés par leur totem suivi du prénom et du nom,
+par exemple **Fennec (Jean Dupont)**. Sans totem, le prénom et le nom
+suffisent. Deux personnes partageant un totem restent ainsi distinctes,
+dans le planning comme dans les réglages du numéro par défaut.
+
 ## Sur ordinateur : la grille
 
 La grille du mois croise les jours et les membres du Staff d'Unité.
@@ -48,6 +53,9 @@ Si le module Calendrier est actif, les périodes de garde y apparaissent,
 modifient pas depuis le calendrier. D'anciens évènements
 « SOS Staff d'U : … » écrits avant ce calcul peuvent subsister en
 double ; supprimez-les une fois, ils ne reviendront pas.
+
+Le nom complet apparaît pour une personne identifiée. Les liens de calendrier
+partagés conservent le libellé court : le totem, ou le prénom sans totem.
 
 Le raccordement à l'opérateur se fait sur la page de configuration du
 module, réservée à l'administration du site.

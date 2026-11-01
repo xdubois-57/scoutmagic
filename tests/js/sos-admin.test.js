@@ -67,6 +67,7 @@ const PAGE_DOM = `
         <option value="4" selected>Alice D. (+32 470 00 00 01)</option>
         <option value="7">Bruno T. (+32 470 00 00 02)</option>
     </select>
+    <output id="default-number-preview" for="default-number-member">Alice D. (+32 470 00 00 01)</output>
     <button type="button" id="default-number-save" disabled>Enregistrer</button>
     <div class="text-danger small mt-1 d-none" id="default-number-error" role="alert"></div>
     <input type="time" id="transition-hour" value="18:00">
@@ -266,6 +267,17 @@ describe('sos-admin.js', () => {
     });
 
     describe('default number', () => {
+        it('keeps the complete server-rendered choice readable without saving on change', async () => {
+            await boot();
+            const select = document.getElementById('default-number-member');
+            const label = 'Fennec (Alexandre-Emmanuel Vanderstraeten de la Roche) <test> (+32 470 00 00 02)';
+            select.options[1].textContent = label;
+            select.value = '7';
+            changeControl('default-number-member');
+            expect(document.getElementById('default-number-preview').textContent).toBe(label);
+            expect(fetch).not.toHaveBeenCalled();
+        });
+
         it('POSTs the chosen member and the CSRF token', async () => {
             await boot();
             chooseAndSave('7');

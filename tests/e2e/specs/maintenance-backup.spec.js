@@ -106,6 +106,13 @@ test('maintenance backups run to completion, the auto-save saves, and the danger
     // status-polling loop, which reloads the page when the poll reports
     // done.
     // ---------------------------------------------------------------
+    // Delay the first launch before it reaches PHP: the progress bar is
+    // optimistic, so a scheduler pass must wait for the creation response.
+    await page.route('**/config/maintenance/backup/full', async (route) => {
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+        await route.continue();
+    }, { times: 1 });
+
     /** @param {string} scopeId the radio to check before launching */
     async function launchManualBackup(scopeId) {
         await page.goto('/config/maintenance/sauvegarde-manuelle', { waitUntil: 'domcontentloaded' });
@@ -113,41 +120,26 @@ test('maintenance backups run to completion, the auto-save saves, and the danger
         await page.locator(scopeId).check();
         // Nothing to type (issue #619, IT-03): the site generates the password.
         await expect(page.locator('#manual-backup-form input[type="password"]')).toHaveCount(0);
-        await page.locator('#manual-backup-submit').click();
-
-        // **Waiting on the pair, not on the progress bar alone — because a
-        // refusal hides the progress bar too.** `maintenance.js` removes
-        // the bar's `d-none` synchronously on submit, then, if the launch
-        // comes back refused, puts the server's sentence in
-        // `#manual-backup-error` and puts `d-none` BACK. So the state
-        // « progress hidden » is the state of a refusal, and a spec that
-        // asserts only `toBeVisible()` reports « Expected: visible /
-        // Received: hidden » while the page is displaying the reason two
-        // lines below. That is what happened on pull request #607, where
-        // this line failed and the run said nothing about why (issue #623).
-        await expect
-            .poll(
-                async () => {
-                    if (await page.locator('#manual-backup-progress').isVisible()) {
-                        return 'launched';
-                    }
-
-                    const refusal = ((await page.locator('#manual-backup-error').textContent()) ?? '').trim();
-
-                    return refusal === '' ? 'nothing happened yet' : `refused: ${refusal}`;
-                },
-                {
-                    message: 'the backup launch must be accepted, and say why if it is not',
-                    timeout: scaled(10_000),
-                },
-            )
-            .toBe('launched');
+        const [response] = await Promise.all([
+            page.waitForResponse((reply) => reply.request().method() === 'POST'
+                && new URL(reply.url()).pathname === '/config/maintenance/backup/full'),
+            page.locator('#manual-backup-submit').click(),
+        ]);
+        expect(response.status(), 'the backup creation endpoint must accept this scope').toBe(200);
+        const launch = await response.json();
+        // The response includes a refusal's reason when creation fails,
+        // so this assertion keeps that diagnostic instead of timing out.
+        expect(launch, 'the creation response must include a queued backup ID').toMatchObject({
+            success: true,
+            backup_id: expect.any(Number),
+        });
+        await expect(page.locator('#manual-backup-progress')).toBeVisible();
 
         // The backup itself is a scheduled task, and public/cron.php is the
         // only thing that runs one — the application does not turn its own
         // queue on the tail of a request any more, and this instance has no
-        // crontab. The progress bar being visible means the fetch came back
-        // with a backup id, so the row is committed and a pass will claim it.
+        // crontab. Waiting for the creation response above proves the row
+        // is committed; the optimistic progress bar alone cannot prove it.
         await runScheduler();
 
         // The polling loop ends in window.location.reload(), which brings
