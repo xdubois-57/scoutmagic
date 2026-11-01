@@ -34,8 +34,9 @@ use PHPMailer\PHPMailer\PHPMailer;
  * 4. The message is pointed at the provider and handed to the real
  *    delivery transport. On success the counter moves and the call
  *    returns; on failure the next entry is tried.
- * 5. With every entry refused, the exception carries the last relay's
- *    own reason, redacted.
+ * 5. If every delivery attempt fails, the exception carries the last relay's
+ *    reason and all earlier reasons, redacted. A later retry must not
+ *    mistake the last refusal for proof that no earlier relay accepted it.
  *
  * **It sits in front of the delivery transport, never instead of it.**
  * `PhpMailerTransport` in production, `Modules\TestTools`'s
@@ -109,13 +110,18 @@ final class MailTransportChain implements MailTransportInterface
         $candidates = $this->preferred($candidates, $lane, $mail);
 
         $lastReason = '';
+        $attemptFailures = [];
         foreach ($candidates as $provider) {
             $this->configurator->apply($mail, $provider);
+            // A transport may throw without setting PHPMailer's ErrorInfo.
+            // It must not inherit a previous relay's temporary refusal.
+            $mail->ErrorInfo = '';
 
             try {
                 $this->delivery->deliver($mail, $purpose);
             } catch (\Throwable $e) {
                 $lastReason = MailErrorRedaction::withoutAddresses($mail->ErrorInfo ?: $e->getMessage());
+                $attemptFailures[] = $lastReason;
                 $this->journalAttemptFailure($provider, $lane, $lastReason);
                 $this->recordFailure($provider, $lane, $lastReason);
                 continue;
@@ -144,7 +150,7 @@ final class MailTransportChain implements MailTransportInterface
 
         $this->journalLaneExhausted($lane, $lastReason);
 
-        throw new LaneExhaustedException($lane, $lastReason);
+        throw new LaneExhaustedException($lane, $lastReason, $attemptFailures);
     }
 
     /**

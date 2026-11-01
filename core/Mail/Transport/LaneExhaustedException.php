@@ -9,8 +9,9 @@ declare(strict_types=1);
 namespace Core\Mail\Transport;
 
 /**
- * Every provider of one lane was tried and none of them took the message
- * (D9, ARCHITECTURE.md §8.106).
+ * Every provider of one lane was tried and every attempt failed
+ * (D9, ARCHITECTURE.md §8.106). A failure can leave delivery uncertain;
+ * the last reason alone does not establish that no relay accepted it.
  *
  * It exists to be **told apart**, and that is its whole job. A message
  * that failed because the address is wrong is finished; a message that
@@ -24,9 +25,11 @@ namespace Core\Mail\Transport;
  */
 final class LaneExhaustedException extends \RuntimeException
 {
+    /** @param list<string> $attemptFailures Redacted reasons, in delivery order. */
     public function __construct(
         public readonly MailLane $lane,
-        public readonly string $reason
+        public readonly string $reason,
+        public readonly array $attemptFailures = []
     ) {
         parent::__construct(sprintf(
             'Tous les fournisseurs de la voie « %s » ont échoué. Dernière raison : %s',

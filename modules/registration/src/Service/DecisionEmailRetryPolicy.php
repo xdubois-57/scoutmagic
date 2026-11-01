@@ -19,14 +19,30 @@ final class DecisionEmailRetryPolicy
         if (!$error instanceof MailException) {
             return false;
         }
-        $reason = mb_strtolower($error->getMessage());
+        $attemptFailures = $error->getAttemptFailures();
+        if ($attemptFailures === []) {
+            return self::isTemporaryReason($error->getMessage());
+        }
+        // The last relay may have refused safely after an earlier relay
+        // delivered partially or lost the acknowledgement after DATA.
+        foreach ($attemptFailures as $reason) {
+            if (!self::isTemporaryReason($reason)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static function isTemporaryReason(string $reason): bool
+    {
+        $reason = mb_strtolower($reason);
         // PHPMailer can report failed recipients after delivering to the
         // accepted ones (including the unit's CC). Never repeat that send.
         if (str_contains($reason, 'recipients failed')) {
             return false;
         }
         // Match SMTP replies, not port numbers such as 443 or 587 in an
-        // ambiguous timeout. The lane wrapper preserves its last reason.
+        // ambiguous timeout. Each recorded provider failure is checked.
         preg_match_all(
             '/(?:^|smtp(?: error| code| server error)?\s*:|dernière raison\s*:)\s*([45][0-9]{2})(?:[ -]|$)/u',
             $reason,
