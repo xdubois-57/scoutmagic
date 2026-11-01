@@ -42,6 +42,21 @@ npm run e2e                        # exécuter les tests de bout en bout (voir c
 
 Les tests JavaScript (`tests/js/`, Vitest + jsdom) sont isolés du reste de la pile : aucun serveur PHP, aucune base MySQL, aucun réseau réel (`fetch`/Service Worker/WebAuthn sont simulés dans les tests qui en ont besoin). Ils exercent directement le vrai code de production sous `public/assets/js/`, jamais une réimplémentation. Node/npm ne servent qu'à ça — ScoutMagic lui-même reste du JavaScript navigateur simple, sans étape de build, et ni Node ni npm ne sont nécessaires pour l'exécuter ou le déployer (voir `AGENTS.md` § CSS / frontend).
 
+### Polices des PDF superposés
+
+Les autorisations parentales, fiches santé et contrats contresignés utilisent
+`Core\Pdf\UnicodePdf`, une base FPDI/tFPDF qui incorpore la police Unicode
+DejaVu Sans fournie par Composer. Les noms hors de l'encodage Windows-1252
+restent ainsi lisibles dans le document.
+
+tFPDF conserve un chemin absolu dans son cache de métriques. Après une copie
+ou un déploiement, ce cache peut encore désigner la machine de construction.
+`addUnicodeFont()` réancre le fichier de police dans l'installation actuelle,
+en respectant aussi `_SYSTEM_TTFONTS`, sans devoir modifier le cache dans
+`vendor/`. Les tests de déplacement génèrent un vrai cache, changent son
+ancien chemin puis le rendent non modifiable ; ils s'exécutent dans des
+processus isolés car le répertoire de polices est une constante globale.
+
 ### Analyse statique JavaScript
 
 `npm run typecheck` est l'équivalent JavaScript de `vendor/bin/phpstan analyse` pour PHP : un contrôle statique, déterministe, qui détecte avant toute exécution une classe d'erreurs que ni Vitest (comportement à l'exécution) ni SonarQube Cloud (qualité de code générale, doublons, complexité, sécurité) ne couvrent — identifiants non résolus, appels de fonction avec un nombre d'arguments incorrect, signatures qui divergent d'un site d'appel après un refactoring, accès à une propriété statiquement invalide. C'est exactement la classe de bug documentée dans `AGENTS.md` § Static analysis (un paramètre de constructeur PHP supprimé, un site d'appel non mis à jour, jamais détecté avant la production) — appliquée ici au JavaScript.

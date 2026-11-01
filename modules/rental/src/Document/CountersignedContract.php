@@ -8,7 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\Rental\Document;
 
-use setasign\Fpdi\Tfpdf\Fpdi;
+use Core\Pdf\UnicodePdf;
 
 /**
  * The contract signed by both parties (#708, IT-16): the renter's copy as
@@ -24,12 +24,13 @@ use setasign\Fpdi\Tfpdf\Fpdi;
  * **tFPDF, for the same reason as `OverlayPdf`**: FPDF's core fonts write
  * cp1252 only, and a manager called « Wiśniewski » countersigning must not
  * come out mangled on the one page that says who they are. DejaVu Sans
- * ships with `setasign/tfpdf`.
+ * ships with `setasign/tfpdf`; UnicodePdf keeps cached font paths valid
+ * when the installation is moved.
  *
  * Writes nothing that outlives it: the images it places go through a
  * temporary file FPDF insists on, removed before the method returns.
  */
-final class CountersignedContract extends Fpdi
+final class CountersignedContract extends UnicodePdf
 {
     private const FONT_FAMILY = 'DejaVuSans';
 
@@ -43,7 +44,7 @@ final class CountersignedContract extends Fpdi
         $this->SetAutoPageBreak(false);
         $this->SetMargins(0, 0, 0);
         $this->SetCompression(true);
-        $this->AddFont(self::FONT_FAMILY, '', 'DejaVuSans.ttf', true);
+        $this->addUnicodeFont(self::FONT_FAMILY, 'DejaVuSans.ttf');
         $this->SetTextColor(0, 0, 0);
     }
 

@@ -178,10 +178,12 @@ class ModuleManifestTest extends TestCase
      * 1.54.0 replaces the hand-ticked inventory with a minimal one, signed
      * (#989, lot G): `rental_inventory_validations` gains `scope` and
      * `remark_encrypted`.
+     *
+     * 1.54.1 keeps Unicode PDF generation working after relocation (#1057).
      */
-    public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
+    public function testTheVersionIncludesPortableUnicodePdfs(): void
     {
-        $this->assertSame('1.54.0', $this->manifest->version);
+        $this->assertSame('1.54.1', $this->manifest->version);
     }
 
     /**

@@ -17,7 +17,11 @@ use Modules\OfficialDocuments\Pdf\TemplateLibrary;
 use Modules\OfficialDocuments\Service\ParentalAuthorizationInput;
 use Modules\OfficialDocuments\Service\ParentalAuthorizationPdfService;
 use Modules\OfficialDocuments\Service\SignatoryCapacity;
+use PHPUnit\Framework\Attributes\PreserveGlobalState;
+use PHPUnit\Framework\Attributes\RunInSeparateProcess;
 use PHPUnit\Framework\TestCase;
+use Smalot\PdfParser\Parser;
+use Tests\RelocatedTfpdfFontCache;
 
 /**
  * The assembly: FPDI really does import the shipped template, tFPDF really
@@ -98,6 +102,24 @@ final class ParentalAuthorizationPdfServiceTest extends TestCase
      * come out mangled — or take the generation down — on a document a
      * family is asked to sign.
      */
+    #[RunInSeparateProcess]
+    #[PreserveGlobalState(false)]
+    public function testAParentCanGenerateTheAuthorizationAfterTheInstallationIsMoved(): void
+    {
+        $bytes = RelocatedTfpdfFontCache::render(static fn(): string => self::service()->render(
+            self::member('Bartosz', 'Wiśniewski'),
+            null,
+            '25e SV',
+            self::input('Ayşe Gül Çetin'),
+            new \DateTimeImmutable('2026-09-20')
+        )['pdf']);
+
+        $this->assertStringContainsString(
+            'Bartosz Wiśniewski',
+            (new Parser())->parseContent($bytes)->getText()
+        );
+    }
+
     public function testANameOutsideCp1252IsWrittenRatherThanMangled(): void
     {
         $result = self::service()->render(
