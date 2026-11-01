@@ -441,6 +441,26 @@ class MemberEmailServiceTest extends TestCase
         $this->assertTrue($reactivated->isValid());
     }
 
+    public function testReactivationRestoresTheAddressForEveryMemberButLeavesPendingRowsAlone(): void
+    {
+        $address = 'shared@example.com';
+        $first = $this->repository->create($this->memberId, $address, 'manual', 'inactive', null, null);
+        $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('DESK_SHARED')");
+        $secondMember = (int) $this->pdo->lastInsertId();
+        $second = $this->repository->create($secondMember, $address, 'desk', 'inactive', null, null);
+        $other = $this->repository->create($secondMember, 'other@example.com', 'manual', 'inactive', null, null);
+        $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('DESK_PENDING')");
+        $pending = $this->repository->create(
+            (int) $this->pdo->lastInsertId(), $address, 'manual', 'pending', null, null
+        );
+
+        $this->service->reactivateEmail($this->memberId, $first, null);
+
+        $this->assertTrue($this->repository->findById($second)->isValid());
+        $this->assertTrue($this->repository->findById($other)->isInactive());
+        $this->assertTrue($this->repository->findById($pending)->isPending());
+    }
+
     public function testReactivateEmailWorksForADeskSourcedRow(): void
     {
         $deskRow = $this->repository->findOrCreateDeskOverride($this->memberId, 'desk-reactivate@example.com');
@@ -507,6 +527,30 @@ class MemberEmailServiceTest extends TestCase
         $this->service->unsubscribe($row->id);
 
         $this->assertTrue($this->repository->findById($row->id)->isInactive());
+    }
+
+    public function testUnsubscribeCanDeferItsNotificationUntilTheOwningTransactionCommits(): void
+    {
+        $row = $this->repository->create($this->memberId, 'defer@example.com', 'manual', 'valid', null, null);
+        $sent = 0;
+        $this->mailService->expects($this->once())->method('send')
+            ->with($this->identicalTo('defer@example.com'))->willReturnCallback(
+                function (string $to) use (&$sent): void {
+                    $this->assertSame('defer@example.com', $to);
+                    $sent++;
+                }
+            );
+        $notify = null;
+        $this->pdo->beginTransaction();
+        $this->service->unsubscribe($row, static function (callable $callback) use (&$notify): void {
+            $notify = $callback;
+        });
+        $this->assertSame(0, $sent);
+        $this->assertNotNull($notify);
+        $this->assertTrue($this->repository->findById($row)->isInactive());
+        $this->pdo->commit();
+        $notify();
+        $this->assertSame(1, $sent);
     }
 
     public function testUnsubscribeIsIdempotent(): void

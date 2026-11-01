@@ -30,7 +30,8 @@ final class UnsubscribePageRenderingTest extends TestCase
         $html = $this->render('confirm');
 
         $this->assertStringContainsString("réactivez l'adresse sur la page de l'animé", $html);
-        $this->assertStringContainsString("adressez-vous à l'unité", $html);
+        $this->assertStringContainsString("demandez à l'unité de le faire", $html);
+        $this->assertStringContainsString('La réactivation vaut pour cette adresse dans toutes les listes.', $html);
         $this->assertStringNotContainsString('réinscrire', $html);
         $this->assertStringNotContainsString('espace animés', $html);
     }

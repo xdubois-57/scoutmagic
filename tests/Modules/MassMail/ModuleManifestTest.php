@@ -64,6 +64,7 @@ class ModuleManifestTest extends TestCase
                 '/admin/listes-de-diffusion/lists/{id}/contact-groups/analyse',
                 '/admin/listes-de-diffusion/lists/{id}/contact-groups',
                 '/admin/listes-de-diffusion/contact-groups/template',
+                '/admin/listes-de-diffusion/adresses/reactivate',
                 '/admin/listes-de-diffusion/contact-groups/{id}/contacts',
                 '/admin/listes-de-diffusion/contact-groups/{id}/export',
                 '/admin/listes-de-diffusion/contact-groups/{id}/analyse',
@@ -83,13 +84,10 @@ class ModuleManifestTest extends TestCase
         );
     }
 
-    /**
-     * 1.19.1 restores section pairing and literal percent-byte column names
-     * across HTML parsers. Pin the compatibility fix users receive.
-     */
-    public function testTheVersionNamesTheTemplateCompatibilityFixes(): void
+    /** 1.20.0 adds the explicit address-wide reactivation (#1032). */
+    public function testTheVersionNamesAddressWideReactivation(): void
     {
-        $this->assertSame('1.19.1', $this->manifest->version);
+        $this->assertSame('1.20.0', $this->manifest->version);
     }
 
     /**

@@ -236,6 +236,18 @@ class MailingListRbacTest extends TestCase
         $frontController = new FrontController($router, $this->twig, new AppConfig($configFile));
         $frontController->registerController(MailingListController::class, $this->controller);
         $frontController->registerController(ContactGroupController::class, $this->contactGroupController);
+        $frontController->registerController(
+            \Modules\MassMail\Controller\AddressReactivationController::class,
+            new \Modules\MassMail\Controller\AddressReactivationController(
+                $this->twig,
+                new \Core\Member\EmailAddressReactivationService(
+                    new \Core\Member\MemberEmailRepository(
+                        $this->pdo, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
+                    ),
+                    $this->createStub(\Core\Journal\JournalService::class)
+                )
+            )
+        );
 
         return $frontController;
     }
