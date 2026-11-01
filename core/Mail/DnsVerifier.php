@@ -262,7 +262,7 @@ class DnsVerifier
         $records = $this->txtRecordsOrNone($host);
         $actual = $records === [] ? null : implode("\n", $records);
 
-        // RFC 6376 §3.6.2.2 requires one TXT RR per selector. PHP already
+        // RFC 6376 section 3.6.2.2 requires one TXT RR per selector. PHP already
         // concatenates the character strings within each RR in its `txt`
         // field; independent records must never be combined or picked from.
         $exists = count($records) === 1
@@ -297,6 +297,11 @@ class DnsVerifier
 
         // Both tags are optional; their DKIM defaults are DKIM1 and rsa.
         if (($tags['v'] ?? 'DKIM1') !== 'DKIM1' || ($tags['k'] ?? 'rsa') !== 'rsa') {
+            return null;
+        }
+
+        // PHPMailer signs with rsa-sha256; a restricted key must allow it.
+        if (isset($tags['h']) && !in_array('sha256', array_map('trim', explode(':', $tags['h'])), true)) {
             return null;
         }
 

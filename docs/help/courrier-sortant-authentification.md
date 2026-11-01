@@ -50,11 +50,9 @@ publier et qui la vérifie. Tant que votre zone porte l'ancienne, tous les
 messages échouent à DKIM. La dernière vérification est oubliée du même
 coup — elle décrivait une clé qui n'existe plus.
 
-Le contrôle DKIM compare la clé publique complète avec celle du site.
-Publiez un seul enregistrement TXT pour le sélecteur indiqué : deux
-enregistrements, même identiques, ne permettent pas de valider la clé.
-Votre hébergeur peut répartir cette longue valeur en plusieurs fragments
-au sein de ce même enregistrement.
+DKIM exige la clé publique complète dans un unique TXT au sélecteur indiqué.
+Les fragments proposés par l’hébergeur doivent appartenir à ce même
+enregistrement.
 
 Si vous avez plusieurs relais dans vos chaînes, **le SPF doit tous les
 autoriser**. Le jour où le premier tombe, le message part par le suivant ;

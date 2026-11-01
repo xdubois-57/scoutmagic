@@ -96,6 +96,11 @@ class DnsVerifierTest extends TestCase
         yield 'unrelated record' => [['verification-token=example'], false];
         yield 'wrong version' => [['v=DKIM2; k=rsa; p=' . $key], false];
         yield 'wrong key type' => [['v=DKIM1; k=ed25519; p=' . $key], false];
+        yield 'SHA-256 explicitly allowed' => [[$record . '; h=sha256'], true];
+        yield 'SHA-256 in a hash list' => [[$record . "; h=sha1 : \tsha256"], true];
+        yield 'hash restriction excludes SHA-256' => [[$record . '; h=sha1'], false];
+        yield 'hash name must match completely' => [[$record . '; h=sha256other'], false];
+        yield 'empty hash restriction' => [[$record . '; h='], false];
         yield 'tag names are case sensitive' => [['v=DKIM1; k=rsa; P=' . $key], false];
         yield 'duplicate key tags' => [[$record . '; p=' . $other], false];
         yield 'duplicate identical key tags' => [[$record . '; p=' . $key], false];

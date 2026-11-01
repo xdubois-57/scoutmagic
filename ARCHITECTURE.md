@@ -4658,9 +4658,10 @@ which is why this one is not in `MAIL_KEYS`.
 
 DKIM validation compares the complete, case-sensitive `p=` tag with the
 site's public key, after removing legal folding whitespace. Tag order is
-irrelevant; duplicate or malformed tags and unsupported version/key type
-are rejected. Exactly one TXT RR must exist at the selector (RFC 6376
-§3.6.2.2): PHP joins the character strings within that RR, but separate
+irrelevant; duplicate or malformed tags, unsupported version/key type,
+and hash restrictions excluding the site's SHA-256 signatures
+are rejected. Exactly one TXT RR must exist at the selector (RFC 6376,
+section 3.6.2.2): PHP joins the character strings within that RR, but separate
 records are never combined or selected from. The setup wizard, manual DNS
 check and daily reading share this verifier (#1052).
 
