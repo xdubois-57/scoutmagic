@@ -121,6 +121,10 @@ Le site est en test et **rien n'a encore été partagé**. Donc :
   page publique et à toute nouvelle tentative depuis l'historique. `CardRenderer` quitte le chemin de
   publication.
 - Ce n'est pas un pouvoir nouveau : un chef peut déjà téléverser n'importe quelle image.
+- **Bloc de texte centré dans la zone commune de tous les recadrages** (ticket #929, après IT-02) :
+  colonnes 135–945 et lignes 257–823 (intersection d'un 4:3, d'un 3:4 et d'un 1,91:1), 30 px de marge,
+  adresse sur la ligne de base 780, titre 56 pt sur 3 lignes au plus de 750 px, voile en halo autour
+  du bloc. Une seule image, jamais une par destination ; la discussion et l'actualité ne changent pas.
 - **Même police**, DejaVu Sans Bold, **servie par le site** via `@font-face` — la politique de
   sécurité du contenu interdit les polices externes.
 - **Même échelle de flou** qu'aujourd'hui : un rayon en proportion du petit côté de l'image.
