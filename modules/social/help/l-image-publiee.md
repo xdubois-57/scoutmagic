@@ -11,8 +11,10 @@ related: ce-que-recoit-chaque-destination, medias-sociaux, ce-qui-est-parti, ger
 ---
 
 L'image du composeur est dessinée dans votre navigateur : la photo, le
-titre écrit dessus, l'adresse du site au pied. C'est cette image-là qui
-est envoyée — avec une exception sur la Page Facebook, décrite dans
+titre écrit dessus, l'adresse du site juste dessous. Titre et adresse sont
+centrés, un peu sous le milieu de l'image, pour rester entiers quand une
+destination recadre le carré (vignette d'une discussion, grille Instagram,
+aperçu Facebook). C'est cette image-là qui est envoyée — avec une exception sur la Page Facebook, décrite dans
 [Ce que reçoit chaque destination](ce-que-recoit-chaque-destination).
 
 ## Le flou, et qui le décide
