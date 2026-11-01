@@ -2,7 +2,7 @@
   "id": "registration",
   "name": "Inscriptions",
   "description": "Inscriptions, réinscriptions, passages de branche et départs.",
-  "version": "6.23.0",
+  "version": "6.24.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -1243,5 +1243,19 @@
       ]
     }
   ],
-  "category": "membres"
+  "category": "membres",
+  "notifications": [
+    {
+      "id": "registration.decision_email_failed",
+      "label": "Échec d’un e-mail de décision",
+      "description": "Quand un e-mail de décision ne peut pas être envoyé, après les réessais automatiques éventuels.",
+      "group": "Inscriptions",
+      "role_min": "admin",
+      "channels": {
+        "in_app": "default_on",
+        "push": "default_on",
+        "email": "off"
+      }
+    }
+  ]
 }

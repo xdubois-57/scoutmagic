@@ -10,7 +10,7 @@
 // intended section, and a current member's destination section — which
 // carry different endpoints and different field names in data-*, and go
 // through the same handler.
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 function row(endpoint, field, id) {
     return `
@@ -303,11 +303,19 @@ describe('registration-passage.js', () => {
         const feedback = () => document.getElementById('passage-optimize-feedback');
 
         beforeEach(() => {
+            vi.useFakeTimers();
             // The two handlers reload the page on success; jsdom has no
             // navigation, so the call is observed rather than performed.
             delete window.location;
             window.location = { reload: vi.fn() };
             window.ScoutMagicConfirm = { ask: vi.fn(() => Promise.resolve(true)) };
+        });
+
+        afterEach(() => {
+            // A successful optimisation leaves a delayed reload pending.
+            // It must not outlive this test's DOM or run in the next test.
+            vi.clearAllTimers();
+            vi.useRealTimers();
         });
 
         it('sends the method the chief chose', async () => {
@@ -346,6 +354,20 @@ describe('registration-passage.js', () => {
 
             await vi.waitFor(() =>
                 expect(feedback().textContent).toBe('2 commentaires relus, 3 personnes réparties.'));
+        });
+
+        it('shows the result before reloading the page after a delay', async () => {
+            global.fetch = vi.fn(() => jsonResponse({ success: true, placed: 2, warnings: [] }));
+            await boot();
+
+            document.getElementById('passage-optimize-run').click();
+
+            await vi.waitFor(() => expect(feedback().textContent).toBe('2 personnes réparties.'));
+            expect(window.location.reload).not.toHaveBeenCalled();
+
+            await vi.runOnlyPendingTimersAsync();
+
+            expect(window.location.reload).toHaveBeenCalledTimes(1);
         });
 
         it('does not reload when the server refuses, and says why', async () => {

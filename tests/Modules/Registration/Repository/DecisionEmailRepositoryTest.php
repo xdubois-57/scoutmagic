@@ -81,6 +81,32 @@ class DecisionEmailRepositoryTest extends TestCase
         return $email;
     }
 
+    public function testRecoveryMarkerAndNewAttemptRollBackTogether(): void
+    {
+        $request = $this->request('accepted');
+        $id = $this->repository->insert($request, 'accepted', 'scheduled', $this->now, 1, false, $this->now);
+        $this->repository->claim($id, $this->now, true);
+        $this->repository->markFailed($id, DecisionEmail::FAILURE_MAIL_TEMPORARY, 'Échec.', $this->now);
+        try {
+            $this->repository->processAutomaticFailure($id, $this->now, function () use ($request): bool {
+                $retry = $this->repository->insert($request, 'accepted', 'scheduled', $this->now, 2, false, $this->now);
+                $this->repository->setAutomaticRetryCount($retry, 1);
+                throw new \RuntimeException('staged failure');
+            });
+            $this->fail('The callback must fail.');
+        } catch (\RuntimeException $error) {
+            $this->assertSame('staged failure', $error->getMessage());
+        }
+        $rows = $this->repository->findForRequest($request);
+        $marker = $this->pdo->query('SELECT recovery_processed_at FROM registration_decision_emails')->fetchColumn();
+        $this->assertSame([
+            'states' => ['failed'], 'marker' => null,
+        ], [
+            'states' => array_map(static fn(DecisionEmail $email): string => $email->state, $rows),
+            'marker' => $marker,
+        ]);
+    }
+
     public function testAnEmailIsCreatedOnlyForARequestHoldingItsDecision(): void
     {
         $pending = $this->request('pending');

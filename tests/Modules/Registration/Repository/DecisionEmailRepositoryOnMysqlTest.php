@@ -76,6 +76,55 @@ class DecisionEmailRepositoryOnMysqlTest extends TestCase
         return $id;
     }
 
+    public function testRecoveryMarkerAndNewAttemptRollBackTogether(): void
+    {
+        $request = $this->request('accepted');
+        $id = $this->repository->insert($request, 'accepted', 'scheduled', $this->now, 1, false, $this->now);
+        $this->repository->claim($id, $this->now, true);
+        $this->repository->markFailed($id, DecisionEmail::FAILURE_MAIL_TEMPORARY, 'Échec.', $this->now);
+        try {
+            $this->repository->processAutomaticFailure($id, $this->now, function () use ($request): bool {
+                $retry = $this->repository->insert($request, 'accepted', 'scheduled', $this->now, 2, false, $this->now);
+                $this->repository->setAutomaticRetryCount($retry, 1);
+                throw new \RuntimeException('staged failure');
+            });
+            $this->fail('The callback must fail.');
+        } catch (\RuntimeException $error) {
+            $this->assertSame('staged failure', $error->getMessage());
+        }
+        $rows = $this->repository->findForRequest($request);
+        $marker = $this->pdo->query('SELECT recovery_processed_at FROM registration_decision_emails')->fetchColumn();
+        $this->assertSame([
+            'states' => ['failed'], 'marker' => null,
+        ], [
+            'states' => array_map(static fn(DecisionEmail $email): string => $email->state, $rows),
+            'marker' => $marker,
+        ]);
+    }
+
+    public function testOnlyOneSessionCanProcessAnAutomaticFailure(): void
+    {
+        $request = $this->request('accepted');
+        $id = $this->repository->insert($request, 'accepted', 'scheduled', $this->now, 1, false, $this->now);
+        $this->repository->claim($id, $this->now, true);
+        $this->repository->markFailed($id, DecisionEmail::FAILURE_MAIL_TEMPORARY, 'Échec.', $this->now);
+        $other = new DecisionEmailRepository($this->otherSession);
+        $this->otherSession->exec('SET SESSION innodb_lock_wait_timeout = 1');
+        $claim = $this->repository->processAutomaticFailure($id, $this->now, function () use ($id, $other): bool {
+            try {
+                $other->processAutomaticFailure($id, $this->now, static fn(): bool => true);
+                $this->fail('A second session must wait for the recovery transaction.');
+            } catch (\PDOException $error) {
+                $this->assertSame(1205, $error->errorInfo[1] ?? null);
+            }
+            return true;
+        });
+        $this->assertTrue($claim);
+        $this->assertFalse($other->processAutomaticFailure($id, $this->now, static function (): bool {
+            self::fail('A committed failure must not be processed twice.');
+        }));
+    }
+
     /**
      * The premise of the claim: the column admits several NULLs — every
      * settled e-mail carries one — and refuses a value twice, as SQLSTATE
