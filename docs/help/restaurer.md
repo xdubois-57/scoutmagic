@@ -15,6 +15,8 @@ La restauration se fait dans **Sauvegardes récentes**, sous la liste :
 c'est à cela que sert une sauvegarde. Elle remplace la base de données
 et les fichiers actuels par ceux de la sauvegarde choisie.
 
+Une fois la restauration terminée, toutes les personnes connectées doivent se reconnecter, y compris vous.
+
 ## Depuis ce serveur
 
 Choisissez une sauvegarde dans la liste déroulante, tapez RESTAURER,

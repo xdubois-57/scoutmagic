@@ -23,11 +23,13 @@ use Twig\Environment;
 // them, the others only need their answers, and PHPUnit would report
 // each of those as a mock with no expectation (issue #665).
 #[\PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations]
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class AuthControllerTest extends TestCase
 {
     private AuthController $controller;
     private AuthService $authService;
     private Environment $twig;
+    private \Core\Security\SessionGeneration $generation;
 
     protected function setUp(): void
     {
@@ -44,7 +46,8 @@ class AuthControllerTest extends TestCase
         $this->twig->addGlobal('cookie_consent_given', true);
 
         $this->authService = $this->createMock(AuthService::class);
-        $this->controller = new AuthController($this->twig, $this->authService);
+        $this->generation = \Tests\SessionGenerationFixture::forPdo();
+        $this->controller = new AuthController($this->twig, $this->authService, $this->generation);
     }
 
     protected function tearDown(): void
@@ -193,7 +196,7 @@ class AuthControllerTest extends TestCase
         $this->authService->method('getUserById')->willReturn($superAdmin);
 
         // This session is the one that asked for link #1.
-        PendingMagicLink::remember(1);
+        PendingMagicLink::remember(1, $this->generation->current());
 
         $request = new Request('GET', '/auth/poll/1', [], [], [], []);
         $response = $this->controller->pollMagicLink($request, ['id' => '1']);
@@ -202,9 +205,47 @@ class AuthControllerTest extends TestCase
         $this->assertTrue($body['confirmed']);
         $this->assertTrue(AuthSession::isAuthenticated());
         $this->assertSame(5, AuthSession::getUserAccountId());
+        $this->assertSame($this->generation->current(), AuthSession::getGeneration());
         $this->assertSame('superadmin', AuthSession::getRole());
         // Single-use: the pending id is spent once collected.
         $this->assertFalse(PendingMagicLink::matches(1));
+    }
+
+    public function testAnOldPendingLoginCannotCollectAnIdentityAfterRotation(): void
+    {
+        $this->startTestSession();
+        PendingMagicLink::remember(1, $this->generation->current());
+        $account = new \Core\Security\UserAccount(5, 'restored@example.com', null, null, null, true, null);
+        $this->authService->method('isMagicLinkConfirmed')->willReturn(true);
+        $this->authService->method('getUserForConfirmedLink')->willReturn($account);
+        $this->authService->method('getUserById')->willReturn($account);
+
+        $this->generation->rotate();
+        $controller = new AuthController($this->twig, $this->authService, $this->generation);
+        $response = $controller->pollMagicLink(new Request('GET', '/auth/poll/1', [], [], [], []), ['id' => '1']);
+        $body = json_decode($response->getBody(), true);
+
+        $this->assertSame([false, false], [$body['confirmed'], AuthSession::isAuthenticated()]);
+    }
+
+    public function testARotationDuringAuthenticationCannotStampAnOldLoginWithTheNewGeneration(): void
+    {
+        $this->startTestSession();
+        $before = $this->generation->current();
+        PendingMagicLink::remember(1, $before);
+        $account = new \Core\Security\UserAccount(5, 'current@example.com', null, null, null, true, null);
+        $this->authService->method('isMagicLinkConfirmed')->willReturnCallback(function (): bool {
+            $this->generation->rotate();
+            return true;
+        });
+        $this->authService->method('getUserForConfirmedLink')->willReturn($account);
+        $this->authService->method('getUserById')->willReturn($account);
+
+        $response = $this->controller->pollMagicLink(new Request('GET', '/auth/poll/1', [], [], [], []), ['id' => '1']);
+
+        $this->assertTrue(json_decode($response->getBody(), true)['confirmed']);
+        $this->assertSame($before, AuthSession::getGeneration());
+        $this->assertNotSame($this->generation->current(), AuthSession::getGeneration());
     }
 
     /**
@@ -255,7 +296,7 @@ class AuthControllerTest extends TestCase
         $this->authService->method('isMagicLinkConfirmed')->willReturn(true);
         $this->authService->expects($this->never())->method('getUserForConfirmedLink');
 
-        PendingMagicLink::remember(41);
+        PendingMagicLink::remember(41, $this->generation->current());
 
         $request = new Request('GET', '/auth/poll/42', [], [], [], []);
         $response = $this->controller->pollMagicLink($request, ['id' => '42']);
@@ -269,7 +310,7 @@ class AuthControllerTest extends TestCase
     {
         $this->startTestSession();
         AuthSession::login(1, 'user@test.com', 'identified');
-        PendingMagicLink::remember(7);
+        PendingMagicLink::remember(7, $this->generation->current());
         $token = CsrfGuard::generateToken();
 
         $request = new Request('POST', '/logout', [], ['_csrf_token' => $token], [], []);
@@ -312,7 +353,7 @@ class AuthControllerTest extends TestCase
         $this->authService->method('isMagicLinkConfirmed')->willReturn(true);
         $this->authService->method('getUserForConfirmedLink')->willReturn($member);
         $this->authService->method('getUserById')->willReturn($member);
-        PendingMagicLink::remember(1);
+        PendingMagicLink::remember(1, $this->generation->current());
 
         $response = $this->controller->pollMagicLink(new Request('GET', '/auth/poll/1', [], [], [], []), ['id' => '1']);
 
@@ -331,7 +372,7 @@ class AuthControllerTest extends TestCase
         $this->authService->method('isMagicLinkConfirmed')->willReturn(true);
         $this->authService->method('getUserForConfirmedLink')->willReturn($member);
         $this->authService->method('getUserById')->willReturn($member);
-        PendingMagicLink::remember(1);
+        PendingMagicLink::remember(1, $this->generation->current());
 
         $response = $this->controller->pollMagicLink(new Request('GET', '/auth/poll/1', [], [], [], []), ['id' => '1']);
 
@@ -371,7 +412,7 @@ class AuthControllerTest extends TestCase
     {
         $this->startTestSession();
         $this->controller->login(new Request('GET', '/login', ['return' => '/r/abc123'], [], [], []), []);
-        PendingMagicLink::remember(7);
+        PendingMagicLink::remember(7, $this->generation->current());
         $this->authService->method('verifyMagicLink')->willReturn(
             new \Core\Security\VerifiedMagicLink('poll@test.com', 5)
         );

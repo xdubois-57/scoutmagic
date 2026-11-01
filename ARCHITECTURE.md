@@ -124,6 +124,17 @@ So `Core\Security\RoleResolver` resolves over the set of years an access decisio
 
 **The door and every later request are judged on the same set**, which is why `Core\Http\Controller\AuthController` and `Core\Security\SessionRevalidator` both go through this one service: judging the login on two years and the next request on one signs the arriving animateur in and throws them out on their first click, a defect that reads as a broken session rather than as a missing year. `Tests\Architecture\AuthorizationYearsAreReadOnlyTest` pins the read-only and no-preview halves; `Tests\Integration\ScoutYearTransitionAccessTest` pins the whole scenario.
 
+Sessions also carry the current installation's authentication generation
+(`Core\Security\SessionGeneration`, internal `auth_session_generation`).
+Initialization uses the settings repository's atomic empty-value claim so
+concurrent logins adopt one persisted generation. First-time setup and the
+completion of a restore renew it; older sessions are revoked. The login
+controller captures the generation before checking credentials, and pending
+magic-link requests are bound to that same generation. Session revalidation
+also checks the account's normalized e-mail before resolving its role, so a
+reused numeric account ID cannot silently change identity (#1051).
+
+
 **What this deliberately does NOT do** is widen the scope of any *list*. Who may open a screen is a question about a person; which rows appear on it is a question about rows, and no list ever merges two years — see §8.26.
 
 ## 5. Authentication

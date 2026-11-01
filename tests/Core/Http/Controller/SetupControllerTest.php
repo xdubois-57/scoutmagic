@@ -131,6 +131,21 @@ class SetupControllerTest extends TestCase
         $this->assertStringContainsString('_csrf_token', $body);
     }
 
+    public function testTheFirstRunDiscardsThePreviousAuthenticatedIdentity(): void
+    {
+        \Core\Security\AuthSession::login(1, 'previous@example.com', 'superadmin', str_repeat('a', 64));
+        \Core\Security\PendingMagicLink::remember(42);
+        $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath);
+
+        $response = $controller->index(new Request('GET', '/setup', [], [], [], []), []);
+
+        $this->assertSame([200, false, false], [
+            $response->getStatusCode(),
+            \Core\Security\AuthSession::isAuthenticated(),
+            \Core\Security\PendingMagicLink::matches(42),
+        ]);
+    }
+
     private function invokeCleanupFailedSetup(SetupController $controller, bool $createdThisRun): void
     {
         $method = new \ReflectionMethod(SetupController::class, 'cleanupFailedSetup');
@@ -1334,6 +1349,8 @@ class SetupControllerTest extends TestCase
 
             $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath, $this->publicDir());
             $this->writeCronHeartbeat();
+            \Core\Security\AuthSession::login(1, 'previous@example.com', 'superadmin', str_repeat('c', 64));
+            $oldBrowser = $_SESSION;
             $token = \Core\Security\CsrfGuard::generateToken();
             $_POST['_csrf_token'] = $token;
 
@@ -1359,6 +1376,30 @@ class SetupControllerTest extends TestCase
             $this->assertSame('/', $response->getHeaders()['Location'] ?? null);
 
             $settings = new SettingService(new SettingRepository($pdo));
+            $this->assertFalse(\Core\Security\AuthSession::isAuthenticated());
+            $this->assertMatchesRegularExpression('/^[a-f0-9]{64}$/D',
+                (string) $settings->get(\Core\Security\SessionGeneration::SETTING));
+            $secrets = $this->secretManager->readSecrets();
+            $encryption = new \Core\Security\EncryptionService(
+                base64_decode($secrets['encryption_key'], true), base64_decode($secrets['blind_index_key'], true)
+            );
+            $generation = \Tests\SessionGenerationFixture::forPdo($pdo);
+            $revalidator = new \Core\Security\SessionRevalidator(
+                new \Core\Security\UserAccountRepository($pdo, $encryption),
+                new \Core\Security\RoleResolver(new \Core\Import\MemberYearRepository($pdo), $encryption, $pdo),
+                $generation
+            );
+            $_SESSION = $oldBrowser;
+            $oldSurvives = $revalidator->revalidate(static fn() => new \Core\ScoutYear\AuthorizationYears(1, [1]));
+            \Core\Security\AuthSession::login(1, 'admin@unite-test.example', 'superadmin', $generation->current());
+            $this->assertSame([false, true, 'admin@unite-test.example', 'superadmin'], [
+                $oldSurvives,
+                $revalidator->revalidate(static fn() => new \Core\ScoutYear\AuthorizationYears(1, [1])),
+                \Core\Security\AuthSession::getEmail(),
+                \Core\Security\AuthSession::getRole(),
+            ]);
+            \Core\Security\AuthSession::logout();
+
             $this->assertSame($expected, $settings->get('statistics_enabled'));
 
             $installedAt = (string) $settings->get('installed_at');

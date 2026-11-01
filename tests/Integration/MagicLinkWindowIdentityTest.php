@@ -95,6 +95,7 @@ class MagicLinkWindowIdentityTest extends TestCase
         $this->controller = new AuthController(
             $twig,
             new AuthService($connection, $this->encryption, $mailService, EmailTemplateRendererFactory::overTestDatabase($this->pdo, $twig), 'https://example.test', 'Test Unit'),
+            \Tests\SessionGenerationFixture::forPdo($this->pdo),
             new RoleResolver($memberYearRepo, $this->encryption, $this->pdo, $memberEmailRepo),
             new ScoutYearResolver(
                 new ScoutYearService($this->pdo),

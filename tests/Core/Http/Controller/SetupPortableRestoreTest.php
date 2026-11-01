@@ -260,6 +260,9 @@ final class SetupPortableRestoreTest extends TestCase
 
         $this->assertSame(200, $response->getStatusCode());
         $this->assertTrue($decoded['success'] ?? false, (string) ($decoded['message'] ?? 'no message'));
+        $this->assertMatchesRegularExpression('/^[a-f0-9]{64}$/D',
+            (string) $this->readSetting($connection->getPdo(), \Core\Security\SessionGeneration::SETTING));
+        $this->assertFalse(\Core\Security\AuthSession::isAuthenticated());
 
         // The origin's data arrived.
         $this->assertFileExists($this->installRoot . '/storage/uploads/tresorerie.pdf');
