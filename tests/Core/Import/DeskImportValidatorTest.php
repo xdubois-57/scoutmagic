@@ -416,18 +416,62 @@ class DeskImportValidatorTest extends TestCase
         $this->assertSame(DeskImportRule::MAIN_FUNCTION, $errors[0]->rule);
     }
 
-    /** Address copies differing only in function-code case still describe one function. */
-    public function testRule14FunctionCodeCaseAliasesCountAsOne(): void
+    /**
+     * Address copies differing only in code case still describe one function.
+     * @param array<string, string> $first
+     * @param array<string, string> $second
+     */
+    #[DataProvider('identityCodeCaseAliases')]
+    public function testRule14CodeCaseAliasesCountAsOne(array $first, array $second, string $unmarked): void
     {
         $errors = $this->validateRows([
-            $this->row(['FONCTION' => 'Intendant', 'Fonction principale' => 'false']),
-            $this->row([
-                'FONCTION' => 'INTENDANT', 'Fonction principale' => '',
+            $this->row(array_replace($first, ['Fonction principale' => 'false'])),
+            $this->row(array_replace($second, [
+                'Fonction principale' => $unmarked,
                 "Type d'adresse" => 'Adresse secondaire', 'Rue' => 'Avenue du Parc',
-            ]),
+            ])),
         ]);
 
         $this->assertSame([], $this->messagesOf($errors));
+    }
+
+    /**
+     * Resolving case aliases must not let contradictory flags through to the importer.
+     * @param array<string, string> $first
+     * @param array<string, string> $second
+     */
+    #[DataProvider('identityCodeCaseAliases')]
+    public function testRule14CodeCaseAliasesMustAgreeOnTheMainFlag(array $first, array $second, string $unmarked): void
+    {
+        $errors = $this->validateRows([
+            $this->row(array_replace($first, ['Fonction principale' => 'true'])),
+            $this->row(array_replace($second, [
+                'Fonction principale' => $unmarked,
+                "Type d'adresse" => 'Adresse secondaire', 'Rue' => 'Avenue du Parc',
+            ])),
+        ]);
+
+        $this->assertCount(1, $errors);
+        $this->assertSame(DeskImportRule::MAIN_FUNCTION, $errors[0]->rule);
+        $this->assertStringContainsString('la même fonction', $this->messagesOf($errors)[0]);
+    }
+
+    /** @return iterable<string, array{array<string, string>, array<string, string>, string}> */
+    public static function identityCodeCaseAliases(): iterable
+    {
+        $codes = [
+            'function' => [['FONCTION' => "Équipier d'unité"], ['FONCTION' => "équipier D'UNITÉ"]],
+            'branch' => [['Branche' => 'Éclaireurs'], ['Branche' => 'éclaireurs']],
+            'section' => [['Section' => 'Louv1'], ['Section' => 'LOUV1']],
+            'all codes' => [
+                ['FONCTION' => "Équipier d'unité", 'Branche' => 'Éclaireurs', 'Section' => 'Louv1'],
+                ['FONCTION' => "équipier D'UNITÉ", 'Branche' => 'éclaireurs', 'Section' => 'LOUV1'],
+            ],
+        ];
+        foreach ($codes as $label => [$first, $second]) {
+            yield $label . ' / false' => [$first, $second, 'false'];
+            yield $label . ' / empty' => [$first, $second, ''];
+        }
     }
 
     public function testRule14AMemberWithTwoMainFunctionsIsRefused(): void

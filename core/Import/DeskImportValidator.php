@@ -296,7 +296,7 @@ final class DeskImportValidator
     /**
      * One function's identity across its address lines: its code, branch,
      * section and dates, each date in one spelling (`01/09/2025` and
-     * `2025-09-01` are the same start). Function codes ignore letter case
+     * `2025-09-01` are the same start). All three codes ignore letter case
      * on the production collation. Serialize the parts so a separator
      * inside a CSV field cannot merge two different tuples.
      */
@@ -306,8 +306,8 @@ final class DeskImportValidator
 
         return serialize([
             mb_strtolower($row->value('FONCTION'), 'UTF-8'),
-            $row->value('Branche'),
-            $row->value('Section'),
+            mb_strtolower($row->value('Branche'), 'UTF-8'),
+            mb_strtolower($row->value('Section'), 'UTF-8'),
             $date($row->value('Date début')),
             $date($row->value('Date fin')),
             $date($row->value('fin de mandat')),
