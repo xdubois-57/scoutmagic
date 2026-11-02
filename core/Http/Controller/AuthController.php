@@ -28,6 +28,7 @@ use Core\Security\PasswordAuthMethod;
 use Core\Security\PendingMagicLink;
 use Core\Security\Role;
 use Core\Security\RoleResolver;
+use Core\Security\SessionGeneration;
 use Core\Security\WebAuthnService;
 use Twig\Environment;
 
@@ -39,10 +40,12 @@ class AuthController extends AbstractController
     private ?PasswordAuthMethod $passwordAuth = null;
     private ?WebAuthnService $webAuthnService = null;
     private ?HumanCheckService $humanCheck = null;
+    private string $installationGeneration;
 
     public function __construct(
         protected Environment $twig,
         private AuthService $authService,
+        SessionGeneration $sessionGeneration,
         private ?RoleResolver $roleResolver = null,
         private ?ScoutYearResolver $scoutYearResolver = null,
         private ?CookieConsentService $cookieConsentService = null,
@@ -55,6 +58,9 @@ class AuthController extends AbstractController
          */
         private ?AuthorizationYearService $authorizationYearService = null
     ) {
+        // Snapshot before verifying credentials: a concurrent restoration
+        // must not stamp an old authentication with the new database's epoch.
+        $this->installationGeneration = $sessionGeneration->current();
     }
 
     public function setPasswordAuth(PasswordAuthMethod $passwordAuth): void
@@ -160,7 +166,7 @@ class AuthController extends AbstractController
 
         // Only this session may later collect the session created by
         // confirming that link (see Core\Security\PendingMagicLink).
-        PendingMagicLink::remember((int) $result->magicLinkId);
+        PendingMagicLink::remember((int) $result->magicLinkId, $this->installationGeneration);
 
         return $this->json(['success' => true, 'poll_id' => $result->magicLinkId]);
     }
@@ -210,7 +216,7 @@ class AuthController extends AbstractController
 
         // Read BEFORE verifying: verifying marks the link used, and this
         // answer is about the session, not about the link.
-        $isRequestingSession = PendingMagicLink::matches($id);
+        $isRequestingSession = PendingMagicLink::matches($id, $this->installationGeneration);
 
         $verified = $this->authService->verifyMagicLink($id, $token);
 
@@ -224,7 +230,7 @@ class AuthController extends AbstractController
 
         if ($isRequestingSession) {
             $role = $this->resolveRole($verified->email, $verified->userAccountId);
-            AuthSession::login($verified->userAccountId, $verified->email, $role);
+            AuthSession::login($verified->userAccountId, $verified->email, $role, $this->installationGeneration);
             $this->storeLinkedMembers($verified->email);
             // AND THE PENDING LINK IS LEFT ALONE, deliberately. This
             // branch runs when the link opened in the SAME session that
@@ -277,6 +283,10 @@ class AuthController extends AbstractController
         if (!PendingMagicLink::matches($id)) {
             return $this->json(['confirmed' => false]);
         }
+        if (!PendingMagicLink::matches($id, $this->installationGeneration)) {
+            PendingMagicLink::forget();
+            return $this->json(['confirmed' => false, 'expired' => true]);
+        }
 
         $confirmed = $this->authService->isMagicLinkConfirmed($id);
 
@@ -293,7 +303,7 @@ class AuthController extends AbstractController
             $user = $this->authService->getUserForConfirmedLink($id);
             if ($user !== null && $this->isMemberAuthorized($user->email)) {
                 $role = $this->resolveRole($user->email, $user->id);
-                AuthSession::login($user->id, $user->email, $role);
+                AuthSession::login($user->id, $user->email, $role, $this->installationGeneration);
                 $this->storeLinkedMembers($user->email);
             }
         }
@@ -367,7 +377,7 @@ class AuthController extends AbstractController
 
         // Login successful
         $role = $this->resolveRole($account->email, $account->id);
-        AuthSession::login($account->id, $account->email, $role);
+        AuthSession::login($account->id, $account->email, $role, $this->installationGeneration);
         $this->storeLinkedMembers($account->email);
         $this->rememberLoginMethod('password');
 
@@ -422,7 +432,7 @@ class AuthController extends AbstractController
         }
 
         $role = $this->resolveRole($account->email, $account->id);
-        AuthSession::login($account->id, $account->email, $role);
+        AuthSession::login($account->id, $account->email, $role, $this->installationGeneration);
         $this->storeLinkedMembers($account->email);
         $this->rememberLoginMethod('passkey');
 

@@ -28,6 +28,7 @@ namespace Core\Security;
 final class PendingMagicLink
 {
     private const SESSION_KEY = '_pending_magic_link';
+    private const GENERATION_KEY = '_pending_magic_link_generation';
 
     /**
      * Called when a magic link has just been issued for this session —
@@ -35,17 +36,20 @@ final class PendingMagicLink
      * creates the row and reports success either way, for no enumeration),
      * so this stays indistinguishable from the matched case.
      */
-    public static function remember(int $magicLinkId): void
+    public static function remember(int $magicLinkId, ?string $generation = null): void
     {
         SessionStore::set(self::SESSION_KEY, $magicLinkId);
+        SessionStore::set(self::GENERATION_KEY, $generation);
     }
 
     /**
      * Whether $magicLinkId is the link this session itself requested. Any
      * other id — guessed, enumerated, or belonging to another visitor — is
      * not this session's to collect.
+     * Without $generation this checks ownership only; authentication must
+     * also match the server's current generation.
      */
-    public static function matches(int $magicLinkId): bool
+    public static function matches(int $magicLinkId, ?string $generation = null): bool
     {
         if ($magicLinkId <= 0) {
             return false;
@@ -53,7 +57,10 @@ final class PendingMagicLink
 
         $pending = SessionStore::get(self::SESSION_KEY);
 
-        return is_int($pending) && $pending === $magicLinkId;
+        $storedGeneration = SessionStore::get(self::GENERATION_KEY);
+
+        return is_int($pending) && $pending === $magicLinkId
+            && ($generation === null || (is_string($storedGeneration) && hash_equals($generation, $storedGeneration)));
     }
 
     /**
@@ -63,5 +70,6 @@ final class PendingMagicLink
     public static function forget(): void
     {
         SessionStore::remove(self::SESSION_KEY);
+        SessionStore::remove(self::GENERATION_KEY);
     }
 }

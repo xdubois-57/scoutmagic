@@ -216,6 +216,7 @@ class RestoreBackupHandler implements TaskHandlerInterface
                 $bindingsHold = $this->holdStorageBindingsAside($context);
 
                 $backupService->restoreDatabase($restoreDbDumpPath);
+                \Core\Security\SessionGeneration::invalidateRestoredDatabase($context->connection->getPdo());
                 if ($restoreZipPath !== null) {
                     $backupService->restoreFiles($restoreZipPath, $password);
                 }
@@ -550,7 +551,7 @@ class RestoreBackupHandler implements TaskHandlerInterface
             $sameInstallation = is_string($ownIdentity) && $ownIdentity !== ''
                 && $ownIdentity === $archive->originInstallationId();
 
-            $restore->apply($archive, $backupService, $targetOwnedSecrets);
+            $restore->apply($archive, $backupService, $targetOwnedSecrets, $context->connection->getPdo());
 
             $this->scheduleMigrationResume(
                 $context,
@@ -858,18 +859,17 @@ class RestoreBackupHandler implements TaskHandlerInterface
                     ['restored_from' => $originId],
                     $requestedBy
                 );
-
-                // Nothing left to roll back to: this restore has arrived.
-                // The target's old keys were carried this far only so that
-                // a failure on the way could hand them back.
-                if (is_string($payload['portable_secrets_hold'] ?? null)) {
-                    @unlink((string) $payload['portable_secrets_hold']);
-                }
             }
 
             $this->reconcileStorageBindings($payload, $context, $requestedBy);
 
             $this->finishRestore($context, $backupRepository, $fileRepository, $source, $requestedBy);
+
+            // Keep the target's keys until every fallible completion step,
+            // including the session-generation write, has succeeded.
+            if (($payload['portable'] ?? false) === true && is_string($payload['portable_secrets_hold'] ?? null)) {
+                @unlink((string) $payload['portable_secrets_hold']);
+            }
         } catch (\Throwable $migrationError) {
             if (is_string($payload['storage_bindings_hold'] ?? null)) {
                 @unlink((string) $payload['storage_bindings_hold']);
@@ -1054,6 +1054,12 @@ class RestoreBackupHandler implements TaskHandlerInterface
         string $source,
         ?int $requestedBy
     ): void {
+        // The resumed pass has finished migrating the restored schema.
+        // Use fresh settings, not the pre-restore request's cached values.
+        (new \Core\Security\SessionGeneration(new \Core\Config\SettingService(
+            new \Core\Config\SettingRepository($context->connection->getPdo())
+        )))->rotate();
+
         $context->journal->log(
             'core',
             'backup_restored',

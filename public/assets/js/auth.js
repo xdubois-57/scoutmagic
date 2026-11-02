@@ -208,7 +208,15 @@
                 .finally(function() { inFlight = false; })
                 .then(function(r) { return r.json(); })
                 .then(function(data) {
-                    if (data.confirmed && pollingInterval) {
+                    if (!pollingInterval || pollingInterval !== ownInterval) {
+                        return;
+                    }
+                    if (data.expired) {
+                        stopPolling();
+                        setWaitingExpired(true);
+                        return;
+                    }
+                    if (data.confirmed) {
                         stopPolling();
                         showState(stateConfirmed);
                         setTimeout(function() {
@@ -233,7 +241,8 @@
         };
         document.addEventListener('visibilitychange', visibilityHandler);
 
-        pollingInterval = setInterval(checkOnce, 3000);
+        var ownInterval = setInterval(checkOnce, 3000);
+        pollingInterval = ownInterval;
 
         // Magic links expire after 15 minutes: stop polling AND tell the
         // user, instead of leaving the spinner running forever (which

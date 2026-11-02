@@ -725,7 +725,8 @@ class SetupController extends AbstractController
                     null,
                     DeclaredStorageDirectories::none()
                 ),
-                $credentials + ['base_url' => $baseUrl]
+                $credentials + ['base_url' => $baseUrl],
+                $connection->getPdo()
             );
 
             // The dump is the ORIGIN's, so its schema may be older than this
@@ -739,6 +740,8 @@ class SetupController extends AbstractController
             InstallationIdentityService::register($settings);
 
             $restore->adoptNewIdentity($connection->getPdo(), $archive->originInstallationId(), $baseUrl);
+            (new \Core\Security\SessionGeneration($settings))->rotate();
+            $this->clearPreviousAuthentication();
 
             $this->journalService?->log(
                 'core',
@@ -1698,6 +1701,7 @@ class SetupController extends AbstractController
             // point — recording it here keeps the date correct even if a
             // first request writes a journal entry before the backfill runs.
             $setupSettingService = new SettingService(new SettingRepository($connection->getPdo()));
+            (new \Core\Security\SessionGeneration($setupSettingService))->rotate();
             InstallationDateService::register($setupSettingService);
             (new InstallationDateService($setupSettingService, $connection->getPdo()))->ensureRecorded();
 
@@ -1740,6 +1744,7 @@ class SetupController extends AbstractController
                     : 'Installation terminée avec succès, mais token.php n\'a pas pu être supprimé automatiquement — '
                         . 'retirez-le manuellement via FTP pour des raisons de sécurité.'
             );
+            $this->clearPreviousAuthentication();
             return $this->redirect('/');
         } catch (\Throwable $e) {
             $this->cleanupFailedSetup($masterKeyCreatedThisRun);
@@ -2213,6 +2218,7 @@ class SetupController extends AbstractController
         }
 
         if (SessionStore::get('setup_token_verified', false) === true || $this->acceptBootstrapProof()) {
+            $this->clearPreviousAuthentication();
             return null;
         }
 
@@ -2242,6 +2248,18 @@ class SetupController extends AbstractController
         return (new Response('', 403))->setBody('Jeton d\'installation requis.');
     }
 
+    private function clearPreviousAuthentication(): void
+    {
+        if (AuthSession::isAuthenticated()) {
+            AuthSession::logout();
+        }
+        \Core\Security\PendingMagicLink::forget();
+        \Core\Security\LoginReturn::forget();
+        \Core\ScoutYear\ScoutYearSession::clear();
+        \Core\Member\TemporaryMemberSession::clear();
+        \Core\Help\Assistant\AssistantSession::clear();
+    }
+
     /**
      * Gates GET /setup while the site isn't initialized: no token.php,
      * no wizard — ever. Returns null when access is already granted this
@@ -2250,6 +2268,7 @@ class SetupController extends AbstractController
     private function checkTokenGate(): ?Response
     {
         if (SessionStore::get('setup_token_verified', false) === true || $this->acceptBootstrapProof()) {
+            $this->clearPreviousAuthentication();
             return null;
         }
 

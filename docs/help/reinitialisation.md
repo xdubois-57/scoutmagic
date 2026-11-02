@@ -21,7 +21,8 @@ actions demandent le rôle d'administrateur du site.
 
 Remet tous les réglages (généraux et modules) à leurs valeurs
 d'origine. Les comptes, les membres, les contenus et les fichiers ne
-sont pas touchés. Confirmation : tapez REINITIALISER.
+sont pas touchés. Confirmation : tapez REINITIALISER. Une nouvelle connexion
+sera demandée.
 
 Restaurer une sauvegarde n'est pas réinitialiser : cela se fait dans
 « Sauvegardes récentes », et le sujet « Restaurer une sauvegarde »
@@ -33,6 +34,8 @@ Efface définitivement toutes les données : le prochain visiteur
 retrouvera l'assistant d'installation, comme sur un site neuf. Il faut
 cocher la case de compréhension, taper EFFACER, puis confirmer encore
 une fois.
+
+Toutes les anciennes connexions sont invalidées : après la nouvelle installation, chaque personne doit se reconnecter.
 
 Juste avant, le site prend une copie de sécurité chiffrée. Son mot de
 passe est effacé avec tout le reste : affichez-le avec le bouton prévu,

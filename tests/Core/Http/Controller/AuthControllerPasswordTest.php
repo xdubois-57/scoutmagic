@@ -53,7 +53,7 @@ class AuthControllerPasswordTest extends TestCase
 
         $authService = $this->createStub(AuthService::class);
 
-        $this->controller = new AuthController($twig, $authService);
+        $this->controller = new AuthController($twig, $authService, \Tests\SessionGenerationFixture::forPdo($this->pdo));
         $this->controller->setPasswordAuth($passwordAuth);
 
         $this->csrfToken = CsrfGuard::generateToken();
@@ -82,6 +82,7 @@ class AuthControllerPasswordTest extends TestCase
 
         $this->assertSame(200, $response->getStatusCode());
         $this->assertTrue($data['success']);
+        $this->assertSame(\Tests\SessionGenerationFixture::forPdo($this->pdo)->current(), AuthSession::getGeneration());
         $this->assertTrue(AuthSession::isAuthenticated());
         $this->assertSame('/', $data['redirect']);
     }
@@ -102,6 +103,7 @@ class AuthControllerPasswordTest extends TestCase
         $data = json_decode($this->controller->loginWithPassword($request, [])->getBody(), true);
 
         $this->assertTrue($data['success']);
+        $this->assertSame(\Tests\SessionGenerationFixture::forPdo($this->pdo)->current(), AuthSession::getGeneration());
         $this->assertSame('/r/abc123', $data['redirect']);
     }
 

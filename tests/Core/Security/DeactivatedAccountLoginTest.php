@@ -164,7 +164,7 @@ class DeactivatedAccountLoginTest extends TestCase
             ->willReturn(new VerifiedMagicLink($account->email, $account->id));
 
         $controller = $this->controllerWith($authService);
-        PendingMagicLink::remember(1);
+        PendingMagicLink::remember(1, \Tests\SessionGenerationFixture::forPdo($this->pdo)->current());
 
         $controller->verifyMagicLink($this->getRequest('/auth/verify', ['token' => 'tok', 'id' => '1']), []);
 
@@ -180,7 +180,7 @@ class DeactivatedAccountLoginTest extends TestCase
             ->willReturn(new VerifiedMagicLink($account->email, $account->id));
 
         $controller = $this->controllerWith($authService);
-        PendingMagicLink::remember(1);
+        PendingMagicLink::remember(1, \Tests\SessionGenerationFixture::forPdo($this->pdo)->current());
 
         $controller->verifyMagicLink($this->getRequest('/auth/verify', ['token' => 'tok', 'id' => '1']), []);
 
@@ -201,7 +201,7 @@ class DeactivatedAccountLoginTest extends TestCase
             ->willReturn($this->userRepo->findById($account->id));
 
         $controller = $this->controllerWith($authService);
-        PendingMagicLink::remember(7);
+        PendingMagicLink::remember(7, \Tests\SessionGenerationFixture::forPdo($this->pdo)->current());
 
         $controller->pollMagicLink($this->getRequest('/auth/poll/7', []), ['id' => '7']);
 
@@ -218,7 +218,7 @@ class DeactivatedAccountLoginTest extends TestCase
             ->willReturn($this->userRepo->findById($account->id));
 
         $controller = $this->controllerWith($authService);
-        PendingMagicLink::remember(7);
+        PendingMagicLink::remember(7, \Tests\SessionGenerationFixture::forPdo($this->pdo)->current());
 
         $controller->pollMagicLink($this->getRequest('/auth/poll/7', []), ['id' => '7']);
 
@@ -378,6 +378,7 @@ class DeactivatedAccountLoginTest extends TestCase
         return new AuthController(
             $twig,
             $authService,
+            \Tests\SessionGenerationFixture::forPdo($this->pdo),
             $this->roleResolver,
             $this->scoutYearResolver,
             null,
@@ -395,7 +396,7 @@ class DeactivatedAccountLoginTest extends TestCase
         $twig = $this->createStub(Environment::class);
         $twig->method('render')->willReturn('<html></html>');
 
-        return new AuthController($twig, $authService, $this->roleResolver, $this->scoutYearResolver);
+        return new AuthController($twig, $authService, \Tests\SessionGenerationFixture::forPdo($this->pdo), $this->roleResolver, $this->scoutYearResolver);
     }
 
     private function passwordAuth(): PasswordAuthMethod

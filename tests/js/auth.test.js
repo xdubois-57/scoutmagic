@@ -335,6 +335,41 @@ describe('auth.js: magic-link polling', () => {
         expect(fetch.mock.calls.length).toBeGreaterThan(countAfterOne);
     });
 
+    it('stops immediately when its pending link has been invalidated', async () => {
+        await startPolling();
+        global.fetch.mockResolvedValue({ json: () => Promise.resolve({ confirmed: false, expired: true }) });
+
+        await vi.advanceTimersByTimeAsync(3000);
+
+        expect(document.getElementById('waiting-expired').classList.contains('d-none')).toBe(false);
+        const atRefusal = fetch.mock.calls.length;
+        await vi.advanceTimersByTimeAsync(3000);
+        expect(fetch.mock.calls.length).toBe(atRefusal);
+    });
+
+    it('does not let an old invalidation response expire a newly resent link', async () => {
+        await startPolling();
+        let resolvePrevious;
+        global.fetch.mockImplementation((url) => {
+            if (url === '/auth/poll/42') {
+                return new Promise((resolve) => { resolvePrevious = resolve; });
+            }
+            return Promise.resolve({ json: () => Promise.resolve(url === '/login/magic-link'
+                ? { success: true, poll_id: 43 }
+                : { confirmed: false }) });
+        });
+        await vi.advanceTimersByTimeAsync(3000);
+        document.getElementById('resend-magic-link').dispatchEvent(new Event('click'));
+        await vi.advanceTimersByTimeAsync(0);
+
+        resolvePrevious({ json: () => Promise.resolve({ confirmed: false, expired: true }) });
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(document.getElementById('waiting-expired').classList.contains('d-none')).toBe(true);
+        await vi.advanceTimersByTimeAsync(3000);
+        expect(fetch).toHaveBeenCalledWith('/auth/poll/43');
+    });
+
     it('on confirmed, shows the confirmed state, stops polling, and redirects after 2s', async () => {
         await startPolling();
         global.fetch.mockResolvedValue({ json: () => Promise.resolve({ confirmed: true }) });

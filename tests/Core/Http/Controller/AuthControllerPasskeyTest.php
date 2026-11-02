@@ -8,6 +8,7 @@ use Core\Http\Controller\AuthController;
 use Core\Http\Request;
 use Tests\RequestWithInput;
 use Core\Security\AuthService;
+use Core\Security\AuthSession;
 use Core\Security\EncryptionService;
 use Core\Security\UserAccountRepository;
 use Core\Security\WebAuthnCredentialRepository;
@@ -50,7 +51,7 @@ class AuthControllerPasskeyTest extends TestCase
 
         $authService = $this->createStub(AuthService::class);
 
-        $this->controller = new AuthController($twig, $authService);
+        $this->controller = new AuthController($twig, $authService, \Tests\SessionGenerationFixture::forPdo($this->pdo));
         $this->controller->setWebAuthnService($webAuthnService);
     }
 
@@ -124,7 +125,7 @@ class AuthControllerPasskeyTest extends TestCase
         $webAuthn = $this->createStub(WebAuthnService::class);
         $webAuthn->method('verifyAuthentication')->willReturn($account);
         $twig = $this->createStub(Environment::class);
-        $controller = new AuthController($twig, $this->createStub(AuthService::class));
+        $controller = new AuthController($twig, $this->createStub(AuthService::class), \Tests\SessionGenerationFixture::forPdo($this->pdo));
         $controller->setWebAuthnService($webAuthn);
         \Core\Security\LoginReturn::remember('/r/abc123');
 
@@ -135,6 +136,7 @@ class AuthControllerPasskeyTest extends TestCase
         $data = json_decode($controller->passkeyVerify($request, [])->getBody(), true);
 
         $this->assertTrue($data['success']);
+        $this->assertSame(\Tests\SessionGenerationFixture::forPdo($this->pdo)->current(), AuthSession::getGeneration());
         $this->assertSame('/r/abc123', $data['redirect']);
     }
 }

@@ -20,7 +20,14 @@ class SettingRepository
     public function findAll(): array
     {
         $stmt = $this->pdo->query(
-            'SELECT * FROM settings ORDER BY module_id, sort_order, setting_key'
+            // NULL core scopes are not protected by the composite unique
+            // index. Concurrent registration can leave duplicate rows;
+            // the first registration remains authoritative for every read.
+            'SELECT * FROM settings
+             WHERE module_id IS NOT NULL OR id IN (
+                 SELECT MIN(id) FROM settings WHERE module_id IS NULL GROUP BY setting_key
+             )
+             ORDER BY module_id, sort_order, setting_key'
         );
         return $stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
     }
@@ -32,7 +39,7 @@ class SettingRepository
     {
         if ($moduleId === null) {
             $stmt = $this->pdo->prepare(
-                'SELECT * FROM settings WHERE module_id IS NULL AND setting_key = ?'
+                'SELECT * FROM settings WHERE module_id IS NULL AND setting_key = ? ORDER BY id LIMIT 1'
             );
             $stmt->execute([$key]);
         } else {

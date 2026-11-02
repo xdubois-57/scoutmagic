@@ -310,7 +310,7 @@ class ScoutYearTransitionAccessTest extends TestCase
         $this->assertTrue(AuthSession::isAuthenticated());
         $this->assertSame('chief', AuthSession::getRole());
 
-        $revalidator = new SessionRevalidator($this->userRepo, $this->roleResolver);
+        $revalidator = new SessionRevalidator($this->userRepo, $this->roleResolver, \Tests\SessionGenerationFixture::forPdo($this->pdo));
         $this->assertTrue($revalidator->revalidate($this->authorizationYears()));
 
         $this->assertTrue(AuthSession::isAuthenticated());
@@ -325,7 +325,7 @@ class ScoutYearTransitionAccessTest extends TestCase
 
         $this->signIn(self::A_EMAIL);
 
-        $revalidator = new SessionRevalidator($this->userRepo, $this->roleResolver);
+        $revalidator = new SessionRevalidator($this->userRepo, $this->roleResolver, \Tests\SessionGenerationFixture::forPdo($this->pdo));
         $this->assertTrue($revalidator->revalidate($this->authorizationYears()));
         $this->assertSame('chief', AuthSession::getRole());
     }
@@ -344,7 +344,7 @@ class ScoutYearTransitionAccessTest extends TestCase
         $this->setPublicYear($this->nextYear);
         $this->settingService->setInternal(ScoutYearResolver::SETTING_STAFF_YEAR, '0');
 
-        $revalidator = new SessionRevalidator($this->userRepo, $this->roleResolver);
+        $revalidator = new SessionRevalidator($this->userRepo, $this->roleResolver, \Tests\SessionGenerationFixture::forPdo($this->pdo));
         $this->assertFalse($revalidator->revalidate($this->authorizationYears()));
         $this->assertFalse(AuthSession::isAuthenticated());
     }
@@ -752,6 +752,7 @@ class ScoutYearTransitionAccessTest extends TestCase
         $this->controller = new AuthController(
             $twig,
             $this->authService,
+            \Tests\SessionGenerationFixture::forPdo($this->pdo),
             $this->roleResolver,
             new ScoutYearResolver($this->scoutYearService, $this->settingService, $memberYearRepo),
             null,
