@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Core\Badge;
 
+use Core\Database\ConstraintViolation;
 use Core\Member\SectionService;
 use Core\Member\UnitStaffSectionService;
 use Core\Module\BadgeUsageProvider;
@@ -36,6 +37,8 @@ class BadgeService
     /** @var array<int, string> */
     private const DEFAULT_BADGES = [self::BADGE_NURSE, self::BADGE_TREASURER];
     private const REFERENT_PREFIX = 'Référent ';
+    /** The size of badges.name in the declared schema. */
+    private const REFERENT_NAME_LIMIT = 100;
 
     /**
      * $hooks is how delete() reaches a module that points at badges by id
@@ -84,6 +87,8 @@ class BadgeService
      * its badge off. Safe to call on every relevant page load (mirrors
      * ensureDefaults()) and is also called directly after a section's
      * name/visibility changes for immediate effect.
+     * Names already occupied by another badge gain the section's Desk code
+     * and, if needed, a number. An existing disambiguation stays stable.
      */
     public function syncSectionReferentBadges(): void
     {
@@ -94,19 +99,71 @@ class BadgeService
             }
 
             $badge = $badgesBySection[(int) $section['id']] ?? null;
-            $expectedName = self::REFERENT_PREFIX . ($section['name'] ?? $section['desk_code']);
-
-            if ($badge === null) {
-                if ($section['is_visible']) {
-                    $this->badgeRepository->create($expectedName, true, $section['id']);
-                }
+            if ($badge === null && !$section['is_visible']) {
                 continue;
             }
 
-            if ($badge->name !== $expectedName) {
-                $this->badgeRepository->update($badge->id, $expectedName);
+            $this->syncReferentBadge(
+                (int) $section['id'],
+                self::REFERENT_PREFIX . ($section['name'] ?? $section['desk_code']),
+                $section['desk_code'],
+                $badge
+            );
+        }
+    }
+
+    private function syncReferentBadge(int $sectionId, string $base, string $code, ?Badge $badge): void
+    {
+        for ($attempt = 0; ; $attempt++) {
+            try {
+                $name = $this->availableReferentName($base, $code, $badge);
+                if ($badge === null) {
+                    $this->badgeRepository->create($name, true, $sectionId);
+                } elseif ($badge->name !== $name) {
+                    $this->badgeRepository->update($badge->id, $name);
+                }
+                return;
+            } catch (\PDOException $e) {
+                if (!ConstraintViolation::isDuplicateKey($e) || $attempt >= 2) {
+                    throw $e;
+                }
+                // Another page load may have claimed the name or created
+                // this section's badge after our initial batch read.
+                $badge = $this->badgeRepository->findByReferentSectionId($sectionId);
             }
         }
+    }
+
+    private function availableReferentName(string $base, string $code, ?Badge $badge): string
+    {
+        if ($badge !== null) {
+            if ($badge->name === $this->boundedReferentName($base)) {
+                return $badge->name;
+            }
+            $pattern = '~ \\(' . preg_quote($code, '~') . '(?:, (?:[2-9]|[1-9][0-9]+))?\\)$~D';
+            if (preg_match($pattern, $badge->name, $match) === 1
+                && $badge->name === $this->boundedReferentName($base, $match[0])) {
+                return $badge->name;
+            }
+        }
+
+        for ($number = 0; ; $number++) {
+            $suffix = match ($number) {
+                0 => '',
+                1 => ' (' . $code . ')',
+                default => ' (' . $code . ', ' . $number . ')',
+            };
+            $name = $this->boundedReferentName($base, $suffix);
+            $owner = $this->badgeRepository->findByName($name);
+            if ($owner === null || $owner->id === $badge?->id) {
+                return $name;
+            }
+        }
+    }
+
+    private function boundedReferentName(string $base, string $suffix = ''): string
+    {
+        return mb_substr($base, 0, self::REFERENT_NAME_LIMIT - mb_strlen($suffix, 'UTF-8'), 'UTF-8') . $suffix;
     }
 
     /** @return Badge[] active badges only — for assignment pickers */

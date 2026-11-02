@@ -26,8 +26,8 @@ vaut confirmation.
 
 > C'est ici que se décident les accès au site. Un rôle « Chef
 > d'Unité » ouvre l'espace d'administration : n'attribuez ce rôle
-> qu'aux fonctions qui le justifient. Le changement prend effet à la
-> prochaine connexion des personnes concernées.
+> qu'aux fonctions qui le justifient. Le changement s'applique dès leur
+> prochaine action sur le site.
 
 ## Régler les sections
 
@@ -44,6 +44,10 @@ Pour chaque section, vous pouvez :
 Une section sans aucun membre au dernier import devient inactive et
 disparaît d'elle-même, y compris de cette page ; elle revient dès
 qu'un import lui redonne des membres — rien n'est jamais supprimé.
+
+Plusieurs sections peuvent porter le même nom. Leurs badges de référent
+homonymes reçoivent le code Desk et, au besoin, un numéro, sans modifier
+les affectations.
 
 ### L'adresse d'une section et les publipostages
 
