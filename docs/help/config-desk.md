@@ -45,9 +45,9 @@ Une section sans aucun membre au dernier import devient inactive et
 disparaît d'elle-même, y compris de cette page ; elle revient dès
 qu'un import lui redonne des membres — rien n'est jamais supprimé.
 
-Plusieurs sections peuvent porter le même nom. Leurs badges de référent
-homonymes reçoivent le code Desk et, au besoin, un numéro, sans modifier
-les affectations.
+Les sections peuvent partager un nom. Un badge de référent au nom déjà
+pris reçoit le code Desk, puis un numéro au besoin. Les affectations
+sont conservées.
 
 ### L'adresse d'une section et les publipostages
 
