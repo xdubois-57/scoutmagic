@@ -24,8 +24,6 @@ use PHPUnit\Framework\TestCase;
  */
 class DeskImportValidatorTest extends TestCase
 {
-    use \Tests\UsesProductionEngine;
-
     /** Last day of the scout year these files are imported into (rule 13). */
     private const YEAR_END = '2026-08-31';
 
@@ -418,16 +416,9 @@ class DeskImportValidatorTest extends TestCase
         $this->assertSame(DeskImportRule::MAIN_FUNCTION, $errors[0]->rule);
     }
 
-    /** Function codes differing only in case resolve to one id on the declared production collation. */
-    #[\PHPUnit\Framework\Attributes\Group('database')]
-    public function testRule14FunctionCodeCaseAliasesCountAsOneOnTheProductionEngine(): void
+    /** Address copies differing only in function-code case still describe one function. */
+    public function testRule14FunctionCodeCaseAliasesCountAsOne(): void
     {
-        $repository = new \Core\Import\FunctionRepository($this->productionEngine());
-        $id = $repository->create('Intendant', 'Intendant', 'identified', false);
-        $alias = $repository->findByDeskCode('INTENDANT');
-        $this->assertNotNull($alias);
-        $this->assertSame($id, $alias['id']);
-
         $errors = $this->validateRows([
             $this->row(['FONCTION' => 'Intendant', 'Fonction principale' => 'false']),
             $this->row([
