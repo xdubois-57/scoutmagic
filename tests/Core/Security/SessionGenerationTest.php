@@ -78,4 +78,25 @@ final class SessionGenerationTest extends TestCase
         $this->expectException(\RuntimeException::class);
         (new SessionGeneration($settings))->current();
     }
+
+    public function testImmediateRestoreInvalidationWorksBeforeMetadataMigration(): void
+    {
+        $pdo = new \PDO('sqlite::memory:');
+        $pdo->exec('CREATE TABLE settings (module_id TEXT, setting_key TEXT, setting_value TEXT)');
+        $insert = $pdo->prepare('INSERT INTO settings VALUES (?, ?, ?)');
+        $insert->execute([null, SessionGeneration::SETTING, str_repeat('a', 64)]);
+        $insert->execute(['example', SessionGeneration::SETTING, 'module-value']);
+        $insert->execute([null, 'site_name', 'Unité de test']);
+
+        SessionGeneration::invalidateRestoredDatabase($pdo);
+
+        $rows = $pdo->query('SELECT setting_value FROM settings')->fetchAll(\PDO::FETCH_COLUMN);
+        $this->assertMatchesRegularExpression('/^[a-f0-9]{64}$/D', $rows[0]);
+        $this->assertNotSame(str_repeat('a', 64), $rows[0]);
+        $this->assertSame(['module-value', 'Unité de test'], array_slice($rows, 1));
+
+        $pdo->exec('DELETE FROM settings');
+        SessionGeneration::invalidateRestoredDatabase($pdo);
+        $this->assertSame(0, (int) $pdo->query('SELECT COUNT(*) FROM settings')->fetchColumn());
+    }
 }

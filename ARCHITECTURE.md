@@ -130,8 +130,10 @@ Initialization uses the settings repository's atomic empty-value claim so
 concurrent logins adopt one persisted generation. Core settings use a nullable
 scope: if concurrent registration leaves duplicate rows, repository reads
 consistently retain the oldest row, including the cached settings view.
-First-time setup and the
-completion of a restore renew it; older sessions are revoked. The login
+First-time setup and the completion of a restore renew it; older sessions
+are revoked. Immediately after replacing a database, restores also overwrite
+any archived generation with a schema-independent UPDATE, before replacing
+files or waiting for the deferred migration. The login
 controller captures the generation before checking credentials, and pending
 magic-link requests are bound to that same generation. Session revalidation
 also checks the account's normalized e-mail before resolving its role, so a

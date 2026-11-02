@@ -216,6 +216,7 @@ class RestoreBackupHandler implements TaskHandlerInterface
                 $bindingsHold = $this->holdStorageBindingsAside($context);
 
                 $backupService->restoreDatabase($restoreDbDumpPath);
+                \Core\Security\SessionGeneration::invalidateRestoredDatabase($context->connection->getPdo());
                 if ($restoreZipPath !== null) {
                     $backupService->restoreFiles($restoreZipPath, $password);
                 }
@@ -550,7 +551,7 @@ class RestoreBackupHandler implements TaskHandlerInterface
             $sameInstallation = is_string($ownIdentity) && $ownIdentity !== ''
                 && $ownIdentity === $archive->originInstallationId();
 
-            $restore->apply($archive, $backupService, $targetOwnedSecrets);
+            $restore->apply($archive, $backupService, $targetOwnedSecrets, $context->connection->getPdo());
 
             $this->scheduleMigrationResume(
                 $context,

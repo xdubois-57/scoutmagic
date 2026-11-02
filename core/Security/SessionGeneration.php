@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Core\Security;
 
+use Core\Config\SettingRepository;
 use Core\Config\SettingService;
 
 /** The authentication epoch, independent of the statistics identity. */
@@ -56,5 +57,15 @@ class SessionGeneration
         $this->settings->setInternal(self::SETTING, $value);
 
         return $value;
+    }
+
+    /**
+     * Reject archived sessions before the deferred migration can run.
+     * UPDATE only: an older backup may lack the setting or its metadata
+     * columns, so registration must wait until the schema is current.
+     */
+    public static function invalidateRestoredDatabase(\PDO $pdo): void
+    {
+        (new SettingRepository($pdo))->updateValue(null, self::SETTING, bin2hex(random_bytes(32)));
     }
 }

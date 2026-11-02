@@ -725,7 +725,8 @@ class SetupController extends AbstractController
                     null,
                     DeclaredStorageDirectories::none()
                 ),
-                $credentials + ['base_url' => $baseUrl]
+                $credentials + ['base_url' => $baseUrl],
+                $connection->getPdo()
             );
 
             // The dump is the ORIGIN's, so its schema may be older than this

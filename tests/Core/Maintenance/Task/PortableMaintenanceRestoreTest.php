@@ -147,6 +147,7 @@ final class PortableMaintenanceRestoreTest extends TestCase
      */
     public function testAPortableUploadIsRestoredOverARunningSite(): void
     {
+        $archivedGeneration = \Tests\SessionGenerationFixture::forPdo($this->pdo)->current();
         $archivePath = $this->buildOriginArchive();
 
         $this->handler->handle([
@@ -162,6 +163,10 @@ final class PortableMaintenanceRestoreTest extends TestCase
             'the safety backup or the restore failed: ' . $this->lastJournalMessage()
         );
         $this->assertSame([], $this->journalEntries('portable_restore_refused'));
+
+        $betweenPasses = $this->readSetting(\Core\Security\SessionGeneration::SETTING);
+        $this->assertMatchesRegularExpression('/^[a-f0-9]{64}$/D', (string) $betweenPasses);
+        $this->assertNotSame($archivedGeneration, $betweenPasses);
 
         // The origin's data arrived.
         $this->assertFileExists($this->siteBase . '/storage/uploads/tresorerie.pdf');

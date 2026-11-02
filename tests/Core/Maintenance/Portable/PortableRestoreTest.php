@@ -272,7 +272,8 @@ final class PortableRestoreTest extends TestCase
         (new PortableRestore($this->targetBase, $this->targetBase . '/storage'))->apply(
             $archive,
             new BackupService($connection, $this->targetBase . '/storage', $this->targetBase),
-            $this->targetOwnedSecrets()
+            $this->targetOwnedSecrets(),
+            $connection->getPdo()
         );
         $archive->close();
 
@@ -330,7 +331,8 @@ final class PortableRestoreTest extends TestCase
             (new PortableRestore($this->targetBase, $this->targetBase . '/storage'))->apply(
                 $archive,
                 new BackupService($connection, $this->targetBase . '/storage', $this->targetBase),
-                $this->targetOwnedSecrets()
+                $this->targetOwnedSecrets(),
+                $connection->getPdo()
             );
         } finally {
             $archive->close();
@@ -377,7 +379,8 @@ final class PortableRestoreTest extends TestCase
             (new PortableRestore($this->targetBase, $this->targetBase . '/storage'))->apply(
                 $archive,
                 new BackupService($connection, $this->targetBase . '/storage', $this->targetBase),
-                $this->targetOwnedSecrets()
+                $this->targetOwnedSecrets(),
+                $connection->getPdo()
             );
             $this->fail('An archive with nothing to restore was accepted.');
         } catch (BackupException $e) {
@@ -439,7 +442,8 @@ final class PortableRestoreTest extends TestCase
             (new PortableRestore($this->targetBase, $this->targetBase . '/storage'))->apply(
                 $archive,
                 new BackupService($connection, $this->targetBase . '/storage', $this->targetBase),
-                $this->targetOwnedSecrets()
+                $this->targetOwnedSecrets(),
+                $connection->getPdo()
             );
             $this->fail('A dump larger than the size it declares was accepted.');
         } catch (BackupException $e) {
@@ -526,7 +530,8 @@ final class PortableRestoreTest extends TestCase
             (new PortableRestore($this->targetBase, $this->targetBase . '/storage'))->apply(
                 $archive,
                 new BackupService($connection, $this->targetBase . '/storage', $this->targetBase),
-                $this->targetOwnedSecrets()
+                $this->targetOwnedSecrets(),
+                $connection->getPdo()
             );
             $this->fail('An archive containing a path outside the install root was accepted.');
         } catch (BackupException $e) {

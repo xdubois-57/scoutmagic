@@ -266,9 +266,10 @@ final class PortableRestore
      * central directory only, so hoisting it is free.
      *
      * @param array<string, mixed> $targetOwnedSecrets {@see installSecrets()}
+     * @param \PDO $pdo The same target database used by $backupService.
      * @throws BackupException
      */
-    public function apply(PortableArchive $archive, BackupService $backupService, array $targetOwnedSecrets): void
+    public function apply(PortableArchive $archive, BackupService $backupService, array $targetOwnedSecrets, \PDO $pdo): void
     {
         $entries = $this->plannedEntries($archive);
 
@@ -276,6 +277,9 @@ final class PortableRestore
 
         try {
             $backupService->restoreDatabase($dumpPath);
+            // Before replacing files: use this version's loaded classes,
+            // without requiring the restored schema to have been migrated.
+            \Core\Security\SessionGeneration::invalidateRestoredDatabase($pdo);
         } finally {
             @unlink($dumpPath);
         }

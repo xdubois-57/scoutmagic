@@ -141,6 +141,19 @@ class RestoreBackupRoundTripTest extends TestCase
         \Core\Security\AuthSession::login($account->id, $account->email, 'superadmin', $generation->current());
         $currentBrowser = $_SESSION;
         $this->restore(['source' => 'server', 'backup_id' => $backupId]);
+
+        // The scheduler has not run the deferred migration pass yet.
+        $betweenPasses = new \Core\Security\SessionRevalidator(
+            new UserAccountRepository($this->pdo(), $encryption),
+            new \Core\Security\RoleResolver(new \Core\Import\MemberYearRepository($this->pdo()), $encryption, $this->pdo()),
+            \Tests\SessionGenerationFixture::forPdo($this->pdo())
+        );
+        $survivedBetweenPasses = [];
+        foreach ([$currentBrowser, $archivedBrowser] as $browser) {
+            $_SESSION = $browser;
+            $survivedBetweenPasses[] = $betweenPasses->revalidate(static fn() => new \Core\ScoutYear\AuthorizationYears(1, [1]));
+        }
+        $this->assertSame([false, false], $survivedBetweenPasses);
         $this->runResumedPasses();
 
         $currentGeneration = \Tests\SessionGenerationFixture::forPdo($this->pdo());
