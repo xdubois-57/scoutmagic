@@ -93,6 +93,30 @@ final class ReferenceDatasetFormatTest extends TestCase
         self::assertLessThanOrEqual(300, $parsed->lineCount, "The {$year} export holds too many lines.");
     }
 
+    /** Scenario 11 exercises the implicit main-function rule on real exported cells. */
+    #[DataProvider('scoutYears')]
+    public function testTheQuartermasterIsExportedWithoutAnExplicitMainFlag(string $year): void
+    {
+        $copy = (string) tempnam(sys_get_temp_dir(), 'refdataset');
+        copy(self::datasetRoot() . '/' . DatasetGenerator::DESK_DIRECTORY . '/' . $year . '.csv', $copy);
+        try {
+            $parsed = (new DeskCsvParser())->parse($copy);
+        } finally {
+            @unlink($copy);
+        }
+
+        $members = array_values(array_filter(
+            $parsed->members,
+            static fn(\Core\Import\ParsedMember $member): bool => $member->deskId === 'T0016'
+        ));
+        self::assertCount(1, $members);
+        self::assertNotEmpty($members[0]->functions);
+        foreach ($members[0]->functions as $function) {
+            self::assertSame('Intendant', $function->functionCode);
+            self::assertFalse($function->isMainFunction);
+        }
+    }
+
     /**
      * Issue #854: the import refuses a whole file on the first line that
      * breaks one of DeskImportValidator's rules. A dataset that broke one

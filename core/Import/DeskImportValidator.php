@@ -178,6 +178,9 @@ final class DeskImportValidator
 
         foreach (self::BOOLEAN_COLUMNS as $column) {
             $value = $row->value($column);
+            if ($column === 'Fonction principale' && $value === '') {
+                continue;
+            }
             if (!in_array(strtolower($value), ['true', 'false'], true)) {
                 $add(DeskImportRule::BOOLEAN, $this->cell($column, $value) . ' : valeur attendue true ou false.');
             }
@@ -310,7 +313,8 @@ final class DeskImportValidator
     }
 
     /**
-     * Rule 14: exactly one main function per member.
+     * Rule 14: one function is implicitly main; several need exactly one
+     * explicit main flag. An empty flag means unmarked, like false.
      *
      * Counted on DISTINCT functions, not on lines: Desk writes one line per
      * (function × address), so a member with two addresses carries their
@@ -335,6 +339,9 @@ final class DeskImportValidator
         $mainFunctions = [];
         foreach ($rows as $row) {
             $flag = strtolower($row->value('Fonction principale'));
+            if ($flag === '') {
+                $flag = 'false';
+            }
             if ($flag !== 'true' && $flag !== 'false') {
                 return [];
             }
@@ -354,7 +361,7 @@ final class DeskImportValidator
         }
 
         $count = count($mainFunctions);
-        if ($count === 1) {
+        if ($count === 1 || count($flagOf) === 1) {
             return [];
         }
 

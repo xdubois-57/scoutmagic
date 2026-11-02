@@ -612,6 +612,12 @@ class DeskImportService
 
             $functions[] = $row;
         }
+        // Count functions after collapsing their address copies. With no
+        // competing function, Desk's false/empty flag has no ambiguity;
+        // persist the main flag for readers that filter on it directly.
+        if (count($functions) === 1) {
+            $functions[0]['is_main_function'] = true;
+        }
         $this->memberYearRepository->replaceFunctions($memberYearId, $functions);
 
         $this->sectionMembershipService->syncForMember($memberId, $memberYearId, $scoutYearId, $asOf);

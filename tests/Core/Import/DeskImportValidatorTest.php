@@ -328,15 +328,74 @@ class DeskImportValidatorTest extends TestCase
         $this->assertSame([], $this->messagesOf($errors));
     }
 
-    public function testRule14AMemberWithNoMainFunctionIsRefused(): void
+    public function testRule14MultipleFunctionsWithoutAMainFunctionAreRefused(): void
     {
-        $errors = $this->validateRows([$this->row(['Fonction principale' => 'false'])]);
+        $errors = $this->validateRows([
+            $this->row(['Fonction principale' => 'false']),
+            $this->row(['Branche' => 'Baladins', 'Section' => 'SV025B1', 'Fonction principale' => '']),
+        ]);
 
         $this->assertSame([
             'Ligne 2 (T001) — Fonction principale : aucune fonction n\'est marquée principale ; '
                 . 'un membre doit en avoir exactement une.',
         ], $this->messagesOf($errors));
         $this->assertSame(DeskImportRule::MAIN_FUNCTION, $errors[0]->rule);
+    }
+
+    /** A sole function has no competing candidate, including an external intendant. */
+    #[DataProvider('unmarkedMainFlags')]
+    public function testRule14AnOnlyFunctionIsImplicitlyMain(string $flag): void
+    {
+        $errors = $this->validateRows([$this->row([
+            'FONCTION' => 'Intendant', 'Branche' => '', 'Section' => '', 'Date début' => '',
+            'Fonction principale' => $flag,
+        ])]);
+
+        $this->assertSame([], $this->messagesOf($errors));
+    }
+
+    /** Address copies and equivalent date spellings do not make a second function. */
+    #[DataProvider('unmarkedMainFlags')]
+    public function testRule14AnUnmarkedFunctionRepeatedOnAddressLinesIsStillOne(string $flag): void
+    {
+        $errors = $this->validateRows([
+            $this->row(['Fonction principale' => $flag, 'Date début' => '01/09/2025']),
+            $this->row([
+                'Fonction principale' => 'false', 'Date début' => '2025-09-01',
+                "Type d'adresse" => 'Adresse secondaire', 'Rue' => 'Avenue du Parc',
+            ]),
+        ]);
+
+        $this->assertSame([], $this->messagesOf($errors));
+    }
+
+    /** @return iterable<string, array{string}> */
+    public static function unmarkedMainFlags(): iterable
+    {
+        yield 'false' => ['false'];
+        yield 'empty' => [''];
+        yield 'case-insensitive false' => ['FALSE'];
+    }
+
+    public function testRule14DifferentDatesStillMakeTwoFunctionsNeedingAnExplicitMain(): void
+    {
+        $errors = $this->validateRows([
+            $this->row(['Fonction principale' => 'false', 'Date début' => '01/09/2024']),
+            $this->row(['Fonction principale' => '', 'Date début' => '01/09/2025']),
+        ]);
+
+        $this->assertCount(1, $errors);
+        $this->assertSame(DeskImportRule::MAIN_FUNCTION, $errors[0]->rule);
+    }
+
+    public function testRule14AnExplicitMainAllowsAnUnmarkedSecondaryFunction(): void
+    {
+        $errors = $this->validateRows([
+            $this->row([]),
+            $this->row(['Branche' => 'Baladins', 'Section' => 'SV025B1', 'Fonction principale' => '']),
+        ]);
+
+        $this->assertSame([], $this->messagesOf($errors));
     }
 
     public function testRule14AMemberWithTwoMainFunctionsIsRefused(): void
@@ -387,12 +446,13 @@ class DeskImportValidatorTest extends TestCase
      * DeskImportService, whose key includes the flag, would store it twice.
      * The line that contradicts the first one is the one named.
      */
-    public function testRule14TheLinesOfOneFunctionMustAgreeOnTheMainFlag(): void
+    #[DataProvider('unmarkedMainFlags')]
+    public function testRule14TheLinesOfOneFunctionMustAgreeOnTheMainFlag(string $flag): void
     {
         $errors = $this->validateRows([
             $this->row([]),
             $this->row([
-                "Type d'adresse" => 'Adresse secondaire', 'Rue' => 'Avenue du Parc', 'Fonction principale' => 'false',
+                "Type d'adresse" => 'Adresse secondaire', 'Rue' => 'Avenue du Parc', 'Fonction principale' => $flag,
             ]),
         ]);
 
@@ -404,14 +464,23 @@ class DeskImportValidatorTest extends TestCase
     }
 
     /** A refused « Fonction principale » is reported once, by rule 8, not again as « no main function ». */
-    public function testRule14IsNotRepeatedForAFlagRule8AlreadyRefused(): void
+    #[DataProvider('invalidMainFlags')]
+    public function testRule14IsNotRepeatedForAFlagRule8AlreadyRefused(string $flag): void
     {
-        $errors = $this->validateRows([$this->row(['Fonction principale' => 'oui'])]);
+        $errors = $this->validateRows([$this->row(['Fonction principale' => $flag])]);
 
         $this->assertSame(
-            ['Ligne 2 (T001) — Fonction principale « oui » : valeur attendue true ou false.'],
+            ["Ligne 2 (T001) — Fonction principale « {$flag} » : valeur attendue true ou false."],
             $this->messagesOf($errors)
         );
+    }
+
+    /** @return iterable<string, array{string}> */
+    public static function invalidMainFlags(): iterable
+    {
+        yield 'text' => ['oui'];
+        yield 'numeric zero' => ['0'];
+        yield 'numeric one' => ['1'];
     }
 
     // ── the refusal as a whole ───────────────────────────────────────

@@ -452,6 +452,18 @@ final class ReferenceDatasetImportTest extends TestCase
         self::assertSame('Animateur', $this->functionCodeOf('T0018', '2026-2027'));
     }
 
+    /** The unmarked single function in scenario 11 is persisted as main in every year. */
+    public function testTheOnlyIntendantFunctionBecomesMainWithoutAnExportedMainFlag(): void
+    {
+        foreach (UnitBlueprint::YEARS as $label) {
+            $rows = $this->functionRowsOf('T0016', $label);
+
+            self::assertCount(1, $rows);
+            self::assertSame('Intendant', $rows[0]['desk_code']);
+            self::assertSame(1, (int) $rows[0]['is_main_function']);
+        }
+    }
+
     public function testAMemberWithTwoFunctionsKeepsBothAndOnlyOneIsMain(): void
     {
         // Scenario 12 — and the asymmetry the writer relies on: functions are

@@ -551,6 +551,46 @@ class DeskImportServiceTest extends TestCase
 
     // ── one Desk row per (function × address) ─────────────────────────
 
+    /** A sole function is stored as main after collapsing its address copies. */
+    #[\PHPUnit\Framework\Attributes\DataProvider('unmarkedMainFlags')]
+    public function testAnUnmarkedOnlyFunctionIsStoredAsMain(string $flag): void
+    {
+        $function = [
+            'Tiers' => 'T900', 'FONCTION' => 'Intendant',
+            'Branche' => '', 'Section' => '', 'Date début' => '',
+            'Fonction principale' => $flag,
+        ];
+        $this->importRows([
+            $this->row($function),
+            $this->row(array_replace($function, [
+                'Fonction principale' => 'false', "Type d'adresse" => 'Adresse secondaire', 'Rue' => 'Rue B',
+            ])),
+        ]);
+
+        $this->assertSame(2, $this->addressCountFor('T900'));
+        $this->assertSame(1, $this->functionCountFor('T900'));
+        $stmt = $this->pdo->prepare(
+            'SELECT mf.is_main_function, f.desk_code, f.role, f.confirmed FROM member_functions mf
+             JOIN member_years my ON mf.member_year_id = my.id
+             JOIN members m ON my.member_id = m.id
+             JOIN functions f ON mf.function_id = f.id WHERE m.desk_id = ?'
+        );
+        $stmt->execute(['T900']);
+        $stored = $stmt->fetch(\PDO::FETCH_ASSOC);
+        $this->assertSame(1, (int) $stored['is_main_function']);
+        $this->assertSame('Intendant', $stored['desk_code']);
+        $this->assertSame('identified', $stored['role']);
+        $this->assertSame(0, (int) $stored['confirmed']);
+    }
+
+    /** @return iterable<string, array{string}> */
+    public static function unmarkedMainFlags(): iterable
+    {
+        yield 'false' => ['false'];
+        yield 'empty' => [''];
+        yield 'case-insensitive false' => ['FALSE'];
+    }
+
     /**
      * A Desk export emits ONE ROW PER (function × address), so a member
      * with two addresses and one function arrives as that function twice,
@@ -595,19 +635,20 @@ class DeskImportServiceTest extends TestCase
      * first entry when nothing is flagged, and a reordering here would be
      * invisible until somebody's page named the wrong section.
      */
-    public function testTheMainFunctionSurvivesDeduplicationAndStaysFirst(): void
+    #[\PHPUnit\Framework\Attributes\DataProvider('unmarkedMainFlags')]
+    public function testTheMainFunctionSurvivesDeduplicationAndStaysFirst(string $secondaryFlag): void
     {
         $this->importRows([
             $this->row(['Tiers' => 'T902', 'Nom' => 'Leroy', 'Prenom' => 'Dominique']),
             $this->row([
                 'Tiers' => 'T902', 'Nom' => 'Leroy', 'Prenom' => 'Dominique',
-                'Branche' => 'Baladins', 'Section' => 'SV025B1', 'Fonction principale' => 'false',
+                'Branche' => 'Baladins', 'Section' => 'SV025B1', 'Fonction principale' => $secondaryFlag,
             ]),
             $this->row(['Tiers' => 'T902', 'Nom' => 'Leroy', 'Prenom' => 'Dominique', 'Rue' => 'Rue B', "Type d'adresse" => 'Adresse secondaire']),
             $this->row([
                 'Tiers' => 'T902', 'Nom' => 'Leroy', 'Prenom' => 'Dominique',
                 'Rue' => 'Rue B', "Type d'adresse" => 'Adresse secondaire',
-                'Branche' => 'Baladins', 'Section' => 'SV025B1', 'Fonction principale' => 'false',
+                'Branche' => 'Baladins', 'Section' => 'SV025B1', 'Fonction principale' => $secondaryFlag,
             ]),
         ]);
 
