@@ -24,6 +24,8 @@ use PHPUnit\Framework\TestCase;
  */
 class DeskImportValidatorTest extends TestCase
 {
+    use \Tests\UsesProductionEngine;
+
     /** Last day of the scout year these files are imported into (rule 13). */
     private const YEAR_END = '2026-08-31';
 
@@ -393,6 +395,45 @@ class DeskImportValidatorTest extends TestCase
         $errors = $this->validateRows([
             $this->row([]),
             $this->row(['Branche' => 'Baladins', 'Section' => 'SV025B1', 'Fonction principale' => '']),
+        ]);
+
+        $this->assertSame([], $this->messagesOf($errors));
+    }
+
+    /** Raw separator characters must not merge distinct function tuples. */
+    public function testRule14ASeparatorInsideAFieldCannotMergeDifferentFunctions(): void
+    {
+        $errors = $this->validateRows([
+            $this->row([
+                'FONCTION' => 'intendant', 'Branche' => "louveteaux\x1Fstaff", 'Section' => 'S',
+                'Fonction principale' => 'false',
+            ]),
+            $this->row([
+                'FONCTION' => "intendant\x1Flouveteaux", 'Branche' => 'staff', 'Section' => 'S',
+                'Fonction principale' => 'false',
+            ]),
+        ]);
+
+        $this->assertCount(1, $errors);
+        $this->assertSame(DeskImportRule::MAIN_FUNCTION, $errors[0]->rule);
+    }
+
+    /** Function codes differing only in case resolve to one id on the declared production collation. */
+    #[\PHPUnit\Framework\Attributes\Group('database')]
+    public function testRule14FunctionCodeCaseAliasesCountAsOneOnTheProductionEngine(): void
+    {
+        $repository = new \Core\Import\FunctionRepository($this->productionEngine());
+        $id = $repository->create('Intendant', 'Intendant', 'identified', false);
+        $alias = $repository->findByDeskCode('INTENDANT');
+        $this->assertNotNull($alias);
+        $this->assertSame($id, $alias['id']);
+
+        $errors = $this->validateRows([
+            $this->row(['FONCTION' => 'Intendant', 'Fonction principale' => 'false']),
+            $this->row([
+                'FONCTION' => 'INTENDANT', 'Fonction principale' => '',
+                "Type d'adresse" => 'Adresse secondaire', 'Rue' => 'Avenue du Parc',
+            ]),
         ]);
 
         $this->assertSame([], $this->messagesOf($errors));

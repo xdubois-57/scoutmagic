@@ -296,14 +296,16 @@ final class DeskImportValidator
     /**
      * One function's identity across its address lines: its code, branch,
      * section and dates, each date in one spelling (`01/09/2025` and
-     * `2025-09-01` are the same start).
+     * `2025-09-01` are the same start). Function codes ignore letter case
+     * on the production collation. Serialize the parts so a separator
+     * inside a CSV field cannot merge two different tuples.
      */
     private function functionKey(DeskCsvRow $row): string
     {
         $date = static fn(string $value): string => DeskDateParser::toIso($value) ?? $value;
 
-        return implode("\x1F", [
-            $row->value('FONCTION'),
+        return serialize([
+            mb_strtolower($row->value('FONCTION'), 'UTF-8'),
             $row->value('Branche'),
             $row->value('Section'),
             $date($row->value('Date début')),
