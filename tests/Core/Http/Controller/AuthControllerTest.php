@@ -225,7 +225,12 @@ class AuthControllerTest extends TestCase
         $response = $controller->pollMagicLink(new Request('GET', '/auth/poll/1', [], [], [], []), ['id' => '1']);
         $body = json_decode($response->getBody(), true);
 
-        $this->assertSame([false, false], [$body['confirmed'], AuthSession::isAuthenticated()]);
+        $this->assertSame([false, true, false, false], [
+            $body['confirmed'],
+            $body['expired'] ?? false,
+            AuthSession::isAuthenticated(),
+            PendingMagicLink::matches(1),
+        ]);
     }
 
     public function testARotationDuringAuthenticationCannotStampAnOldLoginWithTheNewGeneration(): void
@@ -278,7 +283,7 @@ class AuthControllerTest extends TestCase
         $body = json_decode($response->getBody(), true);
         // Reported exactly like "not confirmed yet", so the endpoint is not
         // an oracle for which ids exist or have been clicked either.
-        $this->assertFalse($body['confirmed']);
+        $this->assertSame(['confirmed' => false], $body);
         $this->assertFalse(AuthSession::isAuthenticated());
         $this->assertNull(AuthSession::getUserAccountId());
         unset($victim);
@@ -302,7 +307,7 @@ class AuthControllerTest extends TestCase
         $response = $this->controller->pollMagicLink($request, ['id' => '42']);
 
         $body = json_decode($response->getBody(), true);
-        $this->assertFalse($body['confirmed']);
+        $this->assertSame(['confirmed' => false], $body);
         $this->assertFalse(AuthSession::isAuthenticated());
     }
 

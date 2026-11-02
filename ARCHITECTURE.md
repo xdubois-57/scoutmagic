@@ -127,7 +127,10 @@ So `Core\Security\RoleResolver` resolves over the set of years an access decisio
 Sessions also carry the current installation's authentication generation
 (`Core\Security\SessionGeneration`, internal `auth_session_generation`).
 Initialization uses the settings repository's atomic empty-value claim so
-concurrent logins adopt one persisted generation. First-time setup and the
+concurrent logins adopt one persisted generation. Core settings use a nullable
+scope: if concurrent registration leaves duplicate rows, repository reads
+consistently retain the oldest row, including the cached settings view.
+First-time setup and the
 completion of a restore renew it; older sessions are revoked. The login
 controller captures the generation before checking credentials, and pending
 magic-link requests are bound to that same generation. Session revalidation

@@ -280,8 +280,12 @@ class AuthController extends AbstractController
         // that actually requested this link may poll it. Answering the
         // uniform "not confirmed yet" for every other id also keeps this
         // endpoint from confirming that some id exists or was clicked.
-        if (!PendingMagicLink::matches($id, $this->installationGeneration)) {
+        if (!PendingMagicLink::matches($id)) {
             return $this->json(['confirmed' => false]);
+        }
+        if (!PendingMagicLink::matches($id, $this->installationGeneration)) {
+            PendingMagicLink::forget();
+            return $this->json(['confirmed' => false, 'expired' => true]);
         }
 
         $confirmed = $this->authService->isMagicLinkConfirmed($id);

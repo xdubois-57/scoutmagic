@@ -301,6 +301,57 @@ final class PortableMaintenanceRestoreTest extends TestCase
         );
     }
 
+    public function testAFailedSessionRotationCanStillRestoreTheTargetsKeys(): void
+    {
+        $masterKey = file_get_contents($this->siteBase . '/storage/keys/master.key');
+        $secrets = (new SecretManager(
+            $this->siteBase . '/storage/keys/master.key',
+            $this->siteBase . '/storage/config/secrets.enc'
+        ))->readSecrets();
+        $this->handler->handle([
+            'source' => 'upload',
+            'uploaded_temp_path' => $this->buildOriginArchive(),
+            'encrypted_password' => $this->encryptedPassphrase(self::PASSPHRASE),
+            'requested_by_user_account_id' => $this->userId,
+        ], $this->context);
+        $row = $this->pdo->query(
+            "SELECT payload, requested_by_user_account_id FROM scheduled_actions
+             WHERE task_key = 'restore_backup' ORDER BY id DESC LIMIT 1"
+        )->fetch(\PDO::FETCH_ASSOC);
+        $this->assertIsArray($row);
+        $payload = json_decode((string) $row['payload'], true);
+        $this->assertIsArray($payload);
+        // SchedulerRunner supplies the actor stored beside the payload.
+        $payload['requested_by_user_account_id'] = isset($row['requested_by_user_account_id'])
+            ? (int) $row['requested_by_user_account_id']
+            : null;
+        $this->assertFileExists($payload['portable_secrets_hold']);
+
+        $this->pdo->exec(
+            "CREATE TRIGGER reject_auth_generation_write BEFORE UPDATE ON settings FOR EACH ROW
+             BEGIN
+                 IF NEW.setting_key = 'auth_session_generation' THEN
+                     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Generation write refused';
+                 END IF;
+             END"
+        );
+        try {
+            $this->handler->handle($payload, $this->context);
+
+            $this->assertSame($masterKey, file_get_contents($this->siteBase . '/storage/keys/master.key'));
+            $restored = (new SecretManager(
+                $this->siteBase . '/storage/keys/master.key',
+                $this->siteBase . '/storage/config/secrets.enc'
+            ))->readSecrets();
+            // The safety backup legitimately adds its own kept password.
+            $this->assertSame($secrets, array_intersect_key($restored, $secrets));
+            $this->assertNotSame([], $this->journalEntries('backup_restore_rolled_back'));
+            $this->assertSame([], $this->journalEntries('backup_restore_rollback_failed'));
+        } finally {
+            $this->pdo->exec('DROP TRIGGER IF EXISTS reject_auth_generation_write');
+        }
+    }
+
     /**
      * A passphrase that opens nothing is refused, and the site is left
      * exactly as it was — no safety copy taken, nothing replaced.

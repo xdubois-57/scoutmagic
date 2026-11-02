@@ -1743,8 +1743,7 @@ class SetupController extends AbstractController
                     : 'Installation terminée avec succès, mais token.php n\'a pas pu être supprimé automatiquement — '
                         . 'retirez-le manuellement via FTP pour des raisons de sécurité.'
             );
-            AuthSession::logout();
-            \Core\Security\PendingMagicLink::forget();
+            $this->clearPreviousAuthentication();
             return $this->redirect('/');
         } catch (\Throwable $e) {
             $this->cleanupFailedSetup($masterKeyCreatedThisRun);
@@ -2254,6 +2253,10 @@ class SetupController extends AbstractController
             AuthSession::logout();
         }
         \Core\Security\PendingMagicLink::forget();
+        \Core\Security\LoginReturn::forget();
+        \Core\ScoutYear\ScoutYearSession::clear();
+        \Core\Member\TemporaryMemberSession::clear();
+        \Core\Help\Assistant\AssistantSession::clear();
     }
 
     /**

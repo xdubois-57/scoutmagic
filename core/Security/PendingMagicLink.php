@@ -46,6 +46,8 @@ final class PendingMagicLink
      * Whether $magicLinkId is the link this session itself requested. Any
      * other id — guessed, enumerated, or belonging to another visitor — is
      * not this session's to collect.
+     * Without $generation this checks ownership only; authentication must
+     * also match the server's current generation.
      */
     public static function matches(int $magicLinkId, ?string $generation = null): bool
     {

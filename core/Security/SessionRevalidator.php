@@ -167,5 +167,9 @@ class SessionRevalidator
 
         AuthSession::logout();
         PendingMagicLink::forget();
+        LoginReturn::forget();
+        \Core\ScoutYear\ScoutYearSession::clear();
+        \Core\Member\TemporaryMemberSession::clear();
+        \Core\Help\Assistant\AssistantSession::clear();
     }
 }

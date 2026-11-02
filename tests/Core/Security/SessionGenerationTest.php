@@ -44,6 +44,17 @@ final class SessionGenerationTest extends TestCase
         $this->assertSame(str_repeat('a', 64), (new SessionGeneration($settings))->current());
     }
 
+    public function testAStaleRegistrationCannotReplaceTheWinningGeneration(): void
+    {
+        $pdo = DatabaseTestHelper::createTestDatabase();
+        $late = new SettingService(new SettingRepository($pdo));
+        $this->assertNull($late->get(SessionGeneration::SETTING));
+        $first = (new SessionGeneration(new SettingService(new SettingRepository($pdo))))->current();
+
+        $this->assertSame($first, (new SessionGeneration($late))->current());
+        $this->assertSame($first, (new SessionGeneration(new SettingService(new SettingRepository($pdo))))->current());
+    }
+
     public function testRotationReplacesACachedOrRestoredGeneration(): void
     {
         $pdo = DatabaseTestHelper::createTestDatabase();

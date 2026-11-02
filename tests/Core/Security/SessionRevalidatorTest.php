@@ -81,6 +81,10 @@ class SessionRevalidatorTest extends TestCase
     public function testAReusedAccountIdCannotChangeTheAuthenticatedIdentity(): void
     {
         AuthSession::login(1, 'previous-installation@example.com', 'superadmin', \Tests\SessionGenerationFixture::forPdo($this->pdo)->current());
+        \Core\Security\LoginReturn::remember('/previous-account');
+        \Core\ScoutYear\ScoutYearSession::setPreview(3);
+        \Core\Member\TemporaryMemberSession::set(17);
+        \Core\Help\Assistant\AssistantSession::remember('A previous question', 'A previous answer');
         $replacement = $this->userRepo->create('new-installation@example.com', true);
         $this->assertSame(1, $replacement->id);
 
@@ -90,6 +94,12 @@ class SessionRevalidatorTest extends TestCase
             $survived,
             AuthSession::isAuthenticated(),
             AuthSession::getUserAccountId(),
+        ]);
+        $this->assertSame(['/', null, null, []], [
+            \Core\Security\LoginReturn::target(),
+            \Core\ScoutYear\ScoutYearSession::getPreviewId(),
+            \Core\Member\TemporaryMemberSession::get(),
+            \Core\Help\Assistant\AssistantSession::history(),
         ]);
     }
 

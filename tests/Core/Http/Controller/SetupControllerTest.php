@@ -135,6 +135,10 @@ class SetupControllerTest extends TestCase
     {
         \Core\Security\AuthSession::login(1, 'previous@example.com', 'superadmin', str_repeat('a', 64));
         \Core\Security\PendingMagicLink::remember(42);
+        \Core\Security\LoginReturn::remember('/previous-account');
+        \Core\ScoutYear\ScoutYearSession::setPreview(3);
+        \Core\Member\TemporaryMemberSession::set(17);
+        \Core\Help\Assistant\AssistantSession::remember('A previous question', 'A previous answer');
         $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath);
 
         $response = $controller->index(new Request('GET', '/setup', [], [], [], []), []);
@@ -143,6 +147,12 @@ class SetupControllerTest extends TestCase
             $response->getStatusCode(),
             \Core\Security\AuthSession::isAuthenticated(),
             \Core\Security\PendingMagicLink::matches(42),
+        ]);
+        $this->assertSame(['/', null, null, []], [
+            \Core\Security\LoginReturn::target(),
+            \Core\ScoutYear\ScoutYearSession::getPreviewId(),
+            \Core\Member\TemporaryMemberSession::get(),
+            \Core\Help\Assistant\AssistantSession::history(),
         ]);
     }
 
