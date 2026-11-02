@@ -532,6 +532,146 @@ class BadgeServiceTest extends TestCase
         $this->assertCount(1, $this->service->getAll());
     }
 
+    public function testRenamingToAnExistingSectionNamePreservesBadgesAndAssignments(): void
+    {
+        $first = $this->createSection('LOU01', 'Renards');
+        $second = $this->createSection('LOU02', 'Meute');
+        $staff = $this->createSection(UnitStaffSectionService::DESK_CODE, "Staff d'U");
+        $memberYear = $this->createMemberYear('REFERENT');
+        $this->linkMemberToSection($memberYear, $staff);
+        $this->service->syncSectionReferentBadges();
+        $badge = $this->badgeRepository->findByReferentSectionId($second);
+        $this->assertNotNull($badge);
+        $this->service->toggleAssignment($memberYear, $badge->id, null);
+        $this->service->setActive($badge->id, false);
+
+        $this->sectionService->updateSectionInfo($second, 'Renards', null);
+        $this->service->syncSectionReferentBadges();
+        $this->service->syncSectionReferentBadges();
+
+        $updated = $this->badgeRepository->findByReferentSectionId($second);
+        $this->assertSame([$badge->id, 'Référent Renards (LOU02)', false],
+            [$updated->id, $updated->name, $updated->isActive]);
+        $this->assertTrue($this->memberBadgeRepository->isAssigned($memberYear, $badge->id));
+        $this->assertSame('Référent Renards', $this->badgeRepository->findByReferentSectionId($first)->name);
+        $this->assertCount(2, $this->service->getAll());
+    }
+
+    public function testNewSectionsCanAlreadyHaveTheSameName(): void
+    {
+        $first = $this->createSection('BAL01', 'Renards');
+        $second = $this->createSection('BAL02', 'Renards');
+
+        $this->service->syncSectionReferentBadges();
+
+        $badges = $this->badgeRepository->findAllByReferentSection();
+        $this->assertEqualsCanonicalizing([$first, $second], array_keys($badges));
+        $this->assertCount(2, array_unique(array_map(static fn($badge) => $badge->name, $badges)));
+        foreach ($badges as $badge) {
+            $this->assertTrue($badge->isDefault && $badge->isActive);
+            $this->assertStringStartsWith('Référent Renards', $badge->name);
+        }
+    }
+
+    public function testNumberedNamesStayStableWithoutFurtherLookupsWhenTheBaseBecomesFree(): void
+    {
+        $section = $this->createSection('BAL01', 'Renards');
+        $this->createSection('BAL02', 'Ours');
+        $repository = new class ($this->pdo) extends BadgeRepository {
+            public int $lookups = 0;
+            public int $updates = 0;
+
+            public function findByName(string $name): ?\Core\Badge\Badge
+            {
+                $this->lookups++;
+                return parent::findByName($name);
+            }
+
+            public function update(int $id, string $name): void
+            {
+                $this->updates++;
+                parent::update($id, $name);
+            }
+        };
+        $base = $repository->create('Référent Renards', false);
+        $repository->create('Référent Renards (BAL01)', false);
+        for ($number = 2; $number <= 10; $number++) {
+            $repository->create('Référent Renards (BAL01, ' . $number . ')', false);
+        }
+        $service = new BadgeService($repository, $this->memberBadgeRepository, $this->sectionService);
+        $service->syncSectionReferentBadges();
+        $badge = $repository->findByReferentSectionId($section);
+        $this->assertSame('Référent Renards (BAL01, 11)', $badge->name);
+        $repository->delete($base);
+        $repository->lookups = $repository->updates = 0;
+
+        $service->syncSectionReferentBadges();
+
+        $this->assertSame([0, 0], [$repository->lookups, $repository->updates]);
+        $this->assertSame($badge->name, $repository->findByReferentSectionId($section)->name);
+    }
+
+    public function testSwappingSectionNamesSettlesInOnePassWithoutReplacingBadges(): void
+    {
+        $first = $this->createSection('BAL01', 'Renards');
+        $second = $this->createSection('LOU01', 'Loups');
+        $this->service->syncSectionReferentBadges();
+        $before = $this->badgeRepository->findAllByReferentSection();
+        $this->sectionService->updateSectionInfo($first, 'Loups', null);
+        $this->sectionService->updateSectionInfo($second, 'Renards', null);
+
+        $this->service->syncSectionReferentBadges();
+        $settled = $this->badgeRepository->findAllByReferentSection();
+        $this->service->syncSectionReferentBadges();
+
+        $this->assertEquals($settled, $this->badgeRepository->findAllByReferentSection());
+        $this->assertSame($before[$first]->id, $settled[$first]->id);
+        $this->assertSame($before[$second]->id, $settled[$second]->id);
+        $this->assertStringStartsWith('Référent Loups', $settled[$first]->name);
+        $this->assertStringStartsWith('Référent Renards', $settled[$second]->name);
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('concurrentReferentCreations')]
+    public function testAConcurrentCreationKeepsTheWinningBadge(bool $sameSection): void
+    {
+        $section = $this->createSection('BAL01', 'Renards');
+        $repository = new class ($this->pdo, $sameSection) extends BadgeRepository {
+            private bool $raced = false;
+
+            public function __construct(\PDO $pdo, private bool $sameSection)
+            {
+                parent::__construct($pdo);
+            }
+
+            public function create(string $name, bool $isDefault, ?int $referentSectionId = null): int
+            {
+                if (!$this->raced) {
+                    $this->raced = true;
+                    parent::create($name, $this->sameSection, $this->sameSection ? $referentSectionId : null);
+                }
+                return parent::create($name, $isDefault, $referentSectionId);
+            }
+        };
+        $service = new BadgeService($repository, $this->memberBadgeRepository, $this->sectionService);
+
+        $service->syncSectionReferentBadges();
+
+        $badge = $repository->findByReferentSectionId($section);
+        $this->assertNotNull($badge);
+        $this->assertTrue($badge->isDefault);
+        $this->assertSame($sameSection ? 'Référent Renards' : 'Référent Renards (BAL01)', $badge->name);
+        $this->assertCount($sameSection ? 1 : 2, $repository->findAll());
+        if (!$sameSection) {
+            $this->assertNull($repository->findByName('Référent Renards')->referentSectionId);
+        }
+    }
+
+    public static function concurrentReferentCreations(): iterable
+    {
+        yield 'same section' => [true];
+        yield 'custom badge' => [false];
+    }
+
     public function testReferentBadgeIsActiveByDefaultOnCreation(): void
     {
         $this->createSection('LOU01', 'Louveteaux');

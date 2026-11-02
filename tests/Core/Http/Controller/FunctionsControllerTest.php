@@ -538,6 +538,28 @@ class FunctionsControllerTest extends TestCase
         $this->assertSame('section@test.be', $this->sectionService->getSection($sectionId)['email']);
     }
 
+    public function testDuplicateSectionNamesStillRenderTheDeskCorrespondencePage(): void
+    {
+        $token = $this->startSessionWithToken();
+        $this->createSection('BAL01', 'Baladins', 'Renards');
+        $second = $this->createSection('LOU01', 'Louveteaux', 'Meute');
+        $this->badgeService->syncSectionReferentBadges();
+        // An earlier failed rename already left these duplicate names in
+        // the database, so recovery must work without saving a new form.
+        $this->sectionService->updateSectionInfo($second, 'Renards', null);
+
+        $response = $this->controller->index(new Request('GET', '/config/functions', [], [], [], []), []);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertStringContainsString('Correspondances Desk', $response->getBody());
+        $this->assertSame('Renards', $this->sectionService->getSection($second)['name']);
+
+        $renamed = $this->controller->updateSectionName($this->createJsonRequest([
+            'section_id' => $second, 'name' => 'Renards', '_csrf_token' => $token,
+        ]), []);
+        $this->assertTrue(json_decode($renamed->getBody(), true)['success']);
+    }
+
     public function testUpdateSectionNameWithUnknownSectionReturnsError(): void
     {
         if (session_status() === PHP_SESSION_NONE) {
