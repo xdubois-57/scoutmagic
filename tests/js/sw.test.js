@@ -1161,3 +1161,51 @@ describe('sw.js: appShellResponse()', () => {
         await expect(sw.appShellResponse(request, url)).rejects.toThrow('offline');
     });
 });
+
+// ---------------------------------------------------------------------------
+// The push handler and its two named steps
+// ---------------------------------------------------------------------------
+describe('sw.js: orElse() and nudgeOpenTabs()', () => {
+    afterEach(() => {
+        delete global.self.clients;
+        delete global.self.registration;
+        delete global.navigator.setAppBadge;
+    });
+
+    it('orElse() turns a rejection into the fallback and leaves a resolution alone', async () => {
+        await expect(sw.orElse(Promise.reject(new Error('x')), 'fallback')).resolves.toBe('fallback');
+        await expect(sw.orElse(Promise.resolve('kept'), 'fallback')).resolves.toBe('kept');
+    });
+
+    it('nudgeOpenTabs() tells every open window how many are unread', async () => {
+        const clientA = { postMessage: vi.fn() };
+        const clientB = { postMessage: vi.fn() };
+        const matchAll = vi.fn(() => Promise.resolve([clientA, clientB]));
+        global.self.clients = { matchAll };
+
+        await sw.nudgeOpenTabs(4);
+
+        expect(matchAll).toHaveBeenCalledWith({ type: 'window', includeUncontrolled: true });
+        expect(clientA.postMessage).toHaveBeenCalledWith({ type: 'push-received', unreadCount: 4 });
+        expect(clientB.postMessage).toHaveBeenCalledWith({ type: 'push-received', unreadCount: 4 });
+    });
+
+    it('a push shows the notification, sets the badge, and nudges the open tabs', async () => {
+        const client = { postMessage: vi.fn() };
+        const showNotification = vi.fn(() => Promise.resolve());
+        global.self.registration = { showNotification };
+        global.self.clients = { matchAll: vi.fn(() => Promise.resolve([client])) };
+        global.navigator.setAppBadge = vi.fn(() => Promise.reject(new Error('no badge here')));
+
+        const waits = [];
+        const event = new Event('push');
+        event.data = { json: () => ({ title: 'Salut', body: 'Corps', url: '/x', unread_count: 3 }) };
+        event.waitUntil = (promise) => waits.push(promise);
+        global.self.dispatchEvent(event);
+        await Promise.all(waits);
+
+        expect(showNotification).toHaveBeenCalledWith('Salut', { body: 'Corps', data: { url: '/x' } });
+        expect(global.navigator.setAppBadge).toHaveBeenCalledWith(3);
+        expect(client.postMessage).toHaveBeenCalledWith({ type: 'push-received', unreadCount: 3 });
+    });
+});

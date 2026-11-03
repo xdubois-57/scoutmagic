@@ -1885,5 +1885,7 @@ globalThis.ScoutMagicServiceWorkerInternals = {
     getOfflineConfig: getOfflineConfig,
     purgeAllContentCaches: purgeAllContentCaches,
     purgeContentCachesExcept: purgeContentCachesExcept,
+    nudgeOpenTabs: nudgeOpenTabs,
+    orElse: orElse,
     CONTENT_CACHE_PREFIX: CONTENT_CACHE_PREFIX,
 };
