@@ -382,7 +382,16 @@ jobs:
     # tests in 19.9 minutes, after 8 of setup, and was cancelled at 30 while
     # stopping its server (the coverage merge). The same job on main took 16
     # to 26 minutes that day, so 30 was already the busy case with no room.
-    timeout-minutes: ${{ inputs.evidence && 45 || 40 }}
+    #
+    # 60 for the evidence run, raised from 45, when the v1.2.0 tag run passed
+    # all 116 tests (one skipped by design) in 37.6 minutes — after 221
+    # commits had added scenarios since v1.1.0, whose own tag run took 36.5
+    # minutes in all — and was cancelled at 45 while collecting its evidence,
+    # which cancelled the Release workflow and left the tag pointing at
+    # nothing. The same job took 24 to 27 minutes on a push to main: the
+    # evidence run records coverage and traces, and runs a third slower. The
+    # pull-request bound stays at 40.
+    timeout-minutes: ${{ inputs.evidence && 60 || 40 }}
     services:
       mysql:
         image: mysql:8.0
