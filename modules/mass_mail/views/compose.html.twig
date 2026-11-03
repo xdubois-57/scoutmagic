@@ -393,7 +393,7 @@
             <form method="post" action="/mass-mail/{{ email.id }}/status">
                 {{ csrf_field()|raw }}
                 <input type="hidden" name="action" value="to_test">
-                <button type="submit" class="btn btn-warning w-100 w-sm-auto">Passer en mode test</button>
+                <button type="submit" class="btn btn-warning w-100-below-sm">Passer en mode test</button>
             </form>
         {% elseif email.status == 'test' %}
             <form method="post" action="/mass-mail/{{ email.id }}/status">
@@ -404,7 +404,7 @@
                    (unlike in the dialog it came from) a « Retour » control
                    reads as the way back to the list, which is the
                    breadcrumb's job (design.md §7.3). #}
-                <button type="submit" class="btn btn-outline-secondary w-100 w-sm-auto">Repasser en brouillon</button>
+                <button type="submit" class="btn btn-outline-secondary w-100-below-sm">Repasser en brouillon</button>
             </form>
             {# The confirmation is asked by mass-mail-compose.js rather than
                by the delegated data-confirm handler: the sentence names how
@@ -413,7 +413,7 @@
             <form method="post" action="/mass-mail/{{ email.id }}/status" id="mm-start-sending-form">
                 {{ csrf_field()|raw }}
                 <input type="hidden" name="action" value="start_sending">
-                <button type="submit" class="btn btn-danger w-100 w-sm-auto">Lancer l'envoi</button>
+                <button type="submit" class="btn btn-danger w-100-below-sm">Lancer l'envoi</button>
             </form>
         {% endif %}
     </div>

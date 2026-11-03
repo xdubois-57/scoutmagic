@@ -146,7 +146,7 @@
                         </p>
                         {% set _pending = report.access.new_functions|filter(f => f.still_unconfirmed) %}
                         {% if _pending is not empty %}
-                            <a href="/config/functions" class="btn btn-primary w-100 w-sm-auto">
+                            <a href="/config/functions" class="btn btn-primary w-100-below-sm">
                                 Qualifier dans Correspondances Desk
                             </a>
                         {% else %}

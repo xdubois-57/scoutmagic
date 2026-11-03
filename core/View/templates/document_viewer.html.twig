@@ -64,19 +64,19 @@
            which stays usable, hence `reusable`. #}
         {% set browser_href = document is not null ? document.browserPath : direct_url %}
         {% if browser_href is not null %}
-            <a href="{{ browser_href }}" class="btn btn-primary w-100 w-sm-auto"
+            <a href="{{ browser_href }}" class="btn btn-primary w-100-below-sm"
                target="_blank" rel="noopener" data-document-viewer-browser{% if document is null %} data-document-viewer-reusable{% endif %}>
                 <i class="bi bi-box-arrow-up-right" aria-hidden="true"></i> Ouvrir dans le navigateur
             </a>
         {% endif %}
         {% if document is not null %}
-            <a href="{{ document.appPath }}" class="btn btn-outline-secondary w-100 w-sm-auto"
+            <a href="{{ document.appPath }}" class="btn btn-outline-secondary w-100-below-sm"
                download="{{ name }}" data-document-viewer-download data-file-link-raw
                data-file-name="{{ name }}" data-file-type="{{ document.mimeType }}">
                 <i class="bi bi-download" aria-hidden="true"></i> Télécharger
             </a>
         {% endif %}
-        <a href="{{ back_url }}" class="btn btn-outline-secondary w-100 w-sm-auto" data-document-viewer-back>
+        <a href="{{ back_url }}" class="btn btn-outline-secondary w-100-below-sm" data-document-viewer-back>
             <i class="bi bi-arrow-left" aria-hidden="true"></i> Retour
         </a>
     </div>

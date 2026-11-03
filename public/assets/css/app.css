@@ -409,10 +409,13 @@ body.cookie-banner-visible {
 }
 
 /* ============================================================
-   UTILITY: responsive width auto (Bootstrap has w-100 but no w-sm-auto)
+   UTILITY: full width below the sm breakpoint, natural width from it up.
+   Bootstrap has w-100 but no responsive variant, and combining w-100 with
+   a "width: auto" override needs !important (w-100 is !important itself).
+   Stating the width only where it applies needs neither.
    ============================================================ */
-@media (min-width: 576px) {
-    .w-sm-auto { width: auto !important; }
+@media (max-width: 575.98px) {
+    .w-100-below-sm { width: 100%; }
 }
 
 /* ============================================================

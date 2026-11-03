@@ -58,7 +58,7 @@
             <form method="post" action="/admin/attestations/{{ batch.id }}/prevenir"
                   data-confirm="Prévenir les familles ? Chaque famille recevra son attestation par e-mail : un envoi ne se rattrape pas.">
                 {{ csrf_field()|raw }}
-                <button type="submit" class="btn btn-primary w-100 w-sm-auto">
+                <button type="submit" class="btn btn-primary w-100-below-sm">
                     <i class="bi bi-bell" aria-hidden="true"></i> Prévenir les familles
                 </button>
             </form>
