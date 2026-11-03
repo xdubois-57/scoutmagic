@@ -1730,8 +1730,18 @@ function slowNavigation(request, cacheName, config, live, event) {
             return cached;
         }
 
-        return live.catch(function () { return offlinePage(); });
+        return liveOrOfflinePage(live);
     });
+}
+
+/**
+ * The live request's answer, or the offline page when it fails.
+ *
+ * @param {Promise<Response>} live
+ * @returns {Promise<Response>}
+ */
+function liveOrOfflinePage(live) {
+    return live.catch(function () { return offlinePage(); });
 }
 
 // Not a badge — module spec is explicit this must be a readable sentence,
