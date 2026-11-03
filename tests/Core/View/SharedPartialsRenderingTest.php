@@ -89,7 +89,7 @@ final class SharedPartialsRenderingTest extends TestCase
         $this->assertStringContainsString('<h1 class="h3 mb-0">Mouvements</h1>', $html);
         $this->assertStringContainsString('Compte principal', $html);
         // The primary action: btn-primary, full width on mobile only.
-        $this->assertStringContainsString('btn btn-primary w-100 w-sm-auto', $html);
+        $this->assertStringContainsString('btn btn-primary w-100-below-sm', $html);
         $this->assertStringContainsString('href="/finance/receipts/new"', $html);
     }
 

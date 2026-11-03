@@ -15,18 +15,16 @@
    public/assets/fonts/README.md for the subset's ranges and the command
    that rebuilds it.
 
-   `font-display: block` on purpose, against the usual advice. A swap
-   would draw the card once in the fallback face and again in this one,
-   and the card is the thing being judged before it is published — a
-   title that jumps and re-wraps between two frames reads as a bug. The
-   file is small enough that the block is brief, and the composer waits
-   for the face before its first draw rather than drawing twice. */
+   `font-display: swap`, which costs nothing here: the face is only ever
+   drawn onto the card canvas, and the composer awaits `document.fonts.load`
+   for it before its first draw, so the card is never drawn twice in two
+   faces whatever the display policy says. */
 @font-face {
     font-family: 'ScoutMagic Card';
     src: url('/assets/fonts/dejavu-sans-bold-latin.woff2') format('woff2');
     font-weight: 700;
     font-style: normal;
-    font-display: block;
+    font-display: swap;
 }
 
 /* A checkbox and the FIRST LINE of its label on the same line (issue
@@ -411,10 +409,13 @@ body.cookie-banner-visible {
 }
 
 /* ============================================================
-   UTILITY: responsive width auto (Bootstrap has w-100 but no w-sm-auto)
+   UTILITY: full width below the sm breakpoint, natural width from it up.
+   Bootstrap has w-100 but no responsive variant, and combining w-100 with
+   a "width: auto" override needs !important (w-100 is !important itself).
+   Stating the width only where it applies needs neither.
    ============================================================ */
-@media (min-width: 576px) {
-    .w-sm-auto { width: auto !important; }
+@media (max-width: 575.98px) {
+    .w-100-below-sm { width: 100%; }
 }
 
 /* ============================================================
@@ -437,12 +438,12 @@ body.cookie-banner-visible {
    UTILITY: dashed border for drop zones (upload, receipts, gallery).
    Bootstrap 5 has border-* color/width utilities but no border-style
    one — the templates already used this class name, which silently
-   rendered as a SOLID border until it was defined here. !important
-   matches Bootstrap's own border-utility convention so it wins over
-   .border's shorthand wherever the two are combined.
+   rendered as a SOLID border until it was defined here. .border's
+   shorthand is !important but reads its style from --bs-border-style, so
+   overriding that variable wins without another !important.
    ============================================================ */
 .border-dashed {
-    border-style: dashed !important;
+    --bs-border-style: dashed;
 }
 
 /* ============================================================

@@ -62,7 +62,7 @@
                     <p class="small mt-3 mb-3">
                         <strong>Prochaine étape :</strong> {{ progress.stage.nextStep }}
                     </p>
-                    <a class="btn btn-primary w-100 w-sm-auto" href="{{ changes_url }}/{{ m.id }}">Ouvrir la modification</a>
+                    <a class="btn btn-primary w-100-below-sm" href="{{ changes_url }}/{{ m.id }}">Ouvrir la modification</a>
                 </div>
             </div>
         {% elseif modification_available and not booking.status.isFinal %}
@@ -78,7 +78,7 @@
                             remplacement, que le locataire signe. La réservation actuelle ne change pas avant votre
                             contresignature.
                         </p>
-                        <a class="btn btn-primary w-100 w-sm-auto" href="{{ changes_url }}/nouvelle">Créer une modification</a>
+                        <a class="btn btn-primary w-100-below-sm" href="{{ changes_url }}/nouvelle">Créer une modification</a>
                     {% else %}
                         <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
                             <h2 class="h5 mb-0">Modifier la réservation</h2>
@@ -89,7 +89,7 @@
                             réservation. Ils restent dans l'historique ; le locataire n'est pas prévenu. Un contrat
                             déjà généré mais pas envoyé est marqué « à régénérer ».
                         </p>
-                        <a class="btn btn-primary w-100 w-sm-auto" href="{{ changes_url }}/nouvelle">Modifier les dates, les participants ou le prix</a>
+                        <a class="btn btn-primary w-100-below-sm" href="{{ changes_url }}/nouvelle">Modifier les dates, les participants ou le prix</a>
                     {% endif %}
                 </div>
             </div>

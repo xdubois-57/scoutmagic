@@ -35,6 +35,18 @@
     }
 
     /**
+     * The response together with its JSON body, `{}` when it has none.
+     *
+     * @param {Response} response
+     * @returns {Promise<{response: Response, data: any}>}
+     */
+    function readBody(response) {
+        return response.json().catch(function () { return {}; }).then(function (data) {
+            return { response: response, data: data };
+        });
+    }
+
+    /**
      * Sends `file` to `url` as sequential chunks. Resolves with
      * { uploadId, data } where `data` is the final chunk's JSON response;
      * rejects with an Error whose message is the server's error string.
@@ -70,19 +82,19 @@
             var extra = { ...opts.fields, ...(isLast ? opts.lastFields : null) };
             Object.keys(extra).forEach(function (key) { formData.append(key, extra[key]); });
 
-            return fetch(url, { method: 'POST', body: formData }).then(function (response) {
-                return response.json().catch(function () { return {}; }).then(function (data) {
-                    if (response.status === 409 && typeof data.received === 'number'
-                        && data.received < total && resyncs < 3) {
-                        resyncs++;
-                        return sendFrom(data.received);
-                    }
-                    if (!response.ok || data.success !== true) {
-                        throw new Error(data.error || 'Erreur réseau.');
-                    }
-                    if (opts.onProgress) opts.onProgress(end, total);
-                    return isLast ? { uploadId: uploadId, data: data } : sendFrom(end);
-                });
+            return fetch(url, { method: 'POST', body: formData }).then(readBody).then(function (reply) {
+                var response = reply.response;
+                var data = reply.data;
+                if (response.status === 409 && typeof data.received === 'number'
+                    && data.received < total && resyncs < 3) {
+                    resyncs++;
+                    return sendFrom(data.received);
+                }
+                if (!response.ok || data.success !== true) {
+                    throw new Error(data.error || 'Erreur réseau.');
+                }
+                if (opts.onProgress) opts.onProgress(end, total);
+                return isLast ? { uploadId: uploadId, data: data } : sendFrom(end);
             });
         }
 

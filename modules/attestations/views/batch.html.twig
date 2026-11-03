@@ -208,11 +208,11 @@
                     Les lignes non cochées seront supprimées. Le lot conservera leur nombre, pas leur contenu.
                 </p>
                 <div class="d-flex flex-column flex-sm-row gap-2">
-                    <button type="submit" class="btn btn-primary w-100 w-sm-auto">
+                    <button type="submit" class="btn btn-primary w-100-below-sm">
                         <i class="bi bi-send" aria-hidden="true"></i>
                         Publier <span id="attestations-publish-count">{{ selected_count }}</span> attestations
                     </button>
-                    <a href="/admin/attestations" class="btn btn-outline-secondary w-100 w-sm-auto">Annuler</a>
+                    <a href="/admin/attestations" class="btn btn-outline-secondary w-100-below-sm">Annuler</a>
                 </div>
             {% endif %}
         </form>
@@ -269,7 +269,7 @@
                 <form method="post" action="/admin/attestations/{{ batch.id }}/reprendre"
                       data-confirm="{% if is_editable %}Abandonner ce lot ? Les attestations découpées seront supprimées.{% else %}Reprendre le lot ? {{ batch.documentCount }} document{{ batch.documentCount > 1 ? 's publiés seront supprimés' : ' publié sera supprimé' }}. Les e-mails déjà envoyés, eux, ne reviennent pas.{% endif %}">
                     {{ csrf_field()|raw }}
-                    <button type="submit" class="btn btn-outline-danger w-100 w-sm-auto">
+                    <button type="submit" class="btn btn-outline-danger w-100-below-sm">
                         <i class="bi bi-arrow-counterclockwise" aria-hidden="true"></i>
                         {{ is_editable ? 'Abandonner ce lot' : 'Reprendre le lot' }}
                     </button>

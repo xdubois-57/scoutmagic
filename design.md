@@ -497,7 +497,8 @@ Four variants, nothing else:
 - **Destructive confirmation** — `btn-danger`, only inside a confirmation
   surface (modal footer, danger zone).
 
-A full-width mobile button is `w-100 w-sm-auto`, never `w-100` alone.
+A full-width mobile button is `w-100-below-sm` (full width below 576 px, natural
+width from `sm` up), never `w-100` alone.
 Icon vocabulary is fixed: `bi-trash` delete, `bi-pencil` edit, `bi-plus-lg`
 add, `bi-three-dots-vertical` overflow menus, `bi-magic` "let the AI do
 this field for me". Only icons present in the **vendored** Bootstrap Icons

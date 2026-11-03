@@ -400,7 +400,8 @@ function dastTlsHandleConnection($client, string $backend): void
         $target = $requestLine === false ? '' : (string) (explode(' ', $requestLine)[1] ?? '');
         $path = dastTlsRedactPath((string) strtok($target, '?'));
         if ($response === null) {
-            dastTlsLog(sprintf('%s %s -> backend failed after %d ms', $method, $path, intdiv(hrtime(true) - $startedAt, 1_000_000)));
+            $elapsedMs = intdiv(hrtime(true) - $startedAt, 1_000_000);
+            dastTlsLog(sprintf('%s %s -> backend failed after %d ms', $method, $path, $elapsedMs));
             // The application server is gone (teardown, a crash). Answer
             // something well-formed rather than a bare connection reset,
             // so the scanner records a 502 instead of an unexplained
@@ -434,7 +435,8 @@ function dastTlsHandleConnection($client, string $backend): void
             // request that simply never gets an answer.
             && $served < DAST_TLS_MAX_REQUESTS - 1;
 
-        $out = dastTlsReframe($responseHead, strlen($responseBody), $keepAlive, $omitBody, DAST_TLS_MAX_REQUESTS - 1 - $served);
+        $remaining = DAST_TLS_MAX_REQUESTS - 1 - $served;
+        $out = dastTlsReframe($responseHead, strlen($responseBody), $keepAlive, $omitBody, $remaining);
         if (@fwrite($client, $out) === false) {
             return;
         }

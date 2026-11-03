@@ -200,7 +200,7 @@
         {% if not booking.status.isFinal and (is_new or modification.isActive) %}
             <div class="d-flex flex-wrap gap-2 mb-3" data-modification-actions>
                 {% if is_new %}
-                    <button type="submit" form="modification-form" class="btn btn-primary w-100 w-sm-auto">
+                    <button type="submit" form="modification-form" class="btn btn-primary w-100-below-sm">
                         {{ is_direct ? 'Enregistrer' : 'Enregistrer la modification' }}
                     </button>
                 {% elseif modification.status.value == 'draft' %}
@@ -212,11 +212,11 @@
                         <input type="hidden" name="asset_id" value="{{ asset.id }}">
                         <input type="hidden" name="booking_id" value="{{ booking.id }}">
                         <input type="hidden" name="modification_id" value="{{ modification.id }}">
-                        <button type="submit" class="btn btn-primary w-100 w-sm-auto">Générer et envoyer le contrat de remplacement</button>
+                        <button type="submit" class="btn btn-primary w-100-below-sm">Générer et envoyer le contrat de remplacement</button>
                     </form>
-                    <button type="submit" form="modification-form" class="btn btn-outline-secondary w-100 w-sm-auto">Enregistrer</button>
+                    <button type="submit" form="modification-form" class="btn btn-outline-secondary w-100-below-sm">Enregistrer</button>
                 {% elseif progress and progress.stage.value == 'copy_received' %}
-                    <a class="btn btn-primary w-100 w-sm-auto" href="{{ booking_url }}/documents#contrat">Vérifier et contresigner</a>
+                    <a class="btn btn-primary w-100-below-sm" href="{{ booking_url }}/documents#contrat">Vérifier et contresigner</a>
                 {% else %}
                     <form method="post" action="/mes-locations/modification-envoyer" class="d-inline"
                           data-confirm="Renvoyer le contrat de remplacement ? Le locataire reçoit à nouveau le même contrat par e-mail."
@@ -225,7 +225,7 @@
                         <input type="hidden" name="asset_id" value="{{ asset.id }}">
                         <input type="hidden" name="booking_id" value="{{ booking.id }}">
                         <input type="hidden" name="modification_id" value="{{ modification.id }}">
-                        <button type="submit" class="btn btn-outline-secondary w-100 w-sm-auto">Renvoyer le contrat de remplacement</button>
+                        <button type="submit" class="btn btn-outline-secondary w-100-below-sm">Renvoyer le contrat de remplacement</button>
                     </form>
                 {% endif %}
                 {% if not is_new %}
@@ -236,7 +236,7 @@
                         <input type="hidden" name="asset_id" value="{{ asset.id }}">
                         <input type="hidden" name="booking_id" value="{{ booking.id }}">
                         <input type="hidden" name="modification_id" value="{{ modification.id }}">
-                        <button type="submit" class="btn btn-outline-danger w-100 w-sm-auto">Annuler la modification</button>
+                        <button type="submit" class="btn btn-outline-danger w-100-below-sm">Annuler la modification</button>
                     </form>
                 {% endif %}
             </div>

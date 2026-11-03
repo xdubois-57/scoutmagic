@@ -74,7 +74,7 @@
                                 {% include '@news/partials/_field.html.twig' with {field: row.field, options: row.options, remaining_capacity: row.remaining_capacity} %}
                             {% endif %}
                         {% endfor %}
-                        <button type="button" class="btn btn-primary w-100 w-sm-auto">Envoyer</button>
+                        <button type="button" class="btn btn-primary w-100-below-sm">Envoyer</button>
                     </fieldset>
                     <p class="form-text mb-0 mt-2">Le formulaire n'accepte aucune réponse avant la publication.</p>
                 {% elseif requires_login %}
@@ -135,7 +135,7 @@
                            a second receivable and a second ticket. The
                            server refuses the duplicate too; this stops it
                            from being sent at all. #}
-                        <button type="submit" class="btn btn-primary w-100 w-sm-auto float-sm-end">Envoyer</button>
+                        <button type="submit" class="btn btn-primary w-100-below-sm float-sm-end">Envoyer</button>
                     </form>
                 {% endif %}
             </div>

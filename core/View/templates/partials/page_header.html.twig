@@ -57,7 +57,7 @@
         {% endif %}
     </div>
     {% if action_label|default('') and action_url|default('') %}
-        <a href="{{ action_url }}" class="btn btn-primary w-100 w-sm-auto flex-shrink-0">
+        <a href="{{ action_url }}" class="btn btn-primary w-100-below-sm flex-shrink-0">
             <i class="bi {{ action_icon|default('bi-plus-lg') }}" aria-hidden="true"></i> {{ action_label }}
         </a>
     {% endif %}

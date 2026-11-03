@@ -46,9 +46,9 @@ export function firstErrorLine(result) {
  * @returns {string}
  */
 export function escapeCommand(value, property = false) {
-    let escaped = value.replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
+    let escaped = value.replaceAll('%', '%25').replaceAll('\r', '%0D').replaceAll('\n', '%0A');
     if (property) {
-        escaped = escaped.replace(/:/g, '%3A').replace(/,/g, '%2C');
+        escaped = escaped.replaceAll(':', '%3A').replaceAll(',', '%2C');
     }
     return escaped;
 }
@@ -61,7 +61,7 @@ export function escapeCommand(value, property = false) {
  * @returns {string}
  */
 export function markdownCell(value) {
-    return value.replace(/\\/g, '\\\\').replace(/([|`*_])/g, '\\$1');
+    return value.replace(/[\\|`*_]/g, String.raw`\$&`);
 }
 
 export default class SummaryReporter {
@@ -100,7 +100,7 @@ export default class SummaryReporter {
             failures.push({
                 // titlePath() is [root, project, file, …describes, test]: keep the describes and the test.
                 title: test.titlePath().filter((t) => t !== '').slice(2).join(' › '),
-                file: relative(this.rootDir, test.location.file).split('\\').join('/'),
+                file: relative(this.rootDir, test.location.file).replaceAll('\\', '/'),
                 line: test.location.line,
                 error: firstErrorLine(result),
             });
@@ -118,14 +118,18 @@ export default class SummaryReporter {
         // at import, a `.only` refused by forbidOnly, a global-setup error.
         // Without this line such a run said « exit code 1 » and nothing else.
         const runFailed = result.status !== undefined && result.status !== 'passed';
-        const runLevel = failures.length === 0 && (runFailed || this.runErrors.length > 0)
-            ? (this.runErrors.length > 0 ? this.runErrors : [`the run ended « ${result.status} » with no failed test`])
-            : [];
+        let runLevel = [];
+        if (failures.length === 0 && this.runErrors.length > 0) {
+            runLevel = this.runErrors;
+        } else if (failures.length === 0 && runFailed) {
+            runLevel = [`the run ended « ${result.status} » with no failed test`];
+        }
         if (failures.length === 0 && runLevel.length === 0) {
             return;
         }
         for (const f of failures) {
-            this.write(`::error file=${escapeCommand(f.file, true)},line=${f.line},title=${escapeCommand('E2E scenario failed', true)}::${escapeCommand(`${f.title} — ${f.error}`)}\n`);
+            const message = escapeCommand(`${f.title} — ${f.error}`);
+            this.write(`::error file=${escapeCommand(f.file, true)},line=${f.line},title=${escapeCommand('E2E scenario failed', true)}::${message}\n`);
         }
         for (const message of runLevel) {
             this.write(`::error title=${escapeCommand('E2E run failed', true)}::${escapeCommand(message)}\n`);

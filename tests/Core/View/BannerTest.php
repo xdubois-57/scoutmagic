@@ -73,14 +73,14 @@ class BannerTest extends TestCase
         $html = $this->twig->render('base.html.twig');
 
         $this->assertStringContainsString(
-            'class="btn btn-primary btn-sm w-100 w-sm-auto" id="cookie-reject-all"',
+            'class="btn btn-primary btn-sm w-100-below-sm" id="cookie-reject-all"',
             $html
         );
         $this->assertStringContainsString(
-            'class="btn btn-primary btn-sm w-100 w-sm-auto" id="cookie-accept-all"',
+            'class="btn btn-primary btn-sm w-100-below-sm" id="cookie-accept-all"',
             $html
         );
-        $this->assertStringNotContainsString('btn-outline-secondary btn-sm w-100 w-sm-auto" id="cookie-reject-all"', $html);
+        $this->assertStringNotContainsString('btn-outline-secondary btn-sm w-100-below-sm" id="cookie-reject-all"', $html);
     }
 
     public function testCustomizeIsADiscreetLinkToPreferencesPage(): void
@@ -89,7 +89,7 @@ class BannerTest extends TestCase
         $html = $this->twig->render('base.html.twig');
 
         $this->assertStringContainsString(
-            '<a class="btn btn-link btn-sm w-100 w-sm-auto" id="cookie-customize" href="/cookies">',
+            '<a class="btn btn-link btn-sm w-100-below-sm" id="cookie-customize" href="/cookies">',
             $html
         );
     }

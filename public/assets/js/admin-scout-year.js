@@ -80,7 +80,7 @@
      */
     function hideOpenDialog() {
         var open = root.querySelector('.modal.show');
-        var Modal = window.bootstrap && window.bootstrap.Modal;
+        var Modal = window.bootstrap?.Modal;
         var instance = open && Modal ? Modal.getInstance(open) : null;
         if (!instance) {
             return Promise.resolve();
@@ -122,7 +122,7 @@
      */
     function replace(html, focusKey) {
         if (typeof html.state === 'string') {
-            var Modal = window.bootstrap && window.bootstrap.Modal;
+            var Modal = window.bootstrap?.Modal;
             if (Modal) {
                 root.querySelectorAll('.modal').forEach(function (modal) {
                     var instance = Modal.getInstance(modal);
@@ -172,7 +172,41 @@
         if (active instanceof HTMLElement && root.contains(active) && active.dataset.focusKey) {
             return active.dataset.focusKey;
         }
-        return button && button.dataset.focusKey ? button.dataset.focusKey : '';
+        return button?.dataset.focusKey ? button.dataset.focusKey : '';
+    }
+
+    /**
+     * The question an action asks first, when it has one.
+     *
+     * @param {HTMLFormElement} form
+     * @returns {Promise<boolean>} false when the person said no
+     */
+    async function confirmed(form) {
+        var message = form.dataset.askMessage || '';
+        if (message === '' || !window.ScoutMagicConfirm) {
+            return true;
+        }
+        return window.ScoutMagicConfirm.ask({
+            title: form.dataset.askTitle || undefined,
+            message: message,
+            confirmLabel: form.dataset.askLabel || undefined,
+            variant: 'primary'
+        });
+    }
+
+    /**
+     * The toast an answer deserves.
+     *
+     * @param {{ok: boolean}} res
+     * @param {any} data
+     * @returns {void}
+     */
+    function announce(res, data) {
+        if (res.ok && data.success === true) {
+            toast(typeof data.message === 'string' ? data.message : 'Enregistré.', 'success');
+        } else {
+            toast(typeof data.error === 'string' && data.error !== '' ? data.error : FAILED, 'error');
+        }
     }
 
     /**
@@ -193,17 +227,8 @@
         try {
             if (!isMark) {
                 await hideOpenDialog();
-                var message = form.dataset.askMessage || '';
-                if (message !== '' && window.ScoutMagicConfirm) {
-                    var yes = await window.ScoutMagicConfirm.ask({
-                        title: form.dataset.askTitle || undefined,
-                        message: message,
-                        confirmLabel: form.dataset.askLabel || undefined,
-                        variant: 'primary'
-                    });
-                    if (!yes) {
-                        return;
-                    }
+                if (!await confirmed(form)) {
+                    return;
                 }
             }
 
@@ -215,11 +240,7 @@
             if (data.html && typeof data.html === 'object') {
                 replace(data.html, focusKey);
             }
-            if (res.ok && data.success === true) {
-                toast(typeof data.message === 'string' ? data.message : 'Enregistré.', 'success');
-            } else {
-                toast(typeof data.error === 'string' && data.error !== '' ? data.error : FAILED, 'error');
-            }
+            announce(res, data);
         } finally {
             busy = false;
             // Still in the page only when nothing was swapped in.

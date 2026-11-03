@@ -40,6 +40,16 @@
     }
 
     /**
+     * The body as JSON, or null when it is not.
+     *
+     * @param {Response} response
+     * @returns {Promise<any>}
+     */
+    function readJson(response) {
+        return response.json().catch(function () { return null; });
+    }
+
+    /**
      * @param {HTMLFormElement} form
      * @returns {Promise<void>}
      */
@@ -60,9 +70,7 @@
             method: 'POST',
             body: new FormData(form),
             headers: { 'X-Requested-With': 'XMLHttpRequest', Accept: 'application/json' }
-        }).then(function (response) {
-            return response.json().catch(function () { return null; });
-        }).then(function (data) {
+        }).then(readJson).then(function (data) {
             if (data === null) {
                 sayError(target, 'La recherche n\'a pas abouti. Rechargez la page et réessayez.');
             } else if (data.success && typeof data.html === 'string') {
@@ -95,7 +103,7 @@
     // the dialog next: closing it forgets the answer.
     document.addEventListener('hidden.bs.modal', function (e) {
         var dialog = /** @type {HTMLElement|null} */ (e.target);
-        if (dialog === null || dialog.id !== DIALOG_ID) return;
+        if (dialog?.id !== DIALOG_ID) return;
 
         var results = dialog.querySelector('[data-transfer-results]');
         if (results) {

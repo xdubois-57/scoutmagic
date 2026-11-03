@@ -280,7 +280,7 @@ done
 
 # ---------------------------------------------------------------------------
 echo
-echo "An API error that is not a 404 aborts instead of being read as absent"
+echo "A non-404 API response aborts instead of being read as absent"
 # ---------------------------------------------------------------------------
 printf 'name: Bug\nlabels: ["triage:pending"]\n' > "${FORMS}/bug.yml"
 reset_state
