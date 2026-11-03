@@ -66,7 +66,7 @@
 
                             {% for scope in ['projected', 'arrivals'] %}
                                 <div class="passage-stats-scope" data-scope="{{ scope }}"
-                                     {{ scope == 'arrivals' ? 'hidden' : '' }}>
+                                     {{ 'arrivals' == scope ? 'hidden' : '' }}>
                                     {% if branch.scopes[scope].total == 0 %}
                                         <p class="small text-body-secondary mb-0">
                                             {{ scope == 'arrivals' ? 'Aucune arrivée dans cette branche.' : 'Personne de projeté dans cette branche.' }}

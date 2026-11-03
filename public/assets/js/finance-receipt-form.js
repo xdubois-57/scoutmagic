@@ -211,6 +211,24 @@
         return new File([blob], file.name.replace(/\.[^.]+$/, '') + '.jpg', { type: 'image/jpeg' });
     }
 
+    /**
+     * An image resized to JPEG; anything else, or an image that could not be
+     * resized, comes back as the file the user chose.
+     *
+     * @param {File} file
+     * @returns {Promise<File>}
+     */
+    async function compressOrKeep(file) {
+        if (!file.type.startsWith('image/')) {
+            return file;
+        }
+        try {
+            return toJpegFile(file, await resizeImage(file));
+        } catch {
+            return file;
+        }
+    }
+
     const singleInput = /** @type {HTMLInputElement|null} */ (document.getElementById('receipt-file'));
     const dropZone = document.getElementById('drop-zone');
 
@@ -344,20 +362,13 @@
             statusEl.textContent = 'Compression des images…';
 
             try {
-                const processed = [];
-                for (const file of selectedFiles) {
-                    if (!file.type.startsWith('image/')) {
-                        processed.push(file);
-                        continue;
-                    }
-                    try {
-                        const resizedBlob = await resizeImage(file);
-                        processed.push(toJpegFile(file, resizedBlob));
-                    } catch {
-                        processed.push(file); // fall back to the original file
-                    }
-                }
-                selectedFiles = processed;
+                // One image at a time on purpose: each is decoded to a canvas,
+                // and a phone does not hold a whole batch of those at once.
+                selectedFiles = await selectedFiles.reduce(async (done, file) => {
+                    const processed = await done;
+                    processed.push(await compressOrKeep(file));
+                    return processed;
+                }, Promise.resolve([]));
                 syncInputAndRender();
             } catch {
                 // Resizing the batch failed as a whole — the files the

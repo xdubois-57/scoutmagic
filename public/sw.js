@@ -1430,18 +1430,47 @@ function handleNavigate(request, url, preloadResponse, event) {
             // Lot 1 behavior: without consent nothing is held, so a failed
             // navigation falls back to the precached offline page, after
             // trying the request itself once more.
-            return network
-                .catch(function () { return retryOnce(request); })
-                .catch(function () { return offlinePage(); });
+            return unconsentedNavigation(network, request);
         }
 
         // Offline, a page is available if and only if it is really in the
         // cache (#883) — whatever put it there. Writing is another matter:
         // only an address on the list ever is (networkFirstWithCacheFallback()).
-        return getOfflineList(config).then(function (list) {
-            return networkFirstWithCacheFallback(request, url, config, network, event, isListed(url, list));
-        });
+        return navigateWithList(request, url, config, network, event);
     });
+}
+
+/**
+ * Without consent: the request itself, once more if it failed, else the
+ * precached offline page.
+ *
+ * @param {Promise<Response>} network
+ * @param {Request} request
+ * @returns {Promise<Response>}
+ */
+function unconsentedNavigation(network, request) {
+    return network
+        .catch(function () { return retryOnce(request); })
+        .catch(function () { return offlinePage(); });
+}
+
+function navigateWithList(request, url, config, network, event) {
+    return getOfflineList(config).then(function (list) {
+        return networkFirstWithCacheFallback(request, url, config, network, event, isListed(url, list));
+    });
+}
+
+/**
+ * A promise that resolves whatever happened to the one it wraps: a failure
+ * becomes the fallback. Kept here, as a named step, so the callers read
+ * as a sequence rather than as promises nested inside promises.
+ *
+ * @param {Promise<any>} promise
+ * @param {any} fallback
+ * @returns {Promise<any>}
+ */
+function orElse(promise, fallback) {
+    return promise.catch(function () { return fallback; });
 }
 
 /**
@@ -1571,8 +1600,13 @@ function cachedCopy(request, cacheName, config, reason) {
         // for — a storage error part-way through, a revoked quota. That
         // read is part of reading the cache, so it falls under the same
         // invariant: a copy that cannot be read is not a copy.
-        return injectOfflineBanner(cached, dateHeader, reason)
-            .catch(function () { return null; });
+        return orElse(injectOfflineBanner(cached, dateHeader, reason), null);
+    });
+}
+
+function storeCopy(cacheName, request, copy) {
+    return caches.open(cacheName).then(function (cache) {
+        return cache.put(request, copy);
     });
 }
 
@@ -1619,7 +1653,7 @@ function networkFirstWithCacheFallback(request, url, config, network, event, lis
             // stale scope are the ones a later offline navigation would
             // serve, so they go now, while the worker knows they are
             // stale. The scope now being served keeps its own.
-            keepAlive(event, purgeContentCachesExcept(servedScope).catch(function () {}));
+            keepAlive(event, orElse(purgeContentCachesExcept(servedScope), undefined));
         }
 
         // `listed` (#883): only an exact address of the list is ever written.
@@ -1633,9 +1667,7 @@ function networkFirstWithCacheFallback(request, url, config, network, event, lis
             // be terminated before caches.open() and cache.put() finish —
             // so the page is never cached and the next offline visit
             // finds nothing.
-            keepAlive(event, caches.open(cacheName).then(function (cache) {
-                return cache.put(request, copy);
-            }).catch(function () {}));
+            keepAlive(event, orElse(storeCopy(cacheName, request, copy), undefined));
         }
         return response;
     });
@@ -1665,9 +1697,7 @@ function networkFirstWithCacheFallback(request, url, config, network, event, lis
         }
 
         if (outcome.state === 'failed') {
-            return cachedCopy(request, cacheName, config, 'offline').then(function (cached) {
-                return cached || offlinePage();
-            });
+            return cachedOrOfflinePage(request, cacheName, config);
         }
 
         // Still waiting after NETWORK_TIMEOUT_MS. A cached copy of this
@@ -1675,22 +1705,32 @@ function networkFirstWithCacheFallback(request, url, config, network, event, lis
         // blank in another ten seconds — it says what it is, and the live
         // request above is still running to replace it. With nothing
         // cached there is nothing better to do than keep waiting.
-        return cachedCopy(request, cacheName, config, 'slow').then(function (cached) {
-            if (cached) {
-                // Answering from the cache settles respondWith(), and a
-                // worker whose event is done may be terminated at once —
-                // which would abort the live request mid-flight and lose
-                // the cache.put() it was going to make. The promise the
-                // reader is no longer waiting for is exactly the one that
-                // has to outlive their navigation, or every later visit
-                // finds the same stale copy and refreshes nothing.
-                keepAlive(event, live);
+        return slowNavigation(request, cacheName, config, live, event);
+    });
+}
 
-                return cached;
-            }
+function cachedOrOfflinePage(request, cacheName, config) {
+    return cachedCopy(request, cacheName, config, 'offline').then(function (cached) {
+        return cached || offlinePage();
+    });
+}
 
-            return live.catch(function () { return offlinePage(); });
-        });
+function slowNavigation(request, cacheName, config, live, event) {
+    return cachedCopy(request, cacheName, config, 'slow').then(function (cached) {
+        if (cached) {
+            // Answering from the cache settles respondWith(), and a
+            // worker whose event is done may be terminated at once —
+            // which would abort the live request mid-flight and lose
+            // the cache.put() it was going to make. The promise the
+            // reader is no longer waiting for is exactly the one that
+            // has to outlive their navigation, or every later visit
+            // finds the same stale copy and refreshes nothing.
+            keepAlive(event, live);
+
+            return cached;
+        }
+
+        return live.catch(function () { return offlinePage(); });
     });
 }
 
@@ -1733,6 +1773,18 @@ function formatOfflineTimestamp(dateHeader, reason) {
     return lead + ' du ' + d.getDate() + ' ' + months[d.getMonth()] + ', ' + d.getHours() + ' h ' + minutes;
 }
 
+/**
+ * @param {number|undefined} unreadCount
+ * @returns {Promise<void>}
+ */
+function nudgeOpenTabs(unreadCount) {
+    return self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function (clientList) {
+        clientList.forEach(function (client) {
+            client.postMessage({ type: 'push-received', unreadCount: unreadCount });
+        });
+    });
+}
+
 self.addEventListener('push', function (event) {
     let data = {};
     if (event.data) {
@@ -1759,19 +1811,13 @@ self.addEventListener('push', function (event) {
             // the page: this is the one place that still executes while
             // the app itself is closed.
             if ('setAppBadge' in navigator && typeof data.unread_count === 'number') {
-                tasks.push(navigator.setAppBadge(data.unread_count).catch(function () {}));
+                tasks.push(orElse(navigator.setAppBadge(data.unread_count), undefined));
             }
 
             // Nudge any open tab to refresh its own avatar badge
             // immediately, rather than waiting for its next 60s poll —
             // see public/assets/js/notification-badge.js.
-            tasks.push(
-                self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function (clientList) {
-                    clientList.forEach(function (client) {
-                        client.postMessage({ type: 'push-received', unreadCount: data.unread_count });
-                    });
-                })
-            );
+            tasks.push(nudgeOpenTabs(data.unread_count));
 
             return Promise.all(tasks);
         })

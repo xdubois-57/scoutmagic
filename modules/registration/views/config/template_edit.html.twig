@@ -26,12 +26,12 @@
                 <p class="text-body-secondary small">{{ template.description }}</p>
 
                 {% if template.requiresTrackingLink() %}
-                    <div class="alert alert-info" role="status">
+                    <output class="alert alert-info d-block">
                         Cet e-mail part à la famille : son texte doit contenir le lien de suivi de la demande, la
                         variable <code>{{ '{{ lien_suivi }}' }}</code>. C'est le même lien dans l'accusé de
                         réception, l'acceptation et le refus, et il cesse de fonctionner à son échéance : un e-mail
                         envoyé après cette date le signale à la famille.
-                    </div>
+                    </output>
                 {% endif %}
 
                 {% if state == 'default' %}

@@ -408,7 +408,7 @@ test('in the transition window the public year is asked for first, and the serve
     const endsIn = publicYear.slice(5);
     // Today on the application clock (Europe/Brussels), as 'YYYY-MM-DD'.
     const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Brussels' }).format(new Date());
-    test.skip(
+    test.info().skip(
         !(today >= `${endsIn}-01-01` && today < `${endsIn}-08-31`),
         `the transition window of ${publicYear} cannot include ${today}: the latest dates the settings accept `
         + `are 01-01 and 08-31 of ${endsIn} (see this file's header)`,

@@ -19,6 +19,19 @@
 // interpolation to lean on.
 (function () {
     /**
+     * A response together with its JSON body (null when it has none), so the
+     * step after it reads one value instead of nesting a promise in a promise.
+     *
+     * @param {Response} response
+     * @returns {Promise<{ok: boolean, data: any}>}
+     */
+    function readResult(response) {
+        return response.json().catch(function () { return null; }).then(function (data) {
+            return { ok: response.ok, data: data };
+        });
+    }
+
+    /**
      * Functional cookie consent, read from the client-readable
      * `cookie_consent` cookie (httponly:false on purpose — see
      * Core\Cookie\CookieConsentService::writeCookie()). No cookie, or
@@ -761,11 +774,7 @@
                 method: 'POST',
                 body: payload,
                 headers: { 'X-Requested-With': 'XMLHttpRequest' }
-            }).then(function (response) {
-                return response.json().catch(function () { return null; }).then(function (data) {
-                    return { ok: response.ok, data: data };
-                });
-            }).then(function (result) {
+            }).then(readResult).then(function (result) {
                 if (result.ok && result.data && typeof result.data.html === 'string') {
                     var feed = document.getElementById('groups-feed');
                     if (feed) {
@@ -1608,11 +1617,7 @@
             method: 'POST',
             body: new FormData(form),
             headers: { 'X-Requested-With': 'XMLHttpRequest' }
-        }).then(function (response) {
-            return response.json().catch(function () { return null; }).then(function (data) {
-                return { ok: response.ok, data: data };
-            });
-        }).then(function (result) {
+        }).then(readResult).then(function (result) {
             if (result.ok && result.data && typeof result.data.html === 'string') {
                 target.outerHTML = result.data.html;
                 if (closeFormAfter) {
@@ -1653,11 +1658,7 @@
             method: 'POST',
             body: new FormData(form),
             headers: { 'X-Requested-With': 'XMLHttpRequest' }
-        }).then(function (response) {
-            return response.json().catch(function () { return null; }).then(function (data) {
-                return { ok: response.ok, data: data };
-            });
-        }).then(function (result) {
+        }).then(readResult).then(function (result) {
             if (!result.ok || result.data?.reported !== true) {
                 form.submit();
                 return;
@@ -1692,11 +1693,7 @@
             method: 'POST',
             body: new FormData(form),
             headers: { 'X-Requested-With': 'XMLHttpRequest' }
-        }).then(function (response) {
-            return response.json().catch(function () { return null; }).then(function (data) {
-                return { ok: response.ok, data: data };
-            });
-        }).then(function (result) {
+        }).then(readResult).then(function (result) {
             if (result.ok && result.data?.restored === true) {
                 if (banner) {
                     banner.remove();
@@ -1822,11 +1819,7 @@
             method: 'POST',
             body: replyPayload,
             headers: { 'X-Requested-With': 'XMLHttpRequest' }
-        }).then(function (response) {
-            return response.json().catch(function () { return null; }).then(function (data) {
-                return { ok: response.ok, data: data };
-            });
-        }).then(function (result) {
+        }).then(readResult).then(function (result) {
             if (result.ok && result.data && typeof result.data.html === 'string') {
                 if (repliesContainer) {
                     // At the very end, after the "Voir plus de réponses"

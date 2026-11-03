@@ -32,7 +32,7 @@
         <fieldset class="btn-group mt-2" aria-label="Membres affichés">
             {% for value in scopes %}
                 <input type="radio" class="btn-check" name="scope" id="scope-{{ value }}" value="{{ value }}"
-                       {{ scope == value ? 'checked' : '' }} autocomplete="off">
+                       {{ value == scope ? 'checked' : '' }} autocomplete="off">
                 <label class="btn btn-outline-secondary btn-sm" for="scope-{{ value }}">{{ scope_labels[value] }}</label>
             {% endfor %}
         </fieldset>

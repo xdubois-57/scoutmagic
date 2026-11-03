@@ -358,7 +358,14 @@ class ServiceWorkerPrecacheTest extends TestCase
 
         preg_match('/function handleNavigate\(request, url, preloadResponse, event\) \{(.*?)\n\}/s', $this->swJs, $nav);
         $this->assertNotEmpty($nav, 'Could not locate handleNavigate() in public/sw.js');
-        $this->assertStringContainsString('retryOnce(request)', $nav[1]);
+        // The no-consent branch is a named step (a promise nested in a
+        // promise callback is what SonarCloud's S9381 refuses), and it is
+        // that step which retries.
+        $this->assertStringContainsString('unconsentedNavigation(network, request)', $nav[1]);
+
+        preg_match('/function unconsentedNavigation\(network, request\) \{(.*?)\n\}/s', $this->swJs, $step);
+        $this->assertNotEmpty($step, 'Could not locate unconsentedNavigation() in public/sw.js');
+        $this->assertStringContainsString('retryOnce(request)', $step[1]);
     }
 
     /**
@@ -380,7 +387,13 @@ class ServiceWorkerPrecacheTest extends TestCase
             $m
         );
         $this->assertNotEmpty($m, 'Could not locate networkFirstWithCacheFallback() in public/sw.js');
-        $this->assertStringContainsString('keepAlive(event, live)', $m[1]);
+        $this->assertStringContainsString('slowNavigation(request, cacheName, config, live, event)', $m[1]);
+
+        // The slow answer is its own step: it is there that the live
+        // request is handed to the fetch event.
+        preg_match('/function slowNavigation\(request, cacheName, config, live, event\) \{(.*?)\n\}/s', $this->swJs, $slow);
+        $this->assertNotEmpty($slow, 'Could not locate slowNavigation() in public/sw.js');
+        $this->assertStringContainsString('keepAlive(event, live)', $slow[1]);
 
         preg_match('/function keepAlive\(event, promise\) \{(.*?)\n\}/s', $this->swJs, $keep);
         $this->assertNotEmpty($keep, 'Could not locate keepAlive() in public/sw.js');
@@ -409,16 +422,22 @@ class ServiceWorkerPrecacheTest extends TestCase
         );
         $this->assertNotEmpty($m, 'Could not locate networkFirstWithCacheFallback() in public/sw.js');
 
-        // The slow path's refresh, and the fast path's own put().
-        $this->assertStringContainsString('keepAlive(event, live)', $m[1]);
-        $this->assertStringContainsString('keepAlive(event, caches.open(cacheName)', $m[1]);
+        // The slow path's refresh (in its own step), and the fast path's
+        // own put(), which storeCopy() performs.
+        preg_match('/function slowNavigation\(request, cacheName, config, live, event\) \{(.*?)\n\}/s', $this->swJs, $slow);
+        $this->assertNotEmpty($slow, 'Could not locate slowNavigation() in public/sw.js');
+        $this->assertStringContainsString('keepAlive(event, live)', $slow[1]);
+        $this->assertStringContainsString('keepAlive(event, orElse(storeCopy(cacheName, request, copy)', $m[1]);
         // The invariant, not one spelling of its violation. Forbidding a
         // single exact character sequence guards against nothing: a
         // re-introduced fire-and-forget write with a line break, another
         // variable name or an arrow function would walk straight past it.
         // What must hold is that EVERY content-cache write in this function
         // is an argument of keepAlive() — started and abandoned is the bug.
-        preg_match_all('/(.{0,24})caches\.open\(cacheName\)/s', $m[1], $writes);
+        // The write itself lives in storeCopy(); every CALL to it, and any
+        // direct caches.open(cacheName) left in this function, must sit
+        // inside keepAlive().
+        preg_match_all('/(.{0,32})(?:caches\.open\(cacheName\)|storeCopy\()/s', $m[1], $writes);
         $this->assertNotEmpty($writes[0], 'no content-cache write found to check');
         foreach ($writes[1] as $before) {
             $this->assertStringContainsString(

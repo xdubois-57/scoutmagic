@@ -269,7 +269,12 @@ final class PortableRestore
      * @param \PDO $pdo The same target database used by $backupService.
      * @throws BackupException
      */
-    public function apply(PortableArchive $archive, BackupService $backupService, array $targetOwnedSecrets, \PDO $pdo): void
+    public function apply(
+        PortableArchive $archive,
+        BackupService $backupService,
+        array $targetOwnedSecrets,
+        \PDO $pdo,
+    ): void
     {
         $entries = $this->plannedEntries($archive);
 

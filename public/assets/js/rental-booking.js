@@ -128,6 +128,16 @@
     }
 
     /**
+     * The body as JSON, or null when it is not.
+     *
+     * @param {Response} response
+     * @returns {Promise<any>}
+     */
+    function readJson(response) {
+        return response.json().catch(function () { return null; });
+    }
+
+    /**
      * @param {HTMLFormElement} form
      * @param {HTMLElement|null} submitter the button that was pressed, whose
      *   name/value the browser would have posted and fetch would not
@@ -153,9 +163,7 @@
                 method: 'POST',
                 body: payload,
                 headers: { 'X-Requested-With': 'XMLHttpRequest' }
-            }).then(function (response) {
-                return response.json().catch(function () { return null; });
-            }).then(function (data) {
+            }).then(readJson).then(function (data) {
                 // Cleared only now, once the submit event that carried it
                 // is long over: confirm.js sets this the instant before it
                 // replays the form, and clearing it any earlier — inside

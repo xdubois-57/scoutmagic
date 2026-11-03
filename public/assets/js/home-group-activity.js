@@ -28,7 +28,7 @@
      */
     function refresh() {
         var band = document.querySelector(BAND);
-        if (band === null || band.querySelector(GROUP_ACTIVITY) === null) {
+        if (!band?.querySelector(GROUP_ACTIVITY)) {
             return Promise.resolve();
         }
 

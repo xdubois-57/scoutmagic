@@ -28,7 +28,7 @@
 (function () {
     // The two reasons a refusal may carry, as the server names them
     // (RegistrationRequest::REFUSAL_*).
-    var REFUSAL_REASONS = ['no_room', 'other'];
+    var REFUSAL_REASONS = new Set(['no_room', 'other']);
 
     /**
      * Whether « Confirmer le refus » may be pressed: only with one of the
@@ -38,7 +38,7 @@
      * @returns {boolean}
      */
     function canConfirmRefusal(reason) {
-        return REFUSAL_REASONS.includes(reason);
+        return REFUSAL_REASONS.has(reason);
     }
 
     /**
