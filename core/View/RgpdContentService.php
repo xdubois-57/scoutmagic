@@ -323,6 +323,9 @@ Contexte de l'unité :
 - Modules actifs : {$modulesText}
 - Fournisseur IA : {$providerInfo}
 - Modèles IA : {$modelsInfo}
+- Sondes techniques Scaleway : si ce fournisseur est actif, le test de connexion et le rafraîchissement peuvent
+  envoyer une image synthétique avec un code aléatoire, sans donnée de l'unité, pour vérifier la lecture d'images.
+  Conserver ce fait dans la section du connecteur IA pour Scaleway ; retirer ce paragraphe pour un autre fournisseur.
 - Fournisseur téléphonie : {$phoneProvider}
 - Stockage galerie : {$galleryStorage}
 - Réseaux sociaux raccordés : {$socialPublishing}

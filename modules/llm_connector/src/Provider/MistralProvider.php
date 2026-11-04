@@ -38,10 +38,7 @@ class MistralProvider implements LlmProviderInterface
         ];
     }
 
-    /**
-     * @return array<int, array{id: string, display_name: string}>
-     */
-    public function listModels(): array
+    public function listModels(): ProviderModelCatalog
     {
         $url = rtrim($this->apiEndpoint, '/') . '/v1/models';
         $response = $this->http->getJson($url, $this->headers(), self::DEFAULT_TIMEOUT);
@@ -52,19 +49,24 @@ class MistralProvider implements LlmProviderInterface
 
         $models = [];
         foreach ($response['data'] as $model) {
-            $id = (string) ($model['id'] ?? '');
-            if ($id === '') {
+            if (!is_array($model) || !is_string($model['id'] ?? null) || $model['id'] === '') {
                 // A model with no usable identifier cannot be called and must
                 // never reach llm_provider_models.model_id.
                 continue;
             }
+            $id = $model['id'];
+            // Mistral publishes these capabilities on its model cards.
+            // Missing/non-boolean metadata is not evidence of support.
+            $capabilities = is_array($model['capabilities'] ?? null) ? $model['capabilities'] : [];
             $models[] = [
                 'id' => $id,
                 'display_name' => $id,
+                'chat' => is_bool($capabilities['completion_chat'] ?? null) ? $capabilities['completion_chat'] : null,
+                'vision' => is_bool($capabilities['vision'] ?? null) ? $capabilities['vision'] : null,
             ];
         }
 
-        return $models;
+        return new ProviderModelCatalog($models);
     }
 
     public function complete(string $modelId, string $prompt, array $options = []): ProviderResponse

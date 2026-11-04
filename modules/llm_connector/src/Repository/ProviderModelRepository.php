@@ -9,11 +9,51 @@ declare(strict_types=1);
 namespace Modules\LlmConnector\Repository;
 
 use Modules\LlmConnector\Api\LlmTier;
+use Modules\LlmConnector\Provider\ModelProbeCache;
 
 class ProviderModelRepository
 {
     public function __construct(private \PDO $pdo)
     {
+    }
+
+    /** @param callable(): void $work */
+    public function transactional(callable $work): void
+    {
+        \Core\Database\TransactionScope::run($this->pdo, $work);
+    }
+
+    /** @return array<string, mixed> */
+    public function modelProbeCache(int $providerId): array
+    {
+        // SELECT * also supports a legacy row before the additive schema update.
+        $stmt = $this->pdo->prepare('SELECT * FROM llm_providers WHERE id = ?');
+        $stmt->execute([$providerId]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+        $stored = is_string($row['model_probe_cache'] ?? null) ? json_decode($row['model_probe_cache'], true) : null;
+        return is_array($stored) ? $stored : [];
+    }
+
+    /** @param array<string, mixed> $cache
+     *  @return array<string, mixed>
+     */
+    public function storeModelProbeCache(int $providerId, array $cache): array
+    {
+        $merged = [];
+        $this->transactional(function () use ($providerId, $cache, &$merged): void {
+            $sql = $this->pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) === 'mysql'
+                ? 'SELECT * FROM llm_providers WHERE id = ? FOR UPDATE'
+                : 'SELECT * FROM llm_providers WHERE id = ?';
+            $stmt = $this->pdo->prepare($sql);
+            $stmt->execute([$providerId]);
+            $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+            $stored = is_string($row['model_probe_cache'] ?? null)
+                ? json_decode($row['model_probe_cache'], true) : null;
+            $merged = ModelProbeCache::mergeForStorage(is_array($stored) ? $stored : [], $cache);
+            $stmt = $this->pdo->prepare('UPDATE llm_providers SET model_probe_cache = ? WHERE id = ?');
+            $stmt->execute([json_encode($merged, JSON_THROW_ON_ERROR), $providerId]);
+        });
+        return $merged;
     }
 
     /**

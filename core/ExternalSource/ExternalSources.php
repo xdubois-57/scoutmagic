@@ -298,6 +298,12 @@ final class ExternalSources
                 [self::LLM_CONFIG]
             ),
             self::link(
+                'scaleway-model-catalogue',
+                'https://www.scaleway.com/en/docs/generative-apis/reference-content/supported-models/',
+                'Catalogue des modèles Scaleway et de leurs modalités',
+                ['modules/llm_connector/src/Provider/ScalewayModelCapabilities.php']
+            ),
+            self::link(
                 'hetzner-console',
                 'https://console.hetzner.cloud/',
                 'Hetzner Cloud console (Object Storage)',

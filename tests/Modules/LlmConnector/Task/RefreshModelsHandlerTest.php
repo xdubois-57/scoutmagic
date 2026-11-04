@@ -113,7 +113,7 @@ class RefreshModelsHandlerTest extends TestCase
                 'info',
                 $this->stringContains('UnknownDriver'),
                 $this->callback(function (array $ctx): bool {
-                    return isset($ctx['error']) && str_contains($ctx['error'], 'Unknown driver');
+                    return $ctx['error_type'] === \RuntimeException::class && $ctx['error_code'] === 0;
                 }),
                 null
             );

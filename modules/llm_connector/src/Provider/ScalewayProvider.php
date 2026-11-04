@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\LlmConnector\Provider;
 
 use Modules\LlmConnector\Api\LlmException;
+use Modules\LlmConnector\Api\LlmTier;
 
 /**
  * Scaleway Generative APIs provider implementation.
@@ -20,12 +21,66 @@ class ScalewayProvider implements LlmProviderInterface
     private const DEFAULT_TIMEOUT = 30;
 
     private HttpTransport $http;
+    /** @var array<string, true> */
+    private array $rejectedChatModels = [];
 
     public function __construct(
         private string $apiEndpoint,
-        private string $apiKey
+        private string $apiKey,
+        /** @var list<string> Models carrying fresh image-probe evidence from the resolver. */
+        private array $verifiedImageModels = []
     ) {
         $this->http = new HttpTransport();
+    }
+
+    public static function capabilityScope(string $endpoint, string $key): string
+    {
+        return hash('sha256', rtrim($endpoint, '/') . "\0" . $key);
+    }
+
+    public function probeScope(): string
+    {
+        return self::capabilityScope($this->apiEndpoint, $this->apiKey);
+    }
+
+    /** @return list<string> */
+    public function rejectedChatModels(): array
+    {
+        return array_keys($this->rejectedChatModels);
+    }
+
+    /** The sole image preflight bypass sends a synthetic challenge, never caller data. */
+    public function probeVision(string $modelId, VisionProbeChallenge $challenge): ModelProbeStatus
+    {
+        if (ScalewayModelCapabilities::forModel($modelId)['chat'] !== true) {
+            return ModelProbeStatus::CHAT_UNSUPPORTED;
+        }
+        $content = $this->buildUserContent('Read the eight decimal digits from the image. Output only those digits.', [
+            ['data' => $challenge->imageBase64, 'mime_type' => 'image/png'],
+        ]);
+        $body = $this->buildRequestBody($modelId, [['role' => 'user', 'content' => $content]], ['max_tokens' => 32]);
+        try {
+            $response = $this->http->postJson(
+                rtrim($this->apiEndpoint, '/') . '/v1/chat/completions', $this->headers(), $body, 5
+            );
+            if (isset($response['error'])) {
+                return ($response['error']['type'] ?? null) === 'route_not_supported'
+                    ? ModelProbeStatus::CHAT_UNSUPPORTED : ModelProbeStatus::UNVERIFIED;
+            }
+            [$answer, $truncated] = $this->parseChoice($response);
+            return !$truncated && trim($answer) === $challenge->answer
+                ? ModelProbeStatus::VISION_VERIFIED : ModelProbeStatus::UNVERIFIED;
+        } catch (LlmException $error) {
+            return self::isUnsupportedRoute($error)
+                ? ModelProbeStatus::CHAT_UNSUPPORTED : ModelProbeStatus::UNVERIFIED;
+        }
+    }
+
+    public static function isUnsupportedRoute(LlmException $error): bool
+    {
+        $detail = json_decode($error->detail ?? '', true);
+        return $error->getCode() === LlmException::API_ERROR
+            && ($detail['error']['type'] ?? null) === 'route_not_supported';
     }
 
     /**
@@ -39,10 +94,7 @@ class ScalewayProvider implements LlmProviderInterface
         ];
     }
 
-    /**
-     * @return array<int, array{id: string, display_name: string}>
-     */
-    public function listModels(): array
+    public function listModels(): ProviderModelCatalog
     {
         $url = rtrim($this->apiEndpoint, '/') . '/v1/models';
         $response = $this->http->getJson($url, $this->headers(), self::DEFAULT_TIMEOUT);
@@ -53,24 +105,40 @@ class ScalewayProvider implements LlmProviderInterface
 
         $models = [];
         foreach ($response['data'] as $model) {
-            $id = (string) ($model['id'] ?? '');
-            if ($id === '') {
+            if (!is_array($model) || !is_string($model['id'] ?? null) || $model['id'] === '') {
                 // A model with no usable identifier cannot be called and must
                 // never reach llm_provider_models.model_id.
                 continue;
             }
-            $displayName = (string) ($model['name'] ?? $id);
+            $id = $model['id'];
+            $displayName = is_string($model['name'] ?? null) ? $model['name'] : $id;
+            $capabilities = ScalewayModelCapabilities::forModel($id);
             $models[] = [
                 'id' => $id,
                 'display_name' => $displayName,
+                'chat' => $capabilities['chat'],
+                'vision' => null,
             ];
         }
 
-        return $models;
+        return new ProviderModelCatalog($models);
     }
 
     public function complete(string $modelId, string $prompt, array $options = []): ProviderResponse
     {
+        // Also protect assignments saved before capability-aware discovery.
+        // This guard runs before any prompt or image can leave the site.
+        $capabilities = ScalewayModelCapabilities::forModel($modelId);
+        if ($capabilities['chat'] !== true || isset($this->rejectedChatModels[$modelId])) {
+            throw LlmException::noModel(LlmTier::CHEAP);
+        }
+        foreach ($options['attachments'] ?? [] as $attachment) {
+            if (str_starts_with($attachment['mime_type'], 'image/')
+                && !in_array($modelId, $this->verifiedImageModels, true)) {
+                throw LlmException::noModel(LlmTier::OCR);
+            }
+        }
+
         $url = rtrim($this->apiEndpoint, '/') . '/v1/chat/completions';
         $timeout = (int) ($options['timeout'] ?? self::DEFAULT_TIMEOUT);
         $systemPrompt = $options['system_prompt'] ?? null;
@@ -88,13 +156,17 @@ class ScalewayProvider implements LlmProviderInterface
 
         $body = $this->buildRequestBody($modelId, $messages, $options);
 
-        $response = $this->http->postJson($url, $this->headers(), $body, $timeout);
-
-        // A non-2xx never reaches this point (HttpTransport rejects it);
-        // this still catches an error object returned with a 200.
-        if (isset($response['error'])) {
-            $errorMsg = $response['error']['message'] ?? 'Unknown error';
-            throw LlmException::apiError($errorMsg);
+        try {
+            $response = $this->http->postJson($url, $this->headers(), $body, $timeout);
+            // Some endpoints return an error object with HTTP 200.
+            if (isset($response['error'])) {
+                throw LlmException::apiError(json_encode($response, JSON_THROW_ON_ERROR));
+            }
+        } catch (LlmException $error) {
+            if (self::isUnsupportedRoute($error)) {
+                $this->rejectedChatModels[$modelId] = true;
+            }
+            throw $error;
         }
 
         [$outputText, $truncated] = $this->parseChoice($response);

@@ -46,10 +46,7 @@ class AnthropicProvider implements LlmProviderInterface
         ];
     }
 
-    /**
-     * @return array<int, array{id: string, display_name: string}>
-     */
-    public function listModels(): array
+    public function listModels(): ProviderModelCatalog
     {
         $base = rtrim($this->apiEndpoint, '/') . '/v1/models?limit=' . self::MODELS_PAGE_SIZE;
 
@@ -70,15 +67,20 @@ class AnthropicProvider implements LlmProviderInterface
             }
 
             foreach ($response['data'] as $model) {
-                $id = (string) ($model['id'] ?? '');
-                if ($id === '') {
+                if (!is_array($model) || !is_string($model['id'] ?? null) || $model['id'] === '') {
                     // A model with no usable identifier cannot be called and
                     // must never reach llm_provider_models.model_id.
                     continue;
                 }
+                $id = $model['id'];
+                // All currently available Claude models accept text and images
+                // through Messages (https://platform.claude.com/docs/en/build-with-claude/vision).
+                // This is the provider's contract, not a substring test on IDs.
                 $models[] = [
                     'id' => $id,
-                    'display_name' => (string) ($model['display_name'] ?? $id),
+                    'display_name' => is_string($model['display_name'] ?? null) ? $model['display_name'] : $id,
+                    'chat' => true,
+                    'vision' => true,
                 ];
             }
 
@@ -89,7 +91,7 @@ class AnthropicProvider implements LlmProviderInterface
             $afterId = $lastId;
         }
 
-        return $models;
+        return new ProviderModelCatalog($models);
     }
 
     public function complete(string $modelId, string $prompt, array $options = []): ProviderResponse

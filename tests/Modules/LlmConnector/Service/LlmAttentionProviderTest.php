@@ -70,7 +70,7 @@ class LlmAttentionProviderTest extends TestCase
     {
         $this->server = StubHttpServer::start($responses);
         $id = $this->providers->create('Scaleway', 'scaleway', $this->server->baseUrl(), 'key', true);
-        $this->models->upsert($id, 'model-1', 'Model 1');
+        $this->models->upsert($id, 'pixtral-12b-2409', 'Pixtral');
         $this->models->assignTier($this->models->findByProvider($id)[0]['id'], LlmTier::CHEAP);
     }
 

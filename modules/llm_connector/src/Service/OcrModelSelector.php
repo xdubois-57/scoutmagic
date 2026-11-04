@@ -10,12 +10,11 @@ namespace Modules\LlmConnector\Service;
 
 use Core\Journal\JournalService;
 use Modules\LlmConnector\Provider\LlmProviderInterface;
+use Modules\LlmConnector\Provider\ProviderModelCatalog;
+use Modules\LlmConnector\Provider\ScalewayProvider;
+use Modules\LlmConnector\Api\LlmException;
 
-/**
- * Selects cheap, capable and OCR models for a provider by asking the provider's
- * cheapest model in a single request. Falls back to rule-based detection when the
- * LLM call fails or returns an invalid answer.
- */
+/** Capabilities gate candidates; an LLM and cost heuristics only rank them. */
 class OcrModelSelector
 {
     public function __construct(
@@ -31,225 +30,156 @@ class OcrModelSelector
     }
 
     /**
-     * Select the best cheap, capable and OCR models from the available list.
-     * Performs exactly one LLM query.
+     * At most one classification query, through a proven chat endpoint.
+     * No image tier is advertised without independently established vision.
      *
-     * @param array<int, string> $modelIds
-     * @return array{cheap: string|null, capable: string|null, ocr: string|null}
+     * @return array{cheap: ?string, capable: ?string, ocr: ?string}
      */
-    public function selectTiers(LlmProviderInterface $provider, array $modelIds): array
+    public function selectTiers(LlmProviderInterface $provider, ProviderModelCatalog $catalog): array
     {
-        $fallback = $this->fallbackTiers($modelIds);
-
+        $fallback = $this->fallbackTiers($catalog);
+        $modelIds = $catalog->chatModelIds();
         if ($modelIds === []) {
-            $this->logSelection('', '', 'no_models', 'No models available for tier selection.', $fallback);
-
+            $this->logSelection('', 'no_models', 'Aucun modèle compatible avec la conversation.', $fallback);
             return $fallback;
         }
 
-        // Pick the cheapest-looking model to run the selection query
         $queryModelId = $fallback['cheap'] ?? $modelIds[0];
-
         try {
-            $response = $provider->complete($queryModelId, $this->buildPrompt($modelIds));
-            $rawResponse = $response->content;
-            $json = $this->extractJson($rawResponse);
-            $selection = $json !== null ? json_decode($json, true) : null;
-        } catch (\Throwable $e) {
+            $response = $provider->complete($queryModelId, $this->buildPrompt($catalog));
+            $json = $this->extractJson($response->content);
+            $selection = $json === null ? null : json_decode($json, true);
+        } catch (\Throwable $error) {
+            if ($provider instanceof ScalewayProvider && $error instanceof LlmException
+                && ScalewayProvider::isUnsupportedRoute($error)) {
+                $fallback = $this->fallbackTiers($catalog->withoutChatModel($queryModelId));
+            }
             $this->logSelection(
                 $queryModelId,
-                '',
                 'llm_error',
-                'Tier selection request failed: ' . $e->getMessage(),
-                $fallback
+                'Le classement des modèles IA a échoué ; les choix compatibles de secours sont utilisés.',
+                $fallback,
+                ['error_type' => $error::class, 'error_code' => $error->getCode()]
             );
-
             return $fallback;
         }
 
         if (!is_array($selection)) {
             $this->logSelection(
-                $queryModelId,
-                $rawResponse,
-                'invalid_response',
-                'Tier selection response was not valid JSON.',
-                $fallback
+                $queryModelId, 'invalid_response', 'Le classement des modèles IA est illisible.', $fallback
             );
-
+            return $fallback;
+        }
+        $error = $this->identifierError($selection, $catalog);
+        if ($error !== null) {
+            $this->logSelection($queryModelId, $error['status'], $error['message'], $fallback);
             return $fallback;
         }
 
-        $requiredKeys = ['cheap_model_id', 'capable_model_id', 'ocr_model_id'];
-        foreach ($requiredKeys as $key) {
-            if (!isset($selection[$key]) || !is_string($selection[$key]) || $selection[$key] === '') {
-                $this->logSelection(
-                    $queryModelId,
-                    $rawResponse,
-                    'missing_field',
-                    'Tier selection response missing required field: ' . $key,
-                    $fallback
-                );
-
-                return $fallback;
-            }
-
-            if (!in_array($selection[$key], $modelIds, true)) {
-                $this->logSelection(
-                    $queryModelId,
-                    $rawResponse,
-                    'unknown_model',
-                    "Selected model '{$selection[$key]}' for '{$key}' is not in the available list.",
-                    $fallback
-                );
-
-                return $fallback;
-            }
-        }
-
-        // Enforce cost constraints
-        $cheap = $selection['cheap_model_id'];
-        $capable = $selection['capable_model_id'];
-        $ocr = $selection['ocr_model_id'];
-
-        if (!$this->isCheap($cheap)) {
-            $this->logSelection(
-                $queryModelId,
-                $rawResponse,
-                'cheap_too_expensive',
-                "Selected cheap model '{$cheap}' is not a low-cost model.",
-                $fallback
-            );
-
+        // identifierError established these types; no untrusted answer text is logged.
+        $cheap = (string) $selection['cheap_model_id'];
+        $capable = (string) $selection['capable_model_id'];
+        $ocr = $selection['ocr_model_id'] === null ? $fallback['ocr'] : (string) $selection['ocr_model_id'];
+        $error = $this->costError($cheap, $capable, $ocr);
+        if ($error !== null) {
+            $this->logSelection($queryModelId, $error['status'], $error['message'], $fallback);
             return $fallback;
         }
 
-        if (!$this->isReasonable($capable)) {
-            $this->logSelection(
-                $queryModelId,
-                $rawResponse,
-                'capable_too_expensive',
-                "Selected capable model '{$capable}' is too expensive for the capable tier.",
-                $fallback
-            );
-
-            return $fallback;
-        }
-
-        if (!$this->isCheap($ocr)) {
-            $this->logSelection(
-                $queryModelId,
-                $rawResponse,
-                'ocr_too_expensive',
-                "Selected OCR model '{$ocr}' is not a low-cost model.",
-                $fallback
-            );
-
-            return $fallback;
-        }
-
-        // Hard safety net independent of the prompt above: a name like
-        // "mistral-ocr-3" almost always names a standalone document-OCR
-        // API model (a different endpoint than chat completions), which
-        // returns empty/unusable output when called the way
-        // Service\LlmConnectorService::complete() calls every tier.
-        // Reject on the name alone, regardless of what the selector LLM
-        // reasoned — never trust "it has ocr in the name" as a green light.
-        if ($this->looksLikeStandaloneOcrEndpoint($ocr)) {
-            $this->logSelection(
-                $queryModelId,
-                $rawResponse,
-                'ocr_endpoint_incompatible',
-                "Selected OCR model '{$ocr}' looks like a standalone document-OCR API model, not a chat/vision model.",
-                $fallback
-            );
-
-            return $fallback;
-        }
-
-        $tierMap = [
-            'cheap' => $cheap,
-            'capable' => $capable,
-            'ocr' => $ocr,
-        ];
-
-        $this->logSelection(
-            $queryModelId,
-            $rawResponse,
-            'success',
-            "Tiers selected via LLM: cheap='{$cheap}', capable='{$capable}', ocr='{$ocr}'.",
-            $tierMap
-        );
-
-        return $tierMap;
+        $tiers = ['cheap' => $cheap, 'capable' => $capable, 'ocr' => $ocr];
+        $this->logSelection($queryModelId, 'success', 'Les modèles IA compatibles ont été sélectionnés.', $tiers);
+        return $tiers;
     }
 
     /**
-     * @param array<int, string> $modelIds
-     * @return array{cheap: string|null, capable: string|null, ocr: string|null}
+     * @param array<mixed> $selection
+     * @return array{status: string, message: string}|null
      */
-    private function fallbackTiers(array $modelIds): array
+    private function identifierError(array $selection, ProviderModelCatalog $catalog): ?array
     {
-        $usableModels = array_values(array_filter(
-            $modelIds,
-            static fn (string $id): bool => !preg_match('/embed|moderation|whisper|tts|codestral/i', $id)
-        ));
+        $chatIds = $catalog->chatModelIds();
+        foreach (['cheap_model_id', 'capable_model_id', 'ocr_model_id'] as $key) {
+            if ($key === 'ocr_model_id' && array_key_exists($key, $selection) && $selection[$key] === null) {
+                continue;
+            }
+            if (!isset($selection[$key]) || !is_string($selection[$key]) || $selection[$key] === '') {
+                return [
+                    'status' => 'missing_field',
+                    'message' => 'Le classement IA ne précise pas tous les choix requis.',
+                ];
+            }
+            if (!in_array($selection[$key], $chatIds, true)) {
+                return [
+                    'status' => 'unknown_model',
+                    'message' => 'Le classement IA désigne un modèle sans compatibilité de conversation établie.',
+                ];
+            }
+        }
+        if ($selection['ocr_model_id'] !== null
+            && !in_array($selection['ocr_model_id'], $catalog->visionModelIds(), true)) {
+            return [
+                'status' => 'ocr_endpoint_incompatible',
+                'message' => 'Le modèle proposé pour les reçus ne dispose pas de lecture d’images établie.',
+            ];
+        }
+        return null;
+    }
 
-        if ($usableModels === []) {
+    /** @return array{status: string, message: string}|null */
+    private function costError(string $cheap, string $capable, ?string $ocr): ?array
+    {
+        if (!$this->isCheap($cheap)) {
+            return [
+                'status' => 'cheap_too_expensive',
+                'message' => 'Le modèle proposé pour le tier économique est trop coûteux.',
+            ];
+        }
+        if (!$this->isReasonable($capable)) {
+            return [
+                'status' => 'capable_too_expensive',
+                'message' => 'Le modèle proposé pour le tier performant est trop coûteux.',
+            ];
+        }
+        if ($ocr !== null && !$this->isCheap($ocr)) {
+            return ['status' => 'ocr_too_expensive', 'message' => 'Le modèle proposé pour les reçus est trop coûteux.'];
+        }
+        return null;
+    }
+
+    /** @return array{cheap: ?string, capable: ?string, ocr: ?string} */
+    public function fallbackTiers(ProviderModelCatalog $catalog): array
+    {
+        $models = $catalog->chatModelIds();
+        if ($models === []) {
             return ['cheap' => null, 'capable' => null, 'ocr' => null];
         }
-
-        $bestSmall = $this->pickBestByPatterns($usableModels, [
-            'small', 'ministral', 'nemo', 'haiku', 'mini', 'lite',
-        ]);
-
-        $bestLarge = $this->pickBestByPatterns($usableModels, [
-            'large', 'medium', 'sonnet',
-        ]);
-
-        // If no named small/cheap model found, use the first available one
-        if ($bestSmall === null) {
-            $bestSmall = $usableModels[0];
-        }
-
-        // If no named capable model found, pick the first usable model that is different
-        // from the cheap model and not obviously too expensive (e.g. opus/405b/70b/72b)
-        if ($bestLarge === null) {
-            foreach ($usableModels as $id) {
-                if ($id !== $bestSmall && $this->isReasonable($id)) {
-                    $bestLarge = $id;
+        $patterns = ['small', 'ministral', 'nemo', 'haiku', 'mini', 'lite'];
+        $cheap = $this->pickBestByPatterns($models, $patterns) ?? $models[0];
+        $capable = $this->pickBestByPatterns($models, ['large', 'medium', 'sonnet']);
+        if ($capable === null) {
+            foreach ($models as $id) {
+                if ($id !== $cheap && $this->isReasonable($id)) {
+                    $capable = $id;
                     break;
                 }
             }
-            $bestLarge ??= $bestSmall;
+            $capable ??= $cheap;
         }
-
-        // OCR reuses the cheap tier's pick rather than matching "ocr" in
-        // the model name: a name like "mistral-ocr-3" usually names a
-        // standalone document-OCR API model (a different endpoint
-        // entirely, e.g. Mistral's /v1/ocr), not a vision-capable chat
-        // model — Service\LlmConnectorService::complete() only ever
-        // calls the chat-completions endpoint, so a name-matched "ocr"
-        // model reliably returns an empty/unusable response there. The
-        // cheap-tier pick is at least a real chat model; whether it also
-        // supports vision can't be determined from the name alone.
-        return [
-            'cheap' => $bestSmall,
-            'capable' => $bestLarge,
-            'ocr' => $bestSmall,
-        ];
+        $vision = array_values(array_filter($catalog->visionModelIds(), $this->isCheap(...)));
+        $ocr = in_array($cheap, $vision, true)
+            ? $cheap : ($this->pickBestByPatterns($vision, $patterns) ?? $vision[0] ?? null);
+        return ['cheap' => $cheap, 'capable' => $capable, 'ocr' => $ocr];
     }
 
-    /**
-     * @param array<int, string> $modelIds
-     * @param array<int, string> $patterns
+    /** @param list<string> $models
+     *  @param list<string> $patterns
      */
-    private function pickBestByPatterns(array $modelIds, array $patterns): ?string
+    private function pickBestByPatterns(array $models, array $patterns): ?string
     {
         $best = null;
-        foreach ($modelIds as $id) {
-            $lower = strtolower($id);
+        foreach ($models as $id) {
             foreach ($patterns as $pattern) {
-                if (str_contains($lower, $pattern)) {
+                if (str_contains(strtolower($id), $pattern)) {
                     if ($best === null || $this->extractDate($id) > $this->extractDate($best)) {
                         $best = $id;
                     }
@@ -257,95 +187,44 @@ class OcrModelSelector
                 }
             }
         }
-
         return $best;
     }
 
-    /**
-     * @param array<int, string> $modelIds
-     */
-    private function buildPrompt(array $modelIds): string
+    private function buildPrompt(ProviderModelCatalog $catalog): string
     {
-        $availableModels = json_encode(array_values($modelIds), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-
+        $chat = json_encode($catalog->chatModelIds(), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        $vision = json_encode($catalog->visionModelIds(), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         return <<<PROMPT
-You are a model selection assistant for an LLM connector.
-
-Given the list of available models below, choose the best model for each of the following three tiers:
-
-1. cheap_model_id: the cheapest/small model suitable for simple, high-volume
-tasks. It should be the most economical choice.
-2. capable_model_id: a model that is noticeably better than the cheap choice
-for harder tasks, but still reasonably priced. Do NOT pick the most expensive
-option. Avoid models with "opus", "405b", "70b" or "72b" in the name unless
-there is no alternative.
-3. ocr_model_id: the best model for OCR of photographed shop receipts. It must
-understand images and extract text/structured data from low-quality receipt
-photos. It must remain cheap or at most average cost; never choose a
-costly/large model. Prefer the smallest vision-capable model. Avoid "large",
-"opus", "sonnet", or models with 70b/72b/405b in the name unless there is
-genuinely no cheaper alternative. IMPORTANT: this must be a general-purpose
-chat/vision model reachable through the same chat-completions API as every
-other tier — never a standalone document-OCR-only model (e.g. a model
-literally named "*-ocr-*" that belongs to a dedicated OCR API such as
-Mistral's /v1/ocr endpoint). Such models return empty or invalid output when
-called through chat completions, so having "ocr" in the name is not by itself
-a reason to pick a model — judge actual chat/vision capability instead.
-
-Rules for your answer:
-1. Respond ONLY with a valid JSON object.
-2. The JSON object must contain exactly three fields: "cheap_model_id", "capable_model_id", "ocr_model_id".
-3. Every value must be the EXACT string identifier of one model from the list below.
-4. Do not add any explanation, markdown, or comments outside the JSON.
-5. If none of the available models is clearly better for a tier, choose the smallest/cheapest available model.
-
-Example of a valid response:
-{"cheap_model_id": "claude-3-5-haiku-20241022",
- "capable_model_id": "claude-3-5-sonnet-20241022",
- "ocr_model_id": "claude-3-5-haiku-20241022"}
-
-Available models: {$availableModels}
+Choose economical models for the following tiers. Endpoint and input capabilities
+have already been independently checked; do not infer them from model names.
+Return only a JSON object with exactly these fields:
+- cheap_model_id: the cheapest chat model for simple high-volume text tasks.
+- capable_model_id: a better chat model at a reasonable cost, not the most expensive.
+- ocr_model_id: a cheap image-capable chat model for photographed receipts, or null
+  when none is available. It MUST belong to the image-capable list below.
+Every non-null value must be an exact identifier from the chat list.
+Avoid opus, large, medium, sonnet and 70b/72b/405b models for cheap and OCR.
+Chat-capable models: {$chat}
+Image-capable chat models: {$vision}
 PROMPT;
     }
 
-    /**
-     * Try to extract a JSON object from a response that may be wrapped in
-     * markdown code fences or contain extra text.
-     */
-    private function extractJson(string $rawResponse): ?string
+    private function extractJson(string $response): ?string
     {
-        if (preg_match('/```(?:json)?\s*\n?(\{.*?\})\n?\s*```/s', $rawResponse, $matches)) {
+        if (preg_match('/```(?:json)?\s*\n?(\{.*?\})\n?\s*```/s', $response, $matches)) {
             return $matches[1];
         }
-
-        if (preg_match('/(\{.*\})/s', $rawResponse, $matches)) {
-            return $matches[1];
-        }
-
-        return null;
+        return preg_match('/(\{.*\})/s', $response, $matches) ? $matches[1] : null;
     }
 
-    /**
-     * "ocr" as its own name segment (e.g. "mistral-ocr-3-0",
-     * "provider-ocr-latest") — the pattern several providers use for a
-     * standalone document-OCR API model, distinct from their regular
-     * chat/vision models. Deliberately does NOT match a model whose name
-     * merely contains "ocr" as part of a longer token.
-     */
-    private function looksLikeStandaloneOcrEndpoint(string $modelId): bool
-    {
-        return preg_match('/(?:^|[-_])ocr(?:$|[-_])/i', $modelId) === 1;
-    }
-
-    private function isCheap(string $modelId): bool
+    public static function isCheap(string $modelId): bool
     {
         return !preg_match('/(?:large|medium|opus|sonnet|(?:^|[-_])(?:70|72|405)b(?:$|[-_]))/i', $modelId);
     }
 
     private function isReasonable(string $modelId): bool
     {
-        // Capable tier can be medium/sonnet but not the very largest/expensive families
-        return !preg_match('/(?:opus|(?:^|[-_])(?:405|70|72)b(?:$|[-_]))/i', $modelId);
+        return !preg_match('/(?:opus|(?:^|[-_])(?:70|72|405)b(?:$|[-_]))/i', $modelId);
     }
 
     private function extractDate(string $modelId): string
@@ -356,45 +235,25 @@ PROMPT;
         if (preg_match('/(\d{8})/', $modelId, $matches)) {
             return $matches[1];
         }
-        if (preg_match('/(\d{4})$/', $modelId, $matches)) {
-            return $matches[1] . '0000';
-        }
-
-        return '00000000';
+        return preg_match('/(\d{4})$/', $modelId, $matches) ? $matches[1] . '0000' : '00000000';
     }
 
     /**
-     * @param array{cheap: string|null, capable: string|null, ocr: string|null} $tierMap
+     * @param array{cheap: ?string, capable: ?string, ocr: ?string} $tierMap
+     * @param array<string, int|string> $metadata
      */
     private function logSelection(
         string $queryModelId,
-        string $rawResponse,
         string $status,
         string $message,
-        array $tierMap
+        array $tierMap,
+        array $metadata = []
     ): void {
-        if ($this->journalService === null) {
-            return;
-        }
-
-        $context = [
+        $this->journalService?->log('llm_connector', 'tier_models_selected', 'info', $message, [
             'query_model_id' => $queryModelId,
             'tier_selection_status' => $status,
             'selected_tiers' => $tierMap,
-        ];
-
-        if ($rawResponse !== '') {
-            $context['tier_selection_response'] = $rawResponse;
-        }
-
-        // Journal level column only allows 'info'/'security'; status lives in context.
-        $this->journalService->log(
-            'llm_connector',
-            'tier_models_selected',
-            'info',
-            $message,
-            $context,
-            $this->actingUserAccountId
-        );
+            ...$metadata,
+        ], $this->actingUserAccountId);
     }
 }
