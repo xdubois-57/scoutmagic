@@ -417,12 +417,12 @@ class DeskImportValidatorTest extends TestCase
     }
 
     /**
-     * Address copies differing only in code case still describe one function.
+     * Equivalence supplied by the database keeps address copies together.
      * @param array<string, string> $first
      * @param array<string, string> $second
      */
-    #[DataProvider('identityCodeCaseAliases')]
-    public function testRule14CodeCaseAliasesCountAsOne(array $first, array $second, string $unmarked): void
+    #[DataProvider('identityCodeAliases')]
+    public function testRule14CodeAliasesCountAsOne(array $first, array $second, string $unmarked): void
     {
         $errors = $this->validateRows([
             $this->row(array_replace($first, ['Fonction principale' => 'false'])),
@@ -430,18 +430,18 @@ class DeskImportValidatorTest extends TestCase
                 'Fonction principale' => $unmarked,
                 "Type d'adresse" => 'Adresse secondaire', 'Rue' => 'Avenue du Parc',
             ])),
-        ]);
+        ], $this->codeIdentities($first, $second));
 
         $this->assertSame([], $this->messagesOf($errors));
     }
 
     /**
-     * Resolving case aliases must not let contradictory flags through to the importer.
+     * Resolving code aliases must not let contradictory flags through to the importer.
      * @param array<string, string> $first
      * @param array<string, string> $second
      */
-    #[DataProvider('identityCodeCaseAliases')]
-    public function testRule14CodeCaseAliasesMustAgreeOnTheMainFlag(array $first, array $second, string $unmarked): void
+    #[DataProvider('identityCodeAliases')]
+    public function testRule14CodeAliasesMustAgreeOnTheMainFlag(array $first, array $second, string $unmarked): void
     {
         $errors = $this->validateRows([
             $this->row(array_replace($first, ['Fonction principale' => 'true'])),
@@ -449,7 +449,7 @@ class DeskImportValidatorTest extends TestCase
                 'Fonction principale' => $unmarked,
                 "Type d'adresse" => 'Adresse secondaire', 'Rue' => 'Avenue du Parc',
             ])),
-        ]);
+        ], $this->codeIdentities($first, $second));
 
         $this->assertCount(1, $errors);
         $this->assertSame(DeskImportRule::MAIN_FUNCTION, $errors[0]->rule);
@@ -457,12 +457,15 @@ class DeskImportValidatorTest extends TestCase
     }
 
     /** @return iterable<string, array{array<string, string>, array<string, string>, string}> */
-    public static function identityCodeCaseAliases(): iterable
+    public static function identityCodeAliases(): iterable
     {
         $codes = [
             'function' => [['FONCTION' => "Équipier d'unité"], ['FONCTION' => "équipier D'UNITÉ"]],
             'branch' => [['Branche' => 'Éclaireurs'], ['Branche' => 'éclaireurs']],
             'section' => [['Section' => 'Louv1'], ['Section' => 'LOUV1']],
+            'accent' => [['FONCTION' => "Équipier d'unité"], ['FONCTION' => "Equipier d'unite"]],
+            'fullwidth' => [['Branche' => 'REFERENT'], ['Branche' => 'ＲＥＦＥＲＥＮＴ']],
+            'ignorable' => [['Section' => 'SEC1'], ['Section' => "SEC\u{200B}1"]],
             'all codes' => [
                 ['FONCTION' => "Équipier d'unité", 'Branche' => 'Éclaireurs', 'Section' => 'Louv1'],
                 ['FONCTION' => "équipier D'UNITÉ", 'Branche' => 'éclaireurs', 'Section' => 'LOUV1'],
@@ -472,6 +475,26 @@ class DeskImportValidatorTest extends TestCase
             yield $label . ' / false' => [$first, $second, 'false'];
             yield $label . ' / empty' => [$first, $second, ''];
         }
+    }
+
+    /**
+     * Explicit input to the pure validator; engine tests establish which codes
+     * really are equivalent. No PHP approximation of a collation in this fixture.
+     * @param array<string, string> $first
+     * @param array<string, string> $second
+     * @return array<string, int>
+     */
+    private function codeIdentities(array $first, array $second): array
+    {
+        $identities = [];
+        foreach (['FONCTION', 'Branche', 'Section'] as $index => $column) {
+            if (isset($first[$column], $second[$column])) {
+                $identities[$first[$column]] = $index;
+                $identities[$second[$column]] = $index;
+            }
+        }
+
+        return $identities;
     }
 
     public function testRule14AMemberWithTwoMainFunctionsIsRefused(): void
@@ -695,33 +718,38 @@ class DeskImportValidatorTest extends TestCase
 
     /**
      * @param list<list<string>> $rows
+     * @param array<string, int> $codeIdentities
      * @return list<DeskImportError>
      */
-    private function validateRows(array $rows): array
+    private function validateRows(array $rows, array $codeIdentities = []): array
     {
-        return $this->validateLines(array_map(fn(array $row): string => $this->line($row), $rows));
+        return $this->validateLines(array_map(fn(array $row): string => $this->line($row), $rows), $codeIdentities);
     }
 
     /**
      * @param list<string> $lines data lines, written after the sample's header
+     * @param array<string, int> $codeIdentities
      * @return list<DeskImportError>
      */
-    private function validateLines(array $lines): array
+    private function validateLines(array $lines, array $codeIdentities = []): array
     {
         $path = (string) tempnam(sys_get_temp_dir(), 'desk');
         $this->tempFiles[] = $path;
         file_put_contents($path, implode("\n", [$this->line($this->header()), ...$lines]) . "\n");
 
-        return $this->validateFile($path);
+        return $this->validateFile($path, $codeIdentities);
     }
 
-    /** @return list<DeskImportError> */
-    private function validateFile(string $path): array
+    /** @param array<string, int> $codeIdentities
+     *  @return list<DeskImportError>
+     */
+    private function validateFile(string $path, array $codeIdentities = []): array
     {
         return (new DeskImportValidator())->validate(
             (new DeskCsvParser())->parse($path),
             new \DateTimeImmutable(self::YEAR_END),
-            new \DateTimeImmutable(self::TODAY)
+            new \DateTimeImmutable(self::TODAY),
+            $codeIdentities
         );
     }
 

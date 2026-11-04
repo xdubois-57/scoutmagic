@@ -367,10 +367,23 @@ class DeskImportService
             throw new ImportException("L'année scoute choisie pour l'import n'existe pas.");
         }
 
+        $codes = [];
+        foreach ($parsed->rows as $row) {
+            if (!$row->hasHeaderShape($parsed->headerCount)) {
+                // Shifted cells may contain personal data under a code header.
+                continue;
+            }
+            foreach (['FONCTION', 'Branche', 'Section'] as $column) {
+                $codes[] = $row->value($column);
+            }
+        }
+        $codeIdentities = (new DeskCodeIdentityRepository($this->pdo))->identify($codes);
+
         $errors = (new DeskImportValidator())->validate(
             $parsed,
             DateInput::requireFromStorage($year['end_date'], 'scout_years.end_date'),
-            $today
+            $today,
+            $codeIdentities
         );
         if ($errors === []) {
             return;

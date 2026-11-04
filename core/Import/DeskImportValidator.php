@@ -75,19 +75,22 @@ final class DeskImportValidator
     /**
      * @param \DateTimeImmutable $scoutYearEnd last day of the scout year the file is imported into (rule 13)
      * @param \DateTimeImmutable $today what « in the future » means for a birth date (rule 1)
+     * @param array<string, int> $codeIdentities database-equivalent codes, supplied by the import service;
+     *        omitted for standalone format checks, which compare exact spellings
      * @return list<DeskImportError> sorted by line, then by rule; empty when the file may be imported
      */
     public function validate(
         ParsedImport $parsed,
         \DateTimeImmutable $scoutYearEnd,
-        \DateTimeImmutable $today
+        \DateTimeImmutable $today,
+        array $codeIdentities = []
     ): array {
         $errors = [];
         /** @var array<string, list<DeskCsvRow>> $byTiers */
         $byTiers = [];
 
         foreach ($parsed->rows as $row) {
-            if (!$this->hasHeaderShape($row, $parsed->headerCount)) {
+            if (!$row->hasHeaderShape($parsed->headerCount)) {
                 // Rule 3. Nothing else is read from such a line: its cells
                 // sit under the wrong headers, so its Tiers may be somebody's
                 // name and its « birth date » a street number.
@@ -115,7 +118,7 @@ final class DeskImportValidator
 
         foreach ($byTiers as $rows) {
             array_push($errors, ...$this->identityErrors($rows));
-            array_push($errors, ...$this->mainFunctionErrors($rows));
+            array_push($errors, ...$this->mainFunctionErrors($rows, $codeIdentities));
         }
 
         usort(
@@ -125,17 +128,6 @@ final class DeskImportValidator
         );
 
         return $errors;
-    }
-
-    /**
-     * Rule 3: as many cells as the header — or exactly one more when that
-     * last one is empty, because a real Desk export ends every line with a
-     * « ; ». Anything else means the line is cut or shifted.
-     */
-    private function hasHeaderShape(DeskCsvRow $row, int $headerCount): bool
-    {
-        return $row->fieldCount === $headerCount
-            || ($row->fieldCount === $headerCount + 1 && $row->extraCellsEmpty);
     }
 
     /**
@@ -296,18 +288,24 @@ final class DeskImportValidator
     /**
      * One function's identity across its address lines: its code, branch,
      * section and dates, each date in one spelling (`01/09/2025` and
-     * `2025-09-01` are the same start). All three codes ignore letter case
-     * on the production collation. Serialize the parts so a separator
+     * `2025-09-01` are the same start). Code identities come from the actual
+     * mapping collation. An absent association remains distinct from a
+     * nonempty primary-ignorable code, which the mapper would create.
+     * Serialize the parts so a separator
      * inside a CSV field cannot merge two different tuples.
+     *
+     * @param array<string, int> $codeIdentities
      */
-    private function functionKey(DeskCsvRow $row): string
+    private function functionKey(DeskCsvRow $row, array $codeIdentities): string
     {
         $date = static fn(string $value): string => DeskDateParser::toIso($value) ?? $value;
+        $code = static fn(string $value): int|string|null => $value === ''
+            ? null : ($codeIdentities[$value] ?? $value);
 
         return serialize([
-            mb_strtolower($row->value('FONCTION'), 'UTF-8'),
-            mb_strtolower($row->value('Branche'), 'UTF-8'),
-            mb_strtolower($row->value('Section'), 'UTF-8'),
+            $code($row->value('FONCTION')),
+            $code($row->value('Branche')),
+            $code($row->value('Section')),
             $date($row->value('Date début')),
             $date($row->value('Date fin')),
             $date($row->value('fin de mandat')),
@@ -332,9 +330,10 @@ final class DeskImportValidator
      * refused: the count would only repeat that error in other words.
      *
      * @param list<DeskCsvRow> $rows
+     * @param array<string, int> $codeIdentities
      * @return list<DeskImportError>
      */
-    private function mainFunctionErrors(array $rows): array
+    private function mainFunctionErrors(array $rows, array $codeIdentities): array
     {
         /** @var array<string, string> $flagOf the first flag seen for each distinct function */
         $flagOf = [];
@@ -347,7 +346,7 @@ final class DeskImportValidator
             if ($flag !== 'true' && $flag !== 'false') {
                 return [];
             }
-            $key = $this->functionKey($row);
+            $key = $this->functionKey($row, $codeIdentities);
             if (isset($flagOf[$key]) && $flagOf[$key] !== $flag) {
                 return [new DeskImportError(
                     $row->lineNumber,
