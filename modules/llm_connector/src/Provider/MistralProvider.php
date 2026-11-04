@@ -27,6 +27,12 @@ class MistralProvider implements LlmProviderInterface
         $this->http = new HttpTransport();
     }
 
+    /** Scope for the authoritative capabilities returned by this configuration. */
+    public function capabilityScope(): string
+    {
+        return ModelProbeCache::scopeFor('mistral', $this->apiEndpoint, $this->apiKey);
+    }
+
     /**
      * @return array<int, string>
      */

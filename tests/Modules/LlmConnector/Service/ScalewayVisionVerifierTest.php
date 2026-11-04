@@ -93,12 +93,16 @@ class ScalewayVisionVerifierTest extends TestCase
         $driver = $this->driver();
         $driver->expects($this->once())->method('probeVision')->with('pixtral-12b-2409', $this->anything())
             ->willReturn(ModelProbeStatus::VISION_VERIFIED);
-        $cache = new ModelProbeCache([], $driver->probeScope());
+        $previous = \Core\Config\AppClock::now()->getTimestamp() - 60;
+        $cache = new ModelProbeCache([], $driver->probeScope(), $previous);
         $cache->record('pixtral-12b-2409', ModelProbeStatus::VISION_VERIFIED);
         $models = $this->createStub(ProviderModelRepository::class);
         $models->method('modelProbeCache')->willReturn($cache->toArray());
         $result = (new ScalewayVisionVerifier($models))->verify(1, $driver, $this->catalog(), true);
-        self::assertSame([1, ['pixtral-12b-2409']], [$result['attempts'], $result['catalog']->visionModelIds()]);
+        self::assertSame([1, ['pixtral-12b-2409'], true], [
+            $result['attempts'], $result['catalog']->visionModelIds(),
+            $result['cache']['results']['pixtral-12b-2409']['checked_at'] > $previous,
+        ]);
     }
 
     public function testAnObservedRouteRefusalOverridesDocumentationAndCannotBecomeAChatTier(): void

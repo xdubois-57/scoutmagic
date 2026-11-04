@@ -18,6 +18,7 @@ use Core\Security\CsrfGuard;
 use Modules\LlmConnector\Api\LlmTier;
 use Modules\LlmConnector\Provider\AnthropicProvider;
 use Modules\LlmConnector\Provider\MistralProvider;
+use Modules\LlmConnector\Provider\ModelProbeCache;
 use Modules\LlmConnector\Provider\ScalewayProvider;
 use Modules\LlmConnector\Repository\ProviderModelRepository;
 use Modules\LlmConnector\Repository\ProviderRepository;
@@ -223,9 +224,12 @@ class ConfigController extends AbstractController
             $driver = $this->createDriver($provider['driver'], $provider['api_endpoint'], $provider['api_key']);
             $this->ocrModelSelector->setJournalService($this->journalService, AuthSession::getUserAccountId());
             $refresher = new ProviderCatalogRefresher(
-                $this->modelRepo, $this->ocrModelSelector, $this->journalService, AuthSession::getUserAccountId()
+                $this->modelRepo,
+                $this->ocrModelSelector,
+                $this->journalService,
+                AuthSession::getUserAccountId()
             );
-            $catalog = $refresher->refresh($provider['id'], $driver);
+            $catalog = $refresher->refresh($provider['id'], $driver, $provider['configuration_token']);
             $modelCount = count($catalog->chatModelIds());
 
             if ($modelCount === 0) {
@@ -248,7 +252,7 @@ class ConfigController extends AbstractController
 
             // Fetch assigned tier models
             $resolver = new TierModelResolver($this->modelRepo);
-            $scope = ScalewayProvider::capabilityScope($provider['api_endpoint'], $provider['api_key']);
+            $scope = ModelProbeCache::scopeFor($provider['driver'], $provider['api_endpoint'], $provider['api_key']);
             $cheapModel = $resolver->resolve($provider['id'], $provider['driver'], LlmTier::CHEAP, $scope);
             $capableModel = $resolver->resolve($provider['id'], $provider['driver'], LlmTier::CAPABLE, $scope);
             $ocrModel = $resolver->resolve($provider['id'], $provider['driver'], LlmTier::OCR, $scope);
@@ -309,7 +313,7 @@ class ConfigController extends AbstractController
         try {
             $provider = $this->providerRepo->findById($providerId);
             return $provider === null ? null
-                : ScalewayProvider::capabilityScope($provider['api_endpoint'], $provider['api_key']);
+                : ModelProbeCache::scopeFor($provider['driver'], $provider['api_endpoint'], $provider['api_key']);
         } catch (\Throwable) {
             return null;
         }
@@ -350,19 +354,21 @@ class ConfigController extends AbstractController
 
     /**
      * Ensure a weekly model refresh task is scheduled.
-     * If no future task exists, schedule one for 7 days from now.
+     * Keep a renewal margin before the seven-day image evidence expires.
      */
     private function ensureWeeklyRefreshScheduled(): void
     {
         $existing = $this->schedulerService->find('llm_connector', 'refresh_models', 'weekly');
-        
-        // If a pending task exists in the future, nothing to do
-        if ($existing !== null && $existing['status'] === 'pending' && strtotime($existing['run_at']) > time()) {
+        $now = \Core\Config\AppClock::now();
+        $nextRun = $now->setTimestamp($now->getTimestamp() + ModelProbeCache::RENEW_AFTER_SECONDS);
+        if ($existing !== null && $existing['status'] === 'pending'
+            && strtotime($existing['run_at']) > $now->getTimestamp()
+            && strtotime($existing['run_at']) <= $nextRun->getTimestamp()) {
             return;
         }
-
-        // Schedule next refresh in 7 days
-        $nextRun = new \DateTimeImmutable('+7 days');
-        $this->schedulerService->schedule('llm_connector', 'refresh_models', $nextRun, [], 'weekly');
+        if ($existing !== null) {
+            $this->schedulerService->cancel((int) $existing['id']);
+        }
+        $this->schedulerService->rearm('llm_connector', 'refresh_models', 'weekly', $nextRun);
     }
 }

@@ -91,6 +91,50 @@ class ScalewayVisionProbeTest extends TestCase
         yield 'unknown status' => ['claimed', 0, 'scope', null, true];
     }
 
+    public static function renderedDigits(): iterable
+    {
+        yield 'zero' => ['0', ['.###.', '#...#', '#..##', '#.#.#', '##..#', '#...#', '.###.']];
+        yield 'one' => ['1', ['..#..', '.##..', '..#..', '..#..', '..#..', '..#..', '.###.']];
+        yield 'two' => ['2', ['.###.', '#...#', '....#', '...#.', '..#..', '.#...', '#####']];
+        yield 'three' => ['3', ['####.', '....#', '....#', '.###.', '....#', '....#', '####.']];
+        yield 'four' => ['4', ['...#.', '..##.', '.#.#.', '#..#.', '#####', '...#.', '...#.']];
+        yield 'five' => ['5', ['#####', '#....', '#....', '####.', '....#', '....#', '####.']];
+        yield 'six' => ['6', ['.###.', '#....', '#....', '####.', '#...#', '#...#', '.###.']];
+        yield 'seven' => ['7', ['#####', '....#', '...#.', '..#..', '.#...', '.#...', '.#...']];
+        yield 'eight' => ['8', ['.###.', '#...#', '#...#', '.###.', '#...#', '#...#', '.###.']];
+        yield 'nine' => ['9', ['.###.', '#...#', '#...#', '.####', '....#', '....#', '.###.']];
+    }
+
+    /** @param list<string> $bitmap */
+    #[DataProvider('renderedDigits')]
+    public function testEveryDigitIsActuallyPresentInTheDecodedImagePixels(string $digit, array $bitmap): void
+    {
+        $png = base64_decode(VisionProbeChallenge::forDigits(str_repeat($digit, 8))->imageBase64, true);
+        $compressed = '';
+        for ($offset = 8; $offset < strlen($png);) {
+            $length = unpack('Nlength', substr($png, $offset, 4))['length'];
+            if (substr($png, $offset + 4, 4) === 'IDAT') {
+                $compressed .= substr($png, $offset + 8, $length);
+            }
+            $offset += 12 + $length;
+        }
+        // This independently drawn glyph includes every pixel, the scale,
+        // the inter-digit gaps, the margins and the PNG's zero filter bytes.
+        $blank = "\0" . str_repeat("\xff", 352);
+        $expected = str_repeat($blank, 32);
+        foreach ($bitmap as $row) {
+            $glyph = '';
+            foreach (str_split($row) as $pixel) {
+                $glyph .= str_repeat($pixel === '#' ? "\0" : "\xff", 6);
+            }
+            $scanline = "\0" . str_repeat("\xff", 32)
+                . str_repeat($glyph . str_repeat("\xff", 6), 8) . str_repeat("\xff", 32);
+            $expected .= str_repeat($scanline, 6);
+        }
+        $expected .= str_repeat($blank, 38);
+        self::assertSame(hash('sha256', $expected), hash('sha256', gzuncompress($compressed)));
+    }
+
     #[DataProvider('cacheCases')]
     public function testEvidenceHasATtlAndIsBoundToTheConfiguration(string $status, int $age, string $scope, ?ModelProbeStatus $expected, bool $needsProbe): void
     {

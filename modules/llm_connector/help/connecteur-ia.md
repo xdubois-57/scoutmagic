@@ -13,9 +13,10 @@ related: config-rgpd, recus, retrospectives
 ---
 
 Le connecteur IA aide à lire un reçu, suggérer une catégorie comptable ou
-résumer une rétrospective. **L’IA propose, elle ne décide jamais** : chaque
-suggestion attend votre validation. Sans modèle disponible, la saisie
-manuelle reste utilisable.
+résumer une rétrospective. Ces suggestions attendent votre validation.
+Pour les locations, l’IA peut aussi classer directement un e-mail dans une
+réservation ; « Détacher » permet au gestionnaire de corriger ce classement.
+Sans modèle disponible, la saisie manuelle reste utilisable.
 
 ## Choisir un fournisseur
 
@@ -60,5 +61,6 @@ du fournisseur.
 
 Chez Scaleway, la vérification peut ajouter trois petits appels de test au
 maximum par découverte, arrêtés au premier succès. Une réussite est
-réutilisée sept jours et renouvelée au passage hebdomadaire ; un échec temporaire peut être retesté après une
-heure. Ces appels peuvent être facturés.
+réutilisée sept jours. Le renouvellement hebdomadaire est anticipé d’une
+heure pour laisser une marge au planificateur ; un échec temporaire peut
+être retesté après une heure. Ces appels peuvent être facturés.

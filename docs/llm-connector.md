@@ -64,16 +64,26 @@ ancien ne peut pas rétablir un modèle refusé entre-temps. Les choix sont rev�
 après cette fusion, avec un secours sans réseau si les capacités ont changé. Le cache est lié à l’endpoint et à la clé par
 une empreinte ; la clé n’y est jamais conservée. Une preuve positive dure
 sept jours ; un résultat indéterminé est réessayable après une heure.
+Un renouvellement indéterminé conserve une preuve positive encore valable,
+sans prolonger sa date d’expiration. Les résultats techniques, y compris
+ceux des anciennes configurations, restent stockés jusqu’à la suppression
+du fournisseur ; l’expiration empêche leur utilisation, elle ne les efface pas.
 Un refus structuré `route_not_supported`, observé pendant une sonde ou un
 appel ordinaire, neutralise également le chat et reste excluant jusqu’à une
 preuve positive ou un changement d’endpoint/clé. Une sonde peut le réévaluer
-après sept jours ; un échec temporaire n’efface jamais cette preuve négative.
+après sept jours si le modèle appartient à la liste économique bornée ;
+les autres modèles refusés restent exclus jusqu’au changement d’endpoint
+ou de clé. Un échec temporaire n’efface jamais cette preuve négative.
 Les candidats au-delà de la liste bornée restent non vérifiés. Une preuve
 positive encore valable évite de lancer des sondes supplémentaires lors des
 tests manuels. Le passage hebdomadaire renouvelle toujours les preuves positives,
 en testant d’abord le modèle déjà confirmé : la preuve ne doit pas expirer
 entre deux tâches lorsque la première était planifiée avant son acquisition
-ou lors d’un changement d’heure.
+ou lors d’un changement d’heure. La prochaine exécution est calculée depuis
+le début de la découverte, en secondes écoulées, une heure avant les sept jours.
+Cette marge absorbe la cadence normale du cron et les reports courts liés au
+budget du planificateur ; elle ne garantit pas la disponibilité si le cron
+est arrêté ou durablement retardé. Une preuve expirée reste refusée.
 
 Le test de connexion et le rafraîchissement hebdomadaire peuvent donc
 engendrer jusqu’à trois appels supplémentaires facturés. La page et l’aide
@@ -87,7 +97,10 @@ fraîche transmise par le résolveur.
 hebdomadaire. La découverte et le classement précèdent la transaction ;
 l’enregistrement des seuls modèles chat, la suppression des modèles
 incompatibles ou disparus et le remplacement des tiers s’effectuent
-ensemble via `ProviderModelRepository::transactional()`. Un échec de
+ensemble via `ProviderModelRepository::transactional()`. La configuration
+ayant servi à créer le driver est revérifiée sous verrou avant toute écriture :
+une modification de clé, d’endpoint, de driver ou d’activation pendant les appels
+annule ce résultat devenu obsolète. Un échec de
 stockage annule l’ensemble. Une transaction déjà ouverte reste sous la
 responsabilité de son appelant.
 
@@ -96,8 +109,11 @@ replie jamais OCR sur CHEAP. Pour Scaleway, il neutralise aussi les
 anciennes affectations incompatibles avant le premier rafraîchissement ;
 le driver refuse en plus tout envoi incompatible avant de transmettre le
 prompt ou l’image. OCR requiert une preuve de sonde fraîche pour la configuration
-courante, même si la documentation annonce la vision. Les autres drivers utilisent les affectations validées
-lors de leur réévaluation.
+courante, même si la documentation annonce la vision. Pour Mistral, les capacités
+image déclarées par son API sont également conservées dans ce cache, sous un
+contexte propre au driver et à ses identifiants. Une affectation OCR ancienne
+sans cette preuve est indisponible jusqu’au rafraîchissement ; une nouvelle
+réponse sans capacité vision explicite révoque la preuve précédente.
 
 Le journal contient les identifiants exclus et leurs raisons
 (`chat_endpoint_unsupported`, `chat_capability_unverified`), les compteurs

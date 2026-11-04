@@ -13,6 +13,7 @@ use Core\Scheduler\TaskHandlerInterface;
 use Modules\LlmConnector\Provider\AnthropicProvider;
 use Modules\LlmConnector\Provider\LlmProviderInterface;
 use Modules\LlmConnector\Provider\MistralProvider;
+use Modules\LlmConnector\Provider\ModelProbeCache;
 use Modules\LlmConnector\Provider\ScalewayProvider;
 use Modules\LlmConnector\Repository\ProviderModelRepository;
 use Modules\LlmConnector\Repository\ProviderRepository;
@@ -30,6 +31,7 @@ class RefreshModelsHandler implements TaskHandlerInterface
      */
     public function handle(array $payload, TaskContext $context): void
     {
+        $startedAt = \Core\Config\AppClock::now();
         $pdo = $context->connection->getPdo();
         $encryption = $context->encryption;
 
@@ -42,9 +44,11 @@ class RefreshModelsHandler implements TaskHandlerInterface
             try {
                 $driver = $this->createDriver($provider['driver'], $provider['api_endpoint'], $provider['api_key']);
                 $refresher = new ProviderCatalogRefresher(
-                    $modelRepo, new OcrModelSelector($context->journal), $context->journal
+                    $modelRepo,
+                    new OcrModelSelector($context->journal),
+                    $context->journal
                 );
-                $catalog = $refresher->refresh($provider['id'], $driver, true);
+                $catalog = $refresher->refresh($provider['id'], $driver, $provider['configuration_token'], true);
                 $modelCount = count($catalog->chatModelIds());
 
                 $context->journal->log(
@@ -68,26 +72,30 @@ class RefreshModelsHandler implements TaskHandlerInterface
         }
 
         // Schedule next weekly refresh
-        $this->scheduleNextWeeklyRefresh($context);
+        $this->scheduleNextWeeklyRefresh($context, $startedAt);
     }
 
     /**
-     * Schedule the next weekly model refresh (7 days from now).
+     * Anchor renewal before discovery, with an hour of margin before expiry.
      */
-    private function scheduleNextWeeklyRefresh(TaskContext $context): void
+    private function scheduleNextWeeklyRefresh(TaskContext $context, \DateTimeImmutable $startedAt): void
     {
         $schedulerRepo = new \Core\Scheduler\SchedulerRepository($context->connection->getPdo());
         $schedulerService = new \Core\Scheduler\SchedulerService($schedulerRepo);
 
         // Check if a future refresh is already scheduled
         $existing = $schedulerService->find('llm_connector', 'refresh_models', 'weekly');
-        if ($existing !== null && $existing['status'] === 'pending' && strtotime($existing['run_at']) > time()) {
+        $nextRun = $startedAt->setTimestamp($startedAt->getTimestamp() + ModelProbeCache::RENEW_AFTER_SECONDS);
+        if ($existing !== null && $existing['status'] === 'pending' && strtotime($existing['run_at']) > time()
+            && strtotime($existing['run_at']) <= $nextRun->getTimestamp()) {
             // A future task already exists, don't duplicate
             return;
         }
 
-        // Schedule next run in 7 days
-        $nextRun = new \DateTimeImmutable('+7 days');
+        if ($existing !== null) {
+            $schedulerService->cancel((int) $existing['id']);
+        }
+
         $schedulerService->rearm('llm_connector', 'refresh_models', 'weekly', $nextRun);
     }
 

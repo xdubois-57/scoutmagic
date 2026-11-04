@@ -160,18 +160,21 @@ class ProviderHttpBehaviourTest extends TestCase
      */
     public function testAnthropicPaginationIsBounded(): void
     {
-        $this->server = StubHttpServer::start([[
-            'status' => 200,
-            'body' => json_encode([
-                'data' => [['id' => 'claude-loop', 'display_name' => 'Loop']],
+        $pages = [];
+        for ($page = 0; $page < 20; $page++) {
+            $pages[] = ['body' => json_encode([
+                'data' => [['id' => 'claude-page-' . $page]],
                 'has_more' => true,
-                'last_id' => 'claude-loop',
-            ], JSON_THROW_ON_ERROR),
-        ]]);
-
-        (new AnthropicProvider($this->server->baseUrl(), 'k'))->listModels();
-
-        self::assertLessThanOrEqual(20, count($this->server->requests()));
+                'last_id' => 'claude-page-' . $page,
+            ], JSON_THROW_ON_ERROR)];
+        }
+        $this->server = StubHttpServer::start($pages);
+        try {
+            $this->expectException(LlmException::class);
+            (new AnthropicProvider($this->server->baseUrl(), 'k'))->listModels();
+        } finally {
+            self::assertCount(20, $this->server->requests());
+        }
     }
 
     /**

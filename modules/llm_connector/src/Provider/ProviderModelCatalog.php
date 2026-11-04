@@ -57,7 +57,7 @@ final class ProviderModelCatalog
         return $models;
     }
 
-    /** Documentation establishes chat candidates; only probe evidence grants images here. */
+    /** Independent image evidence gates vision; endpoint refusals also revoke chat. */
     public function withImageProbes(ModelProbeCache $cache): self
     {
         $models = [];

@@ -30,7 +30,10 @@ final class ScalewayVisionVerifier
      * }
      */
     public function verify(
-        int $providerId, ScalewayProvider $driver, ProviderModelCatalog $catalog, bool $renewVision = false
+        int $providerId,
+        ScalewayProvider $driver,
+        ProviderModelCatalog $catalog,
+        bool $renewVision = false
     ): array {
         $cache = new ModelProbeCache($this->models->modelProbeCache($providerId), $driver->probeScope());
         $candidates = array_values(array_filter($catalog->chatModelIds(), OcrModelSelector::isCheap(...)));
@@ -41,8 +44,10 @@ final class ScalewayVisionVerifier
             $bVision = ScalewayModelCapabilities::forModel($b)['vision'] === true;
             return ($bVerified <=> $aVerified) ?: ($bVision <=> $aVision) ?: strcmp($a, $b);
         });
-        $hasVerified = !$renewVision && array_any($candidates,
-            static fn (string $id): bool => $cache->resultFor($id) === ModelProbeStatus::VISION_VERIFIED);
+        $hasVerified = !$renewVision && array_any(
+            $candidates,
+            static fn (string $id): bool => $cache->resultFor($id) === ModelProbeStatus::VISION_VERIFIED
+        );
         // Keep the shortlist stable: repeated clicks cannot walk the whole paid catalog.
         $candidates = array_slice($candidates, 0, self::MAX_PROBES);
         $attempts = 0;

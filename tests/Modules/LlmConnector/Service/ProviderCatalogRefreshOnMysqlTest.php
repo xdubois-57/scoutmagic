@@ -250,7 +250,7 @@ class ProviderCatalogRefreshOnMysqlTest extends TestCase
         $driver->expects($this->once())->method('complete')->willThrowException(new \RuntimeException('No classification'));
         $message = null;
         try {
-            (new ProviderCatalogRefresher($failing, new OcrModelSelector(), $this->createStub(JournalService::class)))->refresh($id, $driver);
+            (new ProviderCatalogRefresher($failing, new OcrModelSelector(), $this->createStub(JournalService::class)))->refresh($id, $driver, $this->providers->findById($id)['configuration_token']);
         } catch (\RuntimeException $error) {
             $message = $error->getMessage();
         }
@@ -297,7 +297,7 @@ class ProviderCatalogRefreshOnMysqlTest extends TestCase
         $message = null;
         try {
             (new ProviderCatalogRefresher($failing, new OcrModelSelector(), $this->createStub(JournalService::class)))
-                ->refresh($id, $driver);
+                ->refresh($id, $driver, $this->providers->findById($id)['configuration_token']);
         } catch (\RuntimeException $error) {
             $message = $error->getMessage();
         }
@@ -329,7 +329,7 @@ class ProviderCatalogRefreshOnMysqlTest extends TestCase
             'cheap_model_id' => self::TEXT, 'capable_model_id' => self::TEXT, 'ocr_model_id' => self::TEXT,
         ], JSON_THROW_ON_ERROR), 1, 1));
         $catalog = (new ProviderCatalogRefresher($interleaved, new OcrModelSelector(), $this->createStub(JournalService::class)))
-            ->refresh($id, $driver);
+            ->refresh($id, $driver, $this->providers->findById($id)['configuration_token']);
         $cache = new \Modules\LlmConnector\Provider\ModelProbeCache($this->models->modelProbeCache($id), $driver->probeScope());
         self::assertSame([[], [], ModelProbeStatus::CHAT_UNSUPPORTED], [
             $catalog->chatModelIds(), $this->models->findByProvider($id), $cache->resultFor(self::TEXT),
@@ -380,5 +380,146 @@ class ProviderCatalogRefreshOnMysqlTest extends TestCase
         $handler->testDriver = $driver;
         $handler->handle([], $this->context($this->createStub(JournalService::class)));
         self::assertSame(self::IMAGE, $this->models->findByProviderAndTier($id, LlmTier::OCR)['model_id']);
+    }
+
+    public static function configurationChanges(): iterable
+    {
+        foreach (['endpoint', 'key', 'driver', 'active', 'deleted'] as $field) {
+            yield $field => [$field];
+        }
+    }
+
+    #[DataProvider('configurationChanges')]
+    public function testAConfigurationChangeDuringDiscoveryCannotOverwriteInstalledModels(string $field): void
+    {
+        $id = $this->providers->create('Scaleway', 'scaleway', 'https://provider.example', 'test-key', true);
+        $token = $this->providers->findById($id)['configuration_token'];
+        $this->seedLegacyAssignments($id);
+        $before = $this->models->findByProvider($id);
+        $driver = $this->getMockBuilder(ScalewayProvider::class)
+            ->setConstructorArgs(['https://provider.example', 'test-key'])
+            ->onlyMethods(['listModels', 'probeVision', 'complete'])->getMock();
+        $driver->expects($this->once())->method('listModels')->willReturnCallback(function () use ($id, $field): ProviderModelCatalog {
+            if ($field === 'deleted') {
+                $this->providers->delete($id);
+            } else {
+                $this->providers->update(
+                    $id, 'Changed', $field === 'driver' ? 'mistral' : 'scaleway',
+                    $field === 'endpoint' ? 'https://changed.example' : 'https://provider.example',
+                    $field === 'key' ? 'new-key' : null, $field !== 'active'
+                );
+            }
+            return new ProviderModelCatalog([
+                ['id' => self::TEXT, 'display_name' => 'Text', 'chat' => true, 'vision' => null],
+            ]);
+        });
+        $driver->method('probeVision')->willReturn(ModelProbeStatus::UNVERIFIED);
+        $driver->method('complete')->willThrowException(new \RuntimeException('Use fallback'));
+        $error = null;
+        try {
+            (new ProviderCatalogRefresher($this->models, new OcrModelSelector(), $this->createStub(JournalService::class)))
+                ->refresh($id, $driver, $token);
+        } catch (\RuntimeException $exception) {
+            $error = $exception->getMessage();
+        }
+        self::assertSame(['Provider configuration changed during model discovery.', $field === 'deleted' ? [] : $before, [], false], [
+            $error, $this->models->findByProvider($id), $this->models->modelProbeCache($id), $this->pdo->inTransaction(),
+        ]);
+    }
+
+    public function testAConcurrentCacheWriteSurvivesAStoreThatMergesFromAnOlderSnapshot(): void
+    {
+        $id = $this->providers->create('Scaleway', 'scaleway', 'https://provider.example', 'test-key', true);
+        $other = self::productionEngineConnection((string) $this->pdo->query('SELECT DATABASE()')->fetchColumn())->getPdo();
+        $positive = new \Modules\LlmConnector\Provider\ModelProbeCache([], 'scope-B', 1800000020);
+        $positive->record(self::TEXT, ModelProbeStatus::VISION_VERIFIED);
+        $negative = new \Modules\LlmConnector\Provider\ModelProbeCache([], 'scope-A', 1800000010);
+        $negative->record(self::TEXT, ModelProbeStatus::CHAT_UNSUPPORTED);
+        $this->pdo->exec('SET SESSION TRANSACTION ISOLATION LEVEL REPEATABLE READ');
+        $this->pdo->beginTransaction();
+        try {
+            $snapshot = $this->pdo->prepare('SELECT id FROM llm_providers WHERE id = ?');
+            $snapshot->execute([$id]);
+            $snapshot->fetch();
+            $update = $other->prepare('UPDATE llm_providers SET model_probe_cache = ? WHERE id = ?');
+            $update->execute([json_encode($positive->toArray(), JSON_THROW_ON_ERROR), $id]);
+            $this->models->storeModelProbeCache($id, $negative->toArray());
+            $stored = $this->models->modelProbeCache($id);
+        } finally {
+            $this->pdo->rollBack();
+        }
+        self::assertSame([ModelProbeStatus::CHAT_UNSUPPORTED, ModelProbeStatus::VISION_VERIFIED], [
+            (new \Modules\LlmConnector\Provider\ModelProbeCache($stored, 'scope-A', 1800000030))->resultFor(self::TEXT),
+            (new \Modules\LlmConnector\Provider\ModelProbeCache($stored, 'scope-B', 1800000030))->resultFor(self::TEXT),
+        ]);
+    }
+
+    public static function mistralRevocations(): iterable
+    {
+        yield 'explicit text only' => [false];
+        yield 'missing capability' => [null];
+    }
+
+    #[DataProvider('mistralRevocations')]
+    public function testMistralVisionEvidenceSurvivesReloadButIsRevokedByChangedCapabilities(?bool $vision): void
+    {
+        $id = $this->providers->create('Mistral', 'mistral', 'https://provider.example', 'test-key', true);
+        $token = $this->providers->findById($id)['configuration_token'];
+        $model = 'mistral-small-latest';
+        $this->models->upsert($id, $model, 'Mistral');
+        $this->models->autoAssignTiers($id, ['cheap' => $model, 'capable' => $model, 'ocr' => $model]);
+        $scope = \Modules\LlmConnector\Provider\ModelProbeCache::scopeFor('mistral', 'https://provider.example', 'test-key');
+        $resolver = new \Modules\LlmConnector\Service\TierModelResolver($this->models);
+        $before = $resolver->resolve($id, 'mistral', LlmTier::OCR, $scope);
+        $driver = $this->getMockBuilder(\Modules\LlmConnector\Provider\MistralProvider::class)
+            ->setConstructorArgs(['https://provider.example', 'test-key'])->onlyMethods(['listModels', 'complete'])->getMock();
+        $driver->expects($this->exactly(2))->method('listModels')->willReturnOnConsecutiveCalls(
+            new ProviderModelCatalog([['id' => $model, 'display_name' => 'Mistral', 'chat' => true, 'vision' => true]]),
+            new ProviderModelCatalog([['id' => $model, 'display_name' => 'Mistral', 'chat' => true, 'vision' => $vision]])
+        );
+        $driver->method('complete')->willThrowException(new \RuntimeException('Use fallback'));
+        $refresher = new ProviderCatalogRefresher($this->models, new OcrModelSelector(), $this->createStub(JournalService::class));
+        $refresher->refresh($id, $driver, $token);
+        $verified = $resolver->resolve($id, 'mistral', LlmTier::OCR, $scope)['model_id'] ?? null;
+        $wrongScope = \Modules\LlmConnector\Provider\ModelProbeCache::scopeFor('mistral', 'https://provider.example', 'new-key');
+        $wrongKey = $resolver->resolve($id, 'mistral', LlmTier::OCR, $wrongScope);
+        $refresher->refresh($id, $driver, $token);
+        self::assertSame([null, $model, null, null, ModelProbeStatus::VISION_NOT_VERIFIED], [
+            $before, $verified, $wrongKey, $resolver->resolve($id, 'mistral', LlmTier::OCR, $scope),
+            (new \Modules\LlmConnector\Provider\ModelProbeCache($this->models->modelProbeCache($id), $scope))->resultFor($model),
+        ]);
+    }
+
+    public function testWeeklyRenewalIsAnchoredBeforeClassificationAndAdvancesAnOverdueMargin(): void
+    {
+        $id = $this->providers->create('Scaleway', 'scaleway', 'https://provider.example', 'test-key', true);
+        $driver = $this->getMockBuilder(ScalewayProvider::class)
+            ->setConstructorArgs(['https://provider.example', 'test-key'])
+            ->onlyMethods(['listModels', 'probeVision', 'complete'])->getMock();
+        $driver->method('listModels')->willReturn(new ProviderModelCatalog([
+            ['id' => self::IMAGE, 'display_name' => 'Images', 'chat' => true, 'vision' => null],
+        ]));
+        $driver->expects($this->once())->method('probeVision')->willReturn(ModelProbeStatus::VISION_VERIFIED);
+        $driver->method('complete')->willReturnCallback(static function (): ProviderResponse {
+            sleep(2); // Distinguish verification start from refresh completion.
+            return new ProviderResponse('{"cheap_model_id":"mistral-small-3.2-24b-instruct-2506","capable_model_id":"mistral-small-3.2-24b-instruct-2506","ocr_model_id":"mistral-small-3.2-24b-instruct-2506"}', 1, 1);
+        });
+        $scheduler = new SchedulerService(new SchedulerRepository($this->pdo));
+        $scheduler->rearm('llm_connector', 'refresh_models', 'weekly', new \DateTimeImmutable('+7 days'));
+        $handler = new class extends RefreshModelsHandler {
+            public LlmProviderInterface $testDriver;
+            protected function createDriver(string $driver, string $apiEndpoint, string $apiKey): LlmProviderInterface
+            {
+                return $this->testDriver;
+            }
+        };
+        $handler->testDriver = $driver;
+        $handler->handle([], $this->context($this->createStub(JournalService::class)));
+        $checkedAt = $this->models->modelProbeCache($id)['results'][self::IMAGE]['checked_at'];
+        $next = strtotime($scheduler->find('llm_connector', 'refresh_models', 'weekly')['run_at']);
+        self::assertSame([true, true], [
+            $next <= $checkedAt + 7 * 86400 - 3600,
+            $next > $checkedAt + 6 * 86400,
+        ]);
     }
 }

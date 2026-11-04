@@ -97,7 +97,9 @@ class LlmConnectorService implements LlmConnectorInterface
         }
 
         $driverInstance = $this->createDriver(
-            $provider['driver'], $provider['api_endpoint'], $provider['api_key'],
+            $provider['driver'],
+            $provider['api_endpoint'],
+            $provider['api_key'],
             ($model['supports_images'] ?? false) ? [$model['model_id']] : []
         );
 
@@ -263,7 +265,7 @@ class LlmConnectorService implements LlmConnectorInterface
      */
     private function resolveModel(array $provider, LlmTier $tier): ?array
     {
-        $scope = ScalewayProvider::capabilityScope($provider['api_endpoint'], $provider['api_key']);
+        $scope = ModelProbeCache::scopeFor($provider['driver'], $provider['api_endpoint'], $provider['api_key']);
         return (new TierModelResolver($this->modelRepo))->resolve($provider['id'], $provider['driver'], $tier, $scope);
     }
 
@@ -301,10 +303,14 @@ class LlmConnectorService implements LlmConnectorInterface
 
     /**
      * Instantiate the appropriate provider driver.
+     *
+     * @param list<string> $verifiedImageModels
      */
-    /** @param list<string> $verifiedImageModels */
     private function createDriver(
-        string $driver, string $apiEndpoint, string $apiKey, array $verifiedImageModels = []
+        string $driver,
+        string $apiEndpoint,
+        string $apiKey,
+        array $verifiedImageModels = []
     ): LlmProviderInterface {
         return match ($driver) {
             'anthropic' => new AnthropicProvider($apiEndpoint, $apiKey),

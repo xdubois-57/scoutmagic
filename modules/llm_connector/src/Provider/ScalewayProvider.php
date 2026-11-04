@@ -35,7 +35,7 @@ class ScalewayProvider implements LlmProviderInterface
 
     public static function capabilityScope(string $endpoint, string $key): string
     {
-        return hash('sha256', rtrim($endpoint, '/') . "\0" . $key);
+        return ModelProbeCache::scopeFor('scaleway', $endpoint, $key);
     }
 
     public function probeScope(): string
@@ -61,7 +61,10 @@ class ScalewayProvider implements LlmProviderInterface
         $body = $this->buildRequestBody($modelId, [['role' => 'user', 'content' => $content]], ['max_tokens' => 32]);
         try {
             $response = $this->http->postJson(
-                rtrim($this->apiEndpoint, '/') . '/v1/chat/completions', $this->headers(), $body, 5
+                rtrim($this->apiEndpoint, '/') . '/v1/chat/completions',
+                $this->headers(),
+                $body,
+                5
             );
             if (isset($response['error'])) {
                 return ($response['error']['type'] ?? null) === 'route_not_supported'
@@ -160,7 +163,7 @@ class ScalewayProvider implements LlmProviderInterface
             $response = $this->http->postJson($url, $this->headers(), $body, $timeout);
             // Some endpoints return an error object with HTTP 200.
             if (isset($response['error'])) {
-                throw LlmException::apiError(json_encode($response, JSON_THROW_ON_ERROR));
+                throw LlmException::apiError(json_encode(['error' => $response['error']], JSON_THROW_ON_ERROR));
             }
         } catch (LlmException $error) {
             if (self::isUnsupportedRoute($error)) {

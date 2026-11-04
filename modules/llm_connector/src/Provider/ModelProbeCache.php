@@ -9,14 +9,23 @@ namespace Modules\LlmConnector\Provider;
 
 use Core\Config\AppClock;
 
-/** Evidence belongs to an endpoint/key pair and expires conservatively. */
+/** Capability evidence is scoped to a provider configuration and expires conservatively. */
 final class ModelProbeCache
 {
+    // Leave an hour for cron cadence, queued work and discovery before expiry.
+    public const RENEW_AFTER_SECONDS = 7 * 86400 - 3600;
     private const VERIFIED_TTL = 7 * 86400;
     private const RETRY_TTL = 3600;
     /** @var array<string, mixed> */
     private array $results;
     private int $now;
+
+    /** Isolate evidence by driver, endpoint and key without storing credentials. */
+    public static function scopeFor(string $driver, string $endpoint, string $key): string
+    {
+        $hash = hash('sha256', rtrim($endpoint, '/') . "\0" . $key);
+        return $driver === 'scaleway' ? $hash : $driver . ':' . $hash;
+    }
 
     /** @param array<string, mixed> $stored */
     public function __construct(array $stored, private string $scope, ?int $now = null)
@@ -47,6 +56,11 @@ final class ModelProbeCache
 
     public function record(string $modelId, ModelProbeStatus $status): void
     {
+        // A failed renewal cannot revoke or extend a still-valid positive proof.
+        if ($status === ModelProbeStatus::UNVERIFIED
+            && $this->resultFor($modelId) === ModelProbeStatus::VISION_VERIFIED) {
+            return;
+        }
         // Timeouts and wrong answers cannot erase an established endpoint refusal.
         if ($status === ModelProbeStatus::UNVERIFIED
             && $this->resultFor($modelId) === ModelProbeStatus::CHAT_UNSUPPORTED) {
@@ -114,6 +128,11 @@ final class ModelProbeCache
             && (($incoming['status'] ?? null) !== ModelProbeStatus::VISION_VERIFIED->value
                 || $incoming['checked_at'] === $current['checked_at'])) {
             return ['status' => ModelProbeStatus::CHAT_UNSUPPORTED->value, 'checked_at' => $incoming['checked_at']];
+        }
+        if (($current['status'] ?? null) === ModelProbeStatus::VISION_VERIFIED->value
+            && ($incoming['status'] ?? null) === ModelProbeStatus::UNVERIFIED->value
+            && $incoming['checked_at'] - $current['checked_at'] < self::VERIFIED_TTL) {
+            return $current;
         }
         return $incoming;
     }

@@ -52,6 +52,7 @@ class AnthropicProvider implements LlmProviderInterface
 
         $models = [];
         $afterId = null;
+        $complete = false;
 
         // This endpoint paginates (has_more / last_id, 20 per page by
         // default). Reading only the first page silently hid every model past
@@ -84,11 +85,19 @@ class AnthropicProvider implements LlmProviderInterface
                 ];
             }
 
-            $lastId = isset($response['last_id']) ? (string) $response['last_id'] : '';
-            if (($response['has_more'] ?? false) !== true || $lastId === '') {
+            if (($response['has_more'] ?? false) !== true) {
+                $complete = true;
                 break;
             }
+            $lastId = $response['last_id'] ?? null;
+            if (!is_string($lastId) || $lastId === '' || $lastId === $afterId) {
+                throw LlmException::apiError('Incomplete pagination from the Anthropic models endpoint.');
+            }
             $afterId = $lastId;
+        }
+
+        if (!$complete) {
+            throw LlmException::apiError('The Anthropic model catalog exceeds the page limit.');
         }
 
         return new ProviderModelCatalog($models);

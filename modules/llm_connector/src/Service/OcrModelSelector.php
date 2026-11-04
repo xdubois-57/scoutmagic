@@ -44,7 +44,12 @@ class OcrModelSelector
             return $fallback;
         }
 
-        $queryModelId = $fallback['cheap'] ?? $modelIds[0];
+        if ($fallback['cheap'] === null) {
+            $this->logSelection('', 'no_cheap_model', 'Aucun modèle économique pour classer le catalogue.', $fallback);
+            return $fallback;
+        }
+
+        $queryModelId = $fallback['cheap'];
         try {
             $response = $provider->complete($queryModelId, $this->buildPrompt($catalog));
             $json = $this->extractJson($response->content);
@@ -66,7 +71,10 @@ class OcrModelSelector
 
         if (!is_array($selection)) {
             $this->logSelection(
-                $queryModelId, 'invalid_response', 'Le classement des modèles IA est illisible.', $fallback
+                $queryModelId,
+                'invalid_response',
+                'Le classement des modèles IA est illisible.',
+                $fallback
             );
             return $fallback;
         }
@@ -154,8 +162,10 @@ class OcrModelSelector
             return ['cheap' => null, 'capable' => null, 'ocr' => null];
         }
         $patterns = ['small', 'ministral', 'nemo', 'haiku', 'mini', 'lite'];
-        $cheap = $this->pickBestByPatterns($models, $patterns) ?? $models[0];
-        $capable = $this->pickBestByPatterns($models, ['large', 'medium', 'sonnet']);
+        $economical = array_values(array_filter($models, self::isCheap(...)));
+        $cheap = $this->pickBestByPatterns($economical, $patterns) ?? $economical[0] ?? null;
+        $reasonable = array_values(array_filter($models, $this->isReasonable(...)));
+        $capable = $this->pickBestByPatterns($reasonable, ['large', 'medium', 'sonnet']);
         if ($capable === null) {
             foreach ($models as $id) {
                 if ($id !== $cheap && $this->isReasonable($id)) {

@@ -23,6 +23,29 @@ class ProviderModelRepository
         \Core\Database\TransactionScope::run($this->pdo, $work);
     }
 
+    /** @param array<string, mixed> $row */
+    public static function configurationToken(array $row): string
+    {
+        return hash('sha256', json_encode([
+            $row['driver'], $row['api_endpoint'], bin2hex((string) $row['api_key']), (bool) $row['is_active'],
+        ], JSON_THROW_ON_ERROR));
+    }
+
+    /** Lock the current configuration before any catalog or tier is changed. */
+    public function assertProviderConfiguration(int $providerId, string $expectedToken): void
+    {
+        $sql = 'SELECT * FROM llm_providers WHERE id = ?';
+        if ($this->pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) === 'mysql') {
+            $sql .= ' FOR UPDATE';
+        }
+        $statement = $this->pdo->prepare($sql);
+        $statement->execute([$providerId]);
+        $row = $statement->fetch(\PDO::FETCH_ASSOC);
+        if ($row === false || !hash_equals($expectedToken, self::configurationToken($row))) {
+            throw new \RuntimeException('Provider configuration changed during model discovery.');
+        }
+    }
+
     /** @return array<string, mixed> */
     public function modelProbeCache(int $providerId): array
     {

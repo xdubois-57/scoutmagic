@@ -10,6 +10,7 @@ namespace Modules\LlmConnector\Service;
 
 use Core\Journal\JournalService;
 use Modules\LlmConnector\Provider\LlmProviderInterface;
+use Modules\LlmConnector\Provider\MistralProvider;
 use Modules\LlmConnector\Provider\ProviderModelCatalog;
 use Modules\LlmConnector\Provider\ScalewayProvider;
 use Modules\LlmConnector\Provider\ModelProbeCache;
@@ -27,12 +28,27 @@ final class ProviderCatalogRefresher
     ) {
     }
 
-    public function refresh(int $providerId, LlmProviderInterface $driver, bool $renewVision = false): ProviderModelCatalog
-    {
+    public function refresh(
+        int $providerId,
+        LlmProviderInterface $driver,
+        string $configurationToken,
+        bool $renewVision = false
+    ): ProviderModelCatalog {
         $catalog = $driver->listModels();
         $discovered = $catalog;
         $evaluation = $driver instanceof ScalewayProvider
             ? (new ScalewayVisionVerifier($this->models))->verify($providerId, $driver, $catalog, $renewVision) : null;
+        if ($driver instanceof MistralProvider) {
+            $cache = new ModelProbeCache($this->models->modelProbeCache($providerId), $driver->capabilityScope());
+            foreach ($catalog->chatModelIds() as $id) {
+                $cache->record(
+                    $id,
+                    in_array($id, $catalog->visionModelIds(), true)
+                        ? ModelProbeStatus::VISION_VERIFIED : ModelProbeStatus::VISION_NOT_VERIFIED
+                );
+            }
+            $evaluation = ['catalog' => $catalog, 'cache' => $cache->toArray(), 'attempts' => 0, 'outcomes' => []];
+        }
         $catalog = $evaluation['catalog'] ?? $catalog;
         // Network calls and classification never hold a database transaction.
         $tiers = $this->selector->selectTiers($driver, $catalog);
@@ -45,8 +61,9 @@ final class ProviderCatalogRefresher
         }
         $outcomes = $evaluation['outcomes'] ?? [];
         $this->models->transactional(function () use (
-            $providerId, &$catalog, $discovered, $tiers, $evaluation, &$outcomes
+            $providerId, &$catalog, $discovered, $tiers, $evaluation, &$outcomes, $configurationToken
         ): void {
+            $this->models->assertProviderConfiguration($providerId, $configurationToken);
             if ($evaluation !== null) {
                 $merged = $this->models->storeModelProbeCache($providerId, $evaluation['cache']);
                 $cache = new ModelProbeCache($merged, (string) $evaluation['cache']['scope']);
@@ -71,15 +88,21 @@ final class ProviderCatalogRefresher
             $this->models->autoAssignTiers($providerId, $tiers);
         });
 
-        $this->journal->log('llm_connector', 'model_capabilities_checked', 'info',
-            'Le catalogue IA a été vérifié avant l’affectation des tiers.', [
+        $this->journal->log(
+            'llm_connector',
+            'model_capabilities_checked',
+            'info',
+            'Le catalogue IA a été vérifié avant l’affectation des tiers.',
+            [
                 'provider_id' => $providerId,
                 'chat_model_count' => count($catalog->chatModelIds()),
                 'vision_model_count' => count($catalog->visionModelIds()),
                 'excluded_models' => $catalog->exclusions(),
                 'image_probe_count' => $evaluation['attempts'] ?? 0,
                 'image_probe_results' => $outcomes,
-            ], $this->actingUserAccountId);
+            ],
+            $this->actingUserAccountId
+        );
         return $catalog;
     }
 }

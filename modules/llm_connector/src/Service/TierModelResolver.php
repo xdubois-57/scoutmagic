@@ -40,6 +40,14 @@ final class TierModelResolver
             }
             $model['supports_images'] = $status === ModelProbeStatus::VISION_VERIFIED;
         }
+        if ($driver === 'mistral') {
+            $cache = new ModelProbeCache($this->models->modelProbeCache($providerId), $scope ?? '');
+            $verified = $scope !== null && $cache->resultFor($model['model_id']) === ModelProbeStatus::VISION_VERIFIED;
+            if ($tier === LlmTier::OCR && !$verified) {
+                return null;
+            }
+            $model['supports_images'] = $verified;
+        }
         return $model;
     }
 }
