@@ -3427,16 +3427,16 @@
         },
         {
             "name": "symfony/filesystem",
-            "version": "v8.1.9",
+            "version": "v8.1.11",
             "source": {
                 "type": "git",
                 "url": "https://github.com/symfony/filesystem.git",
-                "reference": "43d109c803d22c00bb820ed45df250b6a8792ca2"
+                "reference": "58f57b6a33e3495f7f41e01258f1ae5ef76cccd2"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/symfony/filesystem/zipball/43d109c803d22c00bb820ed45df250b6a8792ca2",
-                "reference": "43d109c803d22c00bb820ed45df250b6a8792ca2",
+                "url": "https://api.github.com/repos/symfony/filesystem/zipball/58f57b6a33e3495f7f41e01258f1ae5ef76cccd2",
+                "reference": "58f57b6a33e3495f7f41e01258f1ae5ef76cccd2",
                 "shasum": ""
             },
             "require": {
@@ -3474,7 +3474,7 @@
             "description": "Provides basic utilities for the filesystem",
             "homepage": "https://symfony.com",
             "support": {
-                "source": "https://github.com/symfony/filesystem/tree/v8.1.9"
+                "source": "https://github.com/symfony/filesystem/tree/v8.1.11"
             },
             "funding": [
                 {
@@ -3494,20 +3494,20 @@
                     "type": "tidelift"
                 }
             ],
-            "time": "2026-10-06T20:05:50+00:00"
+            "time": "2026-11-04T08:39:20+00:00"
         },
         {
             "name": "symfony/http-foundation",
-            "version": "v8.1.8",
+            "version": "v8.1.11",
             "source": {
                 "type": "git",
                 "url": "https://github.com/symfony/http-foundation.git",
-                "reference": "662f5257658d4f60deff1bc790e9f2c68cb391bf"
+                "reference": "30fa3efe6e736b0d06f5331cc6abe813582c0a26"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/symfony/http-foundation/zipball/662f5257658d4f60deff1bc790e9f2c68cb391bf",
-                "reference": "662f5257658d4f60deff1bc790e9f2c68cb391bf",
+                "url": "https://api.github.com/repos/symfony/http-foundation/zipball/30fa3efe6e736b0d06f5331cc6abe813582c0a26",
+                "reference": "30fa3efe6e736b0d06f5331cc6abe813582c0a26",
                 "shasum": ""
             },
             "require": {
@@ -3555,7 +3555,7 @@
             "description": "Defines an object-oriented layer for the HTTP specification",
             "homepage": "https://symfony.com",
             "support": {
-                "source": "https://github.com/symfony/http-foundation/tree/v8.1.8"
+                "source": "https://github.com/symfony/http-foundation/tree/v8.1.11"
             },
             "funding": [
                 {
@@ -3575,7 +3575,7 @@
                     "type": "tidelift"
                 }
             ],
-            "time": "2026-09-24T07:13:53+00:00"
+            "time": "2026-11-04T08:39:20+00:00"
         },
         {
             "name": "symfony/polyfill-ctype",
