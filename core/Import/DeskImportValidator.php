@@ -75,19 +75,22 @@ final class DeskImportValidator
     /**
      * @param \DateTimeImmutable $scoutYearEnd last day of the scout year the file is imported into (rule 13)
      * @param \DateTimeImmutable $today what « in the future » means for a birth date (rule 1)
+     * @param array<string, int> $codeIdentities database-equivalent codes, supplied by the import service;
+     *        omitted for standalone format checks, which compare exact spellings
      * @return list<DeskImportError> sorted by line, then by rule; empty when the file may be imported
      */
     public function validate(
         ParsedImport $parsed,
         \DateTimeImmutable $scoutYearEnd,
-        \DateTimeImmutable $today
+        \DateTimeImmutable $today,
+        array $codeIdentities = []
     ): array {
         $errors = [];
         /** @var array<string, list<DeskCsvRow>> $byTiers */
         $byTiers = [];
 
         foreach ($parsed->rows as $row) {
-            if (!$this->hasHeaderShape($row, $parsed->headerCount)) {
+            if (!$row->hasHeaderShape($parsed->headerCount)) {
                 // Rule 3. Nothing else is read from such a line: its cells
                 // sit under the wrong headers, so its Tiers may be somebody's
                 // name and its « birth date » a street number.
@@ -115,7 +118,7 @@ final class DeskImportValidator
 
         foreach ($byTiers as $rows) {
             array_push($errors, ...$this->identityErrors($rows));
-            array_push($errors, ...$this->mainFunctionErrors($rows));
+            array_push($errors, ...$this->mainFunctionErrors($rows, $codeIdentities));
         }
 
         usort(
@@ -125,17 +128,6 @@ final class DeskImportValidator
         );
 
         return $errors;
-    }
-
-    /**
-     * Rule 3: as many cells as the header — or exactly one more when that
-     * last one is empty, because a real Desk export ends every line with a
-     * « ; ». Anything else means the line is cut or shifted.
-     */
-    private function hasHeaderShape(DeskCsvRow $row, int $headerCount): bool
-    {
-        return $row->fieldCount === $headerCount
-            || ($row->fieldCount === $headerCount + 1 && $row->extraCellsEmpty);
     }
 
     /**
@@ -178,6 +170,9 @@ final class DeskImportValidator
 
         foreach (self::BOOLEAN_COLUMNS as $column) {
             $value = $row->value($column);
+            if ($column === 'Fonction principale' && $value === '') {
+                continue;
+            }
             if (!in_array(strtolower($value), ['true', 'false'], true)) {
                 $add(DeskImportRule::BOOLEAN, $this->cell($column, $value) . ' : valeur attendue true ou false.');
             }
@@ -293,16 +288,24 @@ final class DeskImportValidator
     /**
      * One function's identity across its address lines: its code, branch,
      * section and dates, each date in one spelling (`01/09/2025` and
-     * `2025-09-01` are the same start).
+     * `2025-09-01` are the same start). Code identities come from the actual
+     * mapping collation. An absent association remains distinct from a
+     * nonempty primary-ignorable code, which the mapper would create.
+     * Serialize the parts so a separator
+     * inside a CSV field cannot merge two different tuples.
+     *
+     * @param array<string, int> $codeIdentities
      */
-    private function functionKey(DeskCsvRow $row): string
+    private function functionKey(DeskCsvRow $row, array $codeIdentities): string
     {
         $date = static fn(string $value): string => DeskDateParser::toIso($value) ?? $value;
+        $code = static fn(string $value): int|string|null => $value === ''
+            ? null : ($codeIdentities[$value] ?? $value);
 
-        return implode("\x1F", [
-            $row->value('FONCTION'),
-            $row->value('Branche'),
-            $row->value('Section'),
+        return serialize([
+            $code($row->value('FONCTION')),
+            $code($row->value('Branche')),
+            $code($row->value('Section')),
             $date($row->value('Date début')),
             $date($row->value('Date fin')),
             $date($row->value('fin de mandat')),
@@ -310,7 +313,8 @@ final class DeskImportValidator
     }
 
     /**
-     * Rule 14: exactly one main function per member.
+     * Rule 14: one function is implicitly main; several need exactly one
+     * explicit main flag. An empty flag means unmarked, like false.
      *
      * Counted on DISTINCT functions, not on lines: Desk writes one line per
      * (function × address), so a member with two addresses carries their
@@ -326,19 +330,23 @@ final class DeskImportValidator
      * refused: the count would only repeat that error in other words.
      *
      * @param list<DeskCsvRow> $rows
+     * @param array<string, int> $codeIdentities
      * @return list<DeskImportError>
      */
-    private function mainFunctionErrors(array $rows): array
+    private function mainFunctionErrors(array $rows, array $codeIdentities): array
     {
         /** @var array<string, string> $flagOf the first flag seen for each distinct function */
         $flagOf = [];
         $mainFunctions = [];
         foreach ($rows as $row) {
             $flag = strtolower($row->value('Fonction principale'));
+            if ($flag === '') {
+                $flag = 'false';
+            }
             if ($flag !== 'true' && $flag !== 'false') {
                 return [];
             }
-            $key = $this->functionKey($row);
+            $key = $this->functionKey($row, $codeIdentities);
             if (isset($flagOf[$key]) && $flagOf[$key] !== $flag) {
                 return [new DeskImportError(
                     $row->lineNumber,
@@ -354,7 +362,7 @@ final class DeskImportValidator
         }
 
         $count = count($mainFunctions);
-        if ($count === 1) {
+        if ($count === 1 || count($flagOf) === 1) {
             return [];
         }
 

@@ -103,19 +103,19 @@ const DESK_FIXTURE = path.join(
 );
 
 /**
- * The Desk export this scenario uploads: the shared sample, plus ONE row —
- * the super-admin, as chef d'unité of the target year.
+ * The Desk export this scenario uploads: the shared sample, the super-admin
+ * as chef d'unité, and an external quartermaster with one unmarked function.
  *
  * WHY THE EXTRA ROW EXISTS. A Desk import replaces a roster:
  * DeskImportService calls deactivateAllForYear() before writing, so after
  * step 6 the only members of the target year are the ones this file names.
- * The shared sample names six children and no unit chief, so the account
+ * The shared sample names three members and no unit chief, so the account
  * every later scenario signs in as stopped being Staff d'U the moment this
  * spec moved the public year forward — and pages gated on « chef d'unité »
  * (/config/retro, /config/banner) began answering 403 in
  * zz-module-boot-matrix, which runs after this one.
  *
- * A real unit's export always carries its own chief; the six-row sample
+ * A real unit's export always carries its own chief; the small sample
  * simply is not a real unit. Adding the row here rather than to
  * tests/fixtures/desk_export_sample.csv keeps that file byte-identical for
  * tests/Core/Import/, which asserts on its exact contents.
@@ -126,6 +126,9 @@ const DESK_FIXTURE = path.join(
  * purpose: UnitStaffSectionService::syncMembership() is what puts every
  * admin-role function with no section into « Staff d'U », which is exactly
  * how a real chief lands there.
+ *
+ * The quartermaster's two addresses carry false and empty main flags (#1059).
+ * Importing the file must count them as one function and infer its main flag.
  */
 function deskExportCarryingTheUnitChief() {
     const raw = fs.readFileSync(DESK_FIXTURE, 'utf8');
@@ -133,12 +136,12 @@ function deskExportCarryingTheUnitChief() {
     const header = lines[0].split(';');
 
     const row = new Array(header.length).fill('');
-    const set = (column, value) => {
+    const set = (column, value, target = row) => {
         const index = header.indexOf(column);
         if (index === -1) {
             throw new Error(`Desk export has no "${column}" column — the fixture format changed.`);
         }
-        row[index] = value;
+        target[index] = value;
     };
 
     set('Nom', 'Cheffe');
@@ -161,7 +164,20 @@ function deskExportCarryingTheUnitChief() {
     set('Date début', '01/09/2025');
     set('Fonction principale', 'true');
 
-    return [...lines, row.join(';')].join('\n') + '\n';
+    const quartermaster = [...row];
+    set('Nom', 'Intendance', quartermaster);
+    set('Prenom', 'Externe', quartermaster);
+    set('Email Tiers', 'intendance.externe@example.invalid', quartermaster);
+    set('Tiers', 'T901', quartermaster);
+    set('FONCTION', "Intendant d'unité", quartermaster);
+    set('Fonction principale', 'false', quartermaster);
+
+    const secondAddress = [...quartermaster];
+    set("Type d'adresse", 'Adresse secondaire', secondAddress);
+    set('Rue', 'Rue des Tentes', secondAddress);
+    set('Fonction principale', '', secondAddress);
+
+    return [...lines, row.join(';'), quartermaster.join(';'), secondAddress.join(';')].join('\n') + '\n';
 }
 
 /**
@@ -698,7 +714,7 @@ test('the whole site transitions to the next scout year through the documented w
     await expect(importForm).toHaveAttribute('data-year-confirm-ready', '1');
     await importForm.getByRole('button', { name: 'Importer', exact: true }).click();
 
-    await expect(page.getByText(/membres importés/)).toBeVisible();
+    await expect(page.getByText(/5 membres importés/)).toBeVisible();
     await setConfigurationMode(page, false);
 
     await page.goto('/admin/scout-year', { waitUntil: 'domcontentloaded' });

@@ -257,10 +257,11 @@ final class ScenarioPeople
         // branch and start date like any other of its staff. What the
         // scenario is for is unchanged — a member whose confirmed role is
         // `intendant` and nothing more, so the Finances pages open for
-        // somebody who is not a chef.
+        // somebody who is not a chef. Its sole function is unmarked in
+        // Desk: the importer must infer and persist the main flag (#1059).
         $person = $this->factory->make('T0016', 1979, null);
         foreach ([self::A1, self::A2, self::A3] as $year) {
-            $person->years[$year] = $this->cadreYear('Intendant', 'pio1', $year);
+            $person->years[$year] = $this->cadreYear('Intendant', 'pio1', $year, false);
         }
 
         return [$person];
@@ -560,10 +561,10 @@ final class ScenarioPeople
         );
     }
 
-    private function cadreYear(string $code, string $handle, string $year): PersonYear
+    private function cadreYear(string $code, string $handle, string $year, bool $isMain = true): PersonYear
     {
         return new PersonYear(
-            functions: [$this->sectionFunction($code, $handle, $year, true)],
+            functions: [$this->sectionFunction($code, $handle, $year, $isMain)],
             feeCode: UnitBlueprint::FEE_CODES['normal'],
             totem: $this->rng->pick(UnitBlueprint::TOTEMS),
             quali: $this->rng->pick(UnitBlueprint::QUALIS),

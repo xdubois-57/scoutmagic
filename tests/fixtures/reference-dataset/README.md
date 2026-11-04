@@ -933,7 +933,7 @@ production** — voir l'avertissement en tête de ce fichier.
 |---|---|---|
 | superadmin | `superadmin@example.com` | Le seul compte sans membre derrière : celui de l'installation. |
 | chef d'unité | l'email de `T0015` | Animateur en A1, Animateur d'unité ensuite (scénario 10) — l'un des membres par qui Staff d'U se peuple. |
-| intendant | l'email de `T0016` | Intendant des Pionniers les trois années (scénario 11) : voit les Finances sans être chef. |
+| intendant | l'email de `T0016` | Intendant des Pionniers les trois années (scénario 11) : sa seule fonction, non cochée dans Desk, devient principale à l'import ; voit les Finances sans être chef. |
 | chef de section | l'email de `T0014` | Animateur qui change de section entre A1 et A2 (scénario 9). |
 | animé | l'email de `T0012` | Éclaireur qui gagne son totem entre A1 et A2 (scénario 7). |
 | parent | l'email de `T0020` | Aîné d'une fratrie de trois partageant l'email d'un parent (scénario 17). Le second parent, `parent.delvaux@example.org`, est une adresse secondaire confirmée sur les trois fiches (§8.3) : un envoi à l'unité laisse une notification à ce compte et une entrée sur chaque fiche. |

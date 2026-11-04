@@ -328,15 +328,173 @@ class DeskImportValidatorTest extends TestCase
         $this->assertSame([], $this->messagesOf($errors));
     }
 
-    public function testRule14AMemberWithNoMainFunctionIsRefused(): void
+    public function testRule14MultipleFunctionsWithoutAMainFunctionAreRefused(): void
     {
-        $errors = $this->validateRows([$this->row(['Fonction principale' => 'false'])]);
+        $errors = $this->validateRows([
+            $this->row(['Fonction principale' => 'false']),
+            $this->row(['Branche' => 'Baladins', 'Section' => 'SV025B1', 'Fonction principale' => '']),
+        ]);
 
         $this->assertSame([
             'Ligne 2 (T001) — Fonction principale : aucune fonction n\'est marquée principale ; '
                 . 'un membre doit en avoir exactement une.',
         ], $this->messagesOf($errors));
         $this->assertSame(DeskImportRule::MAIN_FUNCTION, $errors[0]->rule);
+    }
+
+    /** A sole function has no competing candidate, including an external intendant. */
+    #[DataProvider('unmarkedMainFlags')]
+    public function testRule14AnOnlyFunctionIsImplicitlyMain(string $flag): void
+    {
+        $errors = $this->validateRows([$this->row([
+            'FONCTION' => 'Intendant', 'Branche' => '', 'Section' => '', 'Date début' => '',
+            'Fonction principale' => $flag,
+        ])]);
+
+        $this->assertSame([], $this->messagesOf($errors));
+    }
+
+    /** Address copies and equivalent date spellings do not make a second function. */
+    #[DataProvider('unmarkedMainFlags')]
+    public function testRule14AnUnmarkedFunctionRepeatedOnAddressLinesIsStillOne(string $flag): void
+    {
+        $errors = $this->validateRows([
+            $this->row(['Fonction principale' => $flag, 'Date début' => '01/09/2025']),
+            $this->row([
+                'Fonction principale' => 'false', 'Date début' => '2025-09-01',
+                "Type d'adresse" => 'Adresse secondaire', 'Rue' => 'Avenue du Parc',
+            ]),
+        ]);
+
+        $this->assertSame([], $this->messagesOf($errors));
+    }
+
+    /** @return iterable<string, array{string}> */
+    public static function unmarkedMainFlags(): iterable
+    {
+        yield 'false' => ['false'];
+        yield 'empty' => [''];
+        yield 'case-insensitive false' => ['FALSE'];
+    }
+
+    public function testRule14DifferentDatesStillMakeTwoFunctionsNeedingAnExplicitMain(): void
+    {
+        $errors = $this->validateRows([
+            $this->row(['Fonction principale' => 'false', 'Date début' => '01/09/2024']),
+            $this->row(['Fonction principale' => '', 'Date début' => '01/09/2025']),
+        ]);
+
+        $this->assertCount(1, $errors);
+        $this->assertSame(DeskImportRule::MAIN_FUNCTION, $errors[0]->rule);
+    }
+
+    public function testRule14AnExplicitMainAllowsAnUnmarkedSecondaryFunction(): void
+    {
+        $errors = $this->validateRows([
+            $this->row([]),
+            $this->row(['Branche' => 'Baladins', 'Section' => 'SV025B1', 'Fonction principale' => '']),
+        ]);
+
+        $this->assertSame([], $this->messagesOf($errors));
+    }
+
+    /** Raw separator characters must not merge distinct function tuples. */
+    public function testRule14ASeparatorInsideAFieldCannotMergeDifferentFunctions(): void
+    {
+        $errors = $this->validateRows([
+            $this->row([
+                'FONCTION' => 'intendant', 'Branche' => "louveteaux\x1Fstaff", 'Section' => 'S',
+                'Fonction principale' => 'false',
+            ]),
+            $this->row([
+                'FONCTION' => "intendant\x1Flouveteaux", 'Branche' => 'staff', 'Section' => 'S',
+                'Fonction principale' => 'false',
+            ]),
+        ]);
+
+        $this->assertCount(1, $errors);
+        $this->assertSame(DeskImportRule::MAIN_FUNCTION, $errors[0]->rule);
+    }
+
+    /**
+     * Equivalence supplied by the database keeps address copies together.
+     * @param array<string, string> $first
+     * @param array<string, string> $second
+     */
+    #[DataProvider('identityCodeAliases')]
+    public function testRule14CodeAliasesCountAsOne(array $first, array $second, string $unmarked): void
+    {
+        $errors = $this->validateRows([
+            $this->row(array_replace($first, ['Fonction principale' => 'false'])),
+            $this->row(array_replace($second, [
+                'Fonction principale' => $unmarked,
+                "Type d'adresse" => 'Adresse secondaire', 'Rue' => 'Avenue du Parc',
+            ])),
+        ], $this->codeIdentities($first, $second));
+
+        $this->assertSame([], $this->messagesOf($errors));
+    }
+
+    /**
+     * Resolving code aliases must not let contradictory flags through to the importer.
+     * @param array<string, string> $first
+     * @param array<string, string> $second
+     */
+    #[DataProvider('identityCodeAliases')]
+    public function testRule14CodeAliasesMustAgreeOnTheMainFlag(array $first, array $second, string $unmarked): void
+    {
+        $errors = $this->validateRows([
+            $this->row(array_replace($first, ['Fonction principale' => 'true'])),
+            $this->row(array_replace($second, [
+                'Fonction principale' => $unmarked,
+                "Type d'adresse" => 'Adresse secondaire', 'Rue' => 'Avenue du Parc',
+            ])),
+        ], $this->codeIdentities($first, $second));
+
+        $this->assertCount(1, $errors);
+        $this->assertSame(DeskImportRule::MAIN_FUNCTION, $errors[0]->rule);
+        $this->assertStringContainsString('la même fonction', $this->messagesOf($errors)[0]);
+    }
+
+    /** @return iterable<string, array{array<string, string>, array<string, string>, string}> */
+    public static function identityCodeAliases(): iterable
+    {
+        $codes = [
+            'function' => [['FONCTION' => "Équipier d'unité"], ['FONCTION' => "équipier D'UNITÉ"]],
+            'branch' => [['Branche' => 'Éclaireurs'], ['Branche' => 'éclaireurs']],
+            'section' => [['Section' => 'Louv1'], ['Section' => 'LOUV1']],
+            'accent' => [['FONCTION' => "Équipier d'unité"], ['FONCTION' => "Equipier d'unite"]],
+            'fullwidth' => [['Branche' => 'REFERENT'], ['Branche' => 'ＲＥＦＥＲＥＮＴ']],
+            'ignorable' => [['Section' => 'SEC1'], ['Section' => "SEC\u{200B}1"]],
+            'all codes' => [
+                ['FONCTION' => "Équipier d'unité", 'Branche' => 'Éclaireurs', 'Section' => 'Louv1'],
+                ['FONCTION' => "équipier D'UNITÉ", 'Branche' => 'éclaireurs', 'Section' => 'LOUV1'],
+            ],
+        ];
+        foreach ($codes as $label => [$first, $second]) {
+            yield $label . ' / false' => [$first, $second, 'false'];
+            yield $label . ' / empty' => [$first, $second, ''];
+        }
+    }
+
+    /**
+     * Explicit input to the pure validator; engine tests establish which codes
+     * really are equivalent. No PHP approximation of a collation in this fixture.
+     * @param array<string, string> $first
+     * @param array<string, string> $second
+     * @return array<string, int>
+     */
+    private function codeIdentities(array $first, array $second): array
+    {
+        $identities = [];
+        foreach (['FONCTION', 'Branche', 'Section'] as $index => $column) {
+            if (isset($first[$column], $second[$column])) {
+                $identities[$first[$column]] = $index;
+                $identities[$second[$column]] = $index;
+            }
+        }
+
+        return $identities;
     }
 
     public function testRule14AMemberWithTwoMainFunctionsIsRefused(): void
@@ -387,12 +545,13 @@ class DeskImportValidatorTest extends TestCase
      * DeskImportService, whose key includes the flag, would store it twice.
      * The line that contradicts the first one is the one named.
      */
-    public function testRule14TheLinesOfOneFunctionMustAgreeOnTheMainFlag(): void
+    #[DataProvider('unmarkedMainFlags')]
+    public function testRule14TheLinesOfOneFunctionMustAgreeOnTheMainFlag(string $flag): void
     {
         $errors = $this->validateRows([
             $this->row([]),
             $this->row([
-                "Type d'adresse" => 'Adresse secondaire', 'Rue' => 'Avenue du Parc', 'Fonction principale' => 'false',
+                "Type d'adresse" => 'Adresse secondaire', 'Rue' => 'Avenue du Parc', 'Fonction principale' => $flag,
             ]),
         ]);
 
@@ -404,14 +563,23 @@ class DeskImportValidatorTest extends TestCase
     }
 
     /** A refused « Fonction principale » is reported once, by rule 8, not again as « no main function ». */
-    public function testRule14IsNotRepeatedForAFlagRule8AlreadyRefused(): void
+    #[DataProvider('invalidMainFlags')]
+    public function testRule14IsNotRepeatedForAFlagRule8AlreadyRefused(string $flag): void
     {
-        $errors = $this->validateRows([$this->row(['Fonction principale' => 'oui'])]);
+        $errors = $this->validateRows([$this->row(['Fonction principale' => $flag])]);
 
         $this->assertSame(
-            ['Ligne 2 (T001) — Fonction principale « oui » : valeur attendue true ou false.'],
+            ["Ligne 2 (T001) — Fonction principale « {$flag} » : valeur attendue true ou false."],
             $this->messagesOf($errors)
         );
+    }
+
+    /** @return iterable<string, array{string}> */
+    public static function invalidMainFlags(): iterable
+    {
+        yield 'text' => ['oui'];
+        yield 'numeric zero' => ['0'];
+        yield 'numeric one' => ['1'];
     }
 
     // ── the refusal as a whole ───────────────────────────────────────
@@ -550,33 +718,38 @@ class DeskImportValidatorTest extends TestCase
 
     /**
      * @param list<list<string>> $rows
+     * @param array<string, int> $codeIdentities
      * @return list<DeskImportError>
      */
-    private function validateRows(array $rows): array
+    private function validateRows(array $rows, array $codeIdentities = []): array
     {
-        return $this->validateLines(array_map(fn(array $row): string => $this->line($row), $rows));
+        return $this->validateLines(array_map(fn(array $row): string => $this->line($row), $rows), $codeIdentities);
     }
 
     /**
      * @param list<string> $lines data lines, written after the sample's header
+     * @param array<string, int> $codeIdentities
      * @return list<DeskImportError>
      */
-    private function validateLines(array $lines): array
+    private function validateLines(array $lines, array $codeIdentities = []): array
     {
         $path = (string) tempnam(sys_get_temp_dir(), 'desk');
         $this->tempFiles[] = $path;
         file_put_contents($path, implode("\n", [$this->line($this->header()), ...$lines]) . "\n");
 
-        return $this->validateFile($path);
+        return $this->validateFile($path, $codeIdentities);
     }
 
-    /** @return list<DeskImportError> */
-    private function validateFile(string $path): array
+    /** @param array<string, int> $codeIdentities
+     *  @return list<DeskImportError>
+     */
+    private function validateFile(string $path, array $codeIdentities = []): array
     {
         return (new DeskImportValidator())->validate(
             (new DeskCsvParser())->parse($path),
             new \DateTimeImmutable(self::YEAR_END),
-            new \DateTimeImmutable(self::TODAY)
+            new \DateTimeImmutable(self::TODAY),
+            $codeIdentities
         );
     }
 

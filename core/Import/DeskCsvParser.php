@@ -400,9 +400,9 @@ class DeskCsvParser
     }
 
     /**
-     * `true`, case ignored. Anything else reads as false here, which is
-     * only safe because DeskImportValidator (rule 8) has already refused
-     * a file carrying anything but `true` or `false` — a spreadsheet's
+     * `true`, case ignored. DeskImportValidator checks the raw cells
+     * before any write: only `true`/`false`, plus an empty main-function
+     * flag meaning unmarked. Mail consents stay strict — a spreadsheet's
      * `VRAI` used to withdraw every mail consent in silence.
      */
     private function parseBool(string $value): bool

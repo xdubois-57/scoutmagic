@@ -83,7 +83,7 @@ final class ScenarioCatalog
         11 => [
             'name' => 'Intendant de section',
             'tiers' => ['T0016'],
-            'expectation' => 'Intendant des Pionniers les trois années : une fonction de section, avec branche et section, dont le rôle confirmé est intendant et rien de plus.',
+            'expectation' => 'Intendant des Pionniers les trois années : sa seule fonction, non cochée principale dans Desk, devient principale à l\'import. Avec branche et section, son rôle confirmé est intendant et rien de plus.',
         ],
         12 => [
             'name' => 'Deux fonctions dont une principale',

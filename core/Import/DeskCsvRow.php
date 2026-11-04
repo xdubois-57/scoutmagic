@@ -41,4 +41,11 @@ final class DeskCsvRow
     {
         return $this->values[$column] ?? '';
     }
+
+    /** A correctly aligned row, including Desk's optional final empty cell. */
+    public function hasHeaderShape(int $headerCount): bool
+    {
+        return $this->fieldCount === $headerCount
+            || ($this->fieldCount === $headerCount + 1 && $this->extraCellsEmpty);
+    }
 }

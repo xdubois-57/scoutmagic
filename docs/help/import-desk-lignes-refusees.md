@@ -29,12 +29,14 @@ ligne 1. Ce que le site exige :
   mêmes nom, prénom, genre, date de naissance et e-mail sur toutes les
   lignes d'un même Tiers ;
 - un **Genre** qui vaut F, H ou X (M n'est pas accepté : Desk écrit H pour un garçon) ;
-- **true** ou **false**, et rien d'autre, dans les colonnes de
-  consentement courrier et de fonction principale — un tableur réglé en
-  français écrit parfois VRAI ou FAUX ;
-- une **FONCTION** sur chaque ligne, et exactement une fonction
-  principale par membre, marquée de la même façon sur toutes les lignes
-  où elle apparaît ;
+- **true** ou **false** pour les consentements courrier et le marquage
+  de fonction principale. Seul ce dernier peut aussi rester vide.
+  Les valeurs françaises VRAI ou FAUX sont refusées ;
+- une **FONCTION** sur chaque ligne. Une fonction unique devient
+  automatiquement principale, même marquée **false** ou laissée vide.
+  Une fonction répétée sur plusieurs adresses ne compte qu'une fois.
+  Avec plusieurs fonctions, une seule doit être explicitement principale.
+  Les lignes d'une même fonction doivent porter un marquage cohérent ;
 - un **e-mail** vide ou bien formé ;
 - des **dates de fonction** vides ou lisibles, dont aucune ne commence
   après la fin de l'année scoute choisie — sinon le fichier vise
