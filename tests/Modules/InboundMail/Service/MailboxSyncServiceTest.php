@@ -6,6 +6,7 @@ namespace Tests\Modules\InboundMail\Service;
 
 use Core\File\FileRepository;
 use Core\File\UploadHandler;
+use Core\Image\PhotoNormalizer;
 use Core\Security\EncryptionService;
 use Core\Security\HtmlSanitizer;
 use Modules\InboundMail\Api\AnalysisResult;
@@ -38,11 +39,9 @@ use Tests\Modules\InboundMail\InboundMailTestHelper;
  * through the same parser the IMAP path uses, so these tests exercise
  * production code rather than a second implementation written for tests.
  *
- * The rule this file exists to pin is the one that is easiest to break by
- * accident: **a message nobody claims is never written down**, and the
- * cursor moves past it anyway. Getting the first half wrong builds an
- * archive of somebody's mailbox; getting the second half wrong makes one
- * unrecognised newsletter block a mailbox forever.
+ * Every message is kept once within its mailbox, including one nobody
+ * claims. A refused attachment must not cost the message around it, and
+ * sanitizing a photo must preserve deduplication on the received bytes.
  *
  * @group database
  */
@@ -61,8 +60,10 @@ class MailboxSyncServiceTest extends TestCase
 
     protected function setUp(): void
     {
-        $this->pdo = DatabaseTestHelper::createTestDatabase();
-        InboundMailTestHelper::createTables($this->pdo);
+        $this->pdo = $this->database();
+        if ($this->pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) === 'sqlite') {
+            InboundMailTestHelper::createTables($this->pdo);
+        }
         $this->encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
 
         $this->mailboxRepository = new InboundMailboxRepository($this->pdo, $this->encryption);
@@ -70,23 +71,10 @@ class MailboxSyncServiceTest extends TestCase
         $this->registry = new MessageConsumerRegistry();
         $this->client = new FakeMailboxClient();
 
-        $factory = new MailboxClientFactory();
-        $factory->register(ProviderType::FAKE, $this->client);
-
         $this->storagePath = sys_get_temp_dir() . '/inbound-mail-test-' . bin2hex(random_bytes(6));
         mkdir($this->storagePath, 0777, true);
 
-        $this->service = new MailboxSyncService(
-            $this->mailboxRepository,
-            $this->messageRepository,
-            $this->registry,
-            new MessageContentSanitizer(new HtmlSanitizer()),
-            new AttachmentPolicy(),
-            new MailboxErrorFormatter(),
-            $factory,
-            new AnalysisResultApplier($this->messageRepository),
-            new UploadHandler(new FileRepository($this->pdo), $this->storagePath)
-        );
+        $this->service = $this->createSyncService();
 
         $this->mailboxId = $this->mailboxRepository->create(
             'Locations',
@@ -99,6 +87,30 @@ class MailboxSyncServiceTest extends TestCase
             ['INBOX'],
             true
         );
+    }
+
+    private function createSyncService(?PhotoNormalizer $normalizer = null): MailboxSyncService
+    {
+        $factory = new MailboxClientFactory();
+        $factory->register(ProviderType::FAKE, $this->client);
+
+        return new MailboxSyncService(
+            $this->mailboxRepository,
+            $this->messageRepository,
+            $this->registry,
+            new MessageContentSanitizer(new HtmlSanitizer()),
+            new AttachmentPolicy(),
+            new MailboxErrorFormatter(),
+            $factory,
+            new AnalysisResultApplier($this->messageRepository),
+            new UploadHandler(new FileRepository($this->pdo), $this->storagePath),
+            photoNormalizer: $normalizer
+        );
+    }
+
+    protected function database(): \PDO
+    {
+        return DatabaseTestHelper::createTestDatabase();
     }
 
     protected function tearDown(): void
@@ -848,5 +860,172 @@ class MailboxSyncServiceTest extends TestCase
 
         $this->assertSame(2, (int) $this->pdo->query('SELECT COUNT(*) FROM inbound_message_attachments')->fetchColumn());
         $this->assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM files')->fetchColumn());
+    }
+
+    public function testAnIncomingJpegLosesGpsAndIsStoredUpright(): void
+    {
+        $source = $this->jpegWithGps();
+        $this->assertArrayHasKey('GPSLatitude', $this->exifOf($source));
+        $this->registry->register($this->claimEverything());
+        $this->addMessageWithAttachment(10, 'gps@b', $source, 'photo.jpeg');
+
+        $this->sync();
+
+        $photo = $this->messageRepository->findForReference('rental', 'LOC-K7Q2M4')[0]->attachments[0];
+        $file = (new FileRepository($this->pdo))->findById($photo->fileId);
+        $this->assertNotNull($file);
+        $bytes = (string) file_get_contents($this->storagePath . '/' . $file->relativePath);
+        $this->assertSame('image/jpeg', $file->mimeType);
+        $this->assertStringNotContainsString('Exif', $bytes);
+        $this->assertArrayNotHasKey('GPSLatitude', $this->exifOf($bytes));
+        $this->assertSame([300, 400], array_slice(getimagesizefromstring($bytes), 0, 2));
+        $this->assertSame('intendant', $file->roleMin);
+        $this->assertSame('inbound_message', $file->ownerType);
+    }
+
+    public function testHeicIsConvertedAndKeepsItsOriginalHashAcrossTwoMessages(): void
+    {
+        $source = $this->heicBytes();
+        $decoded = $this->jpegWithGps();
+        $this->service = $this->createSyncService(new PhotoNormalizer(function (string $bytes) use ($source, $decoded): string {
+            $this->assertSame($source, $bytes);
+            return $decoded;
+        }));
+        $consumer = $this->claimEverything();
+        $this->registry->register($consumer);
+        $this->addMessageWithAttachment(10, 'heic-a@b', $source, 'IMG_0001.HEIC');
+        $this->addMessageWithAttachment(11, 'heic-b@b', $source, 'IMG_0001.HEIC');
+
+        $this->sync();
+
+        $messages = $this->messageRepository->findForReference('rental', 'LOC-K7Q2M4');
+        $this->assertCount(2, $messages);
+        $this->assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM files')->fetchColumn());
+        $first = $messages[0]->attachments[0];
+        foreach ($messages as $message) {
+            $this->assertSame($first->fileId, $message->attachments[0]->fileId);
+            $this->assertSame('image/jpeg', $message->attachments[0]->mimeType);
+            $this->assertSame('IMG_0001.jpg', $message->attachments[0]->filename);
+        }
+        $file = (new FileRepository($this->pdo))->findById($first->fileId);
+        $this->assertNotNull($file);
+        $this->assertSame('image/jpeg', $file->mimeType);
+        $this->assertStringEndsWith('.jpg', $file->relativePath);
+        $bytes = (string) file_get_contents($this->storagePath . '/' . $file->relativePath);
+        $this->assertStringNotContainsString('PRIVATE-GPS-METADATA', $bytes);
+        $this->assertArrayNotHasKey('GPSLatitude', $this->exifOf($bytes));
+        $hashes = $this->pdo->query('SELECT content_hash FROM inbound_message_attachments')->fetchAll(\PDO::FETCH_COLUMN);
+        $this->assertSame([hash('sha256', $source), hash('sha256', $source)], $hashes);
+        $this->assertSame('image/jpeg', $consumer->linked[0][0]->attachments[0]->mimeType);
+    }
+
+    public function testHeicWithoutADecoderIsOmittedAndTheMessageSurvives(): void
+    {
+        $this->service = $this->createSyncService(new PhotoNormalizer(null));
+        $this->assertImageIsOmitted($this->heicBytes(), 'photo.heic');
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('otherImageFormats')]
+    public function testOtherImageFormatsAreStoredAndAnnouncedAsJpeg(string $format, string $filename): void
+    {
+        $image = imagecreatetruecolor(400, 300);
+        ob_start();
+        if ($format === 'png') {
+            imagepng($image);
+        } else {
+            imagewebp($image, null, 85);
+        }
+        $bytes = (string) ob_get_clean();
+        imagedestroy($image);
+        $this->registry->register($this->claimEverything());
+        $this->addMessageWithAttachment(10, 'image@b', $bytes, $filename);
+
+        $this->sync();
+
+        $attachment = $this->messageRepository->findForReference('rental', 'LOC-K7Q2M4')[0]->attachments[0];
+        $this->assertSame('image/jpeg', $attachment->mimeType);
+        $this->assertSame('photo.jpg', $attachment->filename);
+        $file = (new FileRepository($this->pdo))->findById($attachment->fileId);
+        $this->assertNotNull($file);
+        $this->assertSame('image/jpeg', $file->mimeType);
+        $stored = (string) file_get_contents($this->storagePath . '/' . $file->relativePath);
+        $this->assertSame('image/jpeg', (new \finfo(FILEINFO_MIME_TYPE))->buffer($stored));
+    }
+
+    public static function otherImageFormats(): iterable
+    {
+        yield 'PNG' => ['png', 'photo.PNG'];
+        yield 'WebP' => ['webp', 'photo.webp'];
+    }
+
+    public function testAnUnreadableJpegIsOmittedInsteadOfRetainingItsMetadata(): void
+    {
+        $source = substr($this->jpegWithGps(), 0, 300);
+        $this->assertSame('image/jpeg', (new \finfo(FILEINFO_MIME_TYPE))->buffer($source));
+        $this->assertImageIsOmitted($source, 'abimee.jpg');
+    }
+
+    private function assertImageIsOmitted(string $bytes, string $filename): void
+    {
+        $this->registry->register($this->claimEverything());
+        $this->addMessageWithAttachment(10, 'omitted@b', $bytes, $filename);
+
+        $this->sync();
+
+        $messages = $this->messageRepository->findForReference('rental', 'LOC-K7Q2M4');
+        $this->assertCount(1, $messages);
+        $this->assertFalse($messages[0]->hasAttachments());
+        $this->assertCount(1, $messages[0]->omittedAttachments);
+        $omitted = $messages[0]->omittedAttachments[0];
+        $this->assertSame($filename, $omitted->filename);
+        $this->assertSame(AttachmentOmission::IMAGE_UNREADABLE, $omitted->reason);
+        $this->assertStringContainsString('boîte d\'origine', $omitted->explanation());
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM files')->fetchColumn());
+    }
+
+    private function heicBytes(): string
+    {
+        return pack('N', 24) . 'ftypheic' . pack('N', 0) . 'mif1heic' . str_repeat("\x00", 64) . 'PRIVATE-GPS-METADATA';
+    }
+
+    /** A real little-endian EXIF segment with orientation and GPS latitude. */
+    private function jpegWithGps(): string
+    {
+        $image = imagecreatetruecolor(400, 300);
+        ob_start();
+        imagejpeg($image, null, 90);
+        $jpeg = (string) ob_get_clean();
+        imagedestroy($image);
+        $make = "ScoutCam\x00";
+        $makeOffset = 8 + 2 + 3 * 12 + 4;
+        $gpsOffset = $makeOffset + strlen($make) + (strlen($make) % 2);
+        $latitudeOffset = $gpsOffset + 2 + 2 * 12 + 4;
+        $tiff = 'II' . pack('v', 0x002A) . pack('V', 8)
+            . pack('v', 3)
+            . pack('vvVV', 0x010F, 2, strlen($make), $makeOffset)
+            . pack('vvV', 0x0112, 3, 1) . pack('vv', 6, 0)
+            . pack('vvVV', 0x8825, 4, 1, $gpsOffset)
+            . pack('V', 0) . $make . str_repeat("\x00", strlen($make) % 2)
+            . pack('v', 2)
+            . pack('vvV', 0x0001, 2, 2) . "N\x00\x00\x00"
+            . pack('vvVV', 0x0002, 5, 3, $latitudeOffset)
+            . pack('V', 0) . pack('VVVVVV', 50, 1, 50, 1, 0, 1);
+        $payload = "Exif\x00\x00" . $tiff;
+        return substr($jpeg, 0, 2) . "\xFF\xE1" . pack('n', strlen($payload) + 2) . $payload . substr($jpeg, 2);
+    }
+
+    /** @return array<string, mixed> */
+    private function exifOf(string $bytes): array
+    {
+        $stream = fopen('php://memory', 'r+b');
+        $this->assertNotFalse($stream);
+        try {
+            fwrite($stream, $bytes);
+            rewind($stream);
+            $exif = @exif_read_data($stream);
+            return is_array($exif) ? $exif : [];
+        } finally {
+            fclose($stream);
+        }
     }
 }
