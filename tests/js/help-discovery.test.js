@@ -31,6 +31,7 @@ function dialog(ids, more = false) {
 
     return `
         <div class="modal" id="help-discovery-modal">
+            <button type="button" data-bs-dismiss="modal" aria-label="Fermer">×</button>
             <div class="modal-body">
                 <p data-discovery-position></p>
                 ${cards}
@@ -57,6 +58,7 @@ async function load(html) {
     posted = [];
     shown = 0;
     hidden = 0;
+    window.ScoutMagicToast = { show: vi.fn() };
 
     window.ScoutMagicApi = /** @type {any} */ ({
         postJson: (url, body) => {
@@ -97,6 +99,11 @@ function visibleCardId() {
 
 function position() {
     return document.querySelector('[data-discovery-position]').textContent;
+}
+
+/** Wait for the request and its UI callbacks to finish, rather than count microtasks. */
+function afterRequest() {
+    return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 describe('help-discovery.js', () => {
@@ -173,6 +180,7 @@ describe('help-discovery.js', () => {
 
         click('data-discovery-next');
         document.getElementById('help-discovery-modal').dispatchEvent(new Event('hidden.bs.modal'));
+        await afterRequest();
 
         expect(posted).toHaveLength(1);
         expect(posted[0].url).toBe('/api/aide/decouverte');
@@ -183,6 +191,7 @@ describe('help-discovery.js', () => {
         await load(dialog(['un', 'deux', 'trois']));
 
         document.getElementById('help-discovery-modal').dispatchEvent(new Event('hidden.bs.modal'));
+        await afterRequest();
 
         expect(posted).toEqual([{ url: '/api/aide/decouverte', body: { ids: ['un'], action: 'close' } }]);
     });
@@ -193,6 +202,7 @@ describe('help-discovery.js', () => {
         click('data-discovery-next');
         click('data-discovery-next');
         document.getElementById('help-discovery-modal').dispatchEvent(new Event('hidden.bs.modal'));
+        await afterRequest();
 
         expect(posted[0].body.ids).toEqual(['un', 'deux']);
     });
@@ -201,8 +211,7 @@ describe('help-discovery.js', () => {
         await load(dialog(['un', 'deux']));
 
         click('data-discovery-snooze');
-        await Promise.resolve();
-        await Promise.resolve();
+        await afterRequest();
 
         expect(posted).toHaveLength(1);
         expect(posted[0].body).toEqual({ ids: ['un'], action: 'snooze' });
@@ -213,8 +222,7 @@ describe('help-discovery.js', () => {
         await load(dialog(['un', 'deux']));
 
         click('data-discovery-never');
-        await Promise.resolve();
-        await Promise.resolve();
+        await afterRequest();
         document.getElementById('help-discovery-modal').dispatchEvent(new Event('hidden.bs.modal'));
 
         expect(posted).toHaveLength(1);
@@ -231,9 +239,7 @@ describe('help-discovery.js', () => {
 
         click('data-discovery-next');
         click('data-discovery-more');
-        await Promise.resolve();
-        await Promise.resolve();
-        await Promise.resolve();
+        await afterRequest();
 
         expect(posted).toHaveLength(1);
         expect(posted[0].body).toEqual({ ids: ['un', 'deux'], action: 'more' });
@@ -264,4 +270,138 @@ describe('help-discovery.js', () => {
         }).not.toThrow();
         expect(posted).toEqual([]);
     });
+    it.each([
+        ['HTTP failure', { ok: false, status: 500, data: { success: true } }],
+        ['application failure', { ok: true, status: 200, data: { success: false } }],
+    ])('keeps a snooze visible after %s and permits retry', async (_label, response) => {
+        await load(dialog(['un', 'deux']));
+        window.ScoutMagicApi.postJson = vi.fn().mockResolvedValue(response);
+        click('data-discovery-snooze');
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(hidden).toBe(0);
+        expect(window.ScoutMagicToast.show).toHaveBeenCalledOnce();
+        expect(document.querySelector('[data-discovery-snooze]').disabled).toBe(false);
+    });
+
+    it('waits for both acknowledgements before closing and disables duplicate actions meanwhile', async () => {
+        await load(dialog(['un', 'deux']));
+        let resolve;
+        const post = vi.fn(() => new Promise((done) => { resolve = done; }));
+        window.ScoutMagicApi.postJson = post;
+        click('data-discovery-snooze');
+        await Promise.resolve();
+        expect(hidden).toBe(0);
+        expect(document.querySelector('[data-discovery-snooze]').disabled).toBe(true);
+        expect(document.querySelector('[data-bs-dismiss]').disabled).toBe(false);
+        click('data-discovery-never');
+        click('data-discovery-next');
+        document.getElementById('help-discovery-modal').dispatchEvent(new Event('hidden.bs.modal'));
+        expect(post).toHaveBeenCalledOnce();
+        expect(post.mock.calls[0][1]).toEqual({ ids: ['un'], action: 'snooze' });
+        expect(visibleCardId()).toBe('un');
+        resolve({ ok: true, status: 200, data: { success: true } });
+        await afterRequest();
+        expect(hidden).toBe(1);
+        expect(post).toHaveBeenCalledOnce();
+    });
+
+    it('retries the same snooze after a network failure', async () => {
+        await load(dialog(['un', 'deux']));
+        const post = vi.fn()
+            .mockResolvedValueOnce({ ok: false, status: 0, data: null })
+            .mockResolvedValueOnce({ ok: true, status: 200, data: { success: true } });
+        window.ScoutMagicApi.postJson = post;
+        click('data-discovery-snooze');
+        await afterRequest();
+        expect(hidden).toBe(0);
+        expect(document.querySelector('[data-discovery-snooze]').disabled).toBe(false);
+        click('data-discovery-snooze');
+        await afterRequest();
+        expect(hidden).toBe(1);
+        expect(post.mock.calls.map((call) => call[1])).toEqual([
+            { ids: ['un'], action: 'snooze' }, { ids: ['un'], action: 'snooze' },
+        ]);
+    });
+
+    it.each(['never', 'more'])('keeps %s retryable instead of hiding or reloading on a refused write', async (action) => {
+        await load(dialog(['un', 'deux'], true));
+        const reload = vi.fn();
+        Object.defineProperty(window, 'location', { configurable: true, value: { reload } });
+        const post = vi.fn()
+            .mockResolvedValueOnce({ ok: true, status: 200, data: { success: false, error: 'Réessayez plus tard.' } })
+            .mockResolvedValueOnce({ ok: true, status: 200, data: { success: true } });
+        window.ScoutMagicApi.postJson = post;
+        click('data-discovery-next');
+        click('data-discovery-' + action);
+        await afterRequest();
+        expect(hidden).toBe(0);
+        expect(reload).not.toHaveBeenCalled();
+        expect(window.ScoutMagicToast.show).toHaveBeenCalledWith('Réessayez plus tard.', expect.objectContaining({ variant: 'error' }));
+        const options = window.ScoutMagicToast.show.mock.calls[0][1];
+        expect(options.action.label).toBe('Réessayer');
+        options.action.onClick();
+        await afterRequest();
+        expect(post.mock.calls.map((call) => call[1].action)).toEqual([action, action]);
+        expect(hidden).toBe(action === 'never' ? 1 : 0);
+        expect(reload).toHaveBeenCalledTimes(action === 'more' ? 1 : 0);
+    });
+
+    it('offers a retry through the common toast when an ordinary dismissal cannot be recorded', async () => {
+        await load(dialog(['un', 'deux']));
+        const post = vi.fn()
+            .mockResolvedValueOnce({ ok: false, status: 403, data: { success: false, error: 'Session expirée.' } })
+            .mockResolvedValueOnce({ ok: true, status: 200, data: { success: true } });
+        window.ScoutMagicApi.postJson = post;
+        document.getElementById('help-discovery-modal').dispatchEvent(new Event('hidden.bs.modal'));
+        await afterRequest();
+        expect(hidden).toBe(0);
+        expect(window.ScoutMagicToast.show).toHaveBeenCalledWith('Session expirée.', expect.objectContaining({ variant: 'error' }));
+        window.ScoutMagicToast.show.mock.calls[0][1].action.onClick();
+        await afterRequest();
+        expect(post.mock.calls.map((call) => call[1])).toEqual([
+            { ids: ['un'], action: 'close' }, { ids: ['un'], action: 'close' },
+        ]);
+        expect(hidden).toBe(0);
+    });
+
+    it.each([
+        ['missing JSON', { ok: true, status: 200, data: null }],
+        ['truthy but non-boolean success', { ok: true, status: 200, data: { success: 'true' } }],
+        ['missing response', null],
+    ])('does not settle on %s', async (_label, response) => {
+        await load(dialog(['un']));
+        window.ScoutMagicApi.postJson = vi.fn().mockResolvedValue(response);
+        click('data-discovery-snooze');
+        await afterRequest();
+        expect(hidden).toBe(0);
+        expect(window.ScoutMagicToast.show).toHaveBeenCalledOnce();
+        expect(document.getElementById('help-discovery-modal').getAttribute('aria-busy')).toBe('false');
+    });
+
+    it('handles an unexpected rejection and restores the controls for a retry', async () => {
+        await load(dialog(['un']));
+        window.ScoutMagicApi.postJson = vi.fn().mockRejectedValue(new Error('Network failed'));
+        click('data-discovery-snooze');
+        await afterRequest();
+        expect(hidden).toBe(0);
+        expect(window.ScoutMagicToast.show).toHaveBeenCalledOnce();
+        expect(document.querySelector('[data-discovery-snooze]').disabled).toBe(false);
+    });
+
+    it('leaves a missing API retryable and preserves controls that were already disabled', async () => {
+        await load(dialog(['un']));
+        const api = window.ScoutMagicApi;
+        window.ScoutMagicApi = undefined;
+        document.querySelector('[data-discovery-never]').disabled = true;
+        click('data-discovery-snooze');
+        await afterRequest();
+        expect(hidden).toBe(0);
+        expect(document.querySelector('[data-discovery-never]').disabled).toBe(true);
+        expect(document.querySelector('[data-discovery-snooze]').disabled).toBe(false);
+        window.ScoutMagicApi = api;
+        click('data-discovery-snooze');
+        await afterRequest();
+        expect(hidden).toBe(1);
+    });
+
 });

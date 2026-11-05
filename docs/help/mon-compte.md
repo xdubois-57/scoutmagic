@@ -54,7 +54,9 @@ De temps en temps, une petite fenêtre « Le saviez-vous ? » vous propose
 un sujet d'aide que vous n'avez encore jamais vu — pour vous faire
 découvrir ce que le site sait faire, sans que vous ayez rien demandé.
 « Pas avant une semaine » la met en pause, « Ne plus me proposer » vide
-ce qui reste à vous montrer.
+ce qui reste à vous montrer. Si l'enregistrement échoue, un message vous
+le signale et propose « Réessayer ». Le report ne ferme la fenêtre qu'une
+fois votre choix enregistré.
 
 Le bouton « Revoir les astuces » de cette page repart de zéro : tout
 vous sera reproposé. Il n'apparaît que si vous avez déjà vu au moins une
