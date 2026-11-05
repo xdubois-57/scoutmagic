@@ -22,7 +22,7 @@ use PHPUnit\Framework\TestCase;
  */
 class MovementsListRenderingTest extends TestCase
 {
-    private function render(): string
+    private function render(?int $categoryId = null, float $amount = -12.5, bool $automatic = false): string
     {
         $templateDir = dirname(__DIR__, 3) . '/core/View/templates';
         $moduleViews = dirname(__DIR__, 3) . '/modules/finance/views';
@@ -44,16 +44,16 @@ class MovementsListRenderingTest extends TestCase
             'transactionDate' => '2026-08-01',
             'label' => 'VIREMENT SEPA',
             'bankReference' => 'REF-1',
-            'amount' => -12.5,
+            'amount' => $amount,
             'source' => 'import',
-            'categoryId' => null,
-            'categorySource' => null,
+            'categoryId' => $categoryId,
+            'categorySource' => $categoryId === null ? null : ($automatic ? 'auto' : 'manual'),
             'comment' => '',
             'fiscalYearId' => 1,
             'counterpartyName' => 'Boulangerie',
             'counterpartyAccount' => 'BE00 0000 0000 0000',
             'extraDetails' => '',
-            'isCategoryAutoAssigned' => false,
+            'isCategoryAutoAssigned' => $automatic,
         ];
 
         return $twig->render('@finance/movements/list.html.twig', [
@@ -111,6 +111,46 @@ class MovementsListRenderingTest extends TestCase
         $this->assertStringNotContainsString('style="cursor:pointer', $html);
         $this->assertStringNotContainsString('style="cursor: pointer', $html);
         $this->assertStringContainsString('.movement-row { cursor: pointer; }', $html);
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('movementStates')]
+    public function testEveryMovementStateKeepsNeutralRowsAndThemeAwareAmounts(?int $categoryId, float $amount, bool $automatic): void
+    {
+        $html = $this->render($categoryId, $amount, $automatic);
+        preg_match_all('/<(button|tr)\b[^>]*class="([^"]*\bmovement-row\b[^"]*)"[^>]*>/s', $html, $rows, PREG_SET_ORDER);
+        $this->assertCount(2, $rows);
+        foreach ($rows as $row) {
+            $classes = preg_split('/\s+/', trim($row[2]));
+            $this->assertNotContains('table-warning', $classes);
+            $this->assertNotContains('bg-warning-subtle', $classes);
+            if ($row[1] === 'button') {
+                $this->assertContains('bg-body', $classes);
+                $this->assertContains('text-body', $classes);
+            }
+        }
+        $this->assertSame(2, substr_count($html, $amount < 0 ? 'text-danger-emphasis' : 'text-success-emphasis'));
+        $this->assertStringNotContainsString('text-bg-light', $html);
+        if ($categoryId === null) {
+            $this->assertMatchesRegularExpression('/<span class="badge [^"]*">\s*À catégoriser\s*<\/span>/', $html);
+        }
+    }
+
+    public static function movementStates(): iterable
+    {
+        yield 'uncategorized debit' => [null, -12.5, false];
+        yield 'uncategorized credit' => [null, 12.5, false];
+        yield 'manual category debit' => [3, -12.5, false];
+        yield 'manual category credit' => [3, 12.5, false];
+        yield 'automatic category debit' => [3, -12.5, true];
+        yield 'automatic category credit' => [3, 12.5, true];
+    }
+
+    public function testDesktopDetailsHaveANativeKeyboardControl(): void
+    {
+        $this->assertMatchesRegularExpression(
+            '/<button type="button"[^>]*data-movement-details[^>]*aria-label="Détails du mouvement[^>]*>\s*VIREMENT SEPA\s*<\/button>/s',
+            $this->render()
+        );
     }
 
     public function testClickHandlingIsDelegatedAndNotBoundToTableRowsOnly(): void
