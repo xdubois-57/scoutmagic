@@ -151,11 +151,49 @@ test('a tip is offered, walked and closed — and then leaves the reader alone',
     });
     await expect(page.getByText('Les astuces vous seront proposées à nouveau.')).toBeVisible();
 
-    // Leave the instance as the fixture provisioned it: every other spec
-    // in this run shares it, and a dialog left armed intercepts their
-    // clicks exactly as it did before it was switched off.
+    // A failed snooze is visible and retryable; only the acknowledged
+    // HTTP/application success may dismiss it and persist seven days.
+    const submittedActions = [];
+    const interceptDiscovery = async (route) => {
+        submittedActions.push(route.request().postDataJSON().action);
+        if (submittedActions.length === 1) {
+            await route.fulfill({ status: 503, json: { success: false, error: 'Le report ne peut pas être enregistré. Réessayez.' } });
+        } else {
+            await route.continue();
+        }
+    };
+    await page.route('**/api/aide/decouverte', interceptDiscovery);
+    const snooze = offeredAgain.getByRole('button', { name: 'Pas avant une semaine', exact: true });
+    await snooze.click();
+    await expect(offeredAgain.locator('[data-discovery-error]')).toHaveText(/Le report ne peut pas être enregistré\. Réessayez\./);
+    await expect(offeredAgain.locator('[data-discovery-error]')).toBeVisible();
+    await expect(offeredAgain).toBeVisible();
+    await expect(snooze).toBeEnabled();
+    const retry = page.getByRole('button', { name: 'Réessayer', exact: true });
+    await offeredAgain.locator('[data-bs-dismiss="modal"]').first().focus();
+    await page.keyboard.press('Tab');
+    await expect(retry, 'retry must be reachable inside the modal focus trap').toBeFocused();
+    const snoozed = page.waitForResponse((response) =>
+        response.url().includes('/api/aide/decouverte') && response.request().method() === 'POST');
+    await closeModal(page, DIALOG_ID, () => retry.press('Enter'));
+    const saved = await snoozed;
+    expect(saved.status(), 'a real retry reached the server successfully').toBe(200);
+    expect(await saved.json()).toEqual({ success: true });
+    expect(submittedActions, 'hiding must not overwrite snooze with close').toEqual(['snooze', 'snooze']);
+    await page.unroute('**/api/aide/decouverte', interceptDiscovery);
+    await page.goto('/notifications', { waitUntil: 'load' });
+    await expect(page.locator('#help-discovery-modal')).toHaveCount(0);
+
+    // Leave the instance as the fixture provisioned it. Reset once more,
+    // then consume the tips before disabling discovery for the other specs.
+    await page.goto('/account', { waitUntil: 'load' });
+    await waitForConfirmReady(page);
+    const finalBatch = await openModal(page, DIALOG_ID, async () => {
+        await page.getByRole('button', { name: 'Revoir les astuces' }).click();
+        await answerConfirmation(page);
+    });
     await closeModal(page, DIALOG_ID, () =>
-        offeredAgain.getByRole('button', { name: 'Ne plus me proposer' }).click());
+        finalBatch.getByRole('button', { name: 'Ne plus me proposer' }).click());
     await page.goto('/config/settings', { waitUntil: 'domcontentloaded' });
     await setDiscoveryEnabled(page, false);
 });

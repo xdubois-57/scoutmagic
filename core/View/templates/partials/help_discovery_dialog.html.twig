@@ -33,6 +33,10 @@
     static_backdrop: false,
 } only %}
     {% block body %}
+        <div class="alert alert-danger d-none" role="alert" data-discovery-error>
+            <p class="mb-2" data-discovery-error-message></p>
+            <button type="button" class="btn btn-sm btn-primary" data-discovery-retry>Réessayer</button>
+        </div>
         {# The position indicator sits at the top of the body rather than
            beside the title: the shared skeleton owns the header, and
            reaching into it would start the drift that partial exists to
