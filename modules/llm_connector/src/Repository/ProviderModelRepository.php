@@ -26,9 +26,18 @@ class ProviderModelRepository
     /** @param array<string, mixed> $row */
     public static function configurationToken(array $row): string
     {
-        return hash('sha256', json_encode([
-            $row['driver'], $row['api_endpoint'], bin2hex((string) $row['api_key']), (bool) $row['is_active'],
-        ], JSON_THROW_ON_ERROR));
+        return hash(
+            'sha256',
+            json_encode(
+                [
+                    $row['driver'],
+                    $row['api_endpoint'],
+                    bin2hex((string) $row['api_key']),
+                    (bool) $row['is_active'],
+                ],
+                JSON_THROW_ON_ERROR
+            )
+        );
     }
 
     /** Lock the current configuration before any catalog or tier is changed. */
