@@ -165,12 +165,17 @@ test('a tip is offered, walked and closed — and then leaves the reader alone',
     await page.route('**/api/aide/decouverte', interceptDiscovery);
     const snooze = offeredAgain.getByRole('button', { name: 'Pas avant une semaine', exact: true });
     await snooze.click();
-    await expect(page.locator('.toast-body').filter({ hasText: 'Le report ne peut pas être enregistré. Réessayez.' })).toBeVisible();
+    await expect(offeredAgain.locator('[data-discovery-error]')).toHaveText(/Le report ne peut pas être enregistré\. Réessayez\./);
+    await expect(offeredAgain.locator('[data-discovery-error]')).toBeVisible();
     await expect(offeredAgain).toBeVisible();
     await expect(snooze).toBeEnabled();
+    const retry = page.getByRole('button', { name: 'Réessayer', exact: true });
+    await offeredAgain.locator('[data-bs-dismiss="modal"]').first().focus();
+    await page.keyboard.press('Tab');
+    await expect(retry, 'retry must be reachable inside the modal focus trap').toBeFocused();
     const snoozed = page.waitForResponse((response) =>
         response.url().includes('/api/aide/decouverte') && response.request().method() === 'POST');
-    await closeModal(page, DIALOG_ID, () => snooze.click());
+    await closeModal(page, DIALOG_ID, () => retry.press('Enter'));
     const saved = await snoozed;
     expect(saved.status(), 'a real retry reached the server successfully').toBe(200);
     expect(await saved.json()).toEqual({ success: true });

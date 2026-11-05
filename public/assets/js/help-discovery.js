@@ -10,7 +10,7 @@
 // between them, remembers which ones were actually gone past, and makes
 // one action at a time — at the close. A call per card would be four
 // requests to say what one says. Only an acknowledged write settles the
-// choice; an error is reported through the common toast and can be retried.
+// choice; an error stays visible with a keyboard-accessible retry.
 //
 // No inline on*= handlers (dead under the CSP — design.md §7.5), no
 // alert()/confirm(), and no card is ever built from a string.
@@ -46,6 +46,10 @@
     var moreButton = /** @type {HTMLElement|null} */ (modal.querySelector('[data-discovery-more]'));
     var snoozeButton = /** @type {HTMLElement|null} */ (modal.querySelector('[data-discovery-snooze]'));
     var neverButton = /** @type {HTMLElement|null} */ (modal.querySelector('[data-discovery-never]'));
+    var errorNotice = /** @type {HTMLElement|null} */ (modal.querySelector('[data-discovery-error]'));
+    var errorMessage = /** @type {HTMLElement|null} */ (modal.querySelector('[data-discovery-error-message]'));
+    var retryButton = /** @type {HTMLElement|null} */ (modal.querySelector('[data-discovery-retry]'));
+    var failedAction = '';
 
     var index = 0;
     /** @type {string[]} the ids actually gone past, in the order they were shown */
@@ -104,6 +108,7 @@
             return Promise.resolve(false);
         }
         pending = true;
+        errorNotice?.classList.add('d-none');
         var controls = Array.from(modal.querySelectorAll('button')).filter(function (button) {
             return !button.disabled && !button.hasAttribute('data-bs-dismiss');
         });
@@ -134,8 +139,8 @@
     }
 
     /**
-     * The common toast also offers a retry after a manual dismissal. A
-     * server failure must never trap somebody in a dialog they cannot close.
+     * Keep the error and retry within the open modal's focus trap. After
+     * a manual dismissal, the common toast offers the same action instead.
      *
      * @param {string} action
      * @param {{data: any}|null} response
@@ -144,6 +149,13 @@
         var message = typeof response?.data?.error === 'string' && response.data.error
             ? response.data.error
             : "Votre choix n'a pas pu être enregistré. Réessayez.";
+        if (modal.classList.contains('show') && errorNotice && errorMessage) {
+            failedAction = action;
+            errorMessage.textContent = message;
+            errorNotice.classList.remove('d-none');
+            errorNotice.scrollIntoView?.({ block: 'nearest' });
+            return;
+        }
         window.ScoutMagicToast?.show(message, {
             variant: 'error',
             action: { label: 'Réessayer', onClick: function () { finish(action); } },
@@ -189,6 +201,12 @@
 
     on(snoozeButton, function () {
         finish('snooze');
+    });
+
+    on(retryButton, function () {
+        if (failedAction) {
+            finish(failedAction);
+        }
     });
 
     on(neverButton, function () {

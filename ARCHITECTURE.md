@@ -4135,10 +4135,10 @@ The dialog reappears on **every page load** until it is closed — `snoozed_unti
 **Confirmation des choix (#1053).** Le navigateur n'acquitte une action qu'après
 un succès HTTP et une réponse applicative `success: true`. Une seule requête est
 en cours à la fois ; le report, le refus des astuces et le rechargement pour en
-voir d'autres n'aboutissent qu'après cette confirmation. En cas d'échec, le toast
-commun signale le problème et propose « Réessayer » ; les contrôles sont rétablis.
-Une fermeture manuelle reste possible et son éventuel échec dispose du même
-réessai. Le compte n'est jamais considéré comme enregistré sur un simple retour
+voir d'autres n'aboutissent qu'après cette confirmation. En cas d'échec, une alerte
+dans la fenêtre signale le problème et propose « Réessayer », accessible au clavier ;
+les contrôles sont rétablis. Une fermeture manuelle reste possible ; le toast commun
+propose alors le réessai d'un éventuel échec. Le compte n'est jamais considéré comme enregistré sur un simple retour
 réseau ou un HTTP 200 contenant un refus applicatif.
 
 **Four `core` settings**, registered like the others in `public/index.php`: `help_discovery_enabled` (the switch, for the unit that does not want this), `help_discovery_interval_hours` (24), `help_discovery_snooze_days` (7), `help_discovery_batch_size` (5). A value an administrator empties or sets to zero falls back on its default — a batch of none would be an empty dialog.

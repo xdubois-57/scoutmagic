@@ -33,6 +33,10 @@ function dialog(ids, more = false) {
         <div class="modal" id="help-discovery-modal">
             <button type="button" data-bs-dismiss="modal" aria-label="Fermer">×</button>
             <div class="modal-body">
+                <div class="alert alert-danger d-none" role="alert" data-discovery-error>
+                    <p data-discovery-error-message></p>
+                    <button type="button" data-discovery-retry>Réessayer</button>
+                </div>
                 <p data-discovery-position></p>
                 ${cards}
             </div>
@@ -68,11 +72,13 @@ async function load(html) {
     });
 
     const instance = {
-        show: () => { shown += 1; },
+        show: () => {
+            shown += 1;
+            document.getElementById('help-discovery-modal').classList.add('show');
+        },
         hide: () => {
             hidden += 1;
-            document.getElementById('help-discovery-modal')
-                .dispatchEvent(new Event('hidden.bs.modal'));
+            dismiss();
         },
     };
     window.bootstrap = /** @type {any} */ ({
@@ -84,6 +90,12 @@ async function load(html) {
 
     vi.resetModules();
     await import('../../public/assets/js/help-discovery.js');
+}
+
+function dismiss() {
+    const modal = document.getElementById('help-discovery-modal');
+    modal.classList.remove('show');
+    modal.dispatchEvent(new Event('hidden.bs.modal'));
 }
 
 /** @param {string} attribute */
@@ -179,7 +191,7 @@ describe('help-discovery.js', () => {
         await load(dialog(['un', 'deux', 'trois']));
 
         click('data-discovery-next');
-        document.getElementById('help-discovery-modal').dispatchEvent(new Event('hidden.bs.modal'));
+        dismiss();
         await afterRequest();
 
         expect(posted).toHaveLength(1);
@@ -190,7 +202,7 @@ describe('help-discovery.js', () => {
     it('records the first card even when the dialog is dismissed at once', async () => {
         await load(dialog(['un', 'deux', 'trois']));
 
-        document.getElementById('help-discovery-modal').dispatchEvent(new Event('hidden.bs.modal'));
+        dismiss();
         await afterRequest();
 
         expect(posted).toEqual([{ url: '/api/aide/decouverte', body: { ids: ['un'], action: 'close' } }]);
@@ -201,7 +213,7 @@ describe('help-discovery.js', () => {
 
         click('data-discovery-next');
         click('data-discovery-next');
-        document.getElementById('help-discovery-modal').dispatchEvent(new Event('hidden.bs.modal'));
+        dismiss();
         await afterRequest();
 
         expect(posted[0].body.ids).toEqual(['un', 'deux']);
@@ -223,7 +235,7 @@ describe('help-discovery.js', () => {
 
         click('data-discovery-never');
         await afterRequest();
-        document.getElementById('help-discovery-modal').dispatchEvent(new Event('hidden.bs.modal'));
+        dismiss();
 
         expect(posted).toHaveLength(1);
         expect(posted[0].body.action).toBe('never');
@@ -266,7 +278,7 @@ describe('help-discovery.js', () => {
         await import('../../public/assets/js/help-discovery.js');
 
         expect(() => {
-            document.getElementById('help-discovery-modal').dispatchEvent(new Event('hidden.bs.modal'));
+            dismiss();
         }).not.toThrow();
         expect(posted).toEqual([]);
     });
@@ -279,8 +291,30 @@ describe('help-discovery.js', () => {
         click('data-discovery-snooze');
         await new Promise((resolve) => setTimeout(resolve, 0));
         expect(hidden).toBe(0);
-        expect(window.ScoutMagicToast.show).toHaveBeenCalledOnce();
+        expect(document.querySelector('[data-discovery-error]').classList.contains('d-none')).toBe(false);
         expect(document.querySelector('[data-discovery-snooze]').disabled).toBe(false);
+    });
+
+    it('keeps the error and retry inside the open modal without interpreting message markup', async () => {
+        await load(dialog(['un', 'deux']));
+        const message = '<img src=x onerror=alert(1)> Réessayez.';
+        const post = vi.fn()
+            .mockResolvedValueOnce({ ok: false, status: 503, data: { success: false, error: message } })
+            .mockResolvedValueOnce({ ok: true, status: 200, data: { success: true } });
+        window.ScoutMagicApi.postJson = post;
+        click('data-discovery-snooze');
+        await afterRequest();
+
+        const notice = document.querySelector('#help-discovery-modal [data-discovery-error]');
+        expect(notice.classList.contains('d-none')).toBe(false);
+        expect(notice.querySelector('[data-discovery-error-message]').textContent).toBe(message);
+        expect(notice.querySelector('img')).toBeNull();
+        expect(window.ScoutMagicToast.show).not.toHaveBeenCalled();
+        expect(notice.querySelector('[data-discovery-retry]').disabled).toBe(false);
+        click('data-discovery-retry');
+        await afterRequest();
+        expect(post.mock.calls.map(call => call[1].action)).toEqual(['snooze', 'snooze']);
+        expect(hidden).toBe(1);
     });
 
     it('waits for both acknowledgements before closing and disables duplicate actions meanwhile', async () => {
@@ -295,7 +329,7 @@ describe('help-discovery.js', () => {
         expect(document.querySelector('[data-bs-dismiss]').disabled).toBe(false);
         click('data-discovery-never');
         click('data-discovery-next');
-        document.getElementById('help-discovery-modal').dispatchEvent(new Event('hidden.bs.modal'));
+        dismiss();
         expect(post).toHaveBeenCalledOnce();
         expect(post.mock.calls[0][1]).toEqual({ ids: ['un'], action: 'snooze' });
         expect(visibleCardId()).toBe('un');
@@ -336,10 +370,9 @@ describe('help-discovery.js', () => {
         await afterRequest();
         expect(hidden).toBe(0);
         expect(reload).not.toHaveBeenCalled();
-        expect(window.ScoutMagicToast.show).toHaveBeenCalledWith('Réessayez plus tard.', expect.objectContaining({ variant: 'error' }));
-        const options = window.ScoutMagicToast.show.mock.calls[0][1];
-        expect(options.action.label).toBe('Réessayer');
-        options.action.onClick();
+        expect(document.querySelector('[data-discovery-error-message]').textContent).toBe('Réessayez plus tard.');
+        expect(window.ScoutMagicToast.show).not.toHaveBeenCalled();
+        click('data-discovery-retry');
         await afterRequest();
         expect(post.mock.calls.map((call) => call[1].action)).toEqual([action, action]);
         expect(hidden).toBe(action === 'never' ? 1 : 0);
@@ -352,7 +385,7 @@ describe('help-discovery.js', () => {
             .mockResolvedValueOnce({ ok: false, status: 403, data: { success: false, error: 'Session expirée.' } })
             .mockResolvedValueOnce({ ok: true, status: 200, data: { success: true } });
         window.ScoutMagicApi.postJson = post;
-        document.getElementById('help-discovery-modal').dispatchEvent(new Event('hidden.bs.modal'));
+        dismiss();
         await afterRequest();
         expect(hidden).toBe(0);
         expect(window.ScoutMagicToast.show).toHaveBeenCalledWith('Session expirée.', expect.objectContaining({ variant: 'error' }));
@@ -362,6 +395,25 @@ describe('help-discovery.js', () => {
             { ids: ['un'], action: 'close' }, { ids: ['un'], action: 'close' },
         ]);
         expect(hidden).toBe(0);
+    });
+
+    it('offers the pending choice through the toast if the reader dismissed before its failure', async () => {
+        await load(dialog(['un']));
+        let respond;
+        const post = vi.fn()
+            .mockImplementationOnce(() => new Promise(resolve => { respond = resolve; }))
+            .mockResolvedValueOnce({ ok: true, data: { success: true } });
+        window.ScoutMagicApi.postJson = post;
+        click('data-discovery-snooze');
+        await Promise.resolve();
+        dismiss();
+        respond({ ok: false, status: 0, data: null });
+        await afterRequest();
+        expect(post).toHaveBeenCalledOnce();
+        expect(document.querySelector('[data-discovery-error]').classList.contains('d-none')).toBe(true);
+        window.ScoutMagicToast.show.mock.calls[0][1].action.onClick();
+        await afterRequest();
+        expect(post.mock.calls.map(call => call[1].action)).toEqual(['snooze', 'snooze']);
     });
 
     it.each([
@@ -374,7 +426,7 @@ describe('help-discovery.js', () => {
         click('data-discovery-snooze');
         await afterRequest();
         expect(hidden).toBe(0);
-        expect(window.ScoutMagicToast.show).toHaveBeenCalledOnce();
+        expect(document.querySelector('[data-discovery-error]').classList.contains('d-none')).toBe(false);
         expect(document.getElementById('help-discovery-modal').getAttribute('aria-busy')).toBe('false');
     });
 
@@ -384,7 +436,7 @@ describe('help-discovery.js', () => {
         click('data-discovery-snooze');
         await afterRequest();
         expect(hidden).toBe(0);
-        expect(window.ScoutMagicToast.show).toHaveBeenCalledOnce();
+        expect(document.querySelector('[data-discovery-error]').classList.contains('d-none')).toBe(false);
         expect(document.querySelector('[data-discovery-snooze]').disabled).toBe(false);
     });
 
