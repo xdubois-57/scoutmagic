@@ -17,6 +17,9 @@ use Modules\LlmConnector\Controller\ConfigController;
 use Modules\LlmConnector\Repository\ProviderModelRepository;
 use Modules\LlmConnector\Repository\ProviderRepository;
 use Modules\LlmConnector\Service\OcrModelSelector;
+use Modules\LlmConnector\Provider\ScalewayProvider;
+use Modules\LlmConnector\Provider\ModelProbeCache;
+use Modules\LlmConnector\Provider\ModelProbeStatus;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
@@ -77,6 +80,7 @@ class ConfigControllerTest extends TestCase
             driver TEXT NOT NULL,
             api_endpoint TEXT NOT NULL,
             api_key BLOB NOT NULL,
+            model_probe_cache TEXT NULL,
             is_active INTEGER NOT NULL DEFAULT 1,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -194,6 +198,36 @@ class ConfigControllerTest extends TestCase
         $response = $this->controller->index(new Request('GET', '/config/llm', [], [], [], []), []);
 
         $this->assertStringContainsString('Claude Haiku', $response->getBody());
+    }
+
+    public static function summaryCapabilities(): iterable
+    {
+        yield 'legacy BGE' => ['bge-multilingual-gemma2', true, ['—', '—', '—']];
+        yield 'text only' => ['mistral-small-24b-instruct-2501', true, ['Modèle', 'Modèle', '—']];
+        yield 'proven images' => ['mistral-small-3.2-24b-instruct-2506', true, ['Modèle', 'Modèle', 'Modèle']];
+        yield 'unassigned OCR never borrows CHEAP' => ['mistral-small-3.2-24b-instruct-2506', false, ['Modèle', 'Modèle', '—']];
+    }
+
+    #[DataProvider('summaryCapabilities')]
+    public function testSummaryDisplaysOnlyVerifiedTierAssignments(string $modelId, bool $assignOcr, array $expected): void
+    {
+        $id = $this->providerRepository->create('Scaleway', 'scaleway', 'https://api.scaleway.ai', 'test-key', true);
+        $this->modelRepository->upsert($id, $modelId, 'Modèle');
+        if ($modelId === 'mistral-small-3.2-24b-instruct-2506') {
+            $cache = new ModelProbeCache([], ScalewayProvider::capabilityScope('https://api.scaleway.ai', 'test-key'));
+            $cache->record($modelId, ModelProbeStatus::VISION_VERIFIED);
+            $this->modelRepository->storeModelProbeCache($id, $cache->toArray());
+        }
+        $this->modelRepository->autoAssignTiers($id, [
+            'cheap' => $modelId, 'capable' => $modelId, 'ocr' => $assignOcr ? $modelId : null,
+        ]);
+        $html = $this->controller->index(new Request('GET', '/config/llm', [], [], [], []), [])->getBody();
+        $actual = [];
+        foreach (['cheap', 'capable', 'ocr'] as $tier) {
+            preg_match('/<div[^>]*data-' . $tier . '>.*?<strong>(.*?)<\/strong>/s', $html, $matches);
+            $actual[] = $matches[1] ?? '(missing tier)';
+        }
+        self::assertSame($expected, $actual);
     }
 
     /**

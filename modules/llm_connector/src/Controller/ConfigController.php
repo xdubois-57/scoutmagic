@@ -15,15 +15,17 @@ use Core\Http\Response;
 use Core\Journal\JournalService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
-use Modules\LlmConnector\Api\LlmException;
 use Modules\LlmConnector\Api\LlmTier;
 use Modules\LlmConnector\Provider\AnthropicProvider;
 use Modules\LlmConnector\Provider\MistralProvider;
+use Modules\LlmConnector\Provider\ModelProbeCache;
 use Modules\LlmConnector\Provider\ScalewayProvider;
 use Modules\LlmConnector\Repository\ProviderModelRepository;
 use Modules\LlmConnector\Repository\ProviderRepository;
 use Modules\LlmConnector\Service\LastFailureStore;
 use Modules\LlmConnector\Service\OcrModelSelector;
+use Modules\LlmConnector\Service\ProviderCatalogRefresher;
+use Modules\LlmConnector\Service\TierModelResolver;
 use Core\Scheduler\SchedulerService;
 use Twig\Environment;
 
@@ -78,18 +80,11 @@ class ConfigController extends AbstractController
         foreach ($providers as $provider) {
             if ($provider['is_active']) {
                 $activeProvider = $provider;
-                $models = $this->modelRepo->findByProvider($provider['id']);
-                foreach ($models as $model) {
-                    if ($model['is_tier_cheap']) {
-                        $cheapModel = $model;
-                    }
-                    if ($model['is_tier_capable']) {
-                        $capableModel = $model;
-                    }
-                    if ($model['is_tier_ocr']) {
-                        $ocrModel = $model;
-                    }
-                }
+                $resolver = new TierModelResolver($this->modelRepo);
+                $scope = $this->probeScope($provider['id']);
+                $cheapModel = $resolver->resolve($provider['id'], $provider['driver'], LlmTier::CHEAP, $scope);
+                $capableModel = $resolver->resolve($provider['id'], $provider['driver'], LlmTier::CAPABLE, $scope);
+                $ocrModel = $resolver->resolve($provider['id'], $provider['driver'], LlmTier::OCR, $scope);
                 break;
             }
         }
@@ -227,54 +222,56 @@ class ConfigController extends AbstractController
 
         try {
             $driver = $this->createDriver($provider['driver'], $provider['api_endpoint'], $provider['api_key']);
-            $models = $driver->listModels();
-
-            // Upsert models and auto-assign tiers
-            $modelIds = [];
-            foreach ($models as $model) {
-                $this->modelRepo->upsert($provider['id'], $model['id'], $model['display_name']);
-                $modelIds[] = $model['id'];
-            }
-
-            // Clean up: delete models not returned by API and stale models (>30 days)
-            $this->modelRepo->deleteModelsNotIn($provider['id'], $modelIds);
-            $this->modelRepo->deleteStaleModels($provider['id']);
-
             $this->ocrModelSelector->setJournalService($this->journalService, AuthSession::getUserAccountId());
-            $tierMap = $this->ocrModelSelector->selectTiers($driver, $modelIds);
-            $this->modelRepo->autoAssignTiers($provider['id'], $tierMap);
+            $refresher = new ProviderCatalogRefresher(
+                $this->modelRepo,
+                $this->ocrModelSelector,
+                $this->journalService,
+                AuthSession::getUserAccountId()
+            );
+            $catalog = $refresher->refresh($provider['id'], $driver, $provider['configuration_token']);
+            $modelCount = count($catalog->chatModelIds());
+
+            if ($modelCount === 0) {
+                return $this->json([
+                    'success' => false,
+                    'error' => 'Le fournisseur répond, mais aucun modèle de conversation compatible n’a pu être '
+                        . 'vérifié. Les fonctions IA sont indisponibles. Consultez le journal pour les exclusions.',
+                ]);
+            }
 
             $this->journalService->log(
                 'llm_connector',
                 'models_refreshed',
                 'info',
-                "Connexion testée et modèles rafraîchis ({$provider['name']}, " . count($models) . ' modèle(s))',
-                ['provider_id' => $provider['id'], 'model_count' => count($models)],
+                "Connexion testée et modèles compatibles rafraîchis ({$provider['name']}, {$modelCount} modèle(s))",
+                ['provider_id' => $provider['id'], 'model_count' => $modelCount],
                 AuthSession::getUserAccountId()
             );
             $this->lastFailure?->clearAfterPassingTest((int) $provider['id'], $this->providerRepo);
 
             // Fetch assigned tier models
-            $cheapModel = $this->modelRepo->findByProviderAndTier($provider['id'], LlmTier::CHEAP);
-            $capableModel = $this->modelRepo->findByProviderAndTier($provider['id'], LlmTier::CAPABLE);
-            $ocrModel = $this->modelRepo->findByProviderAndTier($provider['id'], LlmTier::OCR);
+            $resolver = new TierModelResolver($this->modelRepo);
+            $scope = ModelProbeCache::scopeFor($provider['driver'], $provider['api_endpoint'], $provider['api_key']);
+            $cheapModel = $resolver->resolve($provider['id'], $provider['driver'], LlmTier::CHEAP, $scope);
+            $capableModel = $resolver->resolve($provider['id'], $provider['driver'], LlmTier::CAPABLE, $scope);
+            $ocrModel = $resolver->resolve($provider['id'], $provider['driver'], LlmTier::OCR, $scope);
 
             return $this->json([
                 'success' => true,
-                'message' => 'Connexion réussie — ' . count($models) . ' modèle(s) trouvé(s).',
+                'message' => "Connexion réussie — {$modelCount} modèle(s) de conversation compatible(s)."
+                    . ($ocrModel === null ? ' La lecture des photos et des documents scannés est indisponible.' : ''),
                 'provider_name' => $provider['name'],
                 'cheap_model' => $cheapModel ? $cheapModel['display_name'] : null,
                 'capable_model' => $capableModel ? $capableModel['display_name'] : null,
-                'ocr_model' => $ocrModel
-                    ? $ocrModel['display_name']
-                    : ($cheapModel ? $cheapModel['display_name'] : null),
-                'ocr_fallback' => $ocrModel === null && $cheapModel !== null,
+                'ocr_model' => $ocrModel ? $ocrModel['display_name'] : null,
+                'ocr_fallback' => false,
             ]);
         } catch (\Throwable $e) {
             // A bare \Throwable here caught anything the driver stack threw
             // — including Api\LlmException, whose message IS written for the
-            // admin, and a PDOException, whose message is not. The helper is
-            // what tells the two apart; the journal keeps the rest.
+            // admin, and a PDOException, whose message is not. Log only error
+            // metadata here; remote payloads can echo submitted content.
             $this->journalService->log(
                 'llm_connector',
                 'test_connection_failed',
@@ -282,8 +279,8 @@ class ConfigController extends AbstractController
                 'Échec du test de connexion au fournisseur IA',
                 [
                     'provider_id' => $provider['id'],
-                    'error' => $e->getMessage(),
-                    'error_detail' => $e instanceof LlmException ? $e->detail : null,
+                    'error_type' => $e::class,
+                    'error_code' => $e->getCode(),
                 ],
                 AuthSession::getUserAccountId()
             );
@@ -311,6 +308,17 @@ class ConfigController extends AbstractController
         ];
     }
 
+    private function probeScope(int $providerId): ?string
+    {
+        try {
+            $provider = $this->providerRepo->findById($providerId);
+            return $provider === null ? null
+                : ModelProbeCache::scopeFor($provider['driver'], $provider['api_endpoint'], $provider['api_key']);
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
     /**
      * The endpoint is concatenated into a URL and handed to the HTTP layer,
      * so it must be a real https URL with a host — not merely non-empty. The
@@ -330,7 +338,7 @@ class ConfigController extends AbstractController
         return \Core\Security\SsrfUrlValidator::isPublicHttpsUrl($apiEndpoint);
     }
 
-    private function createDriver(
+    protected function createDriver(
         string $driver,
         string $apiEndpoint,
         string $apiKey
@@ -346,19 +354,21 @@ class ConfigController extends AbstractController
 
     /**
      * Ensure a weekly model refresh task is scheduled.
-     * If no future task exists, schedule one for 7 days from now.
+     * Keep a renewal margin before the seven-day image evidence expires.
      */
     private function ensureWeeklyRefreshScheduled(): void
     {
         $existing = $this->schedulerService->find('llm_connector', 'refresh_models', 'weekly');
-        
-        // If a pending task exists in the future, nothing to do
-        if ($existing !== null && $existing['status'] === 'pending' && strtotime($existing['run_at']) > time()) {
+        $now = \Core\Config\AppClock::now();
+        $nextRun = $now->setTimestamp($now->getTimestamp() + ModelProbeCache::RENEW_AFTER_SECONDS);
+        if ($existing !== null && $existing['status'] === 'pending'
+            && strtotime($existing['run_at']) > $now->getTimestamp()
+            && strtotime($existing['run_at']) <= $nextRun->getTimestamp()) {
             return;
         }
-
-        // Schedule next refresh in 7 days
-        $nextRun = new \DateTimeImmutable('+7 days');
-        $this->schedulerService->schedule('llm_connector', 'refresh_models', $nextRun, [], 'weekly');
+        if ($existing !== null) {
+            $this->schedulerService->cancel((int) $existing['id']);
+        }
+        $this->schedulerService->rearm('llm_connector', 'refresh_models', 'weekly', $nextRun);
     }
 }

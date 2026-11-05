@@ -56,7 +56,7 @@
             </div>
             <div class="col-12 col-md-4" data-ocr>
                 <span class="text-body-secondary small d-block">Modèle OCR</span>
-                <strong>{{ ocr_model ? ocr_model.display_name : (cheap_model ? cheap_model.display_name ~ ' (fallback)' : '—') }}</strong>
+                <strong>{{ ocr_model ? ocr_model.display_name : '—' }}</strong>
             </div>
         </div>
     </div>
@@ -128,6 +128,9 @@
 
             {# Driver-specific help — Scaleway #}
             <div class="col-12" id="driver-help-scaleway">
+                <p class="small text-body-secondary">La vérification des images peut générer jusqu’à trois petits
+                    appels de test facturés par Scaleway. Les résultats sont réutilisés pendant sept jours ; un échec
+                    temporaire peut être retesté après une heure.</p>
                 <div class="alert alert-light border mb-0">
                     <strong>Comment obtenir votre clé API Scaleway :</strong>
                     <ol class="mb-2 mt-2">

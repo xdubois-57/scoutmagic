@@ -10,19 +10,19 @@ namespace Modules\LlmConnector\Task;
 
 use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
-use Core\Security\EncryptionService;
 use Modules\LlmConnector\Provider\AnthropicProvider;
 use Modules\LlmConnector\Provider\LlmProviderInterface;
 use Modules\LlmConnector\Provider\MistralProvider;
+use Modules\LlmConnector\Provider\ModelProbeCache;
 use Modules\LlmConnector\Provider\ScalewayProvider;
 use Modules\LlmConnector\Repository\ProviderModelRepository;
 use Modules\LlmConnector\Repository\ProviderRepository;
 use Modules\LlmConnector\Service\OcrModelSelector;
+use Modules\LlmConnector\Service\ProviderCatalogRefresher;
 
 /**
- * Scheduled task: for each active provider, calls listModels() and upserts
- * into llm_provider_models. Never deletes — only inserts new and updates
- * last_seen_at for existing ones.
+ * Refresh the compatible catalog and tiers atomically for each active provider.
+ * Removed or incompatible models are pruned, including legacy assignments.
  */
 class RefreshModelsHandler implements TaskHandlerInterface
 {
@@ -31,6 +31,7 @@ class RefreshModelsHandler implements TaskHandlerInterface
      */
     public function handle(array $payload, TaskContext $context): void
     {
+        $startedAt = \Core\Config\AppClock::now();
         $pdo = $context->connection->getPdo();
         $encryption = $context->encryption;
 
@@ -42,25 +43,20 @@ class RefreshModelsHandler implements TaskHandlerInterface
         foreach ($activeProviders as $provider) {
             try {
                 $driver = $this->createDriver($provider['driver'], $provider['api_endpoint'], $provider['api_key']);
-                $models = $driver->listModels();
-
-                $modelIds = [];
-                foreach ($models as $model) {
-                    $modelRepo->upsert($provider['id'], $model['id'], $model['display_name']);
-                    $modelIds[] = $model['id'];
-                }
-
-                $ocrSelector = new OcrModelSelector();
-                $ocrSelector->setJournalService($context->journal);
-                $tierMap = $ocrSelector->selectTiers($driver, $modelIds);
-                $modelRepo->autoAssignTiers($provider['id'], $tierMap);
+                $refresher = new ProviderCatalogRefresher(
+                    $modelRepo,
+                    new OcrModelSelector($context->journal),
+                    $context->journal
+                );
+                $catalog = $refresher->refresh($provider['id'], $driver, $provider['configuration_token'], true);
+                $modelCount = count($catalog->chatModelIds());
 
                 $context->journal->log(
                     'llm_connector',
                     'models_refreshed',
                     'info',
-                    "Scheduled refresh: {$provider['name']} — " . count($models) . ' model(s)',
-                    ['provider_id' => $provider['id'], 'model_count' => count($models)],
+                    "Rafraîchissement planifié : {$provider['name']} — {$modelCount} modèle(s) compatible(s).",
+                    ['provider_id' => $provider['id'], 'model_count' => $modelCount],
                     null
                 );
             } catch (\Throwable $e) {
@@ -68,38 +64,42 @@ class RefreshModelsHandler implements TaskHandlerInterface
                     'llm_connector',
                     'models_refresh_failed',
                     'info',
-                    "Scheduled refresh failed for {$provider['name']}",
-                    ['provider_id' => $provider['id'], 'error' => $e->getMessage()],
+                    "Échec du rafraîchissement planifié pour {$provider['name']}.",
+                    ['provider_id' => $provider['id'], 'error_type' => $e::class, 'error_code' => $e->getCode()],
                     null
                 );
             }
         }
 
         // Schedule next weekly refresh
-        $this->scheduleNextWeeklyRefresh($context);
+        $this->scheduleNextWeeklyRefresh($context, $startedAt);
     }
 
     /**
-     * Schedule the next weekly model refresh (7 days from now).
+     * Anchor renewal before discovery, with an hour of margin before expiry.
      */
-    private function scheduleNextWeeklyRefresh(TaskContext $context): void
+    private function scheduleNextWeeklyRefresh(TaskContext $context, \DateTimeImmutable $startedAt): void
     {
         $schedulerRepo = new \Core\Scheduler\SchedulerRepository($context->connection->getPdo());
         $schedulerService = new \Core\Scheduler\SchedulerService($schedulerRepo);
 
         // Check if a future refresh is already scheduled
         $existing = $schedulerService->find('llm_connector', 'refresh_models', 'weekly');
-        if ($existing !== null && $existing['status'] === 'pending' && strtotime($existing['run_at']) > time()) {
+        $nextRun = $startedAt->setTimestamp($startedAt->getTimestamp() + ModelProbeCache::RENEW_AFTER_SECONDS);
+        if ($existing !== null && $existing['status'] === 'pending' && strtotime($existing['run_at']) > time()
+            && strtotime($existing['run_at']) <= $nextRun->getTimestamp()) {
             // A future task already exists, don't duplicate
             return;
         }
 
-        // Schedule next run in 7 days
-        $nextRun = new \DateTimeImmutable('+7 days');
+        if ($existing !== null) {
+            $schedulerService->cancel((int) $existing['id']);
+        }
+
         $schedulerService->rearm('llm_connector', 'refresh_models', 'weekly', $nextRun);
     }
 
-    private function createDriver(string $driver, string $apiEndpoint, string $apiKey): LlmProviderInterface
+    protected function createDriver(string $driver, string $apiEndpoint, string $apiKey): LlmProviderInterface
     {
         return match ($driver) {
             'anthropic' => new AnthropicProvider($apiEndpoint, $apiKey),

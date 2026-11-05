@@ -7,12 +7,36 @@ namespace Tests\Modules\LlmConnector\Provider;
 use Modules\LlmConnector\Api\LlmException;
 use Modules\LlmConnector\Provider\MistralProvider;
 use PHPUnit\Framework\TestCase;
+use Tests\Modules\LlmConnector\StubHttpServer;
 
 /**
  * Unit tests for MistralProvider.
  */
 class MistralProviderTest extends TestCase
 {
+    public function testModelCardsRequireRealChatAndVisionBooleans(): void
+    {
+        $server = StubHttpServer::start([['body' => json_encode(['data' => [
+            ['id' => 'chat-with-images', 'capabilities' => ['completion_chat' => true, 'vision' => true]],
+            ['id' => 'chat-text', 'capabilities' => ['completion_chat' => true, 'vision' => false]],
+            ['id' => 'chat-unknown-images', 'capabilities' => ['completion_chat' => true, 'vision' => 'true']],
+            ['id' => 'embeddings', 'capabilities' => ['completion_chat' => false, 'vision' => false]],
+            ['id' => 'vision-small'],
+            ['id' => 'malformed', 'capabilities' => ['completion_chat' => 'true', 'vision' => true]],
+        ]], JSON_THROW_ON_ERROR)]]);
+        try {
+            $catalog = (new MistralProvider($server->baseUrl(), 'test-key'))->listModels();
+            self::assertSame([
+                ['chat-with-images', 'chat-text', 'chat-unknown-images'],
+                ['chat-with-images'],
+                ['embeddings' => 'chat_endpoint_unsupported', 'vision-small' => 'chat_capability_unverified',
+                    'malformed' => 'chat_capability_unverified'],
+            ], [$catalog->chatModelIds(), $catalog->visionModelIds(), $catalog->exclusions()]);
+        } finally {
+            $server->stop();
+        }
+    }
+
     private MistralProvider $provider;
 
     protected function setUp(): void
