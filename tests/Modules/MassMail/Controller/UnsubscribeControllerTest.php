@@ -39,6 +39,7 @@ class UnsubscribeControllerTest extends TestCase
         $this->recipientRepository = $this->createMock(DeliveryRepository::class);
         $this->memberEmailService = $this->createMock(MemberEmailService::class);
         $this->suppressedAddressRepository = $this->createMock(SuppressedAddressRepository::class);
+        $this->suppressedAddressRepository->method('suppress')->willReturnOnConsecutiveCalls(true, false);
         $this->suppressedAddressRepository->method('atomically')->willReturnCallback(
             static fn(callable $action): mixed => $action()
         );
@@ -92,7 +93,7 @@ class UnsubscribeControllerTest extends TestCase
     public function testUnsubscribePostWithAValidTokenCallsUnsubscribeOnce(): void
     {
         $this->recipientRepository->expects($this->once())->method('verifyUnsubscribeToken')->with(10, 'goodtoken')->willReturn($this->makeRecipient(5));
-        $this->memberEmailService->expects($this->once())->method('unsubscribe')->with(5);
+        $this->memberEmailService->expects($this->once())->method('unsubscribe')->with('someone@example.com');
 
         $response = $this->controller->unsubscribe(
             new Request('POST', '/mass-mail/unsubscribe/10', ['token' => 'goodtoken'], [], [], []),
@@ -111,7 +112,7 @@ class UnsubscribeControllerTest extends TestCase
     public function testUnsubscribePostAcceptsATokenFromTheQueryStringAlone(): void
     {
         $this->recipientRepository->expects($this->once())->method('verifyUnsubscribeToken')->with(10, 'goodtoken')->willReturn($this->makeRecipient(5));
-        $this->memberEmailService->expects($this->once())->method('unsubscribe')->with(5);
+        $this->memberEmailService->expects($this->once())->method('unsubscribe')->with('someone@example.com');
 
         $response = $this->controller->unsubscribe(
             new Request('POST', '/mass-mail/unsubscribe/10', ['token' => 'goodtoken'], [], [], []),
@@ -124,7 +125,7 @@ class UnsubscribeControllerTest extends TestCase
     public function testUnsubscribePostFallsBackToABodyToken(): void
     {
         $this->recipientRepository->expects($this->once())->method('verifyUnsubscribeToken')->with(10, 'formtoken')->willReturn($this->makeRecipient(5));
-        $this->memberEmailService->expects($this->once())->method('unsubscribe')->with(5);
+        $this->memberEmailService->expects($this->once())->method('unsubscribe')->with('someone@example.com');
 
         $response = $this->controller->unsubscribe(
             new Request('POST', '/mass-mail/unsubscribe/10', [], ['token' => 'formtoken'], [], []),
@@ -147,30 +148,27 @@ class UnsubscribeControllerTest extends TestCase
         $this->assertSame(200, $response->getStatusCode());
     }
 
-    public function testUnsubscribePostCallingTwiceCallsTheIdempotentServiceMethodTwice(): void
+    public function testRepeatedPostsNotifyOnlyForTheFirstSuppression(): void
     {
-        // Idempotency itself lives in MemberEmailService::unsubscribe() —
-        // see MemberEmailServiceTest::testUnsubscribeIsIdempotent(). This
-        // only confirms the controller doesn't add its own state (e.g. a
-        // "already handled" guard that would make a genuine resubmit fail).
         $this->recipientRepository->method('verifyUnsubscribeToken')->willReturn($this->makeRecipient(5));
-        $this->memberEmailService->expects($this->exactly(2))->method('unsubscribe')->with(5);
+        $this->suppressedAddressRepository->expects($this->exactly(2))->method('suppress')
+            ->with('someone@example.com');
+        $this->memberEmailService->expects($this->once())->method('unsubscribe')->with('someone@example.com');
 
         $request = new Request('POST', '/mass-mail/unsubscribe/10', ['token' => 'goodtoken'], [], [], []);
         $this->controller->unsubscribe($request, ['id' => '10']);
         $response = $this->controller->unsubscribe($request, ['id' => '10']);
-
         $this->assertSame(200, $response->getStatusCode());
     }
 
     /**
-     * A member's message suppresses its address as well as deactivating
-     * the member_emails row: what the person asked to stop is the address.
+     * A member's message suppresses the address without changing
+     * member_emails validity: what the person asked to stop is the address.
      */
     public function testUnsubscribePostForAMembersMessageAlsoSuppressesTheAddress(): void
     {
         $this->recipientRepository->method('verifyUnsubscribeToken')->willReturn($this->makeRecipient(5));
-        $this->memberEmailService->expects($this->once())->method('unsubscribe')->with(5);
+        $this->memberEmailService->expects($this->once())->method('unsubscribe')->with('someone@example.com');
         $this->suppressedAddressRepository->expects($this->once())->method('suppress')->with('someone@example.com');
 
         $response = $this->controller->unsubscribe(
@@ -185,12 +183,11 @@ class UnsubscribeControllerTest extends TestCase
 
     public function testUnsubscribePostForAnExternalRecipientSuppressesTheAddress(): void
     {
-        // A mail-merge row addressed by its "Email" column: no member, no
-        // member_emails row to flip — the address lands on the module's
-        // own suppression list instead.
+        // A free address follows the same consent and notification path,
+        // even when this message has no link to a member email row.
         $this->recipientRepository->expects($this->once())->method('verifyUnsubscribeToken')->with(10, 'goodtoken')
             ->willReturn($this->makeRecipient(null));
-        $this->memberEmailService->expects($this->never())->method('unsubscribe');
+        $this->memberEmailService->expects($this->once())->method('unsubscribe')->with('someone@example.com');
         $this->suppressedAddressRepository->expects($this->once())->method('suppress')->with('someone@example.com');
 
         $response = $this->controller->unsubscribe(

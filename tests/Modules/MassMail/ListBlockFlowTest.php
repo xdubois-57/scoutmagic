@@ -124,6 +124,7 @@ class ListBlockFlowTest extends TestCase
             new SuppressedAddressRepository($this->pdo)
         );
         $this->memberEmailService = $this->buildMemberEmailService($sectionService, $memberService);
+        $this->suppressedRepository = new SuppressedAddressRepository($this->pdo);
         $this->listService = new MailingListService(
             $listRepository,
             new MemberResolutionRepository($this->pdo, $this->encryption),
@@ -138,13 +139,12 @@ class ListBlockFlowTest extends TestCase
             null,
             null,
             $memberService,
-            $this->memberEmailService
+            $this->memberEmailService,
+            $this->suppressedRepository
         );
 
         $this->deliveryRepository = new DeliveryRepository($this->pdo, $this->encryption);
         $this->targetRepository = new TargetRepository($this->pdo);
-        $this->suppressedRepository = new SuppressedAddressRepository($this->pdo);
-
         $this->massMailService = new MassMailService(
             new EmailRepository($this->pdo),
             $this->deliveryRepository,
@@ -484,11 +484,8 @@ class ListBlockFlowTest extends TestCase
     }
 
     /**
-     * A member's address on the module's suppression list — reactivated
-     * after an unsubscribe, or unsubscribed through a contact group — is
-     * still written to as the member's (MassMailService::
-     * eligibleAddressesOfMember()), so the list's page counts it too:
-     * « Voir les destinataires » and the send agree.
+     * The list preview and the freeze both exclude a suppressed address,
+     * including when it is still a valid member login address.
      */
     public function testAMembersAddressOnTheSuppressionListIsListedLikeTheSendWritesIt(): void
     {
@@ -498,11 +495,11 @@ class ListBlockFlowTest extends TestCase
 
         $rows = $this->listService->listRecipients($this->listId, $this->scoutYearId)['rows'];
 
-        $this->assertSame(['chef@test.be', 'perso@test.be'], array_column($rows, 'email'));
-        $this->assertSame(2, $this->listService->summariseList($this->listId, $this->scoutYearId)['total']);
+        $this->assertSame(['chef@test.be'], array_column($rows, 'email'));
+        $this->assertSame(1, $this->listService->summariseList($this->listId, $this->scoutYearId)['total']);
         $email = $this->sendableEmail();
         $this->massMailService->startSending($email->id, null);
-        $this->assertCount(2, $this->deliveryRepository->findByEmailId($email->id));
+        $this->assertCount(1, $this->deliveryRepository->findByEmailId($email->id));
     }
 
     /**
@@ -736,7 +733,8 @@ class ListBlockFlowTest extends TestCase
     {
         $memberId = $this->createMember('chef@test.be');
         $repository = new \Core\Member\MemberEmailRepository($this->pdo, $this->encryption);
-        $repository->markInactive($repository->findOrCreateDeskOverride($memberId, 'chef@test.be')->id);
+        $repository->findOrCreateDeskOverride($memberId, 'chef@test.be');
+        $this->suppressedRepository->suppress('chef@test.be');
 
         $email = $this->sendableEmail();
         $this->massMailService->startSending($email->id, null);

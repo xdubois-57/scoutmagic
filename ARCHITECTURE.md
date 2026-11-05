@@ -2907,37 +2907,46 @@ Test mode gains a per-recipient preview (`GET
 through rows with real substituted values and surfaces unknown tokens and
 per-row missing values; the test send carries the previewed row's values.
 
-**Unsubscribes (`mass_mail_suppressed_addresses`)** — every one-click
-unsubscribe (a token per MESSAGE, `UnsubscribeController`) stores a
-SHA-256 hash of the lowercased address, whoever asked; a member's message
-also deactivates its `member_emails` row, for every member sharing the
-address. The freeze reads the table for the addresses that have no member
-page — a contact's is written as a message in error, visible in tracking,
-and a file row's free address is left out — but **not for a member's own
-addresses**: those are governed by `member_emails`, which the unsubscribe
-already set « Inactif » and which « Réactiver » puts back. Reading the
-table there too, as the chantier of issue #999 first planned, made a
-member's unsubscribe permanent (review of #1030). Since #1032, confirmed
-reactivation restores every inactive member row sharing that address, the
-contact flags and the suppression hash together. Retention never purges
-an unsubscribe; only an explicit reactivation removes it.
+**Désinscription des e-mails groupés (#1049).** La table
+`mass_mail_suppressed_addresses` est la source du consentement pour toutes les
+adresses : membre, contact ou adresse libre d'un publipostage. Chaque POST signé
+par le jeton du message enregistre l'empreinte SHA-256 normalisée et marque les
+contacts correspondants dans une seule transaction. Le statut `member_emails`
+reste inchangé : la désinscription ne coupe ni la connexion ni une session ouverte.
+Les messages personnels continuent d'arriver et les destinataires déjà figés
+restent ceux du lancement. Les prochains gels et leurs estimations excluent
+l'adresse pour toutes les fiches qui la partagent ; la liste des destinataires
+applique le même consentement.
 
-**Address-wide reactivation (#1032).** `Core\Member\EmailAddressReactivationService`
-uses one shared-PDO transaction for inactive member rows, the optional
-`Modules\MassMail\Api\AddressReactivationInterface` provider and their audit
-entries. Pending addresses, bounce blocks and frozen deliveries are untouched.
-`AddressReactivationRegistry` is the mutable handle passed to core before the
-module's block runs; disabled means no module table is read. The member action
-keeps its ownership/temporary-session guards and requires the generic
-`data-confirm` dialog. The admin-only POST on `/admin/listes-de-diffusion/adresses/reactivate`
-uses the same operation for a contact or free address at its holder's request.
-Neither path sends mail. The confirmation's replay marker lasts only for
-the synchronous submit, so a later decision on the same form asks again.
-Unsubscribe follows the same lock order in one transaction and sends its
-notifications only after commit. Failure rolls the changes back; re-importing a file
-alone still cannot undo an unsubscribe. A failed rollback or failure-audit write
-does not replace the original error; reactivation still returns its safe retry
-message when the journal is unavailable.
+`SuppressedAddressRepository::suppress()` indique si l'empreinte vient d'être
+créée. Seule cette première inscription déclenche les notifications, après commit :
+confirmation à l'adresse et avis au Staff d'U si elle correspond à des membres.
+`MemberEmailService::unsubscribe()` retrouve les liens dont la maîtrise de l'adresse
+est établie (Desk ou confirmation), dans l'année publique, et complète avec les
+fiches Desk dont l'adresse n'a pas encore de ligne créée à la demande. Une demande
+de liaison non confirmée ne communique aucun nom. Le service ne désactive aucune
+adresse. Un échec de transaction n'envoie aucune notification.
+
+**Rétablir le consentement.** Le contrat facultatif
+`Modules\MassMail\Api\AddressReactivationInterface` expose `isSuppressed()` et
+`reactivateAddress()`. `AddressReactivationRegistry` est transmis au cœur avant
+l'activation du module ; sans fournisseur, aucune table du module n'est lue.
+La fiche personnelle affiche « Désinscrite des e-mails groupés » uniquement pour
+une adresse dont le titulaire est établi. Le POST personnel
+`/members/{id}/emails/{email_id}/restore-group-mail` vérifie l'accès à sa propre
+fiche, le jeton CSRF et l'adresse, puis utilise
+`EmailAddressReactivationService::restoreGroupMail()` après confirmation générique.
+Il retire l'empreinte et les indicateurs des contacts, sans modifier les statuts
+inactifs, les confirmations en attente, les rebonds ou les messages déjà figés.
+Le POST administratif `/admin/listes-de-diffusion/adresses/reactivate` utilise
+cette même opération à la demande du titulaire. Les actions n'envoient aucun e-mail.
+
+« Réactiver » sur une adresse réellement inactive reste une opération distincte,
+`reactivateLogin()`, qui rétablit sa validité sans lever une désinscription des
+e-mails groupés. Les transactions partagent le même PDO et l'ordre des verrous
+reste suppression, contacts, membres. Un échec conserve l'état précédent et donne
+un message permettant de réessayer ; aucun import de fichier ne réabonne une adresse.
+Aucune reprise des anciennes lignes inactives n'est effectuée.
 
 **One notification per account and per row (issue #999, §2.6).** The
 account concerned is the one whose login is the address of a sent message
@@ -4880,8 +4889,8 @@ the address's blind index under the SHARED `'email'` purpose, because it is
 compared against `member_emails` to find who owns a bounced mailbox. A
 parent's address sits on every one of their children's profiles, so
 recording per profile would let « bloquée » be true on one screen and false
-on another for a single mailbox — the same reasoning
-`MemberEmailService::unsubscribe()` already applies.
+on another for a single mailbox. Group-mail consent likewise belongs to the
+address, but is stored independently of login validity and bounce status.
 `mass_mail_block_contacts` keeps its own domain-separated purpose, so the
 module never matches indexes across the boundary: it asks the core with the
 plaintext address it holds at send time.
