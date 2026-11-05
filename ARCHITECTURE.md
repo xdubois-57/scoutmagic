@@ -2921,9 +2921,11 @@ applique le même consentement.
 `SuppressedAddressRepository::suppress()` indique si l'empreinte vient d'être
 créée. Seule cette première inscription déclenche les notifications, après commit :
 confirmation à l'adresse et avis au Staff d'U si elle correspond à des membres.
-`MemberEmailService::unsubscribe()` retrouve les lignes par adresse et complète
-avec les fiches Desk dont l'adresse n'a pas encore de ligne créée à la demande ;
-il ne désactive aucune adresse. Un échec de transaction n'envoie aucune notification.
+`MemberEmailService::unsubscribe()` retrouve les liens dont la maîtrise de l'adresse
+est établie (Desk ou confirmation), dans l'année publique, et complète avec les
+fiches Desk dont l'adresse n'a pas encore de ligne créée à la demande. Une demande
+de liaison non confirmée ne communique aucun nom. Le service ne désactive aucune
+adresse. Un échec de transaction n'envoie aucune notification.
 
 **Rétablir le consentement.** Le contrat facultatif
 `Modules\MassMail\Api\AddressReactivationInterface` expose `isSuppressed()` et

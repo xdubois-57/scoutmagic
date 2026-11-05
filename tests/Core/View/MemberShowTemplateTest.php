@@ -89,6 +89,9 @@ class MemberShowTemplateTest extends TestCase
         $form = $forms->item(0);
         $this->assertSame('Rétablir les e-mails groupés', $form->getAttribute('data-confirm-label'));
         $this->assertStringContainsString('tous les groupes', $form->getAttribute('data-confirm'));
+        $this->assertStringContainsString('Le consentement aux e-mails groupés sera rétabli', $form->getAttribute('data-confirm'));
+        $this->assertStringContainsString("La validité de l'adresse pour la connexion et les suspensions pour rebonds restent inchangées", $form->getAttribute('data-confirm'));
+        $this->assertStringNotContainsString('recevra de nouveau', $form->getAttribute('data-confirm'));
         $this->assertStringContainsString('Désinscrite des e-mails groupés', $html);
         $this->assertStringNotContainsString('/emails/7/reactivate', $html);
         $this->assertStringNotContainsString('/emails/7/restore-group-mail',

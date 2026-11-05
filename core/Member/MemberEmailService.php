@@ -15,6 +15,7 @@ use Core\Mail\Feedback\Bounce\BounceState;
 use Core\Mail\MailException;
 use Core\Mail\MailService;
 use Core\Mail\Template\EmailTemplateRenderer;
+use Core\ScoutYear\ScoutYearResolver;
 use Core\Service\TextNormalizerService;
 
 /**
@@ -58,7 +59,8 @@ class MemberEmailService
          * there, never a silent failure.
          */
         private ?BounceService $bounces = null,
-        private ?EmailAddressReactivationService $reactivation = null
+        private ?EmailAddressReactivationService $reactivation = null,
+        private ?ScoutYearResolver $scoutYearResolver = null
     ) {
     }
 
@@ -500,8 +502,11 @@ class MemberEmailService
     public function unsubscribe(string $email, ?callable $deferNotification = null): void
     {
         $email = mb_strtolower(trim($email));
-        $rows = $this->repository->findAllByEmail($email);
-        $currentYear = $this->scoutYearService->getCurrentYear();
+        $rows = array_filter(
+            $this->repository->findAllByEmail($email),
+            fn(MemberEmail $row): bool => $this->controlIsProven($row)
+        );
+        $currentYear = $this->scoutYearResolver?->getCurrentPublicYear() ?? $this->scoutYearService->getCurrentYear();
         $affectedMemberNames = [];
         foreach ($rows as $row) {
             $this->journalService->log(
@@ -526,6 +531,9 @@ class MemberEmailService
         // A contact or free-address message may precede the first member
         // freeze, so a Desk address need not have its lazy override row yet.
         foreach ($this->memberService->getLinkedMembers($email, (int) $currentYear['id']) as $profile) {
+            if (mb_strtolower(trim($profile->email ?? '')) !== $email) {
+                continue;
+            }
             $affectedMemberNames[$profile->memberId] = trim(
                 TextNormalizerService::normalizeName($profile->firstName)
                     . ' '

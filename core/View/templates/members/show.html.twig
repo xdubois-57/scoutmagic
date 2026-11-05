@@ -416,7 +416,7 @@
                                     {% endif %}
                                     {% if group_mail_unsubscribed %}
                                         <form method="post" action="/members/{{ member.memberYearId }}/emails/{{ row.id }}/restore-group-mail"
-                                              data-confirm="Cette adresse recevra de nouveau les e-mails groupés de l'unité, pour toutes les fiches et tous les groupes qui l'utilisent. Les suspensions pour rebonds restent inchangées."
+                                              data-confirm="Le consentement aux e-mails groupés sera rétabli pour cette adresse, pour toutes les fiches et tous les groupes qui l'utilisent. La validité de l'adresse pour la connexion et les suspensions pour rebonds restent inchangées."
                                               data-confirm-title="Rétablir les e-mails groupés ?" data-confirm-label="Rétablir les e-mails groupés"
                                               data-confirm-variant="primary">
                                             {{ csrf_field()|raw }}

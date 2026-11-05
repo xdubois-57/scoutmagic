@@ -73,6 +73,7 @@ class MemberEmailServiceTest extends TestCase
     private BounceStateRepository $bounceStates;
     private MailService&\PHPUnit\Framework\MockObject\MockObject $mailService;
     private int $memberId;
+    private \Core\Config\SettingService $settingService;
     private int $lastRowId = 0;
 
     protected function setUp(): void
@@ -83,8 +84,9 @@ class MemberEmailServiceTest extends TestCase
         $this->mailService = $this->createMock(MailService::class);
         $connection = Connection::withPdo($this->pdo);
 
-        $twig = $this->createStub(\Twig\Environment::class);
-        $twig->method('render')->willReturn('<html></html>');
+        $twig = \Tests\TestTwig::create();
+        $this->settingService = new \Core\Config\SettingService(new \Core\Config\SettingRepository($this->pdo));
+        $this->settingService->register('current_scout_year_id', '0', 'number', 'Année publique', 'Année publique');
 
         // Always-true stub — these tests exercise addEmail()'s own logic,
         // not a real DNS lookup (Core\Member\EmailDomainValidatorTest
@@ -107,7 +109,8 @@ class MemberEmailServiceTest extends TestCase
 ),
             new MemberService(
     new MemberYearRepository($this->pdo),
-    new MemberProfileRepository($connection, $this->encryption)
+    new MemberProfileRepository($connection, $this->encryption),
+    memberEmailRepo: $this->repository
 ),
             new ScoutYearService($this->pdo),
             'https://example.test',
@@ -117,7 +120,12 @@ class MemberEmailServiceTest extends TestCase
             // With null every bounce question answers « jamais rebondi »
             // before touching anything, and a test asserting « l'adresse
             // bloquée est exclue » would pass whatever the code does.
-            new BounceService($this->bounceStates = new BounceStateRepository($this->pdo, $this->encryption))
+            new BounceService($this->bounceStates = new BounceStateRepository($this->pdo, $this->encryption)),
+            scoutYearResolver: new \Core\ScoutYear\ScoutYearResolver(
+                new ScoutYearService($this->pdo),
+                $this->settingService,
+                new MemberYearRepository($this->pdo)
+            )
         );
 
         $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('DESK1')");
@@ -558,6 +566,116 @@ class MemberEmailServiceTest extends TestCase
         $this->createStaffDuSectionWithEmail('staffdu@example.com');
         $this->mailService->expects($this->once())->method('send')->with('external@example.com');
         $this->service->unsubscribe('external@example.com');
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('unprovenAddressStatuses')]
+    public function testUnsubscribeDoesNotDiscloseAnUnprovenMemberLink(string $status): void
+    {
+        $this->createStaffDuSectionWithEmail('staffdu@example.com');
+        $year = (new ScoutYearService($this->pdo))->getCurrentYear()['id'];
+        $this->insertNotificationProfile($this->memberId, $year, 'Confidentiel', 'desk@example.com');
+        $rowId = $this->repository->create($this->memberId, 'unproven@example.com', 'manual', $status, null, null);
+        // A legacy valid status without a confirmation stamp is not proof.
+        $this->pdo->prepare('UPDATE member_emails SET confirmed_at = NULL WHERE id = ?')->execute([$rowId]);
+        $messages = [];
+        $this->mailService->method('send')->willReturnCallback(
+            static function (string $to, string $subject, string $bodyHtml, ?string $bodyText) use (&$messages): void {
+                $messages[$to] = $bodyHtml . $bodyText;
+            }
+        );
+
+        $this->service->unsubscribe('unproven@example.com');
+
+        $this->assertSame(['unproven@example.com'], array_keys($messages));
+        $this->assertStringNotContainsString('Confidentiel', $messages['unproven@example.com']);
+    }
+
+    public static function unprovenAddressStatuses(): iterable
+    {
+        yield 'awaiting confirmation' => ['pending'];
+        yield 'no recorded proof' => ['valid'];
+        yield 'inactive without confirmation' => ['inactive'];
+    }
+
+    public function testUnsubscribeNamesOnlyTheProvenLinksSharingAMailbox(): void
+    {
+        $this->createStaffDuSectionWithEmail('staffdu@example.com');
+        $year = (new ScoutYearService($this->pdo))->getCurrentYear()['id'];
+        $this->insertNotificationProfile($this->memberId, $year, 'Confirmé', 'desk@example.com');
+        $confirmedId = $this->repository->create($this->memberId, 'shared@example.com', 'manual', 'pending', null, null);
+        $this->repository->markValid($confirmedId);
+        $this->repository->markInactive($confirmedId);
+        $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('UNPROVEN')");
+        $otherId = (int) $this->pdo->lastInsertId();
+        $this->insertNotificationProfile($otherId, $year, 'Confidentiel', 'other-desk@example.com');
+        $pendingId = $this->repository->create($otherId, 'shared@example.com', 'manual', 'pending', null, null);
+        $messages = [];
+        $this->mailService->expects($this->exactly(2))->method('send')->willReturnCallback(
+            static function (string $to, string $subject, string $bodyHtml, ?string $bodyText) use (&$messages): void {
+                $messages[$to] = $bodyHtml . $bodyText;
+            }
+        );
+
+        $this->service->unsubscribe('shared@example.com');
+
+        $this->assertEqualsCanonicalizing(['staffdu@example.com', 'shared@example.com'], array_keys($messages));
+        foreach ($messages as $body) {
+            $this->assertStringContainsString('Confirmé Dupont', $body);
+            $this->assertStringNotContainsString('Confidentiel', $body);
+        }
+        $this->assertTrue($this->repository->findById($confirmedId)->isInactive());
+        $this->assertTrue($this->repository->findById($pendingId)->isPending());
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('notificationLinkOrigins')]
+    public function testUnsubscribeUsesThePublicYearBeforeTheAnnualSwitch(bool $deskOnly): void
+    {
+        $this->createStaffDuSectionWithEmail('staffdu@example.com');
+        $years = new ScoutYearService($this->pdo);
+        $calendar = $years->getCurrentYear();
+        $start = (int) $calendar['label'];
+        $publicId = $years->ensureYear(($start - 1) . '-' . $start);
+        $this->settingService->setInternal('current_scout_year_id', (string) $publicId);
+        $this->insertNotificationProfile($this->memberId, $publicId, 'Actuel', 'public@example.com');
+        $this->insertNotificationProfile($this->memberId, $calendar['id'], 'Futur', 'future@example.com');
+        if (!$deskOnly) {
+            $rowId = $this->repository->create($this->memberId, 'public@example.com', 'manual', 'pending', null, null);
+            $this->repository->markValid($rowId);
+        }
+        $messages = [];
+        $this->mailService->method('send')->willReturnCallback(
+            static function (string $to, string $subject, string $bodyHtml, ?string $bodyText) use (&$messages): void {
+                $messages[$to] = $bodyHtml . $bodyText;
+            }
+        );
+
+        $this->service->unsubscribe('public@example.com');
+
+        $this->assertEqualsCanonicalizing(['staffdu@example.com', 'public@example.com'], array_keys($messages));
+        foreach ($messages as $body) {
+            $this->assertStringContainsString('Actuel Dupont', $body);
+            $this->assertStringNotContainsString('Futur', $body);
+            $this->assertStringNotContainsString('ne peut plus', $body);
+        }
+        $this->assertStringContainsString('Rétablir les e-mails groupés', $messages['public@example.com']);
+    }
+
+    public static function notificationLinkOrigins(): iterable
+    {
+        yield 'Desk before lazy override' => [true];
+        yield 'confirmed secondary address' => [false];
+    }
+
+    private function insertNotificationProfile(int $memberId, int $year, string $firstName, string $deskEmail): void
+    {
+        $this->pdo->prepare('INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted,
+            last_name_encrypted, email_encrypted, email_blind_index) VALUES (?, ?, ?, ?, ?, ?)')->execute([
+                $memberId, $year,
+                $this->encryption->encrypt($firstName, 'member_years.first_name'),
+                $this->encryption->encrypt('Dupont', 'member_years.last_name'),
+                $this->encryption->encrypt($deskEmail, 'member_years.email'),
+                $this->encryption->blindIndex($deskEmail, 'email'),
+            ]);
     }
 
     /**

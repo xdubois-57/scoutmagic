@@ -2749,6 +2749,9 @@ $sectionStaffAuthorizationService = new \Core\Member\SectionStaffAuthorizationSe
 $memberDocumentRepository = new \Core\Member\MemberDocumentRepository($pdo);
 $memberDocumentService = new \Core\Member\MemberDocumentService($memberDocumentRepository);
 
+// Scout year resolution (public / staff / session-preview priority)
+$scoutYearResolver = new ScoutYearResolver($scoutYearService, $settingService, $memberYearRepo);
+
 // Member page "Adresses email" — multi-email support per member (Core\
 // Member\MemberEmailService). $memberEmailRepository was already built
 // above, before $roleResolver.
@@ -2780,12 +2783,9 @@ $memberEmailService = new \Core\Member\MemberEmailService(
         new \Core\Mail\Feedback\Bounce\BounceStateRepository($pdo, $encryptionService),
         $journalService
     ),
-    $emailAddressReactivation
+    $emailAddressReactivation,
+    $scoutYearResolver
 );
-
-// Scout year resolution (public / staff / session-preview priority)
-$scoutYearResolver = new ScoutYearResolver($scoutYearService, $settingService, $memberYearRepo);
-
 
 $scoutYearAdminService = new ScoutYearAdminService($settingService, $importJournalRepo);
 
@@ -12012,7 +12012,8 @@ if ($isEnabled('registration')) {
             $scoutYearService,
             $settingService,
             $memberService,
-            $memberEmailService
+            $memberEmailService,
+            $massMailSuppressedRepo
         );
         // Fresh instances rather than reusing the $massMailAudienceRepo/…
         // variables from the mass_mail block above — they're identical
