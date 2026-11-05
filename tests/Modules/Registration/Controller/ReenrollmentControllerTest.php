@@ -460,9 +460,48 @@ class ReenrollmentControllerTest extends TestCase
 
     // ── the campaign window ───────────────────────────────────────────
 
+    public function testACampaignNotYetOpenHasItsOwnMessageAndKeepsThePageReadOnly(): void
+    {
+        $year = (int) \Core\Config\AppClock::now()->format('Y') + 2;
+        $this->useCampaignForYear($year);
+        $this->campaign->close();
+        $this->createAnime('Alix', ($year - 10) . '-06-01', $this->louveteauxA, self::PARENT_EMAIL);
+
+        $body = $this->page();
+
+        $this->assertStringContainsString("La campagne de réinscription n'est pas encore ouverte.", $body);
+        $this->assertStringContainsString('Alix', $body);
+        $this->assertStringNotContainsString('clôturée', $body);
+        $this->assertStringNotContainsString('class="reenrollment-form"', $body);
+        $this->assertStringNotContainsString('Enregistrer ma réponse', $body);
+    }
+
+    public function testACampaignNotYetOpenRefusesAWriteWithTheCorrectMessage(): void
+    {
+        $year = (int) \Core\Config\AppClock::now()->format('Y') + 2;
+        $this->useCampaignForYear($year);
+        $this->campaign->close();
+        $memberId = $this->createAnime('Alix', ($year - 10) . '-06-01', $this->louveteauxA, self::PARENT_EMAIL);
+        AuthSession::login(1, self::PARENT_EMAIL, 'identified');
+
+        $response = $this->controller->save($this->post([
+            'member_id' => (string) $memberId,
+            'decision' => 'reenrolled',
+        ]), []);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertNull($this->repository->findAnswer($memberId, $this->targetYearId));
+        $this->assertSame([
+            'type' => 'error',
+            'message' => "La campagne de réinscription n'est pas encore ouverte.",
+        ], \Core\Http\FlashMessage::get());
+    }
+
     public function testAClosedCampaignLeavesThePageReadableAndTheAnswerVisible(): void
     {
-        $memberId = $this->createAnime('Alix', '2017-06-01', $this->louveteauxA, self::PARENT_EMAIL);
+        $year = (int) \Core\Config\AppClock::now()->format('Y') - 1;
+        $this->useCampaignForYear($year);
+        $memberId = $this->createAnime('Alix', ($year - 10) . '-06-01', $this->louveteauxA, self::PARENT_EMAIL);
         AuthSession::login(1, self::PARENT_EMAIL, 'identified');
         $this->controller->save($this->post([
             'member_id' => (string) $memberId,
@@ -478,13 +517,16 @@ class ReenrollmentControllerTest extends TestCase
         $this->assertStringContainsString('Alix', $body);
         $this->assertStringContainsString('Alix a hâte.', $body);
         $this->assertStringContainsString('campagne de réinscription est clôturée', $body);
+        $this->assertStringNotContainsString("n'est pas encore ouverte", $body);
         $this->assertStringNotContainsString('class="reenrollment-form"', $body);
         $this->assertStringNotContainsString('Enregistrer ma réponse', $body);
     }
 
     public function testAClosedCampaignRefusesAWriteEvenFromAFormLeftOpenInATab(): void
     {
-        $memberId = $this->createAnime('Alix', '2017-06-01', $this->louveteauxA, self::PARENT_EMAIL);
+        $year = (int) \Core\Config\AppClock::now()->format('Y') - 1;
+        $this->useCampaignForYear($year);
+        $memberId = $this->createAnime('Alix', ($year - 10) . '-06-01', $this->louveteauxA, self::PARENT_EMAIL);
         $this->campaign->close();
 
         AuthSession::login(1, self::PARENT_EMAIL, 'identified');
@@ -498,6 +540,15 @@ class ReenrollmentControllerTest extends TestCase
             $this->repository->findAnswer($memberId, $this->targetYearId),
             'The window is enforced on the server, not by the absence of a button.'
         );
+        $this->assertStringContainsString('est clôturée', \Core\Http\FlashMessage::get()['message']);
+    }
+
+    private function useCampaignForYear(int $year): void
+    {
+        $years = new ScoutYearService($this->pdo);
+        $this->currentYearId = $years->ensureYear(($year - 1) . '-' . $year);
+        $this->targetYearId = $years->ensureYear($year . '-' . ($year + 1));
+        $this->settingService->setInternal(ScoutYearResolver::SETTING_PUBLIC_YEAR, (string) $this->currentYearId);
     }
 
     // ── the RBAC floor ────────────────────────────────────────────────
