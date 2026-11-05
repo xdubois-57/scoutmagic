@@ -125,7 +125,7 @@ class EmailTemplateRegistry
             new EmailTemplate(
                 id: 'member_email_unsubscribe_staffdu',
                 label: "Désinscription — avis au Staff d'U",
-                description: "Envoyé au Staff d'U quand une adresse se désinscrit des envois groupés.",
+                description: "Envoyé au Staff d'U quand une adresse liée à une fiche de membre se désinscrit des envois groupés.",
                 defaultSubject: "Une adresse s'est désinscrite des envois groupés",
                 template: 'email/member_email_unsubscribe_staffdu.html.twig',
                 variables: [

@@ -180,11 +180,47 @@ class MemberEmailAddressController extends AbstractController
     }
 
     /**
+     * POST /members/{id}/emails/{email_id}/restore-group-mail
+     *
+     * @param array<string, string> $params
+     */
+    public function restoreGroupMail(Request $request, array $params): Response
+    {
+        $memberYearId = (int) $params['id'];
+        $memberId = $this->requireOwnMemberId($request, $memberYearId);
+        if ($memberId === null) {
+            return $this->forbidden(self::SELF_ONLY_MESSAGE, $request);
+        }
+        if (($guard = $this->guardCsrf($request, '/members/' . $memberYearId)) !== null) {
+            return $guard;
+        }
+
+        try {
+            $emailId = (int) $params['email_id'];
+            $restored = $this->memberEmailService->restoreGroupMail(
+                $memberId,
+                $emailId,
+                $emailId === 0 ? $this->deskEmailFor($memberYearId) : null,
+                AuthSession::getUserAccountId()
+            );
+            FlashMessage::set(
+                $restored ? 'success' : 'info',
+                $restored
+                    ? 'Les e-mails groupés sont rétablis pour cette adresse.'
+                    : 'Cette adresse n’était plus désinscrite des e-mails groupés.'
+            );
+        } catch (MemberEmailException $e) {
+            FlashMessage::set('error', $e->getMessage());
+        }
+
+        return $this->redirect('/members/' . $memberYearId);
+    }
+
+    /**
      * POST .../emails/{email_id}/bounce-unblock — the member lifts a
      * block the SITE placed (roadmap IT-05, D19).
      *
-     * **Deliberately separate from `reactivate`**, which undoes the
-     * member's own « je ne veux plus rien recevoir ici ». These are two
+     * **Deliberately separate from restoring group-mail consent**. These are two
      * different decisions by two different deciders, and one button doing
      * both would let a parent silently undo their own unsubscribe while
      * meaning to empty their mailbox.

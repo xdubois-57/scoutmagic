@@ -84,7 +84,7 @@ use Twig\Environment;
  */
 #[\PHPUnit\Framework\Attributes\Group('database')]
 #[\PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations]
-final class GroupedSendScenariosTest extends TestCase
+class GroupedSendScenariosTest extends TestCase
 {
     private \PDO $pdo;
     private EncryptionService $encryption;
@@ -113,8 +113,7 @@ final class GroupedSendScenariosTest extends TestCase
 
     protected function setUp(): void
     {
-        $this->pdo = DatabaseTestHelper::createTestDatabase();
-        MassMailTestHelper::createTables($this->pdo);
+        $this->pdo = $this->database();
         $this->encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $this->accounts = new UserAccountRepository($this->pdo, $this->encryption);
 
@@ -144,6 +143,13 @@ final class GroupedSendScenariosTest extends TestCase
         $this->build();
     }
 
+    protected function database(): \PDO
+    {
+        $pdo = DatabaseTestHelper::createTestDatabase();
+        MassMailTestHelper::createTables($pdo);
+        return $pdo;
+    }
+
     /** (Re)builds the services — again once a test installs an external list. */
     private function build(): void
     {
@@ -156,8 +162,11 @@ final class GroupedSendScenariosTest extends TestCase
             new MemberYearRepository($this->pdo),
             new MemberProfileRepository($connection, $this->encryption)
         );
+        $memberEmails = new MemberEmailRepository($this->pdo, $this->encryption);
+        $journal = new JournalService(new JournalRepository($this->pdo));
+        $consent = new \Core\Member\AddressReactivationRegistry();
         $this->memberEmailService = new MemberEmailService(
-            new MemberEmailRepository($this->pdo, $this->encryption),
+            $memberEmails,
             $this->createStub(MailService::class),
             EmailTemplateRendererFactory::overTestDatabase($this->pdo, $this->createStub(Environment::class)),
             new JournalService(new JournalRepository($this->pdo)),
@@ -165,13 +174,17 @@ final class GroupedSendScenariosTest extends TestCase
             $this->memberService,
             new ScoutYearService($this->pdo),
             'https://example.test',
-            'Test Unité'
+            'Test Unité',
+            reactivation: new \Core\Member\EmailAddressReactivationService($memberEmails, $journal, $consent)
         );
 
         $contactRepository = new ContactRepository($this->pdo, $this->encryption);
         $blockRepository = new ListBlockRepository($this->pdo);
         $listRepository = new MailingListRepository($this->pdo);
         $this->suppressed = new SuppressedAddressRepository($this->pdo);
+        $consent->provide(new \Modules\MassMail\Service\AddressReactivationService(
+            $this->pdo, $contactRepository, $this->suppressed, $journal
+        ));
         $this->blockService = new ListBlockService(
             $blockRepository,
             $contactRepository,
@@ -620,11 +633,8 @@ final class GroupedSendScenariosTest extends TestCase
     }
 
     /**
-     * A member's unsubscribe sets their address « Inactif », so the next
-     * freeze leaves it out; « Réactiver » on the member page brings it
-     * back, though the address stays on the module's suppression list —
-     * which governs contacts and free mail-merge addresses, never a
-     * member's own (issue #999, review of #1030).
+     * Group-mail consent is independent of login validity. Restoring it
+     * from the member's own page lifts suppression for the next freeze.
      */
     public function testAMembersUnsubscribedAddressIsLeftOutUntilReactivated(): void
     {
@@ -633,13 +643,13 @@ final class GroupedSendScenariosTest extends TestCase
         $memberEmails = new MemberEmailRepository($this->pdo, $this->encryption);
         $papa = $memberEmails->findByMemberAndEmail($alice, 'papa@x.be');
         $this->assertNotNull($papa);
-        $memberEmails->markInactive($papa->id);
+        $memberEmails->markValid($papa->id);
         $this->suppressed->suppress('PAPA@x.be');
 
         $this->send($this->activeMembersEmail());
         $this->assertSame(['alice@x.be'], $this->sent);
 
-        $memberEmails->reactivate($papa->id);
+        $this->assertTrue($this->memberEmailService->restoreGroupMail($alice, $papa->id, null, null));
         $this->sent = [];
         $this->send($this->activeMembersEmail('Deuxième'));
         $this->assertEqualsCanonicalizing(['alice@x.be', 'papa@x.be'], $this->sent);
@@ -783,6 +793,79 @@ final class GroupedSendScenariosTest extends TestCase
         $this->sent = [];
         $this->send($this->activeMembersEmail());
         $this->assertSame([$first->emailAddress], $this->sent);
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('unsubscribeOrigins')]
+    public function testEveryUnsubscribeOriginStopsFutureMemberMailWithoutRevokingTheSession(string $origin): void
+    {
+        $alice = $this->member('Alice', 'famille@x.be');
+        $bob = $this->member('Bob', 'famille@x.be');
+        $this->member('Charlie', 'other@x.be');
+        $account = $this->account('famille@x.be');
+        if ($origin === 'member') {
+            $initial = $this->activeMembersEmail();
+        } elseif ($origin === 'free') {
+            $initial = $this->mergeEmail([[null, 'famille@x.be', 'Famille']]);
+        } else {
+            $list = $this->listService->createCustomList('Contacts', 'La famille', null)->id;
+            $this->contactGroups->createGroup($list, 'Parents', [['name' => null, 'email' => 'famille@x.be']], null);
+            $initial = $this->customListEmail($list);
+        }
+        $initial = $this->send($initial);
+        $frozen = $this->deliveries->findByEmailId($initial->id);
+        $matching = array_values(array_filter($frozen, static fn(Delivery $delivery): bool => $delivery->emailAddress === 'famille@x.be'));
+        $this->assertCount(1, $matching);
+        $delivery = $matching[0];
+        $this->assertSame($origin === 'member', $delivery->memberEmailId !== null);
+        $token = CapabilityToken::generate();
+        $this->deliveries->setUnsubscribeTokenHash($delivery->id, CapabilityToken::hash($token));
+        $controller = new UnsubscribeController($this->createStub(Environment::class), $this->deliveries,
+            $this->memberEmailService, $this->suppressed, $this->blockService);
+        $request = new Request('POST', '/mass-mail/unsubscribe/' . $delivery->id, ['token' => $token], [], [], []);
+
+        if (session_status() !== PHP_SESSION_ACTIVE) {
+            ini_set('session.use_cookies', '0');
+            ini_set('session.cache_limiter', '');
+            session_start();
+        }
+        $_SESSION = [];
+        try {
+            $generation = \Tests\SessionGenerationFixture::forPdo($this->pdo);
+            \Core\Security\AuthSession::login($account, 'famille@x.be', 'chief', $generation->current());
+            $this->assertSame(200, $controller->unsubscribe($request, ['id' => (string) $delivery->id])->getStatusCode());
+            $this->assertSame(200, $controller->unsubscribe($request, ['id' => (string) $delivery->id])->getStatusCode());
+            $resolver = new \Core\Security\RoleResolver(new MemberYearRepository($this->pdo), $this->encryption,
+                $this->pdo, new MemberEmailRepository($this->pdo, $this->encryption));
+            $this->assertTrue($resolver->isEmailAuthorizedToLogin('famille@x.be', $this->scoutYearId));
+            $years = new \Core\ScoutYear\AuthorizationYears($this->scoutYearId, [$this->scoutYearId]);
+            $revalidator = new \Core\Security\SessionRevalidator($this->accounts, $resolver, $generation);
+            $this->assertTrue($revalidator->revalidate(static fn() => $years));
+            $this->assertSame('chief', \Core\Security\AuthSession::getRole());
+            foreach ([$alice, $bob] as $member) {
+                $this->assertTrue($this->memberEmailService->listForMember($member, 'famille@x.be')[0]->isValid());
+            }
+            $this->assertEquals($frozen, $this->deliveries->findByEmailId($initial->id));
+
+            $this->sent = [];
+            $next = $this->send($this->activeMembersEmail('Après désinscription'));
+            $this->assertSame(['other@x.be'], $this->sent);
+            $this->assertSame(['other@x.be'], array_map(static fn(Delivery $row): string => $row->emailAddress,
+                $this->deliveries->findByEmailId($next->id)));
+            $this->assertTrue($this->memberEmailService->restoreGroupMail($alice, 0, 'famille@x.be', null));
+            $this->assertFalse($this->suppressed->isSuppressed('famille@x.be'));
+            $this->sent = [];
+            $this->send($this->activeMembersEmail('Après rétablissement'));
+            $this->assertEqualsCanonicalizing(['famille@x.be', 'other@x.be'], $this->sent);
+        } finally {
+            $_SESSION = [];
+        }
+    }
+
+    public static function unsubscribeOrigins(): iterable
+    {
+        yield 'member message' => ['member'];
+        yield 'free-address mail merge' => ['free'];
+        yield 'contact-only message' => ['contact'];
     }
 
     // ── Fixture ─────────────────────────────────────────────────────────

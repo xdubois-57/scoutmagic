@@ -517,16 +517,16 @@ class MemberEmailServiceTest extends TestCase
         $this->assertSame([], $addresses);
     }
 
-    // --- unsubscribe() (idempotent, mass-mail-only mechanism, revokes login too) ---
+    // --- group-mail notifications leave login validity unchanged ---
 
-    public function testUnsubscribeMarksAValidRowInactive(): void
+    public function testUnsubscribeKeepsTheAddressValidForLogin(): void
     {
         $row = $this->service->addEmail($this->memberId, 'tounsub@example.com', null);
         $this->repository->markValid($row->id);
 
-        $this->service->unsubscribe($row->id);
+        $this->service->unsubscribe($row->email);
 
-        $this->assertTrue($this->repository->findById($row->id)->isInactive());
+        $this->assertTrue($this->repository->findById($row->id)->isValid());
     }
 
     public function testUnsubscribeCanDeferItsNotificationUntilTheOwningTransactionCommits(): void
@@ -542,32 +542,22 @@ class MemberEmailServiceTest extends TestCase
             );
         $notify = null;
         $this->pdo->beginTransaction();
-        $this->service->unsubscribe($row, static function (callable $callback) use (&$notify): void {
+        $this->service->unsubscribe('defer@example.com', static function (callable $callback) use (&$notify): void {
             $notify = $callback;
         });
         $this->assertSame(0, $sent);
         $this->assertNotNull($notify);
-        $this->assertTrue($this->repository->findById($row)->isInactive());
+        $this->assertTrue($this->repository->findById($row)->isValid());
         $this->pdo->commit();
         $notify();
         $this->assertSame(1, $sent);
     }
 
-    public function testUnsubscribeIsIdempotent(): void
+    public function testAnExternalAddressReceivesOnlyItsOwnConfirmation(): void
     {
-        $row = $this->service->addEmail($this->memberId, 'idempotent@example.com', null);
-        $this->repository->markValid($row->id);
-
-        $this->service->unsubscribe($row->id);
-        $this->service->unsubscribe($row->id); // second call must not error
-
-        $this->assertTrue($this->repository->findById($row->id)->isInactive());
-    }
-
-    public function testUnsubscribeOnAnUnknownIdIsANoOp(): void
-    {
-        $this->service->unsubscribe(999999); // must not throw
-        $this->addToAssertionCount(1);
+        $this->createStaffDuSectionWithEmail('staffdu@example.com');
+        $this->mailService->expects($this->once())->method('send')->with('external@example.com');
+        $this->service->unsubscribe('external@example.com');
     }
 
     /**
@@ -596,10 +586,30 @@ class MemberEmailServiceTest extends TestCase
                 $recipients[] = $args[0];
             });
 
-        $this->service->unsubscribe($row->id);
+        $this->service->unsubscribe($row->email);
 
         $this->assertContains('staffdu@example.com', $recipients);
         $this->assertContains('notify@example.com', $recipients);
+    }
+
+    public function testAFreeDeskAddressNotYetMaterializedStillNotifiesItsMembersAndStaff(): void
+    {
+        $this->createStaffDuSectionWithEmail('staffdu@example.com');
+        $year = (new ScoutYearService($this->pdo))->getCurrentYear()['id'];
+        $this->pdo->prepare('INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted,
+            last_name_encrypted, email_encrypted, email_blind_index) VALUES (?, ?, ?, ?, ?, ?)')->execute([
+                $this->memberId, $year,
+                $this->encryption->encrypt('Jean', 'member_years.first_name'),
+                $this->encryption->encrypt('Dupont', 'member_years.last_name'),
+                $this->encryption->encrypt('desk-only@example.com', 'member_years.email'),
+                $this->encryption->blindIndex('desk-only@example.com', 'email'),
+            ]);
+        $this->assertSame([], $this->repository->findAllByEmail('desk-only@example.com'));
+        $recipients = [];
+        $this->recordRecipients($this->exactly(2), $recipients);
+        $this->service->unsubscribe('desk-only@example.com');
+        $this->assertEqualsCanonicalizing(['staffdu@example.com', 'desk-only@example.com'], $recipients);
+        $this->assertSame([], $this->repository->findAllByEmail('desk-only@example.com'));
     }
 
     /**
@@ -608,7 +618,7 @@ class MemberEmailServiceTest extends TestCase
      * unsubscribing must apply to the address itself, not just the one
      * member profile the triggering send happened to be tied to.
      */
-    public function testUnsubscribeAffectsEveryMemberSharingTheSameAddress(): void
+    public function testUnsubscribeKeepsEverySharedAddressValid(): void
     {
         $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('DESK2')");
         $otherMemberId = (int) $this->pdo->lastInsertId();
@@ -618,20 +628,20 @@ class MemberEmailServiceTest extends TestCase
         $row2 = $this->service->addEmail($otherMemberId, 'shared@example.com', null);
         $this->repository->markValid($row2->id);
 
-        $this->service->unsubscribe($row1->id);
+        $this->service->unsubscribe($row1->email);
 
-        $this->assertTrue($this->repository->findById($row1->id)->isInactive());
-        $this->assertTrue($this->repository->findById($row2->id)->isInactive());
+        $this->assertTrue($this->repository->findById($row1->id)->isValid());
+        $this->assertTrue($this->repository->findById($row2->id)->isValid());
     }
 
-    public function testUnsubscribeRevokesLoginForADeskSourcedAddress(): void
+    public function testUnsubscribePreservesLoginForADeskSourcedAddress(): void
     {
         $deskRow = $this->repository->findOrCreateDeskOverride($this->memberId, 'desk-login@example.com');
         $this->assertFalse($this->repository->isBlindIndexInactiveForMember($this->memberId, $this->encryption->blindIndex('desk-login@example.com', 'email')));
 
-        $this->service->unsubscribe($deskRow->id);
+        $this->service->unsubscribe($deskRow->email);
 
-        $this->assertTrue($this->repository->isBlindIndexInactiveForMember($this->memberId, $this->encryption->blindIndex('desk-login@example.com', 'email')));
+        $this->assertFalse($this->repository->isBlindIndexInactiveForMember($this->memberId, $this->encryption->blindIndex('desk-login@example.com', 'email')));
     }
 
     // --- listForMember() (Desk row synthesis) ---

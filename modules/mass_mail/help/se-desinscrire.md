@@ -27,7 +27,7 @@ Les envois groupés : les nouvelles de l'unité, les rappels, les
 publipostages. Votre adresse est mise de côté pour toute l'unité — dans
 toutes ses listes, que vous y figuriez comme membre ou comme contact
 extérieur — et les prochains envois la sautent, sans que personne ait à
-y penser.
+y penser. Votre connexion au site et votre session restent inchangées.
 
 > Les messages qui vous concernent personnellement continuent d'arriver :
 > la décision sur une inscription, la confirmation d'une réservation, un
@@ -36,10 +36,11 @@ y penser.
 
 ## Revenir en arrière
 
-Pour une adresse d'animé : « Réactiver » sur la carte « Adresses email »
-de la page de l'animé, une fois connecté avec une autre adresse, puis
-confirmez l'action. Cela rétablit la même adresse dans toutes les fiches,
-les groupes de contacts et les prochains publipostages.
+Pour une adresse d'animé : connectez-vous comme d'habitude, puis choisissez
+« Rétablir les e-mails groupés » sur la carte « Adresses email » de sa page
+et confirmez l'action. Cela rétablit la même adresse dans toutes les fiches,
+les groupes de contacts et les prochains publipostages. Les confirmations
+en attente et les suspensions pour rebonds ne sont pas modifiées.
 
 Sans accès à une fiche, demandez à l'unité de réactiver votre adresse :
 elle dispose de cette action dans « Listes de diffusion ». Son adresse

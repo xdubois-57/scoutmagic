@@ -18,7 +18,7 @@ use Core\Mail\Template\EmailTemplateRenderer;
 use Core\Service\TextNormalizerService;
 
 /**
- * Multi-email support per member (login + mass-mail unsubscribe) — see
+ * Multi-email support per member and group-mail consent notifications — see
  * schema/core.sql's member_emails comment for the 'manual'/'desk' source
  * split. Every mutating method takes an explicit $actorId rather than
  * reading Core\Security\AuthSession itself (AGENTS.md: services never
@@ -109,7 +109,7 @@ class MemberEmailService
     {
         // **Id 0 is the Desk address, and it has no row yet.**
         // `virtualDeskRow()` synthesises one with `id: 0` whenever the
-        // member has never unsubscribed or reactivated their Desk
+        // member has no status override for their Desk
         // address — which is most members — so that is the id the page
         // posts back, and `findById(0)` finds nothing. Refusing here
         // would deny self-service on the very address most likely to be
@@ -138,7 +138,7 @@ class MemberEmailService
     /**
      * Member page listing: the Desk address first (synthesized as a
      * virtual, always-'valid' row — id 0 — when it has no status-override
-     * row of its own yet, i.e. it was never unsubscribed), then every
+     * row of its own yet), then every
      * 'manual' secondary address, most recent first. A stale 'desk'-
      * sourced row left over from an address Desk no longer imports for
      * this member (rare — see schema/core.sql) is deliberately never
@@ -312,15 +312,36 @@ class MemberEmailService
     {
         $row = $this->requireOwnRow($memberId, $emailId);
         if (!$row->isInactive()) {
-            throw new MemberEmailException("Cette adresse n'est pas désinscrite.");
+            throw new MemberEmailException("Cette adresse n'est pas inactive.");
         }
 
         ($this->reactivation ?? new EmailAddressReactivationService($this->repository, $this->journalService))
-            ->reactivate($row->email, $actorId);
+            ->reactivateLogin($row->email, $actorId);
 
         $updated = $this->repository->findById($emailId);
         \assert($updated !== null);
         return $updated;
+    }
+
+    /** Consent is shown only for an address whose ownership is already proven. */
+    public function isUnsubscribedFromGroupMail(MemberEmail $row): bool
+    {
+        return $this->controlIsProven($row)
+            && ($this->reactivation?->isSuppressed($row->email) ?? false);
+    }
+
+    /** Restore this mailbox's group-mail consent without lifting other blocks. */
+    public function restoreGroupMail(
+        int $memberId,
+        int $emailId,
+        ?string $deskEmail,
+        ?int $actorId
+    ): bool {
+        $email = $emailId === 0
+            ? $this->requireOwnDeskEmail($memberId, $deskEmail)
+            : $this->requireProvenOwnRow($memberId, $emailId)->email;
+
+        return ($this->reactivation?->restoreGroupMail($email, $actorId) ?? 0) > 0;
     }
 
     /**
@@ -468,44 +489,21 @@ class MemberEmailService
     }
 
     /**
-     * The unsubscribe action itself (Modules\MassMail's one-click endpoint
-     * and its human confirm-page both call this) — idempotent, since a
-     * mailbox prefetch, a real click, and a resubmit may all fire it for
-     * the same row. Module addendum: unsubscribing applies to the
-     * *address*, not just the one member profile a particular mass-mail
-     * send happened to be tied to — the same address can legitimately be
-     * linked to several members (e.g. a parent's address added to more
-     * than one child), so every member_emails row sharing it is marked
-     * inactive together. This also revokes the address's ability to log
-     * in — Core\Security\RoleResolver checks this same 'inactive' status
-     * even for a 'desk'-sourced row, unlike every other Desk-address rule
-     * (see schema/core.sql) — being unable to log in AND no longer
-     * receiving unit communications is significant enough that it always
-     * triggers the two notification emails below, never silently.
+     * Record and notify an address-wide group-mail unsubscribe. The module
+     * owns consent and calls this only for a newly inserted suppression,
+     * inside its transaction. Member address validity and login are unchanged.
+     * Looking up the address rather than a delivery's member_email_id also
+     * finds members reached first through a contact group or a free address.
      *
      * @param (callable(callable): void)|null $deferNotification Queue until the owning transaction commits.
      */
-    public function unsubscribe(int $memberEmailId, ?callable $deferNotification = null): void
+    public function unsubscribe(string $email, ?callable $deferNotification = null): void
     {
-        $triggerRow = $this->repository->findById($memberEmailId);
-        if ($triggerRow === null) {
-            return;
-        }
-
-        $validRows = array_filter(
-            $this->repository->findAllByEmail($triggerRow->email),
-            fn(MemberEmail $r) => $r->isValid()
-        );
-        if ($validRows === []) {
-            // Already fully unsubscribed everywhere — idempotent no-op,
-            // including no duplicate notification emails.
-            return;
-        }
-
+        $email = mb_strtolower(trim($email));
+        $rows = $this->repository->findAllByEmail($email);
         $currentYear = $this->scoutYearService->getCurrentYear();
         $affectedMemberNames = [];
-        foreach ($validRows as $row) {
-            $this->repository->markInactive($row->id);
+        foreach ($rows as $row) {
             $this->journalService->log(
                 'core',
                 'member_email_unsubscribed',
@@ -517,7 +515,7 @@ class MemberEmailService
 
             $profile = $this->memberService->findProfileByMemberAndYear($row->memberId, (int) $currentYear['id']);
             if ($profile !== null) {
-                $affectedMemberNames[] = trim(
+                $affectedMemberNames[$row->memberId] = trim(
                     TextNormalizerService::normalizeName($profile->firstName)
                         . ' '
                         . TextNormalizerService::normalizeName($profile->lastName)
@@ -525,8 +523,22 @@ class MemberEmailService
             }
         }
 
-        $notify = function () use ($triggerRow, $affectedMemberNames): void {
-            $this->sendUnsubscribeNotifications($triggerRow->email, $affectedMemberNames);
+        // A contact or free-address message may precede the first member
+        // freeze, so a Desk address need not have its lazy override row yet.
+        foreach ($this->memberService->getLinkedMembers($email, (int) $currentYear['id']) as $profile) {
+            $affectedMemberNames[$profile->memberId] = trim(
+                TextNormalizerService::normalizeName($profile->firstName)
+                    . ' '
+                    . TextNormalizerService::normalizeName($profile->lastName)
+            );
+        }
+
+        $notify = function () use ($email, $affectedMemberNames, $rows): void {
+            $this->sendUnsubscribeNotifications(
+                $email,
+                array_values($affectedMemberNames),
+                $rows !== [] || $affectedMemberNames !== []
+            );
         };
         if ($deferNotification !== null) {
             $deferNotification($notify);
@@ -648,15 +660,17 @@ class MemberEmailService
      * Two best-effort emails (a send failure must never undo the
      * unsubscribe itself, which has already happened by the time this
      * runs): one to the Staff d'U section's configured address, flagging
-     * that the affected member(s) can no longer be reached by mass-mail
-     * or log in with this address — which may also signal they want to
-     * leave the unit — and one to the unsubscribed address itself,
-     * confirming what happened and how to undo it if it was a mistake.
+     * that linked member(s) no longer receive group mail at this address,
+     * and one to the address itself confirming how to restore consent.
+     * A purely external address receives only its own confirmation.
      *
      * @param string[] $affectedMemberNames
      */
-    private function sendUnsubscribeNotifications(string $unsubscribedEmail, array $affectedMemberNames): void
-    {
+    private function sendUnsubscribeNotifications(
+        string $unsubscribedEmail,
+        array $affectedMemberNames,
+        bool $hasLinkedMembers
+    ): void {
         // Joined here rather than looped in the templates: `member_names`
         // is a DECLARED variable (Core\Mail\Template\EmailTemplateRegistry)
         // and a customised body substitutes plain strings, so a list would
@@ -669,7 +683,7 @@ class MemberEmailService
 
         $staffduSection = $this->sectionService->findByDeskCode(UnitStaffSectionService::DESK_CODE);
         $staffduEmail = $staffduSection['email'] ?? null;
-        if ($staffduEmail !== null && $staffduEmail !== '') {
+        if ($hasLinkedMembers && $staffduEmail !== null && $staffduEmail !== '') {
             $staffduEmailMessage = $this->emailTemplateRenderer->render('member_email_unsubscribe_staffdu', $context);
 
             try {
@@ -761,8 +775,8 @@ class MemberEmailService
      * registry rather than typed in here, so the address is Desk's word
      * and not the member's claim. Any other row counts once its
      * confirmation link has been followed — `confirmedAt`, not
-     * `isValid()`: an address the member later unsubscribed was proven
-     * all the same, and they may still lift a block on it.
+     * `isValid()`: a subsequently inactive address was proven all the
+     * same, and the member may still manage its group-mail consent.
      */
     private function controlIsProven(MemberEmail $row): bool
     {

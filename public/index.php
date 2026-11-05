@@ -4949,6 +4949,13 @@ $router->addRoute(
 );
 $router->addRoute(
     'POST',
+    '/members/{id}/emails/{email_id}/restore-group-mail',
+    \Core\Http\Controller\MemberEmailAddressController::class,
+    'restoreGroupMail',
+    'identified',
+);
+$router->addRoute(
+    'POST',
     '/members/{id}/emails/{email_id}/delete',
     \Core\Http\Controller\MemberEmailAddressController::class,
     'delete',
@@ -9218,7 +9225,8 @@ if ($isEnabled('mass_mail')) {
         $scoutYearService,
         $settingService,
         $memberService,
-        $memberEmailService
+        $memberEmailService,
+        $massMailSuppressedRepo
     );
     // « This module points at badges by id, so do not let one be deleted
     //   from under a list » — Core\Module\BadgeUsageProvider. Registered

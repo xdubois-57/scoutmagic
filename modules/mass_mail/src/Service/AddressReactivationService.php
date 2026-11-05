@@ -42,4 +42,9 @@ final class AddressReactivationService implements AddressReactivationInterface
         }
         return $contacts + ($suppression ? 1 : 0);
     }
+
+    public function isSuppressed(string $email): bool
+    {
+        return $this->suppressed->isSuppressed($email);
+    }
 }
