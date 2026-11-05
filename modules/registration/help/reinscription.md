@@ -28,6 +28,11 @@ Vous pouvez revenir sur votre réponse autant de fois que vous voulez tant
 que la campagne est ouverte. La dernière enregistrée est celle qui
 compte.
 
+Avant l'ouverture, la page indique **« La campagne de réinscription n'est
+pas encore ouverte. »** Vous pourrez répondre dès son ouverture. Après la
+clôture, vos réponses restent consultables ; contactez le Staff d'U pour
+une modification.
+
 ## La section, quand il y a un choix
 
 La question de la section n'apparaît pas toujours, et c'est normal :
