@@ -221,6 +221,18 @@ describe('config-functions.js', () => {
             expect(row('7').querySelector('.function-pending-badge')).not.toBeNull();
         });
 
+        it('refuses an HTTP error even when its JSON claims success', async () => {
+            global.fetch = vi.fn(() => jsonResponse({ success: true }, 500));
+            await boot();
+            drag('7', zone('zone-chief'));
+
+            await vi.waitFor(() => expect(window.ScoutMagicToast.show)
+                .toHaveBeenCalledWith('Erreur : réponse serveur invalide.', { variant: 'error' }));
+            expect(zoneIds('zone-unconfirmed')).toEqual(['7']);
+            expect(row('7').querySelector('.function-pending-badge')).not.toBeNull();
+            expect(window.ScoutMagicToast.show).not.toHaveBeenCalledWith('Enregistré.', { variant: 'success' });
+        });
+
         it('never takes a function back into « À configurer »', async () => {
             await boot();
 
@@ -309,6 +321,51 @@ describe('config-functions.js', () => {
     });
 
     describe('per-function flags', () => {
+        it.each([403, 500])('never confirms a flag on HTTP %s even with a successful JSON body', async (status) => {
+            global.fetch = vi.fn(() => jsonResponse({ success: true }, status));
+            await boot();
+            const lead = document.querySelector('.flag-lead');
+            lead.checked = true;
+            lead.dispatchEvent(new Event('change'));
+
+            await vi.waitFor(() => expect(window.ScoutMagicToast.show)
+                .toHaveBeenCalledWith('Erreur : réponse serveur invalide.', { variant: 'error' }));
+            expect(lead.checked).toBe(false);
+            expect(lead.disabled).toBe(false);
+            expect(window.ScoutMagicToast.show).not.toHaveBeenCalledWith('Enregistré.', { variant: 'success' });
+        });
+
+        it('waits for the server before confirming a flag and blocks further clicks while saving', async () => {
+            let answer;
+            global.fetch = vi.fn(() => new Promise((resolve) => { answer = resolve; }));
+            await boot();
+            const lead = document.querySelector('.flag-lead');
+            lead.checked = true;
+            lead.dispatchEvent(new Event('change'));
+            await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+            expect(lead.disabled).toBe(true);
+            expect(window.ScoutMagicToast.show).not.toHaveBeenCalled();
+            lead.click();
+            expect(fetch).toHaveBeenCalledTimes(1);
+
+            answer({ ok: true, status: 200, json: () => Promise.resolve({ success: true }) });
+            await vi.waitFor(() => expect(window.ScoutMagicToast.show).toHaveBeenCalledWith('Enregistré.', { variant: 'success' }));
+            expect(lead.disabled).toBe(false);
+            expect(lead.checked).toBe(true);
+        });
+
+        it('reports a network failure through the common toast and restores the flag', async () => {
+            global.fetch = vi.fn(() => Promise.reject(new TypeError('Failed to fetch')));
+            await boot();
+            const lead = document.querySelector('.flag-lead');
+            lead.checked = true;
+            lead.dispatchEvent(new Event('change'));
+            await vi.waitFor(() => expect(window.ScoutMagicToast.show)
+                .toHaveBeenCalledWith('Erreur : réponse serveur invalide.', { variant: 'error' }));
+            expect(lead.checked).toBe(false);
+            expect(lead.disabled).toBe(false);
+        });
+
         it('POSTs the lead flag as a boolean to /config/functions/flags', async () => {
             await boot();
             const lead = document.querySelector('.flag-lead');

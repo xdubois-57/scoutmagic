@@ -83,7 +83,7 @@
         return api.withDisabled(/** @type {HTMLInputElement} */ (/** @type {unknown} */ (control)), function () {
             return api.postJson(url, body);
         }).then(function (res) {
-            if (res.data?.success) {
+            if (res.ok && res.data?.success === true) {
                 window.ScoutMagicToast.show('Enregistré.', { variant: 'success' });
                 return res.data;
             }

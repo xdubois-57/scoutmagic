@@ -73,7 +73,7 @@
                                 <span class="badge text-bg-secondary">Premier de la saison</span>
                             {% endif %}
                             {% if import.newFunctionsCount > 0 %}
-                                <span class="badge text-bg-warning">{{ import.newFunctionsCount }} à qualifier</span>
+                                <span class="badge text-bg-secondary">{{ import.newFunctionsCount }} nouvelle{{ import.newFunctionsCount > 1 ? 's' : '' }} fonction{{ import.newFunctionsCount > 1 ? 's' : '' }}</span>
                             {% endif %}
                         </div>
                         <p class="small text-body-secondary mb-2">
@@ -120,7 +120,7 @@
         </div>
     {% endif %}
 
-    {# La purge est visible : on sait ce qui a disparu, et pourquoi. #}
+    {# The purge remains visible: what disappeared and why. #}
     <section class="mt-4">
         <h2 class="h6">Saisons supprimées</h2>
         {% if purged_years is empty %}

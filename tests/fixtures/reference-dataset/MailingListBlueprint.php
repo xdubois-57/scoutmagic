@@ -51,8 +51,8 @@ final class MailingListBlueprint
             'description' => 'Le Staff d\'U, les animateurs responsables et les anciens qui donnent encore un coup '
                 . 'de main.',
             'memberGroups' => [
-                // The unit staff, whichever of the three unit functions they hold.
-                ['Animateur d\'unité', 'Équipier d\'unité', 'Collaborateur d\'unité'],
+                // Every unit-staff function, including the local candidate.
+                UnitBlueprint::UNIT_LEVEL_FUNCTIONS,
                 // One per section and per year (UnitBlueprint::SECTION_LEAD_FUNCTION).
                 [UnitBlueprint::SECTION_LEAD_FUNCTION],
             ],

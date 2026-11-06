@@ -51,8 +51,9 @@ branche, à la version qui l'ajoute.
 
 Si l'envoi quotidien des statistiques est activé (Configuration >
 Diagnostic), ces libellés sont signalés au mainteneur — sa seule façon de
-l'apprendre. Il peut ajouter une branche dans une version ; une fonction,
-non, faute de liste de fonctions connues.
+l'apprendre. Il peut enrichir les branches ou les correspondances standard
+dans une version suivante. Une correspondance déjà enregistrée chez vous
+reste conservée.
 
 > **Seul le libellé est transmis** : jamais un nom de membre, et jamais
 > un nom de section. Un nom de section est choisi par votre unité et

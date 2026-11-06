@@ -244,9 +244,9 @@ dire quelque chose.
   sous-chaîne**, et `unité` y renvoie le créneau Staff d'U (50). Aucun libellé de
   branche ou de section destiné à autre chose ne doit contenir « unité ».
 - **`Staff d'U` n'apparaît jamais dans un CSV** : `UnitStaffSectionService` le
-  synthétise depuis les fonctions de rôle `admin`, rôle qui n'est connu qu'après
-  confirmation dans Correspondances Desk. Une nouvelle `FONCTION` s'importe toujours en
-  `role = 'identified'`, non confirmée.
+  synthétise depuis les fonctions de rôle `admin`. Les fonctions standard
+  d'unité reçoivent ce rôle confirmé dès leur première apparition. Les autres
+  fonctions inconnues restent `identified`, non confirmées.
 
 ## 7. Exception assumée au « rien sous core/ »
 
@@ -335,10 +335,11 @@ une cible pour ce script.
 3. **Les trois années scoutes et les trois imports Desk**, dans l'ordre
    chronologique, par le vrai `DeskImportService` — le même
    `DeskImportReplay` que le test d'import de bout en bout.
-4. **La confirmation des rôles**, par le chemin de Correspondances Desk
+4. **La confirmation des rôles non standard déclarés**, par le chemin de Correspondances Desk
    (`FunctionRepository::updateRole(..., true)` puis
    `UnitStaffSectionService::syncMembership()` sur les trois années). C'est le
-   seul endroit d'où Staff d'U peut naître.
+   complément des défauts standard déjà appliqués pendant les imports ;
+   ceux-ci peuplent Staff d'U sans intervention manuelle.
 5. **Les finances** : catégories par défaut, puis comptes de section, puis
    **l'IBAN de chaque compte de section**, puis les deux comptes d'unité, puis
    les six relevés BNP, puis le fichier CODA (§9.3). **L'ordre est porteur** — `ensureDefaultCategories()` ne
@@ -386,7 +387,7 @@ une cible pour ce script.
 |---|---|
 | Membres actifs | 176 / 178 / 178 |
 | Fonctions inédites | 9 en A1, 0 en A2, 1 en A3 — le vocabulaire réel entre en une fois |
-| Fonctions confirmées | 9 (`UnitBlueprint::FUNCTIONS`), plus une laissée non confirmée : `Délégué de branche` |
+| Fonctions confirmées | 12 (`UnitBlueprint::FUNCTIONS`), dont les neuf fonctions standard confirmées par l'import ; une reste non confirmée : `Délégué de branche` |
 | Staff d'U (rôle admin confirmé) | 4 / 4 / 5 rattachements — un par membre de niveau unité et par année |
 | Modules activés | 22 — tous ceux présents sur le disque |
 | Mouvements financiers importés | 190 : 125 pour les six relevés commités, 65 pour le septième (la campagne) |
@@ -455,7 +456,7 @@ services** — jamais une écriture directe dans `member_photos`,
 | Inscriptions | Le formulaire **ouvert**, les capacités semées à `SlotService::DEFAULT_CAPACITY`, trois réglées à la main pour montrer les trois valeurs qui comptent (un nombre, `NULL` = sans limite, `0` = fermé volontairement), et 23 demandes concentrées sur la première année du chemin : treize acceptées contre une capacité de quinze, donc un créneau visiblement proche de sa limite sans que rien ne soit complet. |
 | Bannières | 5, dont une inactive, réparties sur `public` / `identified` / `chief` — le texte formaté va dans `editable_contents` sous `banner_content_{id}`, jamais dans la table `banners`. |
 | Galerie | Un album **externe** pointant vers une page publique de démonstration sans données personnelles. Délibérément pas d'album local : un album est précisément la surface où un lecteur cesse de voir une fixture et croit voir des photos d'enfants. |
-| Listes de diffusion | Deux listes personnalisées, faites de blocs (chantier #729) : « Staff élargi » — deux groupes de membres (les trois fonctions d'unité ; `Animateur responsable`) et un groupe de contacts, « Anciens animateurs » — et « Partenaires locaux », un groupe de contacts seul. Ce sont les deux cas que la page d'un e-mail formule différemment. Les contacts viennent des fichiers commités de `mailing/`, lus par la vraie analyse (`ContactGroupImportService::analyse()`) puis enregistrés par `createGroup()`, comme le dialogue le fait. |
+| Listes de diffusion | Deux listes personnalisées, faites de blocs (chantier #729) : « Staff élargi » — deux groupes de membres (les quatre fonctions d'unité ; `Animateur responsable`) et un groupe de contacts, « Anciens animateurs » — et « Partenaires locaux », un groupe de contacts seul. Ce sont les deux cas que la page d'un e-mail formule différemment. Les contacts viennent des fichiers commités de `mailing/`, lus par la vraie analyse (`ContactGroupImportService::analyse()`) puis enregistrés par `createGroup()`, comme le dialogue le fait. |
 | Locations | Le local d'unité, configuré de bout en bout (tarif, contraintes, gestionnaire désigné parmi les membres), et 7 réservations à des stades différents : trois clôturées, deux confirmées dont une à cheval sur aujourd'hui, une demande à traiter, une refusée. |
 
 **Deux points à savoir, tous les deux imposés par les services :**
@@ -693,13 +694,17 @@ lignes qui diffèrent sur n'importe quel champ (« Animateur / Louveteaux » et
 
 #### Le vocabulaire des FONCTION
 
-Ce sont les libellés qu'un vrai export Desk d'unité belge porte, au caractère
-près. La table `UnitBlueprint::FUNCTIONS` en donne le rôle que Correspondances Desk sera
-prié de confirmer — le CSV, lui, ne porte jamais de rôle.
+La table `UnitBlueprint::FUNCTIONS` donne les rôles attendus des libellés
+utilisés. Le CSV ne porte jamais de rôle : l'import applique les défauts
+des neuf fonctions standard à leur première apparition ; le constructeur
+confirme ensuite les autres libellés déclarés. Les fonctions déjà configurées
+ne sont pas réinitialisées.
 
 | Niveau | Fonction | Rôle confirmé |
 |---|---|---|
 | Section | `Animé` | `identified` |
+| Section | `Scout` | `identified` |
+| Section | `Iama local` | `public` |
 | Section | `Animateur` | `chief` |
 | Section | `Candidat animateur` | `chief` |
 | Section | `Animateur responsable` | `chief` |
@@ -708,6 +713,14 @@ prié de confirmer — le CSV, lui, ne porte jamais de rôle.
 | Unité | `Animateur d'unité` | `admin` |
 | Unité | `Équipier d'unité` | `admin` |
 | Unité | `Collaborateur d'unité` | `admin` |
+| Unité | `Candidat cadre local` | `admin` |
+
+`Scout` est porté par T0001. `Iama local` apparaît seulement dans le deuxième
+export, comme fonction secondaire de T0028 : cela vérifie une initialisation
+plus tardive, sans modifier sa fonction principale. Le catalogue accepte
+aussi la graphie `Equipier d'unité` de la capture du ticket #1054.
+Lorsque Trombinoscope est actif, l'import initialise les responsables
+`Animateur responsable` et `Animateur d'unité` via son mécanisme de drapeaux.
 
 Le jeu inventait auparavant quatre libellés que Desk ne produit pas — `Chef
 d'unité`, `Intendant d'unité`, `Trésorier d'unité`, `Accompagnateur d'unité`.
@@ -722,7 +735,7 @@ L'orthographe compte : **`Candidat animateur`**, le mot « candidat » d'abord.
 `CandidateDetector` cherche la sous-chaîne « candidat » sans tenir compte de la
 casse ni des accents, donc l'ordre des mots lui est indifférent — il est fixé
 ici par fidélité, pas par contrainte technique. `FunctionRepository::findAll()`
-trie par libellé : les deux `Candidat …` se rangent sous C, loin d'`Animateur`,
+trie par libellé : les `Candidat …` se rangent sous C, loin d'`Animateur`,
 et c'est le comportement voulu.
 
 Trois règles que le générateur tient :
@@ -730,8 +743,8 @@ Trois règles que le générateur tient :
 - **exactement un `Animateur responsable` par section et par année** — c'est le
   responsable désigné, celui que la page publique Sections nomme, que la fiche
   membre affiche avec son adresse postale et que le trombinoscope met en avant ;
-- **les trois fonctions d'unité tournent** — `UNIT_STAFF_SIZE` vaut 4 ou 5 par
-  an et la rotation garantit au moins un exemplaire de chacune, donc Staff d'U
+- **les fonctions d'unité tournent** — `UNIT_STAFF_SIZE` vaut 4 ou 5 par
+  an et la dernière année contient les quatre fonctions, donc Staff d'U
   est un staff et non quatre copies du même intitulé ;
 - **une FONCTION reste délibérément hors de la table** —
   `UnitBlueprint::BRAND_NEW_FUNCTION` (`Délégué de branche`), qui n'apparaît

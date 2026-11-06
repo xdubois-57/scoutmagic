@@ -366,11 +366,27 @@ these drifts silently.
 
 - Lines grouped by `desk_id`.
 - Raw values resolved via mapping tables (functions, branches, tariffs, sections).
-- New functions default to lowest role — require admin confirmation.
+- À leur première apparition, les fonctions Desk standard reçoivent les défauts confirmés du tableau ci-dessous. Les fonctions inconnues restent `identified`, non confirmées.
 - CSV **kept**, encrypted at rest, for a retention expressed in scout years — see below.
 - **A repeated function row is one function, not two.** A Desk export emits one line per (function × address), so a member with two addresses and one function arrives as that function twice, identical in every field. `DeskImportService` collapses entries identical on the whole tuple (function, section, branch, start, end, mandate end, main flag) before `MemberYearRepository::replaceFunctions()` — the last point at which the two rows are still known to come from one fact. Two entries differing on **any** field stay two: « Animateur / Louveteaux » and « Animateur / Baladins » are two real functions. Left alone, the repeat became two strictly identical `member_functions` rows and every reader without a `DISTINCT` counted the person twice. The same rule is applied on the way out by `Core\Member\MemberFunctionInfo::deduplicate()`, so a year imported before this existed reads correctly without waiting for the next import. No `UNIQUE` constraint backs it: `schema/core.sql` auto-migrates on every request and adding one would fail on the rows already there.
 - Import journaled (metadata only).
 - **Dates are stored as `Y-m-d`** — the birth date before it is encrypted, and the three function dates — read by `Core\Service\DeskDateParser`, the one Desk date reader. The birth date used to be stored verbatim, so a Desk `15/03/2012` displayed as nothing wherever `date_fr` or `DateInput::fromStorage()` read it (both member pages, the printed health sheet) and `MemberService::isAtLeast()` let it through; the function dates went through a hand-rolled split on `/` that turned `28/11/20` into `20-11-28`. No migration: rows written before keep their verbatim text, which the readers that go through `DeskDateParser` still accept.
+
+**Correspondances initiales (#1054).** `MappingResolver::resolveFunction()` consulte un catalogue explicite uniquement lorsque la correspondance n'existe pas encore. Chaque fonction reçoit ses défauts lors de sa propre première apparition, quel que soit le numéro de l'import. Les fonctions absentes ne sont jamais précréées. Tout réglage déjà enregistré — rôle, confirmation, case de responsable — est conservé, y compris une ancienne correspondance non confirmée.
+
+| Fonction Desk | Rôle | Responsable de section |
+| --- | --- | --- |
+| Animateur | `chief` | Non |
+| Animateur responsable | `chief` | Oui |
+| Candidat animateur | `chief` | Non |
+| Animateur d'unité | `admin` | Oui |
+| Candidat cadre local | `admin` | Non |
+| Collaborateur d'unité | `admin` | Non |
+| Equipier d'unité / Équipier d'unité | `admin` | Non |
+| Iama local | `public` | Sans objet |
+| Scout | `identified` | Sans objet |
+
+Les deux graphies d'Équipier sont attestées ; aucun rapprochement de casse, d'accent ou de mots n'est ajouté au catalogue. Une correspondance déjà présente est retrouvée selon les règles habituelles de la base. L'indicateur de responsable passe par `Core\Module\FunctionFlagsProvider`, résolu dans `HookRegistry` au moment de la création, seulement si son module est actif. Une activation ultérieure n'applique pas rétroactivement les défauts. Cet indicateur reste distinct de la colonne Desk « Fonction principale » et du rôle. `RoleResolver` conserve le minimum `identified` d'un compte connecté et le cumul des autres fonctions.
 
 **A file with one unreadable value is refused whole** (`Core\Import\DeskImportValidator`, issue #854). Before the barrier below, before the kept file, before the transaction, one pass over every data line collects every violation of fourteen rules: a birth date on every line, readable and plausible (not in the future, not before 1900); as many cells as the header, or one more if that last one is empty (a real Desk export ends every line with a `;`); a `Tiers`, a `Nom`, a `Prenom` and a `FONCTION` on every line; the lines of one Tiers agreeing on `Nom`, `Prenom`, `Genre`, `Date de naissance` and `Email Tiers` (the parser reads identity from the first line only); `Genre` `F`, `H` or `X` — Desk's own values, a spreadsheet's `M` refused rather than guessed; the three boolean columns `true` or `false`, case ignored, with an empty main-function flag also meaning unmarked (mail consents stay strict); `Email Tiers` empty or well-formed; function dates empty or readable; a `Section` never without its `Branche`; no `Date début` after the end of the targeted scout year (read from `scout_years.end_date` through `ScoutYearService`); one distinct function is implicitly main even when its flag is false or empty (#1059), and the service persists `is_main_function = true` after collapsing its address copies; multiple distinct functions still need exactly one explicit main flag. Functions are counted with dates normalised and function, branch and section codes compared by their real database collation, since Desk repeats a function on each address line. Before validation, `DeskCodeIdentityRepository` supplies equivalence identities in one read-only batch, including codes not yet stored; the validator stays pure and never approximates Unicode collation in PHP. An absent branch or section stays distinct from a nonempty primary-ignorable code, and a function's lines must agree on its flag (empty and false agree) — the service's dedup key includes it, so a disagreement would store the function twice. Any violation throws `DeskImportRejectedException` (an `ImportException`, so user-facing) and nothing is written. Each import used to accept these silently — an empty or two-digit birth date overwrote a good one and took the member out of Statistiques and Prévisions, a spreadsheet's `VRAI` withdrew every mail consent, a cut line emptied its last columns, a malformed e-mail created a login. `ImportController` lays the errors out as a list on the import page (« Ligne N (Tiers) — Colonne « valeur » : raison. », never a member's name, at most `DeskImportRejectedException::MAX_LISTED_ERRORS` sentences and « … et N autres » after them); the journal gets `desk_import_rejected` with a count per rule and nothing else (SECURITY.md §13). Deliberately not checked: codes this site does not know yet (created and reported in Correspondances Desk) and free-text fields. The reference dataset passes every rule, which `Tests\Integration\ReferenceDatasetFormatTest` holds.
 
@@ -453,10 +469,10 @@ just got, or just lost, the Configuration), sections that lost their last
 member or gained their first, and the functions/sections/branches/fee
 categories this installation had never seen — those last come from
 `MappingResolver`, which created them, since no snapshot can say that a
-code is brand new. A new function arrives at the lowest role by
-construction (SECURITY.md §3), so the report names it as **to qualify in
-Correspondances Desk**, never as a neutral addition: it is the first cause of "I
-can't see anything any more" after an import.
+code is brand new. Le rapport nomme ces créations sans les déclarer toutes
+inconnues ou au rôle minimum : les fonctions standard ont déjà leurs
+correspondances. Seules celles encore non confirmées proposent l'action de
+configuration dans Correspondances Desk (SECURITY.md §3).
 
 Two absences are kept apart deliberately. The season's first import has
 no predecessor; an import whose predecessor's snapshot the retention
@@ -866,7 +882,7 @@ On the Staffs page, an editing chief's assignment picker is a `partials/select_b
 
 Chef-d'unité staff (role `admin`) are represented by a real `sections` row (`desk_code = 'STAFFDU'`, branch `"Staff d'U"`, canonical `sort_order = 50` between Pionniers and Route — see `AgeBranchRepository::canonicalSortOrder()`) — not a virtual/synthetic entry. Because membership is expressed the same way as any other section (`member_functions.section_id` pointing at it), it flows through `SectionService::getAllWithBranches()`/`getSectionStaff()`, the SectionPicker, and the trombinoscope with zero special-casing anywhere. `UnitStaffSectionService::ensureSection()` idempotently creates the branch/section and forces it active — it must survive `MappingResolver::deactivateAllSections()` even though no Desk CSV row ever references `STAFFDU` directly (§8.8's deactivate-then-reactivate pattern only reactivates sections a CSV row actually names).
 
-Because a function's role is only known once an admin confirms it on Correspondances Desk (`FunctionsController::update()`) — never at raw Desk import time, where new functions always import as `role = 'identified'` — membership must be (re)synced in two places: `UnitStaffSectionService::syncMembership($scoutYearId)` runs at the end of `DeskImportService::import()` (covers already-confirmed `admin` functions) and again after every `FunctionsController::update()` role change (covers promotions/demotions to/from `admin` post-import). It's a bulk, idempotent two-step select/update: any unassigned `admin`-role function gets `section_id = STAFFDU`; any `STAFFDU`-assigned function whose role is no longer `admin` gets `section_id` cleared back to `NULL`.
+Le rôle provient des correspondances déjà configurées ou des défauts des fonctions standard lors de leur première apparition (§8.1). `UnitStaffSectionService::syncMembership($scoutYearId)` s'exécute à la fin de chaque import, puis après chaque changement de rôle dans `FunctionsController::update()`. Les fonctions standard d'unité peuvent donc rejoindre Staff d'U dès leur premier import, sans configuration manuelle. Cette synchronisation reste idempotente : elle rattache les fonctions `admin` sans section à `STAFFDU`, et détache de `STAFFDU` celles dont le rôle n'est plus `admin`.
 
 `Core\View\SectionRepository` (the public "Notre unité > Sections" read-model) explicitly excludes `desk_code = 'STAFFDU'` — the section is real and generic for internal purposes but never listed publicly.
 

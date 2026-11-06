@@ -11,6 +11,8 @@ use Core\Import\ImportSectionRepository;
 use Core\Import\MappingResolver;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
+use Core\Module\FunctionFlagsProvider;
+use Core\Module\HookRegistry;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 
@@ -62,22 +64,151 @@ class MappingResolverTest extends TestCase
         $this->assertFalse($fn['confirmed']);
     }
 
-    public function testResolveFunctionRoleNeverElevatedAutomatically(): void
+    public function testUnrecognizedFunctionsNeverReceiveElevatedDefaults(): void
     {
-        // Create multiple unknown functions — none should get elevated.
-        // The first is a real Desk label whose confirmed role IS `admin`,
-        // which is exactly the point: the CSV never carries a role, so the
-        // import cannot know that and must not guess it.
-        $this->resolver->resolveFunction('Animateur d\'unité');
+        // Similar wording is not one of the explicitly allowed defaults.
+        $this->resolver->resolveFunction('Animateur d\'unité adjoint');
         $this->resolver->resolveFunction('Administrateur');
         $this->resolver->resolveFunction('Directeur');
 
-        foreach (['Animateur d\'unité', 'Administrateur', 'Directeur'] as $code) {
+        foreach (['Animateur d\'unité adjoint', 'Administrateur', 'Directeur'] as $code) {
             $fn = $this->functionRepo->findByDeskCode($code);
             $this->assertNotNull($fn);
             $this->assertSame('identified', $fn['role'], "Function '$code' should not be auto-elevated.");
             $this->assertFalse($fn['confirmed']);
         }
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('standardFunctions')]
+    public function testStandardDefaultsAreCreatedOnlyForTheEncounteredFunction(string $code, string $role, ?bool $lead): void
+    {
+        $hooks = new HookRegistry();
+        $resolver = $this->resolverWithHooks($hooks);
+        $provider = $this->flagsProvider();
+        // The module registers after the import service is constructed.
+        $hooks->register(FunctionFlagsProvider::class, $provider);
+        $this->assertSame([], $this->functionRepo->findAll());
+
+        $id = $resolver->resolveFunction($code);
+
+        $function = $this->functionRepo->findById($id);
+        $this->assertNotNull($function);
+        $this->assertSame([$code, $role, true], [$function['label'], $function['role'], $function['confirmed']]);
+        $this->assertSame($lead === null ? [] : [$id => $lead], $provider->getLeadFlags());
+        $this->assertCount(1, $this->functionRepo->findAll());
+        $this->assertSame($id, $resolver->resolveFunction($code));
+        $this->assertSame(1, $resolver->getNewFunctionsCount());
+    }
+
+    /** @return iterable<string, array{string, string, ?bool}> */
+    public static function standardFunctions(): iterable
+    {
+        yield 'animateur' => ['Animateur', 'chief', false];
+        yield 'section lead' => ['Animateur responsable', 'chief', true];
+        yield 'candidate animateur' => ['Candidat animateur', 'chief', false];
+        yield 'unit lead' => ["Animateur d'unité", 'admin', true];
+        yield 'candidate unit staff' => ['Candidat cadre local', 'admin', false];
+        yield 'unit collaborator' => ["Collaborateur d'unité", 'admin', false];
+        yield 'unit staff' => ["Equipier d'unité", 'admin', false];
+        yield 'attested accented unit staff' => ["Équipier d'unité", 'admin', false];
+        yield 'iama' => ['Iama local', 'public', null];
+        yield 'scout' => ['Scout', 'identified', null];
+    }
+
+    public function testLaterImportsInitializeNewFunctionsAndPreserveEveryExistingChoice(): void
+    {
+        $hooks = new HookRegistry();
+        $provider = $this->flagsProvider();
+        $hooks->register(FunctionFlagsProvider::class, $provider);
+        $resolver = $this->resolverWithHooks($hooks);
+        $sectionLead = $resolver->resolveFunction('Animateur responsable');
+        $this->functionRepo->updateRole($sectionLead, 'intendant', false);
+        $provider->setLead($sectionLead, false);
+
+        $resolver->resetImportState();
+        $iama = $resolver->resolveFunction('Iama local');
+        $resolver->resolveFunction('Animateur responsable');
+        $this->assertSame(1, $resolver->getNewFunctionsCount());
+
+        $resolver->resetImportState();
+        $unitLead = $resolver->resolveFunction("Animateur d'unité");
+        $animateur = $resolver->resolveFunction('Animateur');
+        $provider->setLead($animateur, true);
+        $resolver->resetImportState();
+        foreach (['Animateur responsable', 'Iama local', "Animateur d'unité", 'Animateur'] as $code) {
+            $resolver->resolveFunction($code);
+        }
+
+        $actual = [];
+        foreach ($this->functionRepo->findAll() as $function) {
+            $actual[$function['id']] = [$function['role'], $function['confirmed']];
+        }
+        ksort($actual);
+        $this->assertSame([
+            $sectionLead => ['intendant', false], $iama => ['public', true],
+            $unitLead => ['admin', true], $animateur => ['chief', true],
+        ], $actual);
+        $this->assertSame([$sectionLead => false, $unitLead => true, $animateur => true], $provider->getLeadFlags());
+        $this->assertSame(0, $resolver->getNewFunctionsCount());
+    }
+
+    public function testAnExistingUnconfirmedStandardMappingIsNeverInitializedAgain(): void
+    {
+        $id = $this->functionRepo->create("Animateur d'unité", 'Mon libellé', 'identified', false);
+        $hooks = new HookRegistry();
+        $provider = $this->flagsProvider();
+        $hooks->register(FunctionFlagsProvider::class, $provider);
+
+        $this->assertSame($id, $this->resolverWithHooks($hooks)->resolveFunction("Animateur d'unité"));
+        $this->assertSame([
+            'id' => $id, 'desk_code' => "Animateur d'unité", 'label' => 'Mon libellé',
+            'role' => 'identified', 'confirmed' => false,
+        ], $this->functionRepo->findById($id));
+        $this->assertSame([], $provider->getLeadFlags());
+    }
+
+    public function testEnablingTheModuleLaterDoesNotApplyFlagsToExistingMappings(): void
+    {
+        $hooks = new HookRegistry();
+        $resolver = $this->resolverWithHooks($hooks);
+        $unitLead = $resolver->resolveFunction("Animateur d'unité");
+        $this->assertSame('admin', $this->functionRepo->findById($unitLead)['role']);
+        $provider = $this->flagsProvider();
+        $hooks->register(FunctionFlagsProvider::class, $provider);
+        $resolver->resetImportState();
+        $resolver->resolveFunction("Animateur d'unité");
+        $sectionLead = $resolver->resolveFunction('Animateur responsable');
+
+        $this->assertSame([$sectionLead => true], $provider->getLeadFlags());
+    }
+
+    public function testNewStandardFunctionsAreNotReportedAsUnknownValues(): void
+    {
+        $this->journallingResolver()->resolveFunction('Animateur responsable');
+
+        $this->assertSame(0, $this->journalCount('desk_function_unknown'));
+    }
+
+    private function resolverWithHooks(HookRegistry $hooks): MappingResolver
+    {
+        return new MappingResolver(
+            $this->functionRepo, new AgeBranchRepository($this->pdo),
+            new ImportSectionRepository($this->pdo), new FeeCategoryRepository($this->pdo),
+            null, $hooks,
+        );
+    }
+
+    private function flagsProvider(): FunctionFlagsProvider
+    {
+        return new class implements FunctionFlagsProvider {
+            /** @var array<int, bool> */
+            private array $flags = [];
+
+            public function getSectionLabel(): string { return 'Trombinoscope'; }
+            public function getLeadLabel(): string { return 'Responsable de section'; }
+            public function getLeadFlags(): array { return $this->flags; }
+            public function setLead(int $functionId, bool $lead): void { $this->flags[$functionId] = $lead; }
+        };
     }
 
     public function testResolveBranchAutoCreates(): void

@@ -86,7 +86,12 @@ final class DeskImportServiceOnMysqlTest extends TestCase
         ]));
         self::assertSame(1, (int) $this->pdo->query('SELECT is_main_function FROM member_functions')->fetchColumn());
         $function = $this->pdo->query('SELECT role, confirmed FROM functions')->fetch(\PDO::FETCH_ASSOC);
-        self::assertSame(['role' => 'identified', 'confirmed' => 0], $function);
+        // The attested standard gets defaults only when newly encountered;
+        // an already stored, unconfirmed mapping is preserved even here.
+        $newStandard = $column === 'FONCTION' && $code === "Équipier d'unité" && !$alreadyKnown;
+        self::assertSame($newStandard
+            ? ['role' => 'admin', 'confirmed' => 1]
+            : ['role' => 'identified', 'confirmed' => 0], $function);
     }
 
     #[DataProvider('codeAliases')]
