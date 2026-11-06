@@ -82,7 +82,7 @@ final class ScenarioPeople
         // year-in-branch 2 then 3 then 4.
         $person = $this->factory->make('T0001', 2015, 'Louveteaux');
         foreach ([self::A1, self::A2, self::A3] as $year) {
-            $person->years[$year] = $this->animeYear('lou1', $year, totem: null);
+            $person->years[$year] = $this->animeYear('lou1', $year, totem: null, functionCode: 'Scout');
         }
 
         return [$person];
@@ -236,9 +236,8 @@ final class ScenarioPeople
     private function leaderBecomesUnitChief(): array
     {
         // Section animateur, then a unit-level function with no Section at
-        // all. Staff d'U membership only appears once Correspondances Desk confirms
-        // "Animateur d'unité" as role=admin — never from the CSV, which
-        // carries no role.
+        // all. Its standard role is initialized on first encounter, so the
+        // import itself assigns the unit-staff section without manual setup.
         $person = $this->factory->make('T0015', 1996, null);
         $person->years[self::A1] = $this->cadreYear('Animateur', 'ecl1', self::A1);
         $person->years[self::A2] = $this->unitYear('Animateur d\'unité');
@@ -467,7 +466,15 @@ final class ScenarioPeople
         // A3 on purpose (scenario 15), and a member left behind in it would
         // quietly cancel that scenario.
         $person->years[self::A1] = $this->animeYear('iam1', self::A1, totem: null);
-        $person->years[self::A2] = $this->animeYear('iam1', self::A2, totem: null);
+        // First encountered in the second export, independently of every
+        // standard function already configured by the first one.
+        $person->years[self::A2] = new PersonYear(
+            functions: [
+                $this->sectionFunction('Animé', 'iam1', self::A2, true),
+                $this->sectionFunction('Iama local', 'iam1', self::A2, false),
+            ],
+            feeCode: UnitBlueprint::FEE_CODES['normal'],
+        );
         $person->years[self::A3] = $this->animeYear('ecl1', self::A3, totem: null);
 
         return [$person];
@@ -542,11 +549,12 @@ final class ScenarioPeople
         ?string $totem,
         ?string $quali = null,
         ?string $feeCode = null,
+        string $functionCode = 'Animé',
     ): PersonYear {
         $branch = UnitBlueprint::SECTIONS[$handle]['branch'];
 
         return new PersonYear(
-            functions: [$this->sectionFunction('Animé', $handle, $year, true)],
+            functions: [$this->sectionFunction($functionCode, $handle, $year, true)],
             // Provisional: PopulationBuilder::assignHouseholdTariffs() has
             // the last word, from the household this person turns out to
             // be in.

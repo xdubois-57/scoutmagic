@@ -19,10 +19,23 @@ enregistre immédiatement, sans bouton « Enregistrer ».
 ## Donner leurs rôles aux fonctions
 
 Chaque fonction importée de Desk reçoit un rôle sur le site : Public,
-Animé, Intendant, Chef ou Chef d'Unité. Une fonction nouvelle arrive
-toujours en « Animé », non confirmée : la page les regroupe en tête
-pour que vous confirmiez chacune — choisir un rôle, même « Animé »,
-vaut confirmation.
+Animé, Intendant, Chef ou Chef d'Unité. À leur première apparition,
+même dans un import ultérieur, les fonctions standard sont confirmées :
+
+- **Chef** : Animateur, Animateur responsable, Candidat animateur.
+- **Chef d'Unité** : Animateur d'unité, Candidat cadre local,
+  Collaborateur d'unité, Equipier d'unité.
+- **Public** : Iama local.
+- **Animé** : Scout.
+
+Avec Trombinoscope actif, seuls **Animateur responsable** et
+**Animateur d'unité** sont cochés « Responsable de section » par défaut.
+Cette case est distincte de la fonction principale dans Desk.
+
+Tout reste modifiable ici. Un nouvel import conserve les correspondances
+existantes, même non confirmées, et vos cases cochées ou décochées.
+Les fonctions inconnues arrivent en « Animé », non confirmées, regroupées
+en tête : choisir un rôle, même « Animé », les confirme.
 
 > C'est ici que se décident les accès au site. Un rôle « Chef
 > d'Unité » ouvre l'espace d'administration : n'attribuez ce rôle
@@ -51,22 +64,15 @@ sont conservées.
 
 ### L'adresse d'une section et les publipostages
 
-Un publipostage part au nom de sa section, sous l'adresse renseignée
-ici. Pour que les serveurs des destinataires l'acceptent, cette adresse
-doit être **sur le domaine d'envoi du site** (ou un de ses
-sous-domaines) : c'est le seul domaine pour lequel le site peut signer.
-Une adresse chez un fournisseur grand public — Telenet, Skynet, Gmail,
-Yahoo… — n'en fait pas partie, et un message envoyé sous une telle
-adresse est refusé ou classé en indésirable chez une bonne partie des
-destinataires.
+Pour être l'expéditeur d'un publipostage, l'adresse de section doit être
+**sur le domaine d'envoi du site** ou un de ses sous-domaines.
+Une adresse Gmail, Skynet ou autre fournisseur ne peut pas être signée
+par le site : la page vous avertit sous le champ.
 
-Ce n'est pas un refus : la page vous avertit sous le champ, et le
-publipostage part quand même — depuis l'adresse d'envoi du site, sous le
-nom de la section suivi de celui de l'unité, avec les réponses qui
-arrivent toujours à l'adresse de la section. Pour que l'adresse de la
-section redevienne l'expéditeur, il faut lui en donner une sur le
-domaine du site. La sous-page « Authentification » du courrier sortant
-récapitule toutes les sections concernées.
+Le message part alors depuis l'adresse d'envoi du site, sous le nom
+de la section suivi de celui de l'unité ; les réponses arrivent à la
+section. La sous-page « Authentification » du courrier sortant
+récapitule les adresses concernées.
 
 ## Les branches
 

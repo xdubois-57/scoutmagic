@@ -60,12 +60,12 @@ appliqué à moitié.
 
 ## Les nouvelles fonctions
 
-Une fonction Desk jamais vue est créée avec le rôle « Animé », sans
-aucun accès particulier : **un import n'accorde jamais de droits tout
-seul**. La page vous signale les fonctions à confirmer ; leur rôle réel
-(Animé, Intendant, Chef, Chef d'Unité) s'attribue ensuite sur la page
-« Correspondances Desk », et prend effet à la prochaine connexion des
-personnes concernées.
+À leur première apparition, même lors d'un import ultérieur, les fonctions
+standard reçoivent leurs rôles confirmés : voyez
+[Correspondances Desk](/aide/config-desk). Une fonction inconnue reste
+« Animé », non confirmée, à configurer sur cette page. Les correspondances
+déjà enregistrées et vos choix de responsable sont conservés, même si
+une ancienne fonction n'est pas encore confirmée.
 
 ## Quand importer
 

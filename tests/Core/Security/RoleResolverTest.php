@@ -103,6 +103,25 @@ class RoleResolverTest extends TestCase
         $this->assertSame('chief', $role);
     }
 
+    public function testImportedPublicIamaFunctionKeepsTheLoginFloorAndOtherFunctionsPrivileges(): void
+    {
+        $functions = new \Core\Import\FunctionRepository($this->pdo);
+        $mapping = new \Core\Import\MappingResolver(
+            $functions, new \Core\Import\AgeBranchRepository($this->pdo),
+            new \Core\Import\ImportSectionRepository($this->pdo), new \Core\Import\FeeCategoryRepository($this->pdo),
+        );
+        $this->createUserAccount('iama@example.com');
+        $iama = $functions->findById($mapping->resolveFunction('Iama local'));
+        $this->assertNotNull($iama);
+        $this->createMemberWithFunction('iama@example.com', 'Iama local', $iama['role'], $iama['confirmed']);
+        $this->assertSame('identified', $this->resolver->resolve('iama@example.com', $this->scoutYearId));
+
+        $chief = $functions->findById($mapping->resolveFunction('Animateur'));
+        $this->assertNotNull($chief);
+        $this->createMemberWithFunction('iama@example.com', 'Animateur', $chief['role'], $chief['confirmed']);
+        $this->assertSame('chief', $this->resolver->resolve('iama@example.com', $this->scoutYearId));
+    }
+
     public function testMemberWithUnconfirmedFunctionReturnsIdentified(): void
     {
         $this->createUserAccount('newbie@test.com');

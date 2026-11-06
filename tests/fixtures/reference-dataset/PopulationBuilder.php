@@ -860,7 +860,7 @@ final class PopulationBuilder
 
     private function countAnimes(string $year, ?string $handle): int
     {
-        return $this->count($year, $handle, fn (string $code): bool => $code === 'Animé');
+        return $this->count($year, $handle, fn (string $code): bool => in_array($code, UnitBlueprint::ANIME_FUNCTIONS, true));
     }
 
     private function countLeaders(string $year, ?string $handle): int

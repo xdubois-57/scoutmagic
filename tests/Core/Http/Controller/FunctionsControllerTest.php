@@ -404,6 +404,46 @@ class FunctionsControllerTest extends TestCase
         $this->assertStringContainsString('Responsable de section', $body);
     }
 
+    public function testNewStandardMappingsRenderInTheirRolesWithTheTwoDesignatedLeads(): void
+    {
+        $provider = $this->stubFlagsProvider();
+        $hooks = $this->hooksWithFlags($provider);
+        $mapping = new \Core\Import\MappingResolver(
+            $this->functionRepo, new AgeBranchRepository($this->pdo),
+            new \Core\Import\ImportSectionRepository($this->pdo), new \Core\Import\FeeCategoryRepository($this->pdo),
+            null, $hooks,
+        );
+        $expected = [];
+        foreach ([
+            'Animateur' => ['chief', false], 'Animateur responsable' => ['chief', true],
+            'Candidat animateur' => ['chief', false], "Animateur d'unité" => ['admin', true],
+            'Candidat cadre local' => ['admin', false], "Collaborateur d'unité" => ['admin', false],
+            "Equipier d'unité" => ['admin', false], 'Iama local' => ['public', false], 'Scout' => ['identified', false],
+        ] as $code => [$role, $lead]) {
+            $expected[$mapping->resolveFunction($code)] = [$role, $role, $lead];
+        }
+        $controller = new FunctionsController(
+            $this->twig, $this->functionRepo, new JournalService($this->journalRepo),
+            $this->sectionService, $this->unitStaffSectionService, $this->scoutYearResolver,
+            $this->badgeService, new AgeBranchRepository($this->pdo), $this->senderAlignment(), $hooks,
+        );
+        $response = $controller->index(new Request('GET', '/config/functions', [], [], [], []), []);
+        $this->assertSame(200, $response->getStatusCode());
+        $document = \Dom\HTMLDocument::createFromString($response->getBody(), \LIBXML_NOERROR);
+        $actual = [];
+        foreach ($document->getElementsByTagName('div') as $element) {
+            if (!str_contains(' ' . $element->getAttribute('class') . ' ', ' function-row ')) {
+                continue;
+            }
+            $actual[(int) $element->getAttribute('data-id')] = [
+                $element->getAttribute('data-role'), $element->parentNode?->getAttribute('data-role'),
+                $element->getElementsByTagName('input')->item(0)?->hasAttribute('checked') ?? false,
+            ];
+        }
+        ksort($actual);
+        $this->assertSame($expected, $actual);
+    }
+
     public function testIndexOmitsFlagsWhenNoProviderWired(): void
     {
         $this->functionRepo->create('Animateur', 'Animateur', 'chief', true);
@@ -959,7 +999,7 @@ class FunctionsControllerTest extends TestCase
 
             public function getLeadFlags(): array
             {
-                return [];
+                return $this->calls;
             }
 
             public function setLead(int $functionId, bool $lead): void

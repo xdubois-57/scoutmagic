@@ -123,8 +123,9 @@ class ImportReportRepository
     /**
      * Which of these functions still await a role on Correspondances Desk.
      *
-     * A new function is imported at role `identified`, unconfirmed
-     * (SECURITY.md §3). A report months old must not keep saying "to
+     * Unknown functions are imported at role `identified`, unconfirmed;
+     * standard labels have explicit defaults (SECURITY.md §3).
+     * A report months old must not keep saying "to
      * qualify" about one somebody has since qualified — that is the one
      * thing on this page that is allowed to be current, because it is a
      * call to action rather than a statement about the past.
