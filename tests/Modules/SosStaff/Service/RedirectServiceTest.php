@@ -215,15 +215,29 @@ class RedirectServiceTest extends TestCase
         $admin = new UserAccount(1, 'admin@test.be', null, null, null, true, null);
         $this->userAccountRepository->method('findFirstSuperAdmin')->willReturn($admin);
 
+        $sent = ['to' => '', 'html' => '', 'text' => ''];
         $this->mailService->expects($this->once())->method('send')
-            ->with('admin@test.be', $this->anything(), $this->anything(), $this->anything());
+            ->willReturnCallback(static function (
+                string $to,
+                string $subject,
+                string $html,
+                string $text
+            ) use (&$sent): void {
+                $sent = ['to' => $to, 'html' => $html, 'text' => $text];
+            });
 
         try {
             $this->service()->apply(1, null, 100);
             self::fail('Expected a SosException: there is no active provider.');
         } catch (SosException) {
-            // Expected — the alert itself is asserted on the mail mock above.
+            // The original configuration error still reaches the caller after the alert.
         }
+
+        self::assertSame('admin@test.be', $sent['to']);
+        self::assertStringContainsString("(Configuration &gt; Téléphone d'urgence)", $sent['html']);
+        self::assertStringNotContainsString("(Configuration &gt; SOS Staff d'U)", $sent['html']);
+        self::assertStringContainsString("(Configuration > Téléphone d'urgence)", $sent['text']);
+        self::assertStringNotContainsString("(Configuration > SOS Staff d'U)", $sent['text']);
     }
 
     /**
