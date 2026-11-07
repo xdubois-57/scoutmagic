@@ -68,6 +68,86 @@ class PhotoNormalizerTest extends TestCase
         $this->assertSame([20, 40], [$width, $height]);
     }
 
+    #[\PHPUnit\Framework\Attributes\DataProvider('orientedContainers')]
+    public function testPngAndWebpOrientationIsAppliedBeforeItsTagIsRemoved(string $mimeType, bool $littleEndian, bool $prefix, int $orientation): void
+    {
+        $source = $this->orientedContainer($mimeType, $littleEndian, $prefix, $orientation);
+        $this->assertSame($mimeType, (new \finfo(FILEINFO_MIME_TYPE))->buffer($source));
+        $this->assertSame([40, 20], array_slice(getimagesizefromstring($source), 0, 2));
+
+        $jpeg = (new PhotoNormalizer())->normalize($source);
+
+        $this->assertSame('image/jpeg', (new \finfo(FILEINFO_MIME_TYPE))->buffer($jpeg));
+        $this->assertSame([20, 40], array_slice(getimagesizefromstring($jpeg), 0, 2));
+        $exif = @exif_read_data($this->stream($jpeg));
+        $this->assertArrayNotHasKey('Orientation', is_array($exif) ? $exif : []);
+    }
+
+    public static function orientedContainers(): iterable
+    {
+        yield 'PNG little endian' => ['image/png', true, false, 6];
+        yield 'PNG big endian' => ['image/png', false, false, 8];
+        yield 'WebP EXIF prefix' => ['image/webp', true, true, 6];
+        yield 'WebP bare TIFF' => ['image/webp', false, false, 8];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('malformedEmbeddedExif')]
+    public function testUnreadableEmbeddedExifIsRefusedRatherThanLosingItsOrientation(string $case): void
+    {
+        $png = str_starts_with($case, 'png');
+        $source = $this->orientedContainer($png ? 'image/png' : 'image/webp', true, !$png, 6);
+        $offset = strpos($source, $png ? 'eXIf' : 'EXIF');
+        $this->assertNotFalse($offset);
+        if ($case === 'png checksum') {
+            $source[$offset + 4] = 'X';
+        } elseif ($case === 'png chunk length') {
+            $source = substr_replace($source, pack('N', 0xFFFFFFFF), $offset - 4, 4);
+        } elseif ($case === 'webp chunk length') {
+            $source = substr_replace($source, pack('V', 0xFFFFFFFF), $offset + 4, 4);
+        } else {
+            // Keep the RIFF chunk and EXIF preamble valid, but corrupt TIFF.
+            $source[$offset + 8 + 6] = 'X';
+        }
+
+        $this->expectException(PhotoNormalizationException::class);
+        (new PhotoNormalizer())->normalize($source);
+    }
+
+    public static function malformedEmbeddedExif(): iterable
+    {
+        yield ['png checksum'];
+        yield ['png chunk length'];
+        yield ['webp chunk length'];
+        yield ['webp TIFF'];
+    }
+
+    private function orientedContainer(string $mimeType, bool $littleEndian, bool $prefix, int $orientation): string
+    {
+        $tiff = $littleEndian
+            ? 'II' . pack('vVv', 42, 8, 1) . pack('vvVvvV', 0x0112, 3, 1, $orientation, 0, 0)
+            : 'MM' . pack('nNn', 42, 8, 1) . pack('nnNnnN', 0x0112, 3, 1, $orientation, 0, 0);
+        $payload = ($prefix ? "Exif\x00\x00" : '') . $tiff;
+        $image = imagecreatetruecolor(40, 20);
+        ob_start();
+        $mimeType === 'image/png' ? imagepng($image) : imagewebp($image, null, 85);
+        $encoded = (string) ob_get_clean();
+        imagedestroy($image);
+        if ($mimeType === 'image/png') {
+            $chunk = 'eXIf' . $payload;
+            // eXIf after IDAT is valid; stop before the final IEND chunk.
+            return substr($encoded, 0, -12) . pack('N', strlen($payload)) . $chunk
+                . hash('crc32b', $chunk, true) . substr($encoded, -12);
+        }
+
+        // VP8X announces EXIF; its canvas dimensions are little-endian 24-bit.
+        $extended = 'VP8X' . pack('V', 10) . "\x08\x00\x00\x00"
+            . substr(pack('V', 39), 0, 3) . substr(pack('V', 19), 0, 3);
+        $exif = 'EXIF' . pack('V', strlen($payload)) . $payload
+            . (strlen($payload) % 2 === 1 ? "\x00" : '');
+        $body = 'WEBP' . $extended . substr($encoded, 12) . 'JUNK' . pack('V', 1) . "x\x00" . $exif;
+        return 'RIFF' . pack('V', strlen($body)) . $body;
+    }
+
     public function testTheLongestSideIsBroughtDownTo2400Pixels(): void
     {
         $image = imagecreatetruecolor(4000, 3000);

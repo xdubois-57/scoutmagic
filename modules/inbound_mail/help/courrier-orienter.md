@@ -45,22 +45,20 @@ de ce qu'il annonce.
 
 ## Un message sans texte
 
-Les images placées **dans le corps** d'un message ne sont jamais
-affichées : les charger préviendrait l'expéditeur que vous avez ouvert
-son message, et depuis quel réseau. Un message dont tout le contenu
-était une image — une photo de reçu envoyée depuis un téléphone, par
-exemple — s'affiche donc sans texte, et le dit. L'image elle-même
-n'est pas perdue pour autant : elle est dans les pièces jointes, où
-elle se télécharge.
+Les images **dans le corps** d'un message ne sont pas chargées : cela
+renseignerait l'expéditeur sur votre lecture et votre réseau. Si tout
+le message était une image, le site signale l'absence de texte.
+Une image jointe reste téléchargeable dans les pièces jointes.
+
+Les nouvelles photos sont converties en JPEG, sans métadonnées ni
+position GPS. Le HEIC est converti si le serveur sait le lire.
 
 ## Une pièce jointe non conservée
 
-Un fichier trop volumineux, d'un type refusé, ou arrivé alors que
-l'espace de stockage était saturé, n'est pas conservé — mais son nom,
-son type, sa taille et la raison le sont, et s'affichent. Vous savez
-donc que l'expéditeur avait bien joint quelque chose, et où aller le
-chercher : le site ne touche jamais à la boîte d'origine, le fichier
-y est toujours.
+Une image illisible, un fichier trop volumineux, d'un type refusé ou
+arrivé après saturation du stockage n'est pas conservé. Son nom, son
+type, sa taille et la raison s'affichent : le message est bien arrivé.
+Le fichier reste disponible dans la boîte d'origine.
 
 Les logos de signature, eux, sont écartés sans être signalés : ce ne
 sont pas des pièces jointes.
