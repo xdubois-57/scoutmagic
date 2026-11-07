@@ -300,7 +300,7 @@ final class ExternalSources
             self::link(
                 'scaleway-model-catalogue',
                 'https://www.scaleway.com/en/docs/generative-apis/reference-content/supported-models/',
-                'Catalogue des modèles Scaleway et de leurs modalités',
+                'Scaleway supported models and their modalities',
                 ['modules/llm_connector/src/Provider/ScalewayModelCapabilities.php']
             ),
             self::link(
