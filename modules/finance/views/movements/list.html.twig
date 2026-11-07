@@ -6,6 +6,11 @@
 <link rel="stylesheet" href="{{ asset('/assets/css/components.css') }}">
 <style nonce="{{ csp_nonce }}">
     .movement-row { cursor: pointer; }
+    button.movement-row:focus-visible,
+    [data-movement-details]:focus-visible {
+        outline: 2px solid var(--bs-emphasis-color);
+        outline-offset: 2px;
+    }
 </style>
 {% endblock %}
 
@@ -84,7 +89,7 @@
                role and a tabindex (Sonar Web:S6819). Its children are
                <span>s for the same reason — a button holds phrasing. #}
             <button type="button"
-                 class="border rounded-3 p-3 w-100 text-start movement-row {{ movement.categoryId is null ? 'bg-warning-subtle' : '' }}"
+                 class="border rounded-3 p-3 w-100 text-start bg-body text-body movement-row"
                  data-id="{{ movement.id }}"
                  data-date="{{ movement.transactionDate }}"
                  data-label="{{ movement.label }}"
@@ -100,20 +105,20 @@
                  data-extra-details="{{ movement.extraDetails }}">
                 <span class="d-flex justify-content-between align-items-start mb-1">
                     <span class="text-body-secondary small">{{ movement.transactionDate }}</span>
-                    <span class="fw-semibold {{ movement.amount < 0 ? 'text-danger' : 'text-success' }}">
+                    <span class="fw-semibold {{ movement.amount < 0 ? 'text-danger-emphasis' : 'text-success-emphasis' }}">
                         {{ movement.amount|money }}
                     </span>
                 </span>
                 <span class="d-block fw-semibold small text-truncate">{{ row.counterparty ?: row.description }}</span>
                 <span class="d-flex align-items-center gap-2 mt-1">
-                    <span class="badge {{ movement.categoryId ? 'text-bg-light border' : 'text-bg-warning' }}">
+                    <span class="badge {{ movement.categoryId ? 'bg-body-tertiary text-body border' : 'text-bg-warning' }}">
                         {{ movement.categoryId and categories_by_id[movement.categoryId] is defined ? categories_by_id[movement.categoryId].name : 'À catégoriser' }}
                     </span>
                     {% if row.attachment_count > 0 %}
                         <span class="text-body-secondary small">📎 {{ row.attachment_count }}</span>
                     {% endif %}
                     {% if movement.isCategoryAutoAssigned %}
-                        <span class="badge text-bg-light border">Auto</span>
+                        <span class="badge bg-body-tertiary text-body border">Auto</span>
                     {% endif %}
                 </span>
             </button>
@@ -154,17 +159,22 @@
                         data-counterparty-name="{{ movement.counterpartyName }}"
                         data-counterparty-account="{{ movement.counterpartyAccount }}"
                         data-extra-details="{{ movement.extraDetails }}"
-                        class="movement-row {{ movement.categoryId is null ? 'table-warning' : '' }}">
+                        class="movement-row">
                         <td>{{ movement.transactionDate }}</td>
                         <td>
                             {{ movement.categoryId and categories_by_id[movement.categoryId] is defined ? categories_by_id[movement.categoryId].name : 'À catégoriser' }}
                             {% if movement.isCategoryAutoAssigned %}
-                                <span class="badge text-bg-light border" title="Catégorie attribuée automatiquement (règle ou IA)">Auto</span>
+                                <span class="badge bg-body-tertiary text-body border" title="Catégorie attribuée automatiquement (règle ou IA)">Auto</span>
                             {% endif %}
                         </td>
                         <td>{{ row.counterparty }}</td>
-                        <td>{{ row.description }}</td>
-                        <td class="text-end {{ movement.amount < 0 ? 'text-danger' : 'text-success' }}">
+                        <td>
+                            <button type="button" class="btn btn-link p-0 text-start text-body"
+                                    data-movement-details aria-label="Détails du mouvement : {{ row.description }}">
+                                {{ row.description }}
+                            </button>
+                        </td>
+                        <td class="text-end {{ movement.amount < 0 ? 'text-danger-emphasis' : 'text-success-emphasis' }}">
                             {{ movement.amount|money }}
                         </td>
                         <td class="text-center">
