@@ -230,6 +230,29 @@ class ConfigControllerTest extends TestCase
         self::assertSame($expected, $actual);
     }
 
+    public static function ocrEvidenceStates(): iterable
+    {
+        yield 'legacy assignment without evidence' => [false];
+        yield 'verified image model' => [true];
+    }
+
+    #[DataProvider('ocrEvidenceStates')]
+    public function testUnavailableOcrWarningExplainsMissingImageEvidence(bool $verified): void
+    {
+        $id = $this->providerRepository->create('Scaleway', 'scaleway', 'https://api.scaleway.ai', 'test-key', true);
+        $model = 'mistral-small-3.2-24b-instruct-2506';
+        $this->modelRepository->upsert($id, $model, 'Images');
+        $this->modelRepository->autoAssignTiers($id, ['cheap' => $model, 'capable' => $model, 'ocr' => $model]);
+        if ($verified) {
+            $cache = new ModelProbeCache([], ScalewayProvider::capabilityScope('https://api.scaleway.ai', 'test-key'));
+            $cache->record($model, ModelProbeStatus::VISION_VERIFIED);
+            $this->modelRepository->storeModelProbeCache($id, $cache->toArray());
+        }
+        $html = $this->controller->index(new Request('GET', '/config/llm', [], [], [], []), [])->getBody();
+
+        self::assertSame(!$verified, str_contains($html, 'La lecture des images est indisponible'));
+    }
+
     /**
      * Nothing enforced one-row-per-driver, and the page keys providers by
      * driver — a second row used to overwrite the first in the view while

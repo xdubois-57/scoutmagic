@@ -26,7 +26,8 @@ final class ScalewayVisionVerifier
 
     /**
      * @return array{
-     *     catalog: ProviderModelCatalog, cache: array<string, mixed>, attempts: int, outcomes: array<string, string>
+     *     catalog: ProviderModelCatalog, cache: array<string, mixed>, attempts: int,
+     *     outcomes: array<string, string>, retry_needed: bool
      * }
      */
     public function verify(
@@ -51,6 +52,8 @@ final class ScalewayVisionVerifier
         // Keep the shortlist stable: repeated clicks cannot walk the whole paid catalog.
         $candidates = array_slice($candidates, 0, self::MAX_PROBES);
         $attempts = 0;
+        $indeterminate = false;
+        $verifiedThisRun = false;
         foreach ($hasVerified ? [] : $candidates as $id) {
             if (!$cache->needsProbe($id)
                 && !($renewVision && $cache->resultFor($id) === ModelProbeStatus::VISION_VERIFIED)) {
@@ -64,8 +67,10 @@ final class ScalewayVisionVerifier
                 // A local generation/transport failure never establishes capability.
                 $status = ModelProbeStatus::UNVERIFIED;
             }
+            $indeterminate = $indeterminate || $status === ModelProbeStatus::UNVERIFIED;
             $cache->record($id, $status);
             if ($status === ModelProbeStatus::VISION_VERIFIED) {
+                $verifiedThisRun = true;
                 break;
             }
         }
@@ -79,6 +84,11 @@ final class ScalewayVisionVerifier
         return [
             'catalog' => $catalog->withImageProbes($cache), 'cache' => $cache->toArray(),
             'attempts' => $attempts, 'outcomes' => $outcomes,
+            // Preserve the raw failed renewal even when record() keeps a valid proof.
+            'retry_needed' => !$hasVerified && !$verifiedThisRun && ($indeterminate || array_any(
+                $candidates,
+                static fn (string $id): bool => $cache->resultFor($id) === ModelProbeStatus::UNVERIFIED
+            )),
         ];
     }
 }

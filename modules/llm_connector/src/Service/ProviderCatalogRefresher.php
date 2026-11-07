@@ -20,6 +20,8 @@ use Modules\LlmConnector\Repository\ProviderModelRepository;
 /** Connection tests and scheduled refreshes apply exactly the same capability rules. */
 final class ProviderCatalogRefresher
 {
+    private bool $retryNeeded = false;
+
     public function __construct(
         private ProviderModelRepository $models,
         private OcrModelSelector $selector,
@@ -34,6 +36,7 @@ final class ProviderCatalogRefresher
         string $configurationToken,
         bool $renewVision = false
     ): ProviderModelCatalog {
+        $this->retryNeeded = false;
         $catalog = $driver->listModels();
         $discovered = $catalog;
         $evaluation = $driver instanceof ScalewayProvider
@@ -50,6 +53,7 @@ final class ProviderCatalogRefresher
             $evaluation = ['catalog' => $catalog, 'cache' => $cache->toArray(), 'attempts' => 0, 'outcomes' => []];
         }
         $catalog = $evaluation['catalog'] ?? $catalog;
+        $this->retryNeeded = $evaluation['retry_needed'] ?? false;
         // Network calls and classification never hold a database transaction.
         $tiers = $this->selector->selectTiers($driver, $catalog);
         if ($driver instanceof ScalewayProvider && $evaluation !== null) {
@@ -104,5 +108,10 @@ final class ProviderCatalogRefresher
             $this->actingUserAccountId
         );
         return $catalog;
+    }
+
+    public function needsRetry(): bool
+    {
+        return $this->retryNeeded;
     }
 }

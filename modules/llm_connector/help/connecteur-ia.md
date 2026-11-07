@@ -62,5 +62,9 @@ du fournisseur.
 Chez Scaleway, la vérification peut ajouter trois petits appels de test au
 maximum par découverte, arrêtés au premier succès. Une réussite est
 réutilisée sept jours. Le renouvellement hebdomadaire est anticipé d’une
-heure pour laisser une marge au planificateur ; un échec temporaire peut
-être retesté après une heure. Ces appels peuvent être facturés.
+heure pour laisser une marge au planificateur. Après une mise à jour,
+la première vérification est automatique. En cas d’échec, une reprise est
+planifiée après quinze minutes, puis une heure, six heures et enfin une
+fois par jour jusqu’au rétablissement. Un résultat indéterminé sans preuve
+positive est réutilisé pendant une heure. Ces reprises peuvent aussi être
+facturées, toujours avec au plus trois sondes par découverte.

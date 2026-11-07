@@ -10,6 +10,7 @@ namespace Modules\LlmConnector\Task;
 
 use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
+use Core\Scheduler\SchedulerService;
 use Modules\LlmConnector\Provider\AnthropicProvider;
 use Modules\LlmConnector\Provider\LlmProviderInterface;
 use Modules\LlmConnector\Provider\MistralProvider;
@@ -26,6 +27,25 @@ use Modules\LlmConnector\Service\ProviderCatalogRefresher;
  */
 class RefreshModelsHandler implements TaskHandlerInterface
 {
+    private const CHAIN_PAYLOAD = ['capability_checks_version' => 1];
+    private const RETRY_DELAYS = [900, 3600, 21600, 86400];
+
+    /** Seed from either entry point; upgrade a legacy weekly delay only once. */
+    public static function bootstrap(SchedulerService $scheduler): void
+    {
+        $now = \Core\Config\AppClock::now();
+        if ($scheduler->seed('llm_connector', 'refresh_models', 'weekly', $now, self::CHAIN_PAYLOAD)) {
+            return;
+        }
+        $existing = $scheduler->findLive('llm_connector', 'refresh_models', 'weekly');
+        $payload = is_string($existing['payload'] ?? null) ? json_decode($existing['payload'], true) : [];
+        if ($existing !== null && $existing['status'] === 'pending'
+            && (!is_array($payload) || ($payload['capability_checks_version'] ?? null) !== 1)) {
+            $scheduler->cancel((int) $existing['id']);
+            $scheduler->seed('llm_connector', 'refresh_models', 'weekly', $now, self::CHAIN_PAYLOAD);
+        }
+    }
+
     /**
      * @param array<string, mixed> $payload
      */
@@ -38,17 +58,28 @@ class RefreshModelsHandler implements TaskHandlerInterface
         $providerRepo = new ProviderRepository($pdo, $encryption);
         $modelRepo = new ProviderModelRepository($pdo);
 
-        $activeProviders = $providerRepo->findAllActive();
+        $providers = $providerRepo->findAll();
+        $retryProviderId = (int) ($payload['provider_id'] ?? 0);
 
-        foreach ($activeProviders as $provider) {
+        foreach ($providers as $provider) {
+            if (!$provider['is_active'] || ($retryProviderId > 0 && $provider['id'] !== $retryProviderId)) {
+                continue;
+            }
+            $needsRetry = true;
             try {
-                $driver = $this->createDriver($provider['driver'], $provider['api_endpoint'], $provider['api_key']);
+                // Decrypt only this provider, inside its bounded recovery path.
+                $configured = $providerRepo->findById($provider['id']);
+                if ($configured === null || !$configured['is_active']) {
+                    continue;
+                }
+                $driver = $this->createDriver($configured['driver'], $configured['api_endpoint'], $configured['api_key']);
                 $refresher = new ProviderCatalogRefresher(
                     $modelRepo,
                     new OcrModelSelector($context->journal),
                     $context->journal
                 );
-                $catalog = $refresher->refresh($provider['id'], $driver, $provider['configuration_token'], true);
+                $catalog = $refresher->refresh($provider['id'], $driver, $configured['configuration_token'], true);
+                $needsRetry = $refresher->needsRetry();
                 $modelCount = count($catalog->chatModelIds());
 
                 $context->journal->log(
@@ -69,10 +100,42 @@ class RefreshModelsHandler implements TaskHandlerInterface
                     null
                 );
             }
+            $scheduler = SchedulerService::forPdo($pdo);
+            if ($needsRetry) {
+                $this->scheduleRetry(
+                    $scheduler, $provider['id'], $startedAt, (int) ($payload['retry_attempt'] ?? 0)
+                );
+            } else {
+                $scheduler->cancelPending('llm_connector', 'refresh_models', 'retry-' . $provider['id']);
+            }
         }
 
-        // Schedule next weekly refresh
-        $this->scheduleNextWeeklyRefresh($context, $startedAt);
+        // A provider's retry must not move the other providers' weekly renewal.
+        if ($retryProviderId <= 0) {
+            $this->scheduleNextWeeklyRefresh($context, $startedAt);
+        }
+    }
+
+    private function scheduleRetry(
+        SchedulerService $scheduler,
+        int $providerId,
+        \DateTimeImmutable $startedAt,
+        int $attempt
+    ): void {
+        $attempt = max(0, min($attempt, count(self::RETRY_DELAYS) - 1));
+        $nextRun = $startedAt->setTimestamp($startedAt->getTimestamp() + self::RETRY_DELAYS[$attempt]);
+        $reference = 'retry-' . $providerId;
+        $existing = $scheduler->find('llm_connector', 'refresh_models', $reference);
+        if ($existing !== null && strtotime($existing['run_at']) <= $nextRun->getTimestamp()) {
+            return;
+        }
+        if ($existing !== null) {
+            $scheduler->cancel((int) $existing['id']);
+        }
+        $scheduler->rearm('llm_connector', 'refresh_models', $reference, $nextRun, [
+            'provider_id' => $providerId,
+            'retry_attempt' => min($attempt + 1, count(self::RETRY_DELAYS) - 1),
+        ]);
     }
 
     /**
@@ -96,7 +159,7 @@ class RefreshModelsHandler implements TaskHandlerInterface
             $schedulerService->cancel((int) $existing['id']);
         }
 
-        $schedulerService->rearm('llm_connector', 'refresh_models', 'weekly', $nextRun);
+        $schedulerService->rearm('llm_connector', 'refresh_models', 'weekly', $nextRun, self::CHAIN_PAYLOAD);
     }
 
     protected function createDriver(string $driver, string $apiEndpoint, string $apiKey): LlmProviderInterface

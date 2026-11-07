@@ -522,4 +522,225 @@ class ProviderCatalogRefreshOnMysqlTest extends TestCase
             $next > $checkedAt + 6 * 86400,
         ]);
     }
+
+    public static function capabilityDrivers(): iterable
+    {
+        yield 'Scaleway' => ['scaleway'];
+        yield 'Mistral' => ['mistral'];
+    }
+
+    #[DataProvider('capabilityDrivers')]
+    public function testFailedCapabilityRenewalRetriesBeforeTheStillValidProofExpires(string $driverName): void
+    {
+        $id = $this->providers->create('Provider', $driverName, 'https://provider.example', 'test-key', true);
+        $model = $driverName === 'scaleway' ? self::IMAGE : 'mistral-small-latest';
+        $driverClass = $driverName === 'scaleway'
+            ? ScalewayProvider::class : \Modules\LlmConnector\Provider\MistralProvider::class;
+        $methods = $driverName === 'scaleway' ? ['listModels', 'probeVision', 'complete'] : ['listModels', 'complete'];
+        $driver = $this->getMockBuilder($driverClass)
+            ->setConstructorArgs(['https://provider.example', 'test-key'])->onlyMethods($methods)->getMock();
+        $catalog = new ProviderModelCatalog([
+            ['id' => $model, 'display_name' => 'Images', 'chat' => true, 'vision' => $driverName === 'mistral' ? true : null],
+        ]);
+        $listCalls = 0;
+        $driver->expects($this->exactly(2))->method('listModels')->willReturnCallback(static function () use ($driverName, $catalog, &$listCalls): ProviderModelCatalog {
+            if (++$listCalls === 1 && $driverName === 'mistral') {
+                throw new \RuntimeException('Transient catalogue failure');
+            }
+            return $catalog;
+        });
+        if ($driverName === 'scaleway') {
+            $driver->expects($this->exactly(2))->method('probeVision')
+                ->willReturnOnConsecutiveCalls(ModelProbeStatus::UNVERIFIED, ModelProbeStatus::VISION_VERIFIED);
+        }
+        $driver->method('complete')->willThrowException(new \RuntimeException('Use deterministic tier selection'));
+        $startedAt = time();
+        $checkedAt = $startedAt - \Modules\LlmConnector\Provider\ModelProbeCache::RENEW_AFTER_SECONDS;
+        $scope = \Modules\LlmConnector\Provider\ModelProbeCache::scopeFor($driverName, 'https://provider.example', 'test-key');
+        $cache = new \Modules\LlmConnector\Provider\ModelProbeCache([], $scope, $checkedAt);
+        $cache->record($model, ModelProbeStatus::VISION_VERIFIED);
+        $this->models->storeModelProbeCache($id, $cache->toArray());
+        $this->models->upsert($id, $model, 'Images');
+        $this->models->autoAssignTiers($id, ['cheap' => $model, 'capable' => $model, 'ocr' => $model]);
+        $handler = new class($driver) extends RefreshModelsHandler {
+            public function __construct(private LlmProviderInterface $testDriver)
+            {
+            }
+            protected function createDriver(string $driver, string $apiEndpoint, string $apiKey): LlmProviderInterface
+            {
+                return $this->testDriver;
+            }
+        };
+        $context = $this->context($this->createStub(JournalService::class));
+        $handler->handle([], $context);
+        $scheduler = SchedulerService::forPdo($this->pdo);
+        $retry = $scheduler->find('llm_connector', 'refresh_models', 'retry-' . $id);
+
+        self::assertNotNull($retry);
+        self::assertLessThan($checkedAt + 7 * 86400, strtotime($retry['run_at']));
+        $handler->handle(json_decode($retry['payload'], true, 512, JSON_THROW_ON_ERROR), $context);
+        self::assertGreaterThanOrEqual($startedAt, $this->models->modelProbeCache($id)['results'][$model]['checked_at']);
+        self::assertSame($model, (new \Modules\LlmConnector\Service\TierModelResolver($this->models))
+            ->resolve($id, $driverName, LlmTier::OCR, $scope)['model_id'] ?? null);
+    }
+
+    public static function schedulerCacheModes(): iterable
+    {
+        yield 'cron service' => [false];
+        yield 'cached web service' => [true];
+    }
+
+    #[DataProvider('capabilityDrivers')]
+    public function testCapabilitiesBootstrapInitializesLegacyProviderEvidence(string $driverName): void
+    {
+        $id = $this->providers->create('Legacy provider', $driverName, 'https://provider.example', 'test-key', true);
+        $model = $driverName === 'scaleway' ? self::IMAGE : 'mistral-small-latest';
+        $this->models->upsert($id, $model, 'Images');
+        $this->models->autoAssignTiers($id, ['cheap' => $model, 'capable' => $model, 'ocr' => $model]);
+        $scope = \Modules\LlmConnector\Provider\ModelProbeCache::scopeFor($driverName, 'https://provider.example', 'test-key');
+        $resolver = new \Modules\LlmConnector\Service\TierModelResolver($this->models);
+        self::assertNull($resolver->resolve($id, $driverName, LlmTier::OCR, $scope));
+
+        $driverClass = $driverName === 'scaleway'
+            ? ScalewayProvider::class : \Modules\LlmConnector\Provider\MistralProvider::class;
+        $methods = $driverName === 'scaleway' ? ['listModels', 'probeVision', 'complete'] : ['listModels', 'complete'];
+        $driver = $this->getMockBuilder($driverClass)
+            ->setConstructorArgs(['https://provider.example', 'test-key'])->onlyMethods($methods)->getMock();
+        $driver->expects($this->once())->method('listModels')->willReturn(new ProviderModelCatalog([
+            ['id' => $model, 'display_name' => 'Images', 'chat' => true, 'vision' => $driverName === 'mistral' ? true : null],
+        ]));
+        if ($driverName === 'scaleway') {
+            $driver->expects($this->once())->method('probeVision')->willReturn(ModelProbeStatus::VISION_VERIFIED);
+        }
+        $driver->method('complete')->willThrowException(new \RuntimeException('Use deterministic tier selection'));
+        $handler = new class($driver) extends RefreshModelsHandler {
+            public function __construct(private LlmProviderInterface $testDriver)
+            {
+            }
+            protected function createDriver(string $driver, string $apiEndpoint, string $apiKey): LlmProviderInterface
+            {
+                return $this->testDriver;
+            }
+        };
+        $scheduler = SchedulerService::forPdo($this->pdo);
+        RefreshModelsHandler::bootstrap($scheduler);
+        $initial = $scheduler->find('llm_connector', 'refresh_models', 'weekly');
+        self::assertNotNull($initial);
+        $handler->handle(json_decode($initial['payload'], true, 512, JSON_THROW_ON_ERROR), $this->context($this->createStub(JournalService::class)));
+
+        self::assertSame($model, $resolver->resolve($id, $driverName, LlmTier::OCR, $scope)['model_id'] ?? null);
+    }
+
+    #[DataProvider('schedulerCacheModes')]
+    public function testCapabilitiesBootstrapAdvancesALegacyDelayOnlyOnce(bool $cached): void
+    {
+        $scheduler = new SchedulerService(new SchedulerRepository($this->pdo), $cached);
+        $scheduler->rearm('llm_connector', 'refresh_models', 'weekly', new \DateTimeImmutable('+7 days'));
+        RefreshModelsHandler::bootstrap($scheduler);
+        $initial = $scheduler->find('llm_connector', 'refresh_models', 'weekly');
+
+        self::assertNotNull($initial);
+        self::assertLessThanOrEqual(time(), strtotime($initial['run_at']));
+        (new RefreshModelsHandler())->handle([], $this->context($this->createStub(JournalService::class)));
+        $renewal = $scheduler->find('llm_connector', 'refresh_models', 'weekly');
+        RefreshModelsHandler::bootstrap($scheduler);
+        self::assertSame($renewal, $scheduler->find('llm_connector', 'refresh_models', 'weekly'));
+    }
+
+    #[DataProvider('schedulerCacheModes')]
+    public function testCapabilitiesBootstrapLeavesARunningLegacyRefreshAlone(bool $cached): void
+    {
+        $scheduler = new SchedulerService(new SchedulerRepository($this->pdo), $cached);
+        $scheduler->rearm('llm_connector', 'refresh_models', 'weekly', new \DateTimeImmutable('+7 days'));
+        $task = $scheduler->find('llm_connector', 'refresh_models', 'weekly');
+        $update = $this->pdo->prepare('UPDATE scheduled_actions SET status = ? WHERE id = ?');
+        $update->execute(['processing', $task['id']]);
+        $running = $scheduler->findById((int) $task['id']);
+        RefreshModelsHandler::bootstrap($scheduler);
+
+        self::assertSame([$running], $scheduler->findAllForTask('llm_connector', 'refresh_models'));
+    }
+
+    public static function retryDelays(): iterable
+    {
+        yield 'first recovery' => [0, 900, 1];
+        yield 'second recovery' => [1, 3600, 2];
+        yield 'third recovery' => [2, 21600, 3];
+        yield 'daily thereafter' => [3, 86400, 3];
+        yield 'bounded counter' => [99, 86400, 3];
+    }
+
+    #[DataProvider('retryDelays')]
+    public function testFailedProviderRetriesUseABoundedBackoff(int $attempt, int $delay, int $nextAttempt): void
+    {
+        $id = $this->providers->create('Provider', 'anthropic', 'https://provider.example', 'test-key', true);
+        $handler = new class extends RefreshModelsHandler {
+            protected function createDriver(string $driver, string $apiEndpoint, string $apiKey): LlmProviderInterface
+            {
+                throw new \RuntimeException('Transient transport failure');
+            }
+        };
+        $before = time();
+        $handler->handle(['provider_id' => $id, 'retry_attempt' => $attempt], $this->context($this->createStub(JournalService::class)));
+        $after = time();
+        $scheduler = SchedulerService::forPdo($this->pdo);
+        $retry = $scheduler->find('llm_connector', 'refresh_models', 'retry-' . $id);
+
+        self::assertNotNull($retry);
+        self::assertContains(strtotime($retry['run_at']), range($before + $delay, $after + $delay));
+        self::assertSame($nextAttempt, json_decode($retry['payload'], true, 512, JSON_THROW_ON_ERROR)['retry_attempt']);
+        self::assertNull($scheduler->find('llm_connector', 'refresh_models', 'weekly'));
+    }
+
+    public function testAProviderRetryDoesNotRefreshOtherActiveProviders(): void
+    {
+        $id = $this->providers->create('Retry', 'anthropic', 'https://retry.example', 'test-key', true);
+        $this->providers->create('Healthy', 'anthropic', 'https://healthy.example', 'test-key', true);
+        $driver = $this->createStub(LlmProviderInterface::class);
+        $driver->method('listModels')->willReturn(new ProviderModelCatalog([]));
+        $handler = new class($driver) extends RefreshModelsHandler {
+            /** @var list<string> */
+            public array $endpoints = [];
+            public function __construct(private LlmProviderInterface $testDriver)
+            {
+            }
+            protected function createDriver(string $driver, string $apiEndpoint, string $apiKey): LlmProviderInterface
+            {
+                $this->endpoints[] = $apiEndpoint;
+                return $this->testDriver;
+            }
+        };
+        $scheduler = SchedulerService::forPdo($this->pdo);
+        $scheduler->rearm('llm_connector', 'refresh_models', 'retry-' . $id, new \DateTimeImmutable('+15 minutes'), [
+            'provider_id' => $id, 'retry_attempt' => 1,
+        ]);
+        $handler->handle(['provider_id' => $id], $this->context($this->createStub(JournalService::class)));
+
+        self::assertSame(['https://retry.example'], $handler->endpoints);
+        self::assertNull($scheduler->find('llm_connector', 'refresh_models', 'retry-' . $id));
+    }
+
+    public function testAnUnreadableProviderKeyAlsoGetsABoundedRecovery(): void
+    {
+        $id = $this->providers->create('Provider', 'anthropic', 'https://provider.example', 'test-key', true);
+        $this->pdo->prepare('UPDATE llm_providers SET api_key = ? WHERE id = ?')->execute(['unreadable-key', $id]);
+        $driver = $this->createStub(LlmProviderInterface::class);
+        $driver->method('listModels')->willReturn(new ProviderModelCatalog([]));
+        $handler = new class($driver) extends RefreshModelsHandler {
+            public function __construct(private LlmProviderInterface $testDriver)
+            {
+            }
+            protected function createDriver(string $driver, string $apiEndpoint, string $apiKey): LlmProviderInterface
+            {
+                return $this->testDriver;
+            }
+        };
+        $before = time();
+        $handler->handle([], $this->context($this->createStub(JournalService::class)));
+        $after = time();
+        $retry = SchedulerService::forPdo($this->pdo)->find('llm_connector', 'refresh_models', 'retry-' . $id);
+
+        self::assertNotNull($retry);
+        self::assertContains(strtotime($retry['run_at']), range($before + 900, $after + 900));
+    }
 }

@@ -85,6 +85,24 @@ Cette marge absorbe la cadence normale du cron et les reports courts liés au
 budget du planificateur ; elle ne garantit pas la disponibilité si le cron
 est arrêté ou durablement retardé. Une preuve expirée reste refusée.
 
+Après une mise à jour, le point d’amorçage commun au site et au cron planifie
+immédiatement la première vérification des fournisseurs déjà configurés,
+sans attendre l’ouverture de la configuration. Une ancienne tâche hebdomadaire
+future est avancée une seule fois ; une tâche en cours ou une chaîne déjà
+initialisée reste à sa place. La page explique explicitement l’absence d’OCR
+tant qu’aucun modèle image vérifié n’est disponible.
+
+Une erreur de découverte ou une sonde indéterminée déclenche une reprise
+pour le seul fournisseur concerné : après quinze minutes, puis une heure,
+six heures et enfin une fois par jour tant que l’échec persiste. Ces délais
+se comptent depuis le début de la tentative précédente. La première reprise
+peut ainsi renouveler une preuve encore valable dans sa marge d’une heure.
+Le cache d’un échec sans preuve positive reste valable une heure et peut
+éviter une nouvelle sonde lors de la première reprise. Un succès ou une
+réponse définitive arrête les reprises ; celles-ci ne déplacent pas la
+chaîne hebdomadaire des autres fournisseurs. Les sondes restent limitées
+à trois candidats par découverte et ces reprises peuvent être facturées.
+
 Le test de connexion et le rafraîchissement hebdomadaire peuvent donc
 engendrer jusqu’à trois appels supplémentaires facturés. La page et l’aide
 l’indiquent avant activation. Le driver réserve le contournement du garde

@@ -325,6 +325,7 @@ Contexte de l'unité :
 - Modèles IA : {$modelsInfo}
 - Sondes techniques Scaleway : si ce fournisseur est actif, le test de connexion et le rafraîchissement peuvent
   envoyer une image synthétique avec un code aléatoire, sans donnée de l'unité, pour vérifier la lecture d'images.
+  La première vérification après une mise à jour et les reprises espacées après échec sont automatiques.
   Seuls les résultats techniques sont conservés jusqu'à la suppression du fournisseur, pas l'image ni son code.
   Conserver ce fait dans la section du connecteur IA pour Scaleway ; retirer ce paragraphe pour un autre fournisseur.
 - Fournisseur téléphonie : {$phoneProvider}

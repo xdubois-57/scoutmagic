@@ -1018,5 +1018,10 @@ function scoutmagicBootstrapScheduler(
         \Modules\Registration\Task\AutoAcceptRequestsHandler::bootstrap($schedulerService);
     }
 
+    // Existing providers need capability evidence on the first cron pass after upgrading.
+    if (in_array('llm_connector', $enabledModuleIds, true)) {
+        \Modules\LlmConnector\Task\RefreshModelsHandler::bootstrap($schedulerService);
+    }
+
     return $context;
 }

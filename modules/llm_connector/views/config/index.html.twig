@@ -59,6 +59,13 @@
                 <strong>{{ ocr_model ? ocr_model.display_name : '—' }}</strong>
             </div>
         </div>
+        {% if active_provider and not ocr_model %}
+        <div class="alert alert-warning mt-3 mb-0">
+            La lecture des images est indisponible. Aucun modèle dont la lecture d’images est vérifiée
+            n’est disponible. Une vérification automatique est planifiée ; vous pouvez aussi utiliser
+            « Tester la connexion ».
+        </div>
+        {% endif %}
     </div>
 </div>
 
@@ -130,7 +137,9 @@
             <div class="col-12" id="driver-help-scaleway">
                 <p class="small text-body-secondary">La vérification des images peut générer jusqu’à trois petits
                     appels de test facturés par Scaleway. Les résultats sont réutilisés pendant sept jours ; un échec
-                    temporaire peut être retesté après une heure.</p>
+                    sans preuve positive est mémorisé une heure. La première vérification après une mise à jour
+                    et les reprises après échec sont automatiques. Les reprises s’espacent de quinze minutes
+                    à une fois par jour et peuvent aussi être facturées.</p>
                 <div class="alert alert-light border mb-0">
                     <strong>Comment obtenir votre clé API Scaleway :</strong>
                     <ol class="mb-2 mt-2">

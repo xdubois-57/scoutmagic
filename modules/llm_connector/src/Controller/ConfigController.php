@@ -27,6 +27,7 @@ use Modules\LlmConnector\Service\OcrModelSelector;
 use Modules\LlmConnector\Service\ProviderCatalogRefresher;
 use Modules\LlmConnector\Service\TierModelResolver;
 use Core\Scheduler\SchedulerService;
+use Modules\LlmConnector\Task\RefreshModelsHandler;
 use Twig\Environment;
 
 class ConfigController extends AbstractController
@@ -50,8 +51,7 @@ class ConfigController extends AbstractController
      */
     public function index(Request $request, array $params): Response
     {
-        // Ensure weekly refresh task is scheduled
-        $this->ensureWeeklyRefreshScheduled();
+        RefreshModelsHandler::bootstrap($this->schedulerService);
 
         $providers = $this->providerRepo->findAll();
 
@@ -350,25 +350,5 @@ class ConfigController extends AbstractController
             'scaleway' => new ScalewayProvider($apiEndpoint, $apiKey),
             default => throw new \RuntimeException("Unknown driver: {$driver}"),
         };
-    }
-
-    /**
-     * Ensure a weekly model refresh task is scheduled.
-     * Keep a renewal margin before the seven-day image evidence expires.
-     */
-    private function ensureWeeklyRefreshScheduled(): void
-    {
-        $existing = $this->schedulerService->find('llm_connector', 'refresh_models', 'weekly');
-        $now = \Core\Config\AppClock::now();
-        $nextRun = $now->setTimestamp($now->getTimestamp() + ModelProbeCache::RENEW_AFTER_SECONDS);
-        if ($existing !== null && $existing['status'] === 'pending'
-            && strtotime($existing['run_at']) > $now->getTimestamp()
-            && strtotime($existing['run_at']) <= $nextRun->getTimestamp()) {
-            return;
-        }
-        if ($existing !== null) {
-            $this->schedulerService->cancel((int) $existing['id']);
-        }
-        $this->schedulerService->rearm('llm_connector', 'refresh_models', 'weekly', $nextRun);
     }
 }
