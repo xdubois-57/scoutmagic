@@ -26,4 +26,9 @@ final class AddressReactivationRegistry implements AddressReactivationInterface
     {
         return $this->provider?->reactivateAddress($email, $actorId) ?? 0;
     }
+
+    public function isSuppressed(string $email): bool
+    {
+        return $this->provider?->isSuppressed($email) ?? false;
+    }
 }

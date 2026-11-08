@@ -26,12 +26,34 @@ final class EmailAddressReactivationService
      */
     public function reactivate(string $email, ?int $actorId): int
     {
+        return $this->change($email, $actorId, true, true);
+    }
+
+    /** Restore login validity without changing group-mail consent. */
+    public function reactivateLogin(string $email, ?int $actorId): int
+    {
+        return $this->change($email, $actorId, true, false);
+    }
+
+    /** Restore group-mail consent without changing login eligibility. */
+    public function restoreGroupMail(string $email, ?int $actorId): int
+    {
+        return $this->change($email, $actorId, false, true);
+    }
+
+    public function isSuppressed(string $email): bool
+    {
+        return $this->mailing?->isSuppressed($email) ?? false;
+    }
+
+    private function change(string $email, ?int $actorId, bool $restoreInactive, bool $restoreMailing): int
+    {
         $email = mb_strtolower(trim($email));
         if (filter_var($email, FILTER_VALIDATE_EMAIL) === false) {
             throw new MemberEmailException('Adresse e-mail invalide.');
         }
         try {
-            return $this->restore($email, $actorId);
+            return $this->restore($email, $actorId, $restoreInactive, $restoreMailing);
         } catch (\PDOException $error) {
             try {
                 $this->journal->log(
@@ -49,12 +71,12 @@ final class EmailAddressReactivationService
         }
     }
 
-    private function restore(string $email, ?int $actorId): int
+    private function restore(string $email, ?int $actorId, bool $restoreInactive, bool $restoreMailing): int
     {
-        return $this->members->atomically(function () use ($email, $actorId): int {
+        return $this->members->atomically(function () use ($email, $actorId, $restoreInactive, $restoreMailing): int {
             // Same lock order as unsubscribe: suppression, contacts, members.
-            $mailingChanges = $this->mailing?->reactivateAddress($email, $actorId) ?? 0;
-            $rows = $this->members->reactivateInactiveByEmail($email);
+            $mailingChanges = $restoreMailing ? ($this->mailing?->reactivateAddress($email, $actorId) ?? 0) : 0;
+            $rows = $restoreInactive ? $this->members->reactivateInactiveByEmail($email) : [];
             foreach ($rows as $row) {
                 $this->journal->log(
                     'core',

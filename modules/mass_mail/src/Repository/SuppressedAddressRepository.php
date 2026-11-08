@@ -9,8 +9,8 @@ declare(strict_types=1);
 namespace Modules\MassMail\Repository;
 
 /**
- * mass_mail_suppressed_addresses — the unsubscribe list for external
- * (non-member) mail-merge recipients. Only ever a SHA-256 hash of the
+ * mass_mail_suppressed_addresses — group-mail consent for every address,
+ * whether brought by a member, contact or mail merge. Only a SHA-256 hash of the
  * normalized address, never the address itself: this table is checked by
  * exact match at freeze time and nothing ever needs the address back.
  * Never purged by retention; only an explicitly confirmed reactivation removes it.
@@ -25,12 +25,15 @@ class SuppressedAddressRepository
      * Idempotent (unique index on the hash) — a mailbox prefetch, the
      * confirm page's submit, and a manual resubmit may all land here for
      * the same address.
+     * Returns true only for the first suppression, so repeated POSTs do
+     * not repeat notifications after the transaction commits.
      */
-    public function suppress(string $address): void
+    public function suppress(string $address): bool
     {
         try {
             $stmt = $this->pdo->prepare('INSERT INTO mass_mail_suppressed_addresses (email_hash) VALUES (?)');
             $stmt->execute([self::hash($address)]);
+            return true;
         } catch (\PDOException $e) {
             // ONLY the duplicate. « Already suppressed » is the exact
             // state the caller wanted and is not an error; everything else
@@ -48,6 +51,7 @@ class SuppressedAddressRepository
             if (($e->getCode() !== '23000') && ($e->errorInfo[1] ?? null) !== 1062) {
                 throw $e;
             }
+            return false;
         }
     }
 

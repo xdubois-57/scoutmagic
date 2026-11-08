@@ -2,12 +2,12 @@ Vous êtes désinscrit de nos envois groupés
 
 Bonjour,
 
-Cette adresse a bien été désinscrite de nos emails groupés. Elle ne recevra plus nos envois et ne peut plus non plus servir à se connecter au site par lien de connexion.
+Cette adresse a bien été désinscrite de nos emails groupés. Elle ne recevra plus nos envois groupés. Votre connexion au site et les messages personnels qui vous concernent restent inchangés.
 {% if member_names %}
 
 Cela concerne : {{ member_names }}.
 {% endif %}
 
-Si c'est une erreur, vous pouvez réactiver cette adresse depuis l'espace personnel du membre concerné, en vous connectant avec une autre de ses adresses email. {% if staffdu_email %}Vous pouvez aussi écrire au Staff d'U à {{ staffdu_email }}.{% else %}Vous pouvez aussi en parler au Staff d'U de l'unité.{% endif %}
+{% if member_names %}Si c'est une erreur, connectez-vous à l'espace personnel du membre concerné, puis choisissez « Rétablir les e-mails groupés » dans « Adresses email ». {% endif %}{% if staffdu_email %}Vous pouvez aussi écrire au Staff d'U à {{ staffdu_email }}.{% else %}Vous pouvez aussi en parler au Staff d'U de l'unité.{% endif %}
 
 {% include 'email/signature.text.twig' %}

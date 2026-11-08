@@ -487,6 +487,13 @@ A section with no member in a given import becomes inactive automatically (kept,
   page apply to its member groups, its contact groups are always included, and the page says so under the year boxes.
   Every unsubscription — from any message — holds for the whole unit, members' addresses included, and survives any
   replacement file. The tracking page counts messages and names how many members were targeted.
+  The module's suppression list stores group-mail consent for **every** address, regardless of its origin or login
+  validity. Unsubscribing preserves login, open sessions, personal messages and already-frozen recipients. The
+  personal profile displays « Désinscrite des e-mails groupés » and offers « Rétablir les e-mails groupés » after
+  confirmation; this restores only unit-wide consent for that address, leaving login statuses, pending confirmations
+  and bounce blocks unchanged. « Réactiver » remains reserved for an inactive address and does not lift a group-mail
+  unsubscribe. Unsubscribe notifications are sent once, after commit: confirmation to the holder and notice to
+  Staff d'U when member profiles are involved. Desk links use the address on the current public-year profile.
 
 ## 9. Scheduler
 
