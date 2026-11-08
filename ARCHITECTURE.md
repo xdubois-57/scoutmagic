@@ -2907,46 +2907,44 @@ Test mode gains a per-recipient preview (`GET
 through rows with real substituted values and surfaces unknown tokens and
 per-row missing values; the test send carries the previewed row's values.
 
-**Désinscription des e-mails groupés (#1049).** La table
-`mass_mail_suppressed_addresses` est la source du consentement pour toutes les
-adresses : membre, contact ou adresse libre d'un publipostage. Chaque POST signé
-par le jeton du message enregistre l'empreinte SHA-256 normalisée et marque les
-contacts correspondants dans une seule transaction. Le statut `member_emails`
-reste inchangé : la désinscription ne coupe ni la connexion ni une session ouverte.
-Les messages personnels continuent d'arriver et les destinataires déjà figés
-restent ceux du lancement. Les prochains gels et leurs estimations excluent
-l'adresse pour toutes les fiches qui la partagent ; la liste des destinataires
-applique le même consentement.
+**Group-mail unsubscribe (#1049).** `mass_mail_suppressed_addresses` owns
+consent for every address: a member's, a contact's, or a free address from a
+mail-merge file. Each POST signed with a message token stores the normalized
+SHA-256 hash and flags matching contacts in one transaction. `member_emails`
+status is unchanged: unsubscribing preserves login and open sessions. Personal
+messages still arrive, and already-frozen recipients remain those selected at
+launch. Future freezes and estimates exclude the address for every profile
+sharing it; recipient listings apply the same consent.
 
-`SuppressedAddressRepository::suppress()` indique si l'empreinte vient d'être
-créée. Seule cette première inscription déclenche les notifications, après commit :
-confirmation à l'adresse et avis au Staff d'U si elle correspond à des membres.
-`MemberEmailService::unsubscribe()` retrouve les liens dont la maîtrise de l'adresse
-est établie (Desk ou confirmation), dans l'année publique, et complète avec les
-fiches Desk dont l'adresse n'a pas encore de ligne créée à la demande. Une demande
-de liaison non confirmée ne communique aucun nom. Le service ne désactive aucune
-adresse. Un échec de transaction n'envoie aucune notification.
+`SuppressedAddressRepository::suppress()` reports whether the hash was newly
+inserted. Only that first insertion triggers notifications, after commit:
+confirmation to the address and notice to Staff d'U when members are linked.
+`MemberEmailService::unsubscribe()` finds links with established address control
+(Desk or confirmation) in the public year and includes current Desk profiles
+whose lazy override row does not exist yet. A Desk override qualifies only while
+the public-year profile still carries that address. An unconfirmed link request
+discloses no name. The service deactivates no address. A failed transaction sends
+no notification.
 
-**Rétablir le consentement.** Le contrat facultatif
-`Modules\MassMail\Api\AddressReactivationInterface` expose `isSuppressed()` et
-`reactivateAddress()`. `AddressReactivationRegistry` est transmis au cœur avant
-l'activation du module ; sans fournisseur, aucune table du module n'est lue.
-La fiche personnelle affiche « Désinscrite des e-mails groupés » uniquement pour
-une adresse dont le titulaire est établi. Le POST personnel
-`/members/{id}/emails/{email_id}/restore-group-mail` vérifie l'accès à sa propre
-fiche, le jeton CSRF et l'adresse, puis utilise
-`EmailAddressReactivationService::restoreGroupMail()` après confirmation générique.
-Il retire l'empreinte et les indicateurs des contacts, sans modifier les statuts
-inactifs, les confirmations en attente, les rebonds ou les messages déjà figés.
-Le POST administratif `/admin/listes-de-diffusion/adresses/reactivate` utilise
-cette même opération à la demande du titulaire. Les actions n'envoient aucun e-mail.
+**Restoring consent.** The optional
+`Modules\MassMail\Api\AddressReactivationInterface` contract exposes
+`isSuppressed()` and `reactivateAddress()`. `AddressReactivationRegistry` is
+passed to core before module activation; without a provider, no module table is
+read. The personal profile displays « Désinscrite des e-mails groupés » only for
+an address with an established holder. Its POST on
+`/members/{id}/emails/{email_id}/restore-group-mail` checks access to one's own
+profile, the CSRF token and the address, then calls
+`EmailAddressReactivationService::restoreGroupMail()` after generic confirmation.
+It removes the hash and contact flags without changing inactive statuses,
+pending confirmations, bounce blocks or frozen messages. The administrative POST
+on `/admin/listes-de-diffusion/adresses/reactivate` uses the same operation at
+the holder's request. Neither action sends mail.
 
-« Réactiver » sur une adresse réellement inactive reste une opération distincte,
-`reactivateLogin()`, qui rétablit sa validité sans lever une désinscription des
-e-mails groupés. Les transactions partagent le même PDO et l'ordre des verrous
-reste suppression, contacts, membres. Un échec conserve l'état précédent et donne
-un message permettant de réessayer ; aucun import de fichier ne réabonne une adresse.
-Aucune reprise des anciennes lignes inactives n'est effectuée.
+« Réactiver » on an actually inactive address remains a separate operation,
+`reactivateLogin()`, which restores its validity without lifting a group-mail
+unsubscribe. Transactions share the same PDO and lock order: suppression,
+contacts, members. Failure preserves the previous state and offers a retry;
+importing a file cannot resubscribe an address. Old inactive rows are not migrated.
 
 **One notification per account and per row (issue #999, §2.6).** The
 account concerned is the one whose login is the address of a sent message

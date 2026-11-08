@@ -597,6 +597,37 @@ class MemberEmailServiceTest extends TestCase
         yield 'inactive without confirmation' => ['inactive'];
     }
 
+    #[\PHPUnit\Framework\Attributes\DataProvider('deskNotificationAddresses')]
+    public function testUnsubscribeUsesOnlyCurrentDeskLinksForNotifications(?string $deskEmail, bool $linked): void
+    {
+        $this->createStaffDuSectionWithEmail('staffdu@example.com');
+        $year = (new ScoutYearService($this->pdo))->getCurrentYear()['id'];
+        if ($deskEmail !== null) {
+            $this->insertNotificationProfile($this->memberId, $year, 'Concerné', $deskEmail);
+        }
+        $this->repository->findOrCreateDeskOverride($this->memberId, 'previous@example.com');
+        $messages = [];
+        $this->mailService->method('send')->willReturnCallback(
+            static function (string $to, string $subject, string $html, ?string $text) use (&$messages): void {
+                $messages[$to] = [str_contains($html, 'Concerné Dupont'), str_contains($text ?? '', 'Concerné Dupont')];
+            }
+        );
+
+        $this->service->unsubscribe('previous@example.com');
+
+        $expected = $linked
+            ? ['staffdu@example.com' => [true, true], 'previous@example.com' => [true, true]]
+            : ['previous@example.com' => [false, false]];
+        $this->assertSame($expected, $messages);
+    }
+
+    public static function deskNotificationAddresses(): iterable
+    {
+        yield 'current Desk address' => ['previous@example.com', true];
+        yield 'Desk address changed' => ['current@example.com', false];
+        yield 'no public-year profile' => [null, false];
+    }
+
     public function testUnsubscribeNamesOnlyTheProvenLinksSharingAMailbox(): void
     {
         $this->createStaffDuSectionWithEmail('staffdu@example.com');

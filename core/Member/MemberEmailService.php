@@ -508,7 +508,13 @@ class MemberEmailService
         );
         $currentYear = $this->scoutYearResolver?->getCurrentPublicYear() ?? $this->scoutYearService->getCurrentYear();
         $affectedMemberNames = [];
-        foreach ($rows as $row) {
+        foreach ($rows as $index => $row) {
+            $profile = $this->memberService->findProfileByMemberAndYear($row->memberId, (int) $currentYear['id']);
+            // Desk overrides survive imports, so only the current profile proves this address's link.
+            if ($row->isDeskSourced() && mb_strtolower(trim($profile->email ?? '')) !== $email) {
+                unset($rows[$index]);
+                continue;
+            }
             $this->journalService->log(
                 'core',
                 'member_email_unsubscribed',
@@ -518,7 +524,6 @@ class MemberEmailService
                 null
             );
 
-            $profile = $this->memberService->findProfileByMemberAndYear($row->memberId, (int) $currentYear['id']);
             if ($profile !== null) {
                 $affectedMemberNames[$row->memberId] = trim(
                     TextNormalizerService::normalizeName($profile->firstName)

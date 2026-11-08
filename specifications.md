@@ -487,14 +487,13 @@ A section with no member in a given import becomes inactive automatically (kept,
   page apply to its member groups, its contact groups are always included, and the page says so under the year boxes.
   Every unsubscription — from any message — holds for the whole unit, members' addresses included, and survives any
   replacement file. The tracking page counts messages and names how many members were targeted.
-  Le consentement aux e-mails groupés est conservé dans la liste de suppression du module pour **toutes** les adresses,
-  indépendamment de leur origine et de leur validité pour la connexion. Une désinscription laisse la connexion, les
-  sessions ouvertes, les messages personnels et les destinataires déjà figés inchangés. La fiche personnelle affiche
-  « Désinscrite des e-mails groupés » et propose « Rétablir les e-mails groupés », après confirmation ; ce geste
-  rétablit uniquement le consentement pour cette adresse dans toute l'unité, sans modifier les statuts de connexion,
-  les confirmations en attente ou les suspensions pour rebonds. « Réactiver » reste réservé à une adresse inactive
-  et ne lève pas une désinscription des e-mails groupés. Les notifications de désinscription partent après commit,
-  une seule fois : confirmation au titulaire et avis au Staff d'U lorsque des fiches de membre sont concernées.
+  The module's suppression list stores group-mail consent for **every** address, regardless of its origin or login
+  validity. Unsubscribing preserves login, open sessions, personal messages and already-frozen recipients. The
+  personal profile displays « Désinscrite des e-mails groupés » and offers « Rétablir les e-mails groupés » after
+  confirmation; this restores only unit-wide consent for that address, leaving login statuses, pending confirmations
+  and bounce blocks unchanged. « Réactiver » remains reserved for an inactive address and does not lift a group-mail
+  unsubscribe. Unsubscribe notifications are sent once, after commit: confirmation to the holder and notice to
+  Staff d'U when member profiles are involved. Desk links use the address on the current public-year profile.
 
 ## 9. Scheduler
 

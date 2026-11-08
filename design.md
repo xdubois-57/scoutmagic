@@ -550,18 +550,16 @@ helpers; a page-level primary action that happens to call an AI
     consequence and that no e-mail is sent
     (`docs/chantiers/CHANTIER-annee-scoute.md` §2.8). The step's disc
     keeps the no-dialog rule (§7.15).
-  - **Rétablissement des e-mails groupés (#1032/#1049)** : la confirmation
-    demandée par le mainteneur accompagne
-    `/members/{id}/emails/{email_id}/restore-group-mail` et
-    `/admin/listes-de-diffusion/adresses/reactivate`. Ces actions rétablissent
-    le consentement pour toutes les fiches et tous les groupes de contacts qui
-    partagent l'adresse, sans changer sa validité pour la connexion ni ses
-    suspensions pour rebonds. La fenêtre générique précise cette portée et
-    propose « Annuler » et « Rétablir les e-mails groupés » sur la fiche,
-    « Réactiver » dans l'administration. Aucun e-mail ne part. Chaque action
-    demande sa propre confirmation. La réactivation d'une adresse réellement
-    inactive pour la connexion (`/members/{id}/emails/{email_id}/reactivate`)
-    reste un rétablissement immédiat, sans modifier ce consentement.
+  - **Restoring group mail (#1032/#1049)**: the maintainer requires
+    confirmation for `/members/{id}/emails/{email_id}/restore-group-mail` and
+    `/admin/listes-de-diffusion/adresses/reactivate`. These actions restore
+    consent for every profile and contact group sharing the address without
+    changing login validity or bounce blocks. The generic dialog states this
+    scope and offers « Annuler » and « Rétablir les e-mails groupés » on the
+    profile, « Réactiver » in administration. Neither action sends mail. Each
+    submission requires its own confirmation. Reactivating an address actually
+    inactive for login (`/members/{id}/emails/{email_id}/reactivate`) remains
+    an immediate restoration without changing group-mail consent.
   - Held by `UxConventionsTest::testEveryDestructivePostFormAsksFirst()`
     for the first list and `testNoUndoAsksForConfirmation()` for the
     second. Its allowlist is NOT the exceptions above — those never match
