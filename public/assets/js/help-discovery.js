@@ -51,6 +51,7 @@
     var retryButton = /** @type {HTMLElement|null} */ (modal.querySelector('[data-discovery-retry]'));
     var failedAction = '';
     var failedMessage = '';
+    var failureToastShown = false;
 
     var index = 0;
     /** @type {string[]} the ids actually gone past, in the order they were shown */
@@ -109,6 +110,7 @@
             return Promise.resolve(false);
         }
         pending = true;
+        failureToastShown = false;
         errorNotice?.classList.add('d-none');
         var controls = Array.from(modal.querySelectorAll('button')).filter(function (button) {
             return !button.disabled && !Object.hasOwn(button.dataset, 'bsDismiss');
@@ -168,6 +170,11 @@
      * @param {string} message
      */
     function showFailureToast(action, message) {
+        // A failure may arrive during Bootstrap's fade, before hidden fires.
+        if (failureToastShown) {
+            return;
+        }
+        failureToastShown = true;
         window.ScoutMagicToast?.show(message, {
             variant: 'error',
             action: { label: 'Réessayer', onClick: function () { finish(action); } },

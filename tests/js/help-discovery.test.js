@@ -447,6 +447,39 @@ describe('help-discovery.js', () => {
         ]);
     });
 
+    it.each(['snooze', 'never'])('reports each failed %s once across the dismissal transition', async (action) => {
+        await load(dialog(['un']));
+        const message = 'Le choix ne peut pas être enregistré.';
+        const retryMessage = 'Le nouvel essai ne peut pas être enregistré.';
+        let respond;
+        const post = vi.fn()
+            .mockImplementationOnce(() => new Promise(resolve => { respond = resolve; }))
+            .mockResolvedValueOnce({ ok: false, status: 503, data: { success: false, error: retryMessage } })
+            .mockResolvedValueOnce({ ok: true, status: 200, data: { success: true } });
+        window.ScoutMagicApi.postJson = post;
+        click('data-discovery-' + action);
+        await afterRequest();
+
+        // Bootstrap removes show before its fade finishes and hidden fires.
+        const modal = document.getElementById('help-discovery-modal');
+        modal.classList.remove('show');
+        respond({ ok: false, status: 503, data: { success: false, error: message } });
+        await afterRequest();
+        const duringFade = window.ScoutMagicToast.show.mock.calls.map(([text]) => text);
+        modal.dispatchEvent(new Event('hidden.bs.modal'));
+        await afterRequest();
+        const afterHidden = window.ScoutMagicToast.show.mock.calls.map(([text]) => text);
+        window.ScoutMagicToast.show.mock.calls.at(-1)?.[1]?.action?.onClick?.();
+        await afterRequest();
+        const afterFailedRetry = window.ScoutMagicToast.show.mock.calls.map(([text]) => text);
+        window.ScoutMagicToast.show.mock.calls.at(-1)?.[1]?.action?.onClick?.();
+        await afterRequest();
+
+        expect([duringFade, afterHidden, afterFailedRetry, post.mock.calls.map(([, body]) => body.action)]).toEqual([
+            [message], [message], [message, retryMessage], [action, action, action],
+        ]);
+    });
+
     it.each(['snooze', 'never'])('keeps failed account-wide %s visible while browsing cards', async (action) => {
         await load(dialog(['un', 'deux', 'trois']));
         const message = 'Le choix ne peut pas être enregistré.';

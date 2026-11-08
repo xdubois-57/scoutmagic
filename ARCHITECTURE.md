@@ -4147,6 +4147,8 @@ dialog explains the problem and offers a keyboard-accessible « Réessayer »;
 controls are restored. The alert concerns the account's choice, so browsing
 another card keeps it visible. Manual dismissal preserves the failed action and
 message in the common toast rather than recording an ordinary close over it.
+Each failed request produces at most one toast, including during the dismissal
+transition; a failed retry can report its own error.
 A completed request or an HTTP 200 carrying an application refusal never counts
 as a saved choice.
 

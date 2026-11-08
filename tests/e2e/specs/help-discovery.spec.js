@@ -167,6 +167,7 @@ test('a tip is offered, walked and closed — and then leaves the reader alone',
     await snooze.click();
     await expect(offeredAgain.locator('[data-discovery-error]')).toHaveText(/Le report ne peut pas être enregistré\. Réessayez\./);
     await expect(offeredAgain.locator('[data-discovery-error]')).toBeVisible();
+    await expect(offeredAgain.locator('.btn-primary:visible')).toHaveCount(1);
     await expect(offeredAgain).toBeVisible();
     await expect(snooze).toBeEnabled();
     const retry = page.getByRole('button', { name: 'Réessayer', exact: true });
