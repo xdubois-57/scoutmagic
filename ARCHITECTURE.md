@@ -4144,9 +4144,11 @@ HTTP success and an application response containing `success: true`. Only one
 request runs at a time; postponing, refusing tips and reloading for more tips
 take effect only after that acknowledgement. On failure, an alert within the
 dialog explains the problem and offers a keyboard-accessible « Réessayer »;
-controls are restored. Manual dismissal remains possible; the common toast then
-offers a retry for a failed write. A completed request or an HTTP 200 carrying
-an application refusal never counts as a saved choice.
+controls are restored. The alert concerns the account's choice, so browsing
+another card keeps it visible. Manual dismissal preserves the failed action and
+message in the common toast rather than recording an ordinary close over it.
+A completed request or an HTTP 200 carrying an application refusal never counts
+as a saved choice.
 
 **Four `core` settings**, registered like the others in `public/index.php`: `help_discovery_enabled` (the switch, for the unit that does not want this), `help_discovery_interval_hours` (24), `help_discovery_snooze_days` (7), `help_discovery_batch_size` (5). A value an administrator empties or sets to zero falls back on its default — a batch of none would be an empty dialog.
 

@@ -173,9 +173,15 @@ test('a tip is offered, walked and closed — and then leaves the reader alone',
     await offeredAgain.locator('[data-bs-dismiss="modal"]').first().focus();
     await page.keyboard.press('Tab');
     await expect(retry, 'retry must be reachable inside the modal focus trap').toBeFocused();
+    // Dismissing an already-failed choice keeps its retry and must not
+    // silently replace the requested week with an ordinary close.
+    await closeModal(page, DIALOG_ID, () =>
+        offeredAgain.locator('[data-bs-dismiss="modal"]').first().click());
+    const toastRetry = page.getByRole('button', { name: 'Réessayer', exact: true });
+    await expect(toastRetry).toBeVisible();
     const snoozed = page.waitForResponse((response) =>
         response.url().includes('/api/aide/decouverte') && response.request().method() === 'POST');
-    await closeModal(page, DIALOG_ID, () => retry.press('Enter'));
+    await toastRetry.press('Enter');
     const saved = await snoozed;
     expect(saved.status(), 'a real retry reached the server successfully').toBe(200);
     expect(await saved.json()).toEqual({ success: true });

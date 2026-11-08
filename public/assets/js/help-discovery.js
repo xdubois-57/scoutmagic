@@ -50,6 +50,7 @@
     var errorMessage = /** @type {HTMLElement|null} */ (modal.querySelector('[data-discovery-error-message]'));
     var retryButton = /** @type {HTMLElement|null} */ (modal.querySelector('[data-discovery-retry]'));
     var failedAction = '';
+    var failedMessage = '';
 
     var index = 0;
     /** @type {string[]} the ids actually gone past, in the order they were shown */
@@ -149,13 +150,24 @@
         var message = typeof response?.data?.error === 'string' && response.data.error
             ? response.data.error
             : "Votre choix n'a pas pu être enregistré. Réessayez.";
+        failedAction = action;
+        failedMessage = message;
         if (modal.classList.contains('show') && errorNotice && errorMessage) {
-            failedAction = action;
             errorMessage.textContent = message;
             errorNotice.classList.remove('d-none');
             errorNotice.scrollIntoView?.({ block: 'nearest' });
             return;
         }
+        showFailureToast(action, message);
+    }
+
+    /**
+     * Preserve the failed choice outside the dismissed dialog.
+     *
+     * @param {string} action
+     * @param {string} message
+     */
+    function showFailureToast(action, message) {
         window.ScoutMagicToast?.show(message, {
             variant: 'error',
             action: { label: 'Réessayer', onClick: function () { finish(action); } },
@@ -221,9 +233,15 @@
         finish('more');
     });
 
-    // « Terminé », the close cross, Escape and a click on the backdrop
-    // all arrive here, and all mean the same thing.
+    // Manual dismissal must preserve an unacknowledged choice for retry.
+    // Otherwise « Terminé », Escape, the cross and the backdrop record close.
     modal.addEventListener('hidden.bs.modal', function () {
+        if (failedAction && !settled) {
+            if (!pending) {
+                showFailureToast(failedAction, failedMessage);
+            }
+            return;
+        }
         finish('close');
     });
 

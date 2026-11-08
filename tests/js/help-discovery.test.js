@@ -416,6 +416,64 @@ describe('help-discovery.js', () => {
         expect(post.mock.calls.map(call => call[1].action)).toEqual(['snooze', 'snooze']);
     });
 
+    it.each(['snooze', 'never'])('preserves failed %s when dismissed after its failure', async (action) => {
+        await load(dialog(['un', 'deux']));
+        const message = 'Le choix ne peut pas être enregistré.';
+        const post = vi.fn()
+            .mockResolvedValueOnce({ ok: false, status: 503, data: { success: false, error: message } })
+            .mockResolvedValueOnce({ ok: true, status: 200, data: { success: true } });
+        window.ScoutMagicApi.postJson = post;
+        click('data-discovery-' + action);
+        await afterRequest();
+        dismiss();
+        await afterRequest();
+
+        const toast = window.ScoutMagicToast.show.mock.calls.at(-1);
+        const beforeRetry = {
+            requests: post.mock.calls.map(([, body]) => body),
+            toast: toast ? [toast[0], toast[1].variant, toast[1].action.label, typeof toast[1].action.onClick] : null,
+        };
+        toast?.[1]?.action?.onClick?.();
+        await afterRequest();
+        dismiss();
+        await afterRequest();
+
+        expect([beforeRetry, post.mock.calls.map(([, body]) => body)]).toEqual([
+            {
+                requests: [{ ids: ['un'], action }],
+                toast: [message, 'error', 'Réessayer', 'function'],
+            },
+            [{ ids: ['un'], action }, { ids: ['un'], action }],
+        ]);
+    });
+
+    it.each(['snooze', 'never'])('keeps failed account-wide %s visible while browsing cards', async (action) => {
+        await load(dialog(['un', 'deux', 'trois']));
+        const message = 'Le choix ne peut pas être enregistré.';
+        const post = vi.fn()
+            .mockResolvedValueOnce({ ok: false, status: 503, data: { success: false, error: message } })
+            .mockResolvedValueOnce({ ok: true, status: 200, data: { success: true } });
+        window.ScoutMagicApi.postJson = post;
+        click('data-discovery-' + action);
+        await afterRequest();
+        click('data-discovery-next');
+        const beforeRetry = [
+            visibleCardId(),
+            !document.querySelector('[data-discovery-error]').classList.contains('d-none'),
+            document.querySelector('[data-discovery-error-message]').textContent,
+            post.mock.calls.map(([, body]) => body),
+        ];
+        click('data-discovery-retry');
+        await afterRequest();
+
+        expect([beforeRetry, document.getElementById('help-discovery-modal').classList.contains('show'),
+            post.mock.calls.map(([, body]) => body)]).toEqual([
+            ['deux', true, message, [{ ids: ['un'], action }]],
+            false,
+            [{ ids: ['un'], action }, { ids: ['un', 'deux'], action }],
+        ]);
+    });
+
     it.each([
         ['missing JSON', { ok: true, status: 200, data: null }],
         ['truthy but non-boolean success', { ok: true, status: 200, data: { success: 'true' } }],
