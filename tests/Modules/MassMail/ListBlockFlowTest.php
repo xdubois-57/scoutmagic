@@ -744,6 +744,70 @@ class ListBlockFlowTest extends TestCase
         $this->assertStringContainsString('Adresse désinscrite des emails groupés', (string) $line);
     }
 
+    #[\PHPUnit\Framework\Attributes\DataProvider('inactiveAddressRefusals')]
+    public function testAnInactiveAddressHasItsOwnRefusalReason(
+        bool $merge,
+        ?string $suppressed,
+        string $reason
+    ): void {
+        $memberId = $this->createMember('chef@test.be');
+        $repository = new MemberEmailRepository($this->pdo, $this->encryption);
+        $row = $repository->findOrCreateDeskOverride($memberId, 'chef@test.be');
+        $repository->markInactive($row->id);
+        if ($suppressed !== null) {
+            if ($suppressed !== 'chef@test.be') {
+                $this->addSecondaryEmail($memberId, $suppressed);
+            }
+            $this->suppressedRepository->suppress($suppressed);
+        }
+
+        if ($merge) {
+            $audienceId = $this->audienceRepository->createAudience('test.xlsx', 'Feuille1', ['Tiers'], 1, null);
+            $this->audienceRepository->createRow($audienceId, 2, $memberId, null, ['Tiers' => 'DESK']);
+            $draft = $this->massMailService->createDraft(
+                'Sujet',
+                '<p>Corps</p>',
+                $this->sectionId,
+                Email::LIST_TYPE_MAIL_MERGE,
+                null,
+                null,
+                [$this->scoutYearId],
+                null,
+                new SenderAuthorization(true, [], null),
+                $audienceId
+            );
+            $email = $this->massMailService->moveToTest($draft->id, null);
+        } else {
+            $email = $this->sendableEmail();
+        }
+        $this->massMailService->startSending($email->id, null);
+
+        $entries = $this->pdo->query(
+            "SELECT description, context FROM event_log WHERE event_type = 'target_not_sent'"
+        )->fetchAll(\PDO::FETCH_ASSOC);
+        $reported = array_map(static fn(array $entry): array => [
+            json_decode($entry['context'], true)['reason'] ?? null,
+            str_ends_with($entry['description'], ' — ' . $reason),
+        ], $entries);
+        $this->assertSame(
+            [[], [[$reason, true]]],
+            [$this->deliveryRepository->findByEmailId($email->id), $reported]
+        );
+    }
+
+    public static function inactiveAddressRefusals(): iterable
+    {
+        foreach (['list' => false, 'mail merge' => true] as $label => $merge) {
+            yield $label . ': inactive only' => [$merge, null, 'Adresse désactivée'];
+            yield $label . ': inactive and suppressed' => [
+                $merge, 'chef@test.be', 'Adresse désinscrite des emails groupés',
+            ];
+            yield $label . ': another address suppressed' => [
+                $merge, 'other@test.be', 'Adresse désinscrite des emails groupés',
+            ];
+        }
+    }
+
     /**
      * **« Adresse invalide » pour une adresse parfaitement valide.**
      *

@@ -1260,24 +1260,27 @@ class MassMailService
     }
 
     /**
-     * **Empty has three causes, and they call for different things.** An
+     * **Empty has four causes, and they call for different things.** An
      * address merely suspended is well formed and worked until it stopped:
      * reporting it as « Adresse invalide » sends a chef d'unité hunting for
      * a typo that is not there, when what they need is the Rebonds page.
-     * One the person unsubscribed is their request, not a fault.
+     * One the person unsubscribed is their request, not a fault. An
+     * explicitly inactive address needs reactivation, not a spelling change.
      */
     private function reasonForNoAddress(int $memberId, ?string $deskEmail): string
     {
         if ($this->memberEmailService->everyAddressIsBlockedForMassMail($memberId, $deskEmail)) {
             return 'Adresse suspendue après des refus répétés';
         }
+        $hasInactiveAddress = false;
         foreach ($this->memberEmailService->listForMember($memberId, $deskEmail) as $row) {
             if ($this->suppressedAddressRepository->isSuppressed($row->email)) {
                 return 'Adresse désinscrite des emails groupés';
             }
+            $hasInactiveAddress = $hasInactiveAddress || $row->isInactive();
         }
 
-        return 'Adresse invalide';
+        return $hasInactiveAddress ? 'Adresse désactivée' : 'Adresse invalide';
     }
 
     /**
