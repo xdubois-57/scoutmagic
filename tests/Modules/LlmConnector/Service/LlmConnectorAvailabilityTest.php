@@ -12,7 +12,13 @@ use Modules\LlmConnector\Api\LlmTier;
 use Modules\LlmConnector\Repository\ProviderModelRepository;
 use Modules\LlmConnector\Repository\ProviderRepository;
 use Modules\LlmConnector\Service\LlmConnectorService;
+use Modules\LlmConnector\Service\LastFailureStore;
+use Modules\LlmConnector\Provider\ScalewayProvider;
+use Modules\LlmConnector\Provider\ModelProbeCache;
+use Modules\LlmConnector\Provider\ModelProbeStatus;
 use PHPUnit\Framework\TestCase;
+use PHPUnit\Framework\Attributes\DataProvider;
+use Tests\Modules\LlmConnector\StubHttpServer;
 
 /**
  * Availability semantics, without a database — the repositories are stubbed
@@ -21,6 +27,118 @@ use PHPUnit\Framework\TestCase;
  */
 class LlmConnectorAvailabilityTest extends TestCase
 {
+    public function testAnObservedBusinessCallRouteRefusalPreventsFurtherCalls(): void
+    {
+        $server = StubHttpServer::start([['status' => 422,
+            'body' => '{"error":{"type":"route_not_supported","message":"Unsupported endpoint"}}']]);
+        try {
+            $provider = [...$this->provider(), 'driver' => 'scaleway', 'api_endpoint' => $server->baseUrl()];
+            $models = $this->createMock(ProviderModelRepository::class);
+            $models->method('findByProviderAndTier')->willReturn([
+                'id' => 10, 'provider_id' => 1, 'model_id' => 'gemma-3-27b-it', 'display_name' => 'Gemma',
+            ]);
+            $stored = [];
+            $models->method('modelProbeCache')->willReturnCallback(static function () use (&$stored): array { return $stored; });
+            $models->expects($this->once())->method('storeModelProbeCache')->willReturnCallback(
+                static function (int $id, array $cache) use (&$stored): array { return $stored = $cache; }
+            );
+            $service = $this->service($this->providerRepoReturning($provider), $models);
+            $codes = [];
+            foreach ([LlmTier::CHEAP, LlmTier::CHEAP, LlmTier::CAPABLE, LlmTier::OCR] as $tier) {
+                try {
+                    $service->complete(new LlmRequest($tier, 'Private receipt'));
+                    $codes[] = 0;
+                } catch (LlmException $error) {
+                    $codes[] = $error->getCode();
+                }
+            }
+            self::assertSame([
+                [LlmException::API_ERROR, LlmException::NO_MODEL, LlmException::NO_MODEL, LlmException::NO_MODEL], false, 1,
+            ], [$codes, $service->isAvailable(), count($server->requests())]);
+        } finally {
+            $server->stop();
+        }
+    }
+
+    public function testAnImageRefusedBeforeTransmissionDoesNotRecordAProviderFailure(): void
+    {
+        $server = StubHttpServer::start([['body' => '{}']]);
+        try {
+            $provider = [...$this->provider(), 'driver' => 'scaleway', 'api_endpoint' => $server->baseUrl()];
+            $models = $this->createStub(ProviderModelRepository::class);
+            $models->method('findByProviderAndTier')->willReturn([
+                'id' => 10, 'provider_id' => 1, 'model_id' => 'mistral-small-24b-instruct-2501', 'display_name' => 'Text',
+            ]);
+            $failure = $this->createMock(LastFailureStore::class);
+            $failure->expects($this->never())->method('recordFailure');
+            $failure->expects($this->never())->method('clear');
+            $service = new LlmConnectorService($this->providerRepoReturning($provider), $models,
+                $this->createStub(JournalService::class), $failure);
+            $code = null;
+            try {
+                $service->complete(new LlmRequest(tier: LlmTier::CHEAP, prompt: 'Private receipt',
+                    attachments: [['data' => 'cGhvdG8=', 'mime_type' => 'image/jpeg']]));
+            } catch (LlmException $error) {
+                $code = $error->getCode();
+            }
+            self::assertSame([LlmException::NO_MODEL, []], [$code, $server->requests()]);
+        } finally {
+            $server->stop();
+        }
+    }
+
+    public static function legacyScalewayModels(): iterable
+    {
+        yield 'BGE assigned to every tier' => ['bge-multilingual-gemma2', false, false];
+        yield 'unknown assigned to every tier' => ['new-small-vision', false, false];
+        yield 'small text model assigned to OCR' => ['mistral-small-24b-instruct-2501', true, false];
+        yield 'proven multimodal model' => ['gemma-3-27b-it', true, true];
+        yield 'a probe can establish images despite older documentation' => ['mistral-small-24b-instruct-2501', true, true];
+    }
+
+    #[DataProvider('legacyScalewayModels')]
+    public function testLegacyAssignmentsAreCheckedForAvailabilityAndPhotoRequests(string $id, bool $chat, bool $vision): void
+    {
+        $server = StubHttpServer::start([['body' => '{"choices":[{"message":{"content":"Lu"},"finish_reason":"stop"}]}']]);
+        try {
+            $provider = [...$this->provider(), 'driver' => 'scaleway', 'api_endpoint' => $server->baseUrl()];
+            $models = $this->createStub(ProviderModelRepository::class);
+            $models->method('findByProviderAndTier')->willReturn([
+                'id' => 10, 'provider_id' => 1, 'model_id' => $id, 'display_name' => $id,
+            ]);
+            $cache = new ModelProbeCache([], ScalewayProvider::capabilityScope($server->baseUrl(), 'sk-test'));
+            if ($vision) {
+                $cache->record($id, ModelProbeStatus::VISION_VERIFIED);
+            }
+            $models->method('modelProbeCache')->willReturn($cache->toArray());
+            $service = $this->service($this->providerRepoReturning($provider), $models);
+            $availability = array_map($service->isTierAvailable(...), [LlmTier::CHEAP, LlmTier::CAPABLE, LlmTier::OCR]);
+            try {
+                $outcome = $service->complete(new LlmRequest(
+                    tier: LlmTier::OCR, prompt: 'Reçu privé',
+                    attachments: [['data' => 'cGhvdG8=', 'mime_type' => 'image/jpeg']]
+                ))->content;
+            } catch (LlmException $error) {
+                $outcome = $error->getCode();
+            }
+            $bodies = array_map(static fn (array $request): array => json_decode($request['body'], true), $server->requests());
+            self::assertSame([
+                $chat, [$chat, $chat, $vision], $vision ? 'Lu' : LlmException::NO_MODEL,
+                $vision ? [$id] : [],
+                $vision ? [[
+                    ['type' => 'image_url', 'image_url' => ['url' => 'data:image/jpeg;base64,cGhvdG8=']],
+                    ['type' => 'text', 'text' => 'Reçu privé'],
+                ]] : [],
+            ], [
+                $service->isAvailable(), $availability, $outcome,
+                array_column($bodies, 'model'),
+                array_map(static fn (array $body): array => $body['messages'][0]['content'], $bodies),
+            ]);
+        } finally {
+            $server->stop();
+        }
+    }
+
     /**
      * @return array{id: int, name: string, driver: string, api_endpoint: string, api_key: string}
      */
@@ -138,14 +256,14 @@ class LlmConnectorAvailabilityTest extends TestCase
         self::assertFalse($service->isTierAvailable(LlmTier::CAPABLE));
     }
 
-    public function testIsTierAvailableAppliesTheOcrToCheapFallback(): void
+    public function testAnUnassignedOcrTierDoesNotBorrowAnUnverifiedCheapModel(): void
     {
         $service = $this->service(
             $this->providerRepoReturning($this->provider()),
             $this->modelRepoWith(['cheap' => true])
         );
 
-        self::assertTrue($service->isTierAvailable(LlmTier::OCR));
+        self::assertFalse($service->isTierAvailable(LlmTier::OCR));
     }
 
     public function testIsTierAvailableIsFalseForOcrWhenNotEvenCheapExists(): void

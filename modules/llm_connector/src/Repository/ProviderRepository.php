@@ -64,6 +64,7 @@ class ProviderRepository
      *     driver: string,
      *     api_endpoint: string,
      *     api_key: string,
+     *     configuration_token: string,
      *     is_active: bool,
      *     created_at: string,
      *     updated_at: string
@@ -85,6 +86,7 @@ class ProviderRepository
             'driver' => (string) $row['driver'],
             'api_endpoint' => (string) $row['api_endpoint'],
             'api_key' => $this->encryption->decrypt($row['api_key'], 'llm_providers.api_key'),
+            'configuration_token' => ProviderModelRepository::configurationToken($row),
             'is_active' => (bool) $row['is_active'],
             'created_at' => (string) $row['created_at'],
             'updated_at' => (string) $row['updated_at'],
@@ -118,7 +120,10 @@ class ProviderRepository
     /**
      * @return array<
      *     int,
-     *     array{id: int, name: string, driver: string, api_endpoint: string, api_key: string, is_active: bool}
+     *     array{
+     *         id: int, name: string, driver: string, api_endpoint: string, api_key: string,
+     *         is_active: bool, configuration_token: string
+     *     }
      * >
      */
     public function findAllActive(): array
@@ -133,6 +138,7 @@ class ProviderRepository
                 'driver' => (string) $row['driver'],
                 'api_endpoint' => (string) $row['api_endpoint'],
                 'api_key' => $this->encryption->decrypt($row['api_key'], 'llm_providers.api_key'),
+                'configuration_token' => ProviderModelRepository::configurationToken($row),
                 'is_active' => true,
             ];
         }
