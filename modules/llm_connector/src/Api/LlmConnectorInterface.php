@@ -32,7 +32,8 @@ interface LlmConnectorInterface
      * isAvailable() only answers "is anything configured at all", so a caller
      * that always asks for one particular tier (RGPD generation is the only
      * consumer of CAPABLE) could pass that check and still have complete()
-     * throw NO_MODEL. Applies the same OCR → CHEAP fallback complete() does.
+     * throw NO_MODEL. OCR requires an image-capable model and never falls
+     * back to a text-only CHEAP assignment.
      * Never throws, for the same reason as isAvailable().
      */
     public function isTierAvailable(LlmTier $tier): bool;

@@ -53,16 +53,15 @@ faut ajuster la visibilité du compte, ou vous attribuer le badge.
 
 ## Catégoriser les mouvements
 
-La page Mouvements liste les opérations bancaires, chacune décrite en
-clair à partir de ce qui est connu : la créance qu'elle règle, le
-reçu, la contrepartie, la communication, votre commentaire, la catégorie. Une ligne surlignée
-est « À catégoriser » : touchez-la, choisissez la catégorie, ajoutez
-au besoin un commentaire, puis « Enregistrer ». Le badge « Auto »
-signale une catégorie attribuée automatiquement par une règle — la
-changer à la main la rend définitive. Les détails d'un paiement
-listent les créances qu'il règle, avec un lien vers chacune. Le
-trombone associe un justificatif, et « Exporter en XLSX » télécharge
-la liste filtrée.
+La page **Mouvements** liste les opérations bancaires. La mention
+**« À catégoriser »** signale une catégorie manquante. Sur mobile, touchez
+une carte ; sur ordinateur, activez son libellé au clavier ou à la souris.
+Choisissez la catégorie, ajoutez un commentaire, puis « Enregistrer ».
+
+Le badge « Auto » signale une catégorie attribuée par une règle. La
+changer à la main la rend définitive. Les détails listent les créances
+réglées et leurs liens. Le trombone associe un justificatif ; « Exporter
+en XLSX » télécharge la liste filtrée.
 
 Le gros du travail peut se faire tout seul : des règles de
 catégorisation (mots-clés, contrepartie, montant) s'appliquent à

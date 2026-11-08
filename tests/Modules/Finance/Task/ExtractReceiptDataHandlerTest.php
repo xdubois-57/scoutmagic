@@ -18,10 +18,15 @@ use Core\Security\UserAccountRepository;
 use Modules\Finance\Repository\AttachmentRepository;
 use Modules\Finance\Repository\TransactionRepository;
 use Modules\Finance\Task\ExtractReceiptDataHandler;
+use Modules\LlmConnector\Api\LlmConnectorInterface;
+use Modules\LlmConnector\Api\LlmException;
+use Modules\LlmConnector\Api\LlmRequest;
+use Modules\LlmConnector\Api\LlmResponse;
 use Modules\LlmConnector\Api\LlmTier;
 use Modules\LlmConnector\Repository\ProviderModelRepository;
 use Modules\LlmConnector\Repository\ProviderRepository;
 use PHPUnit\Framework\TestCase;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Finance\FinanceTestHelper;
 
@@ -72,7 +77,10 @@ class ExtractReceiptDataHandlerTest extends TestCase
         rmdir($dir);
     }
 
-    private function createTaskContext(bool $withLlmConnector = true): TaskContext
+    private function createTaskContext(
+        bool $withLlmConnector = true,
+        ?LlmConnectorInterface $connector = null
+    ): TaskContext
     {
         // The connector arrives as a capability (IT-04): the ordinary
         // test context carries it, backed by the real service over this
@@ -86,7 +94,7 @@ class ExtractReceiptDataHandlerTest extends TestCase
             $capabilities->register(
                 \Modules\LlmConnector\Api\LlmConnectorInterface::class,
                 'llm_connector',
-                fn (): object => new \Modules\LlmConnector\Service\LlmConnectorService(
+                fn (): object => $connector ?? new \Modules\LlmConnector\Service\LlmConnectorService(
                     new \Modules\LlmConnector\Repository\ProviderRepository($this->pdo, $this->encryption),
                     new \Modules\LlmConnector\Repository\ProviderModelRepository($this->pdo),
                     new JournalService(new JournalRepository($this->pdo))
@@ -126,8 +134,8 @@ class ExtractReceiptDataHandlerTest extends TestCase
     }
 
     /**
-     * A generic (non-PDF) attachment — the image path is unconditional
-     * (no text-extraction/rasterization branching), so these tests
+     * A generic image attachment — no PDF text-extraction/rasterization
+     * branching, so these tests
      * exercise the handler's provider/journal plumbing in isolation from
      * the PDF-specific logic, which has its own dedicated tests below.
      */
@@ -204,7 +212,7 @@ class ExtractReceiptDataHandlerTest extends TestCase
         $providerId = $this->providerRepository->create('Unreachable', 'anthropic', 'http://127.0.0.1:19', 'sk-test', true);
         $this->modelRepository->upsert($providerId, 'test-model', 'Test Model');
         $models = $this->modelRepository->findByProvider($providerId);
-        $this->modelRepository->assignTier((int) $models[0]['id'], LlmTier::CHEAP);
+        $this->modelRepository->assignTier((int) $models[0]['id'], LlmTier::OCR);
 
         $handler = new ExtractReceiptDataHandler();
         $handler->handle(['attachment_id' => $attachmentId], $this->createTaskContext());
@@ -235,6 +243,82 @@ class ExtractReceiptDataHandlerTest extends TestCase
         $this->assertNotFalse($row);
         $context = json_decode((string) $row['context'], true);
         $this->assertSame('ocr', $context['tier']);
+    }
+
+    public static function imageReceipts(): iterable
+    {
+        yield 'photograph' => [false];
+        yield 'scanned PDF' => [true];
+    }
+
+    #[DataProvider('imageReceipts')]
+    public function testTextOnlyProviderSkipsImageWorkWithoutAnExtractionFailure(bool $pdf): void
+    {
+        $id = $pdf ? $this->createPdfAttachment('no embedded text') : $this->createAttachment();
+        $requests = [];
+        $llm = $this->createStub(LlmConnectorInterface::class);
+        $llm->method('isAvailable')->willReturn(true);
+        $llm->method('isTierAvailable')->willReturnCallback(
+            static fn (LlmTier $tier): bool => $tier === LlmTier::CHEAP
+        );
+        $llm->method('complete')->willReturnCallback(
+            static function (LlmRequest $request) use (&$requests): LlmResponse {
+                $requests[] = $request->tier->value;
+                throw LlmException::noModel(LlmTier::OCR);
+            }
+        );
+        $rasterizer = new class extends \Core\File\PdfRasterizer {
+            public int $calls = 0;
+            public function firstPageToJpeg(string $pdfContent): ?string
+            {
+                $this->calls++;
+                return 'jpeg-bytes';
+            }
+        };
+        (new ExtractReceiptDataHandler($rasterizer))->handle(
+            ['attachment_id' => $id],
+            $this->createTaskContext(connector: $llm)
+        );
+        $failures = $this->pdo->query(
+            "SELECT description FROM event_log WHERE event_type = 'receipt_extraction_failed'"
+        )->fetchAll(\PDO::FETCH_COLUMN);
+
+        self::assertSame([0, [], []], [$rasterizer->calls, $requests, $failures]);
+    }
+
+    public static function textTierAvailability(): iterable
+    {
+        yield 'text available, OCR absent' => [true];
+        yield 'OCR available, text absent' => [false];
+    }
+
+    #[DataProvider('textTierAvailability')]
+    public function testPdfTextUsesOnlyAnAvailableTextTier(bool $cheapAvailable): void
+    {
+        $id = $this->createPdfAttachment($this->fixture('text_receipt.pdf'));
+        $requests = [];
+        $llm = $this->createStub(LlmConnectorInterface::class);
+        $llm->method('isAvailable')->willReturn(true);
+        $llm->method('isTierAvailable')->willReturnCallback(
+            static fn (LlmTier $tier): bool => $cheapAvailable ? $tier === LlmTier::CHEAP : $tier === LlmTier::OCR
+        );
+        $llm->method('complete')->willReturnCallback(
+            static function (LlmRequest $request) use (&$requests, $cheapAvailable): LlmResponse {
+                $requests[] = $request->tier->value;
+                if (!$cheapAvailable) {
+                    throw LlmException::noModel(LlmTier::CHEAP);
+                }
+                return new LlmResponse('', ['amount' => 12.5], 0, 0);
+            }
+        );
+        (new ExtractReceiptDataHandler())->handle(['attachment_id' => $id], $this->createTaskContext(connector: $llm));
+        $failures = $this->pdo->query(
+            "SELECT description FROM event_log WHERE event_type = 'receipt_extraction_failed'"
+        )->fetchAll(\PDO::FETCH_COLUMN);
+
+        self::assertSame([$cheapAvailable ? ['cheap'] : [], $cheapAvailable ? 12.5 : null, []], [
+            $requests, $this->attachmentRepository->findById($id)->suggestedAmount, $failures,
+        ]);
     }
 
     public function testPdfWithATextLayerRequestsCheapTierNotOcr(): void
@@ -295,7 +379,7 @@ class ExtractReceiptDataHandlerTest extends TestCase
         $providerId = $this->providerRepository->create('Unreachable', 'anthropic', 'http://127.0.0.1:19', 'sk-test', true);
         $this->modelRepository->upsert($providerId, 'test-model', 'Test Model');
         $models = $this->modelRepository->findByProvider($providerId);
-        $this->modelRepository->assignTier((int) $models[0]['id'], LlmTier::CHEAP);
+        $this->modelRepository->assignTier((int) $models[0]['id'], LlmTier::OCR);
 
         $handler = new ExtractReceiptDataHandler();
         $handler->handle(['attachment_id' => $attachmentId], $this->createTaskContext());
@@ -318,7 +402,8 @@ class ExtractReceiptDataHandlerTest extends TestCase
      * must not silently depend on extraction having actually produced
      * something usable.
      */
-    public function testUnreadablePdfStillAttemptsMatchingWhenAFutureCandidateExists(): void
+    #[DataProvider('imageReceipts')]
+    public function testImageReceiptStillAttemptsMatchingWhenAFutureCandidateExists(bool $pdf): void
     {
         $accountRepository = new \Modules\Finance\Repository\AccountRepository($this->pdo, $this->encryption);
         $accountId = $accountRepository->create('Compte', 'bank', null, null, null, 'intendant');
@@ -337,8 +422,16 @@ class ExtractReceiptDataHandlerTest extends TestCase
             $accountId, $fiscalYearId, 'r1', $future->format('Y-m-d'), 'Achat', -10.0, null, null, 'manual', null
         );
 
-        $fileId = $this->fileStorage->store('%PDF not actually a valid pdf', 'application/pdf', 'facture.pdf', 'finance/receipts', 'intendant');
-        $attachmentId = $this->attachmentRepository->create($accountId, $fileId, 'application/pdf', 'facture.pdf', null, null, null, 1);
+        $mime = $pdf ? 'application/pdf' : 'image/jpeg';
+        $filename = $pdf ? 'facture.pdf' : 'facture.jpg';
+        $fileId = $this->fileStorage->store(
+            '%PDF not actually a valid pdf',
+            $mime,
+            $filename,
+            'finance/receipts',
+            'intendant'
+        );
+        $attachmentId = $this->attachmentRepository->create($accountId, $fileId, $mime, $filename, null, null, null, 1);
 
         $providerId = $this->providerRepository->create('Unreachable', 'anthropic', 'http://127.0.0.1:19', 'sk-test', true);
         $this->modelRepository->upsert($providerId, 'test-model', 'Test Model');

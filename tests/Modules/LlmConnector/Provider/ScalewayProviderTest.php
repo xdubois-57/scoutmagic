@@ -7,6 +7,8 @@ namespace Tests\Modules\LlmConnector\Provider;
 use Modules\LlmConnector\Api\LlmException;
 use Modules\LlmConnector\Provider\ScalewayProvider;
 use PHPUnit\Framework\TestCase;
+use PHPUnit\Framework\Attributes\DataProvider;
+use Tests\Modules\LlmConnector\StubHttpServer;
 
 /**
  * Unit tests for ScalewayProvider.
@@ -18,7 +20,27 @@ class ScalewayProviderTest extends TestCase
     protected function setUp(): void
     {
         // Use localhost on a closed port — connection refused is immediate
-        $this->provider = new ScalewayProvider('http://127.0.0.1:19', 'sk-test-key');
+        $this->provider = new ScalewayProvider('http://127.0.0.1:19', 'sk-test-key', ['pixtral-12b-2409']);
+    }
+
+    public function testTheChatCatalogExcludesTheObservedBgeEmbeddingModel(): void
+    {
+        $server = StubHttpServer::start([[
+            'status' => 200,
+            'body' => json_encode(['data' => [
+                ['id' => 'bge-multilingual-gemma2', 'object' => 'model', 'owned_by' => 'baai'],
+                ['id' => 'mistral-small-3.2-24b-instruct-2506', 'object' => 'model', 'owned_by' => 'mistral'],
+            ]]),
+        ]]);
+        try {
+            $provider = new ScalewayProvider($server->baseUrl(), 'test-key');
+
+            $models = $provider->listModels();
+
+            self::assertSame(['mistral-small-3.2-24b-instruct-2506'], $models->chatModelIds());
+        } finally {
+            $server->stop();
+        }
     }
 
     public function testListModelsThrowsOnNetworkFailure(): void
@@ -27,6 +49,32 @@ class ScalewayProviderTest extends TestCase
         $this->expectExceptionCode(LlmException::TIMEOUT);
 
         $this->provider->listModels();
+    }
+
+    public static function incompatibleCalls(): iterable
+    {
+        yield 'legacy embeddings' => ['bge-multilingual-gemma2', []];
+        yield 'unknown id' => ['new-small-vision', []];
+        yield 'text-only model with a photo' => ['mistral-small-24b-instruct-2501', [
+            'attachments' => [['data' => 'cGhvdG8=', 'mime_type' => 'image/jpeg']],
+        ]];
+    }
+
+    #[DataProvider('incompatibleCalls')]
+    public function testIncompatibleModelsAreRefusedBeforeSendingAnything(string $id, array $options): void
+    {
+        $server = StubHttpServer::start([['body' => '{}']]);
+        try {
+            $code = null;
+            try {
+                (new ScalewayProvider($server->baseUrl(), 'test-key'))->complete($id, 'Private receipt', $options);
+            } catch (LlmException $error) {
+                $code = $error->getCode();
+            }
+            self::assertSame([LlmException::NO_MODEL, []], [$code, $server->requests()]);
+        } finally {
+            $server->stop();
+        }
     }
 
     public function testCompleteThrowsOnNetworkFailure(): void

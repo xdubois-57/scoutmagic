@@ -6,209 +6,183 @@ namespace Tests\Modules\LlmConnector\Service;
 
 use Core\Journal\JournalService;
 use Modules\LlmConnector\Provider\LlmProviderInterface;
+use Modules\LlmConnector\Provider\ProviderModelCatalog;
 use Modules\LlmConnector\Provider\ProviderResponse;
 use Modules\LlmConnector\Service\OcrModelSelector;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 class OcrModelSelectorTest extends TestCase
 {
-    public function testSelectsAllThreeTiersInOneQuery(): void
+    private function catalog(): ProviderModelCatalog
+    {
+        return new ProviderModelCatalog([
+            ['id' => 'bge-multilingual-gemma2', 'display_name' => 'BGE', 'chat' => false, 'vision' => false],
+            ['id' => 'cheap-model', 'display_name' => 'Text', 'chat' => true, 'vision' => false],
+            ['id' => 'capable-model', 'display_name' => 'Better text', 'chat' => true, 'vision' => false],
+            ['id' => 'vision-model', 'display_name' => 'Images', 'chat' => true, 'vision' => true],
+            ['id' => 'huge-opus-model', 'display_name' => 'Expensive', 'chat' => true, 'vision' => true],
+            ['id' => 'mistral-ocr-3', 'display_name' => 'Document endpoint', 'chat' => false, 'vision' => true],
+            ['id' => 'unknown-vision-mini', 'display_name' => 'Unverified'],
+        ]);
+    }
+
+    private function journalFor(string $status): JournalService
+    {
+        $journal = $this->createMock(JournalService::class);
+        $journal->expects($this->once())->method('log')->with(
+            'llm_connector', 'tier_models_selected', 'info', $this->isString(),
+            $this->callback(static fn (array $context): bool => $context['tier_selection_status'] === $status),
+            null
+        );
+        return $journal;
+    }
+
+    public function testSelectsAllTiersThroughAChatModelAndOnlyOffersVerifiedCandidates(): void
     {
         $provider = $this->createMock(LlmProviderInterface::class);
-        $provider->expects($this->once())
-            ->method('complete')
-            ->with(
-                'cheap-model',
-                $this->callback(static fn (string $prompt): bool => str_contains($prompt, 'cheap_model_id')
-                    && str_contains($prompt, 'capable_model_id')
-                    && str_contains($prompt, 'ocr_model_id')
-                    && str_contains($prompt, 'cheap-model')
-                    && str_contains($prompt, 'capable-model'))
-            )
-            ->willReturn(new ProviderResponse('{"cheap_model_id":"cheap-model","capable_model_id":"capable-model","ocr_model_id":"vision-model"}', 1, 1));
+        $provider->expects($this->once())->method('complete')->with(
+            'cheap-model',
+            $this->callback(static function (string $prompt): bool {
+                return str_contains($prompt, 'Chat-capable models: ["cheap-model","capable-model","vision-model","huge-opus-model"]')
+                    && str_contains($prompt, 'Image-capable chat models: ["vision-model","huge-opus-model"]')
+                    && !str_contains($prompt, 'bge-multilingual-gemma2')
+                    && !str_contains($prompt, 'unknown-vision-mini')
+                    && !str_contains($prompt, 'mistral-ocr-3');
+            })
+        )->willReturn(new ProviderResponse(
+            '{"cheap_model_id":"cheap-model","capable_model_id":"capable-model","ocr_model_id":"vision-model"}', 1, 1
+        ));
 
-        $journal = $this->createMock(JournalService::class);
-        $journal->expects($this->once())
-            ->method('log')
-            ->with(
-                'llm_connector',
-                'tier_models_selected',
-                'info',
-                "Tiers selected via LLM: cheap='cheap-model', capable='capable-model', ocr='vision-model'.",
-                $this->callback(static fn (array $ctx): bool => $ctx['tier_selection_status'] === 'success'
-                    && $ctx['selected_tiers']['cheap'] === 'cheap-model')
-            );
-
-        $tiers = (new OcrModelSelector($journal))->selectTiers(
-            $provider,
-            ['cheap-model', 'capable-model', 'vision-model']
+        self::assertSame(
+            ['cheap' => 'cheap-model', 'capable' => 'capable-model', 'ocr' => 'vision-model'],
+            (new OcrModelSelector($this->journalFor('success')))->selectTiers($provider, $this->catalog())
         );
-
-        $this->assertSame('cheap-model', $tiers['cheap']);
-        $this->assertSame('capable-model', $tiers['capable']);
-        $this->assertSame('vision-model', $tiers['ocr']);
     }
 
     public function testExtractsTiersFromMarkdownJsonBlock(): void
     {
         $provider = $this->createStub(LlmProviderInterface::class);
-        $provider->method('complete')
-            ->willReturn(new ProviderResponse("```json\n{\"cheap_model_id\":\"cheap-model\",\"capable_model_id\":\"capable-model\",\"ocr_model_id\":\"vision-model\"}\n```", 1, 1));
-
-        $journal = $this->createMock(JournalService::class);
-        $journal->expects($this->once())
-            ->method('log')
-            ->with(
-                'llm_connector',
-                'tier_models_selected',
-                'info',
-                "Tiers selected via LLM: cheap='cheap-model', capable='capable-model', ocr='vision-model'.",
-                $this->callback(static fn (array $ctx): bool => $ctx['tier_selection_status'] === 'success')
-            );
-
-        $tiers = (new OcrModelSelector($journal))->selectTiers(
-            $provider,
-            ['cheap-model', 'capable-model', 'vision-model']
+        $provider->method('complete')->willReturn(new ProviderResponse(
+            "```json\n{\"cheap_model_id\":\"cheap-model\",\"capable_model_id\":\"capable-model\",\"ocr_model_id\":\"vision-model\"}\n```", 1, 1
+        ));
+        self::assertSame(
+            ['cheap' => 'cheap-model', 'capable' => 'capable-model', 'ocr' => 'vision-model'],
+            (new OcrModelSelector($this->journalFor('success')))->selectTiers($provider, $this->catalog())
         );
-
-        $this->assertSame('cheap-model', $tiers['cheap']);
-        $this->assertSame('capable-model', $tiers['capable']);
-        $this->assertSame('vision-model', $tiers['ocr']);
     }
 
-    public function testRejectsUnknownModelAndFallsBackToRuleBased(): void
+    public static function invalidSelections(): iterable
+    {
+        $valid = ['cheap_model_id' => 'cheap-model', 'capable_model_id' => 'capable-model', 'ocr_model_id' => 'vision-model'];
+        foreach (array_keys($valid) as $key) {
+            yield "BGE on {$key}" => [json_encode([...$valid, $key => 'bge-multilingual-gemma2']), 'unknown_model'];
+        }
+        yield 'unknown capable' => [json_encode([...$valid, 'capable_model_id' => 'unknown-model']), 'unknown_model'];
+        yield 'unknown vision' => [json_encode([...$valid, 'ocr_model_id' => 'unknown-vision-mini']), 'unknown_model'];
+        yield 'document OCR endpoint' => [json_encode([...$valid, 'ocr_model_id' => 'mistral-ocr-3']), 'unknown_model'];
+        yield 'text only OCR' => [json_encode([...$valid, 'ocr_model_id' => 'cheap-model']), 'ocr_endpoint_incompatible'];
+        yield 'missing OCR' => ['{"cheap_model_id":"cheap-model","capable_model_id":"capable-model"}', 'missing_field'];
+        yield 'malformed id' => [json_encode([...$valid, 'cheap_model_id' => ['cheap-model']]), 'missing_field'];
+        yield 'expensive cheap' => [json_encode([...$valid, 'cheap_model_id' => 'huge-opus-model']), 'cheap_too_expensive'];
+        yield 'expensive capable' => [json_encode([...$valid, 'capable_model_id' => 'huge-opus-model']), 'capable_too_expensive'];
+        yield 'expensive OCR' => [json_encode([...$valid, 'ocr_model_id' => 'huge-opus-model']), 'ocr_too_expensive'];
+        yield 'no JSON' => ['No selection', 'invalid_response'];
+        yield 'invalid JSON' => ['{bad}', 'invalid_response'];
+    }
+
+    #[DataProvider('invalidSelections')]
+    public function testRejectsInvalidSelectionsWithoutReintroducingExcludedModels(string $answer, string $status): void
+    {
+        $provider = $this->createMock(LlmProviderInterface::class);
+        $provider->expects($this->once())->method('complete')->with('cheap-model', $this->isString())
+            ->willReturn(new ProviderResponse($answer, 1, 1));
+        self::assertSame(
+            ['cheap' => 'cheap-model', 'capable' => 'capable-model', 'ocr' => 'vision-model'],
+            (new OcrModelSelector($this->journalFor($status)))->selectTiers($provider, $this->catalog())
+        );
+    }
+
+    public function testAClassificationFailureUsesOnlyVerifiedFallbacksAndDoesNotLogTheErrorPayload(): void
+    {
+        $provider = $this->createMock(LlmProviderInterface::class);
+        $provider->expects($this->once())->method('complete')->with('cheap-model', $this->isString())
+            ->willThrowException(new \RuntimeException('Sensitive echoed receipt content', 422));
+        $journal = $this->createMock(JournalService::class);
+        $journal->expects($this->once())->method('log')->with(
+            'llm_connector', 'tier_models_selected', 'info',
+            'Le classement des modèles IA a échoué ; les choix compatibles de secours sont utilisés.',
+            [
+                'query_model_id' => 'cheap-model',
+                'tier_selection_status' => 'llm_error',
+                'selected_tiers' => ['cheap' => 'cheap-model', 'capable' => 'capable-model', 'ocr' => 'vision-model'],
+                'error_type' => \RuntimeException::class,
+                'error_code' => 422,
+            ], null
+        );
+        self::assertSame(
+            ['cheap' => 'cheap-model', 'capable' => 'capable-model', 'ocr' => 'vision-model'],
+            (new OcrModelSelector($journal))->selectTiers($provider, $this->catalog())
+        );
+    }
+
+    public function testAnUntrustedResponseIsNeverIncludedInTheJournal(): void
     {
         $provider = $this->createStub(LlmProviderInterface::class);
-        $provider->method('complete')
-            ->willReturn(new ProviderResponse('{"cheap_model_id":"cheap-model","capable_model_id":"unknown-model","ocr_model_id":"vision-model"}', 1, 1));
-
+        $provider->method('complete')->willReturn(new ProviderResponse(
+            '{"cheap_model_id":"Sensitive echoed receipt content","capable_model_id":"capable-model","ocr_model_id":null}', 1, 1
+        ));
         $journal = $this->createMock(JournalService::class);
-        $journal->expects($this->once())
-            ->method('log')
-            ->with(
-                'llm_connector',
-                'tier_models_selected',
-                'info',
-                "Selected model 'unknown-model' for 'capable_model_id' is not in the available list.",
-                $this->callback(static fn (array $ctx): bool => $ctx['tier_selection_status'] === 'unknown_model')
-            );
-
-        $tiers = (new OcrModelSelector($journal))->selectTiers(
-            $provider,
-            ['cheap-model', 'capable-model', 'vision-model']
+        $journal->expects($this->once())->method('log')->with(
+            'llm_connector', 'tier_models_selected', 'info',
+            'Le classement IA désigne un modèle sans compatibilité de conversation établie.',
+            [
+                'query_model_id' => 'cheap-model',
+                'tier_selection_status' => 'unknown_model',
+                'selected_tiers' => ['cheap' => 'cheap-model', 'capable' => 'capable-model', 'ocr' => 'vision-model'],
+            ], null
         );
-
-        $this->assertSame('cheap-model', $tiers['cheap']);
-        $this->assertSame('capable-model', $tiers['capable']);
-        // Fallback's ocr tier reuses the cheap pick, not the LLM's
-        // (discarded) ocr_model_id suggestion.
-        $this->assertSame('cheap-model', $tiers['ocr']);
+        (new OcrModelSelector($journal))->selectTiers($provider, $this->catalog());
     }
 
-    public function testRejectsTooExpensiveCheapModelAndFallsBack(): void
+    public static function unavailableCatalogs(): iterable
     {
-        $provider = $this->createStub(LlmProviderInterface::class);
-        $provider->method('complete')
-            ->willReturn(new ProviderResponse('{"cheap_model_id":"huge-opus-model","capable_model_id":"capable-model","ocr_model_id":"vision-model"}', 1, 1));
-
-        $journal = $this->createMock(JournalService::class);
-        $journal->expects($this->once())
-            ->method('log')
-            ->with(
-                'llm_connector',
-                'tier_models_selected',
-                'info',
-                "Selected cheap model 'huge-opus-model' is not a low-cost model.",
-                $this->callback(static fn (array $ctx): bool => $ctx['tier_selection_status'] === 'cheap_too_expensive')
-            );
-
-        $tiers = (new OcrModelSelector($journal))->selectTiers(
-            $provider,
-            ['cheap-model', 'huge-opus-model', 'capable-model', 'vision-model']
-        );
-
-        $this->assertSame('cheap-model', $tiers['cheap']);
-        $this->assertSame('capable-model', $tiers['capable']);
-        $this->assertSame('cheap-model', $tiers['ocr']);
+        yield 'empty' => [[]];
+        yield 'non chat' => [[['id' => 'bge-multilingual-gemma2', 'display_name' => 'BGE', 'chat' => false, 'vision' => false]]];
+        yield 'unknown' => [[['id' => 'new-small-vision', 'display_name' => 'New model']]];
     }
 
-    public function testFallsBackWhenLlmCallFails(): void
-    {
-        $provider = $this->createStub(LlmProviderInterface::class);
-        $provider->method('complete')->willThrowException(new \RuntimeException('Network error'));
-
-        $journal = $this->createMock(JournalService::class);
-        $journal->expects($this->once())
-            ->method('log')
-            ->with(
-                'llm_connector',
-                'tier_models_selected',
-                'info',
-                'Tier selection request failed: Network error',
-                $this->callback(static fn (array $ctx): bool => $ctx['tier_selection_status'] === 'llm_error')
-            );
-
-        $tiers = (new OcrModelSelector($journal))->selectTiers(
-            $provider,
-            ['cheap-model', 'capable-model', 'vision-model']
-        );
-
-        $this->assertSame('cheap-model', $tiers['cheap']);
-        $this->assertSame('capable-model', $tiers['capable']);
-        $this->assertSame('cheap-model', $tiers['ocr']);
-    }
-
-    public function testRejectsLlmSelectedOcrNamedModelAndFallsBackToCheapPick(): void
-    {
-        // "mistral-ocr-3" is exactly the anti-pattern: a standalone
-        // document-OCR API model, not a chat/vision model reachable via
-        // chat completions. The selector must reject it regardless of
-        // what the selector LLM reasoned.
-        $provider = $this->createStub(LlmProviderInterface::class);
-        $provider->method('complete')
-            ->willReturn(new ProviderResponse('{"cheap_model_id":"cheap-model","capable_model_id":"capable-model","ocr_model_id":"mistral-ocr-3"}', 1, 1));
-
-        $journal = $this->createMock(JournalService::class);
-        $journal->expects($this->once())
-            ->method('log')
-            ->with(
-                'llm_connector',
-                'tier_models_selected',
-                'info',
-                "Selected OCR model 'mistral-ocr-3' looks like a standalone document-OCR API model, not a chat/vision model.",
-                $this->callback(static fn (array $ctx): bool => $ctx['tier_selection_status'] === 'ocr_endpoint_incompatible')
-            );
-
-        $tiers = (new OcrModelSelector($journal))->selectTiers(
-            $provider,
-            ['cheap-model', 'capable-model', 'mistral-ocr-3']
-        );
-
-        $this->assertSame('cheap-model', $tiers['cheap']);
-        $this->assertSame('capable-model', $tiers['capable']);
-        $this->assertSame('cheap-model', $tiers['ocr']);
-    }
-
-    public function testUsesFallbackForEmptyModelList(): void
+    #[DataProvider('unavailableCatalogs')]
+    public function testNoCompatibleModelsMeansNoClassifierCallAndNoTiers(array $rows): void
     {
         $provider = $this->createMock(LlmProviderInterface::class);
         $provider->expects($this->never())->method('complete');
+        self::assertSame(
+            ['cheap' => null, 'capable' => null, 'ocr' => null],
+            (new OcrModelSelector($this->journalFor('no_models')))->selectTiers($provider, new ProviderModelCatalog($rows))
+        );
+    }
 
-        $journal = $this->createMock(JournalService::class);
-        $journal->expects($this->once())
-            ->method('log')
-            ->with(
-                'llm_connector',
-                'tier_models_selected',
-                'info',
-                'No models available for tier selection.',
-                $this->callback(static fn (array $ctx): bool => $ctx['tier_selection_status'] === 'no_models')
-            );
+    public static function imageCapabilities(): iterable
+    {
+        yield 'text only' => [false, null];
+        yield 'unknown images' => [null, null];
+        yield 'verified images without a vision name' => [true, 'small-model'];
+    }
 
-        $tiers = (new OcrModelSelector($journal))->selectTiers($provider, []);
-
-        $this->assertNull($tiers['cheap']);
-        $this->assertNull($tiers['capable']);
-        $this->assertNull($tiers['ocr']);
+    #[DataProvider('imageCapabilities')]
+    public function testAnOmittedImageChoiceFallsBackOnlyToEstablishedImageSupport(?bool $vision, ?string $expectedOcr): void
+    {
+        $provider = $this->createStub(LlmProviderInterface::class);
+        $provider->method('complete')->willReturn(new ProviderResponse(
+            '{"cheap_model_id":"small-model","capable_model_id":"small-model","ocr_model_id":null}', 1, 1
+        ));
+        $catalog = new ProviderModelCatalog([
+            ['id' => 'small-model', 'display_name' => 'Small', 'chat' => true, 'vision' => $vision],
+        ]);
+        self::assertSame(
+            ['cheap' => 'small-model', 'capable' => 'small-model', 'ocr' => $expectedOcr],
+            (new OcrModelSelector())->selectTiers($provider, $catalog)
+        );
     }
 }
