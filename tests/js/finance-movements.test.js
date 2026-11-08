@@ -175,6 +175,26 @@ describe('finance-movements.js: boot guard', () => {
 });
 
 describe('finance-movements.js: opening the details dialog', () => {
+    it.each(['click', 'Enter', ' '])('opens from the desktop details control using %s', async (action) => {
+        await boot();
+        const trigger = document.createElement('button');
+        trigger.type = 'button';
+        trigger.setAttribute('data-movement-details', '');
+        trigger.textContent = 'Détails du mouvement';
+        desktopRow().querySelector('td').append(trigger);
+
+        if (action === 'click') {
+            trigger.click();
+        } else {
+            const key = new KeyboardEvent('keydown', { key: action, bubbles: true, cancelable: true });
+            trigger.dispatchEvent(key);
+            expect(key.defaultPrevented).toBe(true);
+        }
+
+        expect(detail('md-date').textContent).toBe('2026-08-02');
+        expect(document.getElementById('movement-details-modal').classList.contains('show')).toBe(true);
+    });
+
     it('opens from a desktop <tr class="movement-row">', async () => {
         await boot();
 

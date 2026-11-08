@@ -19,6 +19,8 @@ use Modules\LlmConnector\Provider\AnthropicProvider;
 use Modules\LlmConnector\Provider\LlmProviderInterface;
 use Modules\LlmConnector\Provider\MistralProvider;
 use Modules\LlmConnector\Provider\ScalewayProvider;
+use Modules\LlmConnector\Provider\ModelProbeCache;
+use Modules\LlmConnector\Provider\ModelProbeStatus;
 use Modules\LlmConnector\Repository\ProviderModelRepository;
 use Modules\LlmConnector\Repository\ProviderRepository;
 
@@ -59,7 +61,7 @@ class LlmConnectorService implements LlmConnectorInterface
         }
 
         foreach (LlmTier::cases() as $tier) {
-            if ($this->modelRepo->findByProviderAndTier($provider['id'], $tier) !== null) {
+            if ($this->resolveModel($provider, $tier) !== null) {
                 return true;
             }
         }
@@ -74,7 +76,7 @@ class LlmConnectorService implements LlmConnectorInterface
             return false;
         }
 
-        return $this->resolveModel($provider['id'], $tier) !== null;
+        return $this->resolveModel($provider, $tier) !== null;
     }
 
     public function complete(LlmRequest $request): LlmResponse
@@ -84,7 +86,7 @@ class LlmConnectorService implements LlmConnectorInterface
             throw $this->journalRefusal(LlmException::noProvider(), $request->tier, null, null);
         }
 
-        $model = $this->resolveModel($provider['id'], $request->tier);
+        $model = $this->resolveModel($provider, $request->tier);
         if ($model === null) {
             throw $this->journalRefusal(
                 LlmException::noModel($request->tier),
@@ -94,7 +96,12 @@ class LlmConnectorService implements LlmConnectorInterface
             );
         }
 
-        $driverInstance = $this->createDriver($provider['driver'], $provider['api_endpoint'], $provider['api_key']);
+        $driverInstance = $this->createDriver(
+            $provider['driver'],
+            $provider['api_endpoint'],
+            $provider['api_key'],
+            ($model['supports_images'] ?? false) ? [$model['model_id']] : []
+        );
 
         $options = [
             'system_prompt' => $request->systemPrompt,
@@ -110,6 +117,9 @@ class LlmConnectorService implements LlmConnectorInterface
         try {
             $providerResponse = $driverInstance->complete($model['model_id'], $request->prompt, $options);
         } catch (LlmException $e) {
+            if ($driverInstance instanceof ScalewayProvider && ScalewayProvider::isUnsupportedRoute($e)) {
+                $this->recordUnsupportedModel($provider['id'], $driverInstance->probeScope(), $model['model_id']);
+            }
             $this->journalService->log(
                 'llm_connector',
                 'llm_request_failed',
@@ -131,7 +141,7 @@ class LlmConnectorService implements LlmConnectorInterface
             // A request that could not even be built never reached the
             // provider: recording it would raise « le dernier appel a
             // échoué » against a provider that answered nothing.
-            if ($e->getCode() !== LlmException::INVALID_REQUEST) {
+            if (!in_array($e->getCode(), [LlmException::INVALID_REQUEST, LlmException::NO_MODEL], true)) {
                 $this->lastFailure?->recordFailure($e->getCode(), AppClock::now());
             }
             throw $e;
@@ -247,22 +257,27 @@ class LlmConnectorService implements LlmConnectorInterface
     }
 
     /**
-     * The model backing a tier, applying the OCR → CHEAP fallback (no OCR
-     * model assigned still leaves a real chat model to read a receipt with).
-     * Shared by complete() and isTierAvailable() so the two can never
-     * disagree about whether a tier is usable.
+     * Availability and calls share the same capability guard. In particular,
+     * a CHEAP text assignment never establishes that OCR can accept images.
      *
-     * @return array{id: int, provider_id: int, model_id: string, display_name: string}|null
+     * @param array{id: int, driver: string, api_endpoint: string, api_key: string} $provider
+     * @return array{id: int, provider_id: int, model_id: string, display_name: string, supports_images?: bool}|null
      */
-    private function resolveModel(int $providerId, LlmTier $tier): ?array
+    private function resolveModel(array $provider, LlmTier $tier): ?array
     {
-        $model = $this->modelRepo->findByProviderAndTier($providerId, $tier);
+        $scope = ModelProbeCache::scopeFor($provider['driver'], $provider['api_endpoint'], $provider['api_key']);
+        return (new TierModelResolver($this->modelRepo))->resolve($provider['id'], $provider['driver'], $tier, $scope);
+    }
 
-        if ($model === null && $tier === LlmTier::OCR) {
-            $model = $this->modelRepo->findByProviderAndTier($providerId, LlmTier::CHEAP);
+    private function recordUnsupportedModel(int $providerId, string $scope, string $modelId): void
+    {
+        try {
+            $cache = new ModelProbeCache($this->modelRepo->modelProbeCache($providerId), $scope);
+            $cache->record($modelId, ModelProbeStatus::CHAT_UNSUPPORTED);
+            $this->modelRepo->storeModelProbeCache($providerId, $cache->toArray());
+        } catch (\Throwable) {
+            // A cache write must never hide the original provider error.
         }
-
-        return $model;
     }
 
     /**
@@ -288,13 +303,19 @@ class LlmConnectorService implements LlmConnectorInterface
 
     /**
      * Instantiate the appropriate provider driver.
+     *
+     * @param list<string> $verifiedImageModels
      */
-    private function createDriver(string $driver, string $apiEndpoint, string $apiKey): LlmProviderInterface
-    {
+    private function createDriver(
+        string $driver,
+        string $apiEndpoint,
+        string $apiKey,
+        array $verifiedImageModels = []
+    ): LlmProviderInterface {
         return match ($driver) {
             'anthropic' => new AnthropicProvider($apiEndpoint, $apiKey),
             'mistral' => new MistralProvider($apiEndpoint, $apiKey),
-            'scaleway' => new ScalewayProvider($apiEndpoint, $apiKey),
+            'scaleway' => new ScalewayProvider($apiEndpoint, $apiKey, $verifiedImageModels),
             default => throw LlmException::unknownDriver($driver),
         };
     }

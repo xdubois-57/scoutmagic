@@ -340,15 +340,15 @@
             {# §7bis — Adresses email (self-service only, no chief/admin
                bypass — module addendum: "a member manages ONLY their own
                secondary emails"). The Desk-imported address is always
-               shown first, never editable/deletable, and stays 'valide'
-               unless it was unsubscribed from mass-mail (see
-               Core\Member\MemberEmailService::listForMember()). #}
+               shown first, never editable/deletable. Group-mail consent
+               is shown separately from the address's login validity. #}
             {% if is_self %}
                 <div class="card mb-3">
                     <div class="card-body">
                         <h2 class="h5 mb-3">Adresses email</h2>
-                        <p class="small text-body-secondary">Les emails qui vous concernent seront envoyés à toutes les adresses ci-dessous, et chacune d'elles peut être utilisée pour vous connecter.</p>
+                        <p class="small text-body-secondary">Chaque adresse valide peut être utilisée pour vous connecter et recevoir les messages qui vous concernent. La désinscription des e-mails groupés ne change pas votre accès au site.</p>
                         {% for row in member_emails %}
+                            {% set group_mail_unsubscribed = member_email_group_mail_unsubscribed[row.id] ?? false %}
                             <div class="d-flex justify-content-between align-items-start border-bottom py-2 flex-wrap gap-2">
                                 <div>
                                     <div>
@@ -364,14 +364,17 @@
                                     {% if row.source == 'desk' %}
                                         <div class="small text-body-secondary">Adresse importée depuis la base de données de la fédération</div>
                                         {% if row.status == 'inactive' %}
-                                            <div class="small text-body-secondary">Désinscrit(e) des emails groupés le {{ row.deactivatedAt|french_date }}</div>
+                                            <div class="small text-body-secondary">Désactivée le {{ row.deactivatedAt|french_date }}</div>
                                         {% endif %}
                                     {% elseif row.status == 'valid' %}
                                         <div class="small text-body-secondary">Confirmée le {{ row.confirmedAt|french_date }}</div>
                                     {% elseif row.status == 'pending' %}
                                         <div class="small text-body-secondary">Email de confirmation envoyé le {{ row.lastConfirmationSentAt|french_date }}</div>
                                     {% elseif row.status == 'inactive' %}
-                                        <div class="small text-body-secondary">Désinscrit(e) des emails groupés le {{ row.deactivatedAt|french_date }}</div>
+                                        <div class="small text-body-secondary">Désactivée le {{ row.deactivatedAt|french_date }}</div>
+                                    {% endif %}
+                                    {% if group_mail_unsubscribed %}
+                                        <div class="small text-body-secondary">Désinscrite des e-mails groupés</div>
                                     {% endif %}
                                     {#
                                       Roadmap IT-05. The reason in ordinary
@@ -406,18 +409,24 @@
                                         </form>
                                     {% endif %}
                                     {% if row.status == 'inactive' %}
-                                        <form method="post" action="/members/{{ member.memberYearId }}/emails/{{ row.id }}/reactivate"
-                                              data-confirm="Cette adresse a été désactivée à la suite d'une désinscription. Sa réactivation permettra de nouveau de recevoir les e-mails groupés de l'unité, pour toutes les fiches et tous les groupes qui l'utilisent."
-                                              data-confirm-title="Réactiver l'adresse e-mail ?" data-confirm-label="Réactiver"
-                                              data-confirm-variant="primary">
+                                        <form method="post" action="/members/{{ member.memberYearId }}/emails/{{ row.id }}/reactivate">
                                             {{ csrf_field()|raw }}
                                             <button type="submit" class="btn btn-sm btn-outline-primary">Réactiver</button>
+                                        </form>
+                                    {% endif %}
+                                    {% if group_mail_unsubscribed %}
+                                        <form method="post" action="/members/{{ member.memberYearId }}/emails/{{ row.id }}/restore-group-mail"
+                                              data-confirm="Le consentement aux e-mails groupés sera rétabli pour cette adresse, pour toutes les fiches et tous les groupes qui l'utilisent. La validité de l'adresse pour la connexion et les suspensions pour rebonds restent inchangées."
+                                              data-confirm-title="Rétablir les e-mails groupés ?" data-confirm-label="Rétablir les e-mails groupés"
+                                              data-confirm-variant="primary">
+                                            {{ csrf_field()|raw }}
+                                            <button type="submit" class="btn btn-sm btn-outline-primary">Rétablir les e-mails groupés</button>
                                         </form>
                                     {% endif %}
                                     {#
                                       Lifting a block the SITE placed, which
                                       is a different decision from
-                                      « Réactiver » above — that one undoes
+                                      restoring group-mail consent above, which undoes
                                       the member's own unsubscribe (D19). A
                                       single button doing both would let a
                                       parent silently undo their unsubscribe

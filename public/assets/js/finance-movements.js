@@ -175,11 +175,12 @@
             return null;
         }
         // A link or button INSIDE a row keeps its own behaviour. The mobile
-        // card is itself a <button>, so the row can never be that control —
+        // card is itself a <button>, and the desktop details button opens
+        // its owning row. Other controls keep their own behaviour —
         // testing for one without this would have made every card inert.
         const control = event.target.closest('a, button');
 
-        return control && control !== row ? null : row;
+        return control && control !== row && !control.hasAttribute('data-movement-details') ? null : row;
     }
 
     document.addEventListener('click', (e) => {

@@ -110,7 +110,7 @@
         pending = true;
         errorNotice?.classList.add('d-none');
         var controls = Array.from(modal.querySelectorAll('button')).filter(function (button) {
-            return !button.disabled && !button.hasAttribute('data-bs-dismiss');
+            return !button.disabled && !Object.hasOwn(button.dataset, 'bsDismiss');
         });
         controls.forEach(function (button) { button.disabled = true; });
         modal.setAttribute('aria-busy', 'true');

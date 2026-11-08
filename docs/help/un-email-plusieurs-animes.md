@@ -50,7 +50,8 @@ et permet de se connecter, exactement comme la vôtre. Le sujet
 
 Si quelqu'un utilise le lien de désinscription au bas d'un e-mail
 groupé, l'adresse cesse de recevoir les e-mails groupés **pour tous les
-animés qui la partagent**, et ne permet plus de se connecter. Elle peut
-être réactivée à tout moment depuis la carte « Adresses email » de la
-page d'un animé, après confirmation : la même adresse revient aussi dans
+animés qui la partagent**. Elle permet toujours de se connecter ; les
+messages personnels continuent d'arriver. Pour revenir en arrière,
+choisissez « Rétablir les e-mails groupés » sur la carte « Adresses email »
+de la page d'un animé, puis confirmez : la même adresse revient aussi dans
 les groupes de contacts et les prochains publipostages.

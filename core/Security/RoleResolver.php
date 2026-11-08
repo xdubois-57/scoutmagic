@@ -16,14 +16,10 @@ use Core\ScoutYear\AuthorizationYears;
  * Login-by-email resolution matches against BOTH the Desk-imported
  * address (member_years.email_blind_index, as always) and any currently-
  * 'valid' secondary address (Core\Member\MemberEmailRepository) — a
- * 'pending'/'inactive' secondary row never resolves a login. Module
- * addendum: unsubscribing an address (Core\Member\MemberEmailService::
- * unsubscribe()) revokes its ability to log in too, even for a 'desk'-
- * sourced status-override row — the one case where a Desk-address rule
- * isn't "always usable, no exceptions" (see schema/core.sql's
- * member_emails comment). A direct Desk-address match is therefore
- * excluded here whenever an inactive override row exists for that exact
- * (member, address) pair.
+ * 'pending'/'inactive' secondary row never resolves a login. An explicitly
+ * inactive override also excludes that exact Desk (member, address) pair.
+ * Group-mail consent belongs to the optional mailing module and never
+ * changes these statuses or this resolver's decisions.
  *
  * ## Which scout year the question is asked in
  *
@@ -318,8 +314,8 @@ class RoleResolver
 
     /**
      * The Desk-imported match (member_years.email_blind_index, as
-     * always — minus any member whose Desk address was itself
-     * unsubscribed) unioned with every member reachable only through a
+     * always — minus any explicitly inactive Desk override) unioned with
+     * every member reachable only through a
      * currently-'valid' secondary email — deduplicated by member_year id,
      * since a member could in principle match both paths (their Desk
      * email re-added as their own secondary address).

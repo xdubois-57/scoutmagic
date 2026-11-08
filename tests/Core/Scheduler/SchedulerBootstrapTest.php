@@ -207,6 +207,24 @@ class SchedulerBootstrapTest extends TestCase
         $this->assertNull($without->getOptional(\Modules\LlmConnector\Api\LlmConnectorInterface::class));
     }
 
+    public function testCapabilitiesBootstrapSeedsLlmBeforeAnyConfigurationPageIsOpened(): void
+    {
+        ['context' => $context] = $this->bootstrap(['llm_connector']);
+        $task = SchedulerService::forPdo($context->connection->getPdo())
+            ->find('llm_connector', 'refresh_models', 'weekly');
+
+        self::assertNotNull($task);
+        self::assertLessThanOrEqual(time(), strtotime($task['run_at']));
+    }
+
+    public function testCapabilitiesBootstrapDoesNotSeedADisabledLlmModule(): void
+    {
+        ['context' => $context] = $this->bootstrap([]);
+
+        self::assertNull(SchedulerService::forPdo($context->connection->getPdo())
+            ->find('llm_connector', 'refresh_models', 'weekly'));
+    }
+
     public function testTheFinanceAndInboundMailCapabilitiesResolveWhenEnabled(): void
     {
         ['context' => $context] = $this->bootstrap(['finance', 'inbound_mail']);

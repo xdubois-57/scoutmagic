@@ -2907,37 +2907,44 @@ Test mode gains a per-recipient preview (`GET
 through rows with real substituted values and surfaces unknown tokens and
 per-row missing values; the test send carries the previewed row's values.
 
-**Unsubscribes (`mass_mail_suppressed_addresses`)** — every one-click
-unsubscribe (a token per MESSAGE, `UnsubscribeController`) stores a
-SHA-256 hash of the lowercased address, whoever asked; a member's message
-also deactivates its `member_emails` row, for every member sharing the
-address. The freeze reads the table for the addresses that have no member
-page — a contact's is written as a message in error, visible in tracking,
-and a file row's free address is left out — but **not for a member's own
-addresses**: those are governed by `member_emails`, which the unsubscribe
-already set « Inactif » and which « Réactiver » puts back. Reading the
-table there too, as the chantier of issue #999 first planned, made a
-member's unsubscribe permanent (review of #1030). Since #1032, confirmed
-reactivation restores every inactive member row sharing that address, the
-contact flags and the suppression hash together. Retention never purges
-an unsubscribe; only an explicit reactivation removes it.
+**Group-mail unsubscribe (#1049).** `mass_mail_suppressed_addresses` owns
+consent for every address: a member's, a contact's, or a free address from a
+mail-merge file. Each POST signed with a message token stores the normalized
+SHA-256 hash and flags matching contacts in one transaction. `member_emails`
+status is unchanged: unsubscribing preserves login and open sessions. Personal
+messages still arrive, and already-frozen recipients remain those selected at
+launch. Future freezes and estimates exclude the address for every profile
+sharing it; recipient listings apply the same consent.
 
-**Address-wide reactivation (#1032).** `Core\Member\EmailAddressReactivationService`
-uses one shared-PDO transaction for inactive member rows, the optional
-`Modules\MassMail\Api\AddressReactivationInterface` provider and their audit
-entries. Pending addresses, bounce blocks and frozen deliveries are untouched.
-`AddressReactivationRegistry` is the mutable handle passed to core before the
-module's block runs; disabled means no module table is read. The member action
-keeps its ownership/temporary-session guards and requires the generic
-`data-confirm` dialog. The admin-only POST on `/admin/listes-de-diffusion/adresses/reactivate`
-uses the same operation for a contact or free address at its holder's request.
-Neither path sends mail. The confirmation's replay marker lasts only for
-the synchronous submit, so a later decision on the same form asks again.
-Unsubscribe follows the same lock order in one transaction and sends its
-notifications only after commit. Failure rolls the changes back; re-importing a file
-alone still cannot undo an unsubscribe. A failed rollback or failure-audit write
-does not replace the original error; reactivation still returns its safe retry
-message when the journal is unavailable.
+`SuppressedAddressRepository::suppress()` reports whether the hash was newly
+inserted. Only that first insertion triggers notifications, after commit:
+confirmation to the address and notice to Staff d'U when members are linked.
+`MemberEmailService::unsubscribe()` finds links with established address control
+(Desk or confirmation) in the public year and includes current Desk profiles
+whose lazy override row does not exist yet. A Desk override qualifies only while
+the public-year profile still carries that address. An unconfirmed link request
+discloses no name. The service deactivates no address. A failed transaction sends
+no notification.
+
+**Restoring consent.** The optional
+`Modules\MassMail\Api\AddressReactivationInterface` contract exposes
+`isSuppressed()` and `reactivateAddress()`. `AddressReactivationRegistry` is
+passed to core before module activation; without a provider, no module table is
+read. The personal profile displays « Désinscrite des e-mails groupés » only for
+an address with an established holder. Its POST on
+`/members/{id}/emails/{email_id}/restore-group-mail` checks access to one's own
+profile, the CSRF token and the address, then calls
+`EmailAddressReactivationService::restoreGroupMail()` after generic confirmation.
+It removes the hash and contact flags without changing inactive statuses,
+pending confirmations, bounce blocks or frozen messages. The administrative POST
+on `/admin/listes-de-diffusion/adresses/reactivate` uses the same operation at
+the holder's request. Neither action sends mail.
+
+« Réactiver » on an actually inactive address remains a separate operation,
+`reactivateLogin()`, which restores its validity without lifting a group-mail
+unsubscribe. Transactions share the same PDO and lock order: suppression,
+contacts, members. Failure preserves the previous state and offers a retry;
+importing a file cannot resubscribe an address. Old inactive rows are not migrated.
 
 **One notification per account and per row (issue #999, §2.6).** The
 account concerned is the one whose login is the address of a sent message
@@ -4132,14 +4139,14 @@ The dialog reappears on **every page load** until it is closed — `snoozed_unti
 
 **One dialog per visit, and the other one wins.** The installed application's « Activer les notifications ? » invitation (§8.110) is asked before the tips are offered: `public/assets/js/push-invitation.js` says synchronously whether it is opening and `help-discovery.js` stands down when it is, consuming nothing; once it is answered, `DiscoveryService::holdBack()` holds the tips back for the ordinary interval, so the rest of that day's page loads carry no tip either. Two modals in a row is what makes people close both without reading either — and this one consumes its batch on the way out.
 
-**Confirmation des choix (#1053).** Le navigateur n'acquitte une action qu'après
-un succès HTTP et une réponse applicative `success: true`. Une seule requête est
-en cours à la fois ; le report, le refus des astuces et le rechargement pour en
-voir d'autres n'aboutissent qu'après cette confirmation. En cas d'échec, une alerte
-dans la fenêtre signale le problème et propose « Réessayer », accessible au clavier ;
-les contrôles sont rétablis. Une fermeture manuelle reste possible ; le toast commun
-propose alors le réessai d'un éventuel échec. Le compte n'est jamais considéré comme enregistré sur un simple retour
-réseau ou un HTTP 200 contenant un refus applicatif.
+**Acknowledging choices (#1053).** The browser acknowledges an action only after
+HTTP success and an application response containing `success: true`. Only one
+request runs at a time; postponing, refusing tips and reloading for more tips
+take effect only after that acknowledgement. On failure, an alert within the
+dialog explains the problem and offers a keyboard-accessible « Réessayer »;
+controls are restored. Manual dismissal remains possible; the common toast then
+offers a retry for a failed write. A completed request or an HTTP 200 carrying
+an application refusal never counts as a saved choice.
 
 **Four `core` settings**, registered like the others in `public/index.php`: `help_discovery_enabled` (the switch, for the unit that does not want this), `help_discovery_interval_hours` (24), `help_discovery_snooze_days` (7), `help_discovery_batch_size` (5). A value an administrator empties or sets to zero falls back on its default — a batch of none would be an empty dialog.
 
@@ -4887,8 +4894,8 @@ the address's blind index under the SHARED `'email'` purpose, because it is
 compared against `member_emails` to find who owns a bounced mailbox. A
 parent's address sits on every one of their children's profiles, so
 recording per profile would let « bloquée » be true on one screen and false
-on another for a single mailbox — the same reasoning
-`MemberEmailService::unsubscribe()` already applies.
+on another for a single mailbox. Group-mail consent likewise belongs to the
+address, but is stored independently of login validity and bounce status.
 `mass_mail_block_contacts` keeps its own domain-separated purpose, so the
 module never matches indexes across the boundary: it asks the core with the
 plaintext address it holds at send time.
