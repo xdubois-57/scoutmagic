@@ -220,6 +220,7 @@ class ConfigController extends AbstractController
             return $this->json(['success' => false, 'error' => 'Point de terminaison invalide.']);
         }
 
+        $startedAt = \Core\Config\AppClock::now();
         try {
             $driver = $this->createDriver($provider['driver'], $provider['api_endpoint'], $provider['api_key']);
             $this->ocrModelSelector->setJournalService($this->journalService, AuthSession::getUserAccountId());
@@ -230,6 +231,9 @@ class ConfigController extends AbstractController
                 AuthSession::getUserAccountId()
             );
             $catalog = $refresher->refresh($provider['id'], $driver, $provider['configuration_token']);
+            if ($provider['is_active'] && $refresher->needsRetry()) {
+                RefreshModelsHandler::scheduleRetry($this->schedulerService, $provider['id'], $startedAt, 0);
+            }
             $modelCount = count($catalog->chatModelIds());
 
             if ($modelCount === 0) {
@@ -284,6 +288,10 @@ class ConfigController extends AbstractController
                 ],
                 AuthSession::getUserAccountId()
             );
+
+            if ($provider['is_active']) {
+                RefreshModelsHandler::scheduleRetry($this->schedulerService, $provider['id'], $startedAt, 0);
+            }
 
             return $this->json([
                 'success' => false,

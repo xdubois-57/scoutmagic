@@ -743,4 +743,69 @@ class ProviderCatalogRefreshOnMysqlTest extends TestCase
         self::assertNotNull($retry);
         self::assertContains(strtotime($retry['run_at']), range($before + 900, $after + 900));
     }
+
+    public static function manualProbeOutcomes(): iterable
+    {
+        yield 'active indeterminate' => [true, ModelProbeStatus::UNVERIFIED, true];
+        yield 'active verified' => [true, ModelProbeStatus::VISION_VERIFIED, false];
+        yield 'inactive indeterminate' => [false, ModelProbeStatus::UNVERIFIED, false];
+        yield 'definitive route refusal' => [true, ModelProbeStatus::CHAT_UNSUPPORTED, false];
+    }
+
+    #[DataProvider('manualProbeOutcomes')]
+    public function testManualConnectionSchedulesOnlyNeededActiveProviderRecovery(
+        bool $active,
+        ModelProbeStatus $probeStatus,
+        bool $expectedRetry
+    ): void {
+        $endpoint = 'https://93.184.216.34';
+        $id = $this->providers->create('Scaleway', 'scaleway', $endpoint, 'test-key', $active);
+        $driver = $this->getMockBuilder(ScalewayProvider::class)->setConstructorArgs([$endpoint, 'test-key'])
+            ->onlyMethods(['listModels', 'probeVision', 'complete'])->getMock();
+        $driver->expects($this->once())->method('listModels')->willReturn(new ProviderModelCatalog([
+            ['id' => self::IMAGE, 'display_name' => 'Images', 'chat' => true, 'vision' => null],
+        ]));
+        $driver->expects($this->once())->method('probeVision')->willReturn($probeStatus);
+        $driver->method('complete')->willThrowException(new \RuntimeException('Use deterministic tier selection'));
+        $before = time();
+        $this->runConnection($id, $driver, $this->createStub(JournalService::class), $probeStatus !== ModelProbeStatus::CHAT_UNSUPPORTED);
+        $after = time();
+        $retry = SchedulerService::forPdo($this->pdo)->find('llm_connector', 'refresh_models', 'retry-' . $id);
+
+        self::assertSame($expectedRetry, $retry !== null);
+        if ($expectedRetry && $retry !== null) {
+            self::assertContains(strtotime($retry['run_at']), range($before + 900, $after + 900));
+        }
+    }
+
+    public static function manualCatalogueFailures(): iterable
+    {
+        yield 'active Scaleway' => ['scaleway', true, true];
+        yield 'active Mistral' => ['mistral', true, true];
+        yield 'inactive Scaleway' => ['scaleway', false, false];
+    }
+
+    #[DataProvider('manualCatalogueFailures')]
+    public function testManualConnectionCatalogueFailuresUseTheSameRecovery(
+        string $driverName,
+        bool $active,
+        bool $expectedRetry
+    ): void {
+        $endpoint = 'https://93.184.216.34';
+        $id = $this->providers->create('Provider', $driverName, $endpoint, 'test-key', $active);
+        $driverClass = $driverName === 'scaleway'
+            ? ScalewayProvider::class : \Modules\LlmConnector\Provider\MistralProvider::class;
+        $driver = $this->getMockBuilder($driverClass)->setConstructorArgs([$endpoint, 'test-key'])
+            ->onlyMethods(['listModels'])->getMock();
+        $driver->expects($this->once())->method('listModels')->willThrowException(new \RuntimeException('Temporary failure'));
+        $before = time();
+        $this->runConnection($id, $driver, $this->createStub(JournalService::class), false);
+        $after = time();
+        $retry = SchedulerService::forPdo($this->pdo)->find('llm_connector', 'refresh_models', 'retry-' . $id);
+
+        self::assertSame($expectedRetry, $retry !== null);
+        if ($expectedRetry && $retry !== null) {
+            self::assertContains(strtotime($retry['run_at']), range($before + 900, $after + 900));
+        }
+    }
 }

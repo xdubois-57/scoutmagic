@@ -102,7 +102,7 @@ class RefreshModelsHandler implements TaskHandlerInterface
             }
             $scheduler = SchedulerService::forPdo($pdo);
             if ($needsRetry) {
-                $this->scheduleRetry(
+                self::scheduleRetry(
                     $scheduler, $provider['id'], $startedAt, (int) ($payload['retry_attempt'] ?? 0)
                 );
             } else {
@@ -116,7 +116,8 @@ class RefreshModelsHandler implements TaskHandlerInterface
         }
     }
 
-    private function scheduleRetry(
+    /** Share bounded recovery between scheduled discovery and the connection test. */
+    public static function scheduleRetry(
         SchedulerService $scheduler,
         int $providerId,
         \DateTimeImmutable $startedAt,

@@ -93,7 +93,8 @@ initialisée reste à sa place. La page explique explicitement l’absence d’O
 tant qu’aucun modèle image vérifié n’est disponible.
 
 Une erreur de découverte ou une sonde indéterminée déclenche une reprise
-pour le seul fournisseur concerné : après quinze minutes, puis une heure,
+pour le seul fournisseur actif concerné, depuis « Tester la connexion »
+comme depuis la tâche automatique : après quinze minutes, puis une heure,
 six heures et enfin une fois par jour tant que l’échec persiste. Ces délais
 se comptent depuis le début de la tentative précédente. La première reprise
 peut ainsi renouveler une preuve encore valable dans sa marge d’une heure.
