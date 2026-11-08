@@ -112,6 +112,14 @@ fraîche transmise par le résolveur.
 
 ## Rafraîchir et utiliser
 
+Les modules consommateurs vérifient le tier demandé. Sans OCR disponible,
+les photos et PDF scannés des contrats de camp et des reçus ne sont ni
+rasterisés ni envoyés à un modèle texte, et l’absence de configuration
+n’est pas signalée comme un
+document illisible. Un PDF avec du texte reste exploitable par CHEAP ;
+la recherche de correspondances financières reste possible à partir des
+métadonnées du reçu, indépendamment de l’extraction d’une image.
+
 `ProviderCatalogRefresher` est commun au test de connexion et au traitement
 hebdomadaire. La découverte et le classement précèdent la transaction ;
 l’enregistrement des seuls modèles chat, la suppression des modèles

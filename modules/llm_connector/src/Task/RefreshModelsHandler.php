@@ -72,7 +72,11 @@ class RefreshModelsHandler implements TaskHandlerInterface
                 if ($configured === null || !$configured['is_active']) {
                     continue;
                 }
-                $driver = $this->createDriver($configured['driver'], $configured['api_endpoint'], $configured['api_key']);
+                $driver = $this->createDriver(
+                    $configured['driver'],
+                    $configured['api_endpoint'],
+                    $configured['api_key']
+                );
                 $refresher = new ProviderCatalogRefresher(
                     $modelRepo,
                     new OcrModelSelector($context->journal),
@@ -103,7 +107,10 @@ class RefreshModelsHandler implements TaskHandlerInterface
             $scheduler = SchedulerService::forPdo($pdo);
             if ($needsRetry) {
                 self::scheduleRetry(
-                    $scheduler, $provider['id'], $startedAt, (int) ($payload['retry_attempt'] ?? 0)
+                    $scheduler,
+                    $provider['id'],
+                    $startedAt,
+                    (int) ($payload['retry_attempt'] ?? 0)
                 );
             } else {
                 $scheduler->cancelPending('llm_connector', 'refresh_models', 'retry-' . $provider['id']);

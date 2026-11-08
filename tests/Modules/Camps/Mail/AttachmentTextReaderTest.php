@@ -14,6 +14,8 @@ use Modules\LlmConnector\Api\LlmConnectorInterface;
 use Modules\LlmConnector\Api\LlmException;
 use Modules\LlmConnector\Api\LlmRequest;
 use Modules\LlmConnector\Api\LlmResponse;
+use Modules\LlmConnector\Api\LlmTier;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 
@@ -267,6 +269,42 @@ class AttachmentTextReaderTest extends TestCase
         $this->assertSame([], $this->asked);
     }
 
+    public static function scannedDocuments(): iterable
+    {
+        yield 'photograph' => ['scan.jpg', 'image/jpeg', str_repeat('x', 60000)];
+        yield 'scanned PDF' => ['scan.pdf', 'application/pdf', 'no embedded text'];
+    }
+
+    #[DataProvider('scannedDocuments')]
+    public function testCheapModelAloneDoesNotAttemptTranscription(string $name, string $mime, string $bytes): void
+    {
+        $attachment = $this->store($name, $mime, $bytes);
+        $llm = $this->createStub(LlmConnectorInterface::class);
+        $llm->method('isTierAvailable')->willReturnCallback(
+            static fn (LlmTier $tier): bool => $tier === LlmTier::CHEAP
+        );
+        $llm->method('complete')->willReturnCallback(function (LlmRequest $request): LlmResponse {
+            $this->asked[] = $request;
+            throw LlmException::noModel(LlmTier::OCR);
+        });
+        $rasterizer = new class extends \Core\File\PdfRasterizer {
+            public int $calls = 0;
+            public function firstPageToJpeg(string $pdfContent): ?string
+            {
+                $this->calls++;
+                return 'jpeg-bytes';
+            }
+        };
+        $reader = $this->readerWith($llm, $rasterizer);
+        $reader->read([$attachment]);
+
+        self::assertSame([0, [], false], [
+            $rasterizer->calls,
+            array_map(static fn (LlmRequest $request): string => $request->tier->value, $this->asked),
+            $reader->readingFailed(),
+        ]);
+    }
+
     public function testATranscriptionIsBounded(): void
     {
         $attachment = $this->store('scan.jpg', 'image/jpeg', str_repeat('x', 60000));
@@ -349,7 +387,10 @@ class AttachmentTextReaderTest extends TestCase
         return $llm;
     }
 
-    private function readerWith(LlmConnectorInterface $llm): AttachmentTextReader
+    private function readerWith(
+        LlmConnectorInterface $llm,
+        ?\Core\File\PdfRasterizer $rasterizer = null
+    ): AttachmentTextReader
     {
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
 
@@ -364,7 +405,7 @@ class AttachmentTextReaderTest extends TestCase
             // A rasterizer that always answers, so these tests are about
             // the decision to transcribe rather than about Ghostscript
             // being installed.
-            new class extends \Core\File\PdfRasterizer {
+            $rasterizer ?? new class extends \Core\File\PdfRasterizer {
                 public function firstPageToJpeg(string $pdfContent): ?string
                 {
                     return 'jpeg-bytes';
