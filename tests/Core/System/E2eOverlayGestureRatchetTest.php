@@ -84,9 +84,10 @@ class E2eOverlayGestureRatchetTest extends TestCase
         // bundle has run.
         'tests/e2e/specs/camps-place-and-review.spec.js' => ['camps-map-panel via const' => 2],
         // Pages that must serve NO tip at all — behind the cookie banner,
-        // once the delay is running, on the help itself: a count of zero,
+        // once either the ordinary delay or a week-long snooze is running,
+        // on the help itself: a count of zero,
         // not a dialog that opens or closes.
-        'tests/e2e/specs/help-discovery.spec.js' => ['help-discovery-modal toHaveCount' => 3],
+        'tests/e2e/specs/help-discovery.spec.js' => ['help-discovery-modal toHaveCount' => 4],
     ];
 
     /**
