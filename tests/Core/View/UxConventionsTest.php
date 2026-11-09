@@ -988,8 +988,8 @@ final class UxConventionsTest extends TestCase
      */
     private const UNDO_THAT_STILL_ASKS = [
         // The maintainer explicitly requires a single consent confirmation
-        // for restoring future mail across an address's uses (#1032, design.md §7.5).
-        '/members/{{ member.memberYearId }}/emails/{{ row.id }}/reactivate' =>
+        // for restoring future mail across an address's uses (#1032/#1049, design.md §7.5).
+        '/members/{{ member.memberYearId }}/emails/{{ row.id }}/restore-group-mail' =>
             'restores future group mail for the same address across members and contact groups',
         '/admin/listes-de-diffusion/adresses/reactivate' =>
             'the admin restores the address everywhere at its holder\'s explicit request',

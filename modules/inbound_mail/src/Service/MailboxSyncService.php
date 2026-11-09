@@ -935,7 +935,10 @@ class MailboxSyncService
                 // No author: a synchronisation is nobody's session.
                 null,
                 InboundMessageAccessRegistry::OWNER_TYPE,
-                $messageId
+                $messageId,
+                // prepareAttachment() already produced fresh image pixels;
+                // keep exactly the bytes charged against the quota.
+                reencodeImages: false
             );
         } catch (UploadException) {
             // A rejected attachment is a dropped attachment, never a failed

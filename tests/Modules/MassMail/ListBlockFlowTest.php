@@ -124,6 +124,7 @@ class ListBlockFlowTest extends TestCase
             new SuppressedAddressRepository($this->pdo)
         );
         $this->memberEmailService = $this->buildMemberEmailService($sectionService, $memberService);
+        $this->suppressedRepository = new SuppressedAddressRepository($this->pdo);
         $this->listService = new MailingListService(
             $listRepository,
             new MemberResolutionRepository($this->pdo, $this->encryption),
@@ -138,13 +139,12 @@ class ListBlockFlowTest extends TestCase
             null,
             null,
             $memberService,
-            $this->memberEmailService
+            $this->memberEmailService,
+            $this->suppressedRepository
         );
 
         $this->deliveryRepository = new DeliveryRepository($this->pdo, $this->encryption);
         $this->targetRepository = new TargetRepository($this->pdo);
-        $this->suppressedRepository = new SuppressedAddressRepository($this->pdo);
-
         $this->massMailService = new MassMailService(
             new EmailRepository($this->pdo),
             $this->deliveryRepository,
@@ -484,11 +484,8 @@ class ListBlockFlowTest extends TestCase
     }
 
     /**
-     * A member's address on the module's suppression list — reactivated
-     * after an unsubscribe, or unsubscribed through a contact group — is
-     * still written to as the member's (MassMailService::
-     * eligibleAddressesOfMember()), so the list's page counts it too:
-     * « Voir les destinataires » and the send agree.
+     * The list preview and the freeze both exclude a suppressed address,
+     * including when it is still a valid member login address.
      */
     public function testAMembersAddressOnTheSuppressionListIsListedLikeTheSendWritesIt(): void
     {
@@ -498,11 +495,11 @@ class ListBlockFlowTest extends TestCase
 
         $rows = $this->listService->listRecipients($this->listId, $this->scoutYearId)['rows'];
 
-        $this->assertSame(['chef@test.be', 'perso@test.be'], array_column($rows, 'email'));
-        $this->assertSame(2, $this->listService->summariseList($this->listId, $this->scoutYearId)['total']);
+        $this->assertSame(['chef@test.be'], array_column($rows, 'email'));
+        $this->assertSame(1, $this->listService->summariseList($this->listId, $this->scoutYearId)['total']);
         $email = $this->sendableEmail();
         $this->massMailService->startSending($email->id, null);
-        $this->assertCount(2, $this->deliveryRepository->findByEmailId($email->id));
+        $this->assertCount(1, $this->deliveryRepository->findByEmailId($email->id));
     }
 
     /**
@@ -736,7 +733,8 @@ class ListBlockFlowTest extends TestCase
     {
         $memberId = $this->createMember('chef@test.be');
         $repository = new \Core\Member\MemberEmailRepository($this->pdo, $this->encryption);
-        $repository->markInactive($repository->findOrCreateDeskOverride($memberId, 'chef@test.be')->id);
+        $repository->findOrCreateDeskOverride($memberId, 'chef@test.be');
+        $this->suppressedRepository->suppress('chef@test.be');
 
         $email = $this->sendableEmail();
         $this->massMailService->startSending($email->id, null);
@@ -744,6 +742,70 @@ class ListBlockFlowTest extends TestCase
         $this->assertSame([], $this->deliveryRepository->findByEmailId($email->id));
         $line = $this->pdo->query("SELECT description FROM event_log WHERE event_type = 'target_not_sent'")->fetchColumn();
         $this->assertStringContainsString('Adresse désinscrite des emails groupés', (string) $line);
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('inactiveAddressRefusals')]
+    public function testAnInactiveAddressHasItsOwnRefusalReason(
+        bool $merge,
+        ?string $suppressed,
+        string $reason
+    ): void {
+        $memberId = $this->createMember('chef@test.be');
+        $repository = new MemberEmailRepository($this->pdo, $this->encryption);
+        $row = $repository->findOrCreateDeskOverride($memberId, 'chef@test.be');
+        $repository->markInactive($row->id);
+        if ($suppressed !== null) {
+            if ($suppressed !== 'chef@test.be') {
+                $this->addSecondaryEmail($memberId, $suppressed);
+            }
+            $this->suppressedRepository->suppress($suppressed);
+        }
+
+        if ($merge) {
+            $audienceId = $this->audienceRepository->createAudience('test.xlsx', 'Feuille1', ['Tiers'], 1, null);
+            $this->audienceRepository->createRow($audienceId, 2, $memberId, null, ['Tiers' => 'DESK']);
+            $draft = $this->massMailService->createDraft(
+                'Sujet',
+                '<p>Corps</p>',
+                $this->sectionId,
+                Email::LIST_TYPE_MAIL_MERGE,
+                null,
+                null,
+                [$this->scoutYearId],
+                null,
+                new SenderAuthorization(true, [], null),
+                $audienceId
+            );
+            $email = $this->massMailService->moveToTest($draft->id, null);
+        } else {
+            $email = $this->sendableEmail();
+        }
+        $this->massMailService->startSending($email->id, null);
+
+        $entries = $this->pdo->query(
+            "SELECT description, context FROM event_log WHERE event_type = 'target_not_sent'"
+        )->fetchAll(\PDO::FETCH_ASSOC);
+        $reported = array_map(static fn(array $entry): array => [
+            json_decode($entry['context'], true)['reason'] ?? null,
+            str_ends_with($entry['description'], ' — ' . $reason),
+        ], $entries);
+        $this->assertSame(
+            [[], [[$reason, true]]],
+            [$this->deliveryRepository->findByEmailId($email->id), $reported]
+        );
+    }
+
+    public static function inactiveAddressRefusals(): iterable
+    {
+        foreach (['list' => false, 'mail merge' => true] as $label => $merge) {
+            yield $label . ': inactive only' => [$merge, null, 'Adresse désactivée'];
+            yield $label . ': inactive and suppressed' => [
+                $merge, 'chef@test.be', 'Adresse désinscrite des emails groupés',
+            ];
+            yield $label . ': another address suppressed' => [
+                $merge, 'other@test.be', 'Adresse désinscrite des emails groupés',
+            ];
+        }
     }
 
     /**

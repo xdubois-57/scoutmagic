@@ -10,9 +10,9 @@ namespace Core\Image;
 
 /**
  * Turns a photograph, as a phone sends it, into the one form the site
- * keeps: a JPEG at most 2 400 px on its longest side, quality 85, upright,
- * and carrying **no metadata at all** — no EXIF, no GPS position, no camera
- * serial number.
+ * keeps: a JPEG at most 2 400 px on its longest side, quality 85, with its
+ * orientation applied where the server reads EXIF, and carrying **no
+ * metadata at all** — no EXIF, no GPS position, no camera serial number.
  *
  * **It refuses rather than keeps.** `Core\File\UploadHandler` stores a file
  * it cannot re-encode as it came (an HEIC photo, an image GD fails to
@@ -32,8 +32,8 @@ namespace Core\Image;
  * for JPEG) never reaches that branch.
  *
  * Used before `UploadHandler::handle()`, on the model of
- * `Core\Photo\PhotoIngestionService` (process, then store): the file stored
- * and the size recorded are already the final ones.
+ * `Core\Photo\PhotoIngestionService` (process, then store). A caller that
+ * budgets these final bytes stores them with image re-encoding disabled.
  */
 final class PhotoNormalizer
 {
@@ -342,18 +342,14 @@ final class PhotoNormalizer
 
     private static function readOrientation(string $bytes, bool $required): int
     {
+        // EXIF is optional: losing the reader loses orientation, not the
+        // photo. A fresh canvas still removes its metadata below.
         if (!function_exists('exif_read_data')) {
-            if ($required) {
-                throw new PhotoNormalizationException(self::UNREADABLE);
-            }
             return 1;
         }
 
-        $stream = fopen('php://memory', 'r+b');
+        $stream = @fopen('php://memory', 'r+b');
         if ($stream === false) {
-            if ($required) {
-                throw new PhotoNormalizationException(self::UNREADABLE);
-            }
             return 1;
         }
         fwrite($stream, $bytes);

@@ -8,13 +8,9 @@
 //
 // Every card is already in the page, server-rendered: this file walks
 // between them, remembers which ones were actually gone past, and makes
-// exactly ONE network call — at the close. A call per card would be four
-// requests to say what one says, and each of them a chance to record half
-// a passage.
-//
-// Offline, that call fails and nothing is recorded, so the same tips come
-// back next time. That is the right behaviour rather than a bug to queue
-// around: nothing was stored, so nothing was consumed.
+// one action at a time — at the close. A call per card would be four
+// requests to say what one says. Only an acknowledged write settles the
+// choice; an error stays visible with a keyboard-accessible retry.
 //
 // No inline on*= handlers (dead under the CSP — design.md §7.5), no
 // alert()/confirm(), and no card is ever built from a string.
@@ -50,14 +46,20 @@
     var moreButton = /** @type {HTMLElement|null} */ (modal.querySelector('[data-discovery-more]'));
     var snoozeButton = /** @type {HTMLElement|null} */ (modal.querySelector('[data-discovery-snooze]'));
     var neverButton = /** @type {HTMLElement|null} */ (modal.querySelector('[data-discovery-never]'));
+    var errorNotice = /** @type {HTMLElement|null} */ (modal.querySelector('[data-discovery-error]'));
+    var errorMessage = /** @type {HTMLElement|null} */ (modal.querySelector('[data-discovery-error-message]'));
+    var retryButton = /** @type {HTMLElement|null} */ (modal.querySelector('[data-discovery-retry]'));
+    var failedAction = '';
+    var failedMessage = '';
+    var failureToastShown = false;
 
     var index = 0;
     /** @type {string[]} the ids actually gone past, in the order they were shown */
     var seen = [];
-    // One call and one only: whatever closes the dialog first decides
-    // what is written, and the `hidden.bs.modal` that follows must not
-    // send a second, contradicting one.
+    // One acknowledged choice: a successful action's hidden.bs.modal
+    // must never write a second, contradicting one. Failed writes can retry.
     var settled = false;
+    var pending = false;
 
     /**
      * Remembers a card as read. Shown IS read here — somebody who sees a
@@ -97,25 +99,100 @@
     }
 
     /**
-     * The one call. Resolves whatever the server answered — the caller
-     * decides what to do next, and « offline » is simply a resolution
-     * like any other.
+     * Only HTTP and application success acknowledge the choice. A failed
+     * request leaves the same cards available and never locks out a retry.
      *
      * @param {string} action one of close|snooze|never|more
-     * @returns {Promise<void>}
+     * @returns {Promise<boolean>}
      */
     function settle(action) {
-        if (settled) {
-            return Promise.resolve();
+        if (settled || pending) {
+            return Promise.resolve(false);
         }
-        settled = true;
+        pending = true;
+        failureToastShown = false;
+        errorNotice?.classList.add('d-none');
+        var controls = Array.from(modal.querySelectorAll('button')).filter(function (button) {
+            return !button.disabled && !Object.hasOwn(button.dataset, 'bsDismiss');
+        });
+        controls.forEach(function (button) { button.disabled = true; });
+        modal.setAttribute('aria-busy', 'true');
 
         var api = window.ScoutMagicApi;
-        if (!api) {
-            return Promise.resolve();
-        }
+        var ids = seen.slice();
+        return Promise.resolve().then(function () {
+            return api
+                ? api.postJson(ENDPOINT, { ids: ids, action: action })
+                : { ok: false, status: 0, data: null };
+        }).then(function (response) {
+            if (response?.ok && response.data?.success === true) {
+                settled = true;
+                return true;
+            }
+            reportFailure(action, response);
+            return false;
+        }).catch(function () {
+            reportFailure(action, null);
+            return false;
+        }).finally(function () {
+            pending = false;
+            controls.forEach(function (button) { button.disabled = false; });
+            modal.setAttribute('aria-busy', 'false');
+        });
+    }
 
-        return api.postJson(ENDPOINT, { ids: seen, action: action }).then(function () {});
+    /**
+     * Keep the error and retry within the open modal's focus trap. After
+     * a manual dismissal, the common toast offers the same action instead.
+     *
+     * @param {string} action
+     * @param {{data: any}|null} response
+     */
+    function reportFailure(action, response) {
+        var message = typeof response?.data?.error === 'string' && response.data.error
+            ? response.data.error
+            : "Votre choix n'a pas pu être enregistré. Réessayez.";
+        failedAction = action;
+        failedMessage = message;
+        if (modal.classList.contains('show') && errorNotice && errorMessage) {
+            errorMessage.textContent = message;
+            errorNotice.classList.remove('d-none');
+            errorNotice.scrollIntoView?.({ block: 'nearest' });
+            return;
+        }
+        showFailureToast(action, message);
+    }
+
+    /**
+     * Preserve the failed choice outside the dismissed dialog.
+     *
+     * @param {string} action
+     * @param {string} message
+     */
+    function showFailureToast(action, message) {
+        // A failure may arrive during Bootstrap's fade, before hidden fires.
+        if (failureToastShown) {
+            return;
+        }
+        failureToastShown = true;
+        window.ScoutMagicToast?.show(message, {
+            variant: 'error',
+            action: { label: 'Réessayer', onClick: function () { finish(action); } },
+        });
+    }
+
+    /** @param {string} action */
+    function finish(action) {
+        void settle(action).then(function (saved) {
+            if (!saved) {
+                return;
+            }
+            if (action === 'more') {
+                window.location.reload();
+            } else if (action !== 'close') {
+                hide();
+            }
+        });
     }
 
     function hide() {
@@ -136,17 +213,23 @@
     }
 
     on(nextButton, function () {
-        if (index < cards.length - 1) {
+        if (!pending && index < cards.length - 1) {
             show(index + 1);
         }
     });
 
     on(snoozeButton, function () {
-        void settle('snooze').then(hide);
+        finish('snooze');
+    });
+
+    on(retryButton, function () {
+        if (failedAction) {
+            finish(failedAction);
+        }
     });
 
     on(neverButton, function () {
-        void settle('never').then(hide);
+        finish('never');
     });
 
     on(moreButton, function () {
@@ -154,15 +237,19 @@
         // template — never assembled here from a JSON payload, which
         // would be a second implementation of the card and a DOM sink
         // fed by server strings.
-        void settle('more').then(function () {
-            window.location.reload();
-        });
+        finish('more');
     });
 
-    // « Terminé », the close cross, Escape and a click on the backdrop
-    // all arrive here, and all mean the same thing.
+    // Manual dismissal must preserve an unacknowledged choice for retry.
+    // Otherwise « Terminé », Escape, the cross and the backdrop record close.
     modal.addEventListener('hidden.bs.modal', function () {
-        void settle('close');
+        if (failedAction && !settled) {
+            if (!pending) {
+                showFailureToast(failedAction, failedMessage);
+            }
+            return;
+        }
+        finish('close');
     });
 
     show(0);

@@ -91,6 +91,74 @@ class PhotoNormalizerTest extends TestCase
         yield 'WebP bare TIFF' => ['image/webp', false, false, 8];
     }
 
+    #[\PHPUnit\Framework\Attributes\DataProvider('unavailableExifCapabilities')]
+    public function testAnUnavailableExifReaderKeepsThePhotoWithoutItsMetadata(
+        string $capability,
+        string $mimeType,
+        bool $littleEndian,
+        bool $prefix,
+        int $orientation
+    ): void {
+        $source = $this->orientedContainer($mimeType, $littleEndian, $prefix, $orientation);
+        $script = <<<'PHP'
+require $argv[1] . '/vendor/autoload.php';
+if ($argv[2] === 'stream') {
+    stream_wrapper_unregister('php');
+}
+$result = [
+    'exif_available' => function_exists('exif_read_data'),
+    'stream_available' => in_array('php', stream_get_wrappers(), true),
+    'jpeg' => '',
+    'error' => null,
+];
+try {
+    $result['jpeg'] = base64_encode((new Core\Image\PhotoNormalizer())->normalize(base64_decode($argv[3], true)));
+} catch (Throwable $exception) {
+    $result['error'] = get_class($exception);
+}
+echo json_encode($result, JSON_THROW_ON_ERROR);
+PHP;
+        $process = proc_open(
+            [
+                PHP_BINARY, '-d', 'display_errors=stderr', '-d', 'log_errors=0',
+                '-d', 'disable_functions=' . ($capability === 'extension' ? 'exif_read_data' : ''),
+                '-r', $script, dirname(__DIR__, 3), $capability, base64_encode($source),
+            ],
+            [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+            $pipes
+        );
+        if (!is_resource($process)) {
+            throw new \RuntimeException('Could not start the EXIF capability probe.');
+        }
+        $output = (string) stream_get_contents($pipes[1]);
+        $errors = (string) stream_get_contents($pipes[2]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        $exitCode = proc_close($process);
+        $result = json_decode($output, true, flags: JSON_THROW_ON_ERROR);
+        $jpeg = (string) base64_decode($result['jpeg'], true);
+        $dimensions = $jpeg !== '' ? getimagesizefromstring($jpeg) : false;
+
+        $this->assertSame(
+            [0, '', $capability !== 'extension', $capability !== 'stream', null, 'image/jpeg', [40, 20], true],
+            [
+                $exitCode, $errors, $result['exif_available'], $result['stream_available'], $result['error'],
+                $jpeg !== '' ? (new \finfo(FILEINFO_MIME_TYPE))->buffer($jpeg) : null,
+                $dimensions !== false ? array_slice($dimensions, 0, 2) : null,
+                !str_contains($jpeg, 'Exif'),
+            ]
+        );
+    }
+
+    public static function unavailableExifCapabilities(): iterable
+    {
+        foreach (self::orientedContainers() as $name => $arguments) {
+            foreach (['extension', 'stream'] as $capability) {
+                yield $name . ' without ' . $capability => [$capability, ...$arguments];
+            }
+        }
+    }
+
     #[\PHPUnit\Framework\Attributes\DataProvider('malformedEmbeddedExif')]
     public function testUnreadableEmbeddedExifIsRefusedRatherThanLosingItsOrientation(string $case): void
     {

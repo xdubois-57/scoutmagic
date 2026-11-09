@@ -110,7 +110,7 @@ class AddressReactivationServiceTest extends TestCase
         ));
     }
 
-    public function testMemberReactivationRestoresSharedMembersAndAllContactGroupsTogether(): void
+    public function testReactivatingLoginLeavesGroupMailConsentUntouched(): void
     {
         $this->enableModule();
         $mail = $this->createMock(MailService::class);
@@ -122,15 +122,71 @@ class AddressReactivationServiceTest extends TestCase
         );
         $member = $this->members->findById($this->first);
         $memberService->reactivateEmail($member->memberId, $this->first, $this->actor);
-        $this->assertRestored();
-        $this->assertSame(0, $this->service->reactivate('shared@example.org', $this->actor));
+        $this->assertTrue($this->members->findById($this->first)->isValid());
+        $this->assertTrue($this->members->findById($this->second)->isValid());
+        $this->assertTrue($this->suppressed->isSuppressed('shared@example.org'));
+        $this->assertSame(2, $this->contacts->countForBlock($this->groupA)['unsubscribed']);
+        $this->assertSame(0, $this->service->reactivateLogin('shared@example.org', $this->actor));
         $events = $this->pdo->query('SELECT event_type, user_account_id, context FROM event_log')->fetchAll();
-        $this->assertCount(3, $events);
+        $this->assertCount(2, $events);
         foreach ($events as $event) {
             $this->assertSame($this->actor, (int) $event['user_account_id']);
             $this->assertStringNotContainsString('@', (string) $event['context']);
             $this->assertStringNotContainsString('Premier contact', (string) $event['context']);
             $this->assertStringNotContainsString('Second contact', (string) $event['context']);
+        }
+    }
+
+    public function testRestoringGroupMailLeavesInactiveAndPendingLoginRowsUntouched(): void
+    {
+        $this->enableModule();
+        $this->assertTrue($this->service->isSuppressed('SHARED@example.org'));
+        $this->assertSame(3, $this->service->restoreGroupMail('shared@example.org', $this->actor));
+        $this->assertFalse($this->service->isSuppressed('shared@example.org'));
+        $this->assertTrue($this->members->findById($this->first)->isInactive());
+        $this->assertTrue($this->members->findById($this->second)->isInactive());
+        $this->assertTrue($this->members->findById($this->pending)->isPending());
+        $this->assertTrue($this->members->findById($this->other)->isInactive());
+        $this->assertSame(0, $this->contacts->countForBlock($this->groupB)['unsubscribed']);
+        $this->assertTrue($this->suppressed->isSuppressed('other@example.org'));
+        $this->assertSame(0, $this->service->restoreGroupMail('shared@example.org', $this->actor));
+    }
+
+    public function testUnavailableModuleDoesNotExposeOrChangeGroupMailConsent(): void
+    {
+        $this->assertFalse($this->service->isSuppressed('shared@example.org'));
+        $this->assertFalse($this->memberEmailService($this->createStub(MailService::class))
+            ->isUnsubscribedFromGroupMail($this->members->findById($this->second)));
+        $this->assertSame(0, $this->service->restoreGroupMail('shared@example.org', $this->actor));
+        $this->assertStillInactive();
+    }
+
+    public function testMemberConsentIsVisibleOnlyForProvenAddressesAndRestoresOnlyGroupMail(): void
+    {
+        $this->enableModule();
+        $service = $this->memberEmailService($this->createStub(MailService::class));
+        $this->assertTrue($service->isUnsubscribedFromGroupMail($this->members->findById($this->second)));
+        $this->assertFalse($service->isUnsubscribedFromGroupMail($this->members->findById($this->pending)));
+        $this->members->markValid($this->first);
+        $row = $this->members->findById($this->first);
+        $this->assertTrue($service->isUnsubscribedFromGroupMail($row));
+        $this->assertTrue($service->restoreGroupMail($row->memberId, $row->id, null, $this->actor));
+        $this->assertFalse($service->isUnsubscribedFromGroupMail($row));
+        $this->assertTrue($this->members->findById($this->second)->isInactive());
+        $this->assertTrue($this->members->findById($this->pending)->isPending());
+        $this->assertFalse($service->restoreGroupMail($row->memberId, $row->id, null, $this->actor));
+    }
+
+    public function testAnotherMembersAddressCannotBeResubscribedFromTheProfile(): void
+    {
+        $this->enableModule();
+        $service = $this->memberEmailService($this->createStub(MailService::class));
+        $owner = $this->members->findById($this->first)->memberId;
+        try {
+            $service->restoreGroupMail($owner, $this->second, null, $this->actor);
+            $this->fail('The row belongs to another member.');
+        } catch (MemberEmailException) {
+            $this->assertStillInactive();
         }
     }
 
@@ -287,13 +343,19 @@ class AddressReactivationServiceTest extends TestCase
             ->willReturnCallback(function (string $to): void {
                 $this->assertSame('shared@example.org', $to);
                 $this->assertFalse($this->pdo->inTransaction(), 'Notifications must wait for commit.');
-                $this->assertStillInactive();
+                $this->assertTrue($this->suppressed->isSuppressed('shared@example.org'));
+                $this->assertTrue($this->members->findById($this->first)->isValid());
+                $this->assertTrue($this->members->findById($this->second)->isValid());
             });
         $controller = $this->unsubscribeController($this->memberEmailService($mail));
         $response = $controller->unsubscribe(new \Core\Http\Request('POST', '/mass-mail/unsubscribe/1',
             [], ['token' => 'valid'], [], []), ['id' => '1']);
         $this->assertSame(200, $response->getStatusCode());
-        $this->assertStillInactive();
+        $this->assertSame(200, $controller->unsubscribe(new \Core\Http\Request('POST', '/mass-mail/unsubscribe/1',
+            [], ['token' => 'valid'], [], []), ['id' => '1'])->getStatusCode());
+        $this->assertTrue($this->suppressed->isSuppressed('shared@example.org'));
+        $this->assertTrue($this->members->findById($this->first)->isValid());
+        $this->assertTrue($this->members->findById($this->second)->isValid());
     }
 
     public function testAnInterruptedUnsubscribeRollsBackAndDoesNotSendItsQueuedNotification(): void
@@ -306,8 +368,8 @@ class AddressReactivationServiceTest extends TestCase
         $real = $this->memberEmailService($mail);
         $failing = $this->createMock(MemberEmailService::class);
         $failing->expects($this->once())->method('unsubscribe')->willReturnCallback(
-            function (int $id, ?callable $defer) use ($real): void {
-                $real->unsubscribe($id, $defer);
+            function (string $email, ?callable $defer) use ($real): void {
+                $real->unsubscribe($email, $defer);
                 throw new \PDOException('deliberate interruption before commit');
             }
         );

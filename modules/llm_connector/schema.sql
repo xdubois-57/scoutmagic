@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS llm_providers (
     api_endpoint VARCHAR(255) NOT NULL,
     api_key BLOB NOT NULL,
     is_active TINYINT NOT NULL DEFAULT 1,
+    model_probe_cache JSON NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

@@ -51,7 +51,7 @@ use Modules\LlmConnector\Api\LlmTier;
  * the expensive door, it is the one that sends a picture of somebody's
  * contract to a provider, and a message whose PDF already gave up its text
  * must never pay for it. Without a connector — module absent, disabled, no
- * model on the OCR or CHEAP tier — this degrades to exactly what it did
+ * verified image model on the OCR tier — this degrades to exactly what it did
  * before: the readable shapes, and nothing else (§7.5).
  */
 class AttachmentTextReader
@@ -211,7 +211,7 @@ class AttachmentTextReader
         // The tier the transcription itself uses. isAvailable() answers a
         // wider question and would say yes to a connector that cannot
         // serve this one.
-        if (!$this->llm->isTierAvailable(LlmTier::OCR) && !$this->llm->isTierAvailable(LlmTier::CHEAP)) {
+        if (!$this->llm->isTierAvailable(LlmTier::OCR)) {
             return [];
         }
 

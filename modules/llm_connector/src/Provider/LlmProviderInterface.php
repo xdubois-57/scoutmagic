@@ -22,11 +22,10 @@ namespace Modules\LlmConnector\Provider;
 interface LlmProviderInterface
 {
     /**
-     * List available models from the provider's API.
-     *
-     * @return array<int, array{id: string, display_name: string}>
+     * List models together with the provider's evidence of endpoint/input support.
+     * An unknown capability must remain unknown, never inferred from a name.
      */
-    public function listModels(): array;
+    public function listModels(): ProviderModelCatalog;
 
     /**
      * Send a completion request to a specific model.

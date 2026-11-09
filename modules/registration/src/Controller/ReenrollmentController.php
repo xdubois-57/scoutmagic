@@ -77,6 +77,10 @@ class ReenrollmentController extends AbstractController
             // tell a family who had answered that their answer went with
             // it (roadmap IT-15).
             'is_open' => $this->campaign->isOpen(),
+            'campaign_state' => $this->campaign->stateFor(
+                (string) $targetYear['label'],
+                new \DateTimeImmutable()
+            )['state'] ?? null,
             'csrf_token' => CsrfGuard::generateToken(),
         ]);
     }
@@ -99,16 +103,19 @@ class ReenrollmentController extends AbstractController
         // The window is enforced on the server, not by the absence of a
         // button: a form left open in a tab across the closing date must
         // not still write.
+        [$publicYear, $targetYear] = $this->resolveYears();
         if (!$this->campaign->isOpen()) {
+            $state = $this->campaign->stateFor((string) $targetYear['label'], new \DateTimeImmutable());
             FlashMessage::set(
                 'error',
-                "La campagne de réinscription est clôturée. Contactez le Staff d'U pour toute modification."
+                ($state['state'] ?? null) === 'not_started'
+                    ? "La campagne de réinscription n'est pas encore ouverte."
+                    : "La campagne de réinscription est clôturée. Contactez le Staff d'U pour toute modification."
             );
 
             return $this->redirect(self::PAGE_URL);
         }
 
-        [$publicYear, $targetYear] = $this->resolveYears();
         $email = AuthSession::getEmail() ?? '';
         $memberId = (int) $request->getBody('member_id', 0);
 

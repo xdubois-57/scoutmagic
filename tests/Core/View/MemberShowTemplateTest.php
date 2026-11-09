@@ -62,7 +62,7 @@ class MemberShowTemplateTest extends TestCase
         ]);
     }
 
-    public function testReactivationHasOneGenericConfirmationAndIsOnlyOfferedOnAnOwnedInactiveAddress(): void
+    public function testInactiveLoginReactivationIsAnImmediateUndoOnlyOfferedOnAnOwnedAddress(): void
     {
         $row = new \Core\Member\MemberEmail(7, 1, 'parent@example.org', 'manual', 'inactive',
             null, null, null, null, new \DateTimeImmutable(), new \DateTimeImmutable());
@@ -71,11 +71,34 @@ class MemberShowTemplateTest extends TestCase
         @$doc->loadHTML($html);
         $form = (new \DOMXPath($doc))->query('//form[@action="/members/1/emails/7/reactivate"]')->item(0);
         $this->assertNotNull($form);
-        $this->assertStringContainsString('toutes les fiches', $form->getAttribute('data-confirm'));
-        $this->assertSame('Réactiver', $form->getAttribute('data-confirm-label'));
-        $this->assertSame("Réactiver l'adresse e-mail ?", $form->getAttribute('data-confirm-title'));
+        $this->assertFalse($form->hasAttribute('data-confirm'));
         $this->assertStringNotContainsString('/emails/7/reactivate',
             $this->render($this->makeMember(), false, ['member_emails' => [$row]]));
+    }
+
+    public function testGroupMailConsentIsShownBesideAValidAddressAndRestoredByItsOwnAction(): void
+    {
+        $row = new \Core\Member\MemberEmail(7, 1, 'parent@example.org', 'manual', 'valid',
+            null, null, null, new \DateTimeImmutable(), null, new \DateTimeImmutable());
+        $context = ['member_emails' => [$row], 'member_email_group_mail_unsubscribed' => [7 => true]];
+        $html = $this->render($this->makeMember(), true, $context);
+        $doc = new \DOMDocument();
+        @$doc->loadHTML($html);
+        $forms = (new \DOMXPath($doc))->query('//form[@action="/members/1/emails/7/restore-group-mail"]');
+        $this->assertSame(1, $forms->length);
+        $form = $forms->item(0);
+        $this->assertSame('Rétablir les e-mails groupés', $form->getAttribute('data-confirm-label'));
+        $this->assertStringContainsString('tous les groupes', $form->getAttribute('data-confirm'));
+        $this->assertStringContainsString('Le consentement aux e-mails groupés sera rétabli', $form->getAttribute('data-confirm'));
+        $this->assertStringContainsString("La validité de l'adresse pour la connexion et les suspensions pour rebonds restent inchangées", $form->getAttribute('data-confirm'));
+        $this->assertStringNotContainsString('recevra de nouveau', $form->getAttribute('data-confirm'));
+        $this->assertStringContainsString('Désinscrite des e-mails groupés', $html);
+        $this->assertStringNotContainsString('/emails/7/reactivate', $html);
+        $this->assertStringNotContainsString('/emails/7/restore-group-mail',
+            $this->render($this->makeMember(), false, $context));
+        $withoutModule = $this->render($this->makeMember(), true, ['member_emails' => [$row]]);
+        $this->assertStringNotContainsString('Désinscrite des e-mails groupés', $withoutModule);
+        $this->assertStringNotContainsString('/emails/7/restore-group-mail', $withoutModule);
     }
 
     private function makeMember(): MemberProfile

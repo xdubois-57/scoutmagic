@@ -286,11 +286,10 @@ class RoleResolverTest extends TestCase
     }
 
     /**
-     * Module addendum: unsubscribing an address revokes login too, even
-     * for the Desk-imported address itself — the one exception to "the
-     * Desk address is always usable, no exceptions" (see schema/core.sql).
+     * An explicitly inactive Desk override still blocks login. Group-mail
+     * consent does not create or change this status (issue #1049).
      */
-    public function testResolveDeniesLoginForAnUnsubscribedDeskAddress(): void
+    public function testResolveDeniesLoginForAnExplicitlyInactiveDeskAddress(): void
     {
         $this->createUserAccount('unsubscribed-desk@test.com');
         $this->createMemberWithFunction('unsubscribed-desk@test.com', 'Animateur', 'chief', true);

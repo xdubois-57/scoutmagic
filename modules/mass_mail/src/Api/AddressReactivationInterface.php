@@ -7,9 +7,12 @@ declare(strict_types=1);
 
 namespace Modules\MassMail\Api;
 
-/** The module's part of an explicitly requested, address-wide reactivation. */
+/** Address-wide group-mail consent, independent of login and bounce status. */
 interface AddressReactivationInterface
 {
+    /** Whether this address opted out of group mail; false when the module is unavailable. */
+    public function isSuppressed(string $email): bool;
+
     /**
      * Restore contacts and free-address eligibility, not frozen deliveries
      * or bounce blocks. The caller has verified ownership of the address,

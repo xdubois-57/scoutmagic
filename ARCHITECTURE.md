@@ -1487,9 +1487,9 @@ Two computations could disagree, and a dialogue saying « aucun e-mail » for a 
 
 **The page is two sub-pages on one rail**: `/config/reinscription` (dashboard) and `/config/reinscription/reglages` (settings), the second with a full breadcrumb through `ancestors`. `ReenrollmentCampaignService::timeline()` is the one source of everything the dashboard says about the campaign — its « État » card, its « Relancer maintenant » box and the question of the button — so that no two surfaces of the page can disagree. It returns each of the four e-mails of the target year's campaign in one of five states: sent, planned, missed, skipped, off. Its reminder dates are counted from that campaign's close. They used to be counted from a campaign already over, which is how the question once said « aucun autre rappel n'est prévu » while the settings planned two. Three rules keep it honest:
 
-- **One answer to « opened ahead of its date ».** `opened_early` is computed once, in `timeline()`: by the opening e-mail on record or, when none was recorded — the switch writes no marker — by the clock. The controller and the view read it; none recomputes it.
-- **A campaign the switch opened is under way** even with the e-mails off, when nothing else writes a mark: `started` is `hasStarted()` or `isOpen()`.
-- **The « previous campaign » line is a record, not a calculation.** Between two campaigns one grey line says how the last one ended, read from the last closing marker before the current campaign (the clock's, or the closing e-mail's) and dated by the moment that marker recorded — the day a hand-closed campaign really closed, not the scheduled one. A unit that never ran a campaign has no such line, and a campaign closed by hand with the e-mails off leaves no mark and so none: a wrong answer looks worse than none. The next reminder the question announces is the earliest planned date, the two delays being independent.
+- **One answer to « opened ahead of its date ».** `opened_early` is computed once, in `timeline()`: by the opening e-mail on record or, when none was recorded — the switch records no opening timestamp — by the clock. The controller and the view read it; none recomputes it.
+- **A campaign the switch opened is under way** even with the e-mails off, when no scheduled or e-mail marker is written: `started` is `hasStarted()` or `isOpen()`.
+- **The « previous campaign » line is a record, not a calculation.** Between two campaigns one grey line says how the last one ended, read from the last closing marker before the current campaign (the clock's, or the closing e-mail's) and dated by the moment that marker recorded — the day a hand-closed campaign really closed, not the scheduled one. A unit that never ran a campaign has no such line, and a campaign closed by hand with the e-mails off leaves no closing marker and so none: a wrong answer looks worse than none. The next reminder the question announces is the earliest planned date, the two delays being independent.
 
 ### 8.38 Registration module — Prévisions and the year-transition veto (iteration 7)
 
@@ -1503,7 +1503,7 @@ The refusal itself lives in `ScoutYearAdminService::activatePublicYear()` — th
 
 **Third Api, for an explicit year (`Api\ScoutYearRegistrationReviewProvider`, `Service\ScoutYearRegistrationReviewService`, chantier #930 lot C)**: what the workflow's checks read about this module for the target year they name — unlike `ScoutYearPreparationProvider`, which resolves "public year + 1" itself. Five reads, every one returning `Api\` value objects (names already decrypted in the repositories, nothing else about a person):
 
-- `reenrollmentCampaign($targetYearId, ?$now): ?ReenrollmentCampaignState` — `not_started` / `open` / `finished` plus the campaign's opening and closing days, from `ReenrollmentCampaignService::stateFor()`: open = the switch is on (read for the current campaign's year only, the switch being that campaign's), finished = `hasStarted()` and not open, **never inferred from how many families answered**. The opening day itself reads `not_started` until the opening (or an earlier one by hand that wrote to families) is recorded, since `poor_mans_cron` may not have run yet. Null when the dates designate no campaign and the switch is off.
+- `reenrollmentCampaign($targetYearId, ?$now): ?ReenrollmentCampaignState` — `not_started` / `open` / `finished` plus the campaign's opening and closing days, from `ReenrollmentCampaignService::stateFor()`: open = the switch is on (read for the current campaign's year only, the switch being that campaign's), finished = an opening recorded for that target year or `hasStarted()`, with the switch off, **never inferred from how many families answered**. `open()` atomically records the switch and the target label in the internal, read-only `registration_reenrollment_last_opened_year` setting, so an early manual opening followed by closure is finished even with campaign e-mails disabled. Closing an open campaign with no recorded target also stores that label atomically, so an installation upgraded while the campaign is open retains its state on closure. This history does not feed `hasStarted()` or consume a scheduled/email marker; the next target year is independent. The opening day itself reads `not_started` until the opening (or an earlier manual opening for the target year) is recorded, since `poor_mans_cron` may not have run yet. Null when the dates designate no campaign and the switch is off.
 - `requestCounts($targetYearId)` — pending, accepted (not `encoded`), accepted without a « section prévue », one query (`RegistrationRequestRepository::countWaitingForYear()`).
 - `announcedLeavers($targetYearId)` — the animés of the year before the target marked `leaving` (`PassageRosterRepository::findLeavingAnimes()`); that year is found by label and never created.
 - `passagesWithoutDestination($targetYearId)` — `PassageService::getBranchChanges()`'s own list, filtered to the undecided: the Passage page's people, never a second definition.
@@ -2400,7 +2400,7 @@ What does protect the files is the ordinary mechanism: `File\RentalDocumentOwner
 
 **A quota, because "store everything" on shared hosting is a promise about somebody else's disk.** `Service\StorageQuotaService` is asked before every attachment write, not at purge time — the ceiling is reached during a synchronisation and `poor_mans_cron` only advances on page views, so a nightly check would let one busy afternoon fill the host. Over the ceiling, in this order (D5): the attachment's bytes are refused while the message is still stored whole; the oldest messages nothing points at are removed; the superadmin is told, at most daily, because a mail per refused attachment gets unsubscribed from and then nobody is told at all. Bulk mail — `Precedence`, `Auto-Submitted`, `List-Unsubscribe`, a spam flag, a `mailer-daemon` sender — is stored like the rest and flagged `is_bulk` rather than dropped: a bounce is how a unit finds out its own message never arrived, and "we deleted it because it looked automatic" is not something a gateway gets to decide.
 
-**Photos reçues (#1016).** Pour un nouveau fichier, `MailboxSyncService` passe les images acceptées à `Core\Image\PhotoNormalizer` avant `UploadHandler` : JPEG de 2 400 px au maximum, orientation appliquée et métadonnées retirées. Les blocs EXIF des PNG et WebP sont lus comme du TIFF, y compris les variantes d'ordre des octets ; un bloc illisible est refusé plutôt que supprimé sans appliquer son orientation. Le HEIC utilise le décodeur réellement disponible sur le serveur. Une image impossible à normaliser devient une omission `IMAGE_UNREADABLE`, sans perdre le message. Le quota est vérifié sur les octets préparés. L'empreinte de déduplication reste celle des octets reçus ; `findStoredAttachmentByHash()` restitue le type et la taille de la représentation conservée, que les références suivantes et les consommateurs réutilisent. Les fichiers historiques restent en place : leur reprise est une opération distincte.
+**Incoming photos (#1016).** For a new file, `MailboxSyncService` passes accepted images through `Core\Image\PhotoNormalizer` before `UploadHandler`: a JPEG no larger than 2 400 px, with metadata removed and orientation applied where EXIF can be read. PNG and WebP EXIF blocks are read as TIFF, including both byte orders; an available reader refusing corrupt metadata refuses the image. Without the optional EXIF reader or its memory stream, the photo is still re-encoded without metadata, with orientation left unchanged as for JPEG. HEIC uses the decoder actually available on the server. An image that cannot be normalized becomes an `IMAGE_UNREADABLE` omission without losing the message. `UploadHandler` keeps the prepared pixels without a second image encoding, so the bytes checked against the quota, stored and recorded have the same size; other uploads keep their existing encoding by default. Deduplication still hashes the received bytes; `findStoredAttachmentByHash()` returns the stored representation's type and size, reused by subsequent references and consumers. Historical files stay in place: processing them is a separate operation.
 
 **An attachment that is not kept still gets a row.** `Api\AttachmentOmission` says why — too large, type refused, quota reached, write failed — and `Api\OmittedAttachment` is deliberately a *different type* in a *different property* of `InboundMessage`, so every consumer that iterates `->attachments` and reads `->fileId` stays correct without knowing this exists. Showing one attachment fewer than the sender sent, with no explanation, is the failure mode this replaces: the reader could not tell whether ScoutMagic dropped a file or the sender never attached one, and the file is always still in the original mailbox where they can fetch it.
 
@@ -2909,37 +2909,44 @@ Test mode gains a per-recipient preview (`GET
 through rows with real substituted values and surfaces unknown tokens and
 per-row missing values; the test send carries the previewed row's values.
 
-**Unsubscribes (`mass_mail_suppressed_addresses`)** — every one-click
-unsubscribe (a token per MESSAGE, `UnsubscribeController`) stores a
-SHA-256 hash of the lowercased address, whoever asked; a member's message
-also deactivates its `member_emails` row, for every member sharing the
-address. The freeze reads the table for the addresses that have no member
-page — a contact's is written as a message in error, visible in tracking,
-and a file row's free address is left out — but **not for a member's own
-addresses**: those are governed by `member_emails`, which the unsubscribe
-already set « Inactif » and which « Réactiver » puts back. Reading the
-table there too, as the chantier of issue #999 first planned, made a
-member's unsubscribe permanent (review of #1030). Since #1032, confirmed
-reactivation restores every inactive member row sharing that address, the
-contact flags and the suppression hash together. Retention never purges
-an unsubscribe; only an explicit reactivation removes it.
+**Group-mail unsubscribe (#1049).** `mass_mail_suppressed_addresses` owns
+consent for every address: a member's, a contact's, or a free address from a
+mail-merge file. Each POST signed with a message token stores the normalized
+SHA-256 hash and flags matching contacts in one transaction. `member_emails`
+status is unchanged: unsubscribing preserves login and open sessions. Personal
+messages still arrive, and already-frozen recipients remain those selected at
+launch. Future freezes and estimates exclude the address for every profile
+sharing it; recipient listings apply the same consent.
 
-**Address-wide reactivation (#1032).** `Core\Member\EmailAddressReactivationService`
-uses one shared-PDO transaction for inactive member rows, the optional
-`Modules\MassMail\Api\AddressReactivationInterface` provider and their audit
-entries. Pending addresses, bounce blocks and frozen deliveries are untouched.
-`AddressReactivationRegistry` is the mutable handle passed to core before the
-module's block runs; disabled means no module table is read. The member action
-keeps its ownership/temporary-session guards and requires the generic
-`data-confirm` dialog. The admin-only POST on `/admin/listes-de-diffusion/adresses/reactivate`
-uses the same operation for a contact or free address at its holder's request.
-Neither path sends mail. The confirmation's replay marker lasts only for
-the synchronous submit, so a later decision on the same form asks again.
-Unsubscribe follows the same lock order in one transaction and sends its
-notifications only after commit. Failure rolls the changes back; re-importing a file
-alone still cannot undo an unsubscribe. A failed rollback or failure-audit write
-does not replace the original error; reactivation still returns its safe retry
-message when the journal is unavailable.
+`SuppressedAddressRepository::suppress()` reports whether the hash was newly
+inserted. Only that first insertion triggers notifications, after commit:
+confirmation to the address and notice to Staff d'U when members are linked.
+`MemberEmailService::unsubscribe()` finds links with established address control
+(Desk or confirmation) in the public year and includes current Desk profiles
+whose lazy override row does not exist yet. A Desk override qualifies only while
+the public-year profile still carries that address. An unconfirmed link request
+discloses no name. The service deactivates no address. A failed transaction sends
+no notification.
+
+**Restoring consent.** The optional
+`Modules\MassMail\Api\AddressReactivationInterface` contract exposes
+`isSuppressed()` and `reactivateAddress()`. `AddressReactivationRegistry` is
+passed to core before module activation; without a provider, no module table is
+read. The personal profile displays « Désinscrite des e-mails groupés » only for
+an address with an established holder. Its POST on
+`/members/{id}/emails/{email_id}/restore-group-mail` checks access to one's own
+profile, the CSRF token and the address, then calls
+`EmailAddressReactivationService::restoreGroupMail()` after generic confirmation.
+It removes the hash and contact flags without changing inactive statuses,
+pending confirmations, bounce blocks or frozen messages. The administrative POST
+on `/admin/listes-de-diffusion/adresses/reactivate` uses the same operation at
+the holder's request. Neither action sends mail.
+
+« Réactiver » on an actually inactive address remains a separate operation,
+`reactivateLogin()`, which restores its validity without lifting a group-mail
+unsubscribe. Transactions share the same PDO and lock order: suppression,
+contacts, members. Failure preserves the previous state and offers a retry;
+importing a file cannot resubscribe an address. Old inactive rows are not migrated.
 
 **One notification per account and per row (issue #999, §2.6).** The
 account concerned is the one whose login is the address of a sent message
@@ -4126,7 +4133,7 @@ $seed = crc32($accountId . '|' . ($snoozedUntil?->format('c') ?? '') . '|' . $co
 
 The dialog reappears on **every page load** until it is closed — `snoozed_until` is only ever set by an action — so an independent draw per request would serve a different batch from one page to the next, re-showing the cards somebody has just moved past. This seed moves only when the stored state moves, which is to say after each close, each postponement and each refusal: a stable order for a whole browsing session, a different one at the next passage, and two people of the same role who do not open on the same tip. No new state is stored to achieve it. **`mt_srand()` is forbidden here**: it is global state of the request, it would make the service untestable, and it would silently reshape every random draw made later in the same request. The computed sort key is pure.
 
-**A Bootstrap modal, a component of its own** — never the offcanvas help panel. That panel is opened BY the reader and coexists with reading the page; a tip has to be noticed. Two behaviours in one component would be a permanent source of regression. The card leads with the topic's first `question:` and only then gives its title, because that is what separates a tip from a table of contents. **The title and the summary then sit inside one light frame** (`border rounded`), and the question stays outside it: the question is the reader's own words, the frame is the site's answer, and unframed the three paragraphs read as one wall of text in which the title stops looking like a title. Both lines are inside it or neither — a frame around the title alone would separate the two halves of the same answer, which is why `HelpDiscoveryDialogTest` asserts the pair rather than a class list. `public/assets/js/help-discovery.js` walks the cards in place, accumulates the ids actually gone past, and makes **one** network call, at the close.
+**A Bootstrap modal, a component of its own** — never the offcanvas help panel. That panel is opened BY the reader and coexists with reading the page; a tip has to be noticed. Two behaviours in one component would be a permanent source of regression. The card leads with the topic's first `question:` and only then gives its title, because that is what separates a tip from a table of contents. **The title and the summary then sit inside one light frame** (`border rounded`), and the question stays outside it: the question is the reader's own words, the frame is the site's answer, and unframed the three paragraphs read as one wall of text in which the title stops looking like a title. Both lines are inside it or neither — a frame around the title alone would separate the two halves of the same answer, which is why `HelpDiscoveryDialogTest` asserts the pair rather than a class list. `public/assets/js/help-discovery.js` walks the cards in place, accumulates the ids actually gone past, and submits one choice at a time, with retries after an unacknowledged write.
 
 **Whether there is a dialog at all is a server decision**, `DiscoveryService::dialogForRequest()`, and the Twig global is simply not set when the answer is no — the same shape as the cookie banner, never a CSS class on markup that shipped anyway. It answers no for a visitor with no account, for anything but a GET, and on `/aide`, `/api/`, `/cookies`, `/login` and the offline page: the help itself, a JSON answer with no reader, the cookie preferences, somebody not signed in yet, and somebody with no network — where the closing call would fail and nothing would be recorded. `/cookies` is on that list for the reason the consent banner is already excluded from it (« it was covering the very page its own "Personnaliser" action leads to »): a page where consent is given or withdrawn carries nothing on top of it. **And no while the cookie banner is still unanswered**, which is the case every account meets on its first page after signing in: the banner sits at z-index 1035 and a Bootstrap modal's backdrop at 1050, so the dialog would cover the very decision the site is asking for and swallow every click aimed at it — and the reader's only way out, dismissing the dialog, IS a close, so it would consume their first batch and snooze them for a day on a click they made to reach the banner. The gate is *answered*, either way, never *accepted*: the state is on the account and no cookie is involved, so somebody who refused everything still gets their tips.
 
@@ -4134,7 +4141,18 @@ The dialog reappears on **every page load** until it is closed — `snoozed_unti
 
 **One dialog per visit, and the other one wins.** The installed application's « Activer les notifications ? » invitation (§8.110) is asked before the tips are offered: `public/assets/js/push-invitation.js` says synchronously whether it is opening and `help-discovery.js` stands down when it is, consuming nothing; once it is answered, `DiscoveryService::holdBack()` holds the tips back for the ordinary interval, so the rest of that day's page loads carry no tip either. Two modals in a row is what makes people close both without reading either — and this one consumes its batch on the way out.
 
-**Offline, the closing call fails and the tips come back.** That is the right behaviour rather than a gap to queue around: nothing was recorded, so nothing was consumed.
+**Acknowledging choices (#1053).** The browser acknowledges an action only after
+HTTP success and an application response containing `success: true`. Only one
+request runs at a time; postponing, refusing tips and reloading for more tips
+take effect only after that acknowledgement. On failure, an alert within the
+dialog explains the problem and offers a keyboard-accessible « Réessayer »;
+controls are restored. The alert concerns the account's choice, so browsing
+another card keeps it visible. Manual dismissal preserves the failed action and
+message in the common toast rather than recording an ordinary close over it.
+Each failed request produces at most one toast, including during the dismissal
+transition; a failed retry can report its own error.
+A completed request or an HTTP 200 carrying an application refusal never counts
+as a saved choice.
 
 **Four `core` settings**, registered like the others in `public/index.php`: `help_discovery_enabled` (the switch, for the unit that does not want this), `help_discovery_interval_hours` (24), `help_discovery_snooze_days` (7), `help_discovery_batch_size` (5). A value an administrator empties or sets to zero falls back on its default — a batch of none would be an empty dialog.
 
@@ -4882,8 +4900,8 @@ the address's blind index under the SHARED `'email'` purpose, because it is
 compared against `member_emails` to find who owns a bounced mailbox. A
 parent's address sits on every one of their children's profiles, so
 recording per profile would let « bloquée » be true on one screen and false
-on another for a single mailbox — the same reasoning
-`MemberEmailService::unsubscribe()` already applies.
+on another for a single mailbox. Group-mail consent likewise belongs to the
+address, but is stored independently of login validity and bounce status.
 `mass_mail_block_contacts` keeps its own domain-separated purpose, so the
 module never matches indexes across the boundary: it asks the core with the
 plaintext address it holds at send time.

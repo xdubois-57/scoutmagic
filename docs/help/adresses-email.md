@@ -22,8 +22,9 @@ peut les gérer — jamais un animateur.
   connecter.
 - **En attente de confirmation** : ajoutée, mais le lien de
   confirmation n'a pas encore été cliqué. Elle ne sert encore à rien.
-- **Inactif** : désinscrite des e-mails groupés. Elle ne reçoit plus
-  rien et ne permet plus de se connecter, jusqu'à « Réactiver ».
+- **Inactif** : désactivée, elle ne permet plus de se connecter,
+  jusqu'à « Réactiver ». Ce statut est distinct du choix de recevoir
+  les e-mails groupés.
 
 La première ligne est l'adresse importée depuis la base de la
 fédération : elle ne peut pas être supprimée ici — elle se corrige
@@ -44,12 +45,18 @@ ajouter au plus cinq adresses par animé.
 
 ## Désactiver, réactiver, supprimer
 
-Le lien de désinscription au bas d'un e-mail groupé passe l'adresse en
-« Inactif » — pour tous les animés qui la partagent. « Réactiver » la
-rétablit après confirmation de l'action, sans nouvel e-mail de vérification.
-La même adresse redevient active sur les autres fiches qui la partagent,
-dans tous les groupes de contacts et pour les prochains publipostages.
-Les autres adresses et les envois déjà lancés ne changent pas.
+Le lien de désinscription au bas d'un e-mail groupé arrête les prochains
+e-mails groupés pour tous les animés qui partagent cette adresse. Elle
+reste valide pour vous connecter et recevoir les messages personnels.
+La carte indique alors « Désinscrite des e-mails groupés ».
+
+« Rétablir les e-mails groupés » réabonne cette adresse après confirmation,
+pour toutes les fiches et tous les groupes de contacts qui l'utilisent.
+Les autres adresses et les envois déjà lancés ne changent pas. Les adresses
+en attente de confirmation et les suspensions pour rebonds gardent leur état.
+
+« Réactiver » ne concerne qu'une adresse réellement inactive : cela rétablit
+sa validité pour la connexion, sans modifier son choix pour les e-mails groupés.
 Une suspension pour rebonds se lève séparément.
 « Supprimer » retire
 définitivement une adresse en attente ou inactive.

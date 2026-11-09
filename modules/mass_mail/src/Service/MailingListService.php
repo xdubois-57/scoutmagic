@@ -25,6 +25,7 @@ use Modules\MassMail\Repository\ListBlockRepository;
 use Modules\MassMail\Repository\MailingList;
 use Modules\MassMail\Repository\MailingListRepository;
 use Modules\MassMail\Repository\MemberResolutionRepository;
+use Modules\MassMail\Repository\SuppressedAddressRepository;
 use Modules\Registration\Api\ExternalMailingListProvider;
 use Modules\Registration\Api\ProjectedPopulationProvider;
 
@@ -109,7 +110,8 @@ class MailingListService
          * them (MassMailService::freezeListRecipients()). Null counts the
          * Desk address alone.
          */
-        private ?MemberEmailService $memberEmailService = null
+        private ?MemberEmailService $memberEmailService = null,
+        private ?SuppressedAddressRepository $suppressedAddresses = null
     ) {
     }
 
@@ -1284,9 +1286,8 @@ class MailingListService
      * when it is well formed, and their valid personal ones
      * (MemberEmailService::resolveValidAddressesForMassMail(), asked with
      * no Desk address, so reading never creates the Desk override row). An
-     * unsubscribed member address is « Inactif » and left out there, as at
-     * the send, which no more reads mass_mail_suppressed_addresses for a
-     * member's addresses than this does. A contact is read at its address.
+     * group-mail opt-out is filtered through the module's suppression
+     * list for every address, just as at freeze time. A contact is read at its address.
      *
      * One gate of the freeze is deliberately not reproduced: the bounce
      * block (Core\Mail\Feedback\Bounce). A Desk or contact address the far
@@ -1327,7 +1328,18 @@ class MailingListService
             }
         }
 
-        return array_values($byAddress);
+        $suppressed = array_fill_keys(
+            array_map(
+                static fn(string $address): string => mb_strtolower(trim($address)),
+                $this->suppressedAddresses?->filterSuppressed(array_column($byAddress, 'email')) ?? []
+            ),
+            true
+        );
+
+        return array_values(array_filter(
+            $byAddress,
+            static fn(array $row): bool => !isset($suppressed[$row['key']])
+        ));
     }
 
     /**

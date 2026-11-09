@@ -925,6 +925,51 @@ class MailboxSyncServiceTest extends TestCase
         $this->assertImageIsOmitted($this->heicBytes(), 'photo.heic');
     }
 
+    public function testNormalizedPhotoBytesAndQuotaMatchTheOneStoredFile(): void
+    {
+        $image = imagecreatetruecolor(400, 300);
+        for ($x = 0; $x < 400; $x += 4) {
+            imagefilledrectangle($image, $x, 0, $x + 3, 299, ($x % 256) << 16 | (($x * 7) % 256) << 8 | 90);
+        }
+        ob_start();
+        imagepng($image);
+        $source = (string) ob_get_clean();
+        imagedestroy($image);
+        $prepared = (new PhotoNormalizer())->normalize($source);
+        $this->registry->register($this->claimEverything());
+        $this->addMessageWithAttachment(10, 'quota-a@b', $source, 'photo.png');
+        $this->addMessageWithAttachment(11, 'quota-b@b', $source, 'photo.png');
+
+        $this->sync();
+
+        $messages = $this->messageRepository->findForReference('rental', 'LOC-K7Q2M4');
+        $file = (new FileRepository($this->pdo))->findById($messages[0]->attachments[0]->fileId);
+        if ($file === null) {
+            throw new \RuntimeException('The synchronized photo has no stored file.');
+        }
+        $stored = (string) file_get_contents($this->storagePath . '/' . $file->relativePath);
+        $quota = new \Modules\InboundMail\Service\StorageQuotaService(
+            $this->messageRepository,
+            new \Core\Config\SettingService(new \Core\Config\SettingRepository($this->pdo))
+        );
+        $remaining = $quota->quotaBytes() - strlen($stored);
+        $hashes = $this->pdo->query('SELECT content_hash FROM inbound_message_attachments')->fetchAll(\PDO::FETCH_COLUMN);
+
+        $this->assertSame(
+            [
+                hash('sha256', $prepared), strlen($prepared), [strlen($prepared), strlen($prepared)],
+                strlen($prepared), 1, [hash('sha256', $source), hash('sha256', $source)], true, false,
+            ],
+            [
+                hash('sha256', $stored), $file->sizeBytes,
+                array_map(static fn(InboundMessage $message): int => $message->attachments[0]->sizeBytes, $messages),
+                $this->messageRepository->totalStoredBytes(),
+                (int) $this->pdo->query('SELECT COUNT(*) FROM files')->fetchColumn(), $hashes,
+                $quota->accepts($remaining), $quota->accepts($remaining + 1),
+            ]
+        );
+    }
+
     #[\PHPUnit\Framework\Attributes\DataProvider('otherImageFormats')]
     public function testOtherImageFormatsAreStoredAndAnnouncedAsJpeg(string $format, string $filename): void
     {
