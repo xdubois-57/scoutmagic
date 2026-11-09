@@ -156,9 +156,8 @@ class DeskImportService
                 $this->importMember($member, $scoutYearId, $warnings, $asOf);
             }
 
-            // Chef d'unité role is only known once a function is confirmed
-            // on Correspondances Desk, not from the CSV itself — recompute Staff d'U
-            // membership from whatever functions are already role='admin'.
+            // Recompute Staff d'U from stored roles, including defaults just
+            // assigned to newly encountered standard functions.
             $this->unitStaffSectionService->syncMembership($scoutYearId);
 
             // Freeze what Desk contained. member_years is overwritten

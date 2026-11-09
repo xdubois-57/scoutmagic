@@ -264,15 +264,56 @@ class ImportControllerTest extends TestCase
         $this->assertSame(404, $response->getStatusCode());
     }
 
+    #[\PHPUnit\Framework\Attributes\DataProvider('newFunctionReports')]
+    public function testNewFunctionReportsAskForConfigurationOnlyWhenNeeded(string $code, bool $pending): void
+    {
+        $mapping = new \Core\Import\MappingResolver(
+            new \Core\Import\FunctionRepository($this->pdo), new \Core\Import\AgeBranchRepository($this->pdo),
+            new \Core\Import\ImportSectionRepository($this->pdo), new \Core\Import\FeeCategoryRepository($this->pdo),
+        );
+        $functionId = $mapping->resolveFunction($code);
+        $importId = $this->seedImport(1);
+        (new ImportJournalRepository($this->pdo))->storeDiff(
+            $importId,
+            new \Core\Import\ImportDiff(true, null, 4, newFunctionIds: [$functionId]),
+        );
+        $response = $this->controller->report(
+            new Request('GET', '/admin/import/' . $importId . '/rapport', [], [], [], []),
+            ['id' => (string) $importId],
+        );
+        $body = html_entity_decode($response->getBody(), ENT_QUOTES | ENT_HTML5);
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame([true, true, $pending, !$pending], [
+            str_contains($body, '1 nouvelle fonction'), str_contains($body, $code),
+            str_contains($body, 'Qualifier dans Correspondances Desk'),
+            str_contains($body, 'Toutes ces correspondances sont confirmées.'),
+        ]);
+    }
+
+    /** @return iterable<string, array{string, bool}> */
+    public static function newFunctionReports(): iterable
+    {
+        yield 'standard confirmed on creation' => ['Animateur responsable', false];
+        yield 'unknown still needing configuration' => ['Fonction nouvelle non standard', true];
+    }
+
+    public function testTheHistoryCountsNewFunctionsWithoutCallingThemAllUnconfirmed(): void
+    {
+        $this->seedImport(1);
+        $response = $this->controller->history(new Request('GET', '/admin/import/historique', [], [], [], []), []);
+
+        $this->assertStringContainsString('1 nouvelle fonction', $response->getBody());
+    }
+
     /**
      * One import of the current year, with the deliberately unavailable
      * diff a season's first import stores.
      */
-    private function seedImport(): int
+    private function seedImport(int $newFunctions = 0): int
     {
         $currentYearId = (int) $this->pdo->query('SELECT id FROM scout_years LIMIT 1')->fetchColumn();
         $repo = new ImportJournalRepository($this->pdo);
-        $importId = $repo->create($currentYearId, 1, 268, 262, 0);
+        $importId = $repo->create($currentYearId, 1, 268, 262, $newFunctions);
         $repo->storeDiff($importId, \Core\Import\ImportDiff::unavailable(\Core\Import\ImportDiff::UNAVAILABLE_FIRST_OF_SEASON));
 
         return $importId;

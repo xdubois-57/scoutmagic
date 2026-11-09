@@ -2596,16 +2596,23 @@ $superAdminService = new SuperAdminService(
         (string) $settingService->get('base_url')
     )
 );
-// The import resolver and the CSV parser now say what they could not
-// recognise, in the journal (issue #356). Nothing else about them moves:
-// the journal service is the only dependency they gained, and it exists
-// long before this line.
+// Single-implementation CORE hooks (§7.4) register here, before their
+// consumers are constructed. Modules register their implementations far
+// below; consumers resolve them at use time, so construction order does
+// not decide whether an optional capability is available.
+// Multi-contributor hooks keep their dedicated registries: menus,
+// RGPD sub-processors and Desk-import listeners.
+$moduleHooks = new \Core\Module\HookRegistry();
+
+// Standard function roles and optional lead flags are initialized on first
+// encounter. The journal records only mappings still requiring a decision.
 $mappingResolver = new MappingResolver(
     $functionRepo,
     $ageBranchRepo,
     $importSectionRepo,
     $feeCategoryRepo,
-    $journalService
+    $journalService,
+    $moduleHooks
 );
 $csvParser = new DeskCsvParser($journalService);
 
@@ -2717,19 +2724,6 @@ $sectionService = new SectionService(
     new \Core\Member\Repository\SectionRepository($connection),
     new MemberProfileRepository($connection, $encryptionService, $memberBadgeRepository)
 );
-// Single-implementation CORE hooks (§7.4) all register in this registry —
-// one line in the providing module's block, far below, resolved by
-// consumers at request time (Core\Module\HookRegistry's own docblock says
-// why this is not a DI container). Multi-contributor hooks keep their
-// dedicated registries: menus (DynamicMenuRegistrar), RGPD sub-processors
-// (RgpdContentService), Desk-import listeners (DeskImportListenerRegistry).
-//
-// It is created HERE, this high, because a core CONSUMER can be built
-// long before any module block runs — BadgeService just below is the
-// first. Resolution at use time is what makes that safe; construction
-// order is not.
-$moduleHooks = new \Core\Module\HookRegistry();
-
 $badgeService = new BadgeService($badgeRepository, $memberBadgeRepository, $sectionService, $moduleHooks);
 
 // "Which sections is this account an animateur of" (ARCHITECTURE.md

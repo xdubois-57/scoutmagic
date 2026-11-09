@@ -57,12 +57,9 @@ use Core\Security\UserAccountRepository;
  *     DeskImportService::import() ends with `@unlink($filePath)`, so pointing
  *     it at `desk/2024-2025.csv` would delete a versioned fixture on the first
  *     run. This is the one place that has to remember.
- *   - **Roles are confirmed after all three imports, then membership is
- *     resynced for every year.** A Desk import can never know a role: a new
- *     FONCTION always lands as `identified`, unconfirmed, and only Correspondances Desk
- *     (FunctionsController::updateRole) turns it into `chief`/`admin`/
- *     `intendant`. Staff d'U is populated by that second step, never by the
- *     import — which is exactly why the dataset has to perform both.
+ *   - **Standard roles are initialized by the import.** Other declared
+ *     labels are confirmed afterwards, then membership is resynced for
+ *     every year. Existing confirmed mappings are preserved in both steps.
  */
 final class DeskImportReplay
 {
@@ -160,8 +157,8 @@ final class DeskImportReplay
     }
 
     /**
-     * Confirm every FONCTION's role, the same way Correspondances Desk does: set the
-     * role and mark it confirmed, then resync Staff d'U membership.
+     * Confirm remaining declared FONCTION roles through the same repository
+     * path as Correspondances Desk, then resync Staff d'U membership.
      *
      * The FONCTION → role table is declarative data (UnitBlueprint::FUNCTIONS),
      * not code: adding a function to the dataset means adding a line there.
@@ -183,11 +180,15 @@ final class DeskImportReplay
         foreach ($repository->findAll() as $function) {
             $role = UnitBlueprint::FUNCTIONS[$function['desk_code']] ?? null;
             if ($role === null) {
-                $unconfirmed[] = $function['desk_code'];
+                if (!$function['confirmed']) {
+                    $unconfirmed[] = $function['desk_code'];
+                }
                 continue;
             }
 
-            $repository->updateRole($function['id'], $role, true);
+            if (!$function['confirmed']) {
+                $repository->updateRole($function['id'], $role, true);
+            }
         }
 
         // FunctionsController resyncs only the year in effect for the request;
@@ -229,7 +230,7 @@ final class DeskImportReplay
             $this->pdo,
             $this->encryption,
             new DeskCsvParser(),
-            new MappingResolver($functionRepository, $ageBranchRepository, $sectionRepository, $feeRepository),
+            new MappingResolver($functionRepository, $ageBranchRepository, $sectionRepository, $feeRepository, null, $this->functionHooks()),
             new MemberRepository($this->pdo),
             new MemberYearRepository($this->pdo),
             new ImportJournalRepository($this->pdo),
@@ -262,6 +263,17 @@ final class DeskImportReplay
             null,
             $this->importListeners(),
         );
+    }
+
+    private function functionHooks(): \Core\Module\HookRegistry
+    {
+        $hooks = new \Core\Module\HookRegistry();
+        if ($this->moduleIsEnabled('trombinoscope')) {
+            $hooks->register(\Core\Module\FunctionFlagsProvider::class, new \Modules\Trombinoscope\Service\FunctionFlagsService(
+                new \Modules\Trombinoscope\Repository\FunctionFlagsRepository($this->pdo),
+            ));
+        }
+        return $hooks;
     }
 
     /**

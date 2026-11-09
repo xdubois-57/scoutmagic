@@ -53,7 +53,7 @@ appliquées, mots de passe et clés gérés par l'unité déployante.
 - RBAC guard called by Router **before** any controller code — automatically, for every route.
 - Every route must declare `role_min`. A route without `role_min` is rejected at load time — `Core\Module\ModuleManifest` for module routes, and `Core\Http\Router::addRoute()` itself for core ones (the argument is mandatory, and an unrecognised role name raises rather than being silently downgraded to `public` by `Role::fromString()`).
 - The RBAC guard is switched off in exactly one place — `setRbacBypassPrefix('/setup')` — and only while `SecretManager::isInitialized()` is false, i.e. the first-run installer, where no database, account or role exists yet. Once initialized, `/setup` is reachable through its own `role_min: superadmin` like any other route, so a bypass there could only ever strip authentication (`GET /setup` leaks database/SMTP/admin settings and issues a CSRF token; `POST /setup/save` rewrites database credentials and the admin account). Pinned by `Tests\Core\Http\SetupRbacBypassWiringTest`.
-- New imported functions default to lowest role. An import never silently elevates privileges.
+- Unknown Desk functions default to `identified`, unconfirmed. The only exception is the nine standard functions in `MappingResolver`'s explicit catalog (ARCHITECTURE.md §8.1): each gets its confirmed role on first creation, without approximate matching. Absent functions are never precreated. Existing mappings retain their role, confirmation and flags on every later import. `Iama local` grants `public`, never `intendant`; an authenticated account still has the `identified` minimum.
 - Role check is always server-side. Menu visibility is a convenience, never a security boundary.
 - Group-mail consent is independent of login: unsubscribing changes no `member_emails` status and revokes no session. Restoring group mail does not reactivate an address inactive for another reason, a pending confirmation or a bounce block.
 - **`role_min` is a floor, never the whole answer.** Any resource with its own visibility rule must re-check it in the controller or service, because the route only proves the caller's role clears the minimum:
@@ -330,7 +330,7 @@ No other proxy header is trusted — not `X-Forwarded-For`, not `Forwarded`, not
   line with the wrong number of cells — refuses the whole file before the
   barrier, the kept file and the transaction. Nothing is written, nothing
   is kept, and in particular a malformed e-mail no longer creates a login.
-- New functions never auto-assigned to elevated roles.
+- New functions receive elevated roles only through the explicit standard-function defaults in §3, on first creation. Existing mappings keep their configured roles. The replacement barrier uses the same defaults and database code equivalence, in import order, to predict administrative access without creating mappings before validation.
 - Journal stores only metadata — never raw CSV content.
 - **A refusal for invalid lines quotes the offending cell to the
   administrator who deposited the file, and to nobody else.** The import

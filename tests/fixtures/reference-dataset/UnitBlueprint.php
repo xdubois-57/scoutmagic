@@ -154,9 +154,9 @@ final class UnitBlueprint
     ];
 
     /**
-     * Every FONCTION the dataset uses, and the role Correspondances Desk will be asked
-     * to confirm for it (the CSV itself never carries a role — every new
-     * function imports as 'identified', unconfirmed).
+     * Every FONCTION the dataset uses and its intended role. Standard Desk
+     * labels are initialized by the import; the builder confirms the other
+     * declared labels through the manual configuration path.
      *
      * These are the labels a real Belgian unit's Desk export carries, verbatim.
      * The table used to invent four that Desk does not produce — `Chef
@@ -195,6 +195,8 @@ final class UnitBlueprint
      */
     public const FUNCTIONS = [
         'Animé' => 'identified',
+        'Scout' => 'identified',
+        'Iama local' => 'public',
         'Animateur' => 'chief',
         'Candidat animateur' => 'chief',
         'Animateur responsable' => 'chief',
@@ -203,7 +205,11 @@ final class UnitBlueprint
         'Animateur d\'unité' => 'admin',
         'Équipier d\'unité' => 'admin',
         'Collaborateur d\'unité' => 'admin',
+        'Candidat cadre local' => 'admin',
     ];
+
+    /** Both imported labels describe an ordinary section member. */
+    public const ANIME_FUNCTIONS = ['Animé', 'Scout'];
 
     /**
      * The FONCTIONs that occupy one of a section's `cadres` slots in
@@ -241,6 +247,7 @@ final class UnitBlueprint
         'Animateur d\'unité',
         'Équipier d\'unité',
         'Collaborateur d\'unité',
+        'Candidat cadre local',
     ];
 
     /**

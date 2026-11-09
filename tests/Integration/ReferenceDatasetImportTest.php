@@ -25,7 +25,7 @@ use Tests\Fixtures\ReferenceDataset\UnitBlueprint;
  * still SAY something — that the branch passages happened, that the member who
  * left kept their members row, that the returning member inherited their
  * offset, that the emptied section went inactive rather than away, that
- * Staff d'U filled up only once the roles were confirmed, and that a sibling
+ * Staff d'U filled up from the standard defaults, and that a sibling
  * group shares one address blind index.
  *
  * It earns its upkeep twice over, because it is also a real regression test of
@@ -53,6 +53,9 @@ final class ReferenceDatasetImportTest extends TestCase
     /** Staff d'U membership as it stood after the imports, before Correspondances Desk. */
     private int $unitStaffBeforeConfirmation;
 
+    /** @var array<string, array{role: string, confirmed: bool}> */
+    private array $importedMappings = [];
+
     protected function setUp(): void
     {
         $this->pdo = DatabaseTestHelper::createTestDatabase();
@@ -63,13 +66,12 @@ final class ReferenceDatasetImportTest extends TestCase
         $this->yearIds = $replay->ensureYears();
         $replay->importAll($this->yearIds, 1);
 
-        // The state between the last import and the confirmation is the state
-        // a real chief sees before their first visit to Correspondances Desk, and it is
-        // worth capturing rather than describing: every function is
-        // `identified`, so Staff d'U must have nobody in it yet even though
-        // DeskImportService::import() already called syncMembership() three
-        // times.
+        // Capture what the import itself decided, before the builder's
+        // explicit configuration of the remaining nonstandard functions.
         $this->unitStaffBeforeConfirmation = $this->unitStaffMembershipCount();
+        foreach ((new \Core\Import\FunctionRepository($this->pdo))->findAll() as $function) {
+            $this->importedMappings[$function['desk_code']] = ['role' => $function['role'], 'confirmed' => $function['confirmed']];
+        }
 
         $this->unconfirmed = $replay->confirmFunctionRoles($this->yearIds);
     }
@@ -99,7 +101,7 @@ final class ReferenceDatasetImportTest extends TestCase
 
                 self::assertSame(
                     $expectedAnimes,
-                    $this->countInSection($label, $name, ['Animé']),
+                    $this->countInSection($label, $name, UnitBlueprint::ANIME_FUNCTIONS),
                     "{$name} does not hold the declared number of « animés » in {$label}.",
                 );
                 self::assertSame(
@@ -293,28 +295,34 @@ final class ReferenceDatasetImportTest extends TestCase
 
     // ------------------------------------------------------------ les rôles
 
-    public function testStaffDUIsEmptyUntilRolesAreConfirmedAndPopulatedAfter(): void
+    public function testStandardUnitRolesPopulateStaffDUWithoutManualConfirmation(): void
     {
-        // The heart of scenario 10, and the one invariant that needs both
-        // halves stated. The section itself is created by every import
-        // (UnitStaffSectionService::ensureSection(), because
-        // deactivateAllSections() would otherwise leave it off), but a Desk
-        // import can never know a ROLE: the membership only appears once
-        // Correspondances Desk confirms "Chef d'unité" as admin.
         $section = $this->sectionRow(null, UnitStaffSectionService::DESK_CODE);
         self::assertNotNull($section, 'the « Staff d\'U » section was not created');
 
-        self::assertSame(
-            0,
-            $this->unitStaffBeforeConfirmation,
-            'the « Staff d\'U » section is populated although no role was confirmed yet — so the role came from the CSV',
-        );
-
         self::assertGreaterThanOrEqual(
             array_sum(UnitBlueprint::UNIT_STAFF_SIZE),
-            $this->unitStaffMembershipCount(),
-            'the « Staff d\'U » section is empty although the roles were confirmed',
+            $this->unitStaffBeforeConfirmation,
+            'standard unit roles did not populate Staff d\'U during the import',
         );
+        self::assertSame(
+            $this->unitStaffBeforeConfirmation,
+            $this->unitStaffMembershipCount(),
+            'confirming the remaining functions changed the standard unit staff',
+        );
+    }
+
+    public function testAllNineStandardFunctionsWereConfiguredByTheImports(): void
+    {
+        foreach ([
+            'Animateur' => 'chief', 'Animateur responsable' => 'chief', 'Candidat animateur' => 'chief',
+            "Animateur d'unité" => 'admin', 'Candidat cadre local' => 'admin',
+            "Collaborateur d'unité" => 'admin', "Équipier d'unité" => 'admin',
+            'Iama local' => 'public', 'Scout' => 'identified',
+        ] as $code => $role) {
+            self::assertSame(['role' => $role, 'confirmed' => true], $this->importedMappings[$code] ?? null, $code);
+        }
+        self::assertSame(['role' => 'identified', 'confirmed' => false], $this->importedMappings[UnitBlueprint::BRAND_NEW_FUNCTION]);
     }
 
     private function unitStaffMembershipCount(): int
@@ -333,7 +341,7 @@ final class ReferenceDatasetImportTest extends TestCase
 
     public function testTheBrandNewFunctionOfA3ArrivesUnconfirmed(): void
     {
-        // Scenario 14. Every function imports as identified/unconfirmed; this
+        // Scenario 14. An unknown function imports as identified/unconfirmed; this
         // one is the case a chief has to act on, and it only appears in the
         // last import.
         $stmt = $this->pdo->prepare('SELECT role, confirmed FROM functions WHERE desk_code = ?');

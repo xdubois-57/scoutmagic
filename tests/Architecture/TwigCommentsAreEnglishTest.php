@@ -112,8 +112,6 @@ final class TwigCommentsAreEnglishTest extends TestCase
     private const FRENCH_COMMENT_ALLOWLIST = [
         'core/View/templates/admin/attention.html.twig' => 1,
         'core/View/templates/admin/duplicates.html.twig' => 1,
-        'core/View/templates/admin/import_history.html.twig' => 1,
-        'core/View/templates/admin/import_report.html.twig' => 1,
         'core/View/templates/admin/members/show.html.twig' => 7,
         'core/View/templates/base.html.twig' => 2,
         'core/View/templates/config/support.html.twig' => 18,

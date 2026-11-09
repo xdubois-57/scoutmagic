@@ -18,8 +18,10 @@ namespace Core\Module;
  * member on the staff photo wall (role-based, not configurable), but needs to
  * know which function marks a section's "responsable" — without hardcoding
  * function names. It implements this interface and is wired into
- * FunctionsController from the composition root (public/index.php) only when
- * the module is enabled, keeping core free of any dependency on module code
+ * FunctionsController and MappingResolver through the hook registry only when
+ * the module is enabled. The resolver initializes standard defaults on a
+ * function's first encounter; the controller lets the administrator edit them.
+ * This keeps core free of any dependency on module code
  * (core defines the interface, the module implements it — never the other
  * way around).
  */

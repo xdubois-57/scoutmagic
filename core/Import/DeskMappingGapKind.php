@@ -58,9 +58,9 @@ enum DeskMappingGapKind: string
      * Where the decision is made, as a reader of a support package or of
      * the central page would go looking for it.
      *
-     * A FUNCTION is the odd one out: there is no list of known functions
-     * anywhere in this code, so no release can recognise one and this
-     * names the method that creates them rather than a table to complete.
+     * A FUNCTION remains unresolved when its mapping is unconfirmed.
+     * Standard labels get confirmed defaults at creation; other labels
+     * still need the unit's decision, so this names the resolver.
      */
     public function codeTable(): string
     {

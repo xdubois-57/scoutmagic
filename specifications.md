@@ -385,6 +385,19 @@ la ligne d'import, pendant une durée exprimée en années scoutes (2 par
 défaut). Le fichier déposé en clair, lui, est effacé à la fin de la
 requête, succès ou échec. Voir `SECURITY.md` §13.
 
+À sa première apparition dans un import, chaque fonction standard reçoit
+un rôle confirmé : Animateur, Animateur responsable et Candidat animateur
+en Chef ; Animateur d'unité, Candidat cadre local, Collaborateur d'unité
+et Equipier d'unité en Chef d'Unité ; Iama local en Public ; Scout en Animé.
+Avec Trombinoscope actif, seuls Animateur responsable et Animateur d'unité
+sont responsables de section par défaut. Cet indicateur est distinct du rôle
+et de la fonction principale Desk. Aucun libellé approximatif ne reçoit
+ces droits. Les fonctions absentes ne sont pas précréées et une fonction
+inconnue reste Animé, non confirmée. Un nouvel import conserve toute
+correspondance déjà enregistrée, confirmation et indicateurs compris.
+Ces choix restent modifiables dans Correspondances Desk, avec les
+notifications communes de réussite ou d'erreur après réponse du serveur.
+
 ### 7.1.1 Historique, rapport et conservation
 
 Chaque import laisse une ligne (`import_journal`) à laquelle se rattachent
@@ -396,8 +409,8 @@ figé. Deux écrans en découlent, tous deux en `role_min: admin` :
   `/files/{id}`, et la durée de conservation en clair.
 - **`/admin/import/{id}/rapport`** — ce que cet import a changé, figé au
   moment où il a eu lieu. Ordre de lecture : impact d'accès (rôles
-  `admin` gagnés ou perdus, fonctions inconnues arrivées au rôle
-  minimum), impact structurel (sections devenues inactives, arrivées,
+  `admin` gagnés ou perdus, nouvelles fonctions et éventuelles correspondances
+  encore à confirmer), impact structurel (sections devenues inactives, arrivées,
   départs, changements de section et de fonction), qualité des données
   (membres sans adresse exploitable, sans e-mail, sans fonction ni
   section, lignes non retenues).

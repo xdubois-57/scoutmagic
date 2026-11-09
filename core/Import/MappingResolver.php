@@ -9,9 +9,31 @@ declare(strict_types=1);
 namespace Core\Import;
 
 use Core\Journal\JournalService;
+use Core\Module\FunctionFlagsProvider;
+use Core\Module\HookRegistry;
 
 class MappingResolver
 {
+    /**
+     * Only attested Desk labels receive automatic roles. This catalog is
+     * consulted on creation, never for a mapping already stored by the site.
+     * A null lead flag does not apply to the function's role.
+     *
+     * @var array<string, array{role: string, lead: ?bool}>
+     */
+    private const STANDARD_FUNCTION_DEFAULTS = [
+        'Animateur' => ['role' => 'chief', 'lead' => false],
+        'Animateur responsable' => ['role' => 'chief', 'lead' => true],
+        'Candidat animateur' => ['role' => 'chief', 'lead' => false],
+        "Animateur d'unité" => ['role' => 'admin', 'lead' => true],
+        'Candidat cadre local' => ['role' => 'admin', 'lead' => false],
+        "Collaborateur d'unité" => ['role' => 'admin', 'lead' => false],
+        "Equipier d'unité" => ['role' => 'admin', 'lead' => false],
+        "Équipier d'unité" => ['role' => 'admin', 'lead' => false],
+        'Iama local' => ['role' => 'public', 'lead' => null],
+        'Scout' => ['role' => 'identified', 'lead' => null],
+    ];
+
     private int $newFunctionsCount = 0;
 
     /**
@@ -50,7 +72,8 @@ class MappingResolver
          * the place to discover that a dependency is missing — which is
          * also what keeps the existing test call sites valid.
          */
-        private ?JournalService $journal = null
+        private ?JournalService $journal = null,
+        private ?HookRegistry $hooks = null,
     ) {
     }
 
@@ -71,9 +94,16 @@ class MappingResolver
         $this->journalled = [];
     }
 
+    /** Role assigned only when this code creates a new mapping. */
+    public static function defaultRoleFor(string $deskCode): string
+    {
+        return self::STANDARD_FUNCTION_DEFAULTS[$deskCode]['role'] ?? 'identified';
+    }
+
     /**
      * Resolve a raw function code from CSV to a functions table ID.
-     * New functions get role='identified' and confirmed=false — NEVER elevated automatically.
+     * Standard labels receive their explicit defaults once. Every other new
+     * function stays identified and unconfirmed (SECURITY.md §3).
      */
     public function resolveFunction(string $deskCode): int
     {
@@ -95,14 +125,20 @@ class MappingResolver
             return $existing['id'];
         }
 
-        $id = $this->functionRepo->create($deskCode, $deskCode, 'identified', false);
+        $defaults = self::STANDARD_FUNCTION_DEFAULTS[$deskCode] ?? null;
+        $id = $this->functionRepo->create($deskCode, $deskCode, self::defaultRoleFor($deskCode), $defaults !== null);
+        if ($defaults !== null && $defaults['lead'] !== null) {
+            $this->hooks?->getOptional(FunctionFlagsProvider::class)?->setLead($id, $defaults['lead']);
+        }
         $this->newFunctionsCount++;
         $this->created['functions'][] = $id;
-        $this->journalGap(
-            DeskMappingGapKind::FUNCTION,
-            $deskCode,
-            'Fonction Desk inconnue, créée au rôle le plus bas'
-        );
+        if ($defaults === null) {
+            $this->journalGap(
+                DeskMappingGapKind::FUNCTION,
+                $deskCode,
+                'Fonction Desk inconnue, créée au rôle le plus bas'
+            );
+        }
 
         return $id;
     }
