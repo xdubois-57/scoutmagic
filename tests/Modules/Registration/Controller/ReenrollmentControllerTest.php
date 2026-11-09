@@ -102,14 +102,8 @@ class ReenrollmentControllerTest extends TestCase
         // branches above is declaring the age ranges.
 
         $this->settingService = new SettingService(new SettingRepository($this->pdo));
-        $this->settingService->register(
-            ReenrollmentService::SETTING_FRIEND_WISH_LIMIT,
-            '3',
-            'number',
-            'Souhaits',
-            'Test.',
-            'registration'
-        );
+        RegistrationTestHelper::registerManifestSettings($this->settingService);
+        $this->settingService->setInternal(ReenrollmentService::SETTING_FRIEND_WISH_LIMIT, '3', 'registration');
         $this->settingService->register(
             ScoutYearResolver::SETTING_PUBLIC_YEAR,
             (string) $this->currentYearId,
@@ -178,30 +172,8 @@ class ReenrollmentControllerTest extends TestCase
             $this->repository,
             $passageService
         );
-        $this->settingService->register(
-            ReenrollmentCampaignService::SETTING_OPEN,
-            '0',
-            'boolean',
-            'Campagne ouverte',
-            'Test.',
-            'registration'
-        );
-        $this->settingService->register(
-            ReenrollmentCampaignService::SETTING_OPEN_AT,
-            '03-01',
-            'text',
-            'Ouverture',
-            'Test.',
-            'registration'
-        );
-        $this->settingService->register(
-            ReenrollmentCampaignService::SETTING_CLOSE_AT,
-            '05-15',
-            'text',
-            'Fermeture',
-            'Test.',
-            'registration'
-        );
+        $this->settingService->setInternal(ReenrollmentCampaignService::SETTING_OPEN_AT, '03-01', 'registration');
+        $this->settingService->setInternal(ReenrollmentCampaignService::SETTING_CLOSE_AT, '05-15', 'registration');
         $this->campaign->open();
 
         $this->controller = new ReenrollmentController(
@@ -541,6 +513,63 @@ class ReenrollmentControllerTest extends TestCase
             'The window is enforced on the server, not by the absence of a button.'
         );
         $this->assertStringContainsString('est clôturée', \Core\Http\FlashMessage::get()['message']);
+    }
+
+    public function testAManualCampaignWithoutEmailsKeepsItsClosedMessageAndAnswer(): void
+    {
+        $year = (int) \Core\Config\AppClock::now()->format('Y') + 2;
+        $this->useCampaignForYear($year);
+        $this->campaign->close();
+        $this->settingService->setInternal(ReenrollmentCampaignService::SETTING_EMAILS_ENABLED, '0', 'registration');
+        $this->campaign->open();
+        $memberId = $this->createAnime('Alix', ($year - 10) . '-06-01', $this->louveteauxA, self::PARENT_EMAIL);
+        AuthSession::login(1, self::PARENT_EMAIL, 'identified');
+        $this->controller->save($this->post([
+            'member_id' => (string) $memberId,
+            'decision' => 'reenrolled',
+            'family_comment' => 'Alix a hâte.',
+        ]), []);
+        $this->campaign->close();
+
+        $body = $this->page();
+
+        $this->assertSame([true, true, false, false, true], [
+            str_contains($body, 'campagne de réinscription est clôturée'),
+            str_contains($body, 'Alix a hâte.'),
+            str_contains($body, "n'est pas encore ouverte"),
+            str_contains($body, 'class="reenrollment-form"'),
+            $this->repository->findAnswer($memberId, $this->targetYearId)?->isReenrolled(),
+        ]);
+    }
+
+    public function testAManualCampaignWithoutEmailsRefusesAnotherWriteAsClosed(): void
+    {
+        $year = (int) \Core\Config\AppClock::now()->format('Y') + 2;
+        $this->useCampaignForYear($year);
+        $this->campaign->close();
+        $this->settingService->setInternal(ReenrollmentCampaignService::SETTING_EMAILS_ENABLED, '0', 'registration');
+        $this->campaign->open();
+        $memberId = $this->createAnime('Alix', ($year - 10) . '-06-01', $this->louveteauxA, self::PARENT_EMAIL);
+        AuthSession::login(1, self::PARENT_EMAIL, 'identified');
+        $this->controller->save($this->post([
+            'member_id' => (string) $memberId,
+            'decision' => 'reenrolled',
+        ]), []);
+        $this->campaign->close();
+
+        $response = $this->controller->save($this->post([
+            'member_id' => (string) $memberId,
+            'decision' => 'leaving',
+        ]), []);
+
+        $this->assertSame([302, true, [
+            'type' => 'error',
+            'message' => "La campagne de réinscription est clôturée. Contactez le Staff d'U pour toute modification.",
+        ]], [
+            $response->getStatusCode(),
+            $this->repository->findAnswer($memberId, $this->targetYearId)?->isReenrolled(),
+            \Core\Http\FlashMessage::get(),
+        ]);
     }
 
     private function useCampaignForYear(int $year): void

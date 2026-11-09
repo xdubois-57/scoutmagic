@@ -142,9 +142,8 @@ class MemberEmailRepository
      * the address itself, not only the one member profile a particular
      * mass-mail send happened to be tied to. The same address can
      * legitimately be linked to several members (e.g. a parent's address
-     * added to more than one child) — MemberEmailService::unsubscribe()
-     * marks every one of them inactive and lists them all in the
-     * notification emails.
+     * added to more than one child). The group-mail unsubscribe notification
+     * lists those members without changing the rows' login validity.
      *
      * @return MemberEmail[]
      */
@@ -196,12 +195,9 @@ class MemberEmailRepository
     }
 
     /**
-     * Whether this exact (member, address) pair has been unsubscribed —
-     * Core\Security\RoleResolver's extension point for the one Desk-
-     * address exception (schema/core.sql): unlike every other Desk-
-     * address rule, an unsubscribed 'desk'-sourced override row DOES
-     * revoke login, not just mass-mail delivery. Pure blind-index lookup,
-     * no decryption needed.
+     * Whether this exact (member, address) pair is explicitly inactive.
+     * RoleResolver excludes it for login; group-mail opt-outs never set
+     * this status. Pure blind-index lookup, no decryption needed.
      */
     public function isBlindIndexInactiveForMember(int $memberId, string $blindIndex): bool
     {

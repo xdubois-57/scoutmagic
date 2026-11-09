@@ -323,6 +323,11 @@ Contexte de l'unité :
 - Modules actifs : {$modulesText}
 - Fournisseur IA : {$providerInfo}
 - Modèles IA : {$modelsInfo}
+- Sondes techniques Scaleway : si ce fournisseur est actif, le test de connexion et le rafraîchissement peuvent
+  envoyer une image synthétique avec un code aléatoire, sans donnée de l'unité, pour vérifier la lecture d'images.
+  La première vérification après une mise à jour et les reprises espacées après échec sont automatiques.
+  Seuls les résultats techniques sont conservés jusqu'à la suppression du fournisseur, pas l'image ni son code.
+  Conserver ce fait dans la section du connecteur IA pour Scaleway ; retirer ce paragraphe pour un autre fournisseur.
 - Fournisseur téléphonie : {$phoneProvider}
 - Stockage galerie : {$galleryStorage}
 - Réseaux sociaux raccordés : {$socialPublishing}
@@ -573,7 +578,12 @@ qu'une adresse désinscrite est conservée, marquée, exclue des envois et ne pe
 réabonnée par un fichier ; qu'une réactivation explicite et confirmée depuis une fiche d'animé, ou par un chef
 d'unité à la demande du titulaire dans « Listes de diffusion », rétablit cette adresse sur toutes les fiches et tous les
 groupes, retire l'empreinte de désinscription et autorise les futurs publipostages, sans toucher aux adresses en attente
-de confirmation, aux blocages pour rebonds ni aux envois déjà lancés ; (d) conserver intégralement
+de confirmation, aux blocages pour rebonds ni aux envois déjà lancés ;
+(c ter) préciser que la liste de suppression conserve le consentement pour toutes les adresses, membres compris ;
+qu'une désinscription des e-mails groupés ne modifie ni la connexion au site, ni les sessions ouvertes, ni les messages
+personnels ; que la fiche personnelle propose « Rétablir les e-mails groupés » indépendamment de la validité de
+connexion et que les notifications de désinscription ne partent qu'après enregistrement effectif, une seule fois :
+confirmation à l'adresse et avis au Staff d'U uniquement si des membres sont concernés ; (d) conserver intégralement
 le paragraphe « Publipostage depuis un fichier Excel » : un
 animateur peut importer un fichier Excel dont chaque ligne définit un email (membre identifié par son numéro Desk «
 Tiers » ou adresse libre de la colonne « Email », y compris hors de l'unité), toutes les valeurs importées sont

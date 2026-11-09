@@ -178,6 +178,73 @@ class ScoutYearRegistrationReviewServiceTest extends TestCase
         $this->assertSame(ReenrollmentCampaignState::FINISHED, $this->stateAt('2027-02-15')->state);
     }
 
+    public function testAManualCampaignWithoutEmailsFinishesWithoutConsumingScheduledMarkers(): void
+    {
+        $this->settingService->setInternal(ReenrollmentCampaignService::SETTING_EMAILS_ENABLED, '0', 'registration');
+        $this->campaign->open();
+        $this->campaign->close();
+        $key = '2027-05-15';
+        $now = new \DateTimeImmutable('2027-02-15');
+        $markers = [ReenrollmentCampaignService::MARKER_OPENED, ReenrollmentCampaignService::MARKER_CLOSED];
+        foreach (['opening', 'reminder_1', 'reminder_2', 'closing'] as $type) {
+            $markers[] = ReenrollmentCampaignService::emailMarker($type);
+        }
+
+        $this->assertSame([
+            ['state' => 'finished', 'opens' => '2027-03-01', 'closes' => $key],
+            array_fill(0, 6, false),
+            $key,
+            false,
+        ], [
+            $this->campaign->stateFor('2027-2028', $now),
+            array_map(fn(string $marker): bool => $this->campaign->alreadyDone($marker, $key), $markers),
+            $this->campaign->openingDueToday(new \DateTimeImmutable('2027-03-01')),
+            $this->campaign->hasStarted($key, $now),
+        ]);
+    }
+
+    public function testALegacyManualCampaignWithNoHistoryClosesAsFinished(): void
+    {
+        $this->settingService->setInternal(ReenrollmentCampaignService::SETTING_EMAILS_ENABLED, '0', 'registration');
+        // The old open() wrote only this switch, so reproduce an upgrade.
+        $this->settingService->setInternal(ReenrollmentCampaignService::SETTING_OPEN, '1', 'registration');
+
+        $this->campaign->close();
+
+        $this->assertSame(['finished', '2027-2028'], [
+            $this->campaign->stateFor('2027-2028', new \DateTimeImmutable('2027-02-15'))['state'] ?? null,
+            $this->settingService->get(ReenrollmentCampaignService::SETTING_LAST_OPENED_YEAR, 'registration', ''),
+        ]);
+    }
+
+    public function testAManualCampaignDoesNotFinishTheNextTargetYear(): void
+    {
+        $this->campaign->open();
+        $this->campaign->close();
+        $nextPublicYear = (new ScoutYearService($this->pdo))->ensureYear('2027-2028');
+        $this->settingService->setInternal(ScoutYearResolver::SETTING_PUBLIC_YEAR, (string) $nextPublicYear);
+        $target = $this->campaign->years()['target_label'];
+
+        $this->assertSame(['2028-2029', 'not_started'], [
+            $target,
+            $this->campaign->stateFor($target, new \DateTimeImmutable('2027-02-15'))['state'] ?? null,
+        ]);
+    }
+
+    public function testClosingAnOlderOpenCampaignDoesNotFinishTheNewTargetYear(): void
+    {
+        $this->campaign->open();
+        $nextPublicYear = (new ScoutYearService($this->pdo))->ensureYear('2027-2028');
+        $this->settingService->setInternal(ScoutYearResolver::SETTING_PUBLIC_YEAR, (string) $nextPublicYear);
+        $this->campaign->close();
+        $target = $this->campaign->years()['target_label'];
+
+        $this->assertSame(['2028-2029', 'not_started'], [
+            $target,
+            $this->campaign->stateFor($target, new \DateTimeImmutable('2027-10-01'))['state'] ?? null,
+        ]);
+    }
+
     public function testNoDatesAndNoSwitchIsNoCampaign(): void
     {
         $this->settingService->setInternal(ReenrollmentCampaignService::SETTING_OPEN_AT, '', 'registration');

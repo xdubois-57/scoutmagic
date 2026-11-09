@@ -996,23 +996,17 @@ CREATE TABLE member_documents (
 --   token scheme as magic_links: bin2hex(random_bytes(32)), hashed with
 --   password_hash() before storage, 48h expiry — see Core\Member\
 --   MemberEmailService::addEmail()/confirmEmail()).
--- - 'desk': a status override for the CURRENT Desk-imported address
---   itself. The Desk address is otherwise always usable (member_years'
---   own column, never touched here) and never editable/deletable by the
---   member — this row only ever exists to record that address having
---   been unsubscribed from mass-mail (status='inactive') and lets the
---   member reactivate it from their own page, same as a manual address.
---   Lazily created (find-or-create, keyed by the unique index below) only
---   the first time that exact address is actually unsubscribed — never
---   proactively synced at Desk import, so a changed Desk email simply
---   starts fresh with no row here until/unless it's unsubscribed too.
--- status: 'pending' (manual only, awaiting confirmation), 'valid'
--- (receives mass-mail; a manual address also grants login — see
--- Core\Security\RoleResolver), 'inactive' (mass-mail opt-out only, via
--- the unsubscribe mechanism — never reachable by the member's own UI
--- directly, only via delete-then-nothing or the unsubscribe link/one-
--- click endpoint; reactivating goes straight back to 'valid', no
--- reconfirmation).
+-- - 'desk': a status override for the CURRENT Desk-imported address.
+--   The Desk address lives in member_years and is never editable/deletable
+--   by the member. This row is created lazily when resolving mail addresses
+--   or recording an explicit status override, never synced at Desk import.
+-- status: 'pending' (manual only, awaiting confirmation), 'valid' (usable
+-- for login and personal messages), 'inactive' (explicitly disabled).
+-- Group-mail consent is independent: mass_mail_suppressed_addresses is the
+-- optional module's source of truth for every address. An unsubscribe never
+-- changes this status or revokes login. Restoring group-mail consent leaves
+-- pending, inactive and bounce states unchanged; restoring an inactive
+-- login address does not change its group-mail consent.
 CREATE TABLE member_emails (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     member_id INT UNSIGNED NOT NULL,
@@ -2072,9 +2066,8 @@ CREATE TABLE IF NOT EXISTS mail_probes (
 -- profiles, so one mailbox is several `member_emails` rows; it may also be
 -- a `mass_mail_block_contacts` row of a custom list. Recording the bounce
 -- once, here, is what makes « cette adresse ne reçoit plus rien » mean the
--- same thing on all of them — the same reasoning
--- MemberEmailService::unsubscribe() already applies when it marks every
--- row sharing an address together.
+-- same thing on all of them. Group-mail consent is likewise address-wide,
+-- but stored separately from login validity and bounce status.
 --
 -- `email_blind_index` uses the SHARED 'email' purpose, deliberately and by
 -- the rule in Core\Security\EncryptionService::blindIndex(): indexes

@@ -295,7 +295,10 @@ class MovementControllerTest extends TestCase
 
         $response = $this->controller->list(new Request('GET', '/finance/movements', [], [], [], []), []);
 
-        $this->assertStringContainsString('table-warning', $response->getBody());
+        $body = $response->getBody();
+        $this->assertMatchesRegularExpression('/<span class="badge [^"]*">\s*À catégoriser\s*<\/span>/u', $body);
+        $this->assertStringNotContainsString('table-warning', $body);
+        $this->assertStringNotContainsString('bg-warning-subtle', $body);
     }
 
     public function testListCategoryFilterNoneShowsOnlyUncategorizedMovements(): void

@@ -166,6 +166,17 @@ test('a statement imports, a receipt uploads through the client-side resize, and
     // only the visible copy proves anything.
     await expect(page.getByText('Colruyt Namur').filter({ visible: true }).first()).toBeVisible();
 
+    // The desktop description is a native keyboard control. Opening it
+    // must still read the owning row's data rather than the button's.
+    const movementRow = page.locator('tr.movement-row').filter({ hasText: 'Colruyt Namur' }).first();
+    const details = await openModal(page, 'movement-details-modal', () =>
+        movementRow.locator('[data-movement-details]').press('Enter'));
+    const expectedLabel = await movementRow.getAttribute('data-label');
+    expect(expectedLabel).toBeTruthy();
+    await expect(details.locator('#md-label')).toHaveText(expectedLabel);
+    await closeModal(page, 'movement-details-modal', () =>
+        details.locator('[data-bs-dismiss="modal"]').first().click());
+
     // ---------------------------------------------------------------
     // The receipt. A 2000×1500 PNG goes in; the submit handler decodes
     // it, downscales it on a canvas and re-encodes it as JPEG — the

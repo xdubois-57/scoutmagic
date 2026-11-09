@@ -48,6 +48,7 @@ class ReenrollmentCampaignService
      * (issue #732). On by default: a unit that set dates expects them.
      */
     public const SETTING_EMAILS_ENABLED = 'registration_reenrollment_emails_enabled';
+    public const SETTING_LAST_OPENED_YEAR = 'registration_reenrollment_last_opened_year';
 
     /** The day a scout year starts, month and day. */
     private const SCOUT_YEAR_START = '09-01';
@@ -575,8 +576,8 @@ class ReenrollmentCampaignService
      * - `open`: the switch is on. The switch is the current campaign's —
      *   the one for the year after the public year — so it is read for
      *   that year only;
-     * - `finished`: the campaign has started (hasStarted(): its opening
-     *   date is behind us, or it was opened before it) and is not open;
+     * - `finished`: the target year was actually opened, or the campaign
+     *   has started (hasStarted()), and it is not open;
      * - `not_started`: anything else.
      *
      * **Never from a count of answers.** A campaign everybody has answered
@@ -586,8 +587,8 @@ class ReenrollmentCampaignService
      * **The opening day itself** is the one moment hasStarted() is true
      * while the campaign has not opened yet: the scheduled opening runs on
      * the first cron pass of the day, which `poor_mans_cron` may not have
-     * reached. Until that opening (or an earlier one by hand that wrote to
-     * the families) is recorded, the day reads `not_started`
+     * reached. Until that opening (or an earlier manual opening for the
+     * target year) is recorded, the day reads `not_started`
      * — reading `finished` would let the step be marked an hour before the
      * families are written to.
      *
@@ -620,6 +621,11 @@ class ReenrollmentCampaignService
             return ['state' => 'open', ...$dates];
         }
 
+        // Display history is independent of scheduled and e-mail markers.
+        if ((string) $this->settingService->get(self::SETTING_LAST_OPENED_YEAR, 'registration', '') === $targetLabel) {
+            return ['state' => 'finished', ...$dates];
+        }
+
         $openingDayNotYetApplied = $opens === $now->format('Y-m-d') && !$this->stillRunning($key);
         if (!$openingDayNotYetApplied && $this->hasStarted($key, $now, $openAt)) {
             return ['state' => 'finished', ...$dates];
@@ -640,8 +646,8 @@ class ReenrollmentCampaignService
      * leaves its closing e-mail and so reads the day the switch was turned
      * off, not the scheduled one. The scheduled date is the fallback when a
      * marker carries no moment. A campaign closed by hand with the e-mails
-     * off leaves no mark, and so no line: a wrong answer looks worse than
-     * none.
+     * off leaves no closing marker, and so no timeline line: a wrong
+     * answer looks worse than none.
      *
      * @return array{key: string, on: string}|null
      */
@@ -683,12 +689,27 @@ class ReenrollmentCampaignService
 
     public function open(): void
     {
-        $this->settingService->setInternal(self::SETTING_OPEN, '1', 'registration');
+        $publicYear = $this->scoutYearResolver->getCurrentPublicYear();
+        // Commit the switch and its target together without consuming a
+        // scheduled transition or claiming that any e-mail has been sent.
+        $this->settingService->setManyInternal([
+            self::SETTING_OPEN => '1',
+            self::SETTING_LAST_OPENED_YEAR => ScoutYearService::nextLabel((string) $publicYear['label']),
+        ], 'registration');
     }
 
     public function close(): void
     {
-        $this->settingService->setInternal(self::SETTING_OPEN, '0', 'registration');
+        $values = [self::SETTING_OPEN => '0'];
+        // An installation upgraded while open has no recorded target yet.
+        if (
+            $this->isOpen()
+            && (string) $this->settingService->get(self::SETTING_LAST_OPENED_YEAR, 'registration', '') === ''
+        ) {
+            $publicYear = $this->scoutYearResolver->getCurrentPublicYear();
+            $values[self::SETTING_LAST_OPENED_YEAR] = ScoutYearService::nextLabel((string) $publicYear['label']);
+        }
+        $this->settingService->setManyInternal($values, 'registration');
     }
 
     /**

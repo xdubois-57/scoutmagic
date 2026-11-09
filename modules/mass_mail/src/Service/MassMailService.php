@@ -944,11 +944,10 @@ class MassMailService
      * MemberEmailService::resolveValidAddressesForMassMail() with the Desk
      * address, which lazily creates its override row; reading must not, so
      * the Desk address is read through listForMember() — its override row
-     * when there is one, so an unsubscribed Desk address stays out — and
+     * when there is one, so an inactive Desk address stays out — and
      * kept if well formed, valid and not suspended after bounces, beside
-     * the valid personal ones; deduplicated, compared lowercased. Not
-     * filtered through the suppression list, exactly as the freeze
-     * (eligibleAddressesOfMember()).
+     * the valid personal ones; deduplicated, compared lowercased, and
+     * subject to the same group-mail suppression list as the freeze.
      *
      * @return string[]
      */
@@ -965,12 +964,12 @@ class MassMailService
             $addresses[self::addressKey($memberEmail->email)] ??= $memberEmail->email;
         }
 
-        return array_values($addresses);
+        return $this->withoutSuppressed(array_values($addresses));
     }
 
     /**
      * Whether the member's Desk address is still in service — false once
-     * unsubscribed (« Inactif »), read without creating its override row.
+     * explicitly inactive, read without creating its override row.
      * Whatever the source of the row at that address: the freeze's
      * MemberEmailRepository::findOrCreateDeskOverride() takes an existing
      * manual row there as the override, pending or inactive included.
@@ -1108,9 +1107,8 @@ class MassMailService
      * - **A member's eligible addresses**: Core\Member\MemberEmailService::
      *   resolveValidAddressesForMassMail() (the valid Desk address, the
      *   confirmed personal ones, less those suspended after bounces). An
-     *   unsubscribed member address is « Inactif » and left out there;
-     *   mass_mail_suppressed_addresses is read for contacts and free
-     *   mail-merge addresses only (see eligibleAddressesOfMember()).
+     *   group-mail opt-out is checked separately against the module's
+     *   suppression list for every address (see eligibleAddressesOfMember()).
      * - **Messages**: ONE per distinct address (compared lowercased) across
      *   every target and every contact of the list, linked to every target
      *   whose address it is. A message whose address only a contact group
@@ -1243,17 +1241,9 @@ class MassMailService
 
     /**
      * A member's eligible addresses at freeze time (§2.2): the core's
-     * resolution — which lazily creates the Desk override row the
-     * unsubscribe will flip — one per distinct address.
-     *
-     * **Not filtered through mass_mail_suppressed_addresses**, as before
-     * issue #999. A member's unsubscribe already sets their address
-     * « Inactif » for every member sharing it (Core\Member\
-     * MemberEmailService::unsubscribe()), which the core's resolution
-     * leaves out; and « Réactiver » on the member page puts it back. The
-     * suppression list has no way out, so reading it here made a member's
-     * unsubscribe permanent. It stays the rule for contacts and the free
-     * addresses of a mail merge, which have no page to reactivate from.
+     * resolution for validity and bounce status, less every address whose
+     * group-mail consent was withdrawn. Login validity is independent of
+     * this module's suppression list. One row per distinct eligible address.
      *
      * @return \Core\Member\MemberEmail[]
      */
@@ -1261,34 +1251,36 @@ class MassMailService
     {
         $rows = [];
         foreach ($this->memberEmailService->resolveValidAddressesForMassMail($memberId, $deskEmail) as $row) {
-            $rows[self::addressKey($row->email)] ??= $row;
+            if (!$this->suppressedAddressRepository->isSuppressed($row->email)) {
+                $rows[self::addressKey($row->email)] ??= $row;
+            }
         }
 
         return array_values($rows);
     }
 
     /**
-     * **Empty has three causes, and they call for different things.** An
+     * **Empty has four causes, and they call for different things.** An
      * address merely suspended is well formed and worked until it stopped:
      * reporting it as « Adresse invalide » sends a chef d'unité hunting for
      * a typo that is not there, when what they need is the Rebonds page.
-     * One the person unsubscribed is their request, not a fault.
+     * One the person unsubscribed is their request, not a fault. An
+     * explicitly inactive address needs reactivation, not a spelling change.
      */
     private function reasonForNoAddress(int $memberId, ?string $deskEmail): string
     {
         if ($this->memberEmailService->everyAddressIsBlockedForMassMail($memberId, $deskEmail)) {
             return 'Adresse suspendue après des refus répétés';
         }
-        // Nothing valid is left: an address the member's page shows
-        // « Inactif » is one they unsubscribed (MemberEmailService::
-        // unsubscribe()), the only way a member's address gets there.
+        $hasInactiveAddress = false;
         foreach ($this->memberEmailService->listForMember($memberId, $deskEmail) as $row) {
-            if ($row->isInactive()) {
+            if ($this->suppressedAddressRepository->isSuppressed($row->email)) {
                 return 'Adresse désinscrite des emails groupés';
             }
+            $hasInactiveAddress = $hasInactiveAddress || $row->isInactive();
         }
 
-        return 'Adresse invalide';
+        return $hasInactiveAddress ? 'Adresse désactivée' : 'Adresse invalide';
     }
 
     /**

@@ -31,7 +31,8 @@ compte.
 Avant l'ouverture, la page indique **« La campagne de réinscription n'est
 pas encore ouverte. »** Vous pourrez répondre dès son ouverture. Après la
 clôture, vos réponses restent consultables ; contactez le Staff d'U pour
-une modification.
+une modification. Une campagne ouverte puis fermée manuellement est aussi
+annoncée comme clôturée, même lorsque ses e-mails automatiques sont désactivés.
 
 ## La section, quand il y a un choix
 

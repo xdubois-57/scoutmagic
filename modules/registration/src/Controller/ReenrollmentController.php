@@ -77,7 +77,10 @@ class ReenrollmentController extends AbstractController
             // tell a family who had answered that their answer went with
             // it (roadmap IT-15).
             'is_open' => $this->campaign->isOpen(),
-            'campaign_state' => $this->campaign->stateFor((string) $targetYear['label'], new \DateTimeImmutable())['state'] ?? null,
+            'campaign_state' => $this->campaign->stateFor(
+                (string) $targetYear['label'],
+                new \DateTimeImmutable()
+            )['state'] ?? null,
             'csrf_token' => CsrfGuard::generateToken(),
         ]);
     }
