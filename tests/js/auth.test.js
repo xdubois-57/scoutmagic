@@ -81,6 +81,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+    // Stop a real poll before the next test replaces fetch or removes this DOM.
+    document.getElementById('back-btn')?.click();
     trackedListeners.forEach(({ target, type, listener, options }) => {
         target.removeEventListener(type, listener, options);
     });

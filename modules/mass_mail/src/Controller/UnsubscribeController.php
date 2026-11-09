@@ -97,16 +97,16 @@ class UnsubscribeController extends AbstractController
 
         // The inverse of reactivation uses the same transaction and lock
         // order. Neither a partial failure nor an overlapping restore can
-        // leave different consent decisions in the three stores.
+        // leave different consent decisions in the suppression and contact stores.
         $notifications = [];
         $defer = static function (callable $notify) use (&$notifications): void {
             $notifications[] = $notify;
         };
         $this->suppressedAddressRepository->atomically(function () use ($delivery, $defer): void {
-            $this->suppressedAddressRepository->suppress($delivery->emailAddress);
+            $newlySuppressed = $this->suppressedAddressRepository->suppress($delivery->emailAddress);
             $this->listBlockService?->unsubscribeEverywhere($delivery->emailAddress);
-            if ($delivery->memberEmailId !== null) {
-                $this->memberEmailService->unsubscribe($delivery->memberEmailId, $defer);
+            if ($newlySuppressed) {
+                $this->memberEmailService->unsubscribe($delivery->emailAddress, $defer);
             }
         });
         foreach ($notifications as $notify) {

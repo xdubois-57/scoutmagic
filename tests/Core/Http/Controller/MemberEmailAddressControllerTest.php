@@ -82,6 +82,60 @@ class MemberEmailAddressControllerTest extends TestCase
         );
     }
 
+    public function testRestoringGroupMailRequiresSelfAccess(): void
+    {
+        $token = $this->startSessionWithCsrfToken();
+        $this->memberService->method('canAccess')->willReturn(false);
+        $this->memberEmailService->expects($this->never())->method('restoreGroupMail');
+        $response = $this->controller->restoreGroupMail(new Request('POST', '/members/1/emails/5/restore-group-mail',
+            [], ['_csrf_token' => $token], [], []), ['id' => '1', 'email_id' => '5']);
+        $this->assertSame(403, $response->getStatusCode());
+    }
+
+    public function testRestoringGroupMailRejectsAnInvalidCsrfToken(): void
+    {
+        $this->startSessionWithCsrfToken();
+        $this->memberService->method('canAccess')->willReturn(true);
+        $this->memberService->method('getMemberProfile')->willReturn($this->makeProfile(42));
+        $this->memberEmailService->expects($this->never())->method('restoreGroupMail');
+        $response = $this->controller->restoreGroupMail(new Request('POST', '/members/1/emails/5/restore-group-mail',
+            [], ['_csrf_token' => 'wrong'], [], []), ['id' => '1', 'email_id' => '5']);
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('error', \Core\Http\FlashMessage::get()['type']);
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('groupMailEmailIds')]
+    public function testRestoringGroupMailUsesTheOwnedAddressAndReportsTheOutcome(int $emailId): void
+    {
+        $token = $this->startSessionWithCsrfToken();
+        $this->memberService->method('canAccess')->willReturn(true);
+        $this->memberService->method('getMemberProfile')->willReturn($this->makeProfile(42, 'desk@example.org'));
+        $this->memberEmailService->expects($this->once())->method('restoreGroupMail')
+            ->with(42, $emailId, $emailId === 0 ? 'desk@example.org' : null, 1)->willReturn(true);
+        $response = $this->controller->restoreGroupMail(new Request('POST', '/members/1/emails/' . $emailId . '/restore-group-mail',
+            [], ['_csrf_token' => $token, 'email' => 'foreign@example.org'], [], []), ['id' => '1', 'email_id' => (string) $emailId]);
+        $this->assertSame('/members/1', $response->getHeaders()['Location']);
+        $this->assertSame(['type' => 'success', 'message' => 'Les e-mails groupés sont rétablis pour cette adresse.'],
+            \Core\Http\FlashMessage::get());
+    }
+
+    public static function groupMailEmailIds(): iterable
+    {
+        yield 'secondary address' => [5];
+        yield 'virtual Desk address' => [0];
+    }
+
+    public function testRestoringGroupMailFailureCannotDisplaySuccess(): void
+    {
+        $token = $this->startSessionWithCsrfToken();
+        $this->memberService->method('canAccess')->willReturn(true);
+        $this->memberService->method('getMemberProfile')->willReturn($this->makeProfile(42));
+        $this->memberEmailService->method('restoreGroupMail')->willThrowException(new MemberEmailException('Action impossible.'));
+        $this->controller->restoreGroupMail(new Request('POST', '/members/1/emails/5/restore-group-mail',
+            [], ['_csrf_token' => $token], [], []), ['id' => '1', 'email_id' => '5']);
+        $this->assertSame(['type' => 'error', 'message' => 'Action impossible.'], \Core\Http\FlashMessage::get());
+    }
+
     // --- self-only RBAC boundary (canAccess(..., 'identified')) ---
 
     public function testAddIsForbiddenWhenNotLinkedToThisMemberYear(): void

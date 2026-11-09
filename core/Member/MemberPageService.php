@@ -107,7 +107,11 @@ class MemberPageService
         // of them, so the page says nothing at all about those (roadmap
         // IT-05).
         $bounces = [];
+        $groupMailUnsubscribed = [];
         foreach ($memberEmails as $memberEmail) {
+            if ($this->memberEmailService->isUnsubscribedFromGroupMail($memberEmail)) {
+                $groupMailUnsubscribed[$memberEmail->id] = true;
+            }
             if ($memberEmail->isPending()) {
                 $resendCooldownMinutes[
                     $memberEmail->id
@@ -156,6 +160,7 @@ class MemberPageService
             'member_emails' => $memberEmails,
             'member_email_resend_cooldown_minutes' => $resendCooldownMinutes,
             'member_email_bounces' => $bounces,
+            'member_email_group_mail_unsubscribed' => $groupMailUnsubscribed,
             'gallery_albums' => $this->getGalleryAlbums($profile),
             // Self only — never $showPersonal, which admits a chief. §44.1
             // of the functional specification makes that an interdiction

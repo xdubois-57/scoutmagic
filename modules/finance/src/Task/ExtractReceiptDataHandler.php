@@ -31,10 +31,10 @@ use Modules\LlmConnector\Api\LlmTier;
  * One-shot task (scheduled by Service\ReceiptExtractionService right
  * after an upload) — reads the receipt's amount/date/merchant/
  * description, then writes suggested_amount/suggested_date/
- * suggested_label/suggested_description back onto the attachment. Any
- * failure (no provider, API error, unparseable response) is journaled
- * and otherwise silently absorbed — a failed extraction never blocks
- * the receipt from being used manually.
+ * suggested_label/suggested_description back onto the attachment.
+ * Attempted extraction failures (API error, unparseable response) are
+ * journaled and absorbed. Missing providers or tiers skip extraction;
+ * a receipt always remains usable manually.
  *
  * A PDF is handled specially (buildRequestForPdf()): its embedded text
  * layer, when it has one, is extracted (Core\File\PdfTextExtractor) and
@@ -48,8 +48,10 @@ use Modules\LlmConnector\Api\LlmTier;
  * (Core\File\PdfRasterizer) and going through the same OCR-tier
  * image path as a real photo upload. Every other supported type
  * (image/*) goes straight through that image path — this module never
- * names a model or provider; LlmConnectorService falls back to the
- * CHEAP tier when no model is assigned to OCR.
+ * names a model or provider. Images require an available OCR tier;
+ * a text-only model never establishes image support. Missing tiers
+ * skip extraction without marking a document unreadable, while
+ * matching can still use the receipt's existing metadata.
  */
 class ExtractReceiptDataHandler implements TaskHandlerInterface
 {
@@ -81,6 +83,10 @@ class ExtractReceiptDataHandler implements TaskHandlerInterface
      * guards against a stray multi-page PDF blowing up the prompt.
      */
     private const MAX_EXTRACTED_TEXT_CHARS = 8000;
+
+    public function __construct(private ?PdfRasterizer $rasterizer = null)
+    {
+    }
 
     /**
      * @param array<string, mixed> $payload
@@ -115,25 +121,31 @@ class ExtractReceiptDataHandler implements TaskHandlerInterface
             $context->storagePath
         );
 
-        try {
-            $content = $fileStorage->retrieve($attachment->fileId);
-        } catch (\RuntimeException $e) {
-            $this->logFailure($context, $attachmentId, $e->getMessage());
-            return;
-        }
+        $ocrAvailable = $llmConnector->isTierAvailable(LlmTier::OCR);
+        $request = null;
+        if ($attachment->mimeType === 'application/pdf' || $ocrAvailable) {
+            try {
+                $content = $fileStorage->retrieve($attachment->fileId);
+            } catch (\RuntimeException $e) {
+                $this->logFailure($context, $attachmentId, $e->getMessage());
+                return;
+            }
 
-        $request = $attachment->mimeType === 'application/pdf'
-            ? $this->buildRequestForPdf($content, $attachment->originalFilename)
-            : $this->buildImageRequest($content, $attachment->mimeType, $attachment->originalFilename);
+            $request = $attachment->mimeType === 'application/pdf'
+                ? $this->buildRequestForPdf($content, $attachment->originalFilename, $ocrAvailable)
+                : $this->buildImageRequest($content, $attachment->mimeType, $attachment->originalFilename);
+        }
 
         $parsed = null;
         if ($request === null) {
-            $this->logFailure(
-                $context,
-                $attachmentId,
-                "PDF sans texte exploitable et impossible à convertir en image pour l'analyse."
-            );
-        } else {
+            if ($ocrAvailable) {
+                $this->logFailure(
+                    $context,
+                    $attachmentId,
+                    "PDF sans texte exploitable et impossible à convertir en image pour l'analyse."
+                );
+            }
+        } elseif ($llmConnector->isTierAvailable($request->tier)) {
             try {
                 $parsed = $llmConnector->complete($request)->parsed;
                 if ($parsed === null) {
@@ -225,12 +237,11 @@ class ExtractReceiptDataHandler implements TaskHandlerInterface
     }
 
     /**
-     * Text-first, image-fallback (see class doc comment). Returns null
-     * only when the PDF has neither a usable text layer nor a
-     * rasterizable page — the caller treats that as an extraction
-     * failure, same as any other.
+     * Text-first, image-fallback (see class doc comment). Returns null when
+     * the PDF has no usable text layer and OCR is unavailable or
+     * rasterization fails. The caller separately checks a built request's tier.
      */
-    private function buildRequestForPdf(string $content, string $originalFilename): ?LlmRequest
+    private function buildRequestForPdf(string $content, string $originalFilename, bool $ocrAvailable): ?LlmRequest
     {
         $text = (new PdfTextExtractor())->extractText($content);
         if ($text !== null) {
@@ -246,7 +257,10 @@ class ExtractReceiptDataHandler implements TaskHandlerInterface
             );
         }
 
-        $image = (new PdfRasterizer())->firstPageToJpeg($content);
+        if (!$ocrAvailable) {
+            return null;
+        }
+        $image = ($this->rasterizer ?? new PdfRasterizer())->firstPageToJpeg($content);
         if ($image === null) {
             return null;
         }

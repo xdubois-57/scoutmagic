@@ -54,7 +54,8 @@ class ProviderHttpBehaviourTest extends TestCase
         $driver = new $driverClass($this->server->baseUrl(), 'bad-key');
 
         $this->expectException(LlmException::class);
-        $driver->complete('some-model', 'Bonjour', ['max_tokens' => 100]);
+        $this->expectExceptionCode(LlmException::API_ERROR);
+        $driver->complete('pixtral-12b-2409', 'Bonjour', ['max_tokens' => 100]);
     }
 
     /**
@@ -85,7 +86,8 @@ class ProviderHttpBehaviourTest extends TestCase
 
         // A transaction label carried over verbatim from a Latin-1 bank export.
         $this->expectException(LlmException::class);
-        $driver->complete('some-model', "Libellé : Caf\xE9 du coin", []);
+        $this->expectExceptionCode(LlmException::INVALID_REQUEST);
+        $driver->complete('pixtral-12b-2409', "Libellé : Caf\xE9 du coin", []);
     }
 
     /**
@@ -97,7 +99,7 @@ class ProviderHttpBehaviourTest extends TestCase
         $this->server = StubHttpServer::start([[
             'status' => 200,
             'body' => json_encode(['data' => [
-                ['id' => 'good-model', 'display_name' => 'Good', 'name' => 'Good'],
+                ['id' => 'pixtral-12b-2409', 'display_name' => 'Good', 'name' => 'Good', 'capabilities' => ['completion_chat' => true, 'vision' => true]],
                 ['display_name' => 'No id at all', 'name' => 'No id at all'],
                 ['id' => '', 'display_name' => 'Empty id', 'name' => 'Empty id'],
             ]], JSON_THROW_ON_ERROR),
@@ -106,7 +108,7 @@ class ProviderHttpBehaviourTest extends TestCase
         $driver = new $driverClass($this->server->baseUrl(), 'k');
         $models = $driver->listModels();
 
-        self::assertSame(['good-model'], array_column($models, 'id'));
+        self::assertSame(['pixtral-12b-2409'], $models->chatModelIds());
     }
 
     public function testAnthropicFollowsModelPagination(): void
@@ -132,7 +134,7 @@ class ProviderHttpBehaviourTest extends TestCase
 
         $models = (new AnthropicProvider($this->server->baseUrl(), 'k'))->listModels();
 
-        self::assertSame(['claude-a', 'claude-b'], array_column($models, 'id'));
+        self::assertSame(['claude-a', 'claude-b'], $models->chatModelIds());
 
         $requests = $this->server->requests();
         self::assertCount(2, $requests);
@@ -149,7 +151,7 @@ class ProviderHttpBehaviourTest extends TestCase
 
         $models = (new AnthropicProvider($this->server->baseUrl(), 'k'))->listModels();
 
-        self::assertSame(['claude-a'], array_column($models, 'id'));
+        self::assertSame(['claude-a'], $models->chatModelIds());
         self::assertCount(1, $this->server->requests());
     }
 
@@ -158,18 +160,21 @@ class ProviderHttpBehaviourTest extends TestCase
      */
     public function testAnthropicPaginationIsBounded(): void
     {
-        $this->server = StubHttpServer::start([[
-            'status' => 200,
-            'body' => json_encode([
-                'data' => [['id' => 'claude-loop', 'display_name' => 'Loop']],
+        $pages = [];
+        for ($page = 0; $page < 20; $page++) {
+            $pages[] = ['body' => json_encode([
+                'data' => [['id' => 'claude-page-' . $page]],
                 'has_more' => true,
-                'last_id' => 'claude-loop',
-            ], JSON_THROW_ON_ERROR),
-        ]]);
-
-        (new AnthropicProvider($this->server->baseUrl(), 'k'))->listModels();
-
-        self::assertLessThanOrEqual(20, count($this->server->requests()));
+                'last_id' => 'claude-page-' . $page,
+            ], JSON_THROW_ON_ERROR)];
+        }
+        $this->server = StubHttpServer::start($pages);
+        try {
+            $this->expectException(LlmException::class);
+            (new AnthropicProvider($this->server->baseUrl(), 'k'))->listModels();
+        } finally {
+            self::assertCount(20, $this->server->requests());
+        }
     }
 
     /**
@@ -189,7 +194,7 @@ class ProviderHttpBehaviourTest extends TestCase
             'body' => json_encode($bodies[$driverClass], JSON_THROW_ON_ERROR),
         ]]);
 
-        $response = (new $driverClass($this->server->baseUrl(), 'k'))->complete('m', 'Bonjour', ['max_tokens' => 50]);
+        $response = (new $driverClass($this->server->baseUrl(), 'k'))->complete('pixtral-12b-2409', 'Bonjour', ['max_tokens' => 50]);
 
         self::assertSame('Salut', $response->content);
         self::assertSame(7, $response->inputTokens);

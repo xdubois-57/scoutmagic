@@ -550,16 +550,16 @@ helpers; a page-level primary action that happens to call an AI
     consequence and that no e-mail is sent
     (`docs/chantiers/CHANTIER-annee-scoute.md` §2.8). The step's disc
     keeps the no-dialog rule (§7.15).
-  - **Grouped-email address reactivation (#1032)**: the maintainer explicitly
-    requires one confirmation for the two actions
-    `/members/{id}/emails/{email_id}/reactivate` and
-    `/admin/listes-de-diffusion/adresses/reactivate`. They restore the address
-    across every member profile and contact group sharing it and permit future
-    grouped mail. The generic dialog states this scope and offers « Annuler »
-    and « Réactiver », then submits immediately after confirmation. It sends
-    no e-mail. Approval lasts only for this submission; a later action needs
-    fresh approval. This exception leaves the no-dialog rule unchanged for
-    other undo actions.
+  - **Restoring group mail (#1032/#1049)**: the maintainer requires
+    confirmation for `/members/{id}/emails/{email_id}/restore-group-mail` and
+    `/admin/listes-de-diffusion/adresses/reactivate`. These actions restore
+    consent for every profile and contact group sharing the address without
+    changing login validity or bounce blocks. The generic dialog states this
+    scope and offers « Annuler » and « Rétablir les e-mails groupés » on the
+    profile, « Réactiver » in administration. Neither action sends mail. Each
+    submission requires its own confirmation. Reactivating an address actually
+    inactive for login (`/members/{id}/emails/{email_id}/reactivate`) remains
+    an immediate restoration without changing group-mail consent.
   - Held by `UxConventionsTest::testEveryDestructivePostFormAsksFirst()`
     for the first list and `testNoUndoAsksForConfirmation()` for the
     second. Its allowlist is NOT the exceptions above — those never match

@@ -11,6 +11,8 @@ namespace Modules\InboundMail\Service;
 use Core\File\EncryptedFileStorageService;
 use Core\File\UploadException;
 use Core\File\UploadHandler;
+use Core\Image\PhotoNormalizationException;
+use Core\Image\PhotoNormalizer;
 use Modules\InboundMail\Api\AttachmentOmission;
 use Modules\InboundMail\Api\CandidateAttachment;
 use Modules\InboundMail\Api\CandidateMessage;
@@ -116,7 +118,9 @@ class MailboxSyncService
          * bare « Répondre » names its object before any consumer reads a
          * word (§8.58). Null: no address is ever recognised.
          */
-        private ?ReplyAddressService $replyAddresses = null
+        private ?ReplyAddressService $replyAddresses = null,
+        /** Null builds the normalizer supported by this server on first use. */
+        private ?PhotoNormalizer $photoNormalizer = null
     ) {
         $this->consumerRegistry->setAnalysisJournal($analysisJournal);
     }
@@ -629,22 +633,29 @@ class MailboxSyncService
             // (§7.8). Per mailbox, since the business reference is no
             // longer what a message is stored under. Costs no disk, so it
             // is checked BEFORE the quota.
-            $existingFileId = $this->messageRepository->findFileIdByHash($mailboxId, $hash);
-            if ($existingFileId !== null) {
+            $existing = $this->messageRepository->findStoredAttachmentByHash($mailboxId, $hash);
+            if ($existing !== null) {
                 $this->messageRepository->addAttachment(
                     $messageId,
-                    $existingFileId,
-                    $attachment->filename,
-                    $mimeType,
-                    $attachment->sizeBytes(),
+                    $existing['file_id'],
+                    self::storedFilename($attachment->filename, $existing['mime_type']),
+                    $existing['mime_type'],
+                    $existing['size_bytes'],
                     $hash
                 );
                 continue;
             }
 
+            try {
+                $prepared = $this->prepareAttachment($attachment, $mimeType);
+            } catch (PhotoNormalizationException) {
+                $this->recordOmission($messageId, $attachment, $mimeType, $hash, AttachmentOmission::IMAGE_UNREADABLE);
+                continue;
+            }
+
             // The ceiling, checked before the write rather than after
             // (D5). The message stays whole; only these bytes are refused.
-            if ($this->quotaService !== null && !$this->quotaService->accepts($attachment->sizeBytes())) {
+            if ($this->quotaService !== null && !$this->quotaService->accepts(strlen($prepared['bytes']))) {
                 $this->recordOmission(
                     $messageId,
                     $attachment,
@@ -656,7 +667,7 @@ class MailboxSyncService
                 continue;
             }
 
-            $fileId = $this->writeAttachment($attachment->bytes, $attachment->filename, $messageId);
+            $fileId = $this->writeAttachment($prepared['bytes'], $prepared['filename'], $messageId);
             if ($fileId === null) {
                 $this->recordOmission($messageId, $attachment, $mimeType, $hash, AttachmentOmission::STORAGE_ERROR);
                 continue;
@@ -665,12 +676,40 @@ class MailboxSyncService
             $this->messageRepository->addAttachment(
                 $messageId,
                 $fileId,
-                $attachment->filename,
-                $mimeType,
-                $attachment->sizeBytes(),
+                $prepared['filename'],
+                $prepared['mime_type'],
+                strlen($prepared['bytes']),
                 $hash
             );
         }
+    }
+
+    /**
+     * @return array{bytes: string, filename: string, mime_type: string}
+     * @throws PhotoNormalizationException
+     */
+    private function prepareAttachment(FetchedAttachment $attachment, string $mimeType): array
+    {
+        $bytes = $attachment->bytes;
+        $filename = $attachment->filename;
+        if (str_starts_with($mimeType, 'image/')) {
+            $normalizer = $this->photoNormalizer ??= PhotoNormalizer::forThisServer();
+            $bytes = $normalizer->normalize($bytes);
+            $mimeType = 'image/jpeg';
+            $filename = self::storedFilename($filename, $mimeType);
+        }
+
+        return ['bytes' => $bytes, 'filename' => $filename, 'mime_type' => $mimeType];
+    }
+
+    private static function storedFilename(string $filename, string $mimeType): string
+    {
+        if ($mimeType !== 'image/jpeg') {
+            return $filename;
+        }
+
+        $stem = pathinfo(str_replace('\\', '/', $filename), PATHINFO_FILENAME);
+        return ($stem !== '' ? $stem : 'photo') . '.jpg';
     }
 
     /**
@@ -896,7 +935,10 @@ class MailboxSyncService
                 // No author: a synchronisation is nobody's session.
                 null,
                 InboundMessageAccessRegistry::OWNER_TYPE,
-                $messageId
+                $messageId,
+                // prepareAttachment() already produced fresh image pixels;
+                // keep exactly the bytes charged against the quota.
+                reencodeImages: false
             );
         } catch (UploadException) {
             // A rejected attachment is a dropped attachment, never a failed

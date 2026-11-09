@@ -2743,6 +2743,9 @@ $sectionStaffAuthorizationService = new \Core\Member\SectionStaffAuthorizationSe
 $memberDocumentRepository = new \Core\Member\MemberDocumentRepository($pdo);
 $memberDocumentService = new \Core\Member\MemberDocumentService($memberDocumentRepository);
 
+// Scout year resolution (public / staff / session-preview priority)
+$scoutYearResolver = new ScoutYearResolver($scoutYearService, $settingService, $memberYearRepo);
+
 // Member page "Adresses email" — multi-email support per member (Core\
 // Member\MemberEmailService). $memberEmailRepository was already built
 // above, before $roleResolver.
@@ -2774,12 +2777,9 @@ $memberEmailService = new \Core\Member\MemberEmailService(
         new \Core\Mail\Feedback\Bounce\BounceStateRepository($pdo, $encryptionService),
         $journalService
     ),
-    $emailAddressReactivation
+    $emailAddressReactivation,
+    $scoutYearResolver
 );
-
-// Scout year resolution (public / staff / session-preview priority)
-$scoutYearResolver = new ScoutYearResolver($scoutYearService, $settingService, $memberYearRepo);
-
 
 $scoutYearAdminService = new ScoutYearAdminService($settingService, $importJournalRepo);
 
@@ -4939,6 +4939,13 @@ $router->addRoute(
     '/members/{id}/emails/{email_id}/reactivate',
     \Core\Http\Controller\MemberEmailAddressController::class,
     'reactivate',
+    'identified',
+);
+$router->addRoute(
+    'POST',
+    '/members/{id}/emails/{email_id}/restore-group-mail',
+    \Core\Http\Controller\MemberEmailAddressController::class,
+    'restoreGroupMail',
     'identified',
 );
 $router->addRoute(
@@ -9212,7 +9219,8 @@ if ($isEnabled('mass_mail')) {
         $scoutYearService,
         $settingService,
         $memberService,
-        $memberEmailService
+        $memberEmailService,
+        $massMailSuppressedRepo
     );
     // « This module points at badges by id, so do not let one be deleted
     //   from under a list » — Core\Module\BadgeUsageProvider. Registered
@@ -11998,7 +12006,8 @@ if ($isEnabled('registration')) {
             $scoutYearService,
             $settingService,
             $memberService,
-            $memberEmailService
+            $memberEmailService,
+            $massMailSuppressedRepo
         );
         // Fresh instances rather than reusing the $massMailAudienceRepo/…
         // variables from the mass_mail block above — they're identical

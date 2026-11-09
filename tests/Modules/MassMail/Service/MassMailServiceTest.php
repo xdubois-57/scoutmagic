@@ -504,21 +504,20 @@ class MassMailServiceTest extends TestCase
 
     /**
      * The estimate reads a member's Desk address the way the freeze does:
-     * an address merely on the suppression list is still sent to (a
-     * member's unsubscribe lives on member_emails, which « Réactiver »
-     * undoes), one the member page shows « Inactif » is not.
+     * group-mail suppression, inactive rows and unconfirmed addresses
+     * are all excluded independently of the login permission.
      */
     public function testTheEstimateReadsADeskAddressLikeTheSend(): void
     {
         $this->createMemberWithEmail('reactive@test.be');
         $this->suppressedAddressRepository->suppress('reactive@test.be');
         $email = $this->createDraft();
-        $this->assertSame(1, $this->service->estimateRecipientCount($email->id)['count'], 'Suppressed, still active');
+        $this->assertSame(0, $this->service->estimateRecipientCount($email->id)['count'], 'Unsubscribed, still valid for login');
 
         $inactive = $this->createMemberWithEmail('inactif@test.be');
         $memberEmails = new MemberEmailRepository($this->pdo, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)));
         $memberEmails->markInactive($memberEmails->findOrCreateDeskOverride($inactive, 'inactif@test.be')->id);
-        $this->assertSame(1, $this->service->estimateRecipientCount($email->id)['count'], 'Inactif');
+        $this->assertSame(0, $this->service->estimateRecipientCount($email->id)['count'], 'Inactif');
 
         // A manual row the member added at their Desk address and never
         // confirmed is the row the freeze takes for it, whatever its source.
@@ -527,7 +526,7 @@ class MassMailServiceTest extends TestCase
             $pending, 'attente@test.be', MemberEmail::SOURCE_MANUAL, MemberEmail::STATUS_PENDING, null, null
         );
         $estimate = $this->service->estimateRecipientCount($email->id);
-        $this->assertSame(1, $estimate['count'], 'Pending manual row at the Desk address');
+        $this->assertSame(0, $estimate['count'], 'Pending manual row at the Desk address');
         $this->assertSame(3, $estimate['members']);
 
         $this->service->moveToTest($email->id, null);

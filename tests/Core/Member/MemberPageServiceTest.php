@@ -199,6 +199,21 @@ class MemberPageServiceTest extends TestCase
         return $this->memberService->getMemberProfile($memberYearId);
     }
 
+    public function testThePersonalPageReceivesGroupMailConsentSeparatelyFromAddressStatus(): void
+    {
+        $profile = $this->createMemberInSection();
+        $row = new \Core\Member\MemberEmail(7, $profile->memberId, 'desk@example.org', 'desk', 'valid',
+            null, null, null, null, null, new \DateTimeImmutable());
+        $this->memberEmailService = $this->createMock(MemberEmailService::class);
+        $this->memberEmailService->method('listForMember')->willReturn([$row]);
+        $this->memberEmailService->expects($this->once())->method('isUnsubscribedFromGroupMail')->with($row)->willReturn(true);
+        $data = $this->buildService()->buildPageData($profile, $this->scoutYearId, true, false, Role::IDENTIFIED);
+        $this->assertSame([7 => true], $data['member_email_group_mail_unsubscribed']);
+        $this->assertTrue($data['member_emails'][0]->isValid());
+        $other = $this->buildService()->buildPageData($profile, $this->scoutYearId, false, true, Role::CHIEF);
+        $this->assertSame([], $other['member_email_group_mail_unsubscribed']);
+    }
+
     public function testBranchCardIsNullWhenMemberHasNoSection(): void
     {
         $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('NOSEC')");

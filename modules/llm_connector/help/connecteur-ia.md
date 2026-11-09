@@ -12,43 +12,59 @@ paths: /config/llm
 related: config-rgpd, recus, retrospectives
 ---
 
-Le connecteur IA donne au site un assistant pour des tâches précises :
-lire une facture, suggérer une catégorie comptable, résumer une
-rétrospective, générer le texte RGPD. **L'IA propose, elle ne décide
-jamais** : chaque suggestion attend une validation humaine, et sans ce
-module, ces fonctions se taisent simplement — rien ne casse.
+Le connecteur IA aide à lire un reçu, suggérer une catégorie comptable ou
+résumer une rétrospective. Ces suggestions attendent votre validation.
+Pour les locations, l’IA peut aussi classer directement un e-mail dans une
+réservation ; « Détacher » permet au gestionnaire de corriger ce classement.
+Sans modèle disponible, la saisie manuelle reste utilisable.
 
 ## Choisir un fournisseur
 
-La page propose plusieurs fournisseurs, avec pour chacun la
-localisation de ses serveurs et ses liens de confidentialité —
-certains hébergent en Union européenne, d'autres non. Lisez-les avant
-de choisir : les textes envoyés à l'IA quittent le serveur de l'unité.
+La page indique où se trouvent les serveurs de chaque fournisseur et ses
+liens de confidentialité. Lisez-les : les textes et images envoyés quittent
+le serveur de l’unité.
 
-> Un fournisseur d'IA est un sous-traitant au sens du RGPD. Après
-> l'activation, vérifiez la page Protection des données du site — le
-> mode « Généré par IA » de sa configuration sait tenir compte du
-> fournisseur choisi.
+> Le fournisseur devient un sous-traitant au sens du RGPD. Après activation,
+> vérifiez la page Protection des données du site ; son mode « Généré par
+> IA » sait tenir compte du fournisseur choisi.
 
 ## Activer
 
-Suivez le pas-à-pas du fournisseur pour obtenir une **clé API**,
-collez-la, puis « **Enregistrer et activer** » — c'est ce bouton, et
-lui seul, qui active : changer le fournisseur dans la liste ne fait
-que rafraîchir l'affichage. L'enregistrement teste aussitôt la
-connexion et découvre les modèles disponibles ; les rôles économique,
-performant et de lecture de documents s'attribuent tout seuls, sans
-choix manuel. La clé est conservée chiffrée et jamais réaffichée —
-laissez le champ vide lors d'une modification pour garder l'actuelle.
+Obtenez une **clé API** avec le pas-à-pas affiché, collez-la, puis cliquez
+sur « **Enregistrer et activer** ». Changer la sélection seul ne l’active
+pas. La clé est conservée chiffrée et jamais réaffichée ; laissez le champ
+vide lors d’une modification pour garder l’actuelle.
+
+L’enregistrement découvre les modèles et attribue automatiquement les rôles
+économique, performant et OCR. Il retire les anciennes affectations
+incompatibles, comme le rafraîchissement hebdomadaire.
+
+## Si un modèle manque
+
+Un modèle texte peut analyser un PDF contenant du texte sans savoir lire
+une photo. Sans modèle image vérifié, la ligne OCR reste vide : les photos
+et PDF scannés ne reçoivent pas de suggestions. Vous pouvez compléter le
+reçu manuellement.
+
+Sans modèle de conversation compatible, le test explique l’indisponibilité.
+Le journal indique les exclusions. Chez Scaleway, les modèles inconnus
+restent exclus jusqu’à vérification de leur documentation ; la lecture
+d’images est ensuite testée avec une image synthétique, sans donnée de
+l’unité.
 
 ## Les coûts
 
-Le fournisseur facture l'usage à l'unité, selon ses propres tarifs ;
-le site n'affiche ni compteur ni budget. Les usages sont modestes —
-quelques requêtes par action —, mais deux réglages ailleurs peuvent
-en générer davantage : la règle de catégorisation « IA » des finances
-et la modération automatique des groupes. Surveillez la consommation
-sur le tableau de bord du fournisseur les premières semaines.
+Le fournisseur facture directement l’unité ; le site n’affiche ni compteur
+ni budget. La catégorisation IA des finances et la modération automatique
+des groupes peuvent multiplier les appels : surveillez le tableau de bord
+du fournisseur.
 
-Un seul fournisseur est actif à la fois ; en changer se fait par le
-même bouton, et l'ancien cesse aussitôt d'être appelé.
+Chez Scaleway, la vérification peut ajouter trois petits appels de test au
+maximum par découverte, arrêtés au premier succès. Une réussite est
+réutilisée sept jours. Le renouvellement hebdomadaire est anticipé d’une
+heure pour laisser une marge au planificateur. Après une mise à jour,
+la première vérification est automatique. En cas d’échec, une reprise est
+planifiée après quinze minutes, puis une heure, six heures et enfin une
+fois par jour jusqu’au rétablissement. Un résultat indéterminé sans preuve
+positive est réutilisé pendant une heure. Ces reprises peuvent aussi être
+facturées, toujours avec au plus trois sondes par découverte.

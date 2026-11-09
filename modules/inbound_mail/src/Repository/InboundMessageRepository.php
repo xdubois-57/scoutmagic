@@ -1133,17 +1133,33 @@ class InboundMessageRepository
      */
     public function findFileIdByHash(int $mailboxId, string $contentHash): ?int
     {
+        return $this->findStoredAttachmentByHash($mailboxId, $contentHash)['file_id'] ?? null;
+    }
+
+    /**
+     * The stored representation can differ from the received bytes (a
+     * normalized JPEG, for example). Reused references carry its MIME and
+     * size, while the lookup key remains the hash of the received bytes.
+     *
+     * @return array{file_id: int, mime_type: string, size_bytes: int}|null
+     */
+    public function findStoredAttachmentByHash(int $mailboxId, string $contentHash): ?array
+    {
         $stmt = $this->pdo->prepare(
-            'SELECT a.file_id
+            'SELECT a.file_id, a.mime_type, a.size_bytes
                FROM inbound_message_attachments a
                JOIN inbound_messages m ON a.message_id = m.id
               WHERE m.mailbox_id = ? AND a.content_hash = ? AND a.file_id IS NOT NULL
               LIMIT 1'
         );
         $stmt->execute([$mailboxId, $contentHash]);
-        $fileId = $stmt->fetchColumn();
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
 
-        return $fileId === false ? null : (int) $fileId;
+        return $row === false ? null : [
+            'file_id' => (int) $row['file_id'],
+            'mime_type' => (string) $row['mime_type'],
+            'size_bytes' => (int) $row['size_bytes'],
+        ];
     }
 
     /**

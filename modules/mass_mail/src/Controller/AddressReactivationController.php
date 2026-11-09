@@ -33,7 +33,7 @@ class AddressReactivationController extends AbstractController
             return $guard;
         }
         try {
-            $changed = $this->reactivation->reactivate(
+            $changed = $this->reactivation->restoreGroupMail(
                 (string) $request->getBody('email', ''),
                 AuthSession::getUserAccountId()
             );
