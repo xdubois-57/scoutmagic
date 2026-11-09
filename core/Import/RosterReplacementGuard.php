@@ -119,7 +119,8 @@ class RosterReplacementGuard
         sort($sectionCodesGoingInactive);
 
         $roles = $this->repository->findRolesByFunctionCode($fileFunctionCodes);
-        $adminDeskIdsAfter = $this->adminDeskIdsAfter($parsed, $roles);
+        $identities = $this->repository->identifyFunctionCodes($fileFunctionCodes);
+        $adminDeskIdsAfter = $this->adminDeskIdsAfter($parsed, $roles, $identities);
 
         $adminDeskIdsBefore = $this->repository->findAdminDeskIds($scoutYearId);
         $unitStaffLost = array_values(array_diff($adminDeskIdsBefore, $adminDeskIdsAfter));
@@ -162,23 +163,27 @@ class RosterReplacementGuard
      * The Desk identifiers that would hold a chef d'unité function once
      * the file is applied.
      *
-     * A function code this installation has never seen is not in $roles,
-     * and `MappingResolver::resolveFunction()` will create it at role
-     * 'identified' (SECURITY.md §3) — so an absence reads as the lowest
-     * role. Reading it as "unknown, probably fine" is exactly how a file
-     * that empties the Staff d'Unité would slip through.
+     * Stored roles take precedence. An unseen code gets MappingResolver's
+     * creation default, in import order: equivalent codes later in the file
+     * reuse the mapping the first one will create. This is read-only; calling
+     * resolveFunction() here would write before the barrier can refuse.
      *
      * @param array<string, string> $roles
+     * @param array<string, int> $identities
      * @return string[]
      */
-    private function adminDeskIdsAfter(ParsedImport $parsed, array $roles): array
+    private function adminDeskIdsAfter(ParsedImport $parsed, array $roles, array $identities): array
     {
         $deskIds = [];
+        $createdRoles = [];
         foreach ($parsed->members as $member) {
             foreach ($member->functions as $function) {
-                if (($roles[$function->functionCode] ?? 'identified') === 'admin') {
+                $code = $function->functionCode;
+                $identity = $identities[$code];
+                $role = $roles[$code] ?? $createdRoles[$identity] ?? MappingResolver::defaultRoleFor($code);
+                $createdRoles[$identity] = $role;
+                if ($role === 'admin') {
                     $deskIds[$member->deskId] = true;
-                    break;
                 }
             }
         }

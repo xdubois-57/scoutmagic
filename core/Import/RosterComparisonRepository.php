@@ -121,10 +121,9 @@ class RosterComparisonRepository
     /**
      * Role by Desk function code, for the codes a CSV names.
      *
-     * A code absent from the map is a function this installation has
-     * never seen: `MappingResolver::resolveFunction()` will create it at
-     * role 'identified', so the caller must read an absence as the lowest
-     * role and never as "unknown, assume the best".
+     * Key the result by the REQUESTED spelling, since the stored code may
+     * differ under the column's collation. An absent code needs the creation
+     * default, not an assumed role for a mapping that already exists.
      *
      * @param string[] $deskCodes
      * @return array<string, string>
@@ -136,18 +135,26 @@ class RosterComparisonRepository
             return [];
         }
 
-        $placeholders = implode(',', array_fill(0, count($deskCodes), '?'));
-        $stmt = $this->pdo->prepare(
-            "SELECT desk_code, role FROM functions WHERE desk_code IN ({$placeholders})"
-        );
-        $stmt->execute($deskCodes);
-
+        $stmt = $this->pdo->prepare('SELECT role FROM functions WHERE desk_code = ?');
         $roles = [];
-        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
-            $roles[(string) $row['desk_code']] = (string) $row['role'];
+        foreach ($deskCodes as $code) {
+            $stmt->execute([$code]);
+            $role = $stmt->fetchColumn();
+            if ($role !== false) {
+                $roles[$code] = (string) $role;
+            }
         }
 
         return $roles;
+    }
+
+    /**
+     * @param list<string> $deskCodes
+     * @return array<string, int> database-equivalent codes share one identity
+     */
+    public function identifyFunctionCodes(array $deskCodes): array
+    {
+        return (new DeskCodeIdentityRepository($this->pdo))->identify($deskCodes);
     }
 
     /**

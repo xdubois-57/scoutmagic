@@ -94,6 +94,12 @@ class MappingResolver
         $this->journalled = [];
     }
 
+    /** Role assigned only when this code creates a new mapping. */
+    public static function defaultRoleFor(string $deskCode): string
+    {
+        return self::STANDARD_FUNCTION_DEFAULTS[$deskCode]['role'] ?? 'identified';
+    }
+
     /**
      * Resolve a raw function code from CSV to a functions table ID.
      * Standard labels receive their explicit defaults once. Every other new
@@ -120,7 +126,7 @@ class MappingResolver
         }
 
         $defaults = self::STANDARD_FUNCTION_DEFAULTS[$deskCode] ?? null;
-        $id = $this->functionRepo->create($deskCode, $deskCode, $defaults['role'] ?? 'identified', $defaults !== null);
+        $id = $this->functionRepo->create($deskCode, $deskCode, self::defaultRoleFor($deskCode), $defaults !== null);
         if ($defaults !== null && $defaults['lead'] !== null) {
             $this->hooks?->getOptional(FunctionFlagsProvider::class)?->setLead($id, $defaults['lead']);
         }

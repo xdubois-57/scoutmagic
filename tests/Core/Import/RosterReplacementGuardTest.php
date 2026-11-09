@@ -306,6 +306,81 @@ class RosterReplacementGuardTest extends TestCase
         $this->assertSame(RosterReplacementVerdict::NO_ADMIN_LEFT, $assessment->verdict);
     }
 
+    #[\PHPUnit\Framework\Attributes\DataProvider('newFunctionRoles')]
+    public function testNewFunctionDefaultsDetermineWhetherAnAdminRemains(string $code, int $admins): void
+    {
+        $this->buildRoster(['BAL1' => 2, 'LOUV1' => 2]);
+        $this->addChiefToRoster('CU-1');
+        $parsed = new ParsedImport([
+            ...$this->parsedFile(['BAL1' => 2, 'LOUV1' => 2])->members,
+            $this->parsedMember('NEW-1', [new ParsedFunction($code, null, null, null, null, null, null, true)]),
+        ], 5);
+
+        $assessment = $this->guard->assess($parsed, $this->scoutYearId, 0);
+
+        $this->assertSame([
+            $admins === 1 ? RosterReplacementVerdict::ALLOWED : RosterReplacementVerdict::NO_ADMIN_LEFT,
+            $admins,
+        ], [$assessment->verdict, $assessment->adminCountAfter]);
+    }
+
+    /** @return iterable<string, array{string, int}> */
+    public static function newFunctionRoles(): iterable
+    {
+        yield 'unit lead' => ["Animateur d'unité", 1];
+        yield 'candidate' => ['Candidat cadre local', 1];
+        yield 'collaborator' => ["Collaborateur d'unité", 1];
+        yield 'unit staff' => ["Equipier d'unité", 1];
+        yield 'accented unit staff' => ["Équipier d'unité", 1];
+        yield 'animateur' => ['Animateur', 0];
+        yield 'section lead' => ['Animateur responsable', 0];
+        yield 'candidate animateur' => ['Candidat animateur', 0];
+        yield 'iama' => ['Iama local', 0];
+        yield 'scout' => ['Scout', 0];
+        yield 'unknown' => ['Fonction inconnue', 0];
+        yield 'similar label' => ["Animateur d'unité adjoint", 0];
+    }
+
+    public function testAnExistingUnconfirmedStandardFunctionKeepsItsStoredRoleInTheAssessment(): void
+    {
+        $this->buildRoster(['BAL1' => 2, 'LOUV1' => 2]);
+        $this->addChiefToRoster('CU-1');
+        $functionId = $this->createFunction("Collaborateur d'unité", 'identified');
+        $this->pdo->exec('UPDATE functions SET confirmed = 0 WHERE id = ' . $functionId);
+        $parsed = new ParsedImport([
+            ...$this->parsedFile(['BAL1' => 2, 'LOUV1' => 2])->members,
+            $this->parsedMember('CU-1', [
+                new ParsedFunction("Collaborateur d'unité", null, null, null, null, null, null, true),
+            ]),
+        ], 5);
+
+        $assessment = $this->guard->assess($parsed, $this->scoutYearId, 0);
+
+        $this->assertSame([RosterReplacementVerdict::NO_ADMIN_LEFT, 0], [
+            $assessment->verdict, $assessment->adminCountAfter,
+        ]);
+    }
+
+    public function testTheImporterKeepsTheirAccessWithANewStandardAdminFunction(): void
+    {
+        $this->buildRoster(['BAL1' => 2, 'LOUV1' => 2]);
+        $accountId = $this->createUserAccount('cu_idx', false);
+        $this->addChiefToRoster('CU-1', 'cu_idx');
+        $parsed = new ParsedImport([
+            ...$this->parsedFile(['BAL1' => 2, 'LOUV1' => 2])->members,
+            $this->parsedMember('CU-1', [
+                new ParsedFunction("Collaborateur d'unité", null, null, null, null, null, null, true),
+            ]),
+        ], 5);
+
+        $assessment = $this->guard->assess($parsed, $this->scoutYearId, $accountId);
+
+        $this->assertSame([RosterReplacementVerdict::ALLOWED, 1, 0, false], [
+            $assessment->verdict, $assessment->adminCountAfter,
+            $assessment->unitStaffLostCount, $assessment->importerLosesAdmin,
+        ]);
+    }
+
     /* ------------------------------------------------------------------ */
     /* The consequence that concerns the importer                          */
     /* ------------------------------------------------------------------ */

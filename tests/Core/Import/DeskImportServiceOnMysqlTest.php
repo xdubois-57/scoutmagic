@@ -9,11 +9,20 @@ declare(strict_types=1);
 namespace Tests\Core\Import;
 
 use Core\Config\ScoutYearService;
+use Core\Config\SettingRepository;
+use Core\Config\SettingService;
 use Core\Import\AgeBranchRepository;
+use Core\Import\DeskCsvParser;
 use Core\Import\DeskImportRejectedException;
 use Core\Import\DeskImportRule;
 use Core\Import\FunctionRepository;
 use Core\Import\ImportSectionRepository;
+use Core\Import\MemberYearRepository;
+use Core\Import\RosterComparisonRepository;
+use Core\Import\RosterReplacementGuard;
+use Core\Import\RosterReplacementRefusedException;
+use Core\Import\RosterReplacementVerdict;
+use Core\ScoutYear\ScoutYearResolver;
 use Core\Security\EncryptionService;
 use Core\Security\UserAccountRepository;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -148,6 +157,137 @@ final class DeskImportServiceOnMysqlTest extends TestCase
     {
         yield 'branch' => ['Branche'];
         yield 'section' => ['Section'];
+    }
+
+    #[DataProvider('replacementFunctionCodes')]
+    public function testReplacementAssessmentAgreesWithRolesActuallyImported(
+        ?string $storedCode,
+        string $storedRole,
+        string $firstCode,
+        ?string $secondCode,
+        int $admins
+    ): void {
+        $this->prepareReplacement();
+        $functions = new FunctionRepository($this->pdo);
+        if ($storedCode !== null) {
+            $functions->create($storedCode, 'Choix personnalisé', $storedRole, false);
+        }
+        $rows = [['FONCTION' => $firstCode, 'Branche' => '', 'Section' => '']];
+        if ($secondCode !== null) {
+            $rows[] = ['Tiers' => 'T901', 'FONCTION' => $secondCode, 'Branche' => '', 'Section' => ''];
+        }
+        $this->writeRows($rows);
+        $before = $this->replacementState();
+        $assessment = $this->replacementGuard()->assess(
+            (new DeskCsvParser())->parse($this->root . '/desk/2025-2026.csv'),
+            $this->yearId,
+            $this->importerId,
+        );
+        $afterAssessment = $this->replacementState();
+        $verdict = RosterReplacementVerdict::ALLOWED;
+        try {
+            $this->replay->importYear('2025-2026', $this->yearId, $this->importerId);
+            $actualAdmins = (new RosterComparisonRepository($this->pdo))->findAdminDeskIds($this->yearId);
+            sort($actualAdmins);
+            $actual = [$actualAdmins, $this->importedFunctionRoles()];
+        } catch (RosterReplacementRefusedException $e) {
+            $verdict = $e->assessment->verdict;
+            $actual = $this->replacementState();
+        }
+        $expectedVerdict = $admins > 0 ? RosterReplacementVerdict::ALLOWED : RosterReplacementVerdict::NO_ADMIN_LEFT;
+        $expectedRoles = [['T900', $storedCode ?? $firstCode, 'admin', $storedCode === null ? 1 : 0]];
+        if ($secondCode !== null) {
+            $expectedRoles[] = ['T901', $storedCode ?? $firstCode, 'admin', $storedCode === null ? 1 : 0];
+        }
+        self::assertSame([
+            $expectedVerdict, $admins, $before, $expectedVerdict,
+            $admins > 0 ? [$secondCode === null ? ['T900'] : ['T900', 'T901'], $expectedRoles] : $before,
+        ], [$assessment->verdict, $assessment->adminCountAfter, $afterAssessment, $verdict, $actual]);
+    }
+
+    public function testFunctionsAfterAnAdminFunctionStillEstablishMappingsForLaterMembers(): void
+    {
+        $this->prepareReplacement();
+        $this->writeRows([
+            ['FONCTION' => "Animateur d'unité", 'Branche' => '', 'Section' => '', 'Fonction principale' => 'true'],
+            ['FONCTION' => "equipier d'unite", 'Branche' => '', 'Section' => ''],
+            ['Tiers' => 'T901', 'FONCTION' => "Équipier d'unité", 'Branche' => '', 'Section' => ''],
+        ]);
+        $assessment = $this->replacementGuard()->assess(
+            (new DeskCsvParser())->parse($this->root . '/desk/2025-2026.csv'), $this->yearId, $this->importerId,
+        );
+        $this->replay->importYear('2025-2026', $this->yearId, $this->importerId);
+
+        self::assertSame([RosterReplacementVerdict::ALLOWED, 1, [
+            ['T900', "Animateur d'unité", 'admin', 1],
+            ['T900', "equipier d'unite", 'identified', 0],
+            ['T901', "equipier d'unite", 'identified', 0],
+        ]], [
+            $assessment->verdict, $assessment->adminCountAfter,
+            $this->importedFunctionRoles(),
+        ]);
+    }
+
+    /** @return iterable<string, array{?string, string, string, ?string, int}> */
+    public static function replacementFunctionCodes(): iterable
+    {
+        yield 'new standard' => [null, 'identified', "Collaborateur d'unité", null, 1];
+        yield 'standard before equivalent code' => [null, 'identified', "Équipier d'unité", "equipier d'unite", 2];
+        yield 'equivalent unknown before standard' => [null, 'identified', "equipier d'unite", "Équipier d'unité", 0];
+        yield 'stored downgrade via equivalent code' => ["equipier d'unite", 'identified', "Équipier d'unité", null, 0];
+        yield 'stored admin via equivalent code' => ["ÉQUIPIER D'UNITÉ", 'admin', "equipier d'unite", null, 1];
+    }
+
+    private function prepareReplacement(): void
+    {
+        $settings = new SettingService(new SettingRepository($this->pdo));
+        $settings->register(ScoutYearResolver::SETTING_PUBLIC_YEAR, '0', 'number', 'Année publique', 'Année du test');
+        $settings->setInternal(ScoutYearResolver::SETTING_PUBLIC_YEAR, (string) $this->yearId);
+        $this->writeRows([['FONCTION' => "Animateur d'unité", 'Branche' => '', 'Section' => '']]);
+        $this->replay->importYear('2025-2026', $this->yearId, $this->importerId);
+        $this->pdo->exec('UPDATE user_accounts SET is_super_admin = 0');
+    }
+
+    private function replacementGuard(): RosterReplacementGuard
+    {
+        return new RosterReplacementGuard(
+            new RosterComparisonRepository($this->pdo),
+            new ScoutYearResolver(
+                new ScoutYearService($this->pdo),
+                new SettingService(new SettingRepository($this->pdo)),
+                new MemberYearRepository($this->pdo),
+            ),
+        );
+    }
+
+    /** @return list<list<mixed>> */
+    private function importedFunctionRoles(): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT m.desk_id, f.desk_code, f.role, f.confirmed
+             FROM member_functions mf
+             JOIN member_years my ON my.id = mf.member_year_id
+             JOIN members m ON m.id = my.member_id
+             JOIN functions f ON f.id = mf.function_id
+             WHERE my.scout_year_id = ? AND my.is_active = 1
+             ORDER BY m.desk_id, f.desk_code'
+        );
+        $stmt->execute([$this->yearId]);
+
+        return $stmt->fetchAll(\PDO::FETCH_NUM);
+    }
+
+    /** @return array<string, mixed> */
+    private function replacementState(): array
+    {
+        $state = [];
+        foreach (['functions', 'members', 'member_years', 'member_functions', 'files', 'import_journal',
+                  'fees_roster_snapshots'] as $table) {
+            $state[$table] = $this->pdo->query("SELECT * FROM {$table} ORDER BY id")->fetchAll(\PDO::FETCH_ASSOC);
+        }
+        $state['stored_files'] = scandir($this->root . '/storage');
+
+        return $state;
     }
 
     /**

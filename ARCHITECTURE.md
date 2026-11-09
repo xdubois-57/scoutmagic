@@ -366,27 +366,29 @@ these drifts silently.
 
 - Lines grouped by `desk_id`.
 - Raw values resolved via mapping tables (functions, branches, tariffs, sections).
-- À leur première apparition, les fonctions Desk standard reçoivent les défauts confirmés du tableau ci-dessous. Les fonctions inconnues restent `identified`, non confirmées.
+- Standard Desk functions receive the confirmed defaults below on their own first encounter. Unknown functions remain `identified`, unconfirmed.
 - CSV **kept**, encrypted at rest, for a retention expressed in scout years — see below.
 - **A repeated function row is one function, not two.** A Desk export emits one line per (function × address), so a member with two addresses and one function arrives as that function twice, identical in every field. `DeskImportService` collapses entries identical on the whole tuple (function, section, branch, start, end, mandate end, main flag) before `MemberYearRepository::replaceFunctions()` — the last point at which the two rows are still known to come from one fact. Two entries differing on **any** field stay two: « Animateur / Louveteaux » and « Animateur / Baladins » are two real functions. Left alone, the repeat became two strictly identical `member_functions` rows and every reader without a `DISTINCT` counted the person twice. The same rule is applied on the way out by `Core\Member\MemberFunctionInfo::deduplicate()`, so a year imported before this existed reads correctly without waiting for the next import. No `UNIQUE` constraint backs it: `schema/core.sql` auto-migrates on every request and adding one would fail on the rows already there.
 - Import journaled (metadata only).
 - **Dates are stored as `Y-m-d`** — the birth date before it is encrypted, and the three function dates — read by `Core\Service\DeskDateParser`, the one Desk date reader. The birth date used to be stored verbatim, so a Desk `15/03/2012` displayed as nothing wherever `date_fr` or `DateInput::fromStorage()` read it (both member pages, the printed health sheet) and `MemberService::isAtLeast()` let it through; the function dates went through a hand-rolled split on `/` that turned `28/11/20` into `20-11-28`. No migration: rows written before keep their verbatim text, which the readers that go through `DeskDateParser` still accept.
 
-**Correspondances initiales (#1054).** `MappingResolver::resolveFunction()` consulte un catalogue explicite uniquement lorsque la correspondance n'existe pas encore. Chaque fonction reçoit ses défauts lors de sa propre première apparition, quel que soit le numéro de l'import. Les fonctions absentes ne sont jamais précréées. Tout réglage déjà enregistré — rôle, confirmation, case de responsable — est conservé, y compris une ancienne correspondance non confirmée.
+**Initial mappings (#1054).** `MappingResolver::resolveFunction()` consults an explicit catalog only when no mapping exists yet. Each function gets its defaults on its own first encounter, however many imports have already run. Absent functions are never precreated. Every stored choice — role, confirmation, lead flag — is preserved, including an older unconfirmed mapping.
 
-| Fonction Desk | Rôle | Responsable de section |
+| Desk function | Role | Section lead |
 | --- | --- | --- |
-| Animateur | `chief` | Non |
-| Animateur responsable | `chief` | Oui |
-| Candidat animateur | `chief` | Non |
-| Animateur d'unité | `admin` | Oui |
-| Candidat cadre local | `admin` | Non |
-| Collaborateur d'unité | `admin` | Non |
-| Equipier d'unité / Équipier d'unité | `admin` | Non |
-| Iama local | `public` | Sans objet |
-| Scout | `identified` | Sans objet |
+| Animateur | `chief` | No |
+| Animateur responsable | `chief` | Yes |
+| Candidat animateur | `chief` | No |
+| Animateur d'unité | `admin` | Yes |
+| Candidat cadre local | `admin` | No |
+| Collaborateur d'unité | `admin` | No |
+| Equipier d'unité / Équipier d'unité | `admin` | No |
+| Iama local | `public` | Not applicable |
+| Scout | `identified` | Not applicable |
 
-Les deux graphies d'Équipier sont attestées ; aucun rapprochement de casse, d'accent ou de mots n'est ajouté au catalogue. Une correspondance déjà présente est retrouvée selon les règles habituelles de la base. L'indicateur de responsable passe par `Core\Module\FunctionFlagsProvider`, résolu dans `HookRegistry` au moment de la création, seulement si son module est actif. Une activation ultérieure n'applique pas rétroactivement les défauts. Cet indicateur reste distinct de la colonne Desk « Fonction principale » et du rôle. `RoleResolver` conserve le minimum `identified` d'un compte connecté et le cumul des autres fonctions.
+Both Équipier spellings are attested; the catalog adds no case, accent or word approximation. Existing mappings are found using the database's usual equality rules. The lead flag goes through `Core\Module\FunctionFlagsProvider`, resolved from `HookRegistry` at creation time only when its module is active. Enabling it later does not apply defaults retroactively. This flag is independent of the Desk « Fonction principale » column and the role. `RoleResolver` retains an authenticated account's `identified` minimum and combines its other functions as before.
+
+`MappingResolver::defaultRoleFor()` is the shared creation-role lookup. Before any mapping is written, `RosterReplacementGuard` predicts roles from stored mappings first, then this lookup for unseen functions. `RosterComparisonRepository` keys stored roles by the requested code spelling and delegates equivalence identities to `DeskCodeIdentityRepository`. Equivalent unseen codes use the default of the first one processed, matching the import's member/function order. Every function is visited even after a member already counts as an admin, because a later function may establish a mapping another member will reuse. The barrier therefore keeps its last-admin refusal without rejecting a legitimate new standard admin function or overriding a configured role.
 
 **A file with one unreadable value is refused whole** (`Core\Import\DeskImportValidator`, issue #854). Before the barrier below, before the kept file, before the transaction, one pass over every data line collects every violation of fourteen rules: a birth date on every line, readable and plausible (not in the future, not before 1900); as many cells as the header, or one more if that last one is empty (a real Desk export ends every line with a `;`); a `Tiers`, a `Nom`, a `Prenom` and a `FONCTION` on every line; the lines of one Tiers agreeing on `Nom`, `Prenom`, `Genre`, `Date de naissance` and `Email Tiers` (the parser reads identity from the first line only); `Genre` `F`, `H` or `X` — Desk's own values, a spreadsheet's `M` refused rather than guessed; the three boolean columns `true` or `false`, case ignored, with an empty main-function flag also meaning unmarked (mail consents stay strict); `Email Tiers` empty or well-formed; function dates empty or readable; a `Section` never without its `Branche`; no `Date début` after the end of the targeted scout year (read from `scout_years.end_date` through `ScoutYearService`); one distinct function is implicitly main even when its flag is false or empty (#1059), and the service persists `is_main_function = true` after collapsing its address copies; multiple distinct functions still need exactly one explicit main flag. Functions are counted with dates normalised and function, branch and section codes compared by their real database collation, since Desk repeats a function on each address line. Before validation, `DeskCodeIdentityRepository` supplies equivalence identities in one read-only batch, including codes not yet stored; the validator stays pure and never approximates Unicode collation in PHP. An absent branch or section stays distinct from a nonempty primary-ignorable code, and a function's lines must agree on its flag (empty and false agree) — the service's dedup key includes it, so a disagreement would store the function twice. Any violation throws `DeskImportRejectedException` (an `ImportException`, so user-facing) and nothing is written. Each import used to accept these silently — an empty or two-digit birth date overwrote a good one and took the member out of Statistiques and Prévisions, a spreadsheet's `VRAI` withdrew every mail consent, a cut line emptied its last columns, a malformed e-mail created a login. `ImportController` lays the errors out as a list on the import page (« Ligne N (Tiers) — Colonne « valeur » : raison. », never a member's name, at most `DeskImportRejectedException::MAX_LISTED_ERRORS` sentences and « … et N autres » after them); the journal gets `desk_import_rejected` with a count per rule and nothing else (SECURITY.md §13). Deliberately not checked: codes this site does not know yet (created and reported in Correspondances Desk) and free-text fields. The reference dataset passes every rule, which `Tests\Integration\ReferenceDatasetFormatTest` holds.
 
@@ -469,10 +471,10 @@ just got, or just lost, the Configuration), sections that lost their last
 member or gained their first, and the functions/sections/branches/fee
 categories this installation had never seen — those last come from
 `MappingResolver`, which created them, since no snapshot can say that a
-code is brand new. Le rapport nomme ces créations sans les déclarer toutes
-inconnues ou au rôle minimum : les fonctions standard ont déjà leurs
-correspondances. Seules celles encore non confirmées proposent l'action de
-configuration dans Correspondances Desk (SECURITY.md §3).
+code is brand new. The report names these creations without describing them
+all as unknown or lowest-role: standard functions already have their
+mappings. Only those still unconfirmed offer the configuration action in
+Correspondances Desk (SECURITY.md §3).
 
 Two absences are kept apart deliberately. The season's first import has
 no predecessor; an import whose predecessor's snapshot the retention
@@ -882,7 +884,7 @@ On the Staffs page, an editing chief's assignment picker is a `partials/select_b
 
 Chef-d'unité staff (role `admin`) are represented by a real `sections` row (`desk_code = 'STAFFDU'`, branch `"Staff d'U"`, canonical `sort_order = 50` between Pionniers and Route — see `AgeBranchRepository::canonicalSortOrder()`) — not a virtual/synthetic entry. Because membership is expressed the same way as any other section (`member_functions.section_id` pointing at it), it flows through `SectionService::getAllWithBranches()`/`getSectionStaff()`, the SectionPicker, and the trombinoscope with zero special-casing anywhere. `UnitStaffSectionService::ensureSection()` idempotently creates the branch/section and forces it active — it must survive `MappingResolver::deactivateAllSections()` even though no Desk CSV row ever references `STAFFDU` directly (§8.8's deactivate-then-reactivate pattern only reactivates sections a CSV row actually names).
 
-Le rôle provient des correspondances déjà configurées ou des défauts des fonctions standard lors de leur première apparition (§8.1). `UnitStaffSectionService::syncMembership($scoutYearId)` s'exécute à la fin de chaque import, puis après chaque changement de rôle dans `FunctionsController::update()`. Les fonctions standard d'unité peuvent donc rejoindre Staff d'U dès leur premier import, sans configuration manuelle. Cette synchronisation reste idempotente : elle rattache les fonctions `admin` sans section à `STAFFDU`, et détache de `STAFFDU` celles dont le rôle n'est plus `admin`.
+The role comes from an existing mapping or a standard function's first-encounter defaults (§8.1). `UnitStaffSectionService::syncMembership($scoutYearId)` runs at the end of every import and after every role change in `FunctionsController::update()`. Standard unit-staff functions can therefore join Staff d'U on their first import, without manual configuration. The sync remains idempotent: it attaches unassigned `admin` functions to `STAFFDU` and clears that section from functions whose role is no longer `admin`.
 
 `Core\View\SectionRepository` (the public "Notre unité > Sections" read-model) explicitly excludes `desk_code = 'STAFFDU'` — the section is real and generic for internal purposes but never listed publicly.
 
@@ -2169,11 +2171,11 @@ The site has to match what Desk exports to what it knows. When a value is not re
 
 | Kind | Where it is decided | How it fails today |
 |---|---|---|
-| Function | `MappingResolver::resolveFunction()` | created with the raw code as label and the `identified` role; `functions.confirmed = false` |
+| Function | `MappingResolver::resolveFunction()` | an unknown label is created with the raw code as label, role `identified` and `functions.confirmed = false`; standard labels receive their confirmed defaults (§8.1) |
 | Branch | `AgeBranchRepository::canonicalSortOrder()` | returns **99**: no default logo, an arbitrary rank everywhere — **consequences nobody complains about**, which is why this one went unreported until the journalling below existed |
 | CSV header | `DeskCsvParser::EXPECTED_HEADERS` | the only blocking one: the import stops |
 
-**A function is the exception in that table, and it matters.** There is no list of known functions anywhere in this code — `resolveFunction()` creates every unseen one at the lowest role without consulting anything — so no release can make a function "recognised". Only the unit qualifying it resolves that line. It is still worth reporting, because « seven units carry a function nobody has qualified » is a federation-wide fact no single unit can see; it is just not a table to complete.
+**A function is reported while its mapping remains unconfirmed.** New standard labels receive the explicit defaults in §8.1 and produce no unknown-function event. Other new labels remain at the lowest role until the unit qualifies them; existing unconfirmed mappings stay unconfirmed even if their label is now standard. Reporting them still matters, because « seven units carry a function nobody has qualified » is a federation-wide fact no single unit can see. A catalog change never overwrites the unit's stored choices.
 
 **A Desk TARIFF is deliberately not one of these kinds, and the reason is the sharpest constraint in this section.** The chantier started with four, on the premise that a tariff no household barème claims is a mapping to complete. §8.75 says the opposite in as many words — *« A tariff outside the three is not judged. […] Reporting them would be a false positive on every unit, on the first screen a treasurer opens »* — and `FeeCategoryClassifierTest` pins « Cotisation invités », « Cotisation de solidarité » and « COT_iAM_LOCAL » as wordings that must answer `null` for ever. The decisive point is that this code **cannot tell** such a tariff from one of the three spelled unusually, which is exactly why `FeeCategoryClassifier::classify()` refuses to guess: so it cannot report either as unresolved without being wrong about the other. A unit that wants one compared maps it by hand on the barème panel, which is the documented answer and not a gap.
 
