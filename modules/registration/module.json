@@ -763,6 +763,14 @@
       "description": "Nombre de jours après la date programmée pendant lesquels une ouverture ou une fermeture manquée peut encore se déclencher — utile quand la tâche planifiée n'a pas tourné le jour même (serveur éteint, cron en pause). 0 désactive le rattrapage : la bascule ne se fait alors que le jour exact, et est perdue pour l'année si elle est ratée. Une valeur trop grande ferait qu'une date configurée longtemps après coup — ou l'activation du module en cours d'année — déclencherait rétroactivement la bascule. Maximum 30."
     },
     {
+      "key": "registration_reenrollment_last_opened_year",
+      "default_value": "",
+      "type": "text",
+      "label": "Campagne de réinscription : dernière année cible ouverte",
+      "description": "Suivi interne de l'année cible d'une campagne réellement ouverte, même manuellement et sans e-mail. Distingue une fermeture d'une campagne à venir sans modifier les déclenchements programmés. Non modifiable.",
+      "editable": false
+    },
+    {
       "key": "registration_reenrollment_open_applied_on",
       "default_value": "",
       "type": "text",

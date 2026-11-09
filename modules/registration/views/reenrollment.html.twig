@@ -1,17 +1,24 @@
 {% extends 'base.html.twig' %}
 {% block title %}Réinscription {{ target_year_label }} — {{ site_name }}{% endblock %}
 {% block content %}
+{% set campaign_not_started = (campaign_state ?? null) == 'not_started' %}
 {% include 'partials/page_header.html.twig' with {
     title: 'Réinscription ' ~ target_year_label,
     subtitle: is_open
         ? "Dites-nous si votre enfant revient l'année prochaine. Vous pouvez revenir sur votre réponse tant que la campagne est ouverte."
-        : "La campagne est clôturée. Votre réponse est conservée telle que vous l'avez donnée — contactez le Staff d'U pour toute modification.",
+        : (campaign_not_started
+            ? "La campagne de réinscription n'est pas encore ouverte."
+            : "La campagne est clôturée. Votre réponse est conservée telle que vous l'avez donnée — contactez le Staff d'U pour toute modification."),
 } only %}
 
 {% if not is_open %}
     <div class="alert alert-info">
-        La campagne de réinscription est clôturée. Cette page reste consultable : votre réponse n'est pas perdue.
-        Pour la modifier, contactez le Staff d'U.
+        {% if campaign_not_started %}
+            La campagne de réinscription n'est pas encore ouverte. Vous pourrez répondre dès son ouverture.
+        {% else %}
+            La campagne de réinscription est clôturée. Cette page reste consultable : votre réponse n'est pas perdue.
+            Pour la modifier, contactez le Staff d'U.
+        {% endif %}
     </div>
 {% endif %}
 
