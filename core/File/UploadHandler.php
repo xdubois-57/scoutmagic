@@ -50,6 +50,9 @@ class UploadHandler
      *        and $ownerId are trailing/optional so every existing caller
      *        keeps behaving exactly as before.
      * @param int|null $ownerId
+     * @param bool $reencodeImages False only for fresh pixels already
+     *        validated and encoded by PhotoNormalizer. MIME, size and
+     *        ownership checks still apply; the prepared bytes are kept.
      * @return int File ID in the files table
      * @throws UploadException On validation failure
      */
@@ -62,7 +65,8 @@ class UploadHandler
         ?string $moduleId = null,
         ?int $createdBy = null,
         ?string $ownerType = null,
-        ?int $ownerId = null
+        ?int $ownerId = null,
+        bool $reencodeImages = true
     ): int {
         // Validate file exists and no upload error
         if (empty($uploadedFile['tmp_name']) || !is_string($uploadedFile['tmp_name'])) {
@@ -83,10 +87,8 @@ class UploadHandler
             throw new UploadException("Le fichier dépasse la taille maximale autorisée ({$maxMb} Mo).");
         }
 
-        // Room for it, before a byte of it is written. The size is the
-        // one the browser announced and PHP already accepted, which is
-        // what will land on disk (an image is re-encoded below and comes
-        // out smaller, never larger).
+        // Room for the supplied bytes before a byte is written. A caller
+        // keeping an already processed image supplies its final size.
         //
         // Re-stated as an UploadException rather than let through:
         // eighteen call sites across core and six modules catch
@@ -128,7 +130,7 @@ class UploadHandler
         }
 
         // Strip EXIF from images by re-encoding
-        if (in_array($mimeType, ['image/jpeg', 'image/png', 'image/webp', 'image/gif'], true)) {
+        if ($reencodeImages && in_array($mimeType, ['image/jpeg', 'image/png', 'image/webp', 'image/gif'], true)) {
             $this->stripExifAndSave($tmpName, $targetPath, $mimeType);
         } else {
             // Move file

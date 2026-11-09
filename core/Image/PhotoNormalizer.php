@@ -10,9 +10,9 @@ namespace Core\Image;
 
 /**
  * Turns a photograph, as a phone sends it, into the one form the site
- * keeps: a JPEG at most 2 400 px on its longest side, quality 85, upright,
- * and carrying **no metadata at all** — no EXIF, no GPS position, no camera
- * serial number.
+ * keeps: a JPEG at most 2 400 px on its longest side, quality 85, with its
+ * orientation applied where the server reads EXIF, and carrying **no
+ * metadata at all** — no EXIF, no GPS position, no camera serial number.
  *
  * **It refuses rather than keeps.** `Core\File\UploadHandler` stores a file
  * it cannot re-encode as it came (an HEIC photo, an image GD fails to
@@ -32,8 +32,8 @@ namespace Core\Image;
  * for JPEG) never reaches that branch.
  *
  * Used before `UploadHandler::handle()`, on the model of
- * `Core\Photo\PhotoIngestionService` (process, then store): the file stored
- * and the size recorded are already the final ones.
+ * `Core\Photo\PhotoIngestionService` (process, then store). A caller that
+ * budgets these final bytes stores them with image re-encoding disabled.
  */
 final class PhotoNormalizer
 {
@@ -48,6 +48,16 @@ final class PhotoNormalizer
 
     /** What a phone may send that only the HEIC converter reads. */
     private const HEIC_MIMES = ['image/heic', 'image/heif', 'image/heic-sequence', 'image/heif-sequence'];
+
+    private const PNG_EXIF = [
+        'start' => 8, 'size_offset' => 0, 'type_offset' => 4,
+        'size_format' => 'N', 'overhead' => 12, 'alignment' => 1, 'tag' => 'eXIf',
+    ];
+
+    private const WEBP_EXIF = [
+        'start' => 12, 'size_offset' => 4, 'type_offset' => 0,
+        'size_format' => 'V', 'overhead' => 8, 'alignment' => 2, 'tag' => 'EXIF',
+    ];
 
     public const HEIC_UNREADABLE = "Cette photo est au format HEIC, que ce serveur ne sait pas lire : réglez "
         . "l'appareil photo sur « Le plus compatible » ou choisissez une autre photo.";
@@ -138,14 +148,13 @@ final class PhotoNormalizer
             throw new PhotoNormalizationException($e->getMessage(), 0, $e);
         }
 
+        $orientation = self::orientationOf($bytes, $mimeType);
         $image = @imagecreatefromstring($bytes);
         if ($image === false) {
             throw new PhotoNormalizationException(self::UNREADABLE);
         }
 
-        if ($mimeType === 'image/jpeg') {
-            $image = self::upright($image, self::orientationOf($bytes));
-        }
+        $image = self::upright($image, $orientation);
 
         $width = imagesx($image);
         $height = imagesy($image);
@@ -268,14 +277,78 @@ final class PhotoNormalizer
         return $jpeg;
     }
 
-    /** The EXIF orientation of JPEG bytes, 1 when there is none. */
-    private static function orientationOf(string $bytes): int
+    /** The EXIF orientation of an accepted image, 1 when there is none. */
+    private static function orientationOf(string $bytes, string $mimeType): int
     {
+        if (in_array($mimeType, ['image/png', 'image/webp'], true)) {
+            $payload = self::embeddedExif($bytes, $mimeType);
+            if ($payload === null) {
+                return 1;
+            }
+            // WebP writers use either bare TIFF or the JPEG EXIF preamble.
+            if ($mimeType === 'image/webp' && str_starts_with($payload, "Exif\x00\x00")) {
+                $payload = substr($payload, 6);
+            }
+            return self::readOrientation($payload, true);
+        }
+
+        return $mimeType === 'image/jpeg' ? self::readOrientation($bytes, false) : 1;
+    }
+
+    /** Read embedded TIFF without copying the image's compressed pixel data. */
+    private static function embeddedExif(string $bytes, string $mimeType): ?string
+    {
+        $png = $mimeType === 'image/png';
+        $layout = $png ? self::PNG_EXIF : self::WEBP_EXIF;
+        $limit = strlen($bytes);
+        if (!$png) {
+            $limit = self::webpContainerEnd($bytes);
+        }
+
+        $offset = $layout['start'];
+        while ($offset <= $limit - $layout['overhead']) {
+            $size = unpack($layout['size_format'], substr($bytes, $offset + $layout['size_offset'], 4));
+            $length = (int) ($size[1] ?? -1);
+            if ($length < 0 || $length > $limit - $offset - $layout['overhead']) {
+                throw new PhotoNormalizationException(self::UNREADABLE);
+            }
+            $type = substr($bytes, $offset + $layout['type_offset'], 4);
+            if ($type === $layout['tag']) {
+                $payload = substr($bytes, $offset + 8, $length);
+                if ($png && hash('crc32b', $type . $payload, true) !== substr($bytes, $offset + 8 + $length, 4)) {
+                    throw new PhotoNormalizationException(self::UNREADABLE);
+                }
+                return $payload;
+            }
+            if ($png && $type === 'IEND') {
+                return null;
+            }
+            // RIFF chunks are padded to an even size; PNG chunks are not.
+            $offset += $layout['overhead'] + $length + ($length % $layout['alignment']);
+        }
+
+        return null;
+    }
+
+    private static function webpContainerEnd(string $bytes): int
+    {
+        $size = unpack('V', substr($bytes, 4, 4));
+        $end = (int) ($size[1] ?? -1) + 8;
+        if ($end < 12 || $end > strlen($bytes)) {
+            throw new PhotoNormalizationException(self::UNREADABLE);
+        }
+        return $end;
+    }
+
+    private static function readOrientation(string $bytes, bool $required): int
+    {
+        // EXIF is optional: losing the reader loses orientation, not the
+        // photo. A fresh canvas still removes its metadata below.
         if (!function_exists('exif_read_data')) {
             return 1;
         }
 
-        $stream = fopen('php://memory', 'r+b');
+        $stream = @fopen('php://memory', 'r+b');
         if ($stream === false) {
             return 1;
         }
@@ -283,6 +356,10 @@ final class PhotoNormalizer
         rewind($stream);
         $exif = @exif_read_data($stream);
         fclose($stream);
+
+        if ($required && !is_array($exif)) {
+            throw new PhotoNormalizationException(self::UNREADABLE);
+        }
 
         $orientation = is_array($exif) ? (int) ($exif['Orientation'] ?? 1) : 1;
 

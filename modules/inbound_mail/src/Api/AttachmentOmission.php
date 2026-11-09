@@ -26,6 +26,9 @@ enum AttachmentOmission: string
     /** Not on the allowlist — an archive, an executable, an unknown type. */
     case MIME_REJECTED = 'mime_rejected';
 
+    /** The server cannot decode and safely re-encode the received image. */
+    case IMAGE_UNREADABLE = 'image_unreadable';
+
     /**
      * The module's disk quota was already reached. The message is kept
      * whole; only the bytes are refused (D5).
@@ -58,6 +61,7 @@ enum AttachmentOmission: string
         return match ($this) {
             self::TOO_LARGE => 'Fichier trop volumineux',
             self::MIME_REJECTED => 'Type de fichier non accepté',
+            self::IMAGE_UNREADABLE => 'Image illisible par ce serveur',
             self::QUOTA_EXCEEDED => 'Espace de stockage atteint',
             self::STORAGE_ERROR => 'Échec de l\'enregistrement',
             self::RECLASSIFIED => 'Fichier classé dans un dossier',
