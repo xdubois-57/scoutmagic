@@ -10,6 +10,7 @@ namespace Core\Support\Collector;
 
 use Core\Module\ModuleManager;
 use Core\Scheduler\CoreTaskHandlers;
+use Core\Support\DiagnosticWindow;
 use Core\Support\SupportCollectorContext;
 use Core\Support\SupportCollectorInterface;
 use Core\Export\TabularSpreadsheet;
@@ -38,9 +39,6 @@ use Core\Export\TabularSpreadsheet;
 class ScheduledTasksCollector implements SupportCollectorInterface
 {
     private const ERROR_MAX_LENGTH = 300;
-
-    /** Same window as the event journal, so the two can be read together. */
-    private const VOLUME_WINDOW_HOURS = 48;
 
     public function __construct(private ?ModuleManager $moduleManager = null)
     {
@@ -72,7 +70,11 @@ class ScheduledTasksCollector implements SupportCollectorInterface
                     'Dernière exécution — statut', 'Dernière exécution — tentatives',
                     'Dernière exécution — erreur',
                     'Prochaine instance — prévue le', 'Prochaine instance — référence',
-                    'Exécutions sur 48 h', 'Échecs sur 48 h', 'En attente', 'Instances enregistrées',
+                    // The journal's own window ({@see DiagnosticWindow}), so the
+                    // two are read together.
+                    'Exécutions sur ' . DiagnosticWindow::label(),
+                    'Échecs sur ' . DiagnosticWindow::label(),
+                    'En attente', 'Instances enregistrées',
                 ],
                 $rows,
                 'Tâches planifiées'
@@ -202,9 +204,9 @@ class ScheduledTasksCollector implements SupportCollectorInterface
      * 277 no-op runs in ten hours, a third of the event journal — and this
      * sheet showed a single tidy "done" for it.
      *
-     * A count over the same 48 hours as the journal makes it obvious: a
-     * daily task reads 1 or 2, an hourly one around 48, and anything in
-     * the hundreds is re-arming itself in a loop. `pending` catches the
+     * A count over the same seven days as the journal makes it obvious: a
+     * daily task reads 7 or 8, an hourly one around 168, and anything in
+     * the thousands is re-arming itself in a loop. `pending` catches the
      * opposite fault — a queue nothing is draining, on an installation
      * whose scheduler never fires.
      *
@@ -212,7 +214,7 @@ class ScheduledTasksCollector implements SupportCollectorInterface
      */
     private function volume(SupportCollectorContext $context, string $moduleId, string $taskKey): array
     {
-        $cutoff = (new \DateTimeImmutable('-' . self::VOLUME_WINDOW_HOURS . ' hours'))->format('Y-m-d H:i:s');
+        $cutoff = DiagnosticWindow::cutoff();
 
         $stmt = $context->pdo()->prepare(
             "SELECT

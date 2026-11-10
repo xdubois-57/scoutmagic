@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Core\Support\Ticket;
 
+use Core\Support\DiagnosticWindow;
+
 /**
  * What the diagnostic archive holds, in French, for the screen that asks
  * an administrator to agree to transmit it (roadmap IT-26).
@@ -36,12 +38,15 @@ final class ArchiveContents
             . "ou de branche, et combien de fiches le portent. Du vocabulaire fédéral, aucun nom de membre.",
         'database_structure' => 'La structure des tables — jamais leur contenu.',
         'configuration_parameters' => "Les paramètres de configuration du site, secrets retirés.",
-        'event_journal' => "Un résumé du journal des évènements des dernières 48 h, qui contient des identifiants "
-            . "internes.",
+        'event_journal' => "Le journal des évènements des " . DiagnosticWindow::DAYS . " derniers jours et son "
+            . "résumé, qui contiennent des identifiants internes.",
         'request_timelines' => "Les chronologies de requêtes enregistrées pendant une fenêtre de mesure : le chemin de "
             . "chaque page servie et le temps passé dans chaque étape, jamais le contenu des pages.",
-        'scheduled_tasks' => "L'état des tâches planifiées du site.",
+        'scheduled_tasks' => "L'état des tâches planifiées du site, et leurs exécutions des "
+            . DiagnosticWindow::DAYS . " derniers jours.",
         'update_history' => 'Quelle version tournait à quel moment, et le résultat de chaque mise à jour.',
+        'backups' => "La liste des sauvegardes enregistrées sur ce serveur : type, dates, état, dernier contrôle, "
+            . "et si leurs fichiers sont bien sur le disque. Jamais les archives elles-mêmes, ni leurs mots de passe.",
         'phpinfo' => "La configuration détaillée de PHP sur votre hébergement (sans les variables d'environnement).",
         'extensions' => 'La liste des extensions PHP disponibles et leurs versions.',
         'opcache' => "L'état du cache de code compilé.",

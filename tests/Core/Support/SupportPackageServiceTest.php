@@ -339,6 +339,12 @@ class SupportPackageServiceTest extends TestCase
         $fileId = $this->service()->generate(null);
         $readme = $this->readArchive($fileId)['README.txt'];
 
+        // The span it announces is the one exported (issue #846), and the
+        // backup inventory is described for what it is.
+        $this->assertStringContainsString('ce que contiennent les 7 jours du journal', $readme);
+        $this->assertStringNotContainsString('48 h du journal', $readme);
+        $this->assertStringContainsString('backups.xlsx : les sauvegardes enregistrées sur ce serveur', $readme);
+
         $this->assertStringContainsString('générée localement', $readme);
         // Roadmap IT-26 turned the absolute promise into a conditional
         // one, and the README is the copy an administrator reads with the

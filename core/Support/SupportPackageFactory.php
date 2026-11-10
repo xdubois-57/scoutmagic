@@ -14,6 +14,7 @@ use Core\Scheduler\TaskContext;
 use Core\Security\SecretManager;
 use Core\Statistics\StatisticsServiceFactory;
 use Core\Support\Collector\BackgroundExecutionCollector;
+use Core\Support\Collector\BackupsCollector;
 use Core\Support\Collector\CommandsCollector;
 use Core\Support\Collector\ConfigurationParametersCollector;
 use Core\Support\Collector\CronCadenceCollector;
@@ -82,6 +83,7 @@ final class SupportPackageFactory
             new RequestTimelinesCollector(),
             new ScheduledTasksCollector(StatisticsServiceFactory::moduleManager($context)),
             new UpdateHistoryCollector(),
+            new BackupsCollector(),
             new PhpInfoCollector(),
             new ExtensionsCollector(),
             new OpcacheCollector(),
@@ -120,6 +122,7 @@ final class SupportPackageFactory
             'request_timelines',
             'scheduled_tasks',
             'update_history',
+            'backups',
             'phpinfo',
             'extensions',
             'opcache',

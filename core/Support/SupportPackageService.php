@@ -306,6 +306,7 @@ class SupportPackageService
             ? "Adresse du support ScoutMagic : {$supportEmail}"
             : "Adresse du support ScoutMagic : non renseignée sur ce site.";
 
+        $window = DiagnosticWindow::label();
         $clock = self::timezoneInfo();
         $clockLine = "Fuseau horaire de l'application : {$clock['application_timezone']} "
             . "(UTC{$clock['utc_offset']})\n        Fuseau horaire PHP de l'hébergement : "
@@ -341,8 +342,15 @@ class SupportPackageService
           la plus fréquente en premier. À lire avant les journaux eux-mêmes.
         - update-history.xlsx : quelle version tournait à quel moment, et ce
           qu'a fait chaque installation (y compris celles qui ont échoué).
-        - event-journal-resume.txt : ce que contiennent les 48 h du journal,
-          par type d'évènement, avant d'en lire le détail.
+        - event-journal-resume.txt : ce que contiennent les {$window} du journal,
+          par type d'évènement, avant d'en lire le détail
+          (event-journal.xlsx). S'il ne conserve pas autant, il le dit.
+        - scheduled-tasks.xlsx : chaque tâche planifiée, sa dernière exécution,
+          et combien de fois elle a tourné sur ces mêmes {$window}.
+        - backups.xlsx : les sauvegardes enregistrées sur ce serveur, leur
+          état, leur dernier contrôle d'intégrité, et si leurs fichiers
+          étaient bien sur le disque au moment de la collecte. Les archives
+          elles-mêmes n'y sont pas, ni leurs mots de passe.
         - opcache.json : l'état réel du cache de code compilé, notamment
           combien de temps une mise à jour peut mettre à prendre effet.
         - README.txt : ce fichier.
