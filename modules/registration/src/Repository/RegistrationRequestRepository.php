@@ -723,7 +723,7 @@ class RegistrationRequestRepository
              FROM registration_request_siblings s
              LEFT JOIN members m ON m.id = s.member_id
              WHERE s.registration_request_id IN ({$placeholders})
-             ORDER BY s.registration_request_id, s.member_id"
+             ORDER BY s.registration_request_id, " . self::RESOLVED_SIBLING
         );
         $stmt->execute($requestIds);
 
@@ -778,7 +778,7 @@ class RegistrationRequestRepository
                      AND my.is_active = 1
                      AND my.scout_year_id IN (?, r.scout_year_id)
                )
-             ORDER BY s.registration_request_id, member_id"
+             ORDER BY s.registration_request_id, " . self::RESOLVED_SIBLING
         );
         $stmt->execute(array_merge($requestIds, [$currentScoutYearId]));
 

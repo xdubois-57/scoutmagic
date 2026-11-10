@@ -87,6 +87,21 @@ class MemberMergeRepository
     }
 
     /**
+     * Whether the member's row was already merged into another identity —
+     * a row nobody sees any more, which can be neither kept nor merged
+     * again (issue #914).
+     */
+    public function isMerged(int $memberId): bool
+    {
+        $stmt = $this->pdo->prepare('SELECT merged_into_member_id FROM members WHERE id = ?');
+        $stmt->execute([$memberId]);
+
+        $value = $stmt->fetchColumn();
+
+        return $value !== false && $value !== null;
+    }
+
+    /**
      * How many scout years both identities have a row in.
      */
     public function sharedScoutYears(int $memberIdA, int $memberIdB): int

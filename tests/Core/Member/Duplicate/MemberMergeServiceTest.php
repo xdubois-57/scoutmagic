@@ -127,6 +127,32 @@ class MemberMergeServiceTest extends TestCase
         $this->assertSame(3, $this->countRows('member_years', 'member_id', $c));
     }
 
+    /**
+     * A row already merged away can be neither kept nor merged again: C
+     * merged into D, then « B into C » would leave B pointing at C, a
+     * merged row, and rebuild the chain the merge keeps one hop long.
+     */
+    public function testARowAlreadyMergedAwayIsNeitherKeptNorMergedAgain(): void
+    {
+        $b = $this->createMember('T200', $this->lastYear);
+        $c = $this->createMember('T300', $this->thisYear);
+        $d = $this->createMember('T400', $this->lastYear);
+        $this->service->merge($d, $c, 1);
+
+        foreach ([[$c, $b], [$b, $c]] as [$kept, $duplicate]) {
+            try {
+                $this->service->merge($kept, $duplicate, 1);
+                $this->fail('A merged row must be refused on either side.');
+            } catch (MergeException $e) {
+                $this->assertStringContainsString('déjà été fusionnée', $e->getMessage());
+            }
+        }
+        $this->assertSame(1, $this->countRows('member_years', 'member_id', $b), 'nothing moved');
+        $this->assertSame(0, (int) $this->pdo->query(
+            "SELECT COUNT(*) FROM members WHERE desk_id = 'T200' AND merged_into_member_id IS NOT NULL"
+        )->fetchColumn());
+    }
+
     public function testAnImportCarryingTheOldCodeCreatesNothingNew(): void
     {
         $kept = $this->createMember('T001', $this->lastYear);

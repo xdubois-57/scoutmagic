@@ -77,6 +77,16 @@ class MemberMergeService
             throw new MergeException("L'une des deux fiches n'existe plus. Rechargez la page.");
         }
 
+        // A row already merged away is no identity to keep, nor one to
+        // merge a second time: keeping it would rebuild the very chain
+        // mergeInto() keeps one hop long (issue #914) — A and B would point
+        // at C while C points at D — and merging it again would move what
+        // it no longer holds. The page lists live identities only; a stale
+        // tab or a forged POST is what reaches here.
+        if ($this->repository->isMerged($keptMemberId) || $this->repository->isMerged($duplicateMemberId)) {
+            throw new MergeException("L'une des deux fiches a déjà été fusionnée avec une autre. Rechargez la page.");
+        }
+
         // Two identities present in the SAME scout year are two people as
         // far as Desk is concerned: it guarantees one desk_id per person
         // per export, so both were in the same CSV. Merging them would
