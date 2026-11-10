@@ -2462,6 +2462,20 @@ class MaintenanceControllerTest extends TestCase
         $this->assertSame(404, $unknown->getStatusCode());
     }
 
+    /** « Configuration seule » says, under the picker, what it will and will not bring back (#847, part 2). */
+    public function testAConfigurationBackupSaysWhatItsRestoreTouches(): void
+    {
+        $id = $this->completedBackup('full_config');
+
+        $body = $this->page('recentBackupsPage');
+
+        $this->assertMatchesRegularExpression(
+            '~<option value="' . $id . '"[^>]* data-config-note="Seuls les réglages et l&#039;état des modules reviendront au \d{1,2} \p{L}+ \d{4}\. Les membres, les finances, les actualités et tout le reste ne bougeront pas\."~u',
+            $body
+        );
+        $this->assertStringContainsString('<div class="form-text d-none" id="restore-config-note"></div>', $body);
+    }
+
     /** Deleting a row whose files are already gone goes through. */
     public function testARowWhoseFilesAreGoneCanStillBeDeleted(): void
     {
@@ -2850,7 +2864,7 @@ class MaintenanceControllerTest extends TestCase
 
         $body = $this->page('recentBackupsPage');
 
-        $this->assertStringContainsString('<option value="' . $legacy . '" data-needs-password="1">', $body);
+        $this->assertStringContainsString('<option value="' . $legacy . '" data-needs-password="1"', $body);
         $this->assertStringContainsString('<option value="' . $scheduled . '">', $body);
     }
 
@@ -2893,7 +2907,7 @@ class MaintenanceControllerTest extends TestCase
         $request = new Request('GET', '/config/maintenance/sauvegardes-recentes', [], [], [], []);
         $body = $controller->recentBackupsPage($request, [])->getBody();
 
-        $this->assertStringContainsString('<option value="' . $clear . '">', $body);
+        $this->assertStringContainsString('<option value="' . $clear . '" data-config-note=', $body);
         $this->assertStringNotContainsString('data-needs-password', $body);
     }
 

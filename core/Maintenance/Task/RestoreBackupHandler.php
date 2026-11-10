@@ -21,6 +21,7 @@ use Core\Maintenance\BackupPasswords;
 use Core\Maintenance\BackupPresence;
 use Core\Maintenance\BackupRepository;
 use Core\Maintenance\BackupService;
+use Core\Maintenance\ConfigOnlyRestore;
 use Core\Maintenance\Portable\PortableArchive;
 use Core\Maintenance\Portable\PortableRestore;
 use Core\Maintenance\RequesterNotice;
@@ -238,15 +239,26 @@ class RestoreBackupHandler implements TaskHandlerInterface
                 [$restoreDbDumpPath, $restoreZipPath, $password, $extractedUploadDbDump] =
                     $this->resolveSource($payload, $pdo, $context->storagePath, $context->encryption);
 
-                // Today's storage bindings, kept on disk before the
-                // database that holds them is replaced (#832) — put back
-                // on the pass that finishes the migration.
-                $bindingsHold = $this->holdStorageBindingsAside($context);
+                if ($this->isConfigOnly($payload, $backupRepository)) {
+                    // « Configuration seule » brings back the settings and
+                    // the modules' enabled state, nothing else (#847, part
+                    // 2): the database is not replaced, no file is
+                    // extracted, and a task queued against the unit's data
+                    // keeps its sense — except one of a module this switches
+                    // off.
+                    $applied = (new ConfigOnlyRestore($pdo))->apply($restoreDbDumpPath);
+                    $this->cancelTasksOfModules($context, $applied['disabled'], $requestedBy);
+                } else {
+                    // Today's storage bindings, kept on disk before the
+                    // database that holds them is replaced (#832) — put back
+                    // on the pass that finishes the migration.
+                    $bindingsHold = $this->holdStorageBindingsAside($context);
 
-                $backupService->restoreDatabase($restoreDbDumpPath);
-                \Core\Security\SessionGeneration::invalidateRestoredDatabase($context->connection->getPdo());
-                if ($restoreZipPath !== null) {
-                    $backupService->restoreFiles($restoreZipPath, $password);
+                    $backupService->restoreDatabase($restoreDbDumpPath);
+                    \Core\Security\SessionGeneration::invalidateRestoredDatabase($context->connection->getPdo());
+                    if ($restoreZipPath !== null) {
+                        $backupService->restoreFiles($restoreZipPath, $password);
+                    }
                 }
 
                 // Not migrated here, for the same reason
@@ -811,6 +823,65 @@ class RestoreBackupHandler implements TaskHandlerInterface
         $sentence = (new BackupPresence($fileRepository, $storagePath))->refusal($backup);
 
         return $sentence === null ? null : ['files_missing', $sentence];
+    }
+
+    /**
+     * Whether this payload names a « Configuration seule » backup of this
+     * server — the one restore that touches only `settings` and
+     * `module_registry` (ConfigOnlyRestore).
+     *
+     * @param array<string, mixed> $payload
+     */
+    private function isConfigOnly(array $payload, BackupRepository $backupRepository): bool
+    {
+        if (($payload['source'] ?? 'server') !== 'server' || !isset($payload['backup_id'])) {
+            return false;
+        }
+
+        return $backupRepository->findById((int) $payload['backup_id'])?->type === 'full_config';
+    }
+
+    /**
+     * The queued and running tasks of modules a configuration restore
+     * switched off, canceled and counted per task in the journal: their
+     * handler is no longer loaded, and they would only fail.
+     *
+     * @param list<string> $moduleIds
+     */
+    private function cancelTasksOfModules(TaskContext $context, array $moduleIds, ?int $requestedBy): void
+    {
+        if ($moduleIds === []) {
+            return;
+        }
+        $pdo = $context->connection->getPdo();
+        $placeholders = implode(', ', array_fill(0, count($moduleIds), '?'));
+        $count = $pdo->prepare(
+            "SELECT module_id, task_key, COUNT(*) AS n FROM scheduled_actions
+             WHERE module_id IN ({$placeholders}) AND status IN ('pending', 'processing')
+             GROUP BY module_id, task_key"
+        );
+        $count->execute($moduleIds);
+        $counts = [];
+        foreach ($count->fetchAll(\PDO::FETCH_ASSOC) ?: [] as $row) {
+            $counts[$row['module_id'] . '/' . $row['task_key']] = (int) $row['n'];
+        }
+        if ($counts === []) {
+            return;
+        }
+
+        $pdo->prepare(
+            "UPDATE scheduled_actions SET status = 'canceled'
+             WHERE module_id IN ({$placeholders}) AND status IN ('pending', 'processing')"
+        )->execute($moduleIds);
+
+        $context->journal->log(
+            'core',
+            'restore_tasks_canceled',
+            'warning',
+            'Tâches abandonnées : leur module a été désactivé par la restauration',
+            ['tasks' => $counts],
+            $requestedBy
+        );
     }
 
     /**

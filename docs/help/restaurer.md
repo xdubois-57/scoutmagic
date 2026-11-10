@@ -31,6 +31,10 @@ après un sinistre »), ni les exports « Base de données », ni une
 sauvegarde dont un fichier a quitté le serveur. Si un fichier disparaît
 entre-temps, la restauration est refusée avant de rien modifier.
 
+Une sauvegarde « Configuration seule » ne ramène que les réglages et
+l'état des modules : les membres, les finances et tout le reste ne
+bougent pas. La phrase sous la liste le rappelle.
+
 ## Depuis un fichier téléversé
 
 Pour une archive venue d'ailleurs, choisissez « Depuis un fichier

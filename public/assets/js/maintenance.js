@@ -628,6 +628,12 @@
         if (serverPicker) serverPicker.classList.toggle('d-none', isUpload);
         if (uploadPicker) uploadPicker.classList.toggle('d-none', !isUpload);
         if (passwordField) passwordField.classList.toggle('d-none', !needsPassword);
+        var configNote = document.getElementById('restore-config-note');
+        if (configNote) {
+            var note = !isUpload ? (chosen?.dataset.configNote || '') : '';
+            configNote.textContent = note;
+            configNote.classList.toggle('d-none', note === '');
+        }
     }
     if (sourceServerRadio) sourceServerRadio.addEventListener('change', toggleRestoreSource);
     if (sourceUploadRadio) sourceUploadRadio.addEventListener('change', toggleRestoreSource);

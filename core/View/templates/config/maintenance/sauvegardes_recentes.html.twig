@@ -113,13 +113,17 @@
                                out. #}
                             {% for backup in backups %}
                                 {% if backup.canRestore %}
-                                    <option value="{{ backup.id }}"{% if backup.needsTypedPassword %} data-needs-password="1"{% endif %}>{{ backup.typeLabel }} — {{ backup.createdAt }}</option>
+                                    <option value="{{ backup.id }}"{% if backup.needsTypedPassword %} data-needs-password="1"{% endif %}{% if backup.configNote %} data-config-note="{{ backup.configNote }}"{% endif %}>{{ backup.typeLabel }} — {{ backup.createdAt }}</option>
                                 {% endif %}
                             {% endfor %}
                         </select>
                         {% if restorable is empty %}
                             <div class="form-text">Aucune sauvegarde de ce serveur ne peut être restaurée pour l'instant.</div>
                         {% endif %}
+                        {# Filled by maintenance.js from the chosen option's
+                           data-config-note: a « Configuration seule »
+                           restore touches nothing but the configuration. #}
+                        <div class="form-text d-none" id="restore-config-note"></div>
                     </div>
                     <div class="mb-2 d-none" id="restore-upload-picker">
                         <input type="file" class="form-control form-control-sm" name="backup_file" id="restore-backup-file" accept=".zip" aria-label="Fichier de sauvegarde">

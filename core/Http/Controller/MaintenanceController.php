@@ -1345,6 +1345,13 @@ class MaintenanceController extends AbstractController
                 'missingBadge' => self::missingBadge($archiveMissing, $dumpMissing),
                 'canDownload' => $completed && $components['archive'] === true,
                 'canRestore' => $completed && !$isExport && !$isPortable && !$archiveMissing && !$dumpMissing,
+                // What a « Configuration seule » restore brings back, said
+                // under the picker when it is chosen (#847, part 2).
+                'configNote' => $backup->type === 'full_config'
+                    ? 'Seuls les réglages et l\'état des modules reviendront au '
+                        . \Core\View\DateFilterExtension::frenchDate($backup->createdAt)
+                        . '. Les membres, les finances, les actualités et tout le reste ne bougeront pas.'
+                    : null,
                 // Only archives whose generated password the site kept
                 // (IT-03): an older one was encrypted with a password its
                 // operator typed, and nobody here can say it again.

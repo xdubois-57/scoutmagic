@@ -122,6 +122,103 @@ class RestoreBackupRoundTripTest extends TestCase
         $this->assertSame('Unité du Chêne', $this->unitName());
     }
 
+    // ── « Configuration seule » (#847, part 2) ────────────────────────
+
+    /**
+     * The settings and the modules' enabled state come back; the members,
+     * everything else, the schema's own version and the off-site
+     * destination stay as they are today; a task queued against today's
+     * data is kept.
+     */
+    public function testAConfigurationRestoreBringsBackOnlyTheConfiguration(): void
+    {
+        $settings = new SettingService(new SettingRepository($this->pdo()));
+        $settings->register('remote_backup_location_id', '', 'text', 'Destination', 'Fixture.');
+        $this->setUnitName('Unité du Chêne');
+        $settings->set('remote_backup_location_id', '3');
+        $this->pdo()->exec("INSERT INTO module_registry (module_id, enabled, installed_version) VALUES ('news', 1, '1.0.0')");
+        $backupId = $this->takeEncryptedServerBackup('full_config');
+
+        $this->setUnitName('Unité renommée par erreur');
+        $settings->set('remote_backup_location_id', '9');
+        $this->pdo()->exec("UPDATE module_registry SET enabled = 0, installed_version = '2.0.0' WHERE module_id = 'news'");
+        $this->pdo()->exec("INSERT INTO members (desk_id) VALUES ('APRES-LA-SAUVEGARDE')");
+        $this->pdo()->exec(
+            "INSERT INTO scheduled_actions (module_id, task_key, run_at, status, created_at)
+             VALUES ('core', 'send_digest', NOW(), 'pending', NOW())"
+        );
+
+        $this->restore(['source' => 'server', 'backup_id' => $backupId]);
+        $this->runResumedPasses();
+
+        $this->assertSame('Unité du Chêne', $this->unitName());
+        $this->assertSame(
+            ['1', '2.0.0'],
+            array_map('strval', (array) $this->pdo()->query(
+                "SELECT enabled, installed_version FROM module_registry WHERE module_id = 'news'"
+            )->fetch(\PDO::FETCH_NUM)),
+            'the enabled state comes back, the installed version never'
+        );
+        $this->assertSame(
+            '9',
+            (string) $this->pdo()->query("SELECT setting_value FROM settings WHERE setting_key = 'remote_backup_location_id'")->fetchColumn(),
+            'the off-site destination is this server\'s, kept as it is today'
+        );
+        $this->assertSame(
+            1,
+            (int) $this->pdo()->query("SELECT COUNT(*) FROM members WHERE desk_id = 'APRES-LA-SAUVEGARDE'")->fetchColumn(),
+            'a configuration restore emptied the site'
+        );
+        $this->assertSame(
+            'pending',
+            (string) $this->pdo()->query("SELECT status FROM scheduled_actions WHERE task_key = 'send_digest'")->fetchColumn()
+        );
+    }
+
+    /** A module the restore switches off loses its queued tasks, counted in the journal. */
+    public function testAModuleSwitchedOffByAConfigurationRestoreLosesItsQueuedTasks(): void
+    {
+        $this->pdo()->exec("INSERT INTO module_registry (module_id, enabled, installed_version) VALUES ('news', 0, '1.0.0')");
+        $backupId = $this->takeEncryptedServerBackup('full_config');
+        $this->pdo()->exec("UPDATE module_registry SET enabled = 1 WHERE module_id = 'news'");
+        $this->pdo()->exec(
+            "INSERT INTO scheduled_actions (module_id, task_key, run_at, status, created_at)
+             VALUES ('news', 'publish_scheduled', NOW(), 'pending', NOW())"
+        );
+
+        $this->restore(['source' => 'server', 'backup_id' => $backupId]);
+
+        $this->assertSame(
+            'canceled',
+            (string) $this->pdo()->query("SELECT status FROM scheduled_actions WHERE task_key = 'publish_scheduled'")->fetchColumn()
+        );
+        $journal = (new JournalRepository($this->pdo()))->search();
+        $canceled = array_values(array_filter($journal, static fn(array $e): bool => $e['event_type'] === 'restore_tasks_canceled'));
+        $this->assertCount(1, $canceled);
+        $this->assertSame(['news/publish_scheduled' => 1], json_decode((string) $canceled[0]['context'], true)['tasks']);
+    }
+
+    /** A « configuration » dump that carries the rows of another table is not guessed at. */
+    public function testAConfigurationDumpCarryingOtherDataIsRefused(): void
+    {
+        $this->setUnitName('Unité du Chêne');
+        $dump = $this->storagePath . '/backups/config.sql';
+        file_put_contents($dump, implode("\n", [
+            'CREATE TABLE `settings` (`id` int, `module_id` varchar(50), `setting_key` varchar(100), `setting_value` text);',
+            "INSERT INTO `settings` VALUES (1,NULL,'site_name','Autre nom');",
+            "INSERT INTO `members` VALUES (1,'X');",
+        ]));
+
+        try {
+            (new \Core\Maintenance\ConfigOnlyRestore($this->pdo()))->apply($dump);
+            $this->fail('the dump was applied');
+        } catch (\Core\Maintenance\BackupException $e) {
+            $this->assertStringContainsString('contient d\'autres données que la configuration', $e->getMessage());
+        }
+
+        $this->assertSame('Unité du Chêne', $this->unitName());
+    }
+
     public function testARestoreCannotReviveEitherCurrentOrArchivedSessions(): void
     {
         if (session_status() !== PHP_SESSION_ACTIVE) {

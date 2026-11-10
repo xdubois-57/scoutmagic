@@ -1938,3 +1938,31 @@ describe('maintenance.js + file-viewer.js: the same check in the installed app (
         }
     });
 });
+
+describe('maintenance.js: « Configuration seule » says what its restore touches (#847)', () => {
+    it('shows the chosen option\'s note, and hides it for another backup or an upload', async () => {
+        appendAll(
+            el('<input type="radio" name="source" id="restore-source-server" checked>'),
+            el('<input type="radio" name="source" id="restore-source-upload">'),
+            el(`<select id="restore-backup-id">
+                    <option value="1">Planifiée</option>
+                    <option value="2" data-config-note="Seuls les réglages et l'état des modules reviendront au 8 octobre 2026.">Configuration seule</option>
+                </select>`),
+            el('<div class="form-text d-none" id="restore-config-note"></div>'),
+        );
+        await boot();
+        const select = /** @type {HTMLSelectElement} */ (document.getElementById('restore-backup-id'));
+        const note = document.getElementById('restore-config-note');
+        expect(note.classList.contains('d-none')).toBe(true);
+
+        select.value = '2';
+        select.dispatchEvent(new Event('change'));
+        expect(note.classList.contains('d-none')).toBe(false);
+        expect(note.textContent).toBe('Seuls les réglages et l\'état des modules reviendront au 8 octobre 2026.');
+
+        const upload = /** @type {HTMLInputElement} */ (document.getElementById('restore-source-upload'));
+        upload.checked = true;
+        upload.dispatchEvent(new Event('change'));
+        expect(note.classList.contains('d-none')).toBe(true);
+    });
+});
