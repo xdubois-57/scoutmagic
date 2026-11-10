@@ -13,6 +13,7 @@ use Core\Security\EncryptionService;
 use Core\Statistics\InstallationIdentityService;
 use Core\Statistics\StatisticsPayloadBuilder;
 use Core\Security\SecretManager;
+use Core\Support\Collector\BackupsCollector;
 use Core\Support\Collector\ConfigurationParametersCollector;
 use Core\Support\Collector\DatabaseStructureCollector;
 use Core\Support\Collector\EventJournalCollector;
@@ -339,6 +340,12 @@ class SupportPackageServiceTest extends TestCase
         $fileId = $this->service()->generate(null);
         $readme = $this->readArchive($fileId)['README.txt'];
 
+        // The span it announces is the one exported (issue #846), and the
+        // backup inventory is described for what it is.
+        $this->assertStringContainsString('ce que contiennent les 7 jours du journal', $readme);
+        $this->assertStringNotContainsString('48 h du journal', $readme);
+        $this->assertStringContainsString('backups.xlsx : les sauvegardes enregistrées sur ce serveur', $readme);
+
         $this->assertStringContainsString('générée localement', $readme);
         // Roadmap IT-26 turned the absolute promise into a conditional
         // one, and the README is the copy an administrator reads with the
@@ -481,7 +488,7 @@ class SupportPackageServiceTest extends TestCase
      */
     public function testEachApplicationCollectorFailingIndividuallyStillProducesTheArchive(): void
     {
-        foreach (['settings', 'event_log', 'scheduled_actions'] as $table) {
+        foreach (['settings', 'event_log', 'scheduled_actions', 'backups'] as $table) {
             $pdo = DatabaseTestHelper::createTestDatabase();
             $pdo->exec('DROP TABLE ' . $table);
 
@@ -505,6 +512,7 @@ class SupportPackageServiceTest extends TestCase
                     new ConfigurationParametersCollector(),
                     new EventJournalCollector(),
                     new ScheduledTasksCollector(),
+                    new BackupsCollector(),
                 ]
             );
 
@@ -516,7 +524,7 @@ class SupportPackageServiceTest extends TestCase
 
             $status = json_decode($entries['collection-status.json'], true);
             $this->assertIsArray($status);
-            $this->assertCount(5, $status['collectors'], "Broken table: {$table}");
+            $this->assertCount(6, $status['collectors'], "Broken table: {$table}");
         }
     }
 

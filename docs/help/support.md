@@ -24,8 +24,7 @@ rattacher un rapport à l'unité qui demande de l'aide — mais il ne
 contient aucune donnée de membre : ni nom, ni adresse, ni contenu.
 
 Le bloc « Aperçu de ce qui est envoyé » montre le contenu exact du
-rapport, même quand l'envoi est désactivé : vous décidez en sachant ce
-qui part. « Envoyer un rapport de test maintenant » en transmet un
+rapport, même quand l'envoi est désactivé. « Envoyer un rapport de test maintenant » en transmet un
 immédiatement et affiche la réponse — c'est le moyen de vérifier que la
 chaîne fonctionne. « État des envois » garde la date du dernier envoi
 réussi et du dernier échec, avec son motif.
@@ -36,8 +35,7 @@ réussi et du dernier échec, avec son motif.
 « Signaler un problème sur GitHub » ouvre la page des signalements. Un
 compte y est nécessaire, gratuit ; c'est lui qui vous permet de suivre
 votre signalement et ses réponses, devant tout le monde.
-N'hésitez jamais : une gêne minuscule chez vous est souvent le même
-défaut chez trente autres unités.
+N'hésitez jamais : une gêne minuscule chez vous l'est souvent ailleurs.
 
 ## Envoyer des informations techniques
 
@@ -57,7 +55,9 @@ texte reste à l'écran**.
 
 En cas de problème difficile à décrire, « Générer un paquet de
 support » produit en arrière-plan une archive de diagnostic :
-configuration du serveur, journaux, état du système de fichiers. Elle
+configuration du serveur, journal des sept derniers jours, état du
+système de fichiers, liste des sauvegardes — sans les archives
+elles-mêmes. Elle
 est conservée chiffrée, réservée aux administrateurs du site, et
 supprimée d'elle-même après sept jours ; en générer une nouvelle
 remplace la précédente.

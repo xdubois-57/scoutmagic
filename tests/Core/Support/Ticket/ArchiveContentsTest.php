@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Core\Support\Ticket;
 
+use Core\Support\DiagnosticWindow;
 use Core\Support\SupportPackageFactory;
 use Core\Support\Ticket\ArchiveContents;
 use PHPUnit\Framework\TestCase;
@@ -31,6 +32,23 @@ final class ArchiveContentsTest extends TestCase
                 . 'description for it — the consent screen would list one line fewer than what actually leaves.'
             );
             $this->assertNotSame('', trim($described[$name]));
+        }
+    }
+
+    /**
+     * What the administrator agrees to is what leaves (issue #846): the
+     * journal and the task counts look back seven days, and the backups
+     * listed come without their archives.
+     */
+    public function testTheSentencesSayTheWindowAndTheBackupInventoryAsTheyAre(): void
+    {
+        $described = ArchiveContents::all();
+
+        $this->assertStringContainsString(DiagnosticWindow::DAYS . ' derniers jours', $described['event_journal']);
+        $this->assertStringContainsString(DiagnosticWindow::DAYS . ' derniers jours', $described['scheduled_tasks']);
+        $this->assertStringContainsString('Jamais les archives elles-mêmes', $described['backups']);
+        foreach ($described as $name => $sentence) {
+            $this->assertStringNotContainsString('48 h', $sentence, "'{$name}' still announces 48 hours");
         }
     }
 

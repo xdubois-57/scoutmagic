@@ -8,6 +8,7 @@ use Core\Config\SettingRepository;
 use Core\Config\SettingService;
 use Core\Database\Connection;
 use Core\Scheduler\CoreTaskHandlers;
+use Core\Support\Collector\BackupsCollector;
 use Core\Support\Collector\ConfigurationParametersCollector;
 use Core\Support\Collector\DatabaseStructureCollector;
 use Core\Support\Collector\EventJournalCollector;
@@ -242,18 +243,118 @@ class ApplicationCollectorsTest extends TestCase
 
     // --- event-journal.xlsx ---
 
-    public function testTheJournalExportIsBoundedTo48Hours(): void
+    /**
+     * Seven days since issue #846, not 48 hours: the restore found on
+     * Friday happened on Monday. The sheet and its digest share the bound,
+     * newest first.
+     */
+    public function testTheJournalExportCoversTheLastSevenDays(): void
     {
         $this->insertJournalEntry('-2 hours', 'recent_event');
-        $this->insertJournalEntry('-47 hours', 'still_inside_the_window');
-        $this->insertJournalEntry('-49 hours', 'too_old_event');
+        $this->insertJournalEntry('-6 days', 'still_inside_the_window');
+        $this->insertJournalEntry('-8 days', 'too_old_event');
 
-        $rows = $this->readSheet($this->runCollector(new EventJournalCollector())['entries']['event-journal.xlsx']);
+        $entries = $this->runCollector(new EventJournalCollector())['entries'];
+        $rows = $this->readSheet($entries['event-journal.xlsx']);
         $types = array_column(array_slice($rows, 1), 4);
 
-        $this->assertContains('recent_event', $types);
-        $this->assertContains('still_inside_the_window', $types);
-        $this->assertNotContains('too_old_event', $types);
+        $this->assertSame(['recent_event', 'still_inside_the_window'], $types, 'inside the window, newest first');
+        $digest = $entries['event-journal-resume.txt'];
+        $this->assertStringContainsString('résumé des 7 derniers jours', $digest);
+        $this->assertStringContainsString('Total : 2 entrée(s)', $digest);
+        $this->assertStringContainsString('still_inside_the_window', $digest);
+        $this->assertStringNotContainsString('too_old_event', $digest);
+        $this->assertStringContainsString(
+            'Entrée la plus ancienne : ' . (new \DateTimeImmutable('-6 days'))->format('Y-m-d'),
+            $digest
+        );
+    }
+
+    /**
+     * An installation keeping its journal fewer than seven days has no week
+     * to give: the archive says how far back it goes instead of announcing
+     * a span the database no longer holds.
+     */
+    public function testAShorterJournalRetentionIsSaidRatherThanAWeekAnnounced(): void
+    {
+        $this->settings->register('journal_retention_days', '730', 'number', 'Rétention du journal', 'D');
+        $this->settingRepository->updateValue(null, 'journal_retention_days', '3');
+        $this->settings->clearCache();
+        $this->insertJournalEntry('-1 day', 'kept_event');
+
+        $result = $this->runCollector(new EventJournalCollector());
+
+        $this->assertStringContainsString(
+            'Ce site ne conserve son journal que 3 jour(s)',
+            $result['entries']['event-journal-resume.txt']
+        );
+        $this->assertContains('Le journal n\'est conservé que 3 jour(s) sur cette installation', $result['notes']);
+    }
+
+    /**
+     * A flooded week: the detail stops at MAX_ROWS in the query itself, the
+     * newest kept, and the digest still counts every entry — the counts are
+     * the database's, not the rows read.
+     */
+    public function testAFloodedWeekIsTruncatedInTheDetailAndCountedWholeInTheDigest(): void
+    {
+        $this->pdo->beginTransaction();
+        $stmt = $this->pdo->prepare(
+            "INSERT INTO event_log (logged_at, category, event_type, level, description) VALUES (?, 'core', ?, 'info', 'x')"
+        );
+        $start = new \DateTimeImmutable('-1 day');
+        for ($i = 0; $i <= EventJournalCollector::MAX_ROWS; $i++) {
+            $stmt->execute([$start->modify('+' . $i . ' seconds')->format('Y-m-d H:i:s'), $i === EventJournalCollector::MAX_ROWS ? 'newest' : 'looping_task']);
+        }
+        $this->pdo->commit();
+
+        $result = $this->runCollector(new EventJournalCollector());
+        $rows = $this->readSheet($result['entries']['event-journal.xlsx']);
+
+        $this->assertCount(EventJournalCollector::MAX_ROWS + 1, $rows, 'header plus MAX_ROWS entries');
+        $this->assertSame('newest', $rows[1][4]);
+        $this->assertStringContainsString('Total : ' . (EventJournalCollector::MAX_ROWS + 1) . ' entrée(s)', $result['entries']['event-journal-resume.txt']);
+        $this->assertStringContainsString('Le détail ne reprend que les ' . EventJournalCollector::MAX_ROWS, $result['entries']['event-journal-resume.txt']);
+    }
+
+    /**
+     * Long contexts: each cell is cut in the query, and the text budget,
+     * sized before the detail is read, stops it before the row cap does —
+     * newest first, every entry still counted.
+     */
+    public function testLongEntriesAreBoundedByTheirTextNotOnlyByTheirNumber(): void
+    {
+        $context = str_repeat('x', EventJournalCollector::MAX_CELL_LENGTH + 5000);
+        $count = intdiv(EventJournalCollector::MAX_DETAIL_BYTES, EventJournalCollector::MAX_CELL_LENGTH) + 20;
+        $stmt = $this->pdo->prepare(
+            "INSERT INTO event_log (logged_at, category, event_type, level, description, context)
+             VALUES (?, 'core', ?, 'error', 'x', ?)"
+        );
+        for ($i = 0; $i < $count; $i++) {
+            $at = (new \DateTimeImmutable('-' . ($count - $i) . ' seconds'))->format('Y-m-d H:i:s');
+            $stmt->execute([$at, 'trace_' . $i, $context]);
+        }
+
+        $result = $this->runCollector(new EventJournalCollector());
+        $rows = $this->readSheet($result['entries']['event-journal.xlsx']);
+
+        $this->assertLessThan($count + 1, count($rows), 'every long entry was kept');
+        $this->assertGreaterThan(100, count($rows), 'the budget keeps what fits');
+        $this->assertSame('trace_' . ($count - 1), $rows[1][4], 'the newest first');
+        $this->assertSame(EventJournalCollector::MAX_CELL_LENGTH, strlen((string) $rows[1][7]), 'cut in the query');
+        $this->assertStringContainsString(
+            'Total : ' . $count . ' entrée(s)',
+            $result['entries']['event-journal-resume.txt']
+        );
+    }
+
+    public function testAWeekOfJournalSaysNothingAboutRetentionWhenItIsKept(): void
+    {
+        $this->insertJournalEntry('-1 day', 'kept_event');
+
+        $digest = $this->runCollector(new EventJournalCollector())['entries']['event-journal-resume.txt'];
+
+        $this->assertStringNotContainsString('ne conserve son journal', $digest);
     }
 
     public function testTheJournalExportIsStructuredOneColumnPerField(): void
@@ -294,7 +395,7 @@ class ApplicationCollectorsTest extends TestCase
     /**
      * The journal is dominated by whatever runs most often — two scheduled
      * tasks were 475 of 884 rows on the archive that prompted this — so
-     * the shape of the 48 hours is stated before anyone starts scrolling.
+     * the shape of the seven days is stated before anyone starts scrolling.
      */
     public function testTheJournalShipsWithADigestOfWhatItContains(): void
     {
@@ -380,21 +481,144 @@ class ApplicationCollectorsTest extends TestCase
                 (new \DateTimeImmutable("-{$i} hours"))->format('Y-m-d H:i:s'),
             ]);
         }
-        // Outside the window, so it must not be counted.
-        $this->pdo->prepare(
-            'INSERT INTO scheduled_actions (module_id, task_key, run_at, status, executed_at) VALUES (?, ?, ?, ?, ?)'
-        )->execute([
-            'core', 'auto_backup',
-            (new \DateTimeImmutable('-60 hours'))->format('Y-m-d H:i:s'), 'done',
-            (new \DateTimeImmutable('-60 hours'))->format('Y-m-d H:i:s'),
-        ]);
+        // Six days ago: inside the journal's seven-day window (#846), which
+        // 48 hours was not.
+        foreach (['-6 days', '-8 days'] as $when) {
+            $this->pdo->prepare(
+                'INSERT INTO scheduled_actions (module_id, task_key, run_at, status, executed_at) VALUES (?, ?, ?, ?, ?)'
+            )->execute([
+                'core', 'auto_backup',
+                (new \DateTimeImmutable($when))->format('Y-m-d H:i:s'), 'done',
+                (new \DateTimeImmutable($when))->format('Y-m-d H:i:s'),
+            ]);
+        }
 
         $row = $this->taskRow('auto_backup');
 
-        $this->assertSame('12', $row[10], 'runs inside the 48 h window');
+        $this->assertSame('13', $row[10], 'runs inside the seven-day window, and not the one eight days ago');
         $this->assertSame('0', $row[11], 'no failures');
         $this->assertSame('0', $row[12], 'nothing pending');
-        $this->assertSame('13', $row[13], 'every instance ever recorded');
+        $this->assertSame('14', $row[13], 'every instance ever recorded');
+    }
+
+    /** The columns say the window the journal says. */
+    public function testTheTaskCountsAnnounceTheJournalsWindow(): void
+    {
+        $header = $this->readSheet(
+            $this->runCollector(new ScheduledTasksCollector())['entries']['scheduled-tasks.xlsx']
+        )[0];
+
+        $this->assertSame(['Exécutions sur 7 jours', 'Échecs sur 7 jours'], [$header[10], $header[11]]);
+    }
+
+    // --- backups.xlsx (#846) ---
+
+    /**
+     * Every row, failed ones included, and for each file what the database
+     * says, what is on disk now and what the last check said — apart.
+     */
+    public function testTheBackupInventorySeparatesTheLastCheckFromWhatIsOnDiskNow(): void
+    {
+        mkdir($this->storagePath . '/backups', 0700, true);
+        file_put_contents($this->storagePath . '/backups/present.zip', 'PK');
+        $present = $this->fileRow('backups/present.zip', 2);
+        $gone = $this->fileRow('backups/supprimee.zip', 4096);
+        $dump = $this->fileRow('backups/supprimee.sql', 512);
+        $first = $this->backupRow('full_config', 'completed', $present, null, 'intact', null, '2026-10-01 03:00:00');
+        // Checked intact, deleted since: restored rows of an archive retention removed.
+        $restored = $this->backupRow('portable', 'completed', $gone, $dump, 'intact', null, '2026-10-02 03:00:00');
+        $failed = $this->backupRow('database', 'failed', null, null, 'unknown', 'Écriture impossible', '2026-10-03 03:00:00');
+
+        $result = $this->runCollector(new BackupsCollector());
+        $rows = $this->readSheet($result['entries']['backups.xlsx']);
+        $byId = array_column(array_slice($rows, 1), null, 0);
+
+        $this->assertCount(3, $byId, 'failed backups are listed too');
+        $this->assertSame(
+            [(string) $failed, (string) $restored, (string) $first],
+            array_map('strval', array_keys($byId)),
+            'newest first'
+        );
+        $this->assertSame(
+            ['portable', 'completed', 'Sur ce serveur', (string) $gone, 'présente', 'absente', '4096'],
+            [$byId[(string) $restored][1], $byId[(string) $restored][3], $byId[(string) $restored][6],
+                $byId[(string) $restored][7], $byId[(string) $restored][8], $byId[(string) $restored][9],
+                $byId[(string) $restored][10]]
+        );
+        $this->assertSame('absente', $byId[(string) $restored][13], 'the dump is gone too');
+        $this->assertSame('intact', $byId[(string) $restored][15], 'the last check, as stored');
+        $this->assertSame(['présente', '—'], [$byId[(string) $first][9], $byId[(string) $first][13]], 'no dump file to look for');
+        $this->assertContains('1 sauvegarde(s) dont un fichier est absent du disque', $result['notes']);
+        $this->assertContains('3 sauvegarde(s) enregistrée(s)', $result['notes']);
+    }
+
+    /** Past MAX_ROWS the detail is truncated, the total is not — and the absent count says what it covers. */
+    public function testATruncatedInventoryStillCountsEveryBackup(): void
+    {
+        $gone = $this->fileRow('backups/supprimee.zip', 10);
+        // Gone too, on the oldest row: past the cut, so not looked at — the
+        // note counts one, not two.
+        $goneOld = $this->fileRow('backups/ancienne.zip', 10);
+        for ($i = 0; $i < BackupsCollector::MAX_ROWS + 3; $i++) {
+            $file = match ($i) {
+                BackupsCollector::MAX_ROWS + 2 => $gone,
+                0 => $goneOld,
+                default => null,
+            };
+            $this->backupRow('auto_backup', 'completed', $file, null, 'unknown', null, '2026-10-01 03:00:00');
+        }
+
+        $result = $this->runCollector(new BackupsCollector());
+
+        $this->assertCount(BackupsCollector::MAX_ROWS + 1, $this->readSheet($result['entries']['backups.xlsx']));
+        $this->assertContains((BackupsCollector::MAX_ROWS + 3) . ' sauvegarde(s) enregistrée(s)', $result['notes']);
+        $this->assertContains(
+            '1 sauvegarde(s) dont un fichier est absent du disque parmi les ' . BackupsCollector::MAX_ROWS . ' plus récentes',
+            $result['notes']
+        );
+    }
+
+    /** No path, no content, no secret — only ids and what is known about them. */
+    public function testTheBackupInventoryCarriesNoPathContentOrSecret(): void
+    {
+        mkdir($this->storagePath . '/backups', 0700, true);
+        file_put_contents($this->storagePath . '/backups/archive.zip', 'contenu-secret-de-l-archive');
+        $this->backupRow('full_config', 'failed', $this->fileRow('backups/archive.zip', 27), null, 'unknown', 'mot de passe hunter2-tres-secret refusé', '2026-10-01 03:00:00');
+
+        $result = $this->runCollector(new BackupsCollector(), ['hunter2-tres-secret']);
+        $sheet = implode("\n", array_map(static fn(array $row): string => implode('|', $row), $this->readSheet($result['entries']['backups.xlsx'])));
+
+        $this->assertSame(['backups.xlsx'], array_keys($result['entries']));
+        $this->assertStringNotContainsString('archive.zip', $sheet);
+        $this->assertStringNotContainsString($this->storagePath, $sheet);
+        $this->assertStringNotContainsString('contenu-secret', $sheet);
+        $this->assertStringNotContainsString('hunter2', $sheet);
+    }
+
+    private function fileRow(string $relativePath, int $size): int
+    {
+        $this->pdo->prepare(
+            "INSERT INTO files (relative_path, original_name, mime_type, size_bytes, role_min) VALUES (?, ?, 'application/zip', ?, 'superadmin')"
+        )->execute([$relativePath, basename($relativePath), $size]);
+
+        return (int) $this->pdo->lastInsertId();
+    }
+
+    private function backupRow(
+        string $type,
+        string $status,
+        ?int $fileId,
+        ?int $dumpId,
+        string $integrity,
+        ?string $error,
+        string $createdAt
+    ): int {
+        $this->pdo->prepare(
+            'INSERT INTO backups (type, status, file_id, db_dump_file_id, integrity_status, error_message, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?)'
+        )->execute([$type, $status, $fileId, $dumpId, $integrity, $error, $createdAt]);
+
+        return (int) $this->pdo->lastInsertId();
     }
 
     public function testAQueueNothingIsDrainingIsVisibleAsPending(): void
@@ -638,7 +862,7 @@ class ApplicationCollectorsTest extends TestCase
         $this->assertContains('2 chemin(s) mesuré(s), 3 requête(s)', $result['notes']);
     }
 
-    public function testTimelinesOlderThanTheJournalWindowAreLeftOut(): void
+    public function testTimelinesOlderThanTheirOwnWindowAreLeftOut(): void
     {
         $timeline = [
             ['label' => 'request_parsed', 't_ms' => 1.0, 'sql' => 0, 'sql_ms' => 0.0],

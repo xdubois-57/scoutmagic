@@ -36,7 +36,12 @@ use Core\Support\SupportCollectorInterface;
  */
 class RequestTimelinesCollector implements SupportCollectorInterface
 {
-    public const WINDOW_HOURS = EventJournalCollector::WINDOW_HOURS;
+    /**
+     * Its own 48 hours, no longer the journal's (which looks back seven
+     * days since issue #846): a measurement window is about what is slow
+     * now, and a week of timelines would be a week of page paths.
+     */
+    public const WINDOW_HOURS = 48;
 
     public function name(): string
     {
