@@ -13,6 +13,7 @@ use Core\Journal\JournalService;
 use Core\Mail\MailService;
 use Core\Mail\Template\EmailTemplateRenderer;
 use Core\Member\MemberProfile;
+use Core\Member\MemberAccountResolver;
 use Core\Member\MemberService;
 use Core\Notification\NotificationService;
 use Core\Security\UserAccountRepository;
@@ -63,7 +64,8 @@ class RedirectService
         private MailService $mailService,
         private JournalService $journalService,
         private EmailTemplateRenderer $emailTemplateRenderer,
-        private ?NotificationService $notificationService = null
+        private ?NotificationService $notificationService,
+        private MemberAccountResolver $memberAccounts
     ) {
     }
 
@@ -92,7 +94,7 @@ class RedirectService
         try {
             $current = $provider->readForwardingState();
             if ($current->active && $current->number === $targetNumber) {
-                $this->logOutcome('no_change', "Redirection déjà correcte ({$targetNumber}).", $newMemberId);
+                $this->logOutcome('no_change', 'Redirection déjà correcte.', $newMemberId);
                 $this->settingsService->recordRedirectOutcome(false, AppClock::now());
                 return;
             }
@@ -126,7 +128,7 @@ class RedirectService
             );
         }
 
-        $this->logOutcome('success', "Redirection changée vers {$targetNumber}.", $newMemberId);
+        $this->logOutcome('success', 'Redirection modifiée.', $newMemberId);
         $this->settingsService->recordRedirectOutcome(false, AppClock::now());
         $this->notifyHandover($newMemberId, $previousMemberId, $scoutYearId);
     }
@@ -180,7 +182,8 @@ class RedirectService
     }
 
     /**
-     * One handover notification, for the member behind one profile.
+     * One handover notification for each account linked to this member,
+     * through its Desk address or a currently validated secondary address.
      *
      * The payload deliberately carries NO phone number, where the emails
      * this replaced named the target one. A push notification renders on a
@@ -198,36 +201,39 @@ class RedirectService
             return;
         }
 
-        $email = $profile->email;
-        if ($email === null || trim($email) === '') {
-            return;
-        }
-
         try {
-            $account = $this->userAccountRepository->findByEmail($email);
-            if ($account === null) {
+            $accountIds = $this->memberAccounts->accountIdsForMember($profile->memberId);
+            if ($accountIds === []) {
+                $this->journalService->log(
+                    'sos_staff',
+                    'notification_skipped',
+                    'info',
+                    'Notification de changement de garde non créée : aucun compte lié.',
+                    ['member_id' => $profile->memberId, 'type_id' => $typeId, 'reason' => 'no_account']
+                );
                 return;
             }
 
             $this->notificationService->dispatch(
                 $typeId,
-                [['userAccountId' => $account->id, 'memberId' => $profile->memberId]],
+                array_map(
+                    static fn(int $id): array => ['userAccountId' => $id, 'memberId' => $profile->memberId],
+                    $accountIds
+                ),
                 ['title' => $title, 'body' => $body, 'url' => '/admin/sos']
             );
         } catch (\Throwable $e) {
             // A notification failing is not itself a redirect failure — the
             // phone forwarding already succeeded — but it's worth a journal
-            // entry so it doesn't vanish silently. Scrub the recipient
-            // address out of the reason first: the journal must never carry
-            // personal data (SECURITY.md §11), same pattern as
-            // MemberEmailService/AuthService.
-            $reason = str_replace($email, '[adresse]', $e->getMessage());
+            // entry so it doesn't vanish silently. Exception text can carry
+            // secondary addresses or phone numbers: keep only identifiers
+            // and the exception class, never the message (SECURITY.md §11).
             $this->journalService->log(
                 'sos_staff',
                 'notification_failed',
                 'info',
-                "Échec de la notification de changement de garde : {$reason}",
-                ['member_id' => $profile->memberId, 'type_id' => $typeId]
+                'Échec de la notification de changement de garde.',
+                ['member_id' => $profile->memberId, 'type_id' => $typeId, 'exception_class' => $e::class]
             );
         }
     }

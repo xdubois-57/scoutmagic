@@ -11,6 +11,7 @@ namespace Modules\SosStaff\Task;
 use Core\Badge\MemberBadgeRepository;
 use Core\Import\MemberYearRepository;
 use Core\Member\MemberEmailRepository;
+use Core\Member\MemberAccountResolver;
 use Core\Member\MemberService;
 use Core\Member\SectionService;
 use Core\Member\UnitStaffSectionService;
@@ -49,11 +50,12 @@ class ApplyRedirectHandler implements TaskHandlerInterface
             new MemberProfileRepository($context->connection, $context->encryption, new MemberBadgeRepository($pdo))
         );
         $memberYearRepository = new MemberYearRepository($pdo);
+        $memberEmails = new MemberEmailRepository($pdo, $context->encryption);
         $memberService = new MemberService(
             $memberYearRepository,
             new MemberProfileRepository($context->connection, $context->encryption),
             null,
-            new MemberEmailRepository($pdo, $context->encryption)
+            $memberEmails
         );
 
         $settingsService = new SosSettingsService(
@@ -105,7 +107,8 @@ class ApplyRedirectHandler implements TaskHandlerInterface
             // Nullable on TaskContext, and nullable here: a scheduler run
             // built without the notification stack still applies the
             // redirection and simply tells nobody about it.
-            $context->notifications
+            $context->notifications,
+            new MemberAccountResolver($memberYearRepository, $memberEmails, $context->userAccounts)
         );
 
         $memberId = isset($payload['member_id']) ? (int) $payload['member_id'] : null;

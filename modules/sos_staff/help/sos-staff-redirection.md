@@ -16,6 +16,13 @@ d'urgence ». Son premier bloc, « Redirection actuelle », affiche l'état
 fait : actif ou non, et vers quel numéro. En dessous, « Redirections
 planifiées » liste les bascules à venir, la prochaine en évidence.
 
+Le prochain changement est le premier de la liste, suivi des autres
+changements à venir par date et heure croissantes. Les changements passés
+viennent ensuite, du plus récent au plus ancien. Cet ordre s'applique à
+l'ensemble de la liste, avant sa pagination. Le tableau de bord couvre
+le mois en cours et le suivant : une relève prévue le premier du mois
+suivant reste visible à la fin du mois.
+
 ## Remettre le renvoi d'aplomb
 
 Quand le renvoi réel ne correspond pas à ce que le planning prévoit pour
