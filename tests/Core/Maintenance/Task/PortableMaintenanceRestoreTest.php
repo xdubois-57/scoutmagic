@@ -406,6 +406,15 @@ final class PortableMaintenanceRestoreTest extends TestCase
     public function testAWrongPassphraseChangesNothingOnTheRunningSite(): void
     {
         $before = file_get_contents($this->siteBase . '/storage/keys/master.key');
+        // An off-site send under way: a refused restore must not have
+        // stopped it (#847, part 3) — « Rien n'a été modifié » is true.
+        $sending = $this->siteBase . '/storage/maintenance/hors_site_en_cours.zip';
+        $this->write($this->siteBase, 'storage/maintenance/hors_site_en_cours.zip', 'archive portable');
+        $this->pdo->exec("DELETE FROM scheduled_actions WHERE task_key = 'send_remote_backup'");
+        $this->pdo->prepare(
+            "INSERT INTO scheduled_actions (module_id, task_key, reference, payload, run_at, status)
+             VALUES ('core', 'send_remote_backup', 'auto', ?, NOW(), 'pending')"
+        )->execute([json_encode(['archive_path' => $sending, 'remote_name' => 'copie.zip', 'location_id' => 0])]);
 
         $this->handler->handle([
             'source' => 'upload',
@@ -418,6 +427,8 @@ final class PortableMaintenanceRestoreTest extends TestCase
         $this->assertSame([], $this->journalEntries('backup_restore_failed'));
         $this->assertSame($before, file_get_contents($this->siteBase . '/storage/keys/master.key'));
         $this->assertFileDoesNotExist($this->siteBase . '/storage/uploads/tresorerie.pdf');
+        $this->assertFileExists($sending, 'the off-site send was stopped by a restore that never started');
+        $this->assertSame([], $this->journalEntries('remote_backup_interrupted'));
     }
 
     private function seedSetting(string $key, string $value): void

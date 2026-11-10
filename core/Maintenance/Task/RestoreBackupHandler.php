@@ -190,14 +190,6 @@ class RestoreBackupHandler implements TaskHandlerInterface
             return;
         }
 
-        // Before the safety copy (#847, part 3): an off-site send under way
-        // would carry on against a database about to be replaced, and its
-        // half-sent copy would never be finished nor cleaned up. Not for
-        // « Configuration seule », which replaces no database.
-        if (!$this->isConfigOnly($payload, $backupRepository)) {
-            $this->interruptRemoteSend($context, $requestedBy);
-        }
-
         $uploadedTempPath = isset($payload['uploaded_temp_path']) ? (string) $payload['uploaded_temp_path'] : null;
         $extractedUploadDbDump = null;
 
@@ -240,6 +232,16 @@ class RestoreBackupHandler implements TaskHandlerInterface
         $restoredJournalMaxId = 0;
         $restoredFrom = null;
         $safetyBackupId = 0;
+
+        // Just before the safety copy (#847, part 3) — after every refusal,
+        // so a refused restore really modified nothing, and before the dump,
+        // so a rollback never brings back a send pointing at an archive
+        // deleted here. An off-site send under way would otherwise carry on
+        // against a database about to be replaced. Not for « Configuration
+        // seule », which replaces no database.
+        if (!$this->isConfigOnly($payload, $backupRepository)) {
+            $this->interruptRemoteSend($context, $requestedBy);
+        }
 
         try {
             $safety = $this->createSafetyBackup(
@@ -581,6 +583,10 @@ class RestoreBackupHandler implements TaskHandlerInterface
         $fileRepository = new FileRepository($pdo);
 
         $targetBaseUrl = $context->settings->get('base_url');
+
+        // As on the ordinary path: after the archive's own checks above,
+        // just before the safety copy.
+        $this->interruptRemoteSend($context, $requestedBy);
 
         try {
             $safety = $this->createSafetyBackup(
