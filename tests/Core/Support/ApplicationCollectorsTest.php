@@ -317,23 +317,35 @@ class ApplicationCollectorsTest extends TestCase
         $this->assertStringContainsString('Le détail ne reprend que les ' . EventJournalCollector::MAX_ROWS, $result['entries']['event-journal-resume.txt']);
     }
 
-    /** Long contexts: the text budget stops the detail before the row cap does, newest first. */
+    /**
+     * Long contexts: each cell is cut in the query, and the text budget,
+     * sized before the detail is read, stops it before the row cap does —
+     * newest first, every entry still counted.
+     */
     public function testLongEntriesAreBoundedByTheirTextNotOnlyByTheirNumber(): void
     {
-        $context = str_repeat('x', 1024 * 1024);
+        $context = str_repeat('x', EventJournalCollector::MAX_CELL_LENGTH + 5000);
+        $count = intdiv(EventJournalCollector::MAX_DETAIL_BYTES, EventJournalCollector::MAX_CELL_LENGTH) + 20;
         $stmt = $this->pdo->prepare(
-            "INSERT INTO event_log (logged_at, category, event_type, level, description, context) VALUES (?, 'core', ?, 'error', 'x', ?)"
+            "INSERT INTO event_log (logged_at, category, event_type, level, description, context)
+             VALUES (?, 'core', ?, 'error', 'x', ?)"
         );
-        for ($i = 0; $i < 12; $i++) {
-            $stmt->execute([(new \DateTimeImmutable('-' . (12 - $i) . ' minutes'))->format('Y-m-d H:i:s'), 'trace_' . $i, $context]);
+        for ($i = 0; $i < $count; $i++) {
+            $at = (new \DateTimeImmutable('-' . ($count - $i) . ' seconds'))->format('Y-m-d H:i:s');
+            $stmt->execute([$at, 'trace_' . $i, $context]);
         }
 
         $result = $this->runCollector(new EventJournalCollector());
         $rows = $this->readSheet($result['entries']['event-journal.xlsx']);
 
-        $this->assertLessThan(13, count($rows), 'the twelve megabytes were all kept');
-        $this->assertSame('trace_11', $rows[1][4], 'the newest first');
-        $this->assertStringContainsString('Total : 12 entrée(s)', $result['entries']['event-journal-resume.txt']);
+        $this->assertLessThan($count + 1, count($rows), 'every long entry was kept');
+        $this->assertGreaterThan(100, count($rows), 'the budget keeps what fits');
+        $this->assertSame('trace_' . ($count - 1), $rows[1][4], 'the newest first');
+        $this->assertSame(EventJournalCollector::MAX_CELL_LENGTH, strlen((string) $rows[1][7]), 'cut in the query');
+        $this->assertStringContainsString(
+            'Total : ' . $count . ' entrée(s)',
+            $result['entries']['event-journal-resume.txt']
+        );
     }
 
     public function testAWeekOfJournalSaysNothingAboutRetentionWhenItIsKept(): void
@@ -383,7 +395,7 @@ class ApplicationCollectorsTest extends TestCase
     /**
      * The journal is dominated by whatever runs most often — two scheduled
      * tasks were 475 of 884 rows on the archive that prompted this — so
-     * the shape of the 48 hours is stated before anyone starts scrolling.
+     * the shape of the seven days is stated before anyone starts scrolling.
      */
     public function testTheJournalShipsWithADigestOfWhatItContains(): void
     {
@@ -544,8 +556,16 @@ class ApplicationCollectorsTest extends TestCase
     public function testATruncatedInventoryStillCountsEveryBackup(): void
     {
         $gone = $this->fileRow('backups/supprimee.zip', 10);
+        // Gone too, on the oldest row: past the cut, so not looked at — the
+        // note counts one, not two.
+        $goneOld = $this->fileRow('backups/ancienne.zip', 10);
         for ($i = 0; $i < BackupsCollector::MAX_ROWS + 3; $i++) {
-            $this->backupRow('auto_backup', 'completed', $i === BackupsCollector::MAX_ROWS + 2 ? $gone : null, null, 'unknown', null, '2026-10-01 03:00:00');
+            $file = match ($i) {
+                BackupsCollector::MAX_ROWS + 2 => $gone,
+                0 => $goneOld,
+                default => null,
+            };
+            $this->backupRow('auto_backup', 'completed', $file, null, 'unknown', null, '2026-10-01 03:00:00');
         }
 
         $result = $this->runCollector(new BackupsCollector());
@@ -842,7 +862,7 @@ class ApplicationCollectorsTest extends TestCase
         $this->assertContains('2 chemin(s) mesuré(s), 3 requête(s)', $result['notes']);
     }
 
-    public function testTimelinesOlderThanTheJournalWindowAreLeftOut(): void
+    public function testTimelinesOlderThanTheirOwnWindowAreLeftOut(): void
     {
         $timeline = [
             ['label' => 'request_parsed', 't_ms' => 1.0, 'sql' => 0, 'sql_ms' => 0.0],

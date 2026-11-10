@@ -13,6 +13,7 @@ use Core\Security\EncryptionService;
 use Core\Statistics\InstallationIdentityService;
 use Core\Statistics\StatisticsPayloadBuilder;
 use Core\Security\SecretManager;
+use Core\Support\Collector\BackupsCollector;
 use Core\Support\Collector\ConfigurationParametersCollector;
 use Core\Support\Collector\DatabaseStructureCollector;
 use Core\Support\Collector\EventJournalCollector;
@@ -487,7 +488,7 @@ class SupportPackageServiceTest extends TestCase
      */
     public function testEachApplicationCollectorFailingIndividuallyStillProducesTheArchive(): void
     {
-        foreach (['settings', 'event_log', 'scheduled_actions'] as $table) {
+        foreach (['settings', 'event_log', 'scheduled_actions', 'backups'] as $table) {
             $pdo = DatabaseTestHelper::createTestDatabase();
             $pdo->exec('DROP TABLE ' . $table);
 
@@ -511,6 +512,7 @@ class SupportPackageServiceTest extends TestCase
                     new ConfigurationParametersCollector(),
                     new EventJournalCollector(),
                     new ScheduledTasksCollector(),
+                    new BackupsCollector(),
                 ]
             );
 
@@ -522,7 +524,7 @@ class SupportPackageServiceTest extends TestCase
 
             $status = json_decode($entries['collection-status.json'], true);
             $this->assertIsArray($status);
-            $this->assertCount(5, $status['collectors'], "Broken table: {$table}");
+            $this->assertCount(6, $status['collectors'], "Broken table: {$table}");
         }
     }
 

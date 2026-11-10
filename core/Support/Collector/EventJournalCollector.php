@@ -58,6 +58,16 @@ class EventJournalCollector implements SupportCollectorInterface
      */
     public const MAX_DETAIL_BYTES = 8 * 1024 * 1024;
 
+    /**
+     * What one cell of the detail holds at most — a spreadsheet cell's
+     * own limit, applied in the query so no single entry, a stack trace in
+     * its context, can be read whole.
+     */
+    public const MAX_CELL_LENGTH = 32767;
+
+    /** The short columns of a row (date, ids, address, type), counted against the bytes too. */
+    private const ROW_OVERHEAD_BYTES = 128;
+
     /** What `public/cron.php` purges after when the setting is empty. */
     private const DEFAULT_RETENTION_DAYS = 730;
 
@@ -94,34 +104,54 @@ class EventJournalCollector implements SupportCollectorInterface
         $oldestQuery->execute([$cutoff]);
         $oldest = self::asString($oldestQuery->fetchColumn());
 
-        $stmt = $pdo->prepare(
-            'SELECT logged_at, user_account_id, ip_address, category, event_type, level, description, context
+        // Sized before it is read: mysqlnd buffers a whole result set at
+        // execute(), so the bytes are bounded in the database, never after
+        // the fact. First the size of each candidate row — a few integers
+        // each —, then only the newest rows that fit, every cell cut at
+        // what a spreadsheet cell holds anyway.
+        $sizes = $pdo->prepare(
+            'SELECT id, logged_at, COALESCE(LENGTH(description), 0) + COALESCE(LENGTH(context), 0) AS bytes
              FROM event_log
              WHERE logged_at >= ?
              ORDER BY logged_at DESC, id DESC
              LIMIT ' . self::MAX_ROWS
         );
-        $stmt->execute([$cutoff]);
-
-        $rows = [];
+        $sizes->execute([$cutoff]);
+        $boundary = null;
         $bytes = 0;
-        while (($entry = $stmt->fetch(\PDO::FETCH_ASSOC)) !== false) {
-            $bytes += array_sum(array_map(static fn(mixed $cell): int => strlen(self::asString($cell)), $entry));
-            if ($bytes > self::MAX_DETAIL_BYTES && $rows !== []) {
+        foreach ($sizes->fetchAll(\PDO::FETCH_ASSOC) ?: [] as $size) {
+            $bytes += min((int) ($size['bytes'] ?? 0), 2 * self::MAX_CELL_LENGTH) + self::ROW_OVERHEAD_BYTES;
+            if ($bytes > self::MAX_DETAIL_BYTES && $boundary !== null) {
                 break;
             }
-            $rows[] = [
-                self::localTimestamp(self::asString($entry['logged_at'] ?? null)),
-                self::asString($entry['user_account_id'] ?? null),
-                self::asString($entry['ip_address'] ?? null),
-                self::asString($entry['category'] ?? null),
-                self::asString($entry['event_type'] ?? null),
-                self::asString($entry['level'] ?? null),
-                self::asString($entry['description'] ?? null),
-                self::asString($entry['context'] ?? null),
-            ];
+            $boundary = $size;
         }
-        $stmt->closeCursor();
+
+        $rows = [];
+        if ($boundary !== null) {
+            $stmt = $pdo->prepare(
+                'SELECT logged_at, user_account_id, ip_address, category, event_type, level,
+                        SUBSTR(description, 1, ' . self::MAX_CELL_LENGTH . ') AS description,
+                        SUBSTR(context, 1, ' . self::MAX_CELL_LENGTH . ') AS context
+                 FROM event_log
+                 WHERE logged_at >= ? AND (logged_at > ? OR (logged_at = ? AND id >= ?))
+                 ORDER BY logged_at DESC, id DESC'
+            );
+            $stmt->execute([$cutoff, $boundary['logged_at'], $boundary['logged_at'], (int) $boundary['id']]);
+            while (($entry = $stmt->fetch(\PDO::FETCH_ASSOC)) !== false) {
+                $rows[] = [
+                    self::localTimestamp(self::asString($entry['logged_at'] ?? null)),
+                    self::asString($entry['user_account_id'] ?? null),
+                    self::asString($entry['ip_address'] ?? null),
+                    self::asString($entry['category'] ?? null),
+                    self::asString($entry['event_type'] ?? null),
+                    self::asString($entry['level'] ?? null),
+                    self::asString($entry['description'] ?? null),
+                    self::asString($entry['context'] ?? null),
+                ];
+            }
+            $stmt->closeCursor();
+        }
 
         $retentionDays = (int) ($context->settings()->get('journal_retention_days') ?: self::DEFAULT_RETENTION_DAYS);
         $context->addNote($total . ' entrée(s) sur ' . DiagnosticWindow::label());
