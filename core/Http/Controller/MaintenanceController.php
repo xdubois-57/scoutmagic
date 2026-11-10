@@ -102,6 +102,9 @@ class MaintenanceController extends AbstractController
     private const KEYWORD_FULL_RESET = 'EFFACER';
     private const KEYWORD_RESTORE = 'RESTAURER';
 
+    private const RESTORE_ALREADY_ACTIVE
+        = 'Une restauration est déjà en attente ou en cours. Attendez sa fin avant d\'en lancer une autre.';
+
     private const RESTORE_UPLOAD_MAX_BYTES = 500 * 1024 * 1024;
 
     /** @var string[] */
@@ -461,6 +464,10 @@ class MaintenanceController extends AbstractController
             // safety belt on a table retention already keeps small.
             'backups' => $this->backupList($zipEncryptionSupported),
             'backups_shown_at_once' => self::BACKUPS_SHOWN_AT_ONCE,
+            // One restore at a time (issue #753): while one is pending or
+            // running the form offers none, and restoreBackup() refuses
+            // whatever reaches it anyway.
+            'restore_active' => $this->schedulerService->hasLiveForTask('core', 'restore_backup'),
             'zip_encryption_supported' => $zipEncryptionSupported,
             // 'weekly' — the registered default since issue #286; a
             // fallback still spelling 'monthly' would put the select on a
@@ -1416,11 +1423,28 @@ class MaintenanceController extends AbstractController
     }
 
     /**
-     * POST /config/maintenance/reset/restore — classic multipart form POST
-     * (not AJAX/JSON, unlike the site's other Maintenance actions), since
-     * source=upload needs a real file upload; the page redirects back with
-     * ?restore_id={id} so its JS can start polling resetStatus()
-     * immediately. Requires typing KEYWORD_RESTORE.
+     * POST /config/maintenance/reset/restore — a multipart POST, since
+     * source=upload needs a real file upload. Requires typing
+     * KEYWORD_RESTORE.
+     *
+     * The page sends it from a script and asks for JSON (issue #753): a
+     * refusal is then shown on the spot under the form, and a queued
+     * restore answers with its id for the page to poll resetStatus(). A
+     * plain navigation still gets the redirect back with ?restore_id={id},
+     * or a flash message.
+     *
+     * **Nothing is queued for an archive that cannot be opened** (issue
+     * #753). An uploaded archive, and an archive of this server whose
+     * password the site never kept, are opened here with what was typed
+     * (Core\Maintenance\RestoreArchiveCheck) — read-only, no safety copy —
+     * and a wrong password is said at once, the upload deleted.
+     * RestoreBackupHandler still checks everything itself.
+     *
+     * **One restore at a time.** While a restore is pending or running —
+     * its migration resume passes included, which are rows of the same
+     * task — a second is refused, atomically
+     * (SchedulerService::scheduleAfterUnlessLive()), and the archive it
+     * brought is deleted.
      *
      * The form lives on « Sauvegardes récentes » since issue #619 (IT-06):
      * restoring is what a backup is for, not a reset, and that is where
@@ -1431,12 +1455,22 @@ class MaintenanceController extends AbstractController
      */
     public function restoreBackup(Request $request, array $params): Response
     {
-        if (($guard = $this->guardCsrf($request, self::PAGE_RECENT_BACKUPS)) !== null) {
+        $wantsJson = self::wantsJson($request);
+        $guard = $wantsJson
+            ? $this->guardCsrfJson($request)
+            : $this->guardCsrf($request, self::PAGE_RECENT_BACKUPS);
+        if ($guard !== null) {
             return $guard;
         }
         if ((string) $request->getBody('confirm_keyword', '') !== self::KEYWORD_RESTORE) {
-            FlashMessage::set('error', 'Mot de confirmation incorrect.');
-            return $this->redirect(self::PAGE_RECENT_BACKUPS);
+            return $this->restoreRefused($wantsJson, 'Mot de confirmation incorrect.');
+        }
+        // Said before an archive is moved anywhere — the cheap answer for
+        // the common case. The guarantee is the scheduling call below.
+        if ($this->schedulerService->hasLiveForTask('core', 'restore_backup')) {
+            $this->discardRestoreUpload($request);
+
+            return $this->restoreRefused($wantsJson, self::RESTORE_ALREADY_ACTIVE, 409);
         }
 
         $userId = AuthSession::getUserAccountId();
@@ -1453,6 +1487,7 @@ class MaintenanceController extends AbstractController
             : null;
 
         $payload = ['source' => $source, 'encrypted_password' => $encryptedPassword];
+        $tempPath = null;
 
         if ($source === 'upload') {
             $uploadId = (string) $request->getBody('upload_id', '');
@@ -1465,51 +1500,56 @@ class MaintenanceController extends AbstractController
                 // nothing here.
                 $assembled = $this->restoreChunkStore()->assembledPath($uploadId, session_id());
                 if ($assembled === null) {
-                    FlashMessage::set('error', 'Fichier téléversé introuvable — recommencez l\'envoi.');
-                    return $this->redirect(self::PAGE_RECENT_BACKUPS);
+                    return $this->restoreRefused(
+                        $wantsJson,
+                        'Fichier téléversé introuvable — recommencez l\'envoi.'
+                    );
                 }
                 if ((int) (filesize($assembled) ?: 0) > self::RESTORE_UPLOAD_MAX_BYTES) {
                     $this->restoreChunkStore()->discard($uploadId, session_id());
-                    FlashMessage::set('error', 'Le fichier dépasse la taille maximale autorisée.');
-                    return $this->redirect(self::PAGE_RECENT_BACKUPS);
+                    return $this->restoreRefused($wantsJson, 'Le fichier dépasse la taille maximale autorisée.');
                 }
 
                 $tempPath = $this->restoreTempPath();
                 if (!rename($assembled, $tempPath)) {
                     $this->restoreChunkStore()->discard($uploadId, session_id());
-                    FlashMessage::set('error', 'Le téléversement du fichier a échoué.');
-                    return $this->redirect(self::PAGE_RECENT_BACKUPS);
+                    return $this->restoreRefused($wantsJson, 'Le téléversement du fichier a échoué.');
                 }
-                $payload['uploaded_temp_path'] = $tempPath;
             } else {
                 $file = $request->getFile('backup_file');
                 if ($file === null || $file['error'] !== UPLOAD_ERR_OK) {
-                    FlashMessage::set('error', 'Veuillez sélectionner un fichier de sauvegarde valide.');
-                    return $this->redirect(self::PAGE_RECENT_BACKUPS);
+                    return $this->restoreRefused($wantsJson, 'Veuillez sélectionner un fichier de sauvegarde valide.');
                 }
                 $ext = strtolower(pathinfo((string) $file['name'], PATHINFO_EXTENSION));
                 if ($ext !== 'zip') {
-                    FlashMessage::set('error', 'Le fichier doit être une archive ZIP.');
-                    return $this->redirect(self::PAGE_RECENT_BACKUPS);
+                    return $this->restoreRefused($wantsJson, 'Le fichier doit être une archive ZIP.');
                 }
                 if ($file['size'] > self::RESTORE_UPLOAD_MAX_BYTES) {
-                    FlashMessage::set('error', 'Le fichier dépasse la taille maximale autorisée.');
-                    return $this->redirect(self::PAGE_RECENT_BACKUPS);
+                    return $this->restoreRefused($wantsJson, 'Le fichier dépasse la taille maximale autorisée.');
                 }
 
                 $tempPath = $this->restoreTempPath();
                 if (!move_uploaded_file($file['tmp_name'], $tempPath)) {
-                    FlashMessage::set('error', 'Le téléversement du fichier a échoué.');
-                    return $this->redirect(self::PAGE_RECENT_BACKUPS);
+                    return $this->restoreRefused($wantsJson, 'Le téléversement du fichier a échoué.');
                 }
-                $payload['uploaded_temp_path'] = $tempPath;
             }
+
+            try {
+                \Core\Maintenance\RestoreArchiveCheck::assertUploadOpens(
+                    $tempPath,
+                    $password !== '' ? $password : null
+                );
+            } catch (\Core\Maintenance\BackupException $e) {
+                @unlink($tempPath);
+
+                return $this->restoreRefused($wantsJson, $e->getMessage());
+            }
+            $payload['uploaded_temp_path'] = $tempPath;
         } else {
             $backupId = (int) $request->getBody('backup_id', '0');
             $backup = $this->backupRepository->findById($backupId);
             if ($backup === null || $backup->status !== 'completed') {
-                FlashMessage::set('error', 'Sauvegarde introuvable ou incomplète.');
-                return $this->redirect(self::PAGE_RECENT_BACKUPS);
+                return $this->restoreRefused($wantsJson, 'Sauvegarde introuvable ou incomplète.');
             }
             // A portable archive is refused HERE, before a single row is
             // written. It looks restorable — completed, with a database
@@ -1520,17 +1560,48 @@ class MaintenanceController extends AbstractController
             // and until then the answer is a sentence rather than a
             // recovery.
             if ($backup->type === \Core\Maintenance\Backup::PORTABLE_TYPE) {
-                FlashMessage::set(
-                    'error',
+                return $this->restoreRefused(
+                    $wantsJson,
                     'Une sauvegarde portable ne se restaure pas depuis cette page : elle sert à repartir sur '
                     . 'une installation neuve, à qui vous la téléversez avec sa phrase de passe.'
                 );
-                return $this->redirect(self::PAGE_RECENT_BACKUPS);
+            }
+            // A full backup from before IT-03: its password was typed by
+            // its operator and never kept, so what was typed now is checked
+            // against the archive before anything is queued.
+            if ($backup->fileId !== null && $this->passwords()->passwordFor($backup->id) === null) {
+                $archive = $this->fileRepository->findById($backup->fileId);
+                if ($archive !== null) {
+                    try {
+                        \Core\Maintenance\RestoreArchiveCheck::assertServerArchiveOpens(
+                            $this->storagePath . '/' . $archive->relativePath,
+                            $password !== '' ? $password : null
+                        );
+                    } catch (\Core\Maintenance\BackupException $e) {
+                        return $this->restoreRefused($wantsJson, $e->getMessage());
+                    }
+                }
             }
             $payload['backup_id'] = $backupId;
         }
 
-        $actionId = $this->schedulerService->scheduleAfter('core', 'restore_backup', 0, $payload, null, $userId);
+        $actionId = $this->schedulerService->scheduleAfterUnlessLive(
+            'core',
+            'restore_backup',
+            0,
+            $payload,
+            null,
+            $userId
+        );
+        if ($actionId === null) {
+            // Another restore was queued between the check above and here:
+            // this archive will never be read.
+            if ($tempPath !== null) {
+                @unlink($tempPath);
+            }
+
+            return $this->restoreRefused($wantsJson, self::RESTORE_ALREADY_ACTIVE, 409);
+        }
 
         $this->journalService->log(
             'core',
@@ -1541,7 +1612,49 @@ class MaintenanceController extends AbstractController
             $userId
         );
 
+        if ($wantsJson) {
+            return $this->json(['success' => true, 'action_id' => $actionId]);
+        }
+
         return $this->redirect(self::PAGE_RECENT_BACKUPS . '?restore_id=' . $actionId);
+    }
+
+    /**
+     * A restore refused: under the form for the page's script, as a flash
+     * message after the redirect for a plain navigation.
+     */
+    private function restoreRefused(bool $wantsJson, string $message, int $status = 400): Response
+    {
+        if ($wantsJson) {
+            return $this->json(['success' => false, 'error' => $message], $status);
+        }
+        FlashMessage::set('error', $message);
+
+        return $this->redirect(self::PAGE_RECENT_BACKUPS);
+    }
+
+    /** The chunked upload a refused restore referenced, deleted: nothing will read it. */
+    private function discardRestoreUpload(Request $request): void
+    {
+        $uploadId = (string) $request->getBody('upload_id', '');
+        if ($uploadId === '') {
+            return;
+        }
+        try {
+            $this->restoreChunkStore()->discard($uploadId, session_id());
+        } catch (\Core\File\UploadException) {
+        }
+    }
+
+    /**
+     * Whether the caller asked for JSON — the page's script does; a
+     * navigation's Accept header names HTML.
+     */
+    private static function wantsJson(Request $request): bool
+    {
+        $accept = (string) $request->getServer('HTTP_ACCEPT', '');
+
+        return str_contains($accept, 'application/json') && !str_contains($accept, 'text/html');
     }
 
     /**
@@ -1562,6 +1675,14 @@ class MaintenanceController extends AbstractController
         }
 
         $uploadId = (string) $request->getBody('upload_id', '');
+        // An archive that could not be restored once it arrived (issue
+        // #753): refused at the first fragment it sends, and what it had
+        // already sent is deleted.
+        if ($this->schedulerService->hasLiveForTask('core', 'restore_backup')) {
+            $this->discardRestoreUpload($request);
+
+            return $this->json(['success' => false, 'error' => self::RESTORE_ALREADY_ACTIVE], 409);
+        }
         $chunk = $request->getFile('file');
         if ($chunk === null || empty($chunk['tmp_name'])) {
             return $this->json(['success' => false, 'error' => 'Aucun fragment envoyé.'], 400);

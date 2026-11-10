@@ -1117,9 +1117,9 @@ describe('maintenance.js: "Réinitialisation" — the destructive-action gates',
     });
 
     // The dialog is asynchronous, so the submit event itself is ALWAYS
-    // stopped and the confirmed restore is re-sent by hand with
-    // form.submit() (which bypasses the listener — one confirmation, one
-    // pass). That native call is what these tests watch for.
+    // stopped and the confirmed restore is re-sent by hand — since issue
+    // #753 with fetch(), asking for JSON, so that a refusal is shown under
+    // the form at once. That POST is what these tests watch for.
     describe('restore-backup-form submit — the confirmation gate + classic multipart submit', () => {
         it('declining the confirmation submits nothing and leaves the button usable', async () => {
             buildRestoreBackup();
@@ -1136,13 +1136,17 @@ describe('maintenance.js: "Réinitialisation" — the destructive-action gates',
             expect(/** @type {HTMLButtonElement} */ (document.getElementById('restore-backup-submit')).disabled).toBe(false);
         });
 
-        it('accepting the confirmation disables the submit button and re-sends the multipart form itself', async () => {
+        it('accepting the confirmation disables the submit button and POSTs the form itself, asking for JSON', async () => {
             buildRestoreBackup();
-            const nativeSubmit = vi.spyOn(HTMLFormElement.prototype, 'submit').mockImplementation(() => {});
+            global.fetch = vi.fn(() => new Promise(() => {}));
             await boot();
-            const evt = new Event('submit', { cancelable: true });
-            document.getElementById('restore-backup-form').dispatchEvent(evt);
-            await vi.waitFor(() => expect(nativeSubmit).toHaveBeenCalledTimes(1));
+            const form = /** @type {HTMLFormElement} */ (document.getElementById('restore-backup-form'));
+            form.dispatchEvent(new Event('submit', { cancelable: true }));
+            await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+
+            expect(fetch).toHaveBeenCalledWith(form.action, expect.objectContaining({
+                method: 'POST', headers: { Accept: 'application/json' },
+            }));
 
             expect(window.ScoutMagicConfirm.ask).toHaveBeenCalledWith(expect.objectContaining({
                 message: 'Cette action va remplacer les données actuelles par celles de la sauvegarde sélectionnée. Continuer ?',
@@ -1239,10 +1243,10 @@ describe('maintenance.js: "Réinitialisation" — the destructive-action gates',
             return evt;
         }
 
-        it('intercepts the submit for a large file: chunks first, then re-submits with upload_id and no file', async () => {
+        it('intercepts the submit for a large file: chunks first, then POSTs with upload_id and no file', async () => {
             buildChunkedRestore();
             selectFile(100 * 1024 * 1024);
-            const nativeSubmit = vi.spyOn(HTMLFormElement.prototype, 'submit').mockImplementation(() => {});
+            global.fetch = vi.fn(() => new Promise(() => {}));
             let resolveUpload;
             window.ScoutMagicChunkedUpload = {
                 CHUNK_THRESHOLD: 24 * 1024 * 1024,
@@ -1266,15 +1270,17 @@ describe('maintenance.js: "Réinitialisation" — the destructive-action gates',
             await Promise.resolve(); await Promise.resolve();
 
             expect(document.getElementById('restore-upload-id').value).toBe('f'.repeat(32));
-            expect(nativeSubmit).toHaveBeenCalledTimes(1);
-            // .submit() bypasses the listener — one confirmation, one chunk pass.
+            await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+            expect(fetch.mock.calls[0][1].body.get('upload_id')).toBe('f'.repeat(32));
+            // One confirmation, one chunk pass.
             expect(window.ScoutMagicConfirm.ask).toHaveBeenCalledTimes(1);
+            expect(window.ScoutMagicChunkedUpload.uploadInChunks).toHaveBeenCalledTimes(1);
         });
 
         it('lets a small file ride the classic multipart POST untouched', async () => {
             buildChunkedRestore();
             selectFile(1024);
-            const nativeSubmit = vi.spyOn(HTMLFormElement.prototype, 'submit').mockImplementation(() => {});
+            global.fetch = vi.fn(() => new Promise(() => {}));
             window.ScoutMagicChunkedUpload = {
                 CHUNK_THRESHOLD: 24 * 1024 * 1024,
                 uploadInChunks: vi.fn(),
@@ -1282,7 +1288,7 @@ describe('maintenance.js: "Réinitialisation" — the destructive-action gates',
             await boot();
 
             submitForm();
-            await vi.waitFor(() => expect(nativeSubmit).toHaveBeenCalledTimes(1));
+            await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
 
             expect(window.ScoutMagicChunkedUpload.uploadInChunks).not.toHaveBeenCalled();
         });
@@ -1292,7 +1298,7 @@ describe('maintenance.js: "Réinitialisation" — the destructive-action gates',
             selectFile(100 * 1024 * 1024);
             document.getElementById('restore-source-upload').checked = false;
             document.getElementById('restore-source-server').checked = true;
-            const nativeSubmit = vi.spyOn(HTMLFormElement.prototype, 'submit').mockImplementation(() => {});
+            global.fetch = vi.fn(() => new Promise(() => {}));
             window.ScoutMagicChunkedUpload = {
                 CHUNK_THRESHOLD: 24 * 1024 * 1024,
                 uploadInChunks: vi.fn(),
@@ -1300,7 +1306,7 @@ describe('maintenance.js: "Réinitialisation" — the destructive-action gates',
             await boot();
 
             submitForm();
-            await vi.waitFor(() => expect(nativeSubmit).toHaveBeenCalledTimes(1));
+            await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
 
             expect(window.ScoutMagicChunkedUpload.uploadInChunks).not.toHaveBeenCalled();
         });
@@ -1621,5 +1627,148 @@ describe('maintenance.js: downloading an archive reveals its password', () => {
 
         expect(clicks).toEqual([false]);
         expect(fetch).toHaveBeenCalledTimes(1);
+    });
+});
+
+describe('maintenance.js: restore form — sending, checking, then restoring (#753)', () => {
+    const ARCHIVE = new File(['x'.repeat(20)], 'sauvegarde.zip', { type: 'application/zip' });
+
+    function buildDom({ active = false } = {}) {
+        appendAll(el(`
+            <form id="restore-backup-form" method="post" action="/config/maintenance/reset/restore">
+                <input type="hidden" name="_csrf_token" value="form-tok">
+                <fieldset id="restore-backup-fields"${active ? ' disabled' : ''}>
+                    <input type="hidden" name="upload_id" id="restore-upload-id" value="">
+                    <input type="radio" name="source" id="restore-source-server" value="server">
+                    <input type="radio" name="source" id="restore-source-upload" value="upload" checked>
+                    <div id="restore-server-picker"></div>
+                    <div id="restore-upload-picker"><input type="file" name="backup_file" id="restore-backup-file"></div>
+                    <div id="restore-password-field"><input type="password" name="password" value="secret"></div>
+                    <input type="text" name="confirm_keyword" id="restore-backup-keyword">
+                    <button type="submit" id="restore-backup-submit" disabled>Restaurer</button>
+                </fieldset>
+                <output class="d-none" id="restore-backup-progress">
+                    <span id="restore-backup-progress-label">Restauration en cours…</span>
+                    <div class="progress d-none" id="restore-backup-upload-bar" role="progressbar" aria-valuenow="0">
+                        <div class="progress-bar" style="width: 0%;"></div>
+                    </div>
+                </output>
+                <div class="d-none" id="restore-backup-error" role="alert"></div>
+            </form>`));
+        const fileInput = document.getElementById('restore-backup-file');
+        Object.defineProperty(fileInput, 'files', { value: [ARCHIVE], configurable: true });
+    }
+
+    /** The shared helper, stubbed: reports three shares, then resolves or rejects. */
+    function stubChunker(outcome) {
+        const seen = [];
+        window.ScoutMagicChunkedUpload = {
+            CHUNK_THRESHOLD: 10,
+            uploadInChunks: vi.fn((file, url, options) => {
+                for (const sent of [0, 13, 20]) {
+                    options.onProgress(sent, 20);
+                    seen.push([label(), bar().getAttribute('aria-valuenow'), fill().style.width]);
+                }
+                return outcome;
+            }),
+        };
+        return seen;
+    }
+
+    const label = () => document.getElementById('restore-backup-progress-label').textContent;
+    const bar = () => document.getElementById('restore-backup-upload-bar');
+    const fill = () => bar().querySelector('.progress-bar');
+    const error = () => document.getElementById('restore-backup-error');
+
+    async function submit() {
+        const keyword = document.getElementById('restore-backup-keyword');
+        keyword.value = 'RESTAURER';
+        keyword.dispatchEvent(new Event('input'));
+        document.getElementById('restore-backup-form').dispatchEvent(new Event('submit', { cancelable: true }));
+        await vi.waitFor(() => expect(window.ScoutMagicConfirm.ask).toHaveBeenCalled());
+    }
+
+    it('shows the real share sent, 0 to 100 %, and never says « restauration » while sending', async () => {
+        buildDom();
+        const seen = stubChunker(new Promise(() => {}));
+        await boot();
+
+        await submit();
+
+        await vi.waitFor(() => expect(window.ScoutMagicChunkedUpload.uploadInChunks).toHaveBeenCalled());
+        expect(window.ScoutMagicChunkedUpload.uploadInChunks.mock.calls[0][1]).toBe('/config/maintenance/restore-upload-chunk');
+        expect(seen).toEqual([
+            ['Envoi de la sauvegarde… 0 %', '0', '0%'],
+            ['Envoi de la sauvegarde… 65 %', '65', '65%'],
+            ['Envoi de la sauvegarde… 100 %', '100', '100%'],
+        ]);
+        expect(bar().classList.contains('d-none')).toBe(false);
+    });
+
+    it('checks the archive once it is sent, then follows the restore the server queued', async () => {
+        buildDom();
+        stubChunker(Promise.resolve({ uploadId: 'abc' }));
+        const replaceState = vi.spyOn(window.history, 'replaceState').mockImplementation(() => {});
+        let labelWhilePosting = null;
+        global.fetch = vi.fn((url) => {
+            if (String(url).endsWith('/config/maintenance/reset/restore')) {
+                labelWhilePosting = label();
+                return jsonResponse({ success: true, action_id: 42 });
+            }
+            return jsonResponse({ status: 'processing' });
+        });
+        await boot();
+
+        await submit();
+
+        await vi.waitFor(() => expect(label()).toBe('Restauration en cours…'));
+        expect(labelWhilePosting).toBe('Vérification de l\'archive…');
+        const [url, init] = global.fetch.mock.calls[0];
+        expect(String(url).endsWith('/config/maintenance/reset/restore')).toBe(true);
+        expect(init.headers).toEqual({ Accept: 'application/json' });
+        expect(init.body.get('upload_id')).toBe('abc');
+        expect(bar().classList.contains('d-none')).toBe(true);
+        // A reload of the page resumes following the same restore.
+        expect(replaceState).toHaveBeenCalledWith(null, '', '?restore_id=42');
+    });
+
+    it('says a wrong password at once and gives the form back, nothing polled', async () => {
+        buildDom();
+        stubChunker(Promise.resolve({ uploadId: 'abc' }));
+        global.fetch = vi.fn(() => jsonResponse({ success: false, error: 'Mot de passe ou phrase de passe incorrect.' }, 400));
+        await boot();
+
+        await submit();
+
+        await vi.waitFor(() => expect(error().textContent).toBe('Mot de passe ou phrase de passe incorrect.'));
+        expect(error().classList.contains('d-none')).toBe(false);
+        expect(document.getElementById('restore-backup-progress').classList.contains('d-none')).toBe(true);
+        expect(document.getElementById('restore-upload-id').value).toBe('');
+        expect(document.getElementById('restore-backup-submit').disabled).toBe(false);
+        expect(global.fetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('stops the progress and shows the error when the upload itself fails', async () => {
+        buildDom();
+        stubChunker(Promise.reject(new Error('Une restauration est déjà en attente ou en cours.')));
+        global.fetch = vi.fn();
+        await boot();
+
+        await submit();
+
+        await vi.waitFor(() => expect(error().textContent).toBe('Une restauration est déjà en attente ou en cours.'));
+        expect(document.getElementById('restore-backup-progress').classList.contains('d-none')).toBe(true);
+        expect(global.fetch).not.toHaveBeenCalled();
+    });
+
+    it('cannot be launched while a restore is already alive', async () => {
+        buildDom({ active: true });
+        await boot();
+
+        const keyword = document.getElementById('restore-backup-keyword');
+        keyword.value = 'RESTAURER';
+        keyword.dispatchEvent(new Event('input'));
+
+        expect(document.getElementById('restore-backup-submit').matches(':disabled')).toBe(true);
     });
 });

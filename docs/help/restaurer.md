@@ -34,7 +34,16 @@ le site après un sinistre ».
 Pour une archive venue d'ailleurs, choisissez « Depuis un fichier
 téléversé » : le champ du mot de passe apparaît alors. C'est celui que
 vous avez noté en téléchargeant l'archive. Un gros fichier s'envoie
-automatiquement par morceaux.
+automatiquement par morceaux, et une barre montre la part déjà envoyée.
+
+L'archive est ensuite vérifiée avec ce mot de passe, avant que rien ne
+commence. S'il est faux, le site le dit aussitôt, supprime le fichier
+et ne lance rien : choisissez-le à nouveau.
+
+## Une seule restauration à la fois
+
+Tant qu'une restauration attend ou se déroule, le formulaire n'en
+propose pas d'autre. Attendez sa fin.
 
 ## Les emplacements de stockage
 

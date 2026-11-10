@@ -23,6 +23,7 @@ use Core\Maintenance\BackupService;
 use Core\Maintenance\Portable\PortableArchive;
 use Core\Maintenance\Portable\PortableRestore;
 use Core\Maintenance\RequesterNotice;
+use Core\Maintenance\RestoreArchiveCheck;
 use Core\Maintenance\VersionFile;
 use Core\Scheduler\SchedulerRepository;
 use Core\Scheduler\SchedulerService;
@@ -1178,6 +1179,12 @@ class RestoreBackupHandler implements TaskHandlerInterface
                 throw new BackupException('Fichier de sauvegarde introuvable.');
             }
 
+            // Checked again here even though the form already did (issue
+            // #753): the worker is the last barrier before a destructive
+            // operation, and says which of « not a backup », « password
+            // missing » and « wrong password » it is.
+            RestoreArchiveCheck::assertUploadOpens($zipPath, $password);
+
             $zip = new \ZipArchive();
             if ($zip->open($zipPath) !== true) {
                 throw new BackupException('Le fichier uploadé n\'est pas un backup valide.');
@@ -1185,13 +1192,11 @@ class RestoreBackupHandler implements TaskHandlerInterface
             if ($password !== null) {
                 $zip->setPassword($password);
             }
-            $dbSql = $zip->getFromName('database.sql');
-            if ($dbSql === false) {
-                $zip->close();
-                throw new BackupException('Le fichier uploadé n\'est pas un backup valide (database.sql introuvable — '
-                    . 'mot de passe incorrect ?).');
-            }
+            $dbSql = $zip->getFromName(RestoreArchiveCheck::DATABASE_MEMBER);
             $zip->close();
+            if ($dbSql === false) {
+                throw new BackupException('La base de données de cette sauvegarde est illisible.');
+            }
 
             $extractedDbDump = sys_get_temp_dir() . '/scoutmagic_restore_upload_' . bin2hex(random_bytes(8)) . '.sql';
             file_put_contents($extractedDbDump, $dbSql);
