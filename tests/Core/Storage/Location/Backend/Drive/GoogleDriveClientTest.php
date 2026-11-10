@@ -735,6 +735,15 @@ final class GoogleDriveClientTest extends TestCase
     public function testTheTimeAllowedForARequestGrowsWithWhatItCarries(): void
     {
         $this->assertSame(30, GoogleDriveClient::transferCeilingSeconds(null));
+        // A slice read back is sized on the range it asks for (#847).
+        $this->assertSame(
+            GoogleDriveClient::transferCeilingSeconds(str_repeat('x', 8 * 1024 * 1024)),
+            GoogleDriveClient::transferCeilingSeconds(null, 'bytes=0-' . (8 * 1024 * 1024 - 1))
+        );
+        $this->assertGreaterThan(
+            30,
+            GoogleDriveClient::transferCeilingSeconds(null, 'bytes=0-' . (8 * 1024 * 1024 - 1))
+        );
         $this->assertSame(30, GoogleDriveClient::transferCeilingSeconds('{"name":"sauvegarde.zip"}'));
 
         $chunk = str_repeat('x', 8 * 1024 * 1024);

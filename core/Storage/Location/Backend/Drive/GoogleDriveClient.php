@@ -1184,13 +1184,20 @@ final class GoogleDriveClient
      * and is exercised nowhere, which is precisely why the transport is
      * injectable.
      */
-    public static function transferCeilingSeconds(?string $body): int
+    public static function transferCeilingSeconds(?string $body, ?string $range = null): int
     {
-        if ($body === null) {
+        // A slice read back (#847, part 4) carries no body but brings one
+        // back: sized on the `Range: bytes=a-b` it asks for, at the same
+        // floor rate, so an 8 MiB slice on a slow link is not cut at 30 s.
+        $moved = strlen($body ?? '');
+        if ($range !== null && preg_match('/^bytes=(\d+)-(\d+)$/', $range, $m) === 1) {
+            $moved = max($moved, (int) $m[2] - (int) $m[1] + 1);
+        }
+        if ($moved === 0) {
             return self::TIMEOUT;
         }
 
-        return max(self::TIMEOUT, (int) ceil(strlen($body) / self::MIN_UPLOAD_BYTES_PER_SECOND));
+        return max(self::TIMEOUT, (int) ceil($moved / self::MIN_UPLOAD_BYTES_PER_SECOND));
     }
 
     /**
@@ -1242,7 +1249,7 @@ final class GoogleDriveClient
                 // MIN_UPLOAD_BYTES_PER_SECOND for STALL_SECONDS is dead, and
                 // cURL abandons it without waiting for the ceiling. Slow is
                 // tolerated; stalled is not.
-                CURLOPT_TIMEOUT => self::transferCeilingSeconds($body),
+                CURLOPT_TIMEOUT => self::transferCeilingSeconds($body, $headers['Range'] ?? null),
                 CURLOPT_LOW_SPEED_LIMIT => self::MIN_UPLOAD_BYTES_PER_SECOND,
                 CURLOPT_LOW_SPEED_TIME => self::STALL_SECONDS,
                 CURLOPT_HEADERFUNCTION => static function ($_handle, string $header) use (&$location, &$range): int {

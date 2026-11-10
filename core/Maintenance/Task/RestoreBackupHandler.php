@@ -1095,10 +1095,12 @@ class RestoreBackupHandler implements TaskHandlerInterface
             $taken = $pdo->prepare('SELECT 1 FROM scheduled_actions WHERE id = ?');
             $taken->execute([$runningTaskId]);
             if ($taken->fetchColumn() === false) {
+                // Long-standing columns only: this runs on the restored
+                // schema, before any migration.
                 $pdo->prepare(
-                    "INSERT INTO scheduled_actions (id, module_id, task_key, run_at, status, claimed_at)
-                     VALUES (?, 'core', 'restore_backup', ?, 'processing', ?)"
-                )->execute([$runningTaskId, date('Y-m-d H:i:s'), date('Y-m-d H:i:s')]);
+                    "INSERT INTO scheduled_actions (id, module_id, task_key, run_at, status)
+                     VALUES (?, 'core', 'restore_backup', ?, 'processing')"
+                )->execute([$runningTaskId, date('Y-m-d H:i:s')]);
             }
         }
         $rearm = $pdo->prepare(

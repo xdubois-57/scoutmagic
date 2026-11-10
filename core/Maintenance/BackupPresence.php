@@ -63,16 +63,22 @@ final class BackupPresence
      */
     public function of(Backup $backup): array
     {
+        $completed = $backup->status === 'completed';
         $dump = match (true) {
             $backup->dbDumpFileId !== null => $this->isPresent($backup->dbDumpFileId),
-            $backup->status === 'completed' => false,
+            $completed => false,
+            default => null,
+        };
+        // The archive likewise — `file_id` has the same ON DELETE SET NULL,
+        // and BackupRetention::forget() removes the archive's row first.
+        // An export is not restored here whatever its files say.
+        $archive = match (true) {
+            $backup->fileId !== null => $this->isPresent($backup->fileId),
+            $completed && $backup->type !== Backup::EXPORT_TYPE => false,
             default => null,
         };
 
-        return [
-            'archive' => $backup->fileId !== null ? $this->isPresent($backup->fileId) : null,
-            'dump' => $dump,
-        ];
+        return ['archive' => $archive, 'dump' => $dump];
     }
 
     /** Whether every component the backup declares is present. */

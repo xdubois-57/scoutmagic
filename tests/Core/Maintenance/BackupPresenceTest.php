@@ -66,12 +66,27 @@ final class BackupPresenceTest extends TestCase
         $this->assertStringContainsString('son archive n\'est plus sur ce serveur', (string) $this->presence()->refusal($backup));
     }
 
-    public function testAComponentNeverDeclaredIsNeitherPresentNorAbsent(): void
+    /** A completed backup that lost its archive reference has lost the archive. */
+    public function testACompletedBackupWithoutItsArchiveReferenceHasLostIt(): void
     {
         $backup = $this->backup(null, $this->file('a.sql'));
 
-        $this->assertSame(['archive' => null, 'dump' => true], $this->presence()->of($backup));
-        $this->assertTrue($this->presence()->isComplete($backup));
+        $this->assertSame(['archive' => false, 'dump' => true], $this->presence()->of($backup));
+        $this->assertFalse($this->presence()->isComplete($backup));
+        $this->assertStringContainsString(
+            'son archive n\'est plus sur ce serveur',
+            (string) $this->presence()->refusal($backup)
+        );
+    }
+
+    /** A backup still running has declared nothing yet: neither present nor absent. */
+    public function testABackupNotYetCompletedIsNeitherPresentNorAbsent(): void
+    {
+        $id = $this->backups->create('full_no_gallery', null);
+        $backup = $this->backups->findById($id);
+        $this->assertNotNull($backup);
+
+        $this->assertSame(['archive' => null, 'dump' => null], $this->presence()->of($backup));
     }
 
     /**

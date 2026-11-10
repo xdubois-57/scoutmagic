@@ -500,6 +500,28 @@ class RestoreBackupRoundTripTest extends TestCase
         );
     }
 
+    /**
+     * The tasks are reset on the restored schema, before any migration: a
+     * backup older than `scheduled_actions.claimed_at` restores too.
+     */
+    public function testABackupOlderThanTheLatestSchedulerColumnRestores(): void
+    {
+        $this->pdo()->exec('ALTER TABLE scheduled_actions DROP COLUMN claimed_at');
+        $backupId = $this->takeServerBackup();
+        $this->pdo()->exec('ALTER TABLE scheduled_actions ADD COLUMN claimed_at DATETIME NULL');
+        $this->pdo()->exec(
+            "INSERT INTO scheduled_actions (module_id, task_key, run_at, status)
+             VALUES ('core', 'restore_backup', NOW(), 'processing')"
+        );
+        $runningId = (int) $this->pdo()->lastInsertId() + 50;
+        $this->pdo()->exec("UPDATE scheduled_actions SET id = {$runningId} WHERE task_key = 'restore_backup'");
+
+        $this->restore(['source' => 'server', 'backup_id' => $backupId, 'scheduled_action_id' => $runningId]);
+
+        $this->assertNotContains('backup_restore_rolled_back', $this->journalTypes());
+        $this->assertNotSame([], $this->resumePayload(), 'the restore went on to its migration');
+    }
+
     /** The incident that motivated the restore stays in the journal, before the restore's own lines. */
     public function testTheJournalKeepsTodaysLinesAndTheRestoresOwn(): void
     {
@@ -1054,10 +1076,11 @@ class RestoreBackupRoundTripTest extends TestCase
             $this->storagePath
         );
 
-        // That backup registered a dump but no file archive, so it cannot
-        // serve as a safety copy — and saying so is the point.
-        $this->assertNull($dump);
-        $this->assertNull($zip);
+        // Both files the row points at, resolved through its `files` rows.
+        $this->assertNotNull($dump);
+        $this->assertNotNull($zip);
+        $this->assertFileExists($dump);
+        $this->assertFileExists($zip);
     }
 
     /**
@@ -1347,10 +1370,21 @@ class RestoreBackupRoundTripTest extends TestCase
         $backups = new BackupRepository($this->pdo());
         $files = new FileRepository($this->pdo());
 
-        // A full backup's row with its dump alone: what these tests restore
-        // is the database. Not 'database', an export that is never
-        // restored onto this server since #847.
+        // A full backup's row with its dump and an archive in clear, as
+        // every completing path leaves one: a completed row without an
+        // archive has lost it and is refused (#847). Not 'database', an
+        // export that is never restored onto this server since #847.
+        $zip = $service->createFileBackup();
         $backupId = $backups->create('full_no_gallery', null);
+        $zipFileId = $files->create(
+            ltrim(substr($zip, strlen($this->storagePath)), '/'),
+            'sauvegarde.zip',
+            'application/zip',
+            (int) filesize($zip),
+            'admin',
+            null,
+            null
+        );
         $dumpFileId = $files->create(
             // Relative to the storage path, computed rather than guessed:
             // BackupService stages into storage/maintenance/, and a
@@ -1365,7 +1399,7 @@ class RestoreBackupRoundTripTest extends TestCase
             null,
             null
         );
-        $backups->markCompleted($backupId, null, $dumpFileId);
+        $backups->markCompleted($backupId, $zipFileId, $dumpFileId);
 
         return $backupId;
     }

@@ -2386,10 +2386,24 @@ class MaintenanceControllerTest extends TestCase
         $this->assertStringNotContainsString('data-backup-integrity', $body, 'the absence badge replaces the last check');
     }
 
-    /** A row without an archive is never « Archive absente ». */
-    public function testARowThatNeverHadAnArchiveIsNotMissingOne(): void
+    /**
+     * Every completed backup has an archive: one without its reference has
+     * lost it (ON DELETE SET NULL after an interrupted purge) and is
+     * « Archive absente », not offered for a restore. An export is not
+     * restored here whatever it holds, and is never flagged for this.
+     */
+    public function testACompletedRowThatLostItsArchiveReferenceIsMissingOne(): void
     {
-        $this->completedBackup('auto_backup', withArchive: false);
+        $id = $this->completedBackup('auto_backup', withArchive: false);
+
+        $body = $this->page('recentBackupsPage');
+        $this->assertStringContainsString('data-backup-missing>Archive absente</span>', $body);
+        $this->assertStringNotContainsString('<option value="' . $id . '"', $body);
+    }
+
+    public function testAnExportWithoutAnArchiveIsNotMissingOne(): void
+    {
+        $this->completedBackup('database', withArchive: false);
 
         $this->assertStringNotContainsString('data-backup-missing', $this->page('recentBackupsPage'));
     }
