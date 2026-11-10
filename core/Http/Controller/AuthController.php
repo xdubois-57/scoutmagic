@@ -256,8 +256,12 @@ class AuthController extends AbstractController
                 return $this->render('auth/verify.html.twig', ['valid' => false]);
             }
 
-            return $this->renderConfirmation($id, $token, $record->createdAt, 'Saisissez le code affiché sur '
-                . "l'écran où vous avez demandé la connexion.");
+            return $this->renderConfirmation(
+                $id,
+                $token,
+                $record->createdAt,
+                "Saisissez le code affiché sur l'écran où vous avez demandé la connexion."
+            );
         }
 
         try {
@@ -271,8 +275,13 @@ class AuthController extends AbstractController
                 return $this->render('auth/verify.html.twig', ['valid' => false]);
             }
 
-            return $this->renderConfirmation($id, $token, $record->createdAt, 'Ce code ne correspond pas. '
-                . "Vérifiez le code affiché sur l'écran où vous avez demandé la connexion.");
+            return $this->renderConfirmation(
+                $id,
+                $token,
+                $record->createdAt,
+                'Ce code ne correspond pas. Vérifiez le code affiché sur '
+                    . "l'écran où vous avez demandé la connexion."
+            );
         }
 
         if ($verified === null) {

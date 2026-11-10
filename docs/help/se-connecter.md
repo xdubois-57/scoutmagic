@@ -29,8 +29,8 @@ Aucun mot de passe à retenir.
    Sur un autre appareil ou navigateur, saisissez d'abord le code.
 
 « Connexion confirmée » : la fenêtre d'attente est connectée. « Lien
-invalide » : le lien a expiré ou a déjà servi (trois codes faux
-l'annulent), redemandez-en un.
+invalide » : le lien a expiré ou a déjà servi. « Lien annulé » : trois
+codes faux l'ont annulé. Dans les deux cas, redemandez-en un.
 
 Le lien est valable 15 minutes et ne sert qu'une fois. Rien reçu ?
 Vérifiez le dossier indésirable, puis « Renvoyer le lien ». Si votre
