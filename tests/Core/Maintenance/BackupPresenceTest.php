@@ -59,10 +59,10 @@ final class BackupPresenceTest extends TestCase
     public function testAFilesRowGoneIsAbsent(): void
     {
         $archive = $this->file('a.zip');
-        $backup = $this->backup($archive, null);
+        $backup = $this->backup($archive, $this->file('a.sql'));
         $this->files->delete($archive);
 
-        $this->assertSame(['archive' => false, 'dump' => null], $this->presence()->of($backup));
+        $this->assertSame(['archive' => false, 'dump' => true], $this->presence()->of($backup));
         $this->assertStringContainsString('son archive n\'est plus sur ce serveur', (string) $this->presence()->refusal($backup));
     }
 
@@ -72,6 +72,23 @@ final class BackupPresenceTest extends TestCase
 
         $this->assertSame(['archive' => null, 'dump' => true], $this->presence()->of($backup));
         $this->assertTrue($this->presence()->isComplete($backup));
+    }
+
+    /**
+     * A completed backup whose dump reference was cleared — its `files` row
+     * deleted by a purge interrupted before the `backups` row — has lost
+     * its dump: refused here, before any safety copy.
+     */
+    public function testACompletedBackupWithoutItsDumpReferenceHasLostIt(): void
+    {
+        $backup = $this->backup($this->file('a.zip'), null);
+
+        $this->assertSame(['archive' => true, 'dump' => false], $this->presence()->of($backup));
+        $this->assertFalse($this->presence()->isComplete($backup));
+        $this->assertStringContainsString(
+            'sa base de données n\'est plus sur ce serveur',
+            (string) $this->presence()->refusal($backup)
+        );
     }
 
     public function testBothGoneSaysTheFiles(): void

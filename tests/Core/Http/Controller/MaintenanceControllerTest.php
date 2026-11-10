@@ -2260,11 +2260,8 @@ class MaintenanceControllerTest extends TestCase
     /** And the picker does not offer one, so nobody meets that refusal. */
     public function testThePortableArchiveIsNotOfferedInTheRestorePicker(): void
     {
-        $backups = new \Core\Maintenance\BackupRepository($this->pdo);
-        $portableId = $backups->create(\Core\Maintenance\Backup::PORTABLE_TYPE, null);
-        $ordinaryId = $backups->create('full_no_gallery', null);
-        $stmt = $this->pdo->prepare("UPDATE backups SET status = 'completed' WHERE id IN (?, ?)");
-        $stmt->execute([$portableId, $ordinaryId]);
+        $portableId = $this->completedBackup(\Core\Maintenance\Backup::PORTABLE_TYPE);
+        $ordinaryId = $this->completedBackup('full_no_gallery');
 
         $body = $this->page('recentBackupsPage');
 
@@ -2450,17 +2447,17 @@ class MaintenanceControllerTest extends TestCase
     /** The question the page asks before following a download link. */
     public function testThePresenceRouteSaysWhatIsOnTheDisk(): void
     {
-        $id = $this->completedBackup('auto_backup', withDump: false);
+        $id = $this->completedBackup('auto_backup');
         $request = new Request('GET', '/config/maintenance/backup/' . $id . '/presence', [], [], [], []);
 
         $response = $this->controller->backupPresenceStatus($request, ['id' => (string) $id]);
-        $this->assertSame(['archive' => true, 'dump' => null], json_decode($response->getBody(), true));
+        $this->assertSame(['archive' => true, 'dump' => true], json_decode($response->getBody(), true));
         $this->assertSame('no-store', $response->getHeaders()['Cache-Control'] ?? null);
 
         $backup = $this->backupRepository->findById($id);
         unlink($this->storagePath . '/' . (new FileRepository($this->pdo))->findById((int) $backup?->fileId)?->relativePath);
         $response = $this->controller->backupPresenceStatus($request, ['id' => (string) $id]);
-        $this->assertSame(['archive' => false, 'dump' => null], json_decode($response->getBody(), true));
+        $this->assertSame(['archive' => false, 'dump' => true], json_decode($response->getBody(), true));
 
         $unknown = $this->controller->backupPresenceStatus($request, ['id' => '999999']);
         $this->assertSame(404, $unknown->getStatusCode());
@@ -2798,8 +2795,11 @@ class MaintenanceControllerTest extends TestCase
         $zip->setEncryptionName('storage/config/settings.json', \ZipArchive::EM_AES_256, 'choisi-avant-it03');
         $zip->close();
         $fileId = (new FileRepository($this->pdo))->create('backups/ancienne.zip', 'ancienne.zip', 'application/zip', 1, 'superadmin', null, null);
+        file_put_contents($this->storagePath . '/backups/ancienne.sql', '-- dump');
+        $dumpId = (new FileRepository($this->pdo))
+            ->create('backups/ancienne.sql', 'ancienne.sql', 'application/sql', 7, 'superadmin', null, null);
         $backupId = $this->backupRepository->create('full_config', 1);
-        $this->backupRepository->markCompleted($backupId, $fileId, null);
+        $this->backupRepository->markCompleted($backupId, $fileId, $dumpId);
 
         $wrong = $this->controller->restoreBackup($this->restoreJsonRequest($this->csrfToken(), [
             'source' => 'server', 'backup_id' => (string) $backupId, 'password' => 'un-autre',

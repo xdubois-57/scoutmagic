@@ -226,8 +226,16 @@ class RestoreBackupHandlerTest extends TestCase
     /** An ordinary backup is not caught by that guard. */
     public function testAnOrdinaryBackupStillReachesTheSafetyBackupStep(): void
     {
-        $backupId = (new \Core\Maintenance\BackupRepository($this->pdo))->create('full_no_gallery', $this->userId);
-        $this->pdo->prepare("UPDATE backups SET status = 'completed' WHERE id = ?")->execute([$backupId]);
+        // A backup as every completing path leaves one: both files on disk.
+        @mkdir($this->storagePath . '/maintenance', 0755, true);
+        file_put_contents($this->storagePath . '/maintenance/b.zip', 'PK');
+        file_put_contents($this->storagePath . '/maintenance/b.sql', '-- dump');
+        $files = new \Core\File\FileRepository($this->pdo);
+        $archive = $files->create('maintenance/b.zip', 'b.zip', 'application/zip', 2, 'superadmin', null, null);
+        $dump = $files->create('maintenance/b.sql', 'b.sql', 'application/sql', 7, 'superadmin', null, null);
+        $backups = new \Core\Maintenance\BackupRepository($this->pdo);
+        $backupId = $backups->create('full_no_gallery', $this->userId);
+        $backups->markCompleted($backupId, $archive, $dump);
 
         $this->handler->handle(['source' => 'server', 'backup_id' => $backupId], $this->context);
 

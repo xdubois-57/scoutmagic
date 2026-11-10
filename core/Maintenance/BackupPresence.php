@@ -52,13 +52,26 @@ final class BackupPresence
      * Each declared component, present or not; null for one the backup does
      * not have — a row without an archive is never « Archive absente ».
      *
+     * **A completed backup always has a dump**: every path that completes
+     * one registers it. A completed row without one has lost it — its
+     * `files` row was deleted and `ON DELETE SET NULL` cleared the
+     * reference, by a purge interrupted between the two — and is « gone »,
+     * not « never had one », or a restore of it would only be refused after
+     * the safety copy.
+     *
      * @return array{archive: ?bool, dump: ?bool}
      */
     public function of(Backup $backup): array
     {
+        $dump = match (true) {
+            $backup->dbDumpFileId !== null => $this->isPresent($backup->dbDumpFileId),
+            $backup->status === 'completed' => false,
+            default => null,
+        };
+
         return [
             'archive' => $backup->fileId !== null ? $this->isPresent($backup->fileId) : null,
-            'dump' => $backup->dbDumpFileId !== null ? $this->isPresent($backup->dbDumpFileId) : null,
+            'dump' => $dump,
         ];
     }
 
