@@ -87,6 +87,21 @@ class MemberMergeRepository
     }
 
     /**
+     * Whether the member's row was already merged into another identity —
+     * a row nobody sees any more, which can be neither kept nor merged
+     * again (issue #914).
+     */
+    public function isMerged(int $memberId): bool
+    {
+        $stmt = $this->pdo->prepare('SELECT merged_into_member_id FROM members WHERE id = ?');
+        $stmt->execute([$memberId]);
+
+        $value = $stmt->fetchColumn();
+
+        return $value !== false && $value !== null;
+    }
+
+    /**
      * How many scout years both identities have a row in.
      */
     public function sharedScoutYears(int $memberIdA, int $memberIdB): int
@@ -128,6 +143,19 @@ class MemberMergeRepository
                 'UPDATE members SET merged_into_member_id = ?, merged_at = ? WHERE id = ?'
             );
             $stmt->execute([$keptMemberId, date('Y-m-d H:i:s'), $duplicateMemberId]);
+
+            // A merge chain stays one hop long (issue #914). When A was
+            // merged into B and B is now merged into C, A points at C too:
+            // every reader that resolves a merged identity — finance's
+            // MemberLookupRepository, the registration siblings — follows
+            // one hop, and a reference to A must not land on B, itself a
+            // merged row. The Desk codes B had collected as aliases follow
+            // for the same reason: the next import carrying A's old code
+            // must reach C, not a row nobody sees any more.
+            $stmt = $this->pdo->prepare('UPDATE members SET merged_into_member_id = ? WHERE merged_into_member_id = ?');
+            $stmt->execute([$keptMemberId, $duplicateMemberId]);
+            $stmt = $this->pdo->prepare('UPDATE member_desk_id_aliases SET member_id = ? WHERE member_id = ?');
+            $stmt->execute([$keptMemberId, $duplicateMemberId]);
 
             // INSERT OR IGNORE semantics by hand: the same alias arriving
             // twice is not an error.

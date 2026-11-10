@@ -182,14 +182,16 @@ class RegistrationRequestRepositoryOnMysqlTest extends TestCase
         $reEnrolled = $this->member('NEXT', [$this->yearId => false, $targetYearId => true]);
         $left = $this->member('LEFT', [$this->previousYearId => true, $this->yearId => false]);
         $merged = $this->member('MERGED', []);
-        $this->pdo->prepare('UPDATE members SET merged_into_member_id = ? WHERE id = ?')
-            ->execute([$this->member('KEPT', [$this->yearId => true]), $merged]);
+        $kept = $this->member('KEPT', [$this->yearId => true]);
+        $this->pdo->prepare('UPDATE members SET merged_into_member_id = ? WHERE id = ?')->execute([$kept, $merged]);
 
         $forTarget = $this->create($targetYearId, 'Léa', [$bothYears, $reEnrolled, $left, $merged]);
         $inYear = $this->create($this->yearId, 'Noa', [$reEnrolled, $left]);
 
         $this->assertSame(
-            [$forTarget => [$bothYears, $reEnrolled, $merged]],
+            // The merged sibling is answered under the identity it was
+            // folded into (issue #914), never under the merged row.
+            [$forTarget => [$bothYears, $reEnrolled, $kept]],
             $this->repository->findPresentSiblingMemberIdsForRequests([$forTarget, $inYear], $this->yearId)
         );
         // The screens that show siblings still read all four.

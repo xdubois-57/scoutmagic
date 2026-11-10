@@ -88,6 +88,71 @@ class MemberMergeServiceTest extends TestCase
         $this->assertSame($kept, $found['id']);
     }
 
+    /**
+     * A merged into B, then B into C (issue #914): every reader that
+     * resolves a merged identity follows one hop, so the chain must not be
+     * two hops long. A points at C, and A's old Desk code — an alias B had
+     * collected — reaches C on the next import, never B, a row nobody sees.
+     */
+    public function testASecondMergeKeepsTheChainOneHopLongAndCarriesTheAliasesAlong(): void
+    {
+        $this->pdo->exec(
+            "INSERT INTO scout_years (label, start_date, end_date, is_current)
+             VALUES ('2023-2024', '2023-09-01', '2024-08-31', 0)"
+        );
+        $olderYear = (int) $this->pdo->lastInsertId();
+
+        $a = $this->createMember('T100', $this->lastYear);
+        $b = $this->createMember('T200', $this->thisYear);
+        $c = $this->createMember('T300', $olderYear);
+
+        $this->service->merge($b, $a, 1);
+        $this->service->merge($c, $b, 1);
+
+        $stmt = $this->pdo->prepare('SELECT id, merged_into_member_id FROM members WHERE id IN (?, ?, ?)');
+        $stmt->execute([$a, $b, $c]);
+        $mergedInto = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $target = $row['merged_into_member_id'];
+            $mergedInto[(int) $row['id']] = $target === null ? null : (int) $target;
+        }
+        ksort($mergedInto);
+        $expected = [$a => $c, $b => $c, $c => null];
+        ksort($expected);
+        $this->assertSame($expected, $mergedInto, 'A points at C, not at B, itself merged');
+
+        $members = new MemberRepository($this->pdo);
+        $this->assertSame($c, $members->findByDeskId('T100')['id'] ?? null, "A's old code reaches C");
+        $this->assertSame($c, $members->findByDeskId('T200')['id'] ?? null, "B's old code reaches C");
+        $this->assertSame(3, $this->countRows('member_years', 'member_id', $c));
+    }
+
+    /**
+     * A row already merged away can be neither kept nor merged again: C
+     * merged into D, then « B into C » would leave B pointing at C, a
+     * merged row, and rebuild the chain the merge keeps one hop long.
+     */
+    public function testARowAlreadyMergedAwayIsNeitherKeptNorMergedAgain(): void
+    {
+        $b = $this->createMember('T200', $this->lastYear);
+        $c = $this->createMember('T300', $this->thisYear);
+        $d = $this->createMember('T400', $this->lastYear);
+        $this->service->merge($d, $c, 1);
+
+        foreach ([[$c, $b], [$b, $c]] as [$kept, $duplicate]) {
+            try {
+                $this->service->merge($kept, $duplicate, 1);
+                $this->fail('A merged row must be refused on either side.');
+            } catch (MergeException $e) {
+                $this->assertStringContainsString('déjà été fusionnée', $e->getMessage());
+            }
+        }
+        $this->assertSame(1, $this->countRows('member_years', 'member_id', $b), 'nothing moved');
+        $this->assertSame(0, (int) $this->pdo->query(
+            "SELECT COUNT(*) FROM members WHERE desk_id = 'T200' AND merged_into_member_id IS NOT NULL"
+        )->fetchColumn());
+    }
+
     public function testAnImportCarryingTheOldCodeCreatesNothingNew(): void
     {
         $kept = $this->createMember('T001', $this->lastYear);
