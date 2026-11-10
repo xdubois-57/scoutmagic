@@ -36,7 +36,7 @@ class OnCallService
      *     states: array<string, array<int, string>>
      * }
      */
-    public function getMonthGrid(int $year, int $month): array
+    public function getMonthGrid(int $year, int $month, ?\DateTimeImmutable $at = null): array
     {
         $firstOfMonth = DateInput::firstOfMonth($year, $month);
         $lastOfMonth = $firstOfMonth->modify('last day of this month');
@@ -48,7 +48,7 @@ class OnCallService
         }
 
         $dayNames = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
-        $today = (new \DateTimeImmutable())->format('Y-m-d');
+        $today = ($at ?? new \DateTimeImmutable())->format('Y-m-d');
 
         $days = [];
         $cursor = $firstOfMonth;

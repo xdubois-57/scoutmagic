@@ -956,6 +956,94 @@ class SosAdminControllerTest extends TestCase
         $this->assertStringNotContainsString('SOS Staff', $response->getBody());
     }
 
+    #[\PHPUnit\Framework\Attributes\DataProvider('clockMonthRequests')]
+    public function testTheClockControlsThePlanningMonthAndToday(array $query, array $expected): void
+    {
+        $this->now = new \DateTimeImmutable('2001-02-03 12:00:00');
+        $dom = \Dom\HTMLDocument::createFromString($this->planning($query), LIBXML_NOERROR | \Dom\HTML_NO_DEFAULT_NS);
+        $xpath = new \Dom\XPath($dom);
+        $data = json_decode($xpath->evaluate('string(//*[@id="sos-admin-data"])'), true);
+        $mobileToday = [];
+        foreach ($xpath->query('//*[@id="sos-day-list"]/tbody/tr[contains(@class,"table-warning")]') as $row) {
+            $mobileToday[] = $row->getAttribute('data-date');
+        }
+        $desktopToday = [];
+        foreach ($xpath->query('//table[@class="sos-grid"]/tbody/tr[contains(@class,"is-today")]/td[1]') as $cell) {
+            $desktopToday[] = trim($cell->textContent);
+        }
+
+        self::assertSame($expected, [
+            $data['monthParam'], $xpath->evaluate('string(//*[@id="sos-day-list"]/tbody/tr[1]/@data-date)'),
+            $mobileToday, $desktopToday,
+        ]);
+    }
+
+    /** @return iterable<string, array{array<string, string>, array{string, string, list<string>, list<string>}}> */
+    public static function clockMonthRequests(): iterable
+    {
+        $current = ['2001-02', '2001-02-03', ['2001-02-03'], ['Sam 3']];
+        yield 'missing month' => [[], $current];
+        yield 'invalid month' => [['month' => '2001-13'], $current];
+        yield 'explicit month' => [['month' => '2001-03'], ['2001-03', '2001-03-01', [], []]];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('clockChangeoverTimes')]
+    public function testTheClockControlsTheExpectedDestination(string $time, string $expectedNumber): void
+    {
+        $this->now = new \DateTimeImmutable('2001-02-03 ' . $time);
+        $before = $this->createStaffduMember('Akela', '+32470000011');
+        $after = $this->createStaffduMember('Baloo', '+32470000012');
+        $default = $this->createStaffduMember('Chil', '+32470000013');
+        $this->settingsService->setDefaultNumberFromMember($default);
+        $this->forwarding = new \Modules\SosStaff\Api\ForwardingState(true, '+32470000013');
+        $this->onCallRepository->replaceRange('2001-02-01', '2001-02-28', [
+            new OnCallAssignment($before, '2001-02-02', OnCallAssignment::STATE_ONCALL),
+            new OnCallAssignment($after, '2001-02-03', OnCallAssignment::STATE_ONCALL),
+        ]);
+        $dom = \Dom\HTMLDocument::createFromString($this->dashboard(), LIBXML_NOERROR | \Dom\HTML_NO_DEFAULT_NS);
+        $xpath = new \Dom\XPath($dom);
+        preg_match('/\+32\d+/', $xpath->evaluate('string(//*[@id="sos-redirect-expected"]/strong)'), $number);
+
+        self::assertSame([$expectedNumber, 'resync'], [
+            $number[0] ?? null, $xpath->evaluate('string(//*[@id="sos-redirect-sync"]/@data-redirect-action)'),
+        ]);
+    }
+
+    /** @return iterable<string, array{string, string}> */
+    public static function clockChangeoverTimes(): iterable
+    {
+        yield 'before changeover' => ['09:59:59', '+32470000011'];
+        yield 'at changeover' => ['10:00:00', '+32470000012'];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('clockDutyStates')]
+    public function testTheClockControlsTheDefaultWarningAndImmediateApplication(bool $onDuty): void
+    {
+        $this->now = new \DateTimeImmutable('2001-02-03 12:00:00');
+        $member = $this->createStaffduMember('Akela', '+32470000021');
+        // The real day deliberately has the opposite duty state.
+        $date = $onDuty ? $this->now->format('Y-m-d') : (new \DateTimeImmutable())->format('Y-m-d');
+        $this->onCallRepository->replaceRange($date, $date, [
+            new OnCallAssignment($member, $date, OnCallAssignment::STATE_ONCALL),
+        ]);
+        $body = $this->settingsPage();
+        $response = $this->controller->updateDefaultNumber(
+            $this->jsonRequest(['member_id' => $member, '_csrf_token' => $this->csrfToken()]), []
+        );
+
+        self::assertSame([!$onDuty, $onDuty ? [] : [[null, null, $this->scoutYearId]], true], [
+            str_contains($body, 'id="default-number-immediate-warning"'), $this->applyCalls,
+            json_decode($response->getBody(), true)['success'],
+        ]);
+    }
+
+    /** @return iterable<string, array{bool}> */
+    public static function clockDutyStates(): iterable
+    {
+        yield 'on duty' => [true];
+        yield 'default number' => [false];
+    }
+
     public function testDashboardAndAjaxShowTheNextHandoverFirst(): void
     {
         $this->now = new \DateTimeImmutable('2026-11-09 12:00:00');

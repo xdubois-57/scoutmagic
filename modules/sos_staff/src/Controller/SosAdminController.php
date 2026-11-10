@@ -128,7 +128,8 @@ class SosAdminController extends AbstractController
         $orderedStaffMemberIds = array_column($staffOptions, 'member_id');
 
         [$year, $month] = $this->resolveRequestedMonth($request->getQuery('month'));
-        $grid = $this->onCallService->getMonthGrid($year, $month);
+        $now = $this->currentTime();
+        $grid = $this->onCallService->getMonthGrid($year, $month, $now);
 
         $prevMonth = $month === 1 ? 12 : $month - 1;
         $prevYear = $month === 1 ? $year - 1 : $year;
@@ -138,7 +139,7 @@ class SosAdminController extends AbstractController
         $sectionActivity = $this->buildSectionActivity($year, $month, $role);
         $defaultMemberId = $this->settingsService->resolveDefaultNumberMemberId($effectiveYear->id);
 
-        $today = (new \DateTimeImmutable())->format('Y-m-d');
+        $today = $now->format('Y-m-d');
 
         return $this->render('@sos_staff/planning.html.twig', [
             'sos_page' => self::PAGE_PLANNING,
@@ -184,7 +185,7 @@ class SosAdminController extends AbstractController
 
         $staffOptions = $this->settingsService->getStaffOptions($effectiveYear->id);
         $orderedStaffMemberIds = array_column($staffOptions, 'member_id');
-        $today = (new \DateTimeImmutable())->format('Y-m-d');
+        $today = $this->currentTime()->format('Y-m-d');
 
         return $this->render('@sos_staff/settings.html.twig', [
             'sos_page' => self::PAGE_SETTINGS,
@@ -340,7 +341,7 @@ class SosAdminController extends AbstractController
 
         $staffOptions = $this->settingsService->getStaffOptions($scoutYearId);
         $expectedMemberId = $this->onCallService->resolveExpectedTargetAt(
-            new \DateTimeImmutable(),
+            $this->currentTime(),
             array_column($staffOptions, 'member_id')
         )['member_id'];
         $expectedNumber = $this->redirectService->resolveNumber($expectedMemberId, $scoutYearId);
@@ -931,7 +932,7 @@ class SosAdminController extends AbstractController
         $staffOptions = $this->settingsService->getStaffOptions($effectiveYear->id);
         $orderedStaffMemberIds = array_column($staffOptions, 'member_id');
 
-        $today = (new \DateTimeImmutable())->format('Y-m-d');
+        $today = $this->currentTime()->format('Y-m-d');
         $todayTarget = $this->onCallService->resolveTargetForDate($today, $orderedStaffMemberIds);
 
         if ($todayTarget === null) {
@@ -978,7 +979,8 @@ class SosAdminController extends AbstractController
                 return [$year, $month];
             }
         }
-        return [(int) date('Y'), (int) date('n')];
+        $now = $this->currentTime();
+        return [(int) $now->format('Y'), (int) $now->format('n')];
     }
 
     private function monthLabel(int $year, int $month): string

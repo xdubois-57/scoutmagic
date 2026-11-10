@@ -205,7 +205,9 @@ class RedirectService
             $accountIds = $this->memberAccounts->accountIdsForMember($profile->memberId);
             if ($accountIds === []) {
                 $this->journalService->log(
-                    'sos_staff', 'notification_skipped', 'info',
+                    'sos_staff',
+                    'notification_skipped',
+                    'info',
                     'Notification de changement de garde non créée : aucun compte lié.',
                     ['member_id' => $profile->memberId, 'type_id' => $typeId, 'reason' => 'no_account']
                 );
