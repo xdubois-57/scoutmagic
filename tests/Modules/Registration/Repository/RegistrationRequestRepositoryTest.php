@@ -219,8 +219,8 @@ class RegistrationRequestRepositoryTest extends TestCase
         // Merged since into an identity enrolled this year: the merge moved
         // the member_years, not the link the family declared.
         $merged = $this->enrolledMember([]);
-        $this->pdo->prepare('UPDATE members SET merged_into_member_id = ? WHERE id = ?')
-            ->execute([$this->enrolledMember([$currentYearId => true]), $merged]);
+        $kept = $this->enrolledMember([$currentYearId => true]);
+        $this->pdo->prepare('UPDATE members SET merged_into_member_id = ? WHERE id = ?')->execute([$kept, $merged]);
 
         $declared = [$bothYears, $thisYear, $reEnrolled, $left, $lastYearOnly, $neverEnrolled, $leaving, $merged];
         $forTarget = $this->repository->create($targetYearId, $this->sampleFields(), null, $declared)['id'];
@@ -237,20 +237,67 @@ class RegistrationRequestRepositoryTest extends TestCase
             $currentYearId
         );
 
-        $expected = [$bothYears, $thisYear, $reEnrolled, $leaving, $merged];
+        // The merged sibling is answered under the identity it was folded
+        // into (issue #914): the merged row has no name for any screen.
+        $expected = [$bothYears, $thisYear, $reEnrolled, $leaving, $kept];
         sort($expected);
         $this->assertSame([$forTarget => $expected], $present);
         $this->assertSame([], $this->repository->findPresentSiblingMemberIdsForRequests([], $currentYearId));
 
         // What the Passage page, the fiche and the export read: every
-        // declared sibling, whoever has left since.
+        // declared sibling, whoever has left since — the merged one under
+        // its kept identity.
         $allDeclared = $this->repository->findSiblingMemberIdsForRequests([$forTarget, $inYear]);
         sort($allDeclared[$forTarget]);
+        $declared = array_map(static fn(int $id): int => $id === $merged ? $kept : $id, $declared);
         sort($declared);
         $this->assertSame($declared, $allDeclared[$forTarget]);
         $this->assertCount(2, $allDeclared[$inYear]);
         $this->assertSame([$forTarget => 8], $this->repository->countSiblingsForRequests([$forTarget]));
         $this->assertCount(8, $this->repository->findSiblingMemberIds($forTarget));
+    }
+
+    /**
+     * A sibling declared at filing, merged twice since — A into B, then B
+     * into C — through the real core merge (issue #914). The screens show
+     * C, the identity that has a name, not « Membre #A »; finance's
+     * one-hop resolution reaches C too, and a request declaring both A and
+     * C has one sibling, not two.
+     */
+    public function testASiblingMergedTwiceSinceFilingIsReadUnderTheIdentityKept(): void
+    {
+        $pastYearId = RegistrationTestHelper::insertScoutYear($this->pdo, '2025-2026', '2025-09-01', '2026-08-31');
+        $olderYearId = RegistrationTestHelper::insertScoutYear($this->pdo, '2024-2025', '2024-09-01', '2025-08-31');
+        $a = $this->enrolledMember([$this->scoutYearId => true]);
+        $b = $this->enrolledMember([$pastYearId => true]);
+        $c = $this->enrolledMember([$olderYearId => true]);
+        $other = $this->enrolledMember([$this->scoutYearId => true]);
+
+        $onlyA = $this->repository->create($this->scoutYearId, $this->sampleFields(), null, [$a, $other])['id'];
+        $aAndC = $this->repository->create($this->scoutYearId, $this->sampleFields(), null, [$a, $c])['id'];
+
+        $merge = new \Core\Member\Duplicate\MemberMergeRepository(
+            $this->pdo,
+            new \Core\Member\Duplicate\DuplicateMemberRepository($this->pdo, $this->encryption)
+        );
+        $merge->mergeInto($b, $a, 'DESK-A', null, null);
+        $merge->mergeInto($c, $b, 'DESK-B', null, null);
+
+        $expected = [$c, $other];
+        sort($expected);
+        $siblings = $this->repository->findSiblingMemberIds($onlyA);
+        sort($siblings);
+        $this->assertSame($expected, $siblings);
+        $this->assertSame([$c], $this->repository->findSiblingMemberIds($aAndC));
+        $this->assertSame([$onlyA => 2, $aAndC => 1], $this->repository->countSiblingsForRequests([$onlyA, $aAndC]));
+        $this->assertSame(
+            [$aAndC => [$c]],
+            $this->repository->findPresentSiblingMemberIdsForRequests([$aAndC], $this->scoutYearId)
+        );
+        $this->assertSame(
+            [$a => $c],
+            (new \Modules\Finance\Repository\MemberLookupRepository($this->pdo))->resolveIds([$a])
+        );
     }
 
     /**

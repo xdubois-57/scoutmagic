@@ -32,6 +32,13 @@ class RegistrationRequestRepository
     private const CTX_TRACKING_TOKEN = 'registration_requests.tracking_token';
 
     /**
+     * A declared sibling, under the identity it was merged into when it
+     * was (issue #914) — over `registration_request_siblings s` joined to
+     * `members m` on `s.member_id`.
+     */
+    private const RESOLVED_SIBLING = 'COALESCE(m.merged_into_member_id, s.member_id)';
+
+    /**
      * A `password_hash()` of a random value no request holds, made once per
      * process on first use rather than written in the code: a hash literal
      * is a credential-shaped string for every scanner, and this one would
@@ -691,6 +698,14 @@ class RegistrationRequestRepository
      * per-request lookup below issued one query per row of the Passage page
      * and of the management list.
      *
+     * A sibling whose `members` row was merged since the request was filed
+     * is answered under the identity it was merged into (issue #914): the
+     * core merge moves the member's history, not this module's links, and
+     * a merged row has no name to show — the fiche and the Passage page
+     * printed « Membre #id » for it. One hop is enough: the merge keeps its
+     * chains one hop long (MemberMergeRepository::mergeInto()). Two declared
+     * siblings that turn out to be one person are answered once.
+     *
      * @param array<int> $requestIds
      * @return array<int, array<int>> request id => member ids (requests with
      *         no declared sibling are simply absent)
@@ -704,17 +719,15 @@ class RegistrationRequestRepository
 
         $placeholders = implode(',', array_fill(0, count($requestIds), '?'));
         $stmt = $this->pdo->prepare(
-            "SELECT registration_request_id, member_id FROM registration_request_siblings
-             WHERE registration_request_id IN ({$placeholders})"
+            "SELECT s.registration_request_id, " . self::RESOLVED_SIBLING . " AS member_id
+             FROM registration_request_siblings s
+             LEFT JOIN members m ON m.id = s.member_id
+             WHERE s.registration_request_id IN ({$placeholders})
+             ORDER BY s.registration_request_id, s.member_id"
         );
         $stmt->execute($requestIds);
 
-        $result = [];
-        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
-            $result[(int) $row['registration_request_id']][] = (int) $row['member_id'];
-        }
-
-        return $result;
+        return self::groupSiblings($stmt->fetchAll(\PDO::FETCH_ASSOC));
     }
 
     /**
@@ -731,12 +744,13 @@ class RegistrationRequestRepository
      * still counts. A sibling whose `members` row was merged into another
      * identity since (Core\Member\Duplicate\MemberMergeService moves the
      * member_years, not this module's links) is looked up under the
-     * identity it was merged into — one hop, like finance's
-     * MemberLookupRepository::resolveIds().
+     * identity it was merged into, and answered under it — one hop, like
+     * finance's MemberLookupRepository::resolveIds(), which the merge keeps
+     * sufficient by never leaving a chain (issue #914).
      *
      * The recommendation is its only reader. Every screen that SHOWS the
      * siblings — the Passage page, the fiche, the list and its export —
-     * keeps reading the declared ones (findSiblingMemberIdsForRequests(),
+     * keeps reading the declared ones, merged ones resolved the same way (findSiblingMemberIdsForRequests(),
      * findSiblingMemberIds(), countSiblingsForRequests()): what the family
      * declared at submission stays a fact of the request.
      *
@@ -753,7 +767,7 @@ class RegistrationRequestRepository
 
         $placeholders = implode(',', array_fill(0, count($requestIds), '?'));
         $stmt = $this->pdo->prepare(
-            "SELECT s.registration_request_id, s.member_id
+            "SELECT s.registration_request_id, " . self::RESOLVED_SIBLING . " AS member_id
              FROM registration_request_siblings s
              JOIN registration_requests r ON r.id = s.registration_request_id
              JOIN members m ON m.id = s.member_id
@@ -764,13 +778,29 @@ class RegistrationRequestRepository
                      AND my.is_active = 1
                      AND my.scout_year_id IN (?, r.scout_year_id)
                )
-             ORDER BY s.registration_request_id, s.member_id"
+             ORDER BY s.registration_request_id, member_id"
         );
         $stmt->execute(array_merge($requestIds, [$currentScoutYearId]));
 
+        return self::groupSiblings($stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
+    /**
+     * Rows of (request id, member id) grouped by request, each member once
+     * — two declared siblings merged into one identity are one sibling.
+     *
+     * @param array<int, array<string, mixed>> $rows
+     * @return array<int, array<int>>
+     */
+    private static function groupSiblings(array $rows): array
+    {
         $result = [];
-        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
-            $result[(int) $row['registration_request_id']][] = (int) $row['member_id'];
+        foreach ($rows as $row) {
+            $requestId = (int) $row['registration_request_id'];
+            $memberId = (int) $row['member_id'];
+            if (!in_array($memberId, $result[$requestId] ?? [], true)) {
+                $result[$requestId][] = $memberId;
+            }
         }
 
         return $result;
@@ -789,15 +819,12 @@ class RegistrationRequestRepository
     }
 
     /**
-     * @return array<int> member ids declared as siblings on this request
+     * @return array<int> member ids declared as siblings on this request,
+     *         a merged one under the identity it was merged into
      */
     public function findSiblingMemberIds(int $requestId): array
     {
-        $stmt = $this->pdo->prepare('SELECT member_id FROM registration_request_siblings WHERE '
-            . 'registration_request_id = ?');
-        $stmt->execute([$requestId]);
-
-        return array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN));
+        return $this->findSiblingMemberIdsForRequests([$requestId])[$requestId] ?? [];
     }
 
     /**

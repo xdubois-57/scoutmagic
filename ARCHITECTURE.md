@@ -3831,7 +3831,9 @@ Somebody leaves, comes back a year later, and is created as a **new person** in 
 
 **One refusal worth knowing about**: two identities present in the same scout year cannot be merged. Desk considers them two people (one `desk_id` per person per export), and the merge would collide head-on with `member_years`' (member, year) unique index. Refused before anything moves, with a French sentence, rather than half-applied.
 
-Only **core** tables are repointed. A module holding its own `members.id` reference is not, and must not be — core does not know those tables exist, and reaching into them would be the §7.4 inversion. What a module gets instead is the alias: a later import resolves the old Desk id to the kept member, so nothing new accumulates on the abandoned identity.
+**A merge chain stays one hop long** (issue #914). Merging A into B, then B into C, also points A at C and moves the Desk codes B had collected as aliases onto C, inside the same transaction. Every reader that resolves a merged identity follows exactly one hop — finance's `MemberLookupRepository::resolveIds()`, mass mail's, the registration siblings — so a reference to A lands on C, the identity that still has a name, and the next import carrying A's old code reaches C rather than a merged row.
+
+Only **core** tables are repointed. A module holding its own `members.id` reference is not, and must not be — core does not know those tables exist, and reaching into them would be the §7.4 inversion. What a module gets instead is the alias, so nothing new accumulates on the abandoned identity, and the one hop above: a module that reads its own references resolves `merged_into_member_id` itself. `registration_request_siblings` is read that way (`RegistrationRequestRepository`, `COALESCE(m.merged_into_member_id, s.member_id)`), so the fiche and the Passage page name a sibling merged since the request was filed instead of printing « Membre #id », and two declared siblings who turn out to be one person count once.
 
 ### 8.81 Who paid what, written down (`Modules\Finance\Service\ReceivableAllocationService`)
 
