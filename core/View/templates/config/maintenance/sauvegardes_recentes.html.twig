@@ -96,20 +96,23 @@
                     <div class="mb-2" id="restore-server-picker">
                         <label class="visually-hidden" for="restore-backup-id">Sauvegarde à restaurer</label>
                         {# Counted on what the list below can offer, not on
-                           the list as a whole: pending, failed and portable
-                           rows are shown above but never restorable here. #}
-                        {% set restorable = backups|filter(b => b.status == 'completed' and not b.isPortable) %}
+                           the list as a whole: pending, failed, portable and
+                           export rows, and those whose files are gone (#847),
+                           are shown above but never restorable here. #}
+                        {% set restorable = backups|filter(b => b.canRestore) %}
                         <select class="form-select form-select-sm" name="backup_id" id="restore-backup-id" {% if restorable is empty %}disabled{% endif %}>
-                            {# `not backup.isPortable`: a portable archive is for starting
-                               over on a NEW installation, not for
-                               overwriting this one. Offering it here
-                               would lead to a destructive restore
-                               followed by a rollback, for an operation
-                               that cannot succeed — the controller
-                               refuses it too, and it is what counts;
-                               this only spares finding that out. #}
+                            {# `canRestore` (MaintenanceController::backupList()):
+                               a portable archive is for starting over on a
+                               NEW installation, an export holds no files,
+                               and a backup whose archive or dump is gone
+                               cannot finish. Offering any of them would
+                               lead to a refusal or to a destructive restore
+                               followed by a rollback — the controller and
+                               the handler refuse them too, and they are
+                               what counts; this only spares finding that
+                               out. #}
                             {% for backup in backups %}
-                                {% if backup.status == 'completed' and not backup.isPortable %}
+                                {% if backup.canRestore %}
                                     <option value="{{ backup.id }}"{% if backup.needsTypedPassword %} data-needs-password="1"{% endif %}>{{ backup.typeLabel }} — {{ backup.createdAt }}</option>
                                 {% endif %}
                             {% endfor %}

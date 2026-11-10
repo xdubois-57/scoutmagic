@@ -18,6 +18,7 @@ use Core\File\FileRepository;
 use Core\Maintenance\Backup;
 use Core\Maintenance\BackupException;
 use Core\Maintenance\BackupPasswords;
+use Core\Maintenance\BackupPresence;
 use Core\Maintenance\BackupRepository;
 use Core\Maintenance\BackupService;
 use Core\Maintenance\Portable\PortableArchive;
@@ -145,6 +146,32 @@ class RestoreBackupHandler implements TaskHandlerInterface
                 'Restauration impossible',
                 'Une sauvegarde portable sert à repartir sur une installation neuve, à qui vous la téléversez '
                 . 'avec sa phrase de passe. Rien n\'a été modifié.'
+            );
+
+            return;
+        }
+
+        // **Also before the safety backup** (#847): an export holds no
+        // files, and a backup whose archive or dump left the disk since it
+        // was asked for cannot finish. The form refused both already; this
+        // is for what changed between the request and this run.
+        $refusal = $this->serverBackupRefusal($payload, $backupRepository, $fileRepository, $context->storagePath);
+        if ($refusal !== null) {
+            [$reason, $sentence] = $refusal;
+            $context->journal->log(
+                'core',
+                'backup_restore_refused',
+                'warning',
+                'Restauration refusée : la sauvegarde ne peut pas être restaurée sur ce serveur',
+                ['backup_id' => (int) ($payload['backup_id'] ?? 0), 'reason' => $reason],
+                $requestedBy
+            );
+            RequesterNotice::sendAboutRestore(
+                $context,
+                $requestedBy,
+                self::TYPE_FAILED,
+                'Restauration impossible',
+                $sentence
             );
 
             return;
@@ -758,6 +785,35 @@ class RestoreBackupHandler implements TaskHandlerInterface
     }
 
     /**
+     * Why a backup of this server cannot be restored, as `[reason, sentence]`
+     * — `export_only` or `files_missing` — or null. Upload restores are not
+     * concerned: their archive is the file just received.
+     *
+     * @param array<string, mixed> $payload
+     * @return array{0: string, 1: string}|null
+     */
+    private function serverBackupRefusal(
+        array $payload,
+        BackupRepository $backupRepository,
+        FileRepository $fileRepository,
+        string $storagePath
+    ): ?array {
+        if (($payload['source'] ?? 'server') !== 'server' || !isset($payload['backup_id'])) {
+            return null;
+        }
+        $backup = $backupRepository->findById((int) $payload['backup_id']);
+        if ($backup === null) {
+            return null;
+        }
+        if ($backup->type === Backup::EXPORT_TYPE) {
+            return ['export_only', BackupPresence::EXPORT_REFUSAL];
+        }
+        $sentence = (new BackupPresence($fileRepository, $storagePath))->refusal($backup);
+
+        return $sentence === null ? null : ['files_missing', $sentence];
+    }
+
+    /**
      * Whether this payload names a portable archive.
      *
      * Only a `server` source can be one: an uploaded file has no
@@ -1217,11 +1273,17 @@ class RestoreBackupHandler implements TaskHandlerInterface
         }
         $dbDumpPath = $storagePath . '/' . $dbDumpFile->relativePath;
 
+        // An archive the backup declares and that cannot be found is
+        // refused, never skipped (#847): restoring the database alone would
+        // put back a date's database with today's files.
         $filesZipPath = null;
         if ($backup->fileId !== null) {
             $filesFile = $fileRepository->findById($backup->fileId);
-            if ($filesFile !== null) {
-                $filesZipPath = $storagePath . '/' . $filesFile->relativePath;
+            $filesZipPath = $filesFile !== null ? $storagePath . '/' . $filesFile->relativePath : null;
+            if ($filesZipPath === null || !is_file($filesZipPath)) {
+                throw new BackupException(
+                    'L\'archive de cette sauvegarde n\'est plus sur ce serveur : elle ne peut plus être restaurée.'
+                );
             }
         }
 

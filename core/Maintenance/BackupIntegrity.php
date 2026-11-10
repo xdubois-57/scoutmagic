@@ -104,14 +104,11 @@ final class BackupIntegrity
                 continue;
             }
 
-            $file = $this->files->findById($fileId);
-            if ($file === null) {
-                $missing = true;
-                continue;
-            }
-
-            $path = rtrim($this->storagePath, '/') . '/' . $file->relativePath;
-            if (!is_file($path)) {
+            // Resolved the way the list resolves it (BackupPresence), so the
+            // daily check and what a row offers never disagree on where a
+            // file is.
+            $path = (new BackupPresence($this->files, $this->storagePath))->pathOf($fileId);
+            if ($path === null || !is_file($path)) {
                 $missing = true;
                 continue;
             }

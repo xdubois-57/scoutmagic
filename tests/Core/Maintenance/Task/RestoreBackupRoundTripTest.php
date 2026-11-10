@@ -233,6 +233,22 @@ class RestoreBackupRoundTripTest extends TestCase
     }
 
     /**
+     * #847: an archive the backup declares and that is gone is refused —
+     * restoring the database alone would put back a date's database with
+     * today's files.
+     */
+    public function testADeclaredArchiveThatIsGoneIsRefusedRatherThanSkipped(): void
+    {
+        $backupId = $this->takeEncryptedServerBackup('full_no_gallery');
+        $backup = (new BackupRepository($this->pdo()))->findById($backupId);
+        unlink($this->storagePath . '/' . (new FileRepository($this->pdo()))->findById((int) $backup?->fileId)?->relativePath);
+
+        $this->expectException(\Core\Maintenance\BackupException::class);
+        $this->expectExceptionMessage('L\'archive de cette sauvegarde n\'est plus sur ce serveur');
+        $this->resolveServerSource($backupId);
+    }
+
+    /**
      * **An archive written in clear on a host that cannot encrypt restores
      * with no password** (IT-04): none was issued, none is kept, and the
      * archive itself — not its type — says there is nothing to decrypt.
@@ -941,7 +957,10 @@ class RestoreBackupRoundTripTest extends TestCase
         $backups = new BackupRepository($this->pdo());
         $files = new FileRepository($this->pdo());
 
-        $backupId = $backups->create('database', null);
+        // A full backup's row with its dump alone: what these tests restore
+        // is the database. Not 'database', an export that is never
+        // restored onto this server since #847.
+        $backupId = $backups->create('full_no_gallery', null);
         $dumpFileId = $files->create(
             // Relative to the storage path, computed rather than guessed:
             // BackupService stages into storage/maintenance/, and a

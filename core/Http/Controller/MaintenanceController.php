@@ -1152,6 +1152,25 @@ class MaintenanceController extends AbstractController
     }
 
     /**
+     * GET /config/maintenance/backup/{id}/presence (AJAX, JSON) — whether
+     * the backup's archive and dump are on the disk now (#847):
+     * `{"archive": bool|null, "dump": bool|null}`, null for a component the
+     * backup does not have. Asked before a download is followed; downloads
+     * nothing, writes nothing.
+     *
+     * @param array<string, string> $params
+     */
+    public function backupPresenceStatus(Request $request, array $params): Response
+    {
+        $backup = $this->backupRepository->findById((int) ($params['id'] ?? 0));
+        if ($backup === null) {
+            return $this->json(['success' => false, 'error' => 'Sauvegarde introuvable.'], 404);
+        }
+
+        return $this->json($this->backupPresence()->of($backup))->setHeader('Cache-Control', 'no-store');
+    }
+
+    /**
      * POST /config/maintenance/reset/full/password (AJAX, JSON) — the
      * password the full reset will encrypt its safety copy with (IT-03b).
      *
@@ -1235,6 +1254,41 @@ class MaintenanceController extends AbstractController
     }
 
     /**
+     * The badge a row carries when a file it declares is gone (#847) — it
+     * replaces the integrity badge « Fichier absent » on that row — with
+     * the sentence that says what is lost and what is left.
+     *
+     * @return array{label: string, title: string}|null
+     */
+    private static function missingBadge(bool $archiveMissing, bool $dumpMissing): ?array
+    {
+        return match (true) {
+            $archiveMissing && $dumpMissing => [
+                'label' => 'Fichiers absents',
+                'title' => 'Les fichiers de cette sauvegarde ne sont plus sur ce serveur. Son mot de passe reste '
+                    . 'affiché, pour une copie déjà téléchargée.',
+            ],
+            $archiveMissing => [
+                'label' => 'Archive absente',
+                'title' => 'L\'archive de cette sauvegarde n\'est plus sur ce serveur. Elle ne peut plus être '
+                    . 'téléchargée ni restaurée ; son mot de passe reste affiché, pour une copie déjà '
+                    . 'téléchargée.',
+            ],
+            $dumpMissing => [
+                'label' => 'Base de données absente',
+                'title' => 'La base de données de cette sauvegarde n\'est plus sur ce serveur. L\'archive se '
+                    . 'télécharge encore, mais la sauvegarde ne peut plus être restaurée ici.',
+            ],
+            default => null,
+        };
+    }
+
+    private function backupPresence(): \Core\Maintenance\BackupPresence
+    {
+        return new \Core\Maintenance\BackupPresence($this->fileRepository, $this->storagePath);
+    }
+
+    /**
      * The rows « Sauvegardes récentes » renders, already spelled for the
      * screen.
      *
@@ -1256,9 +1310,18 @@ class MaintenanceController extends AbstractController
             $withPassword = [];
         }
 
+        $presence = $this->backupPresence();
         $rows = [];
         foreach ($this->backupRepository->findForList(self::BACKUPS_LISTED) as $backup) {
             $family = \Core\Maintenance\BackupFamily::tryFromType($backup->type);
+            // What a row offers follows what is on the disk NOW (#847), not
+            // the last integrity check, which can date from yesterday.
+            $completed = $backup->status === 'completed';
+            $components = $completed ? $presence->of($backup) : ['archive' => null, 'dump' => null];
+            $archiveMissing = $components['archive'] === false;
+            $dumpMissing = $components['dump'] === false;
+            $isExport = $backup->type === \Core\Maintenance\Backup::EXPORT_TYPE;
+            $isPortable = $backup->type === \Core\Maintenance\Backup::PORTABLE_TYPE;
             $rows[] = [
                 'id' => $backup->id,
                 'typeLabel' => \Core\Maintenance\Backup::typeLabel($backup->type),
@@ -1272,7 +1335,16 @@ class MaintenanceController extends AbstractController
                 // The restore picker reads this: a portable archive is not
                 // restorable onto THIS installation, and offering it would
                 // start a destructive restore that cannot finish.
-                'isPortable' => $backup->type === \Core\Maintenance\Backup::PORTABLE_TYPE,
+                'isPortable' => $isPortable,
+                // « Base de données » is an export since #847: downloadable,
+                // never restored onto this server — without the site's files
+                // of the same date it would leave an inconsistent site.
+                'isExport' => $isExport,
+                'archivePresent' => $components['archive'],
+                'dumpPresent' => $components['dump'],
+                'missingBadge' => self::missingBadge($archiveMissing, $dumpMissing),
+                'canDownload' => $completed && $components['archive'] === true,
+                'canRestore' => $completed && !$isExport && !$isPortable && !$archiveMissing && !$dumpMissing,
                 // Only archives whose generated password the site kept
                 // (IT-03): an older one was encrypted with a password its
                 // operator typed, and nobody here can say it again.
@@ -1565,6 +1637,17 @@ class MaintenanceController extends AbstractController
                     'Une sauvegarde portable ne se restaure pas depuis cette page : elle sert à repartir sur '
                     . 'une installation neuve, à qui vous la téléversez avec sa phrase de passe.'
                 );
+            }
+            // An export holds no files, and a backup whose archive or dump
+            // is gone cannot finish: refused here, before anything is
+            // queued (#847). The task checks again — a file can disappear
+            // between this request and its run.
+            if ($backup->type === \Core\Maintenance\Backup::EXPORT_TYPE) {
+                return $this->restoreRefused($wantsJson, \Core\Maintenance\BackupPresence::EXPORT_REFUSAL);
+            }
+            $missing = $this->backupPresence()->refusal($backup);
+            if ($missing !== null) {
+                return $this->restoreRefused($wantsJson, $missing);
             }
             // A full backup from before IT-03: its password was typed by
             // its operator and never kept, so what was typed now is checked

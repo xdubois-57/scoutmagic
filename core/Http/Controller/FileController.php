@@ -31,6 +31,9 @@ class FileController extends AbstractController
      */
     private const NO_ACCESS_MESSAGE = "Ce fichier n'est pas accessible avec votre compte.";
 
+    /** A file whose row exists and whose bytes do not (#847). */
+    private const FILE_GONE = "Ce fichier n'est plus sur le serveur.";
+
     private ?JournalService $journalService = null;
 
     public function __construct(
@@ -170,7 +173,8 @@ class FileController extends AbstractController
             try {
                 $content = $this->encryptedFileStorageService->retrieve($file->id);
             } catch (\RuntimeException) {
-                return (new Response('Not Found', 404));
+                return (new Response(self::FILE_GONE, 404))
+                    ->setHeader('Content-Type', 'text/plain; charset=UTF-8');
             }
 
             return $this->withIndexingRule(
@@ -188,7 +192,12 @@ class FileController extends AbstractController
         // rather than reading the whole file into a PHP string (audit M10).
         $filePath = $this->storagePath . '/' . $file->relativePath;
         if (!file_exists($filePath)) {
-            return (new Response('Not Found', 404));
+            // A row whose file is gone — a backup's archive a restore
+            // brought the row of back (#847), a file removed by hand. Said
+            // in French, for whoever followed a link without the page's
+            // own check.
+            return (new Response(self::FILE_GONE, 404))
+                ->setHeader('Content-Type', 'text/plain; charset=UTF-8');
         }
 
         return $this->withIndexingRule(
@@ -300,7 +309,8 @@ class FileController extends AbstractController
             try {
                 $content = $this->encryptedFileStorageService->retrieve($file->id);
             } catch (\RuntimeException) {
-                return (new Response('Not Found', 404));
+                return (new Response(self::FILE_GONE, 404))
+                    ->setHeader('Content-Type', 'text/plain; charset=UTF-8');
             }
         } else {
             $filePath = $this->storagePath . '/' . $file->relativePath;

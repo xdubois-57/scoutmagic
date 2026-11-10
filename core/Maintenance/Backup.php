@@ -22,6 +22,14 @@ class Backup
     public const PORTABLE_TYPE = 'portable';
 
     /**
+     * « Base de données » — the database alone, without the site's files.
+     * Downloadable, never restored onto this server since #847: with
+     * today's files it would leave photos, documents and attachments that
+     * no longer match.
+     */
+    public const EXPORT_TYPE = 'database';
+
+    /**
      * The role floor of every file a backup owns — its archive and its
      * database dump — in `files.role_min`, which is what /files/{id}
      * checks before serving it (Core\File\FileAccessGuard).

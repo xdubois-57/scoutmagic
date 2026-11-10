@@ -1772,3 +1772,169 @@ describe('maintenance.js: restore form — sending, checking, then restoring (#7
         expect(document.getElementById('restore-backup-submit').matches(':disabled')).toBe(true);
     });
 });
+
+describe('maintenance.js: « Télécharger » asks whether the archive is still there (#847)', () => {
+    function buildRow({ withPassword = false } = {}) {
+        appendAll(el(`
+            <ul>
+                <li data-backup-row="7">
+                    <div data-backup-badges>
+                        <span class="badge">Planifiée</span>
+                        <span class="badge text-bg-success" data-backup-integrity>Vérifiée</span>
+                    </div>
+                    <span data-backup-download="7"><a href="/files/42" download>dl</a></span>
+                    ${withPassword ? '<button type="button" data-backup-password="7">clé</button>' : ''}
+                    ${withPassword ? '<output class="d-none" id="backup-password-7"></output>' : ''}
+                    <div class="d-none" id="backup-vanished-7" role="status"></div>
+                </li>
+            </ul>`));
+    }
+
+    /** Every click that reaches the document, and whether it was let through. */
+    function watchClicks() {
+        const followed = [];
+        document.addEventListener('click', (event) => {
+            if (event.target.closest?.('a[href="/files/42"]')) followed.push(!event.defaultPrevented);
+        });
+        return followed;
+    }
+
+    const link = () => document.querySelector('a[href="/files/42"]');
+
+    it('follows the link once the archive is confirmed present', async () => {
+        buildRow();
+        global.fetch = vi.fn(() => jsonResponse({ archive: true, dump: true }));
+        await boot();
+        const followed = watchClicks();
+
+        link().click();
+
+        await vi.waitFor(() => expect(followed).toEqual([false, true]));
+        expect(fetch).toHaveBeenCalledWith('/config/maintenance/backup/7/presence', expect.objectContaining({
+            headers: { Accept: 'application/json' },
+        }));
+    });
+
+    it('opens nothing when the archive is gone, and the row says so without a reload', async () => {
+        buildRow();
+        appendAll(el('<select id="restore-backup-id"><option value="7">Planifiée</option></select>'));
+        global.fetch = vi.fn(() => jsonResponse({ archive: false, dump: true }));
+        await boot();
+        const followed = watchClicks();
+
+        link().click();
+
+        const message = document.getElementById('backup-vanished-7');
+        await vi.waitFor(() => expect(message.classList.contains('d-none')).toBe(false));
+        expect(message.textContent).toBe('L\'archive de cette sauvegarde n\'est plus sur ce serveur. Elle ne peut plus '
+            + 'être téléchargée ni restaurée ; vous pouvez supprimer la ligne.');
+        expect(followed).toEqual([false]);
+        expect(document.querySelector('[data-backup-download]')).toBeNull();
+        expect(document.querySelector('[data-backup-missing]').textContent).toBe('Archive absente');
+        expect(document.querySelector('[data-backup-integrity]')).toBeNull();
+        expect(document.querySelector('#restore-backup-id option[value="7"]')).toBeNull();
+    });
+
+    it('follows the link when the question itself fails — never a false « absent »', async () => {
+        buildRow();
+        global.fetch = vi.fn(() => Promise.reject(new Error('réseau')));
+        await boot();
+        const followed = watchClicks();
+
+        link().click();
+
+        await vi.waitFor(() => expect(followed).toEqual([false, true]));
+        expect(document.getElementById('backup-vanished-7').classList.contains('d-none')).toBe(true);
+    });
+
+    it('checks the click the password reveal sends, not the one it took — the file is served once', async () => {
+        buildRow({ withPassword: true });
+        global.fetch = vi.fn((url) => (String(url).endsWith('/presence')
+            ? jsonResponse({ archive: true, dump: true })
+            : jsonResponse({ success: true, password: 'mot-de-passe' })));
+        await boot();
+        const followed = watchClicks();
+
+        link().click();
+
+        await vi.waitFor(() => expect(followed.filter(Boolean)).toHaveLength(1));
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        expect(followed.filter(Boolean)).toHaveLength(1);
+        expect(fetch.mock.calls.filter(([url]) => String(url).endsWith('/presence'))).toHaveLength(1);
+    });
+});
+
+describe('maintenance.js + file-viewer.js: the same check in the installed app (#847)', () => {
+    const originalLocation = Object.getOwnPropertyDescriptor(window, 'location');
+    const originalMatchMedia = window.matchMedia;
+
+    function standalone() {
+        window.matchMedia = /** @type {any} */ ((query) => ({
+            matches: query === '(display-mode: standalone)',
+            media: query,
+            addEventListener() {},
+            removeEventListener() {},
+        }));
+        const assign = vi.fn();
+        Object.defineProperty(window, 'location', {
+            configurable: true,
+            value: { ...window.location, href: 'http://localhost/config/maintenance/sauvegardes-recentes', assign },
+        });
+        return assign;
+    }
+
+    function restore() {
+        Object.defineProperty(window, 'location', originalLocation);
+        window.matchMedia = originalMatchMedia;
+    }
+
+    async function bootWithViewer() {
+        await boot();
+        await import('../../public/assets/js/file-viewer.js');
+    }
+
+    function buildRow() {
+        appendAll(el(`
+            <ul><li data-backup-row="7">
+                <div data-backup-badges><span class="badge">Planifiée</span></div>
+                <span data-backup-download="7"><a href="/files/42" download>dl</a></span>
+                <div class="d-none" id="backup-vanished-7" role="status"></div>
+            </li></ul>`));
+    }
+
+    it('reaches the viewer only after the archive is confirmed present', async () => {
+        const assign = standalone();
+        try {
+            buildRow();
+            let answer;
+            global.fetch = vi.fn(() => new Promise((resolve) => { answer = resolve; }));
+            await bootWithViewer();
+
+            document.querySelector('a[href="/files/42"]').click();
+            await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
+            expect(assign).not.toHaveBeenCalled();
+
+            answer({ ok: true, status: 200, json: () => Promise.resolve({ archive: true, dump: true }) });
+            await vi.waitFor(() => expect(assign).toHaveBeenCalledTimes(1));
+            expect(assign.mock.calls[0][0]).toMatch(/\/files\/42$/);
+        } finally {
+            restore();
+        }
+    });
+
+    it('navigates nowhere when the archive is gone', async () => {
+        const assign = standalone();
+        try {
+            buildRow();
+            global.fetch = vi.fn(() => jsonResponse({ archive: false, dump: true }));
+            await bootWithViewer();
+
+            document.querySelector('a[href="/files/42"]').click();
+
+            await vi.waitFor(() => expect(document.getElementById('backup-vanished-7').classList.contains('d-none')).toBe(false));
+            expect(assign).not.toHaveBeenCalled();
+        } finally {
+            restore();
+        }
+    });
+});

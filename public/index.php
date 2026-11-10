@@ -5554,6 +5554,17 @@ $router->addRoute(
     'revealBackupPassword',
     'superadmin'
 );
+// Whether a backup's files are on the disk NOW (#847): asked by the page
+// before a download link is followed, so an archive gone since the page
+// loaded is said on its row rather than answered with a 404 — in a tab and
+// in the installed app alike. Reads, never writes.
+$router->addRoute(
+    'GET',
+    '/config/maintenance/backup/{id}/presence',
+    MaintenanceController::class,
+    'backupPresenceStatus',
+    'superadmin'
+);
 $router->addRoute(
     'GET',
     '/api/maintenance/backup-status/{id}',

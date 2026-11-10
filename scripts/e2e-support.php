@@ -166,6 +166,17 @@ function e2eSupportMain(array $argv): void
             ), "\n";
             exit(0);
 
+        case 'seed-backup-rows':
+            $instanceDir = $argv[2] ?? '';
+            if ($instanceDir === '' || !is_file($instanceDir . '/storage/config/secrets.enc')) {
+                fwrite(STDERR, "Usage: e2e-support.php seed-backup-rows <instance-dir>\n");
+                exit(1);
+            }
+            require_once $repoRoot . '/vendor/autoload.php';
+            e2eApplyApplicationClock();
+            echo json_encode(e2eSeedBackupRows($instanceDir), JSON_THROW_ON_ERROR), "\n";
+            exit(0);
+
         case 'relax-human-check':
             require_once $repoRoot . '/vendor/autoload.php';
             e2eApplyApplicationClock();
@@ -2193,6 +2204,56 @@ function e2eSharedAddressSiblings(string $stamp): array
             ],
         ],
     ];
+}
+
+/**
+ * Two completed backups of this server, as the list draws them (#847): one
+ * whose archive and dump are on the disk, one whose archive's `files` row
+ * is there and its file is not — what a restore brings back. Both keep a
+ * generated password, so the second still offers its key.
+ *
+ * @return array{present: int, missing: int}
+ */
+function e2eSeedBackupRows(string $instanceDir): array
+{
+    $config = e2eDatabaseConfig();
+    $pdo = new PDO(
+        sprintf('mysql:host=%s;port=%d;dbname=%s;charset=utf8mb4', $config['host'], $config['port'], $config['name']),
+        $config['user'],
+        $config['password'],
+        [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]
+    );
+    $storage = $instanceDir . '/storage';
+    @mkdir($storage . '/maintenance', 0750, true);
+    $files = new Core\File\FileRepository($pdo);
+    $backups = new Core\Maintenance\BackupRepository($pdo);
+    $passwords = Core\Maintenance\BackupPasswords::forStorage($storage);
+
+    $ids = [];
+    foreach (['present' => true, 'missing' => false] as $key => $archiveOnDisk) {
+        $name = 'e2e_' . $key . '_' . bin2hex(random_bytes(4));
+        if ($archiveOnDisk) {
+            file_put_contents($storage . '/maintenance/' . $name . '.zip', 'PK');
+        }
+        file_put_contents($storage . '/maintenance/' . $name . '.sql', '-- dump');
+        $register = static fn(string $file, string $mime, int $size): int => $files->create(
+            'maintenance/' . $file,
+            $file,
+            $mime,
+            $size,
+            'superadmin',
+            null,
+            null
+        );
+        $archive = $register($name . '.zip', 'application/zip', 2);
+        $dump = $register($name . '.sql', 'application/sql', 7);
+        $id = $backups->create('auto_backup', null);
+        $backups->markCompleted($id, $archive, $dump);
+        $passwords->issue($id);
+        $ids[$key] = $id;
+    }
+
+    return $ids;
 }
 
 /**

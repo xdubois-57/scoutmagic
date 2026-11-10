@@ -122,6 +122,21 @@ class FileControllerTest extends TestCase
      * file (member_documents) is journaled — member_id reference only, no
      * personal data.
      */
+    /**
+     * A row whose bytes are gone — a backup a restore brought back (#847) —
+     * answers in French, not « Not Found ».
+     */
+    public function testAFileWhoseBytesAreGoneIsSaidInFrench(): void
+    {
+        $id = $this->fileRepository->create('absent.zip', 'absent.zip', 'application/zip', 10, 'intendant', null, null);
+
+        $response = $this->controller->serve(new Request('GET', "/files/{$id}", [], [], [], []), ['id' => (string) $id]);
+
+        $this->assertSame(404, $response->getStatusCode());
+        $this->assertSame("Ce fichier n'est plus sur le serveur.", $response->getBody());
+        $this->assertSame('text/plain; charset=UTF-8', $response->getHeaders()['Content-Type'] ?? null);
+    }
+
     public function testServeJournalsAccessToAnOwnerScopedFile(): void
     {
         $guard = new FileAccessGuard($this->fileRepository, Role::IDENTIFIED, [42]);

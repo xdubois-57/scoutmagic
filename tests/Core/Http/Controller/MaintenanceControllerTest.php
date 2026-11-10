@@ -574,11 +574,7 @@ class MaintenanceControllerTest extends TestCase
      */
     public function testABackupRowOffersIconsThatStillNameTheirBackup(): void
     {
-        $backups = new \Core\Maintenance\BackupRepository($this->pdo);
-        $files = new \Core\File\FileRepository($this->pdo);
-        $backupId = $backups->create('full_no_gallery', null);
-        $fileId = $files->create('backups/sauvegarde.zip', 'sauvegarde.zip', 'application/zip', 1024, 'admin', null, null);
-        $backups->markCompleted($backupId, $fileId, null);
+        $this->completedBackup('full_no_gallery');
 
         $body = $this->page('recentBackupsPage');
 
@@ -1147,13 +1143,12 @@ class MaintenanceControllerTest extends TestCase
      */
     public function testBackupTypeIsShownAsAHumanReadableLabelEverywhere(): void
     {
-        $id = $this->backupRepository->create('database', 1);
-        $this->backupRepository->markCompleted($id, 42, null);
+        $id = $this->completedBackup('full_no_gallery');
 
         $body = $this->page('recentBackupsPage');
 
-        $this->assertStringContainsString('Base de données', $body);
-        $this->assertStringContainsString('<option value="' . $id . '">Base de données — ', $body);
+        $this->assertStringContainsString('Complète (sans galerie)', $body);
+        $this->assertStringContainsString('<option value="' . $id . '" data-needs-password="1">Complète (sans galerie) — ', $body);
         $this->assertStringNotContainsString('>database<', $body);
         $this->assertStringNotContainsString('>database —', $body);
     }
@@ -2297,6 +2292,188 @@ class MaintenanceControllerTest extends TestCase
         ], [], []);
     }
 
+    /**
+     * A completed backup whose archive and dump are really on the disk —
+     * what the list and the restore check since #847.
+     */
+    private function completedBackup(string $type, bool $withArchive = true, bool $withDump = true): int
+    {
+        $files = new FileRepository($this->pdo);
+        @mkdir($this->storagePath . '/maintenance', 0777, true);
+        $name = 'sauvegarde_' . bin2hex(random_bytes(4));
+        $archive = null;
+        if ($withArchive) {
+            $zip = new \ZipArchive();
+            $zip->open($this->storagePath . '/maintenance/' . $name . '.zip', \ZipArchive::CREATE);
+            $zip->addFromString('storage/config/settings.json', '{}');
+            $zip->close();
+            $archive = $files->create('maintenance/' . $name . '.zip', $name . '.zip', 'application/zip', 1024, 'superadmin', null, null);
+        }
+        $dump = null;
+        if ($withDump) {
+            file_put_contents($this->storagePath . '/maintenance/' . $name . '.sql', '-- dump');
+            $dump = $files->create('maintenance/' . $name . '.sql', $name . '.sql', 'application/sql', 7, 'superadmin', null, null);
+        }
+        $id = $this->backupRepository->create($type, 1);
+        $this->backupRepository->markCompleted($id, $archive, $dump);
+
+        return $id;
+    }
+
+    // --- #847, partie 1 : la liste dit vrai, la restauration refuse tôt ---
+
+    /** @return iterable<string, array{bool, bool, ?string, bool, bool}> */
+    public static function presenceCases(): iterable
+    {
+        // archive, dump => badge, download, restorable
+        yield 'both present' => [true, true, null, true, true];
+        yield 'archive gone' => [false, true, 'Archive absente', false, false];
+        yield 'dump gone' => [true, false, 'Base de données absente', true, false];
+        yield 'both gone' => [false, false, 'Fichiers absents', false, false];
+    }
+
+    /**
+     * Each row offers what is possible NOW (#847): the password whenever it
+     * is kept, « Supprimer » always, the download and the restore only
+     * with the files they need.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('presenceCases')]
+    public function testEachRowOffersOnlyWhatItsFilesAllow(
+        bool $archive,
+        bool $dump,
+        ?string $badge,
+        bool $download,
+        bool $restorable
+    ): void {
+        $id = $this->completedBackup('auto_backup');
+        \Core\Maintenance\BackupPasswords::forStorage($this->storagePath)->issue($id);
+        $backup = $this->backupRepository->findById($id);
+        $files = new FileRepository($this->pdo);
+        if (!$archive) {
+            unlink($this->storagePath . '/' . $files->findById((int) $backup?->fileId)?->relativePath);
+        }
+        if (!$dump) {
+            unlink($this->storagePath . '/' . $files->findById((int) $backup?->dbDumpFileId)?->relativePath);
+        }
+
+        $body = $this->page('recentBackupsPage');
+
+        if ($badge === null) {
+            $this->assertStringNotContainsString('data-backup-missing', $body);
+        } else {
+            $this->assertMatchesRegularExpression('~data-backup-missing>' . $badge . '</span>~', $body);
+        }
+        $this->assertSame($download, str_contains($body, 'data-backup-download="' . $id . '"'));
+        $this->assertSame($restorable, str_contains($body, '<option value="' . $id . '"'));
+        $this->assertStringContainsString('data-backup-password="' . $id . '"', $body, 'the password stays while it is kept');
+        $this->assertStringContainsString('/config/maintenance/backup/' . $id . '/delete', $body, 'deleting stays possible');
+        $this->assertStringContainsString('<span class="text-nowrap">Sur ce serveur</span>', $body);
+    }
+
+    /** Checked « intact » last night, gone now: presence outranks the last check. */
+    public function testAnArchiveCheckedIntactButGoneSinceIsAbsent(): void
+    {
+        $id = $this->completedBackup('auto_backup');
+        $this->backupRepository->recordIntegrity($id, \Core\Maintenance\BackupIntegrityStatus::Intact);
+        $backup = $this->backupRepository->findById($id);
+        unlink($this->storagePath . '/' . (new FileRepository($this->pdo))->findById((int) $backup?->fileId)?->relativePath);
+
+        $body = $this->page('recentBackupsPage');
+
+        $this->assertStringContainsString('data-backup-missing>Archive absente</span>', $body);
+        $this->assertStringNotContainsString('data-backup-download="' . $id . '"', $body);
+        $this->assertStringNotContainsString('data-backup-integrity', $body, 'the absence badge replaces the last check');
+    }
+
+    /** A row without an archive is never « Archive absente ». */
+    public function testARowThatNeverHadAnArchiveIsNotMissingOne(): void
+    {
+        $this->completedBackup('auto_backup', withArchive: false);
+
+        $this->assertStringNotContainsString('data-backup-missing', $this->page('recentBackupsPage'));
+    }
+
+    /** « Base de données » is an export: downloadable, never offered for a restore, refused if asked. */
+    public function testADatabaseBackupIsAnExportThatIsNeverRestored(): void
+    {
+        $id = $this->completedBackup('database');
+
+        $body = $this->page('recentBackupsPage');
+        $this->assertStringContainsString('<span class="badge text-bg-secondary">Export</span>', $body);
+        $this->assertStringContainsString('À télécharger seulement : sans les fichiers du site, elle ne se restaure pas ici.', $body);
+        $this->assertStringContainsString('data-backup-download="' . $id . '"', $body);
+        $this->assertStringNotContainsString('<option value="' . $id . '"', $body);
+
+        $response = $this->controller->restoreBackup($this->restoreJsonRequest($this->csrfToken(), [
+            'source' => 'server', 'backup_id' => (string) $id,
+        ]), []);
+        $this->assertSame(\Core\Maintenance\BackupPresence::EXPORT_REFUSAL, json_decode($response->getBody(), true)['error']);
+        $this->assertSame([], $this->schedulerRepository->findByModuleAndTaskKey('core', 'restore_backup'));
+    }
+
+    /** A file gone between the page and the form: refused before anything is queued. */
+    public function testARestoreOfABackupWhoseFilesLeftIsRefusedBeforeAnythingIsQueued(): void
+    {
+        $id = $this->completedBackup('auto_backup');
+        $backup = $this->backupRepository->findById($id);
+        unlink($this->storagePath . '/' . (new FileRepository($this->pdo))->findById((int) $backup?->dbDumpFileId)?->relativePath);
+
+        $response = $this->controller->restoreBackup($this->restoreJsonRequest($this->csrfToken(), [
+            'source' => 'server', 'backup_id' => (string) $id,
+        ]), []);
+
+        $this->assertSame(
+            'Restauration refusée. Cette sauvegarde ne peut plus être restaurée : sa base de données n\'est plus sur ce '
+            . 'serveur. Rien n\'a été modifié.',
+            json_decode($response->getBody(), true)['error']
+        );
+        $this->assertSame([], $this->schedulerRepository->findByModuleAndTaskKey('core', 'restore_backup'));
+    }
+
+    public function testTheFormRefusalIsAFlashOnAPlainNavigation(): void
+    {
+        $id = $this->completedBackup('database');
+
+        $response = $this->controller->restoreBackup(new Request('POST', '/config/maintenance/reset/restore', [], [
+            '_csrf_token' => $this->csrfToken(), 'confirm_keyword' => 'RESTAURER', 'source' => 'server',
+            'backup_id' => (string) $id,
+        ], [], []), []);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame(\Core\Maintenance\BackupPresence::EXPORT_REFUSAL, $this->flashMessage());
+    }
+
+    /** The question the page asks before following a download link. */
+    public function testThePresenceRouteSaysWhatIsOnTheDisk(): void
+    {
+        $id = $this->completedBackup('auto_backup', withDump: false);
+        $request = new Request('GET', '/config/maintenance/backup/' . $id . '/presence', [], [], [], []);
+
+        $response = $this->controller->backupPresenceStatus($request, ['id' => (string) $id]);
+        $this->assertSame(['archive' => true, 'dump' => null], json_decode($response->getBody(), true));
+        $this->assertSame('no-store', $response->getHeaders()['Cache-Control'] ?? null);
+
+        $backup = $this->backupRepository->findById($id);
+        unlink($this->storagePath . '/' . (new FileRepository($this->pdo))->findById((int) $backup?->fileId)?->relativePath);
+        $response = $this->controller->backupPresenceStatus($request, ['id' => (string) $id]);
+        $this->assertSame(['archive' => false, 'dump' => null], json_decode($response->getBody(), true));
+
+        $unknown = $this->controller->backupPresenceStatus($request, ['id' => '999999']);
+        $this->assertSame(404, $unknown->getStatusCode());
+    }
+
+    /** Deleting a row whose files are already gone goes through. */
+    public function testARowWhoseFilesAreGoneCanStillBeDeleted(): void
+    {
+        $id = $this->completedBackup('auto_backup');
+        array_map('unlink', glob($this->storagePath . '/maintenance/sauvegarde_*') ?: []);
+
+        $response = $this->controller->deleteBackup($this->deleteRequest($id), ['id' => (string) $id]);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertNull($this->backupRepository->findById($id));
+    }
+
     /** A backup the restore form accepts: a database dump, encrypted when a password is given. */
     private function restorableArchive(?string $password): string
     {
@@ -2504,8 +2681,7 @@ class MaintenanceControllerTest extends TestCase
     public function testARestoreThatEndedDoesNotBlockTheNext(): void
     {
         $this->queueRestore('failed');
-        $backupId = $this->backupRepository->create('database', 1);
-        $this->backupRepository->markCompleted($backupId, 1, 1);
+        $backupId = $this->completedBackup('auto_backup');
 
         $response = $this->controller->restoreBackup($this->restoreJsonRequest($this->csrfToken(), [
             'source' => 'server', 'backup_id' => (string) $backupId,
@@ -2591,8 +2767,7 @@ class MaintenanceControllerTest extends TestCase
 
     public function testRestoreBackupSchedulesTheBackgroundTaskForAnExistingServerBackup(): void
     {
-        $backupId = $this->backupRepository->create('database', 1);
-        $this->backupRepository->markCompleted($backupId, 1, 1);
+        $backupId = $this->completedBackup('auto_backup');
         $token = $this->csrfToken();
 
         $request = new Request('POST', '/config/maintenance/reset/restore', [], [
@@ -2616,8 +2791,7 @@ class MaintenanceControllerTest extends TestCase
      */
     public function testAServerRestoreCarriesATypedPasswordForAnArchiveWhosePasswordWasNeverKept(): void
     {
-        $backupId = $this->backupRepository->create('full_config', 1);
-        $this->backupRepository->markCompleted($backupId, 1, 1);
+        $backupId = $this->completedBackup('full_config');
 
         $request = new Request('POST', '/config/maintenance/reset/restore', [], [
             '_csrf_token' => $this->csrfToken(), 'confirm_keyword' => 'RESTAURER', 'source' => 'server',
@@ -2671,15 +2845,13 @@ class MaintenanceControllerTest extends TestCase
      */
     public function testOnlyAnArchiveWhosePasswordWasNeverKeptIsFlaggedForATypedPassword(): void
     {
-        $legacy = $this->backupRepository->create('full_config', 1);
-        $this->backupRepository->markCompleted($legacy, 1, 1);
-        $database = $this->backupRepository->create('database', 1);
-        $this->backupRepository->markCompleted($database, 1, 1);
+        $legacy = $this->completedBackup('full_config');
+        $scheduled = $this->completedBackup('auto_backup');
 
         $body = $this->page('recentBackupsPage');
 
         $this->assertStringContainsString('<option value="' . $legacy . '" data-needs-password="1">', $body);
-        $this->assertStringContainsString('<option value="' . $database . '">', $body);
+        $this->assertStringContainsString('<option value="' . $scheduled . '">', $body);
     }
 
     /**
@@ -2706,8 +2878,7 @@ class MaintenanceControllerTest extends TestCase
      */
     public function testWhereArchivesCannotBeEncryptedNoFullBackupAsksForAPassword(): void
     {
-        $clear = $this->backupRepository->create('full_config', 1);
-        $this->backupRepository->markCompleted($clear, 1, 1);
+        $clear = $this->completedBackup('full_config');
         $controller = ($this->rebuildController)(new class (
             $this->connection,
             $this->storagePath,

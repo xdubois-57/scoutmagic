@@ -25,9 +25,11 @@ celui qu'il a généré pour chacune de ses archives. Seule une sauvegarde
 complète d'avant les mots de passe générés demande encore celui que vous
 aviez choisi : le champ apparaît quand vous la sélectionnez.
 
-Les sauvegardes portables n'y figurent pas : elles servent à repartir
-sur une installation neuve, pas à écraser celle-ci — voyez « Remonter
-le site après un sinistre ».
+La liste ne propose que ce qui peut être restauré : ni les portables,
+qui servent à repartir sur une installation neuve (« Remonter le site
+après un sinistre »), ni les exports « Base de données », ni une
+sauvegarde dont un fichier a quitté le serveur. Si un fichier disparaît
+entre-temps, la restauration est refusée avant de rien modifier.
 
 ## Depuis un fichier téléversé
 
