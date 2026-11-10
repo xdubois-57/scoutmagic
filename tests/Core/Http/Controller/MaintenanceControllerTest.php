@@ -2321,7 +2321,7 @@ class MaintenanceControllerTest extends TestCase
         return $id;
     }
 
-    // --- #847, partie 1 : la liste dit vrai, la restauration refuse tôt ---
+    // --- #847, part 1: the list tells the truth, the restore refuses early ---
 
     /** @return iterable<string, array{bool, bool, ?string, bool, bool}> */
     public static function presenceCases(): iterable

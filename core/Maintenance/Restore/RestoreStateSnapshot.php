@@ -76,8 +76,12 @@ final class RestoreStateSnapshot
             foreach (self::rows($pdo, 'SELECT * FROM backups ORDER BY id') as $row) {
                 self::write($handle, ['kind' => 'backup', 'row' => $row]);
             }
-            foreach (self::rows($pdo, 'SELECT * FROM settings WHERE ' . self::keptSettingsCondition()) as $row) {
-                self::write($handle, ['kind' => 'setting', 'row' => $row]);
+            // Filtered here by the one rule that says which keys are kept,
+            // rather than turned into SQL: the table is a few hundred rows.
+            foreach (self::rows($pdo, 'SELECT * FROM settings') as $row) {
+                if (ConfigOnlyRestore::isKeptSetting((string) ($row['setting_key'] ?? ''))) {
+                    self::write($handle, ['kind' => 'setting', 'row' => $row]);
+                }
             }
             // Unbuffered where the driver can: the journal is the one table
             // here whose size nobody chose, and nothing else is asked of the
@@ -497,14 +501,5 @@ final class RestoreStateSnapshot
         }
 
         return $columns;
-    }
-
-    /** `setting_key LIKE 'backup\_remote\_%' OR …`, from the kept prefixes — literals only. */
-    private static function keptSettingsCondition(): string
-    {
-        return implode(' OR ', array_map(
-            static fn(string $prefix): string => "setting_key LIKE '" . str_replace('_', '\\_', $prefix) . "%'",
-            ConfigOnlyRestore::KEPT_SETTING_PREFIXES
-        ));
     }
 }
