@@ -9,6 +9,7 @@ use Tests\Core\Mail\Template\EmailTemplateRendererFactory;
 use Core\Mail\MailService;
 use Core\Member\MemberFunctionInfo;
 use Core\Member\MemberProfile;
+use Core\Member\MemberAccountResolver;
 use Core\Member\MemberService;
 use Core\Notification\NotificationService;
 use Core\Security\UserAccount;
@@ -42,6 +43,7 @@ class RedirectServiceTest extends TestCase
     private MailService $mailService;
     private JournalService $journalService;
     private NotificationService $notificationService;
+    private MemberAccountResolver $memberAccounts;
     private Environment $twig;
 
     protected function setUp(): void
@@ -53,6 +55,7 @@ class RedirectServiceTest extends TestCase
         $this->mailService = $this->createMock(MailService::class);
         $this->journalService = $this->createMock(JournalService::class);
         $this->notificationService = $this->createMock(NotificationService::class);
+        $this->memberAccounts = $this->createStub(MemberAccountResolver::class);
 
         $this->twig = TestTwig::create(['sos_staff']);
     }
@@ -67,17 +70,9 @@ class RedirectServiceTest extends TestCase
             $this->mailService,
             $this->journalService,
             EmailTemplateRendererFactory::shippedOnlyForModule($this->twig, 'sos_staff'),
-            $notifications ?? $this->notificationService
+            $notifications ?? $this->notificationService,
+            $this->memberAccounts
         );
-    }
-
-    /**
-     * A signed-up account for a member's address — what turns a handover
-     * into a recipient. A member with none is simply not one.
-     */
-    private function accountFor(string $email): UserAccount
-    {
-        return new UserAccount(42, $email, null, null, null, false, null);
     }
 
     private function profile(int $memberId, string $displayName, ?string $mobile, ?string $email): MemberProfile
@@ -261,8 +256,7 @@ class RedirectServiceTest extends TestCase
             [2, 100, $this->profile(2, 'Baloo', '+32470000002', 'baloo@test.be')],
             [1, 100, $this->profile(1, 'Akela', '+32470000001', 'akela@test.be')],
         ]);
-        $this->userAccountRepository->method('findByEmail')
-            ->willReturnCallback(fn(string $email) => $this->accountFor($email));
+        $this->memberAccounts->method('accountIdsForMember')->willReturn([42]);
 
         $dispatched = [];
         $this->notificationService->expects($this->exactly(2))->method('dispatch')
@@ -299,7 +293,7 @@ class RedirectServiceTest extends TestCase
         $this->settingsService->method('isEmailNotificationsEnabled')->willReturn(true);
         $this->memberService->method('findProfileByMemberAndYear')
             ->willReturn($this->profile(1, 'Akela', '+32470000001', 'akela@test.be'));
-        $this->userAccountRepository->method('findByEmail')->willReturn($this->accountFor('akela@test.be'));
+        $this->memberAccounts->method('accountIdsForMember')->willReturn([42]);
 
         $this->notificationService->expects($this->once())->method('dispatch')
             ->willReturnCallback(function (string $typeId, array $recipients, array $payload): void {
@@ -342,7 +336,7 @@ class RedirectServiceTest extends TestCase
         $this->settingsService->method('isEmailNotificationsEnabled')->willReturn(true);
         $this->memberService->method('findProfileByMemberAndYear')
             ->willReturn($this->profile(1, 'Akela', '+32470000001', 'akela@test.be'));
-        $this->userAccountRepository->method('findByEmail')->willReturn(null);
+        $this->memberAccounts->method('accountIdsForMember')->willReturn([]);
 
         $this->notificationService->expects($this->never())->method('dispatch');
 
@@ -389,7 +383,7 @@ class RedirectServiceTest extends TestCase
         $this->settingsService->method('isEmailNotificationsEnabled')->willReturn(true);
         $this->memberService->method('findProfileByMemberAndYear')
             ->willReturn($this->profile(1, 'Akela', '+32470000001', 'akela@test.be'));
-        $this->userAccountRepository->method('findByEmail')->willReturn($this->accountFor('akela@test.be'));
+        $this->memberAccounts->method('accountIdsForMember')->willReturn([42]);
 
         $this->notificationService->expects($this->never())->method('dispatch');
 
@@ -422,7 +416,8 @@ class RedirectServiceTest extends TestCase
             $this->mailService,
             $this->journalService,
             EmailTemplateRendererFactory::shippedOnlyForModule($this->twig, 'sos_staff'),
-            null
+            null,
+            $this->memberAccounts
         );
 
         $service->apply(1, null, 100);
@@ -446,25 +441,25 @@ class RedirectServiceTest extends TestCase
         $this->settingsService->method('isEmailNotificationsEnabled')->willReturn(true);
         $this->memberService->method('findProfileByMemberAndYear')
             ->willReturn($this->profile(1, 'Akela', '+32470000001', 'akela@test.be'));
-        $this->userAccountRepository->method('findByEmail')->willReturn($this->accountFor('akela@test.be'));
+        $this->memberAccounts->method('accountIdsForMember')->willReturn([42]);
         $this->notificationService->method('dispatch')
-            ->willThrowException(new \RuntimeException('push refusé pour akela@test.be'));
+            ->willThrowException(new \RuntimeException('push refusé pour akela@test.be, secondary@test.be, +32470000001'));
 
-        $descriptions = [];
+        $failures = [];
         $this->journalService->method('log')
-            ->willReturnCallback(function (string $module, string $type, string $level, string $description) use (&$descriptions): void {
-                $descriptions[] = $description;
+            ->willReturnCallback(function (string $module, string $type, string $level, string $description, array $context) use (&$failures): void {
+                if ($type === 'notification_failed') {
+                    $failures[] = [$module, $type, $level, $description, $context];
+                }
             });
 
         $this->service()->apply(1, null, 100);
 
-        $notificationFailures = array_values(array_filter(
-            $descriptions,
-            static fn(string $d) => str_contains($d, 'notification de changement de garde')
-        ));
-        self::assertCount(1, $notificationFailures);
-        self::assertStringNotContainsString('akela@test.be', $notificationFailures[0]);
-        self::assertStringContainsString('[adresse]', $notificationFailures[0]);
+        self::assertSame([[
+            'sos_staff', 'notification_failed', 'info',
+            'Échec de la notification de changement de garde.',
+            ['member_id' => 1, 'type_id' => 'sos_staff.oncall_started', 'exception_class' => \RuntimeException::class],
+        ]], $failures);
     }
 
     /**

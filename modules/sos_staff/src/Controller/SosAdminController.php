@@ -48,6 +48,7 @@ class SosAdminController extends AbstractController
     private const PAGE_PLANNING = '/admin/sos/planning';
     private const PAGE_SETTINGS = '/admin/sos/reglages';
 
+    /** @param (\Closure(): \DateTimeImmutable)|null $clock */
     public function __construct(
         protected Environment $twig,
         private ProviderConfigService $providerConfigService,
@@ -58,7 +59,8 @@ class SosAdminController extends AbstractController
         private SchedulerService $schedulerService,
         private ScoutYearResolver $scoutYearResolver,
         private JournalService $journalService,
-        private ?CalendarEventLookupInterface $calendarEvents = null
+        private ?CalendarEventLookupInterface $calendarEvents = null,
+        private ?\Closure $clock = null
     ) {
     }
 
@@ -87,8 +89,9 @@ class SosAdminController extends AbstractController
 
         // The list follows the CURRENT month: this page has no month to
         // browse, and what is about to change is what it is for.
-        $year = (int) date('Y');
-        $month = (int) date('n');
+        $now = $this->currentTime();
+        $year = (int) $now->format('Y');
+        $month = (int) $now->format('n');
         $transitionsPage = max(1, (int) $request->getQuery('transitions_page', 1));
         $transitions = $this->buildPlannedTransitions($year, $month, $effectiveYear->id, $transitionsPage);
 
@@ -849,10 +852,8 @@ class SosAdminController extends AbstractController
     {
         // The given month AND the next, not that month alone: the list is
         // about what is still to come, and a handover scheduled for the 1st
-        // must show on the 31st (it is the next one, a few hours away). Two
-        // months and no more, because the page shows the FURTHEST first —
-        // an open-ended window would fill page 1 with handovers planned a
-        // term ahead and push the next one, the one that matters, away.
+        // must show on the 31st (it is the next one, a few hours away).
+        // Keep the bounded two-month window for this dashboard.
         $firstOfMonth = DateInput::firstOfMonth($year, $month);
         $from = $firstOfMonth->format('Y-m-d');
         $until = $firstOfMonth->modify('+2 months')->format('Y-m-d');
@@ -864,7 +865,7 @@ class SosAdminController extends AbstractController
         ));
         usort($rows, fn(array $a, array $b) => $a['run_at'] <=> $b['run_at']);
 
-        $now = new \DateTimeImmutable();
+        $now = $this->currentTime();
         $latestPastIndex = null;
         $nextFutureIndex = null;
         $entries = [];
@@ -899,8 +900,13 @@ class SosAdminController extends AbstractController
             $entries[$nextFutureIndex]['is_next'] = true;
         }
 
-        // Display order: future on top, past on bottom.
-        $entries = array_reverse($entries);
+        // Upcoming changes run nearest first; history follows newest first.
+        // Reorder the complete list before slicing a page, keeping its badges.
+        $futureStart = $nextFutureIndex ?? count($entries);
+        $entries = array_merge(
+            array_slice($entries, $futureStart),
+            array_reverse(array_slice($entries, 0, $futureStart))
+        );
 
         $perPage = 10;
         $totalPages = max(1, (int) ceil(count($entries) / $perPage));
@@ -911,6 +917,11 @@ class SosAdminController extends AbstractController
             'page' => $page,
             'total_pages' => $totalPages,
         ];
+    }
+
+    private function currentTime(): \DateTimeImmutable
+    {
+        return $this->clock !== null ? ($this->clock)() : new \DateTimeImmutable();
     }
 
     private function applyImmediatelyIfTodayUsesDefault(): void

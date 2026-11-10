@@ -7716,7 +7716,8 @@ if ($isEnabled('sos_staff')) {
         $mailService,
         $journalService,
         $emailTemplateRenderer,
-        $notificationService
+        $notificationService,
+        $memberAccountResolver
     );
 
     $frontController->registerController(

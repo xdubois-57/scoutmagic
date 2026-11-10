@@ -56,6 +56,7 @@ class SosAdminControllerTest extends TestCase
     private SosSettingsService $settingsService;
     private \Modules\SosStaff\Service\RedirectService $redirectService;
     private int $scoutYearId;
+    private ?\DateTimeImmutable $now = null;
     /**
      * What the stubbed provider configuration answers: a provider by
      * default (the page's ordinary state), null for « nothing configured ».
@@ -172,7 +173,8 @@ class SosAdminControllerTest extends TestCase
             $schedulerService,
             $scoutYearResolver,
             $journalService,
-            null
+            null,
+            fn(): \DateTimeImmutable => $this->now ?? new \DateTimeImmutable()
         );
 
         [$label, $yearStart, $yearEnd] = DatabaseTestHelper::scoutYear();
@@ -834,14 +836,14 @@ class SosAdminControllerTest extends TestCase
         $this->assertNotFalse($posFar);
         $this->assertNotFalse($posNear);
         $this->assertNotFalse($posPast);
-        $this->assertLessThan($posNear, $posFar, 'furthest future entry should render above the nearer future one');
-        $this->assertLessThan($posPast, $posNear, 'future entries should render above past ones');
+        $this->assertLessThan($posFar, $posNear, 'the next handover must precede later handovers');
+        $this->assertLessThan($posPast, $posFar, 'future entries should render above past ones');
 
         // Only the single nearest upcoming transition gets highlighted.
         $this->assertSame(1, substr_count($body, 'Prochain changement'));
         $highlightPos = strpos($body, 'Prochain changement');
         $this->assertGreaterThan($posNear, $highlightPos);
-        $this->assertLessThan($posPast, $highlightPos);
+        $this->assertLessThan($posFar, $highlightPos);
     }
 
     /**
@@ -862,8 +864,8 @@ class SosAdminControllerTest extends TestCase
             $nextMonth->format('Y-m-d')
         );
 
-        // …but not a term ahead: the page shows the furthest first, so an
-        // open-ended window would bury the next handover on a later page.
+        // Keep the dashboard's two-month window instead of loading an
+        // entire term's handovers just to display its first page.
         $farAway = new \DateTimeImmutable('first day of +3 months 10:00');
         $schedulerService->schedule(
             OnCallService::MODULE_ID,
@@ -952,6 +954,113 @@ class SosAdminControllerTest extends TestCase
         $this->assertStringContainsString('pagination', $response->getBody());
         // A bare fragment — no page chrome.
         $this->assertStringNotContainsString('SOS Staff', $response->getBody());
+    }
+
+    public function testDashboardAndAjaxShowTheNextHandoverFirst(): void
+    {
+        $this->now = new \DateTimeImmutable('2026-11-09 12:00:00');
+        $this->scheduleTransitionTimes(['2026-11-13 10:00:00', '2026-11-10 10:00:00', '2026-11-12 10:00:00']);
+        $expected = [[
+            ['10/11/2026 10:00', 'à venir', true],
+            ['12/11/2026 10:00', 'à venir', false],
+            ['13/11/2026 10:00', 'à venir', false],
+        ], false];
+        $ajax = $this->controller->plannedTransitions(
+            new Request('GET', '/admin/sos/transitions', ['month' => '2026-11'], [], [], []), [],
+        );
+
+        self::assertSame([$expected, $expected], [
+            $this->transitionState($this->dashboard()), $this->transitionState($ajax->getBody()),
+        ]);
+    }
+
+    public function testTransitionsAreOrderedBeforeAjaxPagination(): void
+    {
+        $this->now = new \DateTimeImmutable('2026-11-09 12:00:00');
+        $times = ['2026-11-07 10:00:00', '2026-11-08 10:00:00'];
+        for ($day = 10; $day <= 22; $day++) {
+            $times[] = sprintf('2026-11-%02d 10:00:00', $day);
+        }
+        $this->scheduleTransitionTimes(array_reverse($times));
+        $second = $this->controller->plannedTransitions(
+            new Request('GET', '/admin/sos/transitions', ['month' => '2026-11', 'transitions_page' => '2'], [], [], []), [],
+        );
+        $firstPage = [];
+        for ($day = 10; $day <= 19; $day++) {
+            $firstPage[] = [sprintf('%02d/11/2026 10:00', $day), 'à venir', $day === 10];
+        }
+
+        self::assertSame([[$firstPage, false], [[
+            ['20/11/2026 10:00', 'à venir', false],
+            ['21/11/2026 10:00', 'à venir', false],
+            ['22/11/2026 10:00', 'à venir', false],
+            ['08/11/2026 10:00', 'actif', false],
+            ['07/11/2026 10:00', 'exécuté', false],
+        ], false]], [
+            $this->transitionState($this->dashboard()), $this->transitionState($second->getBody()),
+        ]);
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('transitionBoundaries')]
+    public function testTransitionOrderAndBadgesAtCalendarBoundaries(string $now, array $times, array $expected): void
+    {
+        $this->now = new \DateTimeImmutable($now);
+        $this->scheduleTransitionTimes($times);
+        $ajax = $this->controller->plannedTransitions(
+            new Request('GET', '/admin/sos/transitions', ['month' => $this->now->format('Y-m')], [], [], []), [],
+        );
+
+        self::assertSame([$expected, $expected], [
+            $this->transitionState($this->dashboard()), $this->transitionState($ajax->getBody()),
+        ]);
+    }
+
+    /** @return iterable<string, array{string, list<string>, array{list<array{string, string, bool}>, bool}}> */
+    public static function transitionBoundaries(): iterable
+    {
+        yield 'empty' => ['2026-11-09 12:00:00', [], [[], true]];
+        yield 'only past' => ['2026-11-09 12:00:00', ['2026-11-07 10:00:00', '2026-11-08 10:00:00'], [[
+            ['08/11/2026 10:00', 'actif', false], ['07/11/2026 10:00', 'exécuté', false],
+        ], false]];
+        yield 'exact changeover time' => ['2026-11-10 10:00:00', ['2026-11-10 10:00:00', '2026-11-12 10:00:00'], [[
+            ['12/11/2026 10:00', 'à venir', true], ['10/11/2026 10:00', 'actif', false],
+        ], false]];
+        yield 'next month' => ['2026-11-30 23:00:00', ['2026-12-02 10:00:00', '2026-11-29 10:00:00', '2026-12-01 10:00:00'], [[
+            ['01/12/2026 10:00', 'à venir', true], ['02/12/2026 10:00', 'à venir', false],
+            ['29/11/2026 10:00', 'actif', false],
+        ], false]];
+        yield 'next year' => ['2026-12-31 23:00:00', ['2027-01-02 10:00:00', '2026-12-30 10:00:00', '2027-01-01 10:00:00'], [[
+            ['01/01/2027 10:00', 'à venir', true], ['02/01/2027 10:00', 'à venir', false],
+            ['30/12/2026 10:00', 'actif', false],
+        ], false]];
+    }
+
+    /** @param list<string> $times */
+    private function scheduleTransitionTimes(array $times): void
+    {
+        $scheduler = new SchedulerService($this->schedulerRepository);
+        foreach ($times as $time) {
+            $at = new \DateTimeImmutable($time);
+            $scheduler->schedule(OnCallService::MODULE_ID, OnCallService::TASK_KEY, $at, ['member_id' => null], $at->format('Y-m-d'));
+        }
+    }
+
+    /** @return array{list<array{string, string, bool}>, bool} */
+    private function transitionState(string $html): array
+    {
+        $dom = \Dom\HTMLDocument::createFromString($html, LIBXML_NOERROR | \Dom\HTML_NO_DEFAULT_NS);
+        $xpath = new \Dom\XPath($dom);
+        $root = $xpath->query('//*[@id="planned-transitions-list"]')->item(0) ?? $dom;
+        $rows = [];
+        foreach ($xpath->query('.//ul[contains(@class,"list-group")]/li', $root) as $row) {
+            $rows[] = [
+                trim($xpath->evaluate('string(./div/span[contains(@class,"fw-semibold")])', $row)),
+                trim($xpath->evaluate('string(./span[contains(@class,"badge")])', $row)),
+                $xpath->evaluate('boolean(./div/span[normalize-space(.)="Prochain changement"])', $row),
+            ];
+        }
+
+        return [$rows, str_contains($html, 'Aucune redirection planifiée.')];
     }
 
     // ------------------------------------------------------------------
