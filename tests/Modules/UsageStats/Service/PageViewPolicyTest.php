@@ -62,6 +62,17 @@ class PageViewPolicyTest extends TestCase
         $this->assertFalse(self::decide('GET', '/api/offline/manifest', 200, null, false, self::BROWSER));
     }
 
+    /**
+     * Issue #1066: the installed app downloads every page of its offline
+     * list at each launch, help topics included, with the browser's own
+     * User-Agent. Only the header the service worker sends tells it apart.
+     */
+    public function testAPageDownloadedAheadForOfflineUseIsNotCounted(): void
+    {
+        $this->assertFalse(PageViewPolicy::shouldCount('GET', '/aide/{id}', 200, null, false, self::BROWSER, true));
+        $this->assertTrue(PageViewPolicy::shouldCount('GET', '/aide/{id}', 200, null, false, self::BROWSER, false));
+    }
+
     public function testAFileDownloadIsNotCounted(): void
     {
         $this->assertFalse(self::decide('GET', '/files/{id}', 200, null, true, self::BROWSER));

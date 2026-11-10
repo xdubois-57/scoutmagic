@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Modules\UsageStats;
 
 use Core\Module\ModuleManifest;
+use Modules\UsageStats\Service\PageViewPolicy;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -157,6 +158,28 @@ class ModuleWiringTest extends TestCase
      * to drift, and the drift would be silent — a report that simply
      * stopped carrying the field on one of the two triggers.
      */
+    /**
+     * Issue #1066: the header public/sw.js marks its downloads ahead with
+     * must reach the recorder, or every launch of the installed app counts
+     * every page of its offline list as opened.
+     */
+    public function testTheOfflinePrecacheHeaderReachesTheRecorder(): void
+    {
+        $this->assertStringContainsString(
+            "offlinePrecache: \$request->getServer('HTTP_X_OFFLINE_PRECACHE') !== null",
+            $this->recordCall()
+        );
+        $this->assertSame(
+            'X-Offline-Precache',
+            PageViewPolicy::OFFLINE_PRECACHE_HEADER,
+            'public/index.php reads HTTP_X_OFFLINE_PRECACHE: the two must name the same header.'
+        );
+        $this->assertStringContainsString(
+            "const PRECACHE_HEADER = '" . PageViewPolicy::OFFLINE_PRECACHE_HEADER . "';",
+            (string) file_get_contents(dirname(__DIR__, 3) . '/public/sw.js')
+        );
+    }
+
     public function testTheModuleUsageCapabilityIsWiredOnBothPaths(): void
     {
         $root = dirname(__DIR__, 3);

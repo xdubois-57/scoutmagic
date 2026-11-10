@@ -118,6 +118,24 @@ class PageViewRecorderTest extends TestCase
         $this->assertFalse($this->record('/calendar', 'calendar', Role::IDENTIFIED));
     }
 
+    public function testAPageDownloadedAheadForOfflineUseWritesNothing(): void
+    {
+        $this->assertFalse($this->recorder->record(
+            'GET',
+            '/aide/{id}',
+            null,
+            200,
+            null,
+            false,
+            self::BROWSER,
+            Role::IDENTIFIED,
+            new \DateTimeImmutable('2026-08-14 10:00:00'),
+            offlinePrecache: true
+        ));
+
+        $this->assertSame([], $this->rows());
+    }
+
     private function record(string $pattern, ?string $moduleId, Role $role): bool
     {
         return $this->recorder->record(

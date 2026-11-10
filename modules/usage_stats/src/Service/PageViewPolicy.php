@@ -55,7 +55,21 @@ final class PageViewPolicy
     ];
 
     /**
-     * The four conditions, in the order they are cheapest to check.
+     * The request header public/sw.js sends on every page it downloads
+     * ahead for offline use (refreshPage()), and on nothing else.
+     *
+     * Those downloads are ordinary GETs with the browser's own
+     * `User-Agent`, answered 200 and HTML: without a mark of their own they
+     * are indistinguishable from somebody opening the page. The installed
+     * app fetches every page of the offline list, help topics included, at
+     * each launch of each account, so they used to swamp the real visits —
+     * issue #1066, « des milliers de visites » on `/aide/{id}` within days
+     * of an install.
+     */
+    public const OFFLINE_PRECACHE_HEADER = 'X-Offline-Precache';
+
+    /**
+     * The five conditions, in the order they are cheapest to check.
      *
      * - **GET only.** A POST is an action, not a page opened; it answers
      *   with a redirect anyway, which the status test below would drop.
@@ -68,6 +82,8 @@ final class PageViewPolicy
      *   4xx/5xx. An absent `Content-Type` counts as HTML because that is
      *   what Core\Http\Response leaves to PHP's own default, which is
      *   what every page in this application does.
+     * - **Not a download ahead for offline use**
+     *   ({@see self::OFFLINE_PRECACHE_HEADER}): nobody opened that page.
      * - **Not a crawler.**
      *
      * `/api/` is excluded by name as well as by content type: it is the
@@ -81,9 +97,10 @@ final class PageViewPolicy
         int $statusCode,
         ?string $contentType,
         bool $servesAFile,
-        string $userAgent
+        string $userAgent,
+        bool $offlinePrecache = false
     ): bool {
-        if ($method !== 'GET' || $statusCode !== 200 || $servesAFile) {
+        if ($method !== 'GET' || $statusCode !== 200 || $servesAFile || $offlinePrecache) {
             return false;
         }
 
