@@ -5554,6 +5554,17 @@ $router->addRoute(
     'revealBackupPassword',
     'superadmin'
 );
+// Whether a backup's files are on the disk NOW (#847): asked by the page
+// before a download link is followed, so an archive gone since the page
+// loaded is said on its row rather than answered with a 404 — in a tab and
+// in the installed app alike. Reads, never writes.
+$router->addRoute(
+    'GET',
+    '/config/maintenance/backup/{id}/presence',
+    MaintenanceController::class,
+    'backupPresenceStatus',
+    'superadmin'
+);
 $router->addRoute(
     'GET',
     '/api/maintenance/backup-status/{id}',
@@ -5677,6 +5688,23 @@ $router->addRoute(
     '/config/maintenance/remote/passphrase/regenerate',
     RemoteBackupController::class,
     'regeneratePassphrase',
+    'superadmin',
+);
+// The off-site copies card (#847, part 4): the list read on the
+// destination, as a fragment the page loads by itself, and restoring one
+// of them — a name from that list only, never an arbitrary key.
+$router->addRoute(
+    'GET',
+    '/config/maintenance/remote-backup/archives',
+    RemoteBackupController::class,
+    'archives',
+    'superadmin',
+);
+$router->addRoute(
+    'POST',
+    '/config/maintenance/remote-backup/restore',
+    RemoteBackupController::class,
+    'restoreCopy',
     'superadmin',
 );
 // The only public, CSRF-free route in the codebase — GitHub is a machine
@@ -6916,6 +6944,7 @@ $frontController->registerController(
         $journalService
     )
 );
+$remotePassphrase = new \Core\Maintenance\Remote\RemotePassphrase($settingService, $secretManager);
 $frontController->registerController(
     RemoteBackupController::class,
     new RemoteBackupController(
@@ -6923,7 +6952,16 @@ $frontController->registerController(
         $remoteBackupDestination,
         $storageLocationRepository,
         $journalService,
-        new \Core\Maintenance\Remote\RemotePassphrase($settingService, $secretManager)
+        $remotePassphrase,
+        new \Core\Maintenance\Remote\RemoteCopies(
+            $remoteBackupDestination,
+            new \Core\Maintenance\Remote\RemoteRetention($settingService),
+            $remotePassphrase
+        ),
+        $schedulerService,
+        $encryptionService,
+        new \Core\Storage\DiskBudget($storagePath, $settingService),
+        $storagePath
     )
 );
 $frontController->registerController(

@@ -15,8 +15,14 @@ use Core\Http\Response;
 use Core\Journal\JournalService;
 use Core\Maintenance\Remote\RemoteBackupDestination;
 use Core\Maintenance\Remote\RemoteBackupException;
+use Core\Maintenance\Remote\RemoteCopies;
 use Core\Maintenance\Remote\RemotePassphrase;
+use Core\Maintenance\Task\FetchRemoteBackupHandler;
+use Core\Scheduler\SchedulerService;
 use Core\Security\AuthSession;
+use Core\Security\EncryptionService;
+use Core\Storage\DiskBudget;
+use Core\Storage\InsufficientDiskSpaceException;
 use Core\Storage\Location\StorageCapability;
 use Core\Storage\Location\StorageLocationRepository;
 use Twig\Environment;
@@ -61,9 +67,172 @@ final class RemoteBackupController extends AbstractController
         private readonly RemoteBackupDestination $destination,
         private readonly StorageLocationRepository $locations,
         private readonly JournalService $journalService,
-        private readonly RemotePassphrase $passphrase
+        private readonly RemotePassphrase $passphrase,
+        // The off-site copies card (#847, part 4). Trailing and optional,
+        // so no existing construction moved.
+        private readonly ?RemoteCopies $copies = null,
+        private readonly ?SchedulerService $scheduler = null,
+        private readonly ?EncryptionService $encryption = null,
+        private readonly ?DiskBudget $diskBudget = null,
+        private readonly string $storagePath = ''
     ) {
         parent::__construct($twig);
+    }
+
+    /**
+     * GET — the « Copies hors site » card, as an HTML fragment the page
+     * loads by itself once shown (#847, part 4): listing a destination is
+     * a network call, and the page must not wait on it.
+     *
+     * @param array<string, string> $params
+     */
+    public function archives(Request $request, array $params): Response
+    {
+        if ($this->copies === null || $this->scheduler === null) {
+            return $this->notFound();
+        }
+        $listed = $this->copies->read();
+        $held = FetchRemoteBackupHandler::held($this->storagePath);
+
+        return $this->render('config/maintenance/_remote_copies.html.twig', [
+            'remote' => $listed,
+            'fetch' => $this->fetchProgress(),
+            'restore_busy' => $this->scheduler->hasLiveForTask('core', 'restore_backup'),
+            'held_name' => $held['name'] ?? null,
+        ]);
+    }
+
+    /**
+     * POST (JSON) — restores an off-site copy (#847, part 4): brings it
+     * back in slices, checks the phrase, then the portable restore.
+     *
+     * **Only a name in the destination's own listing** is accepted, and
+     * only one {@see \Core\Maintenance\Remote\RemoteRetention::isArchive()}
+     * recognises: never an arbitrary key. A typed phrase travels encrypted
+     * in the payload, as an upload's password does. A copy kept after a
+     * wrong phrase is restored from what was already brought back.
+     *
+     * @param array<string, string> $params
+     */
+    public function restoreCopy(Request $request, array $params): Response
+    {
+        $data = json_decode($request->getRawBody(), true);
+        $data = is_array($data) ? $data : [];
+        $guard = $this->guardCsrfJson($request, is_string($data['_csrf_token'] ?? null) ? $data['_csrf_token'] : null);
+        if ($guard !== null) {
+            return $guard;
+        }
+        if ($this->copies === null || $this->scheduler === null || $this->encryption === null) {
+            return $this->notFound();
+        }
+        if (($data['confirm_keyword'] ?? '') !== 'RESTAURER') {
+            return $this->refuse('Tapez RESTAURER pour confirmer.');
+        }
+        if ($this->scheduler->hasLiveForTask('core', 'restore_backup')
+            || $this->fetchProgress() !== null
+        ) {
+            return $this->refuse('Une restauration est déjà en attente ou en cours. Attendez sa fin.', 409);
+        }
+
+        $name = is_string($data['name'] ?? null) ? $data['name'] : '';
+        // Listed once: the size and the location below come from the same
+        // reading of the destination.
+        $listing = $this->copies->read();
+        $copy = RemoteCopies::pick($listing, $name);
+        if ($copy === null) {
+            return $this->refuse('Cette copie n\'est pas sur la destination hors site.', 404);
+        }
+        $phrase = is_string($data['passphrase'] ?? null) ? trim($data['passphrase']) : '';
+        if (!$copy['current'] && $phrase === '') {
+            return $this->refuse('Cette copie a été chiffrée avec une ancienne phrase de passe : saisissez-la.');
+        }
+
+        $held = FetchRemoteBackupHandler::held($this->storagePath);
+        $reuse = $held !== null && $held['name'] === $name;
+        if (!$reuse) {
+            // Another copy starts: the one kept after a wrong phrase goes.
+            FetchRemoteBackupHandler::discardHeld($this->storagePath);
+            try {
+                $this->diskBudget?->ensureRoom($copy['size']);
+            } catch (InsufficientDiskSpaceException $e) {
+                return $this->refuse($e->getMessage(), 507);
+            }
+        }
+
+        $payload = [
+            'name' => $name,
+            'size' => $copy['size'],
+            'location_id' => $listing['locationId'],
+            'path' => $reuse ? $held['path'] : FetchRemoteBackupHandler::newTempPath($this->storagePath),
+        ];
+        if ($reuse) {
+            $payload['fetched'] = true;
+        }
+        if ($phrase !== '') {
+            $payload['encrypted_password'] = base64_encode($this->encryption->encrypt($phrase, 'backup_password'));
+        }
+        $userId = AuthSession::getUserAccountId();
+        // Atomic with the check, under the scheduler's own lock: two tabs
+        // can both pass the guard above, only one queues a fetch. The fetch
+        // hands over to the restore the same way.
+        $queued = $this->scheduler->scheduleAfterUnlessLive(
+            'core',
+            FetchRemoteBackupHandler::TASK_KEY,
+            0,
+            $payload,
+            FetchRemoteBackupHandler::REFERENCE,
+            $userId
+        );
+        if ($queued === null) {
+            return $this->refuse('Une restauration est déjà en attente ou en cours. Attendez sa fin.', 409);
+        }
+        $this->journalService->log(
+            'core',
+            'remote_copy_restore_requested',
+            'warning',
+            'Restauration d\'une copie hors site demandée',
+            ['already_fetched' => $reuse],
+            $userId
+        );
+
+        return $this->json([
+            'success' => true,
+            'message' => $reuse
+                ? 'La phrase va être vérifiée sur la copie déjà rapatriée.'
+                : 'Le rapatriement de la copie commence. Vous pouvez fermer la page.',
+        ]);
+    }
+
+    /**
+     * How far a copy being brought back has come, or null.
+     *
+     * @return array{done: int, size: int}|null
+     */
+    private function fetchProgress(): ?array
+    {
+        // By its reference: the run queued to discard a kept copy a day
+        // later is the same task without one, and is no restore.
+        $live = $this->scheduler?->findLive(
+            'core',
+            FetchRemoteBackupHandler::TASK_KEY,
+            FetchRemoteBackupHandler::REFERENCE
+        );
+        if ($live === null) {
+            return null;
+        }
+        $payload = is_string($live['payload'] ?? null) ? json_decode((string) $live['payload'], true) : null;
+        $payload = is_array($payload) ? $payload : [];
+        $path = (string) ($payload['path'] ?? '');
+        $done = FetchRemoteBackupHandler::isOurTempFile($this->storagePath, $path) && is_file($path)
+            ? (int) filesize($path)
+            : 0;
+
+        return ['done' => $done, 'size' => (int) ($payload['size'] ?? 0)];
+    }
+
+    private function refuse(string $message, int $status = 422): Response
+    {
+        return $this->json(['success' => false, 'message' => $message], $status);
     }
 
     /**

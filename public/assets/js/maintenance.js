@@ -628,11 +628,33 @@
         if (serverPicker) serverPicker.classList.toggle('d-none', isUpload);
         if (uploadPicker) uploadPicker.classList.toggle('d-none', !isUpload);
         if (passwordField) passwordField.classList.toggle('d-none', !needsPassword);
+        var configNote = document.getElementById('restore-config-note');
+        if (configNote) {
+            var note = !isUpload ? (chosen?.dataset.configNote || '') : '';
+            configNote.textContent = note;
+            configNote.classList.toggle('d-none', note === '');
+        }
     }
     if (sourceServerRadio) sourceServerRadio.addEventListener('change', toggleRestoreSource);
     if (sourceUploadRadio) sourceUploadRadio.addEventListener('change', toggleRestoreSource);
     if (backupSelect) backupSelect.addEventListener('change', toggleRestoreSource);
     toggleRestoreSource();
+
+    // « Annuler cette restauration » (#847, part 3): the copy taken before
+    // the last restore, chosen in the form below, which still asks for
+    // RESTAURER and confirms.
+    document.querySelectorAll('[data-undo-restore]').forEach(function (button) {
+        button.addEventListener('click', function () {
+            var id = /** @type {HTMLElement} */ (button).dataset.undoRestore || '';
+            if (!backupSelect || backupSelect.disabled) return;
+            var serverRadio = /** @type {HTMLInputElement|null} */ (sourceServerRadio);
+            if (serverRadio) serverRadio.checked = true;
+            backupSelect.value = id;
+            toggleRestoreSource();
+            document.getElementById('maintenance-restore')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            document.getElementById('restore-backup-keyword')?.focus();
+        });
+    });
 
     var restoreForm = /** @type {HTMLFormElement | null} */ (document.getElementById('restore-backup-form'));
     if (restoreForm) {
@@ -870,6 +892,98 @@
         });
     }
 
+    // ——— « Télécharger » asks first (#847) ———
+    //
+    // The button is only drawn when the archive is on the disk, but it can
+    // leave between the page and the click. Followed blindly, the link
+    // would save a 404 under the archive's name in a tab, or strand the
+    // installed app on it. So the presence is asked first, and the link is
+    // followed only when the archive is there — or when the question
+    // itself fails, which is never taken for an answer.
+    //
+    // The listener is on the wrapper, below the document: it runs before
+    // file-viewer.js's, which leaves a click already prevented alone, and
+    // the link it re-clicks afterwards goes through file-viewer.js as any
+    // other — in a tab and in the installed app alike.
+    document.querySelectorAll('[data-backup-download]').forEach(function (wrapper) {
+        var backupWrapper = /** @type {HTMLElement} */ (wrapper);
+        backupWrapper.addEventListener('click', function (event) {
+            var link = /** @type {HTMLAnchorElement|null} */ (
+                /** @type {Element} */ (event.target).closest('a')
+            );
+            if (!link) return;
+            if (link.dataset.presenceChecked === '1') {
+                delete link.dataset.presenceChecked;
+                return;
+            }
+            // Another handler took this click — the password reveal, which
+            // clicks the link again once the password shows. That later
+            // click is the one checked: checking this one too would serve
+            // the file twice.
+            if (event.defaultPrevented) return;
+            event.preventDefault();
+            var id = backupWrapper.dataset.backupDownload || '';
+            fetch('/config/maintenance/backup/' + encodeURIComponent(id) + '/presence', {
+                credentials: 'same-origin',
+                headers: { Accept: 'application/json' }
+            }).then(function (response) {
+                return response.ok ? response.json().catch(function () { return null; }) : null;
+            }).then(function (data) {
+                if (data?.archive === false) {
+                    archiveVanished(backupWrapper, id);
+                    return;
+                }
+                followDownload(link);
+            }, function () {
+                followDownload(link);
+            });
+        });
+    });
+
+    /**
+     * @param {HTMLAnchorElement} link
+     * @returns {void}
+     */
+    function followDownload(link) {
+        link.dataset.presenceChecked = '1';
+        link.click();
+    }
+
+    /**
+     * The row says what happened, without a reload: the archive badge, no
+     * more « Télécharger », the password kept — the key to a copy already
+     * downloaded.
+     *
+     * @param {HTMLElement} wrapper
+     * @param {string} id
+     * @returns {void}
+     */
+    function archiveVanished(wrapper, id) {
+        var row = wrapper.closest('[data-backup-row]');
+        var badges = row?.querySelector('[data-backup-badges]');
+        if (badges) {
+            badges.querySelector('[data-backup-integrity]')?.remove();
+            var badge = badges.querySelector('[data-backup-missing]');
+            if (!badge) {
+                badge = document.createElement('span');
+                badge.className = 'badge text-bg-danger';
+                badge.setAttribute('data-backup-missing', '');
+                badges.children[0]?.after(badge);
+            }
+            badge.textContent = 'Archive absente';
+            badge.setAttribute('title', 'L\'archive de cette sauvegarde n\'est plus sur ce serveur. Elle ne peut plus '
+                + 'être téléchargée ni restaurée ; son mot de passe reste affiché, pour une copie déjà téléchargée.');
+        }
+        var message = document.getElementById('backup-vanished-' + id);
+        if (message) {
+            message.textContent = 'L\'archive de cette sauvegarde n\'est plus sur ce serveur. Elle ne peut plus '
+                + 'être téléchargée ni restaurée ; vous pouvez supprimer la ligne.';
+            message.classList.remove('d-none');
+        }
+        wrapper.remove();
+        document.querySelector('#restore-backup-id option[value="' + id + '"]')?.remove();
+    }
+
     // « Sauvegardes récentes »: the generated password of one archive
     // (issue #619, IT-03), revealed on demand beside its download button.
     // Same rules as the off-site passphrase above: a POST, CSRF-guarded and
@@ -984,6 +1098,105 @@
                 output.classList.remove('d-none');
             });
     }
+
+    // ——— Copies hors site (#847, part 4) ———
+    //
+    // The card loads itself once the page is shown: listing a destination
+    // is a network call, and the page does not wait on it. While a copy is
+    // brought back or restored (data-remote-busy), it is read again every
+    // few seconds; the page can be closed meanwhile.
+    var remoteCopies = document.getElementById('remote-copies');
+    var REMOTE_POLL_MS = 4000;
+    /** @type {number|undefined} */
+    var remotePoll;
+
+    /** @returns {void} */
+    function loadRemoteCopies() {
+        if (!remoteCopies) return;
+        // One chain of polls only: a retry or a restore while a poll is
+        // pending replaces it rather than starting a second one.
+        window.clearTimeout(remotePoll);
+        remotePoll = undefined;
+        var url = remoteCopies.dataset.remoteCopiesUrl || '';
+        fetch(url, { credentials: 'same-origin', headers: { Accept: 'text/html' } })
+            .then(function (response) {
+                // Signed out by the restore that just finished: the page
+                // itself says how it went once signed in again.
+                if (response.redirected) {
+                    window.location.reload();
+                    return Promise.reject(new Error('redirected'));
+                }
+                return response.ok ? response.text() : Promise.reject(new Error(String(response.status)));
+            })
+            .then(function (html) {
+                if (!remoteCopies) return;
+                remoteCopies.innerHTML = html;
+                wireRemoteCopies();
+                if (remoteCopies.querySelector('[data-remote-busy]')) {
+                    remotePoll = window.setTimeout(loadRemoteCopies, REMOTE_POLL_MS);
+                }
+            }, function () {
+                if (!remoteCopies) return;
+                remoteCopies.textContent = 'Les copies hors site n\'ont pas pu être lues.';
+            });
+    }
+
+    /** @returns {void} */
+    function wireRemoteCopies() {
+        if (!remoteCopies) return;
+        remoteCopies.querySelector('[data-remote-retry]')?.addEventListener('click', loadRemoteCopies);
+
+        var form = /** @type {HTMLFormElement|null} */ (remoteCopies.querySelector('#remote-restore-form'));
+        if (!form) return;
+        var nameInput = /** @type {HTMLInputElement} */ (form.querySelector('#remote-restore-name'));
+        var phraseField = form.querySelector('#remote-restore-phrase-field');
+        var phraseInput = /** @type {HTMLInputElement} */ (form.querySelector('#remote-restore-phrase'));
+        var keywordInput = /** @type {HTMLInputElement} */ (form.querySelector('#remote-restore-keyword'));
+        var submit = /** @type {HTMLButtonElement} */ (form.querySelector('#remote-restore-submit'));
+        var errorEl = form.querySelector('#remote-restore-error');
+
+        remoteCopies.querySelectorAll('[data-remote-restore]').forEach(function (button) {
+            button.addEventListener('click', function () {
+                var el = /** @type {HTMLElement} */ (button);
+                nameInput.value = el.dataset.remoteRestore || '';
+                phraseField?.classList.toggle('d-none', el.dataset.remoteCurrent === '1');
+                phraseInput.value = '';
+                keywordInput.value = '';
+                errorEl?.classList.add('d-none');
+                el.closest('li')?.after(form);
+                form.classList.remove('d-none');
+                keywordInput.focus();
+            });
+        });
+
+        form.addEventListener('submit', function (event) {
+            event.preventDefault();
+            var showError = function (/** @type {string} */ message) {
+                if (!errorEl) return;
+                errorEl.textContent = message;
+                errorEl.classList.remove('d-none');
+            };
+            if (keywordInput.value !== 'RESTAURER') {
+                showError('Tapez RESTAURER pour confirmer.');
+                return;
+            }
+            submit.disabled = true;
+            void window.ScoutMagicApi.postJson('/config/maintenance/remote-backup/restore', {
+                name: nameInput.value,
+                passphrase: phraseInput.value,
+                confirm_keyword: keywordInput.value
+            }).then(function (res) {
+                submit.disabled = false;
+                if (!res.data?.success) {
+                    // `error` is the session-expired answer of the CSRF guard.
+                    showError(res.data?.message || res.data?.error || 'La restauration n\'a pas pu être lancée.');
+                    return;
+                }
+                loadRemoteCopies();
+            });
+        });
+    }
+    loadRemoteCopies();
 
     // Resume polling after a reload of the page while a restore runs, or
     // after the redirect of a plain form POST.

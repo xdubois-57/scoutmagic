@@ -735,6 +735,15 @@ final class GoogleDriveClientTest extends TestCase
     public function testTheTimeAllowedForARequestGrowsWithWhatItCarries(): void
     {
         $this->assertSame(30, GoogleDriveClient::transferCeilingSeconds(null));
+        // A slice read back is sized on the range it asks for (#847).
+        $this->assertSame(
+            GoogleDriveClient::transferCeilingSeconds(str_repeat('x', 8 * 1024 * 1024)),
+            GoogleDriveClient::transferCeilingSeconds(null, 'bytes=0-' . (8 * 1024 * 1024 - 1))
+        );
+        $this->assertGreaterThan(
+            30,
+            GoogleDriveClient::transferCeilingSeconds(null, 'bytes=0-' . (8 * 1024 * 1024 - 1))
+        );
         $this->assertSame(30, GoogleDriveClient::transferCeilingSeconds('{"name":"sauvegarde.zip"}'));
 
         $chunk = str_repeat('x', 8 * 1024 * 1024);
@@ -992,6 +1001,37 @@ final class GoogleDriveClientTest extends TestCase
         $query = [];
         parse_str((string) parse_url($asked, PHP_URL_QUERY), $query);
         $this->assertStringContainsString("mimeType!='" . GoogleDriveClient::FOLDER_MIME . "'", (string) $query['q']);
+    }
+
+    /**
+     * An off-site archive comes back in slices (#847, part 4): the slice
+     * is asked with a `Range` header, a 206 is that slice, a 416 is past
+     * the end, and a server ignoring the header is cut to what was asked.
+     */
+    public function testAFileIsReadInSlices(): void
+    {
+        $asked = [];
+        $client = $this->clientAnswering(function (string $method, string $url, array $headers) use (&$asked): array {
+            $asked[] = [$method, $url, $headers['Range'] ?? null];
+
+            return ['status' => 206, 'body' => 'bcd'];
+        });
+
+        $this->assertSame('bcd', $client->downloadRange('token', 'file-1', 1, 3));
+        $this->assertSame(
+            ['GET', 'https://www.googleapis.com/drive/v3/files/file-1?alt=media', 'bytes=1-3'],
+            $asked[0]
+        );
+
+        $whole = $this->clientAnswering(fn (): array => ['status' => 200, 'body' => 'abcdef']);
+        $this->assertSame('cde', $whole->downloadRange('token', 'file-1', 2, 3));
+
+        $past = $this->clientAnswering(fn (): array => ['status' => 416, 'body' => '']);
+        $this->assertSame('', $past->downloadRange('token', 'file-1', 99, 3));
+
+        $refused = $this->clientAnswering(fn (): array => ['status' => 404, 'body' => '{}']);
+        $this->expectException(DriveAccessException::class);
+        $refused->downloadRange('token', 'file-1', 0, 3);
     }
 
     private function clientAnswering(\Closure $answer): GoogleDriveClient

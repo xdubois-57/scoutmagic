@@ -93,7 +93,7 @@ class RunOperationalChecksHandler implements TaskHandlerInterface
             // the archive holds the master key, so a copy left in
             // storage/ is the site's encryption sitting next to what it
             // protects (Core\Alert\Check\PortableBackupLingerCheck).
-            new PortableBackupLingerCheck(new BackupRepository($pdo)),
+            new PortableBackupLingerCheck(new BackupRepository($pdo), null, $context->storagePath),
             // « Could we get the site back if the hosting account itself
             // were gone » — a different question from BackupAgeCheck's,
             // and one a site backing up perfectly to its own disk fails

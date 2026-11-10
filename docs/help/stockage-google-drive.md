@@ -1,11 +1,11 @@
 ---
 id: stockage-google-drive
 title: Un Google Drive pour les galeries
-summary: Ce qu'un Drive sait faire pour un album, ce qu'il refuse, et les deux conséquences à connaître avant de le choisir.
+summary: Ce qu'un Drive sait faire pour un album, et les conséquences à connaître avant de le choisir.
 category: Configuration
 role_min: superadmin
 question: Puis-je héberger les photos d'un album sur Google Drive ?
-question: Pourquoi le site refuse-t-il d'envoyer une vidéo sur mon Drive ?
+question: Peut-on mettre des vidéos dans un album sur Google Drive ?
 question: Pourquoi le site ne voit-il pas les photos déjà dans mon dossier Drive ?
 paths: /config/stockage/emplacements/nouveau, /config/stockage/emplacements/*/modification, /config/gallery
 related: stockage-google-drive-dossiers, stockage, stockage-webdav, stockage-espace
@@ -15,19 +15,12 @@ Un emplacement **Google Drive** peut recevoir les photos d'un album,
 comme n'importe quel autre. Trois choses le distinguent, et mieux vaut
 les connaître avant de le choisir plutôt que de les découvrir à l'usage.
 
-## Les vidéos y sont refusées
+## Les vidéos passent par le site
 
 Un lecteur se déplace dans un film en demandant des morceaux précis du
-fichier. Drive ne sait pas répondre à ce genre de demande : le film
-démarre, mais on ne peut jamais y avancer — et sur un téléphone, cela
-veut souvent dire qu'il ne se lit pas du tout.
-
-Le site **refuse donc l'envoi d'une vidéo** vers un album posé sur un
-Drive, au moment du dépôt, avec un message qui le dit. C'est un refus
-volontaire : accepter le fichier reviendrait à le ranger là où personne
-ne pourra le regarder.
-
-Les **photos**, elles, sont acceptées normalement.
+fichier. Le site les demande à Drive, puis les transmet : on peut
+avancer dans une vidéo, mais chaque saut fait un aller-retour par
+l'hébergement, comme chaque photo.
 
 ## Chaque photo passe par le site
 

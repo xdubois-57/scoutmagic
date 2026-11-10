@@ -170,11 +170,72 @@ class RestoreBackupHandlerTest extends TestCase
         $this->assertSame('Restauration impossible', $notifications[0]->title);
     }
 
+    /** @return iterable<string, array{string, bool, string}> */
+    public static function refusedBeforeTheSafetyBackup(): iterable
+    {
+        // type, archive file on disk => journaled reason
+        yield 'an export' => ['database', true, 'export_only'];
+        yield 'an archive gone since the request' => ['full_no_gallery', false, 'files_missing'];
+    }
+
+    /**
+     * #847: an export, and a backup whose archive left the disk between the
+     * request and this run, are refused where a portable one is — before
+     * the safety backup, which is minutes of work and a rollback for an
+     * operation that could never finish.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('refusedBeforeTheSafetyBackup')]
+    public function testABackupThatCannotFinishIsRefusedBeforeTheSafetyBackup(
+        string $type,
+        bool $archiveOnDisk,
+        string $reason
+    ): void {
+        mkdir($this->storagePath . '/maintenance', 0755, true);
+        if ($archiveOnDisk) {
+            file_put_contents($this->storagePath . '/maintenance/a.zip', 'PK');
+        }
+        $files = new \Core\File\FileRepository($this->pdo);
+        $archive = $files->create('maintenance/a.zip', 'a.zip', 'application/zip', 2, 'superadmin', null, null);
+        $backups = new \Core\Maintenance\BackupRepository($this->pdo);
+        $backupId = $backups->create($type, $this->userId);
+        $backups->markCompleted($backupId, $archive, null);
+
+        $this->handler->handle([
+            'source' => 'server',
+            'backup_id' => $backupId,
+            'requested_by_user_account_id' => $this->userId,
+        ], $this->context);
+
+        $refused = $this->pdo->query(
+            "SELECT context FROM event_log WHERE event_type = 'backup_restore_refused'"
+        )->fetchAll(\PDO::FETCH_COLUMN);
+        $this->assertCount(1, $refused);
+        $this->assertSame($reason, json_decode((string) $refused[0], true)['reason']);
+        $this->assertSame(
+            0,
+            (int) $this->pdo->query("SELECT COUNT(*) FROM event_log WHERE event_type = 'backup_restore_failed'")->fetchColumn(),
+            'the safety backup was attempted'
+        );
+        $this->assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM backups')->fetchColumn(), 'no safety copy row');
+
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $notifications = (new NotificationRepository($this->pdo, $encryption))->findByUserAccountId($this->userId);
+        $this->assertSame('Restauration impossible', $notifications[0]->title ?? null);
+    }
+
     /** An ordinary backup is not caught by that guard. */
     public function testAnOrdinaryBackupStillReachesTheSafetyBackupStep(): void
     {
-        $backupId = (new \Core\Maintenance\BackupRepository($this->pdo))->create('full_no_gallery', $this->userId);
-        $this->pdo->prepare("UPDATE backups SET status = 'completed' WHERE id = ?")->execute([$backupId]);
+        // A backup as every completing path leaves one: both files on disk.
+        @mkdir($this->storagePath . '/maintenance', 0755, true);
+        file_put_contents($this->storagePath . '/maintenance/b.zip', 'PK');
+        file_put_contents($this->storagePath . '/maintenance/b.sql', '-- dump');
+        $files = new \Core\File\FileRepository($this->pdo);
+        $archive = $files->create('maintenance/b.zip', 'b.zip', 'application/zip', 2, 'superadmin', null, null);
+        $dump = $files->create('maintenance/b.sql', 'b.sql', 'application/sql', 7, 'superadmin', null, null);
+        $backups = new \Core\Maintenance\BackupRepository($this->pdo);
+        $backupId = $backups->create('full_no_gallery', $this->userId);
+        $backups->markCompleted($backupId, $archive, $dump);
 
         $this->handler->handle(['source' => 'server', 'backup_id' => $backupId], $this->context);
 

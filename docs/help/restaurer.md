@@ -15,19 +15,24 @@ La restauration se fait dans **Sauvegardes récentes**, sous la liste :
 c'est à cela que sert une sauvegarde. Elle remplace la base de données
 et les fichiers actuels par ceux de la sauvegarde choisie.
 
-Une fois la restauration terminée, toutes les personnes connectées doivent se reconnecter, y compris vous.
+Ensuite, toutes les personnes connectées doivent se reconnecter, vous compris.
 
 ## Depuis ce serveur
 
-Choisissez une sauvegarde dans la liste déroulante, tapez RESTAURER,
-puis confirmez. **Aucun mot de passe n'est demandé** : le site connaît
+Choisissez une sauvegarde, tapez RESTAURER, puis confirmez. **Aucun mot de passe n'est demandé** : le site connaît
 celui qu'il a généré pour chacune de ses archives. Seule une sauvegarde
 complète d'avant les mots de passe générés demande encore celui que vous
 aviez choisi : le champ apparaît quand vous la sélectionnez.
 
-Les sauvegardes portables n'y figurent pas : elles servent à repartir
-sur une installation neuve, pas à écraser celle-ci — voyez « Remonter
-le site après un sinistre ».
+La liste ne propose que ce qui peut être restauré : ni les portables,
+qui servent à repartir sur une installation neuve (« Remonter le site
+après un sinistre »), ni les exports « Base de données », ni une
+sauvegarde dont un fichier a quitté le serveur. Si un fichier disparaît
+entre-temps, la restauration est refusée avant de rien modifier.
+
+Une sauvegarde « Configuration seule » ne ramène que les réglages et
+l'état des modules : les membres, les finances et tout le reste ne
+bougent pas. La phrase sous la liste le rappelle.
 
 ## Depuis un fichier téléversé
 
@@ -43,7 +48,7 @@ et ne lance rien : choisissez-le à nouveau.
 ## Une seule restauration à la fois
 
 Tant qu'une restauration attend ou se déroule, le formulaire n'en
-propose pas d'autre. Attendez sa fin.
+propose pas d'autre.
 
 ## Les emplacements de stockage
 
@@ -63,10 +68,16 @@ emplacements. Vérifiez-le, puis enregistrez-le depuis **Modifier** : le
 message disparaît. Rien n'est créé, déplacé ni supprimé dans le stockage
 lui-même.
 
+## Ce qui reste celui d'aujourd'hui
+
+La liste des sauvegardes, le journal et la destination hors site ne
+reviennent pas en arrière. Un envoi hors site en cours est interrompu,
+et les tâches planifiées repartent de zéro.
+
 ## Avant de confirmer
 
-Le site prend d'abord une sauvegarde de sécurité, et revient seul en
-arrière si la restauration échoue. Mais tout ce qui a été fait
-**après** la date de la sauvegarde choisie sera perdu : inscriptions,
-messages, modifications de contenu. Vérifiez la date avant de
-confirmer.
+Le site prend d'abord une copie « Avant restauration », et revient seul
+en arrière si la restauration échoue. Pour annuler une restauration
+réussie, cliquez sur « Annuler cette restauration » sous cette copie.
+Tout ce qui a été fait **après** la date choisie sera perdu :
+inscriptions, messages, contenus. Vérifiez la date.

@@ -293,9 +293,22 @@ final class FakeDrive
 
         $id = $this->idIn($url);
         if ($method === 'GET' && str_contains($url, 'alt=media')) {
-            return isset($this->files[$id]) && !$this->isTrashed($id)
-                ? ['status' => 200, 'body' => $this->files[$id]['content']]
-                : ['status' => 404, 'body' => '{"error":{"message":"not found"}}'];
+            if (!isset($this->files[$id]) || $this->isTrashed($id)) {
+                return ['status' => 404, 'body' => '{"error":{"message":"not found"}}'];
+            }
+            $content = $this->files[$id]['content'];
+            // A `Range: bytes=a-b` is answered as Drive does: 206 and the slice,
+            // 416 past the end.
+            if (preg_match('/^bytes=(\d+)-(\d+)$/', (string) ($headers['Range'] ?? ''), $range) === 1) {
+                $from = (int) $range[1];
+                if ($from >= strlen($content)) {
+                    return ['status' => 416, 'body' => ''];
+                }
+
+                return ['status' => 206, 'body' => substr($content, $from, (int) $range[2] - $from + 1)];
+            }
+
+            return ['status' => 200, 'body' => $content];
         }
         if ($method === 'GET' && $id !== null) {
             return isset($this->files[$id])

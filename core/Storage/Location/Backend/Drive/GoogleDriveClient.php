@@ -633,14 +633,8 @@ final class GoogleDriveClient
     }
 
     /**
-     * The bytes of a file, whole.
-     *
-     * Deliberately without a range variant, and that is a scope statement
-     * rather than an omission: reading a film in slices is what
-     * {@see \Core\Storage\Location\StorageCapability::RangeRead} is,
-     * this backend does not declare it, and a method here that nothing
-     * declares would be exactly the capability lie the enum exists to
-     * prevent. IT-07 adds both together or neither.
+     * The bytes of a file, whole. A large file is read with
+     * {@see downloadRange()} instead.
      *
      * @throws DriveAccessException
      */
@@ -657,6 +651,42 @@ final class GoogleDriveClient
         }
 
         return $response['body'];
+    }
+
+    /**
+     * Bytes $offset to $offset + $length - 1 of a file (#847, part 4):
+     * `alt=media` honours a `Range` header, so an off-site archive is
+     * brought back in slices over several runs rather than whole in
+     * memory. Fewer bytes when the range runs past the end; none when it
+     * starts there (416).
+     *
+     * @throws DriveAccessException
+     */
+    public function downloadRange(string $accessToken, string $fileId, int $offset, int $length): string
+    {
+        if ($length <= 0) {
+            return '';
+        }
+        $response = $this->send(
+            'GET',
+            self::API_BASE . '/files/' . rawurlencode($fileId) . '?alt=media',
+            [
+                'Authorization' => 'Bearer ' . $accessToken,
+                'Range' => sprintf('bytes=%d-%d', $offset, $offset + $length - 1),
+            ]
+        );
+
+        if ($response['status'] === 416) {
+            return '';
+        }
+        if ($response['status'] !== 206 && $response['status'] !== 200) {
+            throw $this->errorFor($response, 'Le fichier n\'a pas pu être relu sur Google Drive.');
+        }
+        // A 200 is the whole file: a server free to ignore the header. The
+        // slice asked for is cut from it, so the caller's offsets stay true.
+        return $response['status'] === 200
+            ? substr($response['body'], $offset, $length)
+            : substr($response['body'], 0, $length);
     }
 
     /**
@@ -1154,13 +1184,20 @@ final class GoogleDriveClient
      * and is exercised nowhere, which is precisely why the transport is
      * injectable.
      */
-    public static function transferCeilingSeconds(?string $body): int
+    public static function transferCeilingSeconds(?string $body, ?string $range = null): int
     {
-        if ($body === null) {
+        // A slice read back (#847, part 4) carries no body but brings one
+        // back: sized on the `Range: bytes=a-b` it asks for, at the same
+        // floor rate, so an 8 MiB slice on a slow link is not cut at 30 s.
+        $moved = strlen($body ?? '');
+        if ($range !== null && preg_match('/^bytes=(\d+)-(\d+)$/', $range, $m) === 1) {
+            $moved = max($moved, (int) $m[2] - (int) $m[1] + 1);
+        }
+        if ($moved === 0) {
             return self::TIMEOUT;
         }
 
-        return max(self::TIMEOUT, (int) ceil(strlen($body) / self::MIN_UPLOAD_BYTES_PER_SECOND));
+        return max(self::TIMEOUT, (int) ceil($moved / self::MIN_UPLOAD_BYTES_PER_SECOND));
     }
 
     /**
@@ -1212,7 +1249,7 @@ final class GoogleDriveClient
                 // MIN_UPLOAD_BYTES_PER_SECOND for STALL_SECONDS is dead, and
                 // cURL abandons it without waiting for the ceiling. Slow is
                 // tolerated; stalled is not.
-                CURLOPT_TIMEOUT => self::transferCeilingSeconds($body),
+                CURLOPT_TIMEOUT => self::transferCeilingSeconds($body, $headers['Range'] ?? null),
                 CURLOPT_LOW_SPEED_LIMIT => self::MIN_UPLOAD_BYTES_PER_SECOND,
                 CURLOPT_LOW_SPEED_TIME => self::STALL_SECONDS,
                 CURLOPT_HEADERFUNCTION => static function ($_handle, string $header) use (&$location, &$range): int {

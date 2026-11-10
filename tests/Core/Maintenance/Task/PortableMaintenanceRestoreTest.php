@@ -57,6 +57,44 @@ final class PortableMaintenanceRestoreTest extends TestCase
     private Connection $connection;
     private TaskContext $context;
     private RestoreBackupHandler $handler;
+    /**
+     * The list of backups after a portable restore is this server's
+     * (#847, part 3), so the passwords that open them are this server's
+     * too — the safety copy's among them, or « Annuler cette
+     * restauration » could not open it — and none of the origin's.
+     */
+    public function testTheArchivesPasswordsAfterAPortableRestoreAreTodays(): void
+    {
+        $this->handler->handle([
+            'source' => 'upload',
+            'uploaded_temp_path' => $this->buildOriginArchive(),
+            'encrypted_password' => $this->encryptedPassphrase(self::PASSPHRASE),
+            'requested_by_user_account_id' => $this->userId,
+        ], $this->context);
+        $rows = $this->pdo->query(
+            "SELECT payload FROM scheduled_actions WHERE task_key = 'restore_backup' AND status = 'pending'"
+                . ' ORDER BY id DESC'
+        )->fetchAll(\PDO::FETCH_ASSOC);
+        $this->assertNotSame([], $rows);
+        $resumePayload = json_decode((string) $rows[0]['payload'], true);
+        $this->assertIsArray($resumePayload);
+        $safetyId = (int) $resumePayload['safety_backup_id'];
+
+        $this->handler->handle($resumePayload, $this->context);
+
+        $secrets = (new SecretManager(
+            $this->siteBase . '/storage/keys/master.key',
+            $this->siteBase . '/storage/config/secrets.enc'
+        ))->readSecrets();
+        $this->assertSame('le-mot-de-passe-d-une-archive-du-jour', $secrets['backup_password_99'] ?? null);
+        $this->assertArrayNotHasKey('backup_password_5', $secrets, 'a password of the origin\'s list');
+        $this->assertArrayHasKey('backup_password_' . $safetyId, $secrets, 'the safety copy could not be opened');
+        $this->assertSame(
+            RestoreBackupHandler::SAFETY_TYPE,
+            $this->pdo->query("SELECT type FROM backups WHERE id = {$safetyId}")->fetchColumn()
+        );
+    }
+
     private string $siteBase;
     private string $originBase;
     private string $originMasterKey;
@@ -82,7 +120,10 @@ final class PortableMaintenanceRestoreTest extends TestCase
         (new SecretManager(
             $this->siteBase . '/storage/keys/master.key',
             $this->siteBase . '/storage/config/secrets.enc'
-        ))->writeSecrets($this->targetSecrets() + ['encryption_key' => 'la-clef-du-site-en-place-a-jeter']);
+        ))->writeSecrets($this->targetSecrets() + [
+            'encryption_key' => 'la-clef-du-site-en-place-a-jeter',
+            'backup_password_99' => 'le-mot-de-passe-d-une-archive-du-jour',
+        ]);
 
         // The site the archive came from.
         $this->write($this->originBase, 'core/App.php', '<?php // origine');
@@ -96,6 +137,7 @@ final class PortableMaintenanceRestoreTest extends TestCase
             'db_name' => 'ancienne_base',
             'db_password' => 'ancien-mot-de-passe',
             'encryption_key' => self::ORIGIN_ENCRYPTION_KEY,
+            'backup_password_5' => 'le-mot-de-passe-d-une-archive-de-l-origine',
         ]);
 
         $statement = $this->pdo->prepare('INSERT INTO user_accounts (email_encrypted, email_blind_index) VALUES (?, ?)');
@@ -364,6 +406,15 @@ final class PortableMaintenanceRestoreTest extends TestCase
     public function testAWrongPassphraseChangesNothingOnTheRunningSite(): void
     {
         $before = file_get_contents($this->siteBase . '/storage/keys/master.key');
+        // An off-site send under way: a refused restore must not have
+        // stopped it (#847, part 3) — « Rien n'a été modifié » is true.
+        $sending = $this->siteBase . '/storage/maintenance/hors_site_en_cours.zip';
+        $this->write($this->siteBase, 'storage/maintenance/hors_site_en_cours.zip', 'archive portable');
+        $this->pdo->exec("DELETE FROM scheduled_actions WHERE task_key = 'send_remote_backup'");
+        $this->pdo->prepare(
+            "INSERT INTO scheduled_actions (module_id, task_key, reference, payload, run_at, status)
+             VALUES ('core', 'send_remote_backup', 'auto', ?, NOW(), 'pending')"
+        )->execute([json_encode(['archive_path' => $sending, 'remote_name' => 'copie.zip', 'location_id' => 0])]);
 
         $this->handler->handle([
             'source' => 'upload',
@@ -376,6 +427,8 @@ final class PortableMaintenanceRestoreTest extends TestCase
         $this->assertSame([], $this->journalEntries('backup_restore_failed'));
         $this->assertSame($before, file_get_contents($this->siteBase . '/storage/keys/master.key'));
         $this->assertFileDoesNotExist($this->siteBase . '/storage/uploads/tresorerie.pdf');
+        $this->assertFileExists($sending, 'the off-site send was stopped by a restore that never started');
+        $this->assertSame([], $this->journalEntries('remote_backup_interrupted'));
     }
 
     private function seedSetting(string $key, string $value): void

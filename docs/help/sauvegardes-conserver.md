@@ -18,7 +18,8 @@ sauvegarde.
 ## La liste
 
 « Sauvegardes récentes » les liste toutes, la plus récente en premier,
-avec leur type, leur date, leur taille et leur état. « Voir plus »
+avec leur type, leur date, leur taille, leur état et « Sur ce serveur » :
+ce sont les copies gardées ici, pas celles envoyées hors site. « Voir plus »
 révèle les lignes au-delà des cinq premières. Le bloc arrive replié
 comme les autres : cliquez sur son titre pour l'ouvrir.
 
@@ -28,6 +29,13 @@ une **corbeille** pour la supprimer. Télécharger affiche aussi le mot
 de passe, juste avant de servir le fichier : notez-le à ce moment-là.
 Dans l'application installée, touchez une seconde fois la flèche une
 fois le mot de passe noté.
+
+Une ligne ne propose que ce qui est possible : si un fichier a quitté
+le serveur — après une restauration, par exemple —, elle porte
+« Archive absente », « Base de données absente » ou « Fichiers
+absents », et n'offre plus que la clé et la corbeille. Une « Base de
+données » porte « Export » : elle se télécharge, mais ne se restaure pas
+ici.
 
 Le site en garde **trois de chaque sorte**, comptées séparément : les
 vôtres, les planifiées et celles prises avant une opération — une série
@@ -47,8 +55,8 @@ contenu à ce qui avait été écrit. Une ligne peut donc porter :
 - **Illisible** — le fichier est là mais son contenu a changé, le plus
   souvent une archive tronquée par un disque plein. Elle ne se restaurera
   pas : supprimez-la et créez-en une nouvelle tout de suite ;
-- **Fichier absent** — le fichier n'est plus sur le serveur. Le site ne
-  l'a pas supprimé, une suppression retire la ligne en même temps ;
+- **Fichier absent** — le fichier n'était plus sur le serveur lors de
+  la dernière relecture ;
 - **Non vérifiable** — sauvegarde antérieure à cette vérification, sans
   empreinte à laquelle la comparer. Les suivantes en ont une.
 

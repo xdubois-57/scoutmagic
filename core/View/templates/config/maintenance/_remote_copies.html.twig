@@ -1,0 +1,84 @@
+{# The « Copies hors site » card body (#847, part 4), loaded by
+   maintenance.js from GET /config/maintenance/remote-backup/archives once
+   the page is shown: listing a destination is a network call, and the
+   page does not wait on it. Read on the destination, never deduced from
+   the database, where off-site copies leave no row.
+
+   data-remote-busy keeps the script polling while a copy is brought
+   back or restored. #}
+<div id="remote-copies-content"{% if fetch or restore_busy %} data-remote-busy="1"{% endif %}>
+    {% if remote.state == 'none' %}
+        <p class="small text-body-secondary mb-0" data-remote-state="none">
+            Aucune destination hors site n'est choisie. Choisissez-la dans
+            <a href="/config/maintenance/sauvegarde-automatique#remote-backup">Sauvegarde automatique</a>.
+        </p>
+    {% else %}
+        <p class="small text-body-secondary mb-2" data-remote-location>{{ remote.location }}</p>
+        {% if remote.state == 'unreachable' %}
+            <div class="alert alert-warning small mb-0" data-remote-state="unreachable">
+                La destination n'a pas répondu. Les copies déposées ne sont pas touchées.
+                <button type="button" class="btn btn-sm btn-outline-secondary ms-2" data-remote-retry>Réessayer</button>
+            </div>
+        {% elseif fetch %}
+            <div class="small" role="status" data-remote-state="fetching">
+                Rapatriement de la copie : {{ fetch.done|filesize }} sur {{ fetch.size|filesize }}.
+                Vous pouvez fermer la page : la restauration suivra d'elle-même.
+            </div>
+        {% elseif remote.copies is empty %}
+            <p class="small text-body-secondary mb-0" data-remote-state="empty">Aucune copie sur la destination pour l'instant.</p>
+        {% else %}
+            {% if restore_busy %}
+                <div class="alert alert-info small" role="status">Une restauration est en cours. Attendez sa fin avant d'en lancer une autre.</div>
+            {% endif %}
+            <ul class="list-unstyled mb-2" data-remote-state="listed">
+                {% for copy in remote.copies %}
+                    <li class="d-flex flex-wrap align-items-center gap-2 border-bottom py-2" data-remote-copy="{{ copy.name }}">
+                        <div class="flex-grow-1" style="flex-basis: 0; min-width: 0;">
+                            {% if copy.current %}
+                                <span class="badge text-bg-success">Lisible avec la phrase actuelle</span>
+                            {% else %}
+                                <span class="badge text-bg-warning">Ancienne phrase de passe</span>
+                            {% endif %}
+                            {% if held_name == copy.name %}
+                                <span class="badge text-bg-secondary">Déjà rapatriée</span>
+                            {% endif %}
+                            <div class="small text-body-secondary mt-1">
+                                {{ copy.writtenAt ? copy.writtenAt|datetime_fr : 'Date inconnue' }} · {{ copy.size|filesize }}
+                            </div>
+                        </div>
+                        {% if not restore_busy %}
+                            <button type="button" class="btn btn-sm btn-outline-danger" data-remote-restore="{{ copy.name }}"
+                                    data-remote-current="{{ copy.current ? '1' : '0' }}"
+                                    aria-label="Restaurer la copie hors site du {{ copy.writtenAt ? copy.writtenAt|datetime_fr : 'date inconnue' }}">
+                                Restaurer
+                            </button>
+                        {% endif %}
+                    </li>
+                {% endfor %}
+            </ul>
+            <form class="d-none border rounded p-2 mb-2" id="remote-restore-form">
+                <p class="small mb-2">
+                    Le site rapatrie la copie, prend une copie de sécurité, puis revient à sa date. La liste des
+                    sauvegardes et le journal restent ceux d'aujourd'hui.
+                </p>
+                <input type="hidden" name="name" id="remote-restore-name" value="">
+                <div class="mb-2 d-none" id="remote-restore-phrase-field">
+                    <label class="form-label small" for="remote-restore-phrase">Phrase de passe de cette copie</label>
+                    <input type="password" class="form-control form-control-sm" id="remote-restore-phrase" autocomplete="off">
+                    <div class="form-text">
+                        La phrase est vérifiée une fois la copie rapatriée, avant de toucher au site. Si elle est
+                        fausse, vous pourrez la ressaisir sans tout rapatrier à nouveau.
+                    </div>
+                </div>
+                <label class="form-label small" for="remote-restore-keyword">Tapez <strong>RESTAURER</strong> pour confirmer</label>
+                <input type="text" class="form-control form-control-sm mb-2" id="remote-restore-keyword" autocomplete="off">
+                <button type="submit" class="btn btn-outline-danger btn-sm" id="remote-restore-submit">Restaurer cette copie</button>
+                <div class="small text-danger-emphasis mt-2 d-none" id="remote-restore-error" role="alert"></div>
+            </form>
+            <p class="small text-body-secondary mb-0">
+                Sur une installation neuve, téléchargez une copie depuis {{ remote.service }} et déposez-la dans
+                « Restaurer une sauvegarde », avec la phrase de passe notée.
+            </p>
+        {% endif %}
+    {% endif %}
+</div>

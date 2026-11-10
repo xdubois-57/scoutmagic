@@ -18,11 +18,16 @@ use Core\File\FileRepository;
 use Core\Maintenance\Backup;
 use Core\Maintenance\BackupException;
 use Core\Maintenance\BackupPasswords;
+use Core\Maintenance\BackupPresence;
 use Core\Maintenance\BackupRepository;
 use Core\Maintenance\BackupService;
+use Core\Maintenance\ConfigOnlyRestore;
 use Core\Maintenance\Portable\PortableArchive;
 use Core\Maintenance\Portable\PortableRestore;
+use Core\Maintenance\Remote\RemoteBackupDestination;
+use Core\Maintenance\Remote\RemotePassphrase;
 use Core\Maintenance\RequesterNotice;
+use Core\Maintenance\Restore\RestoreStateSnapshot;
 use Core\Maintenance\RestoreArchiveCheck;
 use Core\Maintenance\VersionFile;
 use Core\Scheduler\SchedulerRepository;
@@ -32,6 +37,8 @@ use Core\Scheduler\TaskHandlerInterface;
 use Core\Security\EncryptionService;
 use Core\Security\SecretManager;
 use Core\Storage\DiskBudget;
+use Core\Storage\Location\Backend\StorageBackendFactory;
+use Core\Storage\Location\StorageLocationRepository;
 use Core\Statistics\InstallationIdentityService;
 use Core\Storage\Location\DeclaredStorageDirectories;
 use Core\Storage\Location\Restore\StorageBindingReconciler;
@@ -48,7 +55,7 @@ use Core\Storage\Location\Restore\StorageBindingSnapshot;
  *   in this codebase registers one), its fileId is only password-protected
  *   for the user-triggered 'full_config'/'full_no_gallery'/
  *   'full_with_gallery' types (Task\CreateBackupHandler), never for the
- *   automatic 'auto_update'/'auto_reset'/'database' types.
+ *   automatic 'auto_update'/'auto_reset'/'auto_restore'/'database' types.
  * - `upload`: payload['uploaded_temp_path'] — a zip built the same way as
  *   Core\Maintenance\BackupService::createFullBackup() (database.sql
  *   bundled inside alongside core/modules/public/storage), previously
@@ -70,6 +77,13 @@ use Core\Storage\Location\Restore\StorageBindingSnapshot;
  */
 class RestoreBackupHandler implements TaskHandlerInterface
 {
+
+    /**
+     * The type of the copy taken just before a restore (#847, part 3) —
+     * its own, so the list can say what it is and offer to undo the
+     * restore from it.
+     */
+    public const SAFETY_TYPE = 'auto_restore';
 
     private const TYPE_COMPLETED = 'core.restore_completed';
     private const TYPE_FAILED = 'core.restore_failed';
@@ -150,6 +164,32 @@ class RestoreBackupHandler implements TaskHandlerInterface
             return;
         }
 
+        // **Also before the safety backup** (#847): an export holds no
+        // files, and a backup whose archive or dump left the disk since it
+        // was asked for cannot finish. The form refused both already; this
+        // is for what changed between the request and this run.
+        $refusal = $this->serverBackupRefusal($payload, $backupRepository, $fileRepository, $context->storagePath);
+        if ($refusal !== null) {
+            [$reason, $sentence] = $refusal;
+            $context->journal->log(
+                'core',
+                'backup_restore_refused',
+                'warning',
+                'Restauration refusée : la sauvegarde ne peut pas être restaurée sur ce serveur',
+                ['backup_id' => (int) ($payload['backup_id'] ?? 0), 'reason' => $reason],
+                $requestedBy
+            );
+            RequesterNotice::sendAboutRestore(
+                $context,
+                $requestedBy,
+                self::TYPE_FAILED,
+                'Restauration impossible',
+                $sentence
+            );
+
+            return;
+        }
+
         $uploadedTempPath = isset($payload['uploaded_temp_path']) ? (string) $payload['uploaded_temp_path'] : null;
         $extractedUploadDbDump = null;
 
@@ -188,6 +228,20 @@ class RestoreBackupHandler implements TaskHandlerInterface
         $safetyDbDump = null;
         $safetyZip = null;
         $bindingsHold = null;
+        $stateHold = null;
+        $restoredJournalMaxId = 0;
+        $restoredFrom = null;
+        $safetyBackupId = 0;
+
+        // Just before the safety copy (#847, part 3) — after every refusal,
+        // so a refused restore really modified nothing, and before the dump,
+        // so a rollback never brings back a send pointing at an archive
+        // deleted here. An off-site send under way would otherwise carry on
+        // against a database about to be replaced. Not for « Configuration
+        // seule », which replaces no database.
+        if (!$this->isConfigOnly($payload, $backupRepository)) {
+            $this->interruptRemoteSend($context, $requestedBy);
+        }
 
         try {
             $safety = $this->createSafetyBackup(
@@ -211,15 +265,39 @@ class RestoreBackupHandler implements TaskHandlerInterface
                 [$restoreDbDumpPath, $restoreZipPath, $password, $extractedUploadDbDump] =
                     $this->resolveSource($payload, $pdo, $context->storagePath, $context->encryption);
 
-                // Today's storage bindings, kept on disk before the
-                // database that holds them is replaced (#832) — put back
-                // on the pass that finishes the migration.
-                $bindingsHold = $this->holdStorageBindingsAside($context);
+                if ($this->isConfigOnly($payload, $backupRepository)) {
+                    // « Configuration seule » brings back the settings and
+                    // the modules' enabled state, nothing else (#847, part
+                    // 2): the database is not replaced, no file is
+                    // extracted, and a task queued against the unit's data
+                    // keeps its sense — except one of a module this switches
+                    // off.
+                    $applied = (new ConfigOnlyRestore($pdo))->apply($restoreDbDumpPath);
+                    $this->cancelTasksOfModules($context, $applied['disabled'], $requestedBy);
+                } else {
+                    // Today's storage bindings, kept on disk before the
+                    // database that holds them is replaced (#832) — put back
+                    // on the pass that finishes the migration.
+                    $bindingsHold = $this->holdStorageBindingsAside($context);
+                    // And today's list of backups, journal and off-site
+                    // settings, the same way (#847, part 3) — after the
+                    // safety copy, so its row is part of them.
+                    $stateHold = RestoreStateSnapshot::holdAside($pdo, $context->storagePath);
+                    $todaysTasks = $this->oneShotTasks($pdo);
+                    $restoredFrom = $this->restoredFrom($payload, $backupRepository);
 
-                $backupService->restoreDatabase($restoreDbDumpPath);
-                \Core\Security\SessionGeneration::invalidateRestoredDatabase($context->connection->getPdo());
-                if ($restoreZipPath !== null) {
-                    $backupService->restoreFiles($restoreZipPath, $password);
+                    $backupService->restoreDatabase($restoreDbDumpPath);
+                    $restoredJournalMaxId = RestoreStateSnapshot::restoredJournalMaxId($pdo);
+                    $this->startTasksClean(
+                        $context,
+                        $todaysTasks,
+                        $requestedBy,
+                        (int) ($payload['scheduled_action_id'] ?? 0)
+                    );
+                    \Core\Security\SessionGeneration::invalidateRestoredDatabase($context->connection->getPdo());
+                    if ($restoreZipPath !== null) {
+                        $backupService->restoreFiles($restoreZipPath, $password);
+                    }
                 }
 
                 // Not migrated here, for the same reason
@@ -246,7 +324,13 @@ class RestoreBackupHandler implements TaskHandlerInterface
                     $requestedBy,
                     $safetyDbDump,
                     $safetyZip,
-                    ['storage_bindings_hold' => $bindingsHold, 'storage_bindings_same_installation' => true]
+                    [
+                        'storage_bindings_hold' => $bindingsHold,
+                        'storage_bindings_same_installation' => true,
+                        'restore_state_hold' => $stateHold,
+                        'restored_journal_max_id' => $restoredJournalMaxId,
+                        'restored_from' => $restoredFrom,
+                    ]
                 );
 
                 return;
@@ -263,8 +347,12 @@ class RestoreBackupHandler implements TaskHandlerInterface
                     (string) $safetyZip,
                     $safetyBackupId,
                     $requestedBy,
-                    $restoreError
+                    $restoreError,
+                    $stateHold
                 );
+                if ($stateHold !== null) {
+                    @unlink($stateHold);
+                }
             }
         } catch (\Throwable $e) {
             $context->journal->log(
@@ -496,6 +584,10 @@ class RestoreBackupHandler implements TaskHandlerInterface
 
         $targetBaseUrl = $context->settings->get('base_url');
 
+        // As on the ordinary path: after the archive's own checks above,
+        // just before the safety copy.
+        $this->interruptRemoteSend($context, $requestedBy);
+
         try {
             $safety = $this->createSafetyBackup(
                 $context,
@@ -542,17 +634,27 @@ class RestoreBackupHandler implements TaskHandlerInterface
         // path travels in the payload; the key material does not.
         $secretsHold = $restore->holdSecretsAside($secretsBefore);
         $bindingsHold = null;
+        $stateHold = null;
 
         try {
             // As on the ordinary path (#832) — and matched by id only when
             // the archive is this installation's own: another
             // installation's location 2 is not this one's.
             $bindingsHold = $this->holdStorageBindingsAside($context);
+            $stateHold = RestoreStateSnapshot::holdAside($pdo, $context->storagePath);
+            $todaysTasks = $this->oneShotTasks($pdo);
             $ownIdentity = $context->settings->get(InstallationIdentityService::INSTALLATION_ID_SETTING);
             $sameInstallation = is_string($ownIdentity) && $ownIdentity !== ''
                 && $ownIdentity === $archive->originInstallationId();
 
             $restore->apply($archive, $backupService, $targetOwnedSecrets, $context->connection->getPdo());
+            $restoredJournalMaxId = RestoreStateSnapshot::restoredJournalMaxId($pdo);
+            $this->startTasksClean(
+                        $context,
+                        $todaysTasks,
+                        $requestedBy,
+                        (int) ($payload['scheduled_action_id'] ?? 0)
+                    );
 
             $this->scheduleMigrationResume(
                 $context,
@@ -568,6 +670,8 @@ class RestoreBackupHandler implements TaskHandlerInterface
                     'portable_secrets_hold' => $secretsHold,
                     'storage_bindings_hold' => $bindingsHold,
                     'storage_bindings_same_installation' => $sameInstallation,
+                    'restore_state_hold' => $stateHold,
+                    'restored_journal_max_id' => $restoredJournalMaxId,
                 ]
             );
         } catch (\Throwable $restoreError) {
@@ -588,8 +692,12 @@ class RestoreBackupHandler implements TaskHandlerInterface
                 $safety['zip'],
                 $safety['id'],
                 $requestedBy,
-                $restoreError
+                $restoreError,
+                $stateHold
             );
+            if ($stateHold !== null) {
+                @unlink($stateHold);
+            }
         } finally {
             $archive->close();
         }
@@ -706,7 +814,7 @@ class RestoreBackupHandler implements TaskHandlerInterface
         $safetyDbDump = $backupService->createDatabaseDump();
         $safetyZip = $backupService->createFileBackup($safetyPassword);
 
-        $safetyBackupId = $backupRepository->create('auto_reset', $requestedBy);
+        $safetyBackupId = $backupRepository->create(self::SAFETY_TYPE, $requestedBy);
         BackupPasswords::forStorage($context->storagePath)->keepFor($safetyBackupId, $safetyPassword);
         $safetyZipFileId = $fileRepository->create(
             $this->relativePath($context->storagePath, $safetyZip),
@@ -758,6 +866,424 @@ class RestoreBackupHandler implements TaskHandlerInterface
     }
 
     /**
+     * Why a backup of this server cannot be restored, as `[reason, sentence]`
+     * — `export_only` or `files_missing` — or null. Upload restores are not
+     * concerned: their archive is the file just received.
+     *
+     * @param array<string, mixed> $payload
+     * @return array{0: string, 1: string}|null
+     */
+    private function serverBackupRefusal(
+        array $payload,
+        BackupRepository $backupRepository,
+        FileRepository $fileRepository,
+        string $storagePath
+    ): ?array {
+        if (($payload['source'] ?? 'server') !== 'server' || !isset($payload['backup_id'])) {
+            return null;
+        }
+        $backup = $backupRepository->findById((int) $payload['backup_id']);
+        if ($backup === null) {
+            return null;
+        }
+        if ($backup->type === Backup::EXPORT_TYPE) {
+            return ['export_only', BackupPresence::EXPORT_REFUSAL];
+        }
+        $sentence = (new BackupPresence($fileRepository, $storagePath))->refusal($backup);
+
+        return $sentence === null ? null : ['files_missing', $sentence];
+    }
+
+    /**
+     * Whether this payload names a « Configuration seule » backup of this
+     * server — the one restore that touches only `settings` and
+     * `module_registry` (ConfigOnlyRestore).
+     *
+     * @param array<string, mixed> $payload
+     */
+    private function isConfigOnly(array $payload, BackupRepository $backupRepository): bool
+    {
+        if (($payload['source'] ?? 'server') !== 'server' || !isset($payload['backup_id'])) {
+            return false;
+        }
+
+        return $backupRepository->findById((int) $payload['backup_id'])?->type === 'full_config';
+    }
+
+    /**
+     * The queued and running tasks of modules a configuration restore
+     * switched off, canceled and counted per task in the journal: their
+     * handler is no longer loaded, and they would only fail.
+     *
+     * @param list<string> $moduleIds
+     */
+    private function cancelTasksOfModules(TaskContext $context, array $moduleIds, ?int $requestedBy): void
+    {
+        if ($moduleIds === []) {
+            return;
+        }
+        $pdo = $context->connection->getPdo();
+        $placeholders = implode(', ', array_fill(0, count($moduleIds), '?'));
+        $count = $pdo->prepare(
+            "SELECT module_id, task_key, COUNT(*) AS n FROM scheduled_actions
+             WHERE module_id IN ({$placeholders}) AND status IN ('pending', 'processing')
+             GROUP BY module_id, task_key"
+        );
+        $count->execute($moduleIds);
+        $counts = [];
+        foreach ($count->fetchAll(\PDO::FETCH_ASSOC) ?: [] as $row) {
+            $counts[$row['module_id'] . '/' . $row['task_key']] = (int) $row['n'];
+        }
+        if ($counts === []) {
+            return;
+        }
+
+        $pdo->prepare(
+            "UPDATE scheduled_actions SET status = 'canceled'
+             WHERE module_id IN ({$placeholders}) AND status IN ('pending', 'processing')"
+        )->execute($moduleIds);
+
+        $context->journal->log(
+            'core',
+            'restore_tasks_canceled',
+            'warning',
+            'Tâches abandonnées : leur module a été désactivé par la restauration',
+            ['tasks' => $counts],
+            $requestedBy
+        );
+    }
+
+    /**
+     * Stops an off-site send that is under way (#847, part 3): its local
+     * archive — which carries `master.key` — is deleted, the half-sent
+     * copy at the destination is discarded, and the chain goes on with an
+     * empty payload. Without this the send resumed against a database
+     * about to be replaced, and the restored database no longer knew the
+     * archive it would have been carrying.
+     *
+     * Best-effort on the destination, like the send's own abandonment: a
+     * destination that cannot be reached now cannot be cleaned by anyone.
+     */
+    private function interruptRemoteSend(TaskContext $context, ?int $requestedBy): void
+    {
+        $pdo = $context->connection->getPdo();
+        $live = $pdo->prepare(
+            "SELECT id, payload FROM scheduled_actions
+             WHERE module_id = 'core' AND task_key = ? AND status IN ('pending', 'processing')"
+        );
+        $live->execute([SendRemoteBackupHandler::TASK_KEY]);
+        $clear = $pdo->prepare('UPDATE scheduled_actions SET payload = NULL WHERE id = ?');
+
+        foreach ($live->fetchAll(\PDO::FETCH_ASSOC) ?: [] as $row) {
+            $payload = is_string($row['payload'] ?? null) ? json_decode((string) $row['payload'], true) : null;
+            $archivePath = is_array($payload) ? (string) ($payload['archive_path'] ?? '') : '';
+            if ($archivePath === '') {
+                continue;
+            }
+            $removed = !is_file($archivePath) || @unlink($archivePath);
+            $discarded = false;
+            $remoteName = (string) ($payload['remote_name'] ?? '');
+            $backend = $remoteName !== '' ? $this->remoteDestination($context)
+                ->backendFor((int) ($payload['location_id'] ?? 0)) : null;
+            if ($backend !== null) {
+                try {
+                    $backend->discardPartial($remoteName);
+                    $discarded = true;
+                } catch (\Throwable) {
+                    $discarded = false;
+                }
+            }
+            $clear->execute([(int) $row['id']]);
+            $context->journal->log(
+                'core',
+                'remote_backup_interrupted',
+                $removed ? 'info' : 'warning',
+                $removed
+                    ? 'Envoi hors site interrompu par une restauration'
+                    : 'Envoi hors site interrompu par une restauration : son archive locale n\'a pas pu être '
+                        . 'supprimée',
+                ['local_copy_removed' => $removed, 'partial_discarded' => $discarded],
+                $requestedBy
+            );
+        }
+    }
+
+    private function remoteDestination(TaskContext $context): RemoteBackupDestination
+    {
+        $repository = new StorageLocationRepository($context->connection->getPdo(), $context->encryption);
+
+        return new RemoteBackupDestination(
+            $context->settings,
+            $repository,
+            new StorageBackendFactory($repository, $context->storagePath)
+        );
+    }
+
+    /**
+     * Today's queued one-shot tasks, counted per task before the database
+     * that holds them is replaced: they are lost with it, and the journal
+     * says which. The restore itself is not one of them.
+     *
+     * @return array<string, int> "module/task" => count
+     */
+    private function oneShotTasks(\PDO $pdo): array
+    {
+        $stmt = $pdo->query(
+            "SELECT module_id, task_key, COUNT(*) AS n FROM scheduled_actions
+             WHERE status IN ('pending', 'processing') AND reference IS NULL
+               AND NOT (module_id = 'core' AND task_key = 'restore_backup')
+             GROUP BY module_id, task_key"
+        );
+        $counts = [];
+        foreach ($stmt !== false ? $stmt->fetchAll(\PDO::FETCH_ASSOC) : [] as $row) {
+            $counts[$row['module_id'] . '/' . $row['task_key']] = (int) $row['n'];
+        }
+
+        return $counts;
+    }
+
+    /**
+     * The tasks of the restored database start from a clean state (#847,
+     * part 3), right after it is put in place.
+     *
+     * - A task that was running at the restored date is not running now:
+     *   left `processing`, it would be reclaimed and replayed against a
+     *   database it was never meant for. Every live row is canceled.
+     * - A recurring chain (a row with a reference) is re-armed at once with
+     *   a fresh row: same task, same reference, same date, and an empty
+     *   payload — what a run carried then (an off-site archive being sent,
+     *   a cursor) describes files and rows that are not today's.
+     * - A one-shot task of the restored date is abandoned, as are today's
+     *   ({@see oneShotTasks()}); both are counted in the journal.
+     *
+     * - The row of THIS restore comes back under its own id, still
+     *   running: the scheduler marks it done by that id once this pass
+     *   returns, and in the restored table the id was free — a re-armed
+     *   chain or the resume pass would have taken it and been marked done
+     *   without ever running.
+     *
+     * @param array<string, int> $todaysOneShots
+     */
+    private function startTasksClean(
+        TaskContext $context,
+        array $todaysOneShots,
+        ?int $requestedBy,
+        int $runningTaskId
+    ): void {
+        $pdo = $context->connection->getPdo();
+        $stmt = $pdo->query(
+            "SELECT id, module_id, task_key, reference, run_at FROM scheduled_actions
+             WHERE status IN ('pending', 'processing') ORDER BY id"
+        );
+        $live = $stmt !== false ? $stmt->fetchAll(\PDO::FETCH_ASSOC) : [];
+
+        $chains = [];
+        $restoredOneShots = [];
+        foreach ($live as $row) {
+            $key = $row['module_id'] . '/' . $row['task_key'];
+            if ($row['reference'] !== null) {
+                // One fresh row per chain, even where the restored date
+                // had a duplicate.
+                $chains[$key . '/' . $row['reference']] ??= $row;
+            } else {
+                $restoredOneShots[$key] = ($restoredOneShots[$key] ?? 0) + 1;
+            }
+        }
+
+        $pdo->exec("UPDATE scheduled_actions SET status = 'canceled' WHERE status IN ('pending', 'processing')");
+        if ($runningTaskId > 0) {
+            $taken = $pdo->prepare('SELECT 1 FROM scheduled_actions WHERE id = ?');
+            $taken->execute([$runningTaskId]);
+            if ($taken->fetchColumn() === false) {
+                // Long-standing columns only: this runs on the restored
+                // schema, before any migration.
+                $pdo->prepare(
+                    "INSERT INTO scheduled_actions (id, module_id, task_key, run_at, status)
+                     VALUES (?, 'core', 'restore_backup', ?, 'processing')"
+                )->execute([$runningTaskId, date('Y-m-d H:i:s')]);
+            }
+        }
+        $rearm = $pdo->prepare(
+            "INSERT INTO scheduled_actions (module_id, task_key, reference, payload, run_at, status)
+             VALUES (?, ?, ?, NULL, ?, 'pending')"
+        );
+        foreach ($chains as $row) {
+            $rearm->execute([$row['module_id'], $row['task_key'], $row['reference'], $row['run_at']]);
+        }
+
+        $context->journal->log(
+            'core',
+            'restore_tasks_reset',
+            $todaysOneShots === [] && $restoredOneShots === [] ? 'info' : 'warning',
+            'Tâches planifiées remises à zéro par la restauration',
+            [
+                'chains_rearmed' => count($chains),
+                'todays_tasks_lost' => $todaysOneShots,
+                'restored_tasks_abandoned' => $restoredOneShots,
+            ],
+            $requestedBy
+        );
+    }
+
+    /**
+     * What a resume pass carries of the held state.
+     *
+     * @param array<string, mixed> $payload
+     * @return array<string, mixed>
+     */
+    private function statePayload(array $payload): array
+    {
+        return [
+            'restore_state_hold' => $payload['restore_state_hold'] ?? null,
+            'restored_journal_max_id' => $payload['restored_journal_max_id'] ?? 0,
+            'restored_from' => $payload['restored_from'] ?? null,
+        ];
+    }
+
+    /**
+     * The date of the backup restored from this server, in French, for the
+     * journal and the « Restauration terminée » message — read before the
+     * database that knows it is replaced. Null for an uploaded archive.
+     *
+     * @param array<string, mixed> $payload
+     */
+    private function restoredFrom(array $payload, BackupRepository $backupRepository): ?string
+    {
+        if (($payload['source'] ?? 'server') !== 'server' || !isset($payload['backup_id'])) {
+            return null;
+        }
+        $backup = $backupRepository->findById((int) $payload['backup_id']);
+
+        return $backup === null ? null : \Core\View\DateFilterExtension::frenchDate($backup->createdAt)
+            . ' à ' . \Core\View\DateFilterExtension::timeFr($backup->createdAt);
+    }
+
+    /**
+     * Puts today's backups, files, journal and off-site settings back on
+     * the restored database (#847, part 3) — {@see RestoreStateSnapshot}.
+     *
+     * A portable archive comes from another server or another date of this
+     * one: this server's off-site set is kept when it had a destination,
+     * and the archives' passwords become today's, since the list they
+     * open is today's.
+     *
+     * @param array<string, mixed> $payload
+     */
+    private function putBackState(array $payload, TaskContext $context, ?int $requestedBy): void
+    {
+        $holdPath = $payload['restore_state_hold'] ?? null;
+        if (!is_string($holdPath) || $holdPath === '') {
+            // A pass queued before this existed: nothing was held.
+            return;
+        }
+        if (!is_file($holdPath)) {
+            throw new \RuntimeException('L\'état du site mis de côté avant la restauration est introuvable.');
+        }
+
+        $pdo = $context->connection->getPdo();
+        $portable = ($payload['portable'] ?? false) === true;
+        $keepRemote = true;
+        if ($portable) {
+            $held = RestoreStateSnapshot::heldSettings($holdPath);
+            $keepRemote = (string) ($held[RemoteBackupDestination::LOCATION_SETTING] ?? '') !== '';
+        }
+
+        $kept = RestoreStateSnapshot::putBack(
+            $pdo,
+            $holdPath,
+            (int) ($payload['restored_journal_max_id'] ?? 0),
+            $keepRemote
+        );
+        if ($portable && is_string($payload['portable_secrets_hold'] ?? null)) {
+            $this->keepTodaysBackupSecrets((string) $payload['portable_secrets_hold'], $context, $keepRemote);
+        }
+
+        $context->journal->log(
+            'core',
+            'restore_state_kept',
+            'info',
+            'Liste des sauvegardes, journal et réglages hors site d\'aujourd\'hui conservés',
+            $kept + ['remote_settings_kept' => $keepRemote],
+            $requestedBy
+        );
+    }
+
+    /**
+     * The passwords of today's archives, read from the secrets held aside
+     * before a portable restore and written over the archive's: the rows
+     * just put back are today's, and the archive's passwords are those of
+     * another list. The off-site passphrase follows the off-site settings.
+     */
+    private function keepTodaysBackupSecrets(string $secretsHoldPath, TaskContext $context, bool $keepRemote): void
+    {
+        $raw = is_file($secretsHoldPath) ? @file_get_contents($secretsHoldPath) : false;
+        $decoded = $raw !== false ? json_decode($raw, true) : null;
+        if (!is_array($decoded)) {
+            throw new \RuntimeException('Les clés de ce site mises de côté avant la restauration sont illisibles.');
+        }
+        $member = static function (string $suffix) use ($decoded): ?string {
+            foreach ($decoded as $target => $contents) {
+                if (is_string($target) && str_ends_with($target, $suffix) && is_string($contents)) {
+                    $bytes = base64_decode($contents, true);
+
+                    return $bytes === false ? null : $bytes;
+                }
+            }
+
+            return null;
+        };
+        $masterKey = $member('keys/master.key');
+        $secrets = $member('config/secrets.enc');
+        if ($masterKey === null || $secrets === null) {
+            // A fresh installation had no secrets, so no archive of its own.
+            return;
+        }
+
+        $directory = $context->storagePath . '/temp/held_secrets_' . bin2hex(random_bytes(8));
+        if (!@mkdir($directory, 0700, true)) {
+            throw new \RuntimeException('Le dossier temporaire du site n\'a pas pu être créé.');
+        }
+        try {
+            foreach (['master.key' => $masterKey, 'secrets.enc' => $secrets] as $file => $bytes) {
+                // The site's own key in clear: 0600, as everywhere it is held.
+                if (@file_put_contents($directory . '/' . $file, $bytes) === false) {
+                    throw new \RuntimeException('Les clés de ce site n\'ont pas pu être relues.');
+                }
+                if (PHP_OS_FAMILY !== 'Windows') {
+                    @chmod($directory . '/' . $file, 0600);
+                }
+            }
+            $today = (new SecretManager($directory . '/master.key', $directory . '/secrets.enc'))->readSecrets();
+        } finally {
+            @unlink($directory . '/master.key');
+            @unlink($directory . '/secrets.enc');
+            @rmdir($directory);
+        }
+
+        $isPassword = static fn(string $key): bool => preg_match('/^backup_password_\d+$/', $key) === 1;
+        (new SecretManager(
+            $context->storagePath . '/keys/master.key',
+            $context->storagePath . '/config/secrets.enc'
+        ))->updateSecrets(static function (array $current) use ($today, $isPassword, $keepRemote): array {
+            foreach (array_keys($current) as $key) {
+                if ($isPassword((string) $key)) {
+                    unset($current[$key]);
+                }
+            }
+            foreach ($today as $key => $value) {
+                if ($isPassword((string) $key)) {
+                    $current[$key] = $value;
+                }
+            }
+            if ($keepRemote && array_key_exists(RemotePassphrase::SECRET_KEY, $today)) {
+                $current[RemotePassphrase::SECRET_KEY] = $today[RemotePassphrase::SECRET_KEY];
+            }
+
+            return $current;
+        });
+    }
+
+    /**
      * Whether this payload names a portable archive.
      *
      * Only a `server` source can be one: an uploaded file has no
@@ -806,6 +1332,7 @@ class RestoreBackupHandler implements TaskHandlerInterface
         $carriedZip = is_string($payload['safety_zip_path'] ?? null)
             ? (string) $payload['safety_zip_path']
             : null;
+        $stateKeepFailed = false;
 
         try {
             $migrationRunner = new MigrationRunner(
@@ -829,7 +1356,7 @@ class RestoreBackupHandler implements TaskHandlerInterface
                     // was portable — and would leave the new site running
                     // under the old one's identity. The storage bindings
                     // likewise, or they would never be put back.
-                    $this->portablePayload($payload) + $this->bindingsPayload($payload)
+                    $this->portablePayload($payload) + $this->bindingsPayload($payload) + $this->statePayload($payload)
                 );
                 return;
             }
@@ -864,7 +1391,29 @@ class RestoreBackupHandler implements TaskHandlerInterface
 
             $this->reconcileStorageBindings($payload, $context, $requestedBy);
 
-            $this->finishRestore($context, $backupRepository, $fileRepository, $source, $requestedBy);
+            // After the bindings, before the purge (#847, part 3). A
+            // failure here throws to the rollback below: a list from the
+            // restored date would have lost the safety copy, the one way
+            // to undo this restore.
+            try {
+                $this->putBackState($payload, $context, $requestedBy);
+            } catch (\Throwable $stateError) {
+                $stateKeepFailed = true;
+                throw $stateError;
+            }
+
+            $this->finishRestore(
+                $context,
+                $backupRepository,
+                $fileRepository,
+                $source,
+                $requestedBy,
+                $safetyBackupId,
+                is_string($payload['restored_from'] ?? null) ? (string) $payload['restored_from'] : null
+            );
+            if (is_string($payload['restore_state_hold'] ?? null)) {
+                @unlink((string) $payload['restore_state_hold']);
+            }
 
             // Keep the target's keys until every fallible completion step,
             // including the session-generation write, has succeeded.
@@ -927,6 +1476,9 @@ class RestoreBackupHandler implements TaskHandlerInterface
                     $context->storagePath
                 )
             );
+            $stateHold = is_string($payload['restore_state_hold'] ?? null)
+                ? (string) $payload['restore_state_hold']
+                : null;
             $this->rollbackToSafetyBackup(
                 $context,
                 $backupService,
@@ -934,8 +1486,24 @@ class RestoreBackupHandler implements TaskHandlerInterface
                 $safetyZipPath,
                 $safetyBackupId,
                 $requestedBy,
-                $migrationError
+                $migrationError,
+                $stateHold
             );
+            if ($stateKeepFailed) {
+                // After the rollback, which puts back a journal older than
+                // this line. No path and no name.
+                $context->journal->log(
+                    'core',
+                    'restore_state_keep_failed',
+                    'error',
+                    'L\'état d\'aujourd\'hui n\'a pas pu être remis en place : la restauration a été annulée',
+                    ['error' => $migrationError::class],
+                    $requestedBy
+                );
+            }
+            if ($stateHold !== null) {
+                @unlink($stateHold);
+            }
         }
     }
 
@@ -1012,7 +1580,16 @@ class RestoreBackupHandler implements TaskHandlerInterface
         array $extraPayload = []
     ): void
     {
-        $schedulerService = new SchedulerService(new SchedulerRepository($context->connection->getPdo()));
+        $pdo = $context->connection->getPdo();
+        // Queued in the RESTORED database, which may predate the account
+        // that asked for the restore: its foreign key would refuse the row,
+        // and the whole restore would roll back for it.
+        if ($requestedBy !== null) {
+            $known = $pdo->prepare('SELECT 1 FROM user_accounts WHERE id = ?');
+            $known->execute([$requestedBy]);
+            $requestedBy = $known->fetchColumn() !== false ? $requestedBy : null;
+        }
+        $schedulerService = new SchedulerService(new SchedulerRepository($pdo));
         $schedulerService->scheduleAfter(
             'core',
             'restore_backup',
@@ -1053,7 +1630,9 @@ class RestoreBackupHandler implements TaskHandlerInterface
         BackupRepository $backupRepository,
         FileRepository $fileRepository,
         string $source,
-        ?int $requestedBy
+        ?int $requestedBy,
+        int $safetyBackupId = 0,
+        ?string $restoredFrom = null
     ): void {
         // The resumed pass has finished migrating the restored schema.
         // Use fresh settings, not the pre-restore request's cached values.
@@ -1066,7 +1645,7 @@ class RestoreBackupHandler implements TaskHandlerInterface
             'backup_restored',
             'info',
             'Sauvegarde restaurée',
-            ['source' => $source],
+            ['source' => $source, 'restored_from' => $restoredFrom],
             $requestedBy
         );
 
@@ -1076,14 +1655,35 @@ class RestoreBackupHandler implements TaskHandlerInterface
             $context->storagePath,
             $context->settings,
             \Core\Maintenance\BackupSafetyNet::forPdo($context->connection->getPdo())
-        ))->purgeAfterCreating('auto_reset');
+        // The copy of THIS restore is never the one evicted: it is what
+        // « Annuler cette restauration » restores (#847, part 3).
+        ))->purgeAfterCreating(self::SAFETY_TYPE, $safetyBackupId > 0 ? $safetyBackupId : null);
+
+        // A copy of the restored state leaves at once rather than at the
+        // next daily slot, when a destination is chosen.
+        $freshSettings = new \Core\Config\SettingService(
+            new \Core\Config\SettingRepository($context->connection->getPdo())
+        );
+        if ((int) ($freshSettings->get(RemoteBackupDestination::LOCATION_SETTING) ?: 0) > 0) {
+            $scheduler = new SchedulerService(new SchedulerRepository($context->connection->getPdo()));
+            $scheduler->cancelPending('core', SendRemoteBackupHandler::TASK_KEY, SendRemoteBackupHandler::REFERENCE);
+            $scheduler->scheduleAfter(
+                'core',
+                SendRemoteBackupHandler::TASK_KEY,
+                0,
+                [],
+                SendRemoteBackupHandler::REFERENCE
+            );
+        }
 
         RequesterNotice::sendAboutRestore(
             $context,
             $requestedBy,
             self::TYPE_COMPLETED,
             'Restauration terminée',
-            'La restauration de la sauvegarde est terminée.'
+            $restoredFrom !== null
+                ? 'Restauration terminée. Le site est revenu à la sauvegarde du ' . $restoredFrom . '.'
+                : 'La restauration de la sauvegarde est terminée.'
         );
     }
 
@@ -1101,7 +1701,8 @@ class RestoreBackupHandler implements TaskHandlerInterface
         string $safetyZip,
         int $safetyBackupId,
         ?int $requestedBy,
-        \Throwable $error
+        \Throwable $error,
+        ?string $stateHold = null
     ): void {
         $context->journal->log(
             'core',
@@ -1123,6 +1724,18 @@ class RestoreBackupHandler implements TaskHandlerInterface
                 : null;
             $backupService->restoreDatabase($safetyDbDump);
             $backupService->restoreFiles($safetyZip, $safetyPassword);
+            // The dump the rollback put back was taken before the safety
+            // copy's own row existed: without this, its files would stay on
+            // the disk with no row, never purged and never offered (#847).
+            RestoreStateSnapshot::reregisterSafetyCopy(
+                $context->connection->getPdo(),
+                $stateHold,
+                $safetyBackupId,
+                $safetyDbDump,
+                $safetyZip,
+                $context->storagePath,
+                self::SAFETY_TYPE
+            );
             $context->journal->log(
                 'core',
                 'backup_restore_rolled_back',
@@ -1132,7 +1745,8 @@ class RestoreBackupHandler implements TaskHandlerInterface
                 $requestedBy
             );
             $notifyTitle = 'Échec de la restauration';
-            $notifyBody = 'La restauration a échoué — l\'état précédent a été restauré automatiquement.';
+            $notifyBody = 'Échec de la restauration : le site est revenu à son état d\'avant, '
+                . 'rien n\'a été perdu.';
         } catch (\Throwable $rollbackError) {
             $context->journal->log(
                 'core',
@@ -1217,11 +1831,17 @@ class RestoreBackupHandler implements TaskHandlerInterface
         }
         $dbDumpPath = $storagePath . '/' . $dbDumpFile->relativePath;
 
+        // An archive the backup declares and that cannot be found is
+        // refused, never skipped (#847): restoring the database alone would
+        // put back a date's database with today's files.
         $filesZipPath = null;
         if ($backup->fileId !== null) {
             $filesFile = $fileRepository->findById($backup->fileId);
-            if ($filesFile !== null) {
-                $filesZipPath = $storagePath . '/' . $filesFile->relativePath;
+            $filesZipPath = $filesFile !== null ? $storagePath . '/' . $filesFile->relativePath : null;
+            if ($filesZipPath === null || !is_file($filesZipPath)) {
+                throw new BackupException(
+                    'L\'archive de cette sauvegarde n\'est plus sur ce serveur : elle ne peut plus être restaurée.'
+                );
             }
         }
 

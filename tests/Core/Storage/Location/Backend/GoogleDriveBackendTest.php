@@ -40,10 +40,11 @@ final class GoogleDriveBackendTest extends TestCase
         $this->assertTrue($backend->supports(StorageCapability::Quota));
         $this->assertTrue($backend->supports(StorageCapability::Checksum));
 
-        // The two that keep this destination out of the gallery until
-        // IT-07 gives it the methods. A capability announced ahead of its
+        // Range reads since #847 part 4, which brings an off-site archive
+        // back in slices; a capability announced ahead of its
         // implementation is the lie the enum exists to prevent.
-        $this->assertFalse($backend->supports(StorageCapability::RangeRead));
+        $this->assertTrue($backend->supports(StorageCapability::RangeRead));
+        $this->assertInstanceOf(\Core\Storage\Location\Backend\RangeReadableBackend::class, $backend);
         $this->assertFalse($backend->supports(StorageCapability::SignedUrl));
         $this->assertFalse($backend->supports(StorageCapability::ServerSideCopy));
     }
@@ -61,6 +62,24 @@ final class GoogleDriveBackendTest extends TestCase
 
         $backend->delete('rapport.txt');
         $this->assertFalse($backend->exists('rapport.txt'));
+    }
+
+    /**
+     * A slice of an object, as an off-site copy is brought back (#847,
+     * part 4): by its key, through the file id, and refused for a key that
+     * is not there.
+     */
+    public function testAnObjectIsReadInSlices(): void
+    {
+        $backend = $this->backend();
+        $backend->put('copie.zip', 'abcdefghij', 'application/zip');
+
+        $this->assertSame('cde', $backend->getRange('copie.zip', 2, 3));
+        $this->assertSame('ij', $backend->getRange('copie.zip', 8, 5), 'fewer bytes past the end');
+        $this->assertSame('', $backend->getRange('copie.zip', 10, 5));
+
+        $this->expectException(\RuntimeException::class);
+        $backend->getRange('absente.zip', 0, 3);
     }
 
     /**

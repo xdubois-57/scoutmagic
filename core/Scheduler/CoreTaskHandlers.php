@@ -42,6 +42,10 @@ final class CoreTaskHandlers
             'backup_integrity' => \Core\Maintenance\Task\VerifyBackupIntegrityHandler::class,
             \Core\Maintenance\Task\SendRemoteBackupHandler::TASK_KEY =>
                 \Core\Maintenance\Task\SendRemoteBackupHandler::class,
+            \Core\Maintenance\Task\FetchRemoteBackupHandler::TASK_KEY =>
+                \Core\Maintenance\Task\FetchRemoteBackupHandler::class,
+            \Core\Maintenance\Task\FetchRemoteBackupHandler::DISCARD_TASK_KEY =>
+                \Core\Maintenance\Task\FetchRemoteBackupHandler::class,
             \Core\Storage\Location\Protection\Task\RunStorageProtectionsHandler::TASK_KEY =>
                 \Core\Storage\Location\Protection\Task\RunStorageProtectionsHandler::class,
             \Core\Storage\Location\Protection\Task\RepatriateFromCopyHandler::TASK_KEY =>

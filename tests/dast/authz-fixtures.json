@@ -204,6 +204,9 @@
     "/config/maintenance/backup/{id}/password": {
       "id": "1"
     },
+    "/config/maintenance/backup/{id}/presence": {
+      "id": "1"
+    },
     "/config/stockage/emplacements/{id}": {
       "id": "1"
     },

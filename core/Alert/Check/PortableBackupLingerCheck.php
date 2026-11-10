@@ -12,6 +12,7 @@ use Core\Alert\AlertReading;
 use Core\Alert\AlertThresholds;
 use Core\Alert\OperationalCheck;
 use Core\Maintenance\BackupRepository;
+use Core\Maintenance\Task\FetchRemoteBackupHandler;
 use Core\Service\DateInput;
 
 /**
@@ -44,7 +45,11 @@ final class PortableBackupLingerCheck implements OperationalCheck
 
     public function __construct(
         private readonly BackupRepository $backups,
-        private readonly ?\DateTimeImmutable $now = null
+        private readonly ?\DateTimeImmutable $now = null,
+        // Where an off-site copy kept after a wrong phrase sits (#847,
+        // part 4): a portable archive too, deleted after a day — and said
+        // here the moment it outlives that.
+        private readonly ?string $storagePath = null
     ) {
     }
 
@@ -60,6 +65,22 @@ final class PortableBackupLingerCheck implements OperationalCheck
 
     public function read(): AlertReading
     {
+        if ($this->storagePath !== null && FetchRemoteBackupHandler::heldOverdue(
+            $this->storagePath,
+            ($this->now ?? new \DateTimeImmutable())->getTimestamp()
+        )) {
+            return new AlertReading(
+                overTrigger: true,
+                underRearm: false,
+                value: 'copie rapatriée',
+                title: 'Une copie hors site rapatriée est restée sur le serveur.',
+                why: 'Elle a été rapatriée pour une restauration que sa phrase de passe n\'a pas ouverte, et devait '
+                    . 'être supprimée au bout d\'un jour. Elle contient les clés de chiffrement du site.',
+                actionUrl: '/config/maintenance/sauvegardes-recentes',
+                actionLabel: 'Voir les copies hors site'
+            );
+        }
+
         $completedAt = $this->backups->oldestPortableCompletedAt();
 
         // No portable archive on the server is not "nothing to say": it is

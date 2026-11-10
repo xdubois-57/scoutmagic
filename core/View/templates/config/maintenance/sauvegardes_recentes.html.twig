@@ -4,6 +4,9 @@
 {% block maintenance_title %}Sauvegardes récentes{% endblock %}
 
 {% block maintenance_content %}
+    {% if restore_completed %}
+        <div class="alert alert-success" role="status" id="restore-completed">{{ restore_completed }}</div>
+    {% endif %}
     {# ————— Sauvegardes récentes —————
 
        One list sorted by date, families mixed: one looks here for « the
@@ -40,6 +43,22 @@
                         </button>
                     {% endif %}
                 {% endif %}
+            </div>
+        </div>
+    </div>
+
+    {# ————— Copies hors site (#847, part 4) —————
+
+       Loaded by maintenance.js once the page is shown: the list is read
+       on the destination, which can be slow or out of reach, and the
+       page must not wait on it. #}
+    <div class="card mb-4" id="maintenance-remote-copies">
+        <div class="card-body">
+            {{ m.section_header('Copies hors site') }}
+            <div class="mt-3" id="maintenance-remote-copies-body">
+                <div id="remote-copies" data-remote-copies-url="/config/maintenance/remote-backup/archives" aria-live="polite">
+                    <p class="small text-body-secondary mb-0" data-remote-state="loading">Lecture des copies sur la destination…</p>
+                </div>
             </div>
         </div>
     </div>
@@ -96,27 +115,34 @@
                     <div class="mb-2" id="restore-server-picker">
                         <label class="visually-hidden" for="restore-backup-id">Sauvegarde à restaurer</label>
                         {# Counted on what the list below can offer, not on
-                           the list as a whole: pending, failed and portable
-                           rows are shown above but never restorable here. #}
-                        {% set restorable = backups|filter(b => b.status == 'completed' and not b.isPortable) %}
+                           the list as a whole: pending, failed, portable and
+                           export rows, and those whose files are gone (#847),
+                           are shown above but never restorable here. #}
+                        {% set restorable = backups|filter(b => b.canRestore) %}
                         <select class="form-select form-select-sm" name="backup_id" id="restore-backup-id" {% if restorable is empty %}disabled{% endif %}>
-                            {# `not backup.isPortable`: a portable archive is for starting
-                               over on a NEW installation, not for
-                               overwriting this one. Offering it here
-                               would lead to a destructive restore
-                               followed by a rollback, for an operation
-                               that cannot succeed — the controller
-                               refuses it too, and it is what counts;
-                               this only spares finding that out. #}
+                            {# `canRestore` (MaintenanceController::backupList()):
+                               a portable archive is for starting over on a
+                               NEW installation, an export holds no files,
+                               and a backup whose archive or dump is gone
+                               cannot finish. Offering any of them would
+                               lead to a refusal or to a destructive restore
+                               followed by a rollback — the controller and
+                               the handler refuse them too, and they are
+                               what counts; this only spares finding that
+                               out. #}
                             {% for backup in backups %}
-                                {% if backup.status == 'completed' and not backup.isPortable %}
-                                    <option value="{{ backup.id }}"{% if backup.needsTypedPassword %} data-needs-password="1"{% endif %}>{{ backup.typeLabel }} — {{ backup.createdAt }}</option>
+                                {% if backup.canRestore %}
+                                    <option value="{{ backup.id }}"{% if backup.needsTypedPassword %} data-needs-password="1"{% endif %}{% if backup.configNote %} data-config-note="{{ backup.configNote }}"{% endif %}>{% if backup.undoesRestore %}Annuler la dernière restauration — copie du {{ backup.createdAt }}{% else %}{{ backup.typeLabel }} — {{ backup.createdAt }}{% endif %}</option>
                                 {% endif %}
                             {% endfor %}
                         </select>
                         {% if restorable is empty %}
                             <div class="form-text">Aucune sauvegarde de ce serveur ne peut être restaurée pour l'instant.</div>
                         {% endif %}
+                        {# Filled by maintenance.js from the chosen option's
+                           data-config-note: a « Configuration seule »
+                           restore touches nothing but the configuration. #}
+                        <div class="form-text d-none" id="restore-config-note"></div>
                     </div>
                     <div class="mb-2 d-none" id="restore-upload-picker">
                         <input type="file" class="form-control form-control-sm" name="backup_file" id="restore-backup-file" accept=".zip" aria-label="Fichier de sauvegarde">

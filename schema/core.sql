@@ -1275,7 +1275,7 @@ CREATE TABLE backups (
     -- its own AES-256-GCM envelope (Core\Maintenance\Portable\
     -- SecretEnvelope). Every other archive deliberately excludes them, and
     -- is therefore restorable onto this installation and nowhere else.
-    type ENUM('database', 'full_config', 'full_no_gallery', 'full_with_gallery', 'auto_update', 'auto_reset', 'auto_backup', 'portable') NOT NULL,
+    type ENUM('database', 'full_config', 'full_no_gallery', 'full_with_gallery', 'auto_update', 'auto_reset', 'auto_restore', 'auto_backup', 'portable') NOT NULL,
     file_id INT UNSIGNED,
     db_dump_file_id INT UNSIGNED,
     status ENUM('pending', 'in_progress', 'completed', 'failed') NOT NULL DEFAULT 'pending',

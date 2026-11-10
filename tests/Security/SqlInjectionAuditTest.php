@@ -94,6 +94,27 @@ class SqlInjectionAuditTest extends TestCase
                 . 'SQL text IS the operation; what protects it is the provenance of the dump (an '
                 . 'admin-only restore of a file BackupService wrote), not escaping.',
         ],
+        'core/Maintenance/ConfigOnlyRestore.php' => [
+            '$this->pdo->exec(\'DROP TEMPORARY TABLE IF EXISTS `\' . self::TEMPORARY_PREFIX . $table . \'`\');' =>
+                'Drops the temporary copy of one of ConfigOnlyRestore::TABLES: $table is a key the class '
+                . 'kept only when it is on that literal list, never a name from elsewhere.',
+            '$this->pdo->exec(self::asTemporary($table, $create));' =>
+                'The CREATE TABLE of a configuration dump this installation wrote, renamed to a temporary '
+                . 'table — the same provenance as DatabaseRestorer: an admin-only restore of a file '
+                . 'BackupService produced, statement by statement.',
+            '$this->pdo->exec(self::intoTemporary($table, $insert));' =>
+                'The INSERTs of that same dump, redirected to the temporary table; a dump inserting into '
+                . 'any other table is refused before this line.',
+            '$this->pdo->prepare(\'INSERT INTO settings (\' . $columnList . \') VALUES (\' . $placeholders . \')\')' =>
+                'Column names from the settings table\'s own result metadata intersected with the dump\'s, '
+                . 'every value bound; $placeholders is a run of literal question marks.',
+        ],
+        'core/Maintenance/Restore/RestoreStateSnapshot.php' => [
+            '$pdo->prepare(\'INSERT INTO `\' . $table . \'` (\' . $columnList . \') VALUES (\' . $placeholders . \')\')' =>
+                '$table is typed to four literal names (backups, files, event_log, settings); the columns are '
+                . 'today\'s own result metadata for that table intersected with the held row\'s keys, every value '
+                . 'is bound, and $placeholders is a run of literal question marks.',
+        ],
         'core/Http/Controller/SetupController.php' => [
             '$pdo->exec(\'DROP TABLE IF EXISTS `\' . $table . \'`\');' =>
                 'Empties the database during first-time setup. $table comes from '

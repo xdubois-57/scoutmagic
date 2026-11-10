@@ -22,6 +22,14 @@ class Backup
     public const PORTABLE_TYPE = 'portable';
 
     /**
+     * « Base de données » — the database alone, without the site's files.
+     * Downloadable, never restored onto this server since #847: with
+     * today's files it would leave photos, documents and attachments that
+     * no longer match.
+     */
+    public const EXPORT_TYPE = 'database';
+
+    /**
      * The role floor of every file a backup owns — its archive and its
      * database dump — in `files.role_min`, which is what /files/{id}
      * checks before serving it (Core\File\FileAccessGuard).
@@ -59,7 +67,7 @@ class Backup
      * @var string[]
      */
     public const TYPES = ['database', 'full_config', 'full_no_gallery', 'full_with_gallery', 'auto_update',
-        'auto_reset', 'auto_backup', self::PORTABLE_TYPE];
+        'auto_reset', 'auto_restore', 'auto_backup', self::PORTABLE_TYPE];
 
     /** @var string[] */
     public const STATUSES = ['pending', 'in_progress', 'completed', 'failed'];
@@ -116,6 +124,7 @@ class Backup
             'full_with_gallery' => 'Complète (avec galerie)',
             'auto_update' => 'Avant mise à jour',
             'auto_reset' => 'Avant réinitialisation',
+            'auto_restore' => 'Avant restauration',
             'auto_backup' => 'Planifiée',
             self::PORTABLE_TYPE => 'Portable',
             default => $type,
