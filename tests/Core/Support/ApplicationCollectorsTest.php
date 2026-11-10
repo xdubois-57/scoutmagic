@@ -540,6 +540,24 @@ class ApplicationCollectorsTest extends TestCase
         $this->assertContains('3 sauvegarde(s) enregistrée(s)', $result['notes']);
     }
 
+    /** Past MAX_ROWS the detail is truncated, the total is not — and the absent count says what it covers. */
+    public function testATruncatedInventoryStillCountsEveryBackup(): void
+    {
+        $gone = $this->fileRow('backups/supprimee.zip', 10);
+        for ($i = 0; $i < BackupsCollector::MAX_ROWS + 3; $i++) {
+            $this->backupRow('auto_backup', 'completed', $i === BackupsCollector::MAX_ROWS + 2 ? $gone : null, null, 'unknown', null, '2026-10-01 03:00:00');
+        }
+
+        $result = $this->runCollector(new BackupsCollector());
+
+        $this->assertCount(BackupsCollector::MAX_ROWS + 1, $this->readSheet($result['entries']['backups.xlsx']));
+        $this->assertContains((BackupsCollector::MAX_ROWS + 3) . ' sauvegarde(s) enregistrée(s)', $result['notes']);
+        $this->assertContains(
+            '1 sauvegarde(s) dont un fichier est absent du disque parmi les ' . BackupsCollector::MAX_ROWS . ' plus récentes',
+            $result['notes']
+        );
+    }
+
     /** No path, no content, no secret — only ids and what is known about them. */
     public function testTheBackupInventoryCarriesNoPathContentOrSecret(): void
     {

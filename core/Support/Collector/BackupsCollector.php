@@ -73,8 +73,12 @@ class BackupsCollector implements SupportCollectorInterface
         );
         $stmt->execute();
         $entries = $stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+        // The total comes from the table, never from the rows read: past
+        // MAX_ROWS the detail is truncated, the count is not.
+        $total = (int) $context->pdo()->query('SELECT COUNT(*) FROM backups')->fetchColumn();
 
-        if (count($entries) > self::MAX_ROWS) {
+        $truncated = count($entries) > self::MAX_ROWS;
+        if ($truncated) {
             $entries = array_slice($entries, 0, self::MAX_ROWS);
             $context->addNote('Inventaire tronqué aux ' . self::MAX_ROWS . ' sauvegardes les plus récentes');
         }
@@ -122,9 +126,12 @@ class BackupsCollector implements SupportCollectorInterface
             ];
         }
 
-        $context->addNote(count($rows) . ' sauvegarde(s) enregistrée(s)');
+        $context->addNote($total . ' sauvegarde(s) enregistrée(s)');
         if ($absent > 0) {
-            $context->addNote($absent . ' sauvegarde(s) dont un fichier est absent du disque');
+            // Presence is a look at the disk, made for the rows exported
+            // only: past the truncation, the count says so.
+            $context->addNote($absent . ' sauvegarde(s) dont un fichier est absent du disque'
+                . ($truncated ? ' parmi les ' . self::MAX_ROWS . ' plus récentes' : ''));
         }
         $context->addFileFromContent(
             'backups.xlsx',
@@ -133,10 +140,11 @@ class BackupsCollector implements SupportCollectorInterface
                     'Sauvegarde n°', 'Type', 'Libellé', 'État',
                     'Créée le (heure locale du serveur)', 'Terminée le',
                     'Stockage',
-                    'Archive ZIP — fichier n°', 'Archive ZIP — ligne files',
+                    'Archive ZIP — fichier n°', 'Archive ZIP — ligne fichiers',
                     'Archive ZIP — sur le disque à la collecte',
                     'Archive ZIP — taille enregistrée (octets)',
-                    'Dump SQL — fichier n°', 'Dump SQL — ligne files', 'Dump SQL — sur le disque à la collecte',
+                    'Dump SQL — fichier n°', 'Dump SQL — ligne fichiers',
+                    'Dump SQL — sur le disque à la collecte',
                     'Dump SQL — taille enregistrée (octets)',
                     'Dernier contrôle d\'intégrité', 'Contrôlée le',
                     'Erreur',
