@@ -33,8 +33,6 @@ use Modules\Registration\Service\SlotService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Registration\RegistrationTestHelper;
-use Core\View\EditableContentRepository;
-use Core\View\EditableContentService;
 use Core\View\TwigFactory;
 use Core\Member\Repository\MemberProfileRepository;
 use Core\Member\Repository\SectionRepository;
@@ -124,14 +122,14 @@ class PublicRegistrationControllerTest extends TestCase
 );
 
         $slotService = RegistrationTestHelper::slotService($this->pdo, $this->encryption, $this->settingService);
-        $editableContentService = new EditableContentService(new EditableContentRepository($this->pdo));
         $journalService = new JournalService(new JournalRepository($this->pdo));
         $mailService = $this->createStub(MailService::class);
         $mailService->method('send');
 
         $registrationService = new RegistrationService(
             $requestRepository, $yearCodeRepository, $scoutYearResolver, $scoutYearService, $this->settingService,
-            $mailService, $editableContentService, $journalService, 'https://example.com', 'Unité Test'
+            $mailService, RegistrationTestHelper::emailRenderer($this->pdo, $journalService), $journalService,
+            'https://example.com', 'Unité Test'
         );
 
         $humanCheck = new HumanCheckService(

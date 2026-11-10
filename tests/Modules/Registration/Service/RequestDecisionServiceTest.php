@@ -12,8 +12,7 @@ use Core\Journal\JournalService;
 use Core\Mail\MailService;
 use Core\ScoutYear\ScoutYearResolver;
 use Core\Security\EncryptionService;
-use Core\View\EditableContentRepository;
-use Core\View\EditableContentService;
+use Core\Mail\Template\EmailTemplateOverrideRepository;
 use Modules\Registration\Repository\RegistrationRequest;
 use Modules\Registration\Repository\RegistrationRequestRepository;
 use Modules\Registration\Repository\SlotCapacityRepository;
@@ -45,7 +44,7 @@ class RequestDecisionServiceTest extends TestCase
 
     private \PDO $pdo;
     private RegistrationRequestRepository $requests;
-    private EditableContentService $content;
+    private EmailTemplateOverrideRepository $emailOverrides;
     private SettingService $settings;
     private RequestDecisionService $service;
     private int $pastYearId;
@@ -83,7 +82,7 @@ class RequestDecisionServiceTest extends TestCase
 
         $this->requests = new RegistrationRequestRepository($this->pdo, $encryption);
         $journal = new JournalService(new JournalRepository($this->pdo));
-        $this->content = new EditableContentService(new EditableContentRepository($this->pdo));
+        $this->emailOverrides = new EmailTemplateOverrideRepository($this->pdo);
         $this->service = RegistrationTestHelper::decisionService(
             $this->pdo,
             $encryption,
@@ -755,8 +754,18 @@ class RequestDecisionServiceTest extends TestCase
 
     private function writeDecisionTemplates(): void
     {
-        $this->content->set('registration_email_accepted_body', '<p>Bienvenue {{ lien_suivi }}</p>', 'rich_text', 1);
-        $this->content->set('registration_email_refused_body', '<p>Désolés {{ lien_suivi }}</p>', 'rich_text', 1);
+        $this->emailOverrides->save(
+            'registration.request_accepted',
+            "Votre demande d'inscription a été acceptée",
+            '<p>Bienvenue {{ lien_suivi }}</p>',
+            null
+        );
+        $this->emailOverrides->save(
+            'registration.request_refused',
+            "Votre demande d'inscription a été refusée",
+            '<p>Désolés {{ lien_suivi }}</p>',
+            null
+        );
     }
 
     /**

@@ -8,6 +8,9 @@ declare(strict_types=1);
 
 namespace Core\Mail\Template;
 
+use Core\Template\TokenEngine;
+use Core\Template\TokenSyntax;
+
 /**
  * A declared automatic e-mail — the single source of truth it is ever
  * described from, whether it is a core one (EmailTemplateRegistry) or a
@@ -72,6 +75,36 @@ final class EmailTemplate
         }
 
         return $values;
+    }
+
+    /**
+     * The declared variables a body must contain (EmailTemplateVariable::
+     * $required) that this piece of HTML does not — in declaration order,
+     * empty when nothing is missing.
+     *
+     * Read through the same TokenEngine that substitutes, after the same
+     * repair, so « contains » means « would be replaced »: `{{x}}`, a link
+     * whose address the editor percent-encoded and a name a bold word cut
+     * in two all count, and a variable present only as prose does not.
+     *
+     * @return list<EmailTemplateVariable>
+     */
+    public function missingRequiredVariables(string $html): array
+    {
+        $engine = new TokenEngine(TokenSyntax::identifiers());
+        $present = [];
+        foreach ($engine->rawTokenNames($engine->repairTokensSplitByMarkup($html)) as $name) {
+            $present[trim($name)] = true;
+        }
+
+        $missing = [];
+        foreach ($this->variables as $variable) {
+            if ($variable->required && !isset($present[$variable->name])) {
+                $missing[] = $variable;
+            }
+        }
+
+        return $missing;
     }
 
     public function hasVariable(string $name): bool

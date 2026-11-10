@@ -20,9 +20,12 @@ use Core\Mail\Template\EmailTemplateOverrideRepository;
 use Core\Mail\Template\EmailTemplateRegistry;
 use Core\Mail\Template\EmailTemplateRenderer;
 use Core\Mail\Template\EmailTestSendThrottler;
+use Core\Mail\Template\MissingRequiredVariableException;
 use Core\Mail\MailException;
 use Core\Mail\MailService;
 use Core\Security\AuthSession;
+use Core\Template\TokenEngine;
+use Core\Template\TokenSyntax;
 use Twig\Environment;
 
 /**
@@ -51,11 +54,23 @@ use Twig\Environment;
  *
  * The subject is a plain text field: it is one line, it must never carry
  * markup, and a rich-text editor for it would invite exactly that.
+ *
+ * **One page, also seen through a module** (issue #905). A module that
+ * wants its own e-mails edited from its own configuration — and by the
+ * role that configures it, rather than by superadmins only — extends this
+ * controller with a narrower scope: its own URL, the ids it may reach and
+ * the list view that wraps the shared table. Nothing is forked: the same
+ * editor, the same states, the same reset, the same refusals. An id
+ * outside the scope is answered exactly like an unknown one, so a route
+ * opened to a wider role reaches no e-mail beyond the ones it names.
  */
 class EmailTemplateController extends AbstractController
 {
     private const PAGE_URL = '/config/emails';
 
+    /**
+     * @param list<string>|null $templateIds
+     */
     public function __construct(
         protected Environment $twig,
         private EmailTemplateRegistry $registry,
@@ -64,7 +79,11 @@ class EmailTemplateController extends AbstractController
         private EmailTemplateCustomisationService $customisation,
         private JournalService $journalService,
         private MailService $mailService,
-        private EmailTestSendThrottler $throttler
+        private EmailTestSendThrottler $throttler,
+        private string $pageUrl = self::PAGE_URL,
+        // null is every declared e-mail; a list is the scope above.
+        private ?array $templateIds = null,
+        private string $listView = 'config/emails.html.twig'
     ) {
     }
 
@@ -77,6 +96,12 @@ class EmailTemplateController extends AbstractController
 
         $groups = [];
         foreach ($this->registry->groupedByModule() as $moduleId => $templates) {
+            $templates = array_values(
+                array_filter($templates, fn (EmailTemplate $t): bool => $this->inScope($t->id))
+            );
+            if ($templates === []) {
+                continue;
+            }
             $groups[] = [
                 'module_id' => $moduleId,
                 'label' => $this->registry->moduleLabel($moduleId),
@@ -93,7 +118,7 @@ class EmailTemplateController extends AbstractController
             ];
         }
 
-        return $this->render('config/emails.html.twig', ['groups' => $groups]);
+        return $this->render($this->listView, ['groups' => $groups, 'page_url' => $this->pageUrl]);
     }
 
     /**
@@ -101,12 +126,13 @@ class EmailTemplateController extends AbstractController
      */
     public function edit(Request $request, array $params): Response
     {
-        $template = $this->registry->find($params['template'] ?? '');
+        $template = $this->find($params['template'] ?? '');
         if ($template === null) {
-            return $this->redirect(self::PAGE_URL);
+            return $this->redirect($this->pageUrl);
         }
 
         $override = $this->overrides->find($template->id);
+        $missing = $override !== null ? $template->missingRequiredVariables($override['body_html']) : [];
 
         return $this->render('config/email_edit.html.twig', [
             // The trail ends on the template's own name, the page's title
@@ -121,7 +147,15 @@ class EmailTemplateController extends AbstractController
                 $this->placeholderContext($template)
             ),
             'preview' => $this->preview($template),
+            // A stored body can lack a required variable when it reached
+            // the table another way than this editor (an older version, a
+            // restored backup): it is not sent, and this says so here,
+            // where it can be fixed.
+            'missing_required' => $missing !== []
+                ? EmailTemplateCustomisationService::missingMessage($missing)
+                : null,
             'test_recipient' => AuthSession::getEmail() ?? '',
+            'page_url' => $this->pageUrl,
         ]);
     }
 
@@ -133,9 +167,9 @@ class EmailTemplateController extends AbstractController
      */
     public function saveSubject(Request $request, array $params): Response
     {
-        $template = $this->registry->find($params['template'] ?? '');
+        $template = $this->find($params['template'] ?? '');
         if ($template === null) {
-            return $this->redirect(self::PAGE_URL);
+            return $this->redirect($this->pageUrl);
         }
 
         if (($guard = $this->guardCsrf($request, $this->editUrl($template->id))) !== null) {
@@ -172,7 +206,7 @@ class EmailTemplateController extends AbstractController
             return $guard;
         }
 
-        $template = $this->registry->find($params['template'] ?? '');
+        $template = $this->find($params['template'] ?? '');
         if ($template === null) {
             return $this->json(['success' => false, 'error' => "Cet email n'existe pas."], 404);
         }
@@ -211,9 +245,9 @@ class EmailTemplateController extends AbstractController
      */
     public function reset(Request $request, array $params): Response
     {
-        $template = $this->registry->find($params['template'] ?? '');
+        $template = $this->find($params['template'] ?? '');
         if ($template === null) {
-            return $this->redirect(self::PAGE_URL);
+            return $this->redirect($this->pageUrl);
         }
 
         if (($guard = $this->guardCsrf($request, $this->editUrl($template->id))) !== null) {
@@ -258,9 +292,9 @@ class EmailTemplateController extends AbstractController
      */
     public function sendTest(Request $request, array $params): Response
     {
-        $template = $this->registry->find($params['template'] ?? '');
+        $template = $this->find($params['template'] ?? '');
         if ($template === null) {
-            return $this->redirect(self::PAGE_URL);
+            return $this->redirect($this->pageUrl);
         }
 
         if (($guard = $this->guardCsrf($request, $this->editUrl($template->id))) !== null) {
@@ -283,7 +317,13 @@ class EmailTemplateController extends AbstractController
             return $this->redirect($this->editUrl($template->id));
         }
 
-        $email = $this->renderer->render($template->id, $this->exampleContext($template));
+        try {
+            $email = $this->renderer->render($template->id, $this->exampleContext($template));
+        } catch (MissingRequiredVariableException $e) {
+            FlashMessage::set('error', "Le test n'est pas parti. " . $e->getMessage());
+
+            return $this->redirect($this->editUrl($template->id));
+        }
 
         try {
             $this->mailService->send($to, $email->subject, $email->bodyHtml, $email->bodyText);
@@ -450,10 +490,13 @@ class EmailTemplateController extends AbstractController
             // Rendering the WHOLE customised e-mail would nest a complete
             // HTML document inside this page. The body is what an
             // administrator is judging, and it is already sanitised.
-            $rendered = $this->renderer->render($template->id, $context);
-
+            //
+            // The subject goes through the same substitution as the send's,
+            // not through render(): a stored body missing a required
+            // variable is refused there, and this page is where an
+            // administrator repairs it — it must open.
             return [
-                'subject' => $rendered->subject,
+                'subject' => $this->substitutedSubject($template, $override['subject'], $context),
                 // Through the renderer's own substitution, not a second
                 // copy of it: what the preview shows has to be what the
                 // send produces, escaping included.
@@ -473,22 +516,20 @@ class EmailTemplateController extends AbstractController
     }
 
     /**
-     * A subject line is not markup: it is substituted as it is, exactly
-     * as EmailTemplateRenderer does before handing it to MailService.
+     * A subject line is not markup: it is substituted as it is, through
+     * the same TokenEngine EmailTemplateRenderer uses before handing it to
+     * MailService — any spacing, `{{x}}` as well as `{{ x }}` — so the
+     * shipped e-mail's preview and its sent subject cannot disagree.
      *
      * @param array<string, string> $context
      */
     private function substitutedSubject(EmailTemplate $template, string $text, array $context): string
     {
-        foreach ($template->variables as $variable) {
-            $text = str_replace(
-                ['{{ ' . $variable->name . ' }}', '{{' . $variable->name . '}}'],
-                $context[$variable->name] ?? '',
-                $text
-            );
-        }
-
-        return $text;
+        return (new TokenEngine(TokenSyntax::identifiers()))->substitute(
+            $text,
+            static fn(string $name): ?string => $template->hasVariable($name) ? ($context[$name] ?? '') : null,
+            false
+        );
     }
 
     /**
@@ -553,6 +594,21 @@ class EmailTemplateController extends AbstractController
 
     private function editUrl(string $templateId): string
     {
-        return self::PAGE_URL . '/' . rawurlencode($templateId);
+        return $this->pageUrl . '/' . rawurlencode($templateId);
+    }
+
+    /**
+     * The declared e-mail this page may reach — null for an id nobody
+     * declared AND for one outside this page's scope, so a scoped page
+     * answers both the same way.
+     */
+    private function find(string $templateId): ?EmailTemplate
+    {
+        return $this->inScope($templateId) ? $this->registry->find($templateId) : null;
+    }
+
+    private function inScope(string $templateId): bool
+    {
+        return $this->templateIds === null || in_array($templateId, $this->templateIds, true);
     }
 }

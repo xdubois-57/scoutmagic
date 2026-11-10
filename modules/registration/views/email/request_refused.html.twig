@@ -1,0 +1,10 @@
+{% extends 'email/base.html.twig' %}
+{#
+  Refusal of a registration request (issue #905). `lien_suivi` is
+  REQUIRED (module.json); an expired link is said in a `footer_note`.
+#}
+{% block content %}
+    <p style="margin:0 0 16px;">Bonjour,</p>
+    <p style="margin:0 0 16px;">Nous sommes au regret de vous informer que votre demande d'inscription pour {{ prenom_enfant }}, pour l'année scoute {{ annee_scoute }}, n'a pas été retenue.</p>
+    <p style="margin:0 0 16px;">Vous pouvez consulter le suivi de cette demande à l'aide de ce lien, tant qu'il est valide : <a href="{{ lien_suivi }}">{{ lien_suivi }}</a>.</p>
+{% endblock %}

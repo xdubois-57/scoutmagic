@@ -19,6 +19,12 @@
   example value are in the tooltip, so the row reads as prose rather than
   as a wall of braces.
 
+  A required variable (EmailTemplateVariable::$required) carries
+  « obligatoire » in the button itself, not only in the tooltip: the
+  server refuses a text without it, and the only fair warning is one a
+  touch screen shows too. The subject row passes `show_required: false`:
+  the rule is about the body, and a badge there would say otherwise.
+
   Usage:
   {% include 'partials/email_variable_buttons.html.twig' with {
       variables: template.variables,
@@ -26,6 +32,7 @@
       hint: 'Cliquez pour insérer…',
   } only %}
 #}
+{% set mark_required = show_required is not defined or show_required %}
 {% if variables is not empty %}
     {% if hint is defined and hint %}
         <p class="form-label mb-2">{{ hint }}</p>
@@ -35,8 +42,10 @@
         {% for variable in variables %}
             <button type="button" class="btn btn-sm btn-outline-secondary"
                     data-variable="{{ variable.name }}"
-                    title="{{ '{{ ' ~ variable.name ~ ' }}' }} — exemple : {{ variable.example }}">
+                    {% if mark_required and variable.required %}data-required{% endif %}
+                    title="{{ '{{ ' ~ variable.name ~ ' }}' }} — exemple : {{ variable.example }}{% if mark_required and variable.required %} — obligatoire dans le texte{% endif %}">
                 {{ variable.label }}
+                {%- if mark_required and variable.required %} <span class="badge text-bg-warning ms-1">obligatoire</span>{% endif %}
             </button>
         {% endfor %}
     </div>

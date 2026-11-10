@@ -11,9 +11,8 @@ paths: /config/emails, /config/emails/*
 related: reglages, config-notifications, adresses-email
 ---
 
-Le site envoie des emails tout seul : un accusé de réception à une
-famille qui demande une location, un rappel avant un séjour, un avis
-au Staff d'U quand une adresse se désinscrit. Cette page les liste
+Le site envoie des emails tout seul : un accusé de réception, un
+rappel avant un séjour, un avis au Staff d'U. Cette page les liste
 tous et permet d'en réécrire le texte.
 
 ## La liste
@@ -29,11 +28,9 @@ part, et son état :
 
 ## Les emails qu'on ne peut pas réécrire
 
-Quelques emails servent à se connecter au site ou à confirmer une
-adresse. Ils sont affichés pour que la liste soit complète, mais sans
-bouton pour les modifier : une erreur dans le lien de connexion
-mettrait tout le monde dehors, y compris la personne qui vient de la
-faire.
+Les emails qui servent à se connecter ou à confirmer une adresse sont
+affichés sans bouton pour les modifier : une erreur dans le lien de
+connexion mettrait tout le monde dehors.
 
 ## Réécrire un email
 
@@ -59,22 +56,27 @@ Un email parle de choses que le site ne connaît qu'au moment de
 l'envoi : le nom du demandeur, la date d'une activité, un lien de
 suivi. Ces trous s'écrivent `{{ nom_de_la_variable }}`.
 
-Le texte livré les contient déjà, à leur place. **Gardez-les** : ce
-sont eux qui écrivent le nom, la date ou le lien de chaque
-destinataire. Un texte où vous les auriez remplacés par un vrai nom
-enverrait ce nom-là à tout le monde.
+Le texte livré les contient déjà. **Gardez-les** : remplacées par un
+vrai nom, elles enverraient ce nom-là à tout le monde.
 
-Ces boutons sont à deux endroits où ils insèrent la variable là où se
-trouve votre curseur : sous le champ du sujet, et dans l'éditeur du
-corps du message. Sur la page elle-même, sous l'aperçu du corps, un
-clic la copie — pratique si vous écrivez votre texte ailleurs.
+Sous le sujet et dans l'éditeur du corps, les boutons insèrent la
+variable à la place du curseur ; sous le corps, un clic la copie.
 
 Une variable mal orthographiée part telle quelle, accolades comprises,
 dans l'email : utilisez les boutons plutôt que de la taper.
 
+## Les variables obligatoires
+
+Le bouton d'une variable sans laquelle l'email n'a pas de sens — un
+lien de suivi, par exemple — porte la mention **« obligatoire »** :
+
+- un texte qui ne la contient pas n'est pas enregistré, et le message
+  dit laquelle manque ;
+- si un texte déjà enregistré l'a perdue, l'email n'est pas envoyé : sa
+  page le signale en rouge et le journal en garde la trace.
+
 ## Revenir en arrière
 
-Tant qu'un email est personnalisé, il ne suit plus les améliorations
-apportées au texte livré. Le bouton « Revenir au gabarit par défaut »
-supprime votre texte et le remet sur celui du site. C'est définitif :
-votre version n'est conservée nulle part.
+Un email personnalisé ne suit plus les améliorations du texte livré.
+« Revenir au gabarit par défaut » supprime votre texte, définitivement,
+et le remet sur celui du site.

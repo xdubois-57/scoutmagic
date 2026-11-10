@@ -12,8 +12,6 @@ use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Mail\MailService;
 use Core\Security\EncryptionService;
-use Core\View\EditableContentRepository;
-use Core\View\EditableContentService;
 use Modules\Registration\Repository\DecisionEmail;
 use Modules\Registration\Repository\DecisionEmailRepository;
 use Modules\Registration\Repository\RegistrationRequestRepository;
@@ -271,7 +269,7 @@ class DecisionEmailRepositoryOnMysqlTest extends TestCase
         $secondSender = new RequestEmailService(
             new RegistrationRequestRepository($this->otherSession, $this->encryption, null, $blinded),
             $mail,
-            new EditableContentService(new EditableContentRepository($this->otherSession)),
+            RegistrationTestHelper::emailRenderer($this->otherSession),
             new JournalService(new JournalRepository($this->otherSession)),
             'https://example.com',
             'Unité Test',

@@ -1,0 +1,54 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{#
+  The table of automatic e-mails and their state — Configuration > E-mails
+  (config/emails.html.twig), and every module page that shows its own
+  e-mails through the same controller (issue #905). One table, so « Par
+  défaut » and « Personnalisé » cannot mean two things in two places.
+
+  Usage:
+  {% include 'partials/email_template_table.html.twig' with {
+      templates: [{id, label, description, editable, customised}],
+      page_url: '/config/emails',   -- where each e-mail's editor lives
+  } only %}
+#}
+{# Two columns, not three: « quand il part » is a full sentence and
+   a column of its own squeezed the e-mail's name to two words per
+   line at 375px. Under the name it reads as what it is — a
+   subtitle — and the row keeps its shape at every width, so the
+   table needs no horizontal scrolling here (design.md §7.1). #}
+<div class="table-responsive">
+    <table class="table table-sm align-middle mb-0">
+        <thead>
+            <tr>
+                <th>Email</th>
+                <th class="email-state-col">État</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for template in templates %}
+                <tr>
+                    <td>
+                        {% if template.editable %}
+                            <a href="{{ page_url }}/{{ template.id|url_encode }}">{{ template.label }}</a>
+                        {% else %}
+                            {{ template.label }}
+                        {% endif %}
+                        <div class="small text-body-secondary">{{ template.description }}</div>
+                    </td>
+                    <td class="email-state-col">
+                        {% if not template.editable %}
+                            <span class="badge text-bg-light">Non modifiable</span>
+                        {% elseif template.customised %}
+                            <span class="badge text-bg-primary">Personnalisé</span>
+                        {% else %}
+                            <span class="badge text-bg-secondary">Par défaut</span>
+                        {% endif %}
+                    </td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>

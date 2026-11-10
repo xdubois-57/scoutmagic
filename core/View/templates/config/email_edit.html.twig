@@ -1,6 +1,7 @@
 {% extends 'base.html.twig' %}
 {% block title %}{{ template.label }} — Modèles d'e-mails — {{ site_name }}{% endblock %}
 {% block content %}
+{% set page_url = page_url|default('/config/emails') %}
 {% include 'partials/page_header.html.twig' with {
     title: template.label,
     subtitle: template.description,
@@ -13,18 +14,29 @@
     </div>
 {% endif %}
 
+{% if missing_required %}
+    <div class="alert alert-danger" role="alert">
+        Cet email n'est plus envoyé : son texte personnalisé a perdu une variable obligatoire.
+        {{ missing_required }}
+    </div>
+{% endif %}
+
 {% if template.variables is not empty %}
     <div class="alert alert-secondary">
         Les mots entre accolades — {{ '{{ exemple }}' }} — sont remplacés au moment de l'envoi par
         la vraie valeur. Gardez-les tels quels dans votre texte : ce sont eux qui écrivent le nom,
         la date ou le lien de chaque destinataire.
+        {% if template.variables|filter(v => v.required) is not empty %}
+            Celles marquées « obligatoire » doivent rester dans le texte : sans elles,
+            l'email n'est ni enregistré ni envoyé.
+        {% endif %}
     </div>
 {% endif %}
 
 <div class="card mb-3">
     <div class="card-body">
         <h2 class="h5 mb-3">Sujet</h2>
-        <form method="post" action="/config/emails/{{ template.id|url_encode }}/sujet">
+        <form method="post" action="{{ page_url }}/{{ template.id|url_encode }}/sujet">
             {{ csrf_field()|raw }}
             <div class="mb-2">
                 <label for="email-subject" class="form-label">Sujet de l'email</label>
@@ -38,6 +50,7 @@
             {% include 'partials/email_variable_buttons.html.twig' with {
                 variables: template.variables,
                 target: 'email-subject',
+                show_required: false,
                 hint: 'Cliquez pour insérer une variable dans le sujet :',
             } only %}
             <button type="submit" class="btn btn-primary mt-3">Enregistrer le sujet</button>
@@ -51,7 +64,7 @@
             <h2 class="h5 mb-0">Corps du message</h2>
             {% include 'partials/rich_text_edit_button.html.twig' with {
                 content_key: 'email_body',
-                save_url: '/config/emails/' ~ template.id|url_encode ~ '/corps',
+                save_url: page_url ~ '/' ~ template.id|url_encode ~ '/corps',
             } only %}
         </div>
 
@@ -100,7 +113,7 @@
             en mode local ou en bac à sable, le test y arrive aussi — c'est justement ce qu'on
             vérifie. Un test toutes les 30 secondes au maximum.
         </p>
-        <form method="post" action="/config/emails/{{ template.id|url_encode }}/test">
+        <form method="post" action="{{ page_url }}/{{ template.id|url_encode }}/test">
             {{ csrf_field()|raw }}
             <button type="submit" class="btn btn-outline-primary">M'envoyer un test</button>
         </form>
@@ -117,7 +130,7 @@
             </p>
             {# design.md §7.5: the confirmation is data-confirm on the FORM,
                and it names the email so a mis-click is visible. #}
-            <form method="post" action="/config/emails/{{ template.id|url_encode }}/defaut"
+            <form method="post" action="{{ page_url }}/{{ template.id|url_encode }}/defaut"
                   data-confirm="Remettre l'email « {{ template.label }} » au gabarit par défaut ? Votre texte sera supprimé."
                   data-confirm-label="Remettre par défaut">
                 {{ csrf_field()|raw }}

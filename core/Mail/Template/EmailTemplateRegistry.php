@@ -201,7 +201,7 @@ class EmailTemplateRegistry
      *         default_subject: string,
      *         template: string,
      *         editable: bool,
-     *         variables: array<int, array{name: string, label: string, example: string}>
+     *         variables: array<int, array{name: string, label: string, example: string, required?: bool}>
      *     }
      * > $emails
      */
@@ -211,7 +211,12 @@ class EmailTemplateRegistry
         foreach ($emails as $email) {
             $variables = [];
             foreach ($email['variables'] as $variable) {
-                $variables[] = new EmailTemplateVariable($variable['name'], $variable['label'], $variable['example']);
+                $variables[] = new EmailTemplateVariable(
+                    $variable['name'],
+                    $variable['label'],
+                    $variable['example'],
+                    $variable['required'] ?? false
+                );
             }
 
             $templates[] = new EmailTemplate(

@@ -11497,7 +11497,7 @@ if ($isEnabled('registration')) {
         $scoutYearService,
         $settingService,
         $mailService,
-        $editableContentService,
+        $emailTemplateRenderer,
         $journalService,
         $registrationBaseUrl,
         $registrationSiteName,
@@ -11546,7 +11546,7 @@ if ($isEnabled('registration')) {
     $registrationEmailService = new \Modules\Registration\Service\RequestEmailService(
         $registrationRequestRepo,
         $mailService,
-        $editableContentService,
+        $emailTemplateRenderer,
         $journalService,
         $registrationBaseUrl,
         $registrationSiteName,
@@ -11633,14 +11633,23 @@ if ($isEnabled('registration')) {
             new \Modules\Registration\Service\PriorityOrderService($settingService)
         )
     );
-    // « Gabarits » (issue #843, IT-07): the four request e-mails' bodies,
-    // stored in the same content store the senders above read them from.
+    // « Gabarits » (issue #905): Configuration > E-mails narrowed to the four
+    // request e-mails this module declares, at this page's own role.
     $frontController->registerController(
         \Modules\Registration\Controller\RegistrationTemplateController::class,
         new \Modules\Registration\Controller\RegistrationTemplateController(
             $twig,
-            new \Modules\Registration\Service\RequestEmailTemplateService($editableContentService),
-            $journalService
+            $emailTemplateRegistry,
+            $emailTemplateOverrideRepository,
+            $emailTemplateRenderer,
+            new \Core\Mail\Template\EmailTemplateCustomisationService(
+                $emailTemplateRegistry,
+                $emailTemplateOverrideRepository,
+                new \Core\Security\HtmlSanitizer()
+            ),
+            $journalService,
+            $mailService,
+            new \Core\Mail\Template\EmailTestSendThrottler($pdo)
         )
     );
     $frontController->registerController(

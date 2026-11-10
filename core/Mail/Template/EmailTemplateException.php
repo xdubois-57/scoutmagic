@@ -17,7 +17,7 @@ use Core\Exception\UserFacingException;
  * Implementing the marker is a claim about EVERY message this class is
  * constructed with (AGENTS.md § Exception messages that reach a visitor):
  * each one is a full French sentence naming nothing internal — no path,
- * no SQL, no class name. There are three, all in
+ * no SQL, no class name. There are four, all built in
  * EmailTemplateCustomisationService, and none of them quotes the content
  * being saved.
  */

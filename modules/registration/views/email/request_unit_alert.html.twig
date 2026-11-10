@@ -1,0 +1,12 @@
+{% extends 'email/base.html.twig' %}
+{#
+  The unit's alert for a new registration request (issue #905). It names
+  the child by first name only, never the family's details, and links to
+  the STAFF fiche (`lien_fiche`). `lien_suivi` is deliberately NOT
+  declared here: an undeclared name is never substituted, so the family's
+  secret link cannot reach this e-mail whatever the text says.
+#}
+{% block content %}
+    <p style="margin:0 0 16px;">Nouvelle demande d'inscription reçue pour {{ prenom_enfant }} — créneau : {{ creneau }}, année {{ annee_scoute }}, reçue le {{ date_reception }}.</p>
+    <p style="margin:0 0 16px;"><a href="{{ lien_fiche }}">Voir la demande</a></p>
+{% endblock %}

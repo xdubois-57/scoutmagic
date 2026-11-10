@@ -1,16 +1,13 @@
 {% extends 'base.html.twig' %}
 {% block title %}Gabarits — Formulaire d'inscription — {{ site_name }}{% endblock %}
 {#
-  « Gabarits » (issue #843, D10): the four e-mails of the request flow as a
-  LIST, each with its state and a pencil to its own page
-  (template_edit.html.twig) — the shape of a rental asset's Gabarits page,
-  without drag or bin: an e-mail is neither deleted nor reordered.
+  « Gabarits » (issue #905): the four e-mails of the request flow, in the
+  table Configuration > E-mails uses (partials/email_template_table), each
+  linking to the shared editor reached under this page's own address —
+  Controller\RegistrationTemplateController, the core controller narrowed
+  to these four.
 
-  The states come from Service\RequestEmailTemplateService::stateOf(): all
-  four e-mails ship with a text (issue #932), so each is « Par défaut » or
-  « Personnalisé ».
-
-  Requires `templates` (slug, name, description, state, state_label).
+  Requires `groups` (the core controller's) and `page_url`.
 #}
 {% block content %}
     <div class="page-wide">
@@ -21,35 +18,15 @@
             <div class="card-body">
                 <h2 class="h5 mb-3">Gabarits des e-mails de demande</h2>
 
-                {% embed 'partials/list_editor.html.twig' with {
-                    list_id: 'registration-template-list',
-                    items: templates|map(t => t|merge({id: t.slug})),
-                    sortable: false,
-                    state_tones: {'default': 'neutral', 'custom': 'info'},
+                {% include 'partials/email_template_table.html.twig' with {
+                    templates: groups|map(g => g.templates)|reduce((all, t) => all|merge(t), []),
+                    page_url: page_url,
                 } only %}
-                    {% block item_content %}
-                        <div class="d-flex flex-wrap align-items-baseline gap-2">
-                            <span class="fw-semibold">{{ item.name }}</span>
-                            {% include 'partials/status_badge.html.twig' with {
-                                status: state_tones[item.state],
-                                label: item.state_label,
-                            } only %}
-                        </div>
-                        <div class="small text-body-secondary">{{ item.description }}</div>
-                    {% endblock %}
-                    {% block item_edit %}
-                        <a href="/config/inscriptions/gabarits/{{ item.slug }}"
-                           class="btn btn-sm btn-outline-secondary"
-                           aria-label="Modifier — {{ item.name }}" title="Modifier — {{ item.name }}">
-                            <i class="bi bi-pencil" aria-hidden="true"></i>
-                        </a>
-                    {% endblock %}
-                {% endembed %}
 
-                <p class="small text-body-secondary">
+                <p class="small text-body-secondary mt-3">
                     L'accusé de réception, l'acceptation et le refus doivent contenir le lien de suivi de la
                     demande (la variable <code>{{ '{{ lien_suivi }}' }}</code>) : c'est le même lien dans les trois
-                    e-mails.
+                    e-mails, et un texte sans lui n'est ni enregistré ni envoyé.
                 </p>
                 <p class="small text-body-secondary mb-0">
                     Les e-mails de réinscription se règlent dans la

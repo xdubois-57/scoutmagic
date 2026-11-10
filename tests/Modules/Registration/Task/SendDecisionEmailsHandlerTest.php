@@ -15,8 +15,7 @@ use Core\Notification\NotificationService;
 use Core\Scheduler\TaskContext;
 use Core\Security\EncryptionService;
 use Core\Security\UserAccountRepository;
-use Core\View\EditableContentRepository;
-use Core\View\EditableContentService;
+use Core\Mail\Template\EmailTemplateOverrideRepository;
 use Modules\Registration\Repository\DecisionEmail;
 use Modules\Registration\Repository\DecisionEmailRepository;
 use Modules\Registration\Repository\RegistrationRequest;
@@ -50,7 +49,7 @@ class SendDecisionEmailsHandlerTest extends TestCase
 
     private \PDO $pdo;
     private SettingService $settings;
-    private EditableContentService $content;
+    private EmailTemplateOverrideRepository $emailOverrides;
     private RegistrationRequestRepository $requests;
     private RequestStatusService $statusService;
     private DecisionEmailRepository $emails;
@@ -96,9 +95,13 @@ class SendDecisionEmailsHandlerTest extends TestCase
         $this->emails = new DecisionEmailRepository($this->pdo);
         $this->requests = new RegistrationRequestRepository($this->pdo, $encryption, null, $this->emails);
         $this->statusService = new RequestStatusService($this->requests, $journal);
-        $this->content = new EditableContentService(new EditableContentRepository($this->pdo));
-        $this->content->set('registration_email_accepted_body', '<p>Bienvenue {{ prenom_enfant }} {{ lien_suivi }}</p>', 'rich_text', 1);
-        $this->content->set('registration_email_refused_body', '<p>Désolés. {{ lien_suivi }}</p>', 'rich_text', 1);
+        // Both decision e-mails customised in the core store (issue #905).
+        $this->emailOverrides = new EmailTemplateOverrideRepository($this->pdo);
+        $this->storeBody(
+            RequestEmailService::ACCEPTED_TEMPLATE,
+            '<p>Bienvenue {{ prenom_enfant }} {{ lien_suivi }}</p>'
+        );
+        $this->storeBody(RequestEmailService::REFUSED_TEMPLATE, '<p>Désolés. {{ lien_suivi }}</p>');
 
         $mailService = $this->recordingMailService();
         $this->automation = new AutomaticDecisionEmailService(
@@ -249,7 +252,8 @@ class SendDecisionEmailsHandlerTest extends TestCase
     {
         $request = $this->decide('accepted');
         $tokenBefore = $this->tokenHash($request->id);
-        $this->content->set('registration_email_accepted_body', '<p>Bienvenue</p>', 'rich_text', 1);
+        // Stored by another road than the editor, which refuses it.
+        $this->storeBody(RequestEmailService::ACCEPTED_TEMPLATE, '<p>Bienvenue</p>');
 
         $this->runAt('2027-01-11 08:00:00');
 
@@ -257,6 +261,7 @@ class SendDecisionEmailsHandlerTest extends TestCase
         $rows = $this->emails->findForRequest($request->id);
         $this->assertSame(DecisionEmail::STATE_FAILED, $rows[0]->state);
         $this->assertSame(DecisionEmail::FAILURE_BODY_NOT_WRITTEN, $rows[0]->failureCode);
+        $this->assertSame(RequestEmailService::BODY_WITHOUT_LINK_MESSAGE, $rows[0]->failureMessage);
         $this->assertSame($tokenBefore, $this->tokenHash($request->id));
         $this->assertSame('pending', $this->statusService->visibleStatus($this->reload($request->id)));
         $this->assertSame(
@@ -637,7 +642,7 @@ class SendDecisionEmailsHandlerTest extends TestCase
     public function testABodyWithoutTrackingLinkIsNotRetriedAndNotifiesStaff(): void
     {
         $request = $this->decide('accepted');
-        $this->content->set('registration_email_accepted_body', '<p>Sans lien.</p>', 'rich_text', 1);
+        $this->storeBody(RequestEmailService::ACCEPTED_TEMPLATE, '<p>Sans lien.</p>');
         $this->runAt('2027-01-11 08:00:00');
         $this->assertSame(['failed'], $this->states($request->id));
         $this->assertSame([], $this->sent);
@@ -775,6 +780,17 @@ class SendDecisionEmailsHandlerTest extends TestCase
         return $request;
     }
 
+    /**
+     * A customised body under the e-mail's default subject, written
+     * straight into the core store (issue #905).
+     */
+    private function storeBody(string $templateId, string $bodyHtml): void
+    {
+        $template = RegistrationTestHelper::emailRegistry()->find($templateId);
+        $this->assertNotNull($template, $templateId);
+        $this->emailOverrides->save($templateId, $template->defaultSubject, $bodyHtml, null);
+    }
+
     private function emailService(): RequestEmailService
     {
         $journal = new JournalService(new JournalRepository($this->pdo));
@@ -782,7 +798,7 @@ class SendDecisionEmailsHandlerTest extends TestCase
         return new RequestEmailService(
             $this->requests,
             $this->context->mailService,
-            $this->content,
+            RegistrationTestHelper::emailRenderer($this->pdo, $journal),
             $journal,
             'https://exemple.be',
             'Unité test',

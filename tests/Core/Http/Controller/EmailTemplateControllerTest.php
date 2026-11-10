@@ -601,6 +601,95 @@ class EmailTemplateControllerTest extends TestCase
         $this->assertSame('/config/emails', $response->getHeaders()['Location'] ?? null);
     }
 
+    // ── a required variable (#905) ────────────────────────────────────
+
+    public function testTheEditorMarksARequiredVariableInTheBodyButtonsOnly(): void
+    {
+        $this->registerReceiptWithARequiredLink();
+
+        $body = $this->controller->edit(
+            new Request('GET', '/config/emails/demo.receipt', [], [], [], []),
+            ['template' => 'demo.receipt']
+        )->getBody();
+
+        // Two body rows (the page's and the editor modal's), never the subject's.
+        $this->assertSame(2, substr_count($body, '>obligatoire</span>'));
+        $this->assertStringContainsString("doivent rester dans le texte", $body);
+        $this->assertStringNotContainsString("n'est plus envoyé", $body);
+    }
+
+    public function testAStoredBodyMissingItOpensWithTheReasonAndIsNotSentAsATest(): void
+    {
+        $this->registerReceiptWithARequiredLink();
+        $this->overrides->save('demo.receipt', 'Sujet {{prenom}}', '<p>Bonjour {{ prenom }}.</p>', null);
+
+        $page = $this->controller->edit(
+            new Request('GET', '/config/emails/demo.receipt', [], [], [], []),
+            ['template' => 'demo.receipt']
+        );
+        $this->assertSame(200, $page->getStatusCode());
+        $this->assertStringContainsString("Cet email n'est plus envoyé", $page->getBody());
+        $this->assertStringContainsString('Sujet Léa', $page->getBody());
+
+        $response = $this->controller->sendTest($this->formRequest([]), ['template' => 'demo.receipt']);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertCount(0, $this->sent);
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertSame('error', $flash['type'] ?? null);
+        $this->assertStringContainsString('« Lien de suivi »', (string) ($flash['message'] ?? ''));
+    }
+
+    public function testSavingABodyWithoutItIsRefusedWithTheVariableNamed(): void
+    {
+        $this->registerReceiptWithARequiredLink();
+
+        $response = $this->controller->saveBody(
+            $this->jsonRequest(['key' => 'body', 'value' => '<p>Bonjour.</p>', 'type' => 'html']),
+            ['template' => 'demo.receipt']
+        );
+
+        $this->assertSame(400, $response->getStatusCode());
+        $this->assertStringContainsString('Lien de suivi', (string) json_decode($response->getBody(), true)['error']);
+        $this->assertNull($this->overrides->find('demo.receipt'));
+    }
+
+    // ── the same page, seen from a module (#905) ──────────────────────
+
+    public function testAScopedPageListsAndReachesOnlyItsOwnEmailsUnderItsOwnAddress(): void
+    {
+        $scoped = $this->scopedController(['retro.board_closed']);
+
+        $list = $scoped->index(new Request('GET', '/module/emails', [], [], [], []), [])->getBody();
+        $this->assertStringContainsString('href="/module/emails/retro.board_closed"', $list);
+        $this->assertStringNotContainsString(self::OPEN_TEMPLATE, $list);
+        $this->assertStringNotContainsString('/config/emails/', $list);
+
+        $edit = $scoped->edit(
+            new Request('GET', '/module/emails/retro.board_closed', [], [], [], []),
+            ['template' => 'retro.board_closed']
+        )->getBody();
+        $this->assertStringContainsString('action="/module/emails/retro.board_closed/sujet"', $edit);
+        $this->assertStringContainsString('/module/emails/retro.board_closed/corps', $edit);
+        $this->assertStringNotContainsString('/config/emails/', $edit);
+
+        // An e-mail outside the scope is answered as an unknown one —
+        // on a read and on a write alike.
+        $outside = $scoped->edit(
+            new Request('GET', '/module/emails/' . self::OPEN_TEMPLATE, [], [], [], []),
+            ['template' => self::OPEN_TEMPLATE]
+        );
+        $this->assertSame(302, $outside->getStatusCode());
+        $this->assertSame('/module/emails', $outside->getHeaders()['Location'] ?? null);
+
+        $write = $scoped->saveBody(
+            $this->jsonRequest(['key' => 'email_body', 'value' => '<p>Écrit ailleurs.</p>', 'type' => 'html']),
+            ['template' => self::OPEN_TEMPLATE]
+        );
+        $this->assertSame(404, $write->getStatusCode());
+        $this->assertNull($this->overrides->find(self::OPEN_TEMPLATE));
+    }
+
     // ── « M'envoyer un test » ─────────────────────────────────────────
 
     public function testTheTestSendGoesThroughMailServiceAndNowhereElse(): void
@@ -684,6 +773,44 @@ class EmailTemplateControllerTest extends TestCase
     /**
      * @param array<string, string> $fields
      */
+    /**
+     * @param list<string> $ids
+     */
+    private function scopedController(array $ids): EmailTemplateController
+    {
+        $twig = (new \ReflectionProperty(EmailTemplateController::class, 'twig'))->getValue($this->controller);
+        $journal = new JournalService(new JournalRepository($this->pdo));
+
+        return new EmailTemplateController(
+            $twig,
+            $this->registry,
+            $this->overrides,
+            $this->renderer,
+            new EmailTemplateCustomisationService($this->registry, $this->overrides, new HtmlSanitizer()),
+            $journal,
+            $this->mailService,
+            new EmailTestSendThrottler($this->pdo),
+            '/module/emails',
+            $ids
+        );
+    }
+
+    private function registerReceiptWithARequiredLink(): void
+    {
+        $this->registry->registerModuleTemplates('demo', 'Démo', [[
+            'id' => 'demo.receipt',
+            'label' => 'Accusé de réception',
+            'description' => 'Envoyé à la famille.',
+            'default_subject' => 'Demande reçue',
+            'template' => 'email/super_admin_revoked.html.twig',
+            'editable' => true,
+            'variables' => [
+                ['name' => 'prenom', 'label' => 'Prénom', 'example' => 'Léa'],
+                ['name' => 'lien', 'label' => 'Lien de suivi', 'example' => 'https://u.be/s/1', 'required' => true],
+            ],
+        ]]);
+    }
+
     private function formRequest(array $fields): Request
     {
         $token = CsrfGuard::generateToken();

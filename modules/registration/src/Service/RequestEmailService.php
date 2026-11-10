@@ -12,7 +12,9 @@ use Core\Exception\UserFacingMessage;
 use Core\Journal\JournalService;
 use Core\Mail\MailException;
 use Core\Mail\MailService;
-use Core\View\EditableContentService;
+use Core\Mail\Template\EmailTemplateRenderer;
+use Core\Mail\Template\RenderedEmail;
+use Core\Mail\Template\MissingRequiredVariableException;
 use Modules\Registration\Repository\DecisionEmail;
 use Modules\Registration\Repository\RegistrationRequest;
 use Modules\Registration\Repository\RegistrationRequestRepository;
@@ -23,9 +25,11 @@ use Modules\Registration\Repository\RegistrationRequestRepository;
  * taken (issue #843, IT-09: sendScheduled(), called by Task\
  * SendDecisionEmailsHandler). Both ship with a default body (issue #932), so
  * there is never a « Gabarit à rédiger » to wait on — but never without the
- * family's tracking link either: a stored body that lacks `{{ lien_suivi }}`
- * is a FAILED attempt (hasLink() is the guard), not an e-mail that leaves
- * silently without the one way back to the request.
+ * family's tracking link either: `lien_suivi` is a REQUIRED variable of both
+ * e-mails (module.json, issue #905), so the core renderer refuses a stored
+ * body that lacks it, and that refusal is recorded here as a FAILED attempt,
+ * never an e-mail that leaves silently without the one way back to the
+ * request.
  *
  * **The tracking link is the request's own, read back and never renewed**
  * (issue #932): the token was generated when the request was filed and is
@@ -47,24 +51,24 @@ use Modules\Registration\Repository\RegistrationRequestRepository;
  */
 class RequestEmailService
 {
-    private const ACCEPTED_KEY = RequestEmailTemplateService::KEY_ACCEPTED;
-    private const REFUSED_KEY = RequestEmailTemplateService::KEY_REFUSED;
+    public const ACCEPTED_TEMPLATE = 'registration.request_accepted';
+    public const REFUSED_TEMPLATE = 'registration.request_refused';
 
     /**
-     * What differs between the two e-mails.
+     * What differs between the two e-mails. The subject and the body are
+     * the core registry's (module.json `emails`), customisable from
+     * « Gabarits ».
      *
-     * @var array<string, array{key: string, subject: string, event: string, journal: string}>
+     * @var array<string, array{template: string, event: string, journal: string}>
      */
     private const EMAILS = [
         DecisionEmail::DECISION_ACCEPTED => [
-            'key' => self::ACCEPTED_KEY,
-            'subject' => "Votre demande d'inscription a été acceptée",
+            'template' => self::ACCEPTED_TEMPLATE,
             'event' => 'registration_accepted_email_sent',
             'journal' => "Email d'acceptation envoyé",
         ],
         DecisionEmail::DECISION_REFUSED => [
-            'key' => self::REFUSED_KEY,
-            'subject' => "Votre demande d'inscription a été refusée",
+            'template' => self::REFUSED_TEMPLATE,
             'event' => 'registration_refused_email_sent',
             'journal' => 'Email de refus envoyé',
         ],
@@ -87,16 +91,20 @@ class RequestEmailService
     private const ACTION_REFUSED_UNKNOWN = "Action inconnue : rien n'a été envoyé.";
 
     /** The sentence a chief reads when the stored body has lost its `{{ lien_suivi }}`. */
-    private const BODY_WITHOUT_LINK_MESSAGE = "Le texte de cet e-mail ne contient pas le lien de suivi : il n'a pas "
-        . "été envoyé. Ajoutez la variable {{ lien_suivi }} dans « Gabarits », ou rétablissez le texte par défaut.";
+    public const BODY_WITHOUT_LINK_MESSAGE = "Le texte de cet e-mail ne contient pas le lien de suivi : il n'a pas "
+        . "été envoyé. Ajoutez la variable {{ lien_suivi }} dans « Gabarits », ou revenez au gabarit par défaut.";
 
     /** The request has no readable tracking link (a row from before the link was stored). */
     private const NO_LINK_MESSAGE = "Le lien de suivi de cette demande n'est plus disponible : l'e-mail n'a pas été "
         . "envoyé, car il ne pourrait pas le contenir.";
 
-    /** Appended to a decision e-mail sent once the family's link has expired (issue #932). */
-    private const EXPIRED_LINK_NOTICE = "<p><strong>Information :</strong> le suivi public de cette demande n'est "
-        . "plus accessible : le lien ci-dessus a expiré.</p>";
+    /**
+     * Added to a decision e-mail sent once the family's link has expired
+     * (issue #932) — as the frame's footer note, so a customised text
+     * carries it too (EmailTemplateRenderer::frameContext()).
+     */
+    public const EXPIRED_LINK_NOTICE = "Information : le suivi public de cette demande n'est plus accessible, "
+        . 'le lien de cet e-mail a expiré.';
 
     private const AUTOMATIC_NOT_STARTED_MESSAGE = "L'envoi automatique de cet e-mail n'a pas pu être lancé : rien "
         . "n'est parti. « Réessayer » le relance.";
@@ -112,7 +120,7 @@ class RequestEmailService
     public function __construct(
         private RegistrationRequestRepository $repository,
         private MailService $mailService,
-        private EditableContentService $editableContentService,
+        private EmailTemplateRenderer $renderer,
         private JournalService $journalService,
         private string $baseUrl,
         private string $siteName,
@@ -350,16 +358,6 @@ class RequestEmailService
         // cannot happen leaves a failed attempt behind — the automatic
         // sending included — and never a success. `body_not_written` is the
         // stored category for "this body cannot go out as it is".
-        $template = $this->templates()->bodyFor($email['key']);
-        if (!RequestEmailTemplateService::hasTrackingLink($template)) {
-            $this->decisionEmails->recordFailure(
-                $attempt,
-                DecisionEmail::FAILURE_BODY_NOT_WRITTEN,
-                self::BODY_WITHOUT_LINK_MESSAGE
-            );
-
-            throw new RegistrationException(self::BODY_WITHOUT_LINK_MESSAGE);
-        }
         $link = $this->repository->trackingLinkOf($request->id);
         if ($link === null) {
             $this->decisionEmails->recordFailure(
@@ -372,7 +370,23 @@ class RequestEmailService
         }
 
         try {
-            $this->send($request, $template, $link, $email['key'], $email['subject'], $targetYearLabel);
+            $rendered = $this->renderer->render(
+                $email['template'],
+                $this->context($request, $link, $targetYearLabel)
+            );
+        } catch (MissingRequiredVariableException) {
+            // The core renderer journaled it; the fiche says it in a chief's words.
+            $this->decisionEmails->recordFailure(
+                $attempt,
+                DecisionEmail::FAILURE_BODY_NOT_WRITTEN,
+                self::BODY_WITHOUT_LINK_MESSAGE
+            );
+
+            throw new RegistrationException(self::BODY_WITHOUT_LINK_MESSAGE);
+        }
+
+        try {
+            $this->send($request, $rendered, $email['template']);
         } catch (RegistrationException $e) {
             // Gated here, at the write: the row keeps a sentence a chief
             // may read, never the transport's own text (send() journals
@@ -422,17 +436,35 @@ class RequestEmailService
         }
     }
 
-    private function templates(): RequestEmailTemplateService
-    {
-        return new RequestEmailTemplateService($this->editableContentService);
-    }
-
     /**
+     * What both decision e-mails are rendered with — the declared
+     * variables, and the frame's footer note once the link has expired.
+     *
      * @param array{token: string, expires_at: ?\DateTimeImmutable} $link the
      *        request's own tracking link (RegistrationRequestRepository::
      *        trackingLinkOf()) — read, never minted: the URL is the one the
      *        receipt carried
-     *
+     * @return array<string, string>
+     */
+    private function context(RegistrationRequest $request, array $link, string $targetYearLabel): array
+    {
+        $context = [
+            'site_name' => $this->siteName,
+            'prenom_enfant' => $request->childFirstName,
+            'annee_scoute' => $targetYearLabel,
+            'lien_suivi' => rtrim($this->baseUrl, '/') . "/inscriptions/suivi/{$request->id}/{$link['token']}",
+        ];
+        // Sent after the link expired: the message still leaves, the link
+        // is not renewed and not extended, and the family is told so instead
+        // of being left to find a dead page.
+        if ($link['expires_at'] === null || new \DateTimeImmutable() >= $link['expires_at']) {
+            $context['footer_note'] = self::EXPIRED_LINK_NOTICE;
+        }
+
+        return $context;
+    }
+
+    /**
      * @throws RegistrationException on a mail delivery failure — unlike
      *         the best-effort submission emails (itération 4), a staff-
      *         triggered send must surface its own failure so the button
@@ -441,35 +473,14 @@ class RequestEmailService
      *         records the attempt as failed, and retrying is always
      *         available).
      */
-    private function send(
-        RegistrationRequest $request,
-        string $template,
-        array $link,
-        string $contentKey,
-        string $subject,
-        string $targetYearLabel
-    ): void {
-        $trackingUrl = rtrim($this->baseUrl, '/') . "/inscriptions/suivi/{$request->id}/{$link['token']}";
-
-        $body = RequestEmailTemplateService::substitute($template, [
-            'prenom_enfant' => $request->childFirstName,
-            'annee_scoute' => $targetYearLabel,
-            'lien_suivi' => $trackingUrl,
-            'nom_unite' => $this->siteName,
-        ]);
-        // Sent after the link expired: the message still leaves, the link
-        // is not renewed and not extended, and the family is told so instead
-        // of being left to find a dead page.
-        if ($link['expires_at'] === null || new \DateTimeImmutable() >= $link['expires_at']) {
-            $body .= self::EXPIRED_LINK_NOTICE;
-        }
-
+    private function send(RegistrationRequest $request, RenderedEmail $email, string $templateId): void
+    {
         try {
             $this->mailService->send(
                 to: $request->email,
-                subject: $subject,
-                bodyHtml: $body,
-                bodyText: self::toPlainText($body),
+                subject: $email->subject,
+                bodyHtml: $email->bodyHtml,
+                bodyText: $email->bodyText,
                 cc: $this->familyEmailCopy?->copyAddress()
             );
         } catch (MailException $e) {
@@ -485,7 +496,7 @@ class RequestEmailService
                 "Échec de l'envoi d'un email de décision — lien de suivi inchangé, réessai possible",
                 [
                     'request_id' => $request->id,
-                    'content_key' => $contentKey,
+                    'template_id' => $templateId,
                     // Core\Mail\MailException is built from PHPMailer's
                     // ErrorInfo; only the exception class is journaled here.
                     'error_class' => $e::class,
@@ -498,16 +509,5 @@ class RequestEmailService
                 $e
             );
         }
-    }
-
-    /**
-     * The plain-text alternative of an HTML body. strip_tags() alone left
-     * the entities substitute() introduced (a first name with an apostrophe
-     * arrived as "Ma&#039;lo", an url's & as "&amp;"), so the decode pass
-     * is what actually makes this readable.
-     */
-    public static function toPlainText(string $html): string
-    {
-        return trim(html_entity_decode(strip_tags($html), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
     }
 }

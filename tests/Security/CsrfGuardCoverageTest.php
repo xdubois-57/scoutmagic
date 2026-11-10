@@ -132,7 +132,7 @@ class CsrfGuardCoverageTest extends TestCase
             return;
         }
 
-        $source = (string) file_get_contents($path);
+        $source = self::sourceWithInheritedActions($moduleId, $controller, $path);
 
         $this->assertTrue(
             str_contains($source, 'guardCsrf') || str_contains($source, 'CsrfGuard::'),
@@ -144,6 +144,31 @@ class CsrfGuardCoverageTest extends TestCase
                 $moduleId
             )
         );
+    }
+
+    /**
+     * The controller's own source, followed by its parents' up to (not
+     * including) AbstractController. A module controller may extend a core
+     * one and inherit its POST actions — registration's « Gabarits » is
+     * Configuration > E-mails narrowed to four e-mails (issue #905) — and
+     * those actions, guards included, live in the parent's file.
+     */
+    private static function sourceWithInheritedActions(string $moduleId, string $controller, string $path): string
+    {
+        $source = (string) file_get_contents($path);
+        $namespace = 'Modules\\' . str_replace(' ', '', ucwords(str_replace('_', ' ', $moduleId)))
+            . '\\Controller\\' . $controller;
+        if (!class_exists($namespace)) {
+            return $source;
+        }
+
+        $parent = (new \ReflectionClass($namespace))->getParentClass();
+        while ($parent !== false && $parent->getName() !== \Core\Http\Controller\AbstractController::class) {
+            $source .= "\n" . (string) file_get_contents((string) $parent->getFileName());
+            $parent = $parent->getParentClass();
+        }
+
+        return $source;
     }
 
     /**

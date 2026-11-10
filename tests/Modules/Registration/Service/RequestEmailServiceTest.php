@@ -11,8 +11,10 @@ use Core\Journal\JournalService;
 use Core\Mail\MailException;
 use Core\Mail\MailService;
 use Core\Security\EncryptionService;
-use Core\View\EditableContentRepository;
-use Core\View\EditableContentService;
+use Core\Mail\Template\EmailTemplateCustomisationService;
+use Core\Mail\Template\EmailTemplateException;
+use Core\Mail\Template\EmailTemplateOverrideRepository;
+use Core\Security\HtmlSanitizer;
 use Modules\Registration\Repository\DecisionEmail;
 use Modules\Registration\Repository\DecisionEmailRepository;
 use Modules\Registration\Repository\RegistrationRequestRepository;
@@ -27,11 +29,12 @@ use Tests\DatabaseTestHelper;
 use Tests\Modules\Registration\RegistrationTestHelper;
 
 /**
- * Acceptance/refusal emails: no shipped default body (unlike itération 4's
- * submission emails), send button gated on a real body having been
- * written, resend always available, and — unlike the best-effort
- * submission emails — a mail delivery failure must surface to the caller
- * rather than being swallowed into the journal.
+ * Acceptance/refusal emails: both rendered by the core e-mail renderer from
+ * the module's declarations (issue #905), shipped with a text (issue #932)
+ * and never sent without the family's link — `lien_suivi` is required, so a
+ * stored body without it is a failed attempt. Resend always available, and
+ * — unlike the best-effort submission emails — a mail delivery failure
+ * must surface to the caller rather than being swallowed into the journal.
  *
  * @group database
  */
@@ -41,7 +44,7 @@ class RequestEmailServiceTest extends TestCase
     private \PDO $pdo;
     private RegistrationRequestRepository $requestRepository;
     private DecisionEmailRepository $decisionEmails;
-    private EditableContentService $editableContentService;
+    private EmailTemplateOverrideRepository $overrides;
     private int $scoutYearId;
 
     protected function setUp(): void
@@ -57,7 +60,7 @@ class RequestEmailServiceTest extends TestCase
             null,
             $this->decisionEmails
         );
-        $this->editableContentService = new EditableContentService(new EditableContentRepository($this->pdo));
+        $this->overrides = new EmailTemplateOverrideRepository($this->pdo);
         $this->scoutYearId = RegistrationTestHelper::insertScoutYear($this->pdo, '2026-2027', '2026-09-01', '2027-08-31');
     }
 
@@ -68,7 +71,7 @@ class RequestEmailServiceTest extends TestCase
         $journal = new JournalService(new JournalRepository($this->pdo));
 
         return new RequestEmailService(
-            $this->requestRepository, $mailService, $this->editableContentService,
+            $this->requestRepository, $mailService, RegistrationTestHelper::emailRenderer($this->pdo, $journal),
             $journal, 'https://example.com', 'Unité Test',
             new DecisionEmailService($this->decisionEmails, $journal),
             $familyEmailCopy
@@ -195,10 +198,24 @@ class RequestEmailServiceTest extends TestCase
         return $this->decisionEmails->findForRequest($requestId);
     }
 
+    /**
+     * Store a customised body for one of the two decision e-mails, straight
+     * through the override repository (issue #905) — the road a row takes
+     * when it did NOT come through the editor (an older version, a restored
+     * backup), so a body without `{{ lien_suivi }}` can be stored here to
+     * prove the send refuses it.
+     */
+    private function storeBody(string $templateId, string $bodyHtml): void
+    {
+        $template = RegistrationTestHelper::emailRegistry()->find($templateId);
+        $this->assertNotNull($template, $templateId);
+        $this->overrides->save($templateId, $template->defaultSubject, $bodyHtml, null);
+    }
+
     private function writeBodies(): void
     {
-        $this->editableContentService->set('registration_email_accepted_body', '<p>Bienvenue ! {{ lien_suivi }}</p>', 'rich_text', 1);
-        $this->editableContentService->set('registration_email_refused_body', '<p>Désolé. {{ lien_suivi }}</p>', 'rich_text', 1);
+        $this->storeBody(RequestEmailService::ACCEPTED_TEMPLATE, '<p>Bienvenue ! {{ lien_suivi }}</p>');
+        $this->storeBody(RequestEmailService::REFUSED_TEMPLATE, '<p>Désolé. {{ lien_suivi }}</p>');
     }
 
     /**
@@ -239,7 +256,7 @@ class RequestEmailServiceTest extends TestCase
      */
     public function testABodyWithoutTheTrackingLinkIsRecordedAsAFailedAttemptNeverASuccess(): void
     {
-        $this->editableContentService->set('registration_email_accepted_body', '<p>Bienvenue !</p>', 'rich_text', 1);
+        $this->storeBody(RequestEmailService::ACCEPTED_TEMPLATE, '<p>Bienvenue !</p>');
         $mailService = $this->createMock(MailService::class);
         $mailService->expects($this->never())->method('send');
         $service = $this->buildService($mailService);
@@ -249,21 +266,25 @@ class RequestEmailServiceTest extends TestCase
             $service->sendAccepted($this->requestRepository->findById($requestId), '2026-2027');
             $this->fail('Expected a RegistrationException for a body without the link.');
         } catch (RegistrationException $e) {
-            $this->assertStringContainsString('ne contient pas le lien de suivi', $e->getMessage());
+            $this->assertSame(RequestEmailService::BODY_WITHOUT_LINK_MESSAGE, $e->getMessage());
             $this->assertStringContainsString('{{ lien_suivi }}', $e->getMessage());
         }
 
         [$attempt] = $this->history($requestId);
         $this->assertSame(DecisionEmail::STATE_FAILED, $attempt->state);
         $this->assertSame(DecisionEmail::FAILURE_BODY_NOT_WRITTEN, $attempt->failureCode);
-        $this->assertStringContainsString('ne contient pas le lien de suivi', (string) $attempt->failureMessage);
+        $this->assertSame(RequestEmailService::BODY_WITHOUT_LINK_MESSAGE, $attempt->failureMessage);
+        // The core renderer journaled why, under the e-mail's registry id.
+        $count = $this->pdo->prepare('SELECT COUNT(*) FROM event_log WHERE event_type = ? AND context LIKE ?');
+        $count->execute(['email_template_required_variable_missing', '%registration.request_accepted%']);
+        $this->assertSame(1, (int) $count->fetchColumn());
         $this->assertNull($attempt->sentAt);
         $this->assertNull($this->requestRepository->findById($requestId)->decisionEmailSentAt);
     }
 
     public function testARefusalBodyWithoutTheTrackingLinkIsRecordedAsAFailedAttemptToo(): void
     {
-        $this->editableContentService->set('registration_email_refused_body', '<p>Désolé.</p>', 'rich_text', 1);
+        $this->storeBody(RequestEmailService::REFUSED_TEMPLATE, '<p>Désolé.</p>');
         $mailService = $this->createMock(MailService::class);
         $mailService->expects($this->never())->method('send');
         $service = $this->buildService($mailService);
@@ -280,15 +301,32 @@ class RequestEmailServiceTest extends TestCase
             [DecisionEmail::FAILURE_BODY_NOT_WRITTEN],
             array_map(static fn(DecisionEmail $email) => $email->failureCode, $this->history($requestId))
         );
+        $this->assertSame(
+            [RequestEmailService::BODY_WITHOUT_LINK_MESSAGE],
+            array_map(static fn(DecisionEmail $email) => $email->failureMessage, $this->history($requestId))
+        );
     }
 
     /**
-     * A body the editor emptied to `<p>&nbsp;</p>` is no body: the shipped
-     * text goes out in its place (issue #932), link included.
+     * A body the editor emptied to `<p>&nbsp;</p>` is no body: the editor
+     * refuses to store it, since it lost the required `{{ lien_suivi }}`
+     * (issue #905), so the shipped text keeps going out (issue #932), link
+     * included.
      */
-    public function testABodyEmptiedByTheEditorFallsBackToTheShippedText(): void
+    public function testABodyEmptiedByTheEditorIsRefusedAndTheShippedTextGoesOut(): void
     {
-        $this->editableContentService->set('registration_email_accepted_body', '<p>&nbsp;</p>', 'rich_text', 1);
+        $customisation = new EmailTemplateCustomisationService(
+            RegistrationTestHelper::emailRegistry(),
+            $this->overrides,
+            new HtmlSanitizer()
+        );
+        try {
+            $customisation->customise(RequestEmailService::ACCEPTED_TEMPLATE, 'Sujet', '<p>&nbsp;</p>', null);
+            $this->fail('An emptied body must be refused.');
+        } catch (EmailTemplateException $e) {
+            $this->assertStringContainsString('{{ lien_suivi }}', $e->getMessage());
+        }
+        $this->assertNull($this->overrides->find(RequestEmailService::ACCEPTED_TEMPLATE));
         $mailService = $this->createMock(MailService::class);
         $bodies = [];
         $this->recordBodies($mailService, $this->once(), $bodies);
@@ -386,7 +424,10 @@ class RequestEmailServiceTest extends TestCase
 
     public function testSendAcceptedSucceedsAndRecordsTheSentAttemptOnceBodyIsWritten(): void
     {
-        $this->editableContentService->set('registration_email_accepted_body', '<p>Bienvenue {{prenom_enfant}} ! {{ lien_suivi }}</p>', 'rich_text', 1);
+        $this->storeBody(
+            RequestEmailService::ACCEPTED_TEMPLATE,
+            '<p>Bienvenue {{prenom_enfant}} ! {{ lien_suivi }}</p>'
+        );
         $mailService = $this->createMock(MailService::class);
         $recipients = [];
         $this->recordRecipients($mailService, $this->once(), $recipients);
@@ -580,7 +621,7 @@ class RequestEmailServiceTest extends TestCase
      */
     public function testTheSmtpErrorNeverReachesTheRegistrationExceptionsOwnMessage(): void
     {
-        $this->editableContentService->set('registration_email_refused_body', '<p>Désolé. {{ lien_suivi }}</p>', 'rich_text', 1);
+        $this->storeBody(RequestEmailService::REFUSED_TEMPLATE, '<p>Désolé. {{ lien_suivi }}</p>');
         $mailService = $this->createStub(MailService::class);
         $mailService->method('send')->willThrowException(
             new MailException('SMTP connect() failed. https://github.com/PHPMailer/PHPMailer/wiki/Troubleshooting')
@@ -630,7 +671,7 @@ class RequestEmailServiceTest extends TestCase
      */
     public function testAGuardedSendLeavesTheTrackingLinkUntouched(): void
     {
-        $this->editableContentService->set('registration_email_accepted_body', '<p>Bienvenue</p>', 'rich_text', 1);
+        $this->storeBody(RequestEmailService::ACCEPTED_TEMPLATE, '<p>Bienvenue</p>');
         $service = $this->buildService($this->createStub(MailService::class));
         $created = $this->createRequestWithToken('accepted');
         $before = $this->requestRepository->trackingLinkOf($created['id']);
@@ -743,7 +784,7 @@ class RequestEmailServiceTest extends TestCase
         $service = new RequestEmailService(
             $this->requestRepository,
             $mailService,
-            $this->editableContentService,
+            RegistrationTestHelper::emailRenderer($this->pdo, $journal),
             $journal,
             'https://example.com',
             'Unité Test',
@@ -778,8 +819,13 @@ class RequestEmailServiceTest extends TestCase
         $service->sendAccepted($this->requestRepository->findById($created['id']), '2026-2027');
 
         $this->assertSame(['p@example.com'], array_column($bodies, 'to'));
-        $this->assertStringContainsString('le suivi public de cette demande n', $bodies[0]['html']);
-        $this->assertStringContainsString('plus accessible', $bodies[0]['text']);
+        // The notice is the frame's footer note (issue #905), escaped as
+        // Twig escapes it in the HTML half, and in the text half as written.
+        $this->assertStringContainsString(
+            htmlspecialchars(RequestEmailService::EXPIRED_LINK_NOTICE, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'),
+            $bodies[0]['html']
+        );
+        $this->assertStringContainsString(RequestEmailService::EXPIRED_LINK_NOTICE, $bodies[0]['text']);
         $this->assertSame(
             [DecisionEmail::STATE_SENT],
             array_map(static fn(DecisionEmail $e) => $e->state, $this->history($created['id']))
@@ -799,6 +845,7 @@ class RequestEmailServiceTest extends TestCase
         $service->sendAccepted($this->requestRepository->findById($requestId), '2026-2027');
 
         $this->assertSame(['marie@example.com'], array_column($bodies, 'to'));
+        $this->assertStringNotContainsString('plus accessible', $bodies[0]['html']);
         $this->assertStringNotContainsString('plus accessible', $bodies[0]['text']);
     }
 
@@ -991,15 +1038,34 @@ class RequestEmailServiceTest extends TestCase
     }
 
     /**
-     * substitute() html-escapes the values it injects; strip_tags() alone
-     * left those entities in the plain-text alternative.
+     * The values a customised body receives are html-escaped on their way
+     * into the HTML; the plain-text alternative must read them decoded
+     * (the core renderer derives it, issue #905), never as entities.
      */
     public function testPlainTextAlternativeDecodesEntities(): void
     {
-        $this->assertSame(
-            "Bonjour Ma'lo & bienvenue",
-            RequestEmailService::toPlainText('<p>Bonjour Ma&#039;lo &amp; bienvenue</p>')
+        $this->storeBody(
+            RequestEmailService::ACCEPTED_TEMPLATE,
+            '<p>Bonjour {{ prenom_enfant }} &amp; bienvenue {{ lien_suivi }}</p>'
         );
+        $created = $this->requestRepository->create($this->scoutYearId, [
+            'parent_name' => 'P', 'child_last_name' => 'D', 'child_first_name' => "Ma'lo",
+            'gender' => 'M', 'birth_date' => '2019-01-01', 'street' => 'S', 'number' => '1',
+            'postal_code' => '1000', 'city' => 'V', 'email' => 'p@example.com',
+            'phone1' => '000', 'phone2' => null, 'remarks' => null,
+        ], null, []);
+        $this->requestRepository->updateStatus($created['id'], 'accepted', null);
+        $mailService = $this->createMock(MailService::class);
+        $bodies = [];
+        $this->recordBodies($mailService, $this->once(), $bodies);
+
+        $this->buildService($mailService)
+            ->sendAccepted($this->requestRepository->findById($created['id']), '2026-2027');
+
+        $this->assertStringContainsString('&amp; bienvenue', $bodies[0]['html']);
+        $this->assertStringContainsString("Bonjour Ma'lo & bienvenue", $bodies[0]['text']);
+        $this->assertStringNotContainsString('&#039;', $bodies[0]['text']);
+        $this->assertStringNotContainsString('&amp;', $bodies[0]['text']);
     }
 
     /**
@@ -1066,7 +1132,7 @@ class RequestEmailServiceTest extends TestCase
         $id = $this->createRequest('accepted');
         $request = $this->requestRepository->findById($id);
         $service->sendFromRequestPage($request, DecisionEmailPanel::ACTION_SEND_NOW, '');
-        $this->editableContentService->set('registration_email_accepted_body', '<p>Sans lien</p>', 'rich_text', 1);
+        $this->storeBody(RequestEmailService::ACCEPTED_TEMPLATE, '<p>Sans lien</p>');
 
         try {
             $service->sendFromRequestPage($request, DecisionEmailPanel::ACTION_RESEND, '');

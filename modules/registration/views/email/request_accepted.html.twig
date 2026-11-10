@@ -1,0 +1,11 @@
+{% extends 'email/base.html.twig' %}
+{#
+  Acceptance of a registration request (issue #905). `lien_suivi` is
+  REQUIRED (module.json). Sent after the link expired, the sender adds a
+  `footer_note` saying so — never a renewed link.
+#}
+{% block content %}
+    <p style="margin:0 0 16px;">Bonjour,</p>
+    <p style="margin:0 0 16px;">Votre demande d'inscription pour {{ prenom_enfant }}, pour l'année scoute {{ annee_scoute }}, a été acceptée.</p>
+    <p style="margin:0 0 16px;">Vous pouvez consulter le suivi de cette demande à l'aide de ce lien, tant qu'il est valide : <a href="{{ lien_suivi }}">{{ lien_suivi }}</a>.</p>
+{% endblock %}

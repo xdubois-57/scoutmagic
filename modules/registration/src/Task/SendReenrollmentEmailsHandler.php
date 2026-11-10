@@ -232,29 +232,9 @@ class SendReenrollmentEmailsHandler implements TaskHandlerInterface
         );
     }
 
-    /**
-     * Core's templates plus this module's own — a handler runs outside the
-     * composition root, so nothing has aggregated the manifests for it
-     * (ARCHITECTURE.md §8.7bis). A customisation is honoured all the same:
-     * that lives in the database, not in the registry.
-     */
     private static function renderer(TaskContext $context): \Core\Mail\Template\EmailTemplateRenderer
     {
-        $registry = new \Core\Mail\Template\EmailTemplateRegistry();
-        $registry->registerModuleManifest(
-            \Core\Module\ModuleManifest::fromFile(dirname(__DIR__, 2) . '/module.json')
-        );
-
-        return new \Core\Mail\Template\EmailTemplateRenderer(
-            \Core\View\TwigFactory::create(
-                dirname(__DIR__, 4) . '/core/View/templates',
-                false,
-                ['registration' => dirname(__DIR__, 2) . '/views']
-            ),
-            $registry,
-            new \Core\Mail\Template\EmailTemplateOverrideRepository($context->connection->getPdo()),
-            $context->journal
-        );
+        return TaskEmailRenderer::create($context);
     }
 
     /**

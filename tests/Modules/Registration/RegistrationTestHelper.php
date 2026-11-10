@@ -7,6 +7,46 @@ namespace Tests\Modules\Registration;
 class RegistrationTestHelper
 {
     /**
+     * The core e-mail renderer as the composition root builds it for this
+     * module: core's templates plus registration's own declarations
+     * (module.json `emails`) and Twig namespace. The four request-flow
+     * e-mails (issue #905) are rendered — and customised — through it.
+     */
+    public static function emailRenderer(
+        \PDO $pdo,
+        ?\Core\Journal\JournalService $journal = null
+    ): \Core\Mail\Template\EmailTemplateRenderer {
+        $root = dirname(__DIR__, 3);
+
+        return new \Core\Mail\Template\EmailTemplateRenderer(
+            \Core\View\TwigFactory::create(
+                $root . '/core/View/templates',
+                false,
+                ['registration' => $root . '/modules/registration/views']
+            ),
+            self::emailRegistry(),
+            new \Core\Mail\Template\EmailTemplateOverrideRepository($pdo),
+            $journal ?? new \Core\Journal\JournalService(new \Core\Journal\JournalRepository($pdo))
+        );
+    }
+
+    /**
+     * The core e-mail registry with this module's declarations
+     * (module.json `emails`) — the one emailRenderer() renders from, for a
+     * test that customises an e-mail the way the editor does
+     * (Core\Mail\Template\EmailTemplateCustomisationService).
+     */
+    public static function emailRegistry(): \Core\Mail\Template\EmailTemplateRegistry
+    {
+        $registry = new \Core\Mail\Template\EmailTemplateRegistry();
+        $registry->registerModuleManifest(
+            \Core\Module\ModuleManifest::fromFile(dirname(__DIR__, 3) . '/modules/registration/module.json')
+        );
+
+        return $registry;
+    }
+
+    /**
      * Register this module's settings **from its own `module.json`**, the
      * way `Core\Module\ModuleManager::loadModule()` does on every request.
      *
