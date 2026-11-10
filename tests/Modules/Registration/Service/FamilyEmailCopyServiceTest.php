@@ -80,9 +80,14 @@ class FamilyEmailCopyServiceTest extends TestCase
     {
         $this->assertNull($this->service->copyAddress());
 
-        $statement = $this->pdo->prepare('SELECT COUNT(*) FROM event_log WHERE event_type = ?');
+        $statement = $this->pdo->prepare('SELECT description FROM event_log WHERE event_type = ?');
         $statement->execute(['registration_email_copy_unresolved']);
-        $this->assertSame(1, (int) $statement->fetchColumn());
+        $descriptions = $statement->fetchAll(\PDO::FETCH_COLUMN);
+        $this->assertCount(1, $descriptions);
+        // Written before any send is tried: it announces, it never claims
+        // a delivery (issue #916).
+        $this->assertStringContainsString('sera envoyé sans copie', (string) $descriptions[0]);
+        $this->assertStringNotContainsString('envoyé sans copie :', (string) $descriptions[0]);
     }
 
     /**
