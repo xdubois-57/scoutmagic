@@ -28,6 +28,8 @@ class MagicLinkRepositoryTest extends TestCase
                 expires_at DATETIME NOT NULL,
                 used BOOLEAN NOT NULL DEFAULT 0,
                 confirmed_at DATETIME,
+                match_code_hash VARCHAR(255),
+                match_attempts INTEGER NOT NULL DEFAULT 0,
                 created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
             )
         ');
@@ -120,5 +122,59 @@ class MagicLinkRepositoryTest extends TestCase
         // The valid link should still exist
         $stmt = $this->pdo->query('SELECT COUNT(*) FROM magic_links');
         $this->assertSame(1, (int) $stmt->fetchColumn());
+    }
+
+    /**
+     * Issue #1099: an expired link still inside the rate-limit hour is
+     * kept — countRecentByEmail() counts it, and deleting it would hand
+     * the address a fresh allowance of links.
+     */
+    public function testAnExpiredLinkStillCountedByTheRateLimitIsKept(): void
+    {
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO magic_links (email_blind_index, token_hash, expires_at, created_at) VALUES (?, ?, ?, ?)'
+        );
+        $stmt->execute([
+            str_repeat('h', 64),
+            'hash',
+            (new \DateTimeImmutable('-15 minutes'))->format('Y-m-d H:i:s'),
+            (new \DateTimeImmutable('-30 minutes'))->format('Y-m-d H:i:s'),
+        ]);
+
+        $this->assertSame(0, $this->repo->deleteExpired());
+        $this->assertSame(1, $this->repo->countRecentByEmail(str_repeat('h', 64)));
+    }
+
+    public function testMatchAttemptsAreReservedUpToTheCapAndInvalidateSpendsTheLinkWithoutConfirmingIt(): void
+    {
+        $id = $this->repo->create(str_repeat('i', 64), 'hash', new \DateTimeImmutable('+15 minutes'), 'code-hash');
+
+        $this->assertSame('code-hash', $this->repo->findById($id)?->matchCodeHash);
+        $this->assertSame(1, $this->repo->reserveMatchAttempt($id, 3));
+        $this->assertSame(2, $this->repo->reserveMatchAttempt($id, 3));
+        $this->assertSame(3, $this->repo->reserveMatchAttempt($id, 3));
+        // The cap is enforced by the UPDATE itself, not by the caller.
+        $this->assertNull($this->repo->reserveMatchAttempt($id, 3));
+
+        $this->repo->invalidate($id);
+        $record = $this->repo->findById($id);
+        $this->assertNotNull($record);
+        $this->assertTrue($record->used);
+        $this->assertNull($record->confirmedAt);
+        $this->assertSame(3, $record->matchAttempts);
+    }
+
+    public function testASpentLinkHasNoAttemptLeftAndCannotBeClaimedAgain(): void
+    {
+        $id = $this->repo->create(str_repeat('j', 64), 'hash', new \DateTimeImmutable('+15 minutes'), 'code-hash');
+
+        $this->assertTrue($this->repo->markUsed($id));
+        // A second confirmation racing the first one claims nothing.
+        $this->assertFalse($this->repo->markUsed($id));
+        $this->assertNull($this->repo->reserveMatchAttempt($id, 3));
+
+        // Nor does a late invalidation un-confirm a link that was confirmed.
+        $this->repo->invalidate($id);
+        $this->assertNotNull($this->repo->findById($id)?->confirmedAt);
     }
 }

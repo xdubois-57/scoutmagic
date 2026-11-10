@@ -56,6 +56,8 @@ class AuthServiceTest extends TestCase
                 expires_at DATETIME NOT NULL,
                 used BOOLEAN NOT NULL DEFAULT 0,
                 confirmed_at DATETIME,
+                match_code_hash VARCHAR(255),
+                match_attempts INTEGER NOT NULL DEFAULT 0,
                 created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
             )
         ');
@@ -511,6 +513,112 @@ class AuthServiceTest extends TestCase
 
         $verified = $this->authService->verifyMagicLink($id, $rawToken);
         $this->assertNull($verified);
+    }
+
+    /**
+     * Issue #1099: opening the link (checkMagicLink(), the GET) spends
+     * nothing — the same link can still be confirmed afterwards.
+     */
+    public function testCheckingALinkDoesNotConsumeIt(): void
+    {
+        $this->userRepo->create('check@test.com');
+        $id = $this->givenMagicLink('check@test.com', 'tok');
+
+        $this->assertNotNull($this->authService->checkMagicLink($id, 'tok'));
+        $this->assertNotNull($this->authService->checkMagicLink($id, 'tok'));
+        $this->assertNull($this->authService->checkMagicLink($id, 'wrong'));
+        $this->assertFalse($this->authService->isMagicLinkConfirmed($id));
+        $this->assertNotNull($this->authService->verifyMagicLink($id, 'tok'));
+    }
+
+    /**
+     * Issue #1099: the code generated for the requesting window is what a
+     * confirmation from another browser must carry. A wrong one confirms
+     * nothing; the last allowed one spends the link.
+     */
+    public function testAMatchCodeIsRequiredWhenGivenAndWrongOnesSpendTheLink(): void
+    {
+        $this->userRepo->create('code@test.com');
+        $result = $this->authService->requestMagicLink('code@test.com');
+        $this->assertMatchesRegularExpression('/^\d{6}$/', (string) $result->matchCode);
+        $id = (int) $result->magicLinkId;
+        $this->pdo->prepare('UPDATE magic_links SET token_hash = ? WHERE id = ?')
+            ->execute([password_hash('tok', PASSWORD_DEFAULT), $id]);
+        $wrong = $result->matchCode === '000000' ? '111111' : '000000';
+
+        for ($i = 1; $i <= AuthService::MAX_MATCH_ATTEMPTS; $i++) {
+            try {
+                $this->authService->verifyMagicLink($id, 'tok', $wrong);
+                $this->fail('A wrong code must not confirm the link.');
+            } catch (\Core\Security\MagicLinkCodeMismatch $e) {
+                $this->assertSame($i === AuthService::MAX_MATCH_ATTEMPTS, $e->linkSpent);
+            }
+        }
+
+        $this->assertFalse($this->authService->isMagicLinkConfirmed($id));
+        $this->assertNull($this->authService->verifyMagicLink($id, 'tok', (string) $result->matchCode));
+    }
+
+    /**
+     * Review of #1099: parallel guesses. Requests already in flight have
+     * taken every attempt, but none has spent the link yet (`used` still
+     * FALSE, which is all the token check looks at). A further guess —
+     * even the right one — is not compared at all: the cap is the
+     * counter, not the `used` flag written after the fact.
+     */
+    public function testNoCodeIsComparedOnceTheAttemptsAreTakenEvenBeforeTheLinkIsSpent(): void
+    {
+        $this->userRepo->create('race@test.com');
+        $result = $this->authService->requestMagicLink('race@test.com');
+        $id = (int) $result->magicLinkId;
+        $this->pdo->prepare('UPDATE magic_links SET token_hash = ?, match_attempts = ? WHERE id = ?')
+            ->execute([password_hash('tok', PASSWORD_DEFAULT), AuthService::MAX_MATCH_ATTEMPTS, $id]);
+
+        try {
+            $this->authService->verifyMagicLink($id, 'tok', (string) $result->matchCode);
+            $this->fail('No attempt is left: the code must not be compared.');
+        } catch (\Core\Security\MagicLinkCodeMismatch $e) {
+            $this->assertTrue($e->linkSpent);
+        }
+        $this->assertFalse($this->authService->isMagicLinkConfirmed($id));
+    }
+
+    public function testTheRightCodeConfirmsWhateverItsSpacing(): void
+    {
+        $this->userRepo->create('spaced@test.com');
+        $result = $this->authService->requestMagicLink('spaced@test.com');
+        $id = (int) $result->magicLinkId;
+        $this->pdo->prepare('UPDATE magic_links SET token_hash = ? WHERE id = ?')
+            ->execute([password_hash('tok', PASSWORD_DEFAULT), $id]);
+        $code = (string) $result->matchCode;
+
+        $verified = $this->authService->verifyMagicLink($id, 'tok', substr($code, 0, 3) . ' ' . substr($code, 3));
+
+        $this->assertNotNull($verified);
+        $this->assertTrue($this->authService->isMagicLinkConfirmed($id));
+    }
+
+    /**
+     * Issue #1099: expired is expired, confirmed or not — the polling
+     * session collects a link within its fifteen minutes, never after.
+     */
+    public function testAConfirmedButExpiredLinkIsNeitherConfirmedNorCollectable(): void
+    {
+        $user = $this->userRepo->create('late@test.com');
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO magic_links (email_blind_index, token_hash, expires_at, used, confirmed_at)
+             VALUES (?, ?, ?, 1, CURRENT_TIMESTAMP)'
+        );
+        $stmt->execute([
+            $this->encryption->blindIndex('late@test.com', 'email'),
+            'hash',
+            (new \DateTimeImmutable('-1 minute'))->format('Y-m-d H:i:s'),
+        ]);
+        $id = (int) $this->pdo->lastInsertId();
+
+        $this->assertFalse($this->authService->isMagicLinkConfirmed($id));
+        $this->assertNull($this->authService->getUserForConfirmedLink($id));
+        $this->assertGreaterThan(0, $user->id);
     }
 
     public function testIsMagicLinkConfirmed(): void

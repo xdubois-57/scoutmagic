@@ -157,6 +157,20 @@ test('a magic link signs in the device that asked for it, and says nothing about
         const otherPage = await otherDevice.newPage();
         await otherPage.goto(linkFromMail(mail, '/auth/verify'), { waitUntil: 'domcontentloaded' });
 
+        // Opening the link confirms nothing (issue #1099): a mail scanner
+        // performs exactly this GET. The page asks for the code the asking
+        // window shows, which only whoever asked can read.
+        await expect(otherPage.getByRole('heading', { name: 'Confirmer la connexion' })).toBeVisible();
+        await expect(page.getByText('En attente de confirmation…')).toBeVisible();
+        const code = (await page.locator('#match-code').innerText()).trim();
+        expect(code, 'the asking window shows its six-digit code').toMatch(/^\d{3} \d{3}$/);
+
+        await otherPage.getByLabel('Code de connexion').fill('000 000' === code ? '111 111' : '000 000');
+        await otherPage.getByRole('button', { name: 'Me connecter' }).click();
+        await expect(otherPage.getByText('Ce code ne correspond pas')).toBeVisible();
+
+        await otherPage.getByLabel('Code de connexion').fill(code);
+        await otherPage.getByRole('button', { name: 'Me connecter' }).click();
         await expect(otherPage.getByRole('heading', { name: 'Connexion confirmée' })).toBeVisible();
         // …and THIS device is not signed in by the click. A link travels
         // by email and an email is read wherever it is convenient — a

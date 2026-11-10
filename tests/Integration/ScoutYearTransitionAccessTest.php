@@ -719,8 +719,18 @@ class ScoutYearTransitionAccessTest extends TestCase
         preg_match('/token=([a-f0-9]+)&(?:amp;)?id=(\d+)/', (string) $this->sentMail['body'], $matches);
         $this->assertNotEmpty($matches, 'the mail carried no usable verification link');
 
+        // Opening the link confirms nothing; the same session confirms it
+        // with one POST (issue #1099).
         $this->controller->verifyMagicLink(
             new Request('GET', '/auth/verify', ['token' => $matches[1], 'id' => $matches[2]], [], [], []),
+            []
+        );
+        $this->controller->confirmLink(
+            new Request('POST', '/auth/verify', [], [
+                'token' => $matches[1],
+                'id' => $matches[2],
+                '_csrf_token' => CsrfGuard::generateToken(),
+            ], [], []),
             []
         );
     }

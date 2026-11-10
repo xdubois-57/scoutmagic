@@ -49,6 +49,7 @@ function buildCoreDom() {
         el('<input id="email">'),
         el('<div id="email-error" class="d-none"></div>'),
         el('<span id="sent-email"></span>'),
+        el('<div id="match-code"></div>'),
         el('<input type="checkbox" id="rgpd-consent-checkbox-magic-link" checked>'),
         el('<div id="rgpd-consent-error-magic-link" class="d-none"></div>'),
     );
@@ -269,6 +270,16 @@ describe('auth.js: magic-link send', () => {
         await vi.waitFor(() => expect(document.getElementById('state-waiting').classList.contains('d-none')).toBe(false));
         expect(document.getElementById('state-email').classList.contains('d-none')).toBe(true);
         expect(document.getElementById('sent-email').textContent).toBe('a@b.test');
+    });
+
+    it('shows the code to type on another device, in two groups of three (issue #1099)', async () => {
+        global.fetch = vi.fn(() => Promise.resolve({
+            json: () => Promise.resolve({ success: true, poll_id: 42, match_code: '048213' }),
+        }));
+        await ready('a@b.test');
+        document.getElementById('send-magic-link').dispatchEvent(new Event('click'));
+
+        await vi.waitFor(() => expect(document.getElementById('match-code').textContent).toBe('048 213'));
     });
 
     it('shows the server error message on a rejected request', async () => {

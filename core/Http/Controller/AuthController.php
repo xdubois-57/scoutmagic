@@ -25,6 +25,7 @@ use Core\Security\LastLoginMethodCookie;
 use Core\Security\LoginReturn;
 use Core\Security\LoginThrottler;
 use Core\Security\PasswordAuthMethod;
+use Core\Security\MagicLinkCodeMismatch;
 use Core\Security\PendingMagicLink;
 use Core\Security\Role;
 use Core\Security\RoleResolver;
@@ -168,40 +169,30 @@ class AuthController extends AbstractController
         // confirming that link (see Core\Security\PendingMagicLink).
         PendingMagicLink::remember((int) $result->magicLinkId, $this->installationGeneration);
 
-        return $this->json(['success' => true, 'poll_id' => $result->magicLinkId]);
+        // The code this window shows, to be typed if the link is opened in
+        // another browser (issue #1099). Sent to this window only.
+        return $this->json([
+            'success' => true,
+            'poll_id' => $result->magicLinkId,
+            'match_code' => $result->matchCode,
+        ]);
     }
 
     /**
-     * GET /auth/verify — user clicked the magic link in their email.
+     * GET /auth/verify — the link in the e-mail was OPENED.
      *
-     * **Confirming a link is not logging in.** The session is created in
-     * the window that ASKED for the link (pollMagicLink() below), and
-     * only there: this request confirms the address, marks the link used,
-     * and says so. The browser the link happened to open in is left
-     * exactly as anonymous as it was.
+     * **Opening a link confirms nothing** (issue #1099, SECURITY.md §31).
+     * A GET is what a mail scanner performs on every URL before the human
+     * ever sees the message, and it used to be enough: the scanner
+     * confirmed the link, and the window that ASKED for it — anybody's,
+     * typing anybody's address — was logged in as the owner of the
+     * mailbox. This request only checks the token, spends nothing, and
+     * shows a page whose button POSTs to confirmLink() below.
      *
-     * That is a real boundary, not a nicety. A magic link travels by
-     * email, and an email is opened wherever the mail happens to be read
-     * — a shared family tablet, a work laptop, a webmail on somebody
-     * else's machine, a corporate scanner that follows links before the
-     * human ever sees them. Every one of those used to end up holding a
-     * live session for the address, indefinitely and silently, while the
-     * person who actually asked to log in saw their own window log in
-     * too. Now the only thing that ever becomes identified is the window
-     * that started the flow.
-     *
-     * The ONE case where this request still creates a session is when
-     * this very session is the one that asked for the link
-     * (`PendingMagicLink::matches()`) — the ordinary "request it on my
-     * phone, open the mail app on my phone" flow, where the tab doing the
-     * polling may have been discarded by the OS in the meantime. Nothing
-     * is widened by it: that session was going to collect the session
-     * anyway through its own poll, and it has now additionally proven
-     * possession of the emailed token.
-     *
-     * That case is also the one where the tab is usually NOT discarded,
-     * and this request must leave its poll working — see the comment on
-     * the branch itself.
+     * The page differs by who is looking. The session that asked for the
+     * link (PendingMagicLink::matches()) has nothing to prove: one button.
+     * Any other browser must type the code the asking window shows — the
+     * one thing a person who did not ask, or a scanner, cannot know.
      *
      * @param array<string, string> $params
      */
@@ -214,11 +205,84 @@ class AuthController extends AbstractController
             return $this->render('auth/verify.html.twig', ['valid' => false]);
         }
 
-        // Read BEFORE verifying: verifying marks the link used, and this
-        // answer is about the session, not about the link.
-        $isRequestingSession = PendingMagicLink::matches($id, $this->installationGeneration);
+        $record = $this->authService->checkMagicLink($id, $token);
+        if ($record === null) {
+            return $this->render('auth/verify.html.twig', ['valid' => false]);
+        }
 
-        $verified = $this->authService->verifyMagicLink($id, $token);
+        return $this->renderConfirmation($id, $token, $record->createdAt);
+    }
+
+    /**
+     * POST /auth/verify — the visitor confirms the link (issue #1099).
+     *
+     * **Confirming a link is not logging in, except in the window that
+     * asked.** The session is created there — by pollMagicLink(), which
+     * that window is running — and nowhere else: the browser the link
+     * happened to open in stays exactly as anonymous as it was, unless it
+     * IS that session (the ordinary "asked on my phone, opened the mail
+     * app on my phone" flow, where the polling tab may have been
+     * discarded meanwhile).
+     *
+     * From any other browser the code the asking window shows is
+     * required, and checked by AuthService::verifyMagicLink(): a wrong
+     * one confirms nothing and counts against the link. Without it,
+     * whoever typed somebody else's address at the login form was
+     * identified as them the moment their mailbox — or its scanner —
+     * opened the mail.
+     *
+     * @param array<string, string> $params
+     */
+    public function confirmLink(Request $request, array $params): Response
+    {
+        $token = (string) $request->getBody('token', '');
+        $id = (int) $request->getBody('id', '0');
+
+        if ($token === '' || $id === 0) {
+            return $this->render('auth/verify.html.twig', ['valid' => false]);
+        }
+
+        $retry = '/auth/verify?' . http_build_query(['token' => $token, 'id' => $id]);
+        if (($guard = $this->guardCsrf($request, $retry)) !== null) {
+            return $guard;
+        }
+
+        $isRequestingSession = PendingMagicLink::matches($id, $this->installationGeneration);
+        $code = (string) $request->getBody('match_code', '');
+
+        if (!$isRequestingSession && trim($code) === '') {
+            $record = $this->authService->checkMagicLink($id, $token);
+            if ($record === null) {
+                return $this->render('auth/verify.html.twig', ['valid' => false]);
+            }
+
+            return $this->renderConfirmation(
+                $id,
+                $token,
+                $record->createdAt,
+                "Saisissez le code affiché sur l'écran où vous avez demandé la connexion."
+            );
+        }
+
+        try {
+            $verified = $this->authService->verifyMagicLink($id, $token, $isRequestingSession ? null : $code);
+        } catch (MagicLinkCodeMismatch $e) {
+            if ($e->linkSpent) {
+                return $this->render('auth/verify.html.twig', ['valid' => false, 'code_spent' => true]);
+            }
+            $record = $this->authService->checkMagicLink($id, $token);
+            if ($record === null) {
+                return $this->render('auth/verify.html.twig', ['valid' => false]);
+            }
+
+            return $this->renderConfirmation(
+                $id,
+                $token,
+                $record->createdAt,
+                'Ce code ne correspond pas. Vérifiez le code affiché sur '
+                    . "l'écran où vous avez demandé la connexion."
+            );
+        }
 
         if ($verified === null) {
             return $this->render('auth/verify.html.twig', ['valid' => false]);
@@ -232,29 +296,19 @@ class AuthController extends AbstractController
             $role = $this->resolveRole($verified->email, $verified->userAccountId);
             AuthSession::login($verified->userAccountId, $verified->email, $role, $this->installationGeneration);
             $this->storeLinkedMembers($verified->email);
-            // AND THE PENDING LINK IS LEFT ALONE, deliberately. This
-            // branch runs when the link opened in the SAME session that
-            // asked for it — which, on a phone, is the ordinary case:
-            // Safari opens the mail's link in a new tab of the same
-            // browser, so it carries the same session cookie as the tab
-            // still showing "En attente de confirmation…".
-            //
-            // Forgetting it here spent the one thing that tab has. Its
-            // next GET /auth/poll/{id} found `matches()` false — the
-            // pending had just been dropped by the other tab — and got
-            // `{confirmed: false}` for ever, over a session that was
-            // already authenticated. The visitor saw "En attente de
-            // confirmation…" until they reloaded by hand, every time
-            // (issue #263).
-            //
-            // pollMagicLink() below is what forgets it, once the window
-            // that asked has been told. That is also the order the
-            // docblock above describes: this request confirms, that one
-            // collects.
+            // AND THE PENDING LINK IS LEFT ALONE, deliberately. On a phone
+            // the mail's link opens in a new tab of the same browser, which
+            // carries the same session cookie as the tab still showing
+            // "En attente de confirmation…". Forgetting it here spent the
+            // one thing that tab has: its next poll got `{confirmed: false}`
+            // for ever, over a session that was already authenticated
+            // (issue #263). pollMagicLink() forgets it, once the window
+            // that asked has been told.
         }
 
         return $this->render('auth/verify.html.twig', [
             'valid' => true,
+            'confirmed' => true,
             'email' => $verified->email,
             // Drives what the page tells the visitor to do next: carry on
             // here, or go back to the window where they asked — which is
@@ -263,6 +317,27 @@ class AuthController extends AbstractController
             // Read, not spent: the tab polling for this link is in the
             // same session and is the one that consumes it.
             'continue_to' => $isRequestingSession ? LoginReturn::target() : '/',
+        ]);
+    }
+
+    /**
+     * The page that asks for the confirmation: one button for the session
+     * that asked for the link, the code field for any other browser.
+     */
+    private function renderConfirmation(
+        int $id,
+        string $token,
+        \DateTimeImmutable $requestedAt,
+        ?string $error = null
+    ): Response {
+        return $this->render('auth/verify.html.twig', [
+            'valid' => true,
+            'confirmed' => false,
+            'token' => $token,
+            'link_id' => $id,
+            'needs_code' => !PendingMagicLink::matches($id, $this->installationGeneration),
+            'requested_at' => $requestedAt,
+            'error' => $error,
         ]);
     }
 

@@ -67,6 +67,15 @@
                     <h3 class="h5 mb-3">Vérifiez vos emails</h3>
                     <p>Un lien de connexion a été envoyé à <strong id="sent-email"></strong>.<br>
                        Cliquez dessus pour vous connecter — même depuis un autre appareil.</p>
+                    {# Issue #1099: the code that proves, from another browser, that
+                       the link is confirmed by whoever asked for it here. #}
+                    <div class="border rounded p-2 mb-2">
+                        <div class="small text-body-secondary">Code de connexion</div>
+                        <div class="fs-3 fw-semibold font-monospace" id="match-code"></div>
+                        <div class="small text-body-secondary">
+                            À saisir si vous ouvrez le lien sur un autre appareil ou un autre navigateur.
+                        </div>
+                    </div>
                     {# Live region: the pending → expired switch is announced to screen readers. #}
                     <output class="my-3 d-block" aria-live="polite">
                         <div id="waiting-pending">

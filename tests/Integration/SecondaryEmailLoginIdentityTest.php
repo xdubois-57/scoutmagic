@@ -74,6 +74,8 @@ class SecondaryEmailLoginIdentityTest extends TestCase
     private int $sharedMemberYearId;
     /** @var array{to: string, subject: string, body: string}|null */
     private ?array $sentMail = null;
+    /** The code the requesting window was shown for the last link (issue #1099). */
+    private ?string $matchCode = null;
 
     protected function setUp(): void
     {
@@ -244,7 +246,7 @@ class SecondaryEmailLoginIdentityTest extends TestCase
         // and is NOT identified by doing so: only the window that asked
         // for the link is (Tests\Integration\MagicLinkWindowIdentityTest).
         $_SESSION = [];
-        $this->controller->verifyMagicLink($this->verifyRequestFor($magicLinkId), []);
+        $this->confirmLink($magicLinkId, $this->matchCode);
         $this->assertFalse(AuthSession::isAuthenticated());
 
         // Back on device A, which was never authenticated.
@@ -330,7 +332,27 @@ class SecondaryEmailLoginIdentityTest extends TestCase
         $this->startTestSession();
         $magicLinkId = $this->requestLink($email);
 
-        return $this->controller->verifyMagicLink($this->verifyRequestFor($magicLinkId), []);
+        return $this->confirmLink($magicLinkId, null);
+    }
+
+    /**
+     * The confirmation page's POST after its GET (issue #1099): $code is
+     * the requesting window's code, null from that very session.
+     */
+    private function confirmLink(int $magicLinkId, ?string $code): \Core\Http\Response
+    {
+        $get = $this->verifyRequestFor($magicLinkId);
+        $this->controller->verifyMagicLink($get, []);
+        $body = [
+            'token' => (string) $get->getQuery('token', ''),
+            'id' => (string) $magicLinkId,
+            '_csrf_token' => CsrfGuard::generateToken(),
+        ];
+        if ($code !== null) {
+            $body['match_code'] = $code;
+        }
+
+        return $this->controller->confirmLink(new Request('POST', '/auth/verify', [], $body, [], []), []);
     }
 
     private function requestLink(string $email): int
@@ -349,6 +371,8 @@ class SecondaryEmailLoginIdentityTest extends TestCase
 
         $body = json_decode($response->getBody(), true);
         $this->assertTrue($body['success'], 'magic link request refused: ' . ($body['error'] ?? ''));
+
+        $this->matchCode = (string) ($body['match_code'] ?? '');
 
         return (int) $body['poll_id'];
     }
