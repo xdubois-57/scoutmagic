@@ -2297,6 +2297,52 @@ class MaintenanceControllerTest extends TestCase
         ], [], []);
     }
 
+    /** A backup the restore form accepts: a database dump, encrypted when a password is given. */
+    private function restorableArchive(?string $password): string
+    {
+        $path = tempnam(sys_get_temp_dir(), 'restore_zip_');
+        $zip = new \ZipArchive();
+        $zip->open($path, \ZipArchive::OVERWRITE);
+        $zip->addFromString('database.sql', 'CREATE TABLE t (id INT);');
+        if ($password !== null) {
+            $zip->setEncryptionName('database.sql', \ZipArchive::EM_AES_256, $password);
+        }
+        $zip->close();
+        $bytes = (string) file_get_contents($path);
+        @unlink($path);
+
+        return $bytes;
+    }
+
+    private function uploadInTwoChunks(string $bytes, string $token): void
+    {
+        $half = intdiv(strlen($bytes), 2);
+        $first = $this->controller->restoreUploadChunk($this->restoreChunkRequest(substr($bytes, 0, $half), 0, false, $token), []);
+        $this->assertTrue(json_decode($first->getBody(), true)['success']);
+        $last = $this->controller->restoreUploadChunk($this->restoreChunkRequest(substr($bytes, $half), $half, true, $token), []);
+        $this->assertTrue(json_decode($last->getBody(), true)['success']);
+        unset($_FILES['file']);
+    }
+
+    /**
+     * The restore POST as the page sends it since issue #753: from its
+     * script, asking for JSON.
+     *
+     * @param array<string, string> $fields
+     */
+    private function restoreJsonRequest(string $token, array $fields): Request
+    {
+        return new Request('POST', '/config/maintenance/reset/restore', [], [
+            '_csrf_token' => $token, 'confirm_keyword' => 'RESTAURER',
+        ] + $fields, [], ['HTTP_ACCEPT' => 'application/json']);
+    }
+
+    private function queueRestore(string $status): void
+    {
+        $id = $this->schedulerRepository->create('core', 'restore_backup', '2026-01-01 00:00:00', null, null);
+        $this->pdo->prepare('UPDATE scheduled_actions SET status = ? WHERE id = ?')->execute([$status, $id]);
+    }
+
     public function testRestoreUploadChunkValidatesCsrf(): void
     {
         $response = $this->controller->restoreUploadChunk($this->restoreChunkRequest('data', 0, false, 'bad'), []);
@@ -2329,11 +2375,8 @@ class MaintenanceControllerTest extends TestCase
     public function testRestoreBackupConsumesAChunkedUploadByItsId(): void
     {
         $token = $this->csrfToken();
-        $first = $this->controller->restoreUploadChunk($this->restoreChunkRequest('PK archive ', 0, false, $token), []);
-        $this->assertTrue(json_decode($first->getBody(), true)['success']);
-        $last = $this->controller->restoreUploadChunk($this->restoreChunkRequest('bytes', 11, true, $token), []);
-        $this->assertTrue(json_decode($last->getBody(), true)['success']);
-        unset($_FILES['file']);
+        $archive = $this->restorableArchive(null);
+        $this->uploadInTwoChunks($archive, $token);
 
         $request = new Request('POST', '/config/maintenance/reset/restore', [], [
             '_csrf_token' => $token, 'confirm_keyword' => 'RESTAURER', 'source' => 'upload',
@@ -2355,10 +2398,180 @@ class MaintenanceControllerTest extends TestCase
         $payload = json_decode((string) $tasks[0]['payload'], true);
         $tempPath = (string) $payload['uploaded_temp_path'];
         $this->assertFileExists($tempPath);
-        $this->assertSame('PK archive bytes', file_get_contents($tempPath));
+        $this->assertSame($archive, file_get_contents($tempPath));
         // The assembled partial was moved, not copied.
         $this->assertSame([], glob($this->storagePath . '/temp/chunked_uploads/*.part') ?: []);
         @unlink($tempPath);
+    }
+
+    /**
+     * Issue #753: a wrong password is said before anything is queued — no
+     * task, so no safety copy — and the archive it came with is deleted.
+     */
+    public function testAWrongPasswordIsRefusedAtOnceAndTheUploadDeleted(): void
+    {
+        $token = $this->csrfToken();
+        $this->uploadInTwoChunks($this->restorableArchive('le-bon-mot-de-passe'), $token);
+
+        $response = $this->controller->restoreBackup($this->restoreJsonRequest($token, [
+            'source' => 'upload', 'upload_id' => self::RESTORE_UPLOAD_ID, 'password' => 'un-autre',
+        ]), []);
+
+        $this->assertSame(400, $response->getStatusCode());
+        $this->assertSame(
+            ['success' => false, 'error' => 'Mot de passe ou phrase de passe incorrect.'],
+            json_decode($response->getBody(), true)
+        );
+        $this->assertSame([], $this->schedulerRepository->findByModuleAndTaskKey('core', 'restore_backup'));
+        $this->assertSame([], glob($this->storagePath . '/temp/restore_upload_*') ?: [], 'the archive was kept');
+        $this->assertSame([], glob($this->storagePath . '/temp/chunked_uploads/*.part') ?: []);
+    }
+
+    /** The right password queues it, and the page is told which task to poll. */
+    public function testTheRightPasswordQueuesOneRestoreAndAnswersItsId(): void
+    {
+        $token = $this->csrfToken();
+        $this->uploadInTwoChunks($this->restorableArchive('le-bon-mot-de-passe'), $token);
+
+        $response = $this->controller->restoreBackup($this->restoreJsonRequest($token, [
+            'source' => 'upload', 'upload_id' => self::RESTORE_UPLOAD_ID, 'password' => 'le-bon-mot-de-passe',
+        ]), []);
+
+        $tasks = $this->schedulerRepository->findByModuleAndTaskKey('core', 'restore_backup');
+        $this->assertCount(1, $tasks);
+        $this->assertSame(
+            ['success' => true, 'action_id' => (int) $tasks[0]['id']],
+            json_decode($response->getBody(), true)
+        );
+        @unlink((string) json_decode((string) $tasks[0]['payload'], true)['uploaded_temp_path']);
+    }
+
+    /** Not « mot de passe incorrect ? »: no password would have helped. */
+    public function testAZipWithoutADatabaseIsRefusedAsNotABackup(): void
+    {
+        $token = $this->csrfToken();
+        $zipPath = tempnam(sys_get_temp_dir(), 'restore_zip_');
+        $zip = new \ZipArchive();
+        $zip->open($zipPath, \ZipArchive::OVERWRITE);
+        $zip->addFromString('photo.jpg', 'des octets');
+        $zip->close();
+        $this->uploadInTwoChunks((string) file_get_contents($zipPath), $token);
+        @unlink($zipPath);
+
+        $response = $this->controller->restoreBackup($this->restoreJsonRequest($token, [
+            'source' => 'upload', 'upload_id' => self::RESTORE_UPLOAD_ID,
+        ]), []);
+
+        $this->assertStringContainsString(
+            'il ne contient pas de base de données',
+            (string) json_decode($response->getBody(), true)['error']
+        );
+        $this->assertSame([], $this->schedulerRepository->findByModuleAndTaskKey('core', 'restore_backup'));
+    }
+
+    /** @return iterable<string, array{string}> */
+    public static function liveRestoreStatuses(): iterable
+    {
+        yield 'pending' => ['pending'];
+        yield 'processing' => ['processing'];
+    }
+
+    /**
+     * One restore at a time (issue #753), refused by the server whatever
+     * the page shows — and the archive the refused one brought is deleted.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('liveRestoreStatuses')]
+    public function testASecondRestoreIsRefusedWhileOneIsAlive(string $status): void
+    {
+        $token = $this->csrfToken();
+        $this->uploadInTwoChunks($this->restorableArchive(null), $token);
+        // Queued elsewhere after this archive arrived, before its POST.
+        $this->queueRestore($status);
+
+        $response = $this->controller->restoreBackup($this->restoreJsonRequest($token, [
+            'source' => 'upload', 'upload_id' => self::RESTORE_UPLOAD_ID,
+        ]), []);
+
+        $this->assertSame(409, $response->getStatusCode());
+        $this->assertSame(
+            'Une restauration est déjà en attente ou en cours. Attendez sa fin avant d\'en lancer une autre.',
+            json_decode($response->getBody(), true)['error']
+        );
+        $this->assertCount(1, $this->schedulerRepository->findByModuleAndTaskKey('core', 'restore_backup'));
+        $this->assertSame([], glob($this->storagePath . '/temp/chunked_uploads/*.part') ?: [], 'the upload was kept');
+    }
+
+    public function testARestoreThatEndedDoesNotBlockTheNext(): void
+    {
+        $this->queueRestore('failed');
+        $backupId = $this->backupRepository->create('database', 1);
+        $this->backupRepository->markCompleted($backupId, 1, 1);
+
+        $response = $this->controller->restoreBackup($this->restoreJsonRequest($this->csrfToken(), [
+            'source' => 'server', 'backup_id' => (string) $backupId,
+        ]), []);
+
+        $this->assertTrue(json_decode($response->getBody(), true)['success']);
+        $this->assertCount(2, $this->schedulerRepository->findByModuleAndTaskKey('core', 'restore_backup'));
+    }
+
+    /** An archive that could not be restored once it arrived is not sent at all. */
+    public function testAChunkIsRefusedWhileARestoreIsAlive(): void
+    {
+        $this->queueRestore('processing');
+
+        $response = $this->controller->restoreUploadChunk(
+            $this->restoreChunkRequest('PK des octets', 0, false, $this->csrfToken()),
+            []
+        );
+        unset($_FILES['file']);
+
+        $this->assertSame(409, $response->getStatusCode());
+        $this->assertArrayNotHasKey('received', json_decode($response->getBody(), true), 'the uploader would resend');
+        $this->assertSame([], glob($this->storagePath . '/temp/chunked_uploads/*.part') ?: []);
+    }
+
+    /**
+     * A full backup from before IT-03, whose password the site never kept:
+     * what was typed is checked against its archive before anything is
+     * queued (issue #753).
+     */
+    public function testAServerArchiveWhosePasswordWasNeverKeptIsCheckedBeforeItIsQueued(): void
+    {
+        @mkdir($this->storagePath . '/backups', 0755, true);
+        $zip = new \ZipArchive();
+        $zip->open($this->storagePath . '/backups/ancienne.zip', \ZipArchive::CREATE);
+        $zip->addFromString('storage/config/settings.json', '{}');
+        $zip->setEncryptionName('storage/config/settings.json', \ZipArchive::EM_AES_256, 'choisi-avant-it03');
+        $zip->close();
+        $fileId = (new FileRepository($this->pdo))->create('backups/ancienne.zip', 'ancienne.zip', 'application/zip', 1, 'superadmin', null, null);
+        $backupId = $this->backupRepository->create('full_config', 1);
+        $this->backupRepository->markCompleted($backupId, $fileId, null);
+
+        $wrong = $this->controller->restoreBackup($this->restoreJsonRequest($this->csrfToken(), [
+            'source' => 'server', 'backup_id' => (string) $backupId, 'password' => 'un-autre',
+        ]), []);
+        $this->assertSame('Mot de passe ou phrase de passe incorrect.', json_decode($wrong->getBody(), true)['error']);
+        $this->assertSame([], $this->schedulerRepository->findByModuleAndTaskKey('core', 'restore_backup'));
+
+        $right = $this->controller->restoreBackup($this->restoreJsonRequest($this->csrfToken(), [
+            'source' => 'server', 'backup_id' => (string) $backupId, 'password' => 'choisi-avant-it03',
+        ]), []);
+        $this->assertTrue(json_decode($right->getBody(), true)['success']);
+    }
+
+    /** The form offers no restore while one is alive, and says why. */
+    public function testTheFormIsLockedWhileARestoreIsAlive(): void
+    {
+        $body = $this->page('recentBackupsPage');
+        $this->assertStringNotContainsString('id="restore-backup-active"', $body);
+        $this->assertStringContainsString('<fieldset id="restore-backup-fields">', $body);
+
+        $this->queueRestore('pending');
+        $body = $this->page('recentBackupsPage');
+        $this->assertStringContainsString('id="restore-backup-active"', $body);
+        $this->assertStringContainsString('Une restauration est déjà en attente ou en cours.', $body);
+        $this->assertStringContainsString('<fieldset id="restore-backup-fields" disabled>', $body);
     }
 
     public function testRestoreBackupRejectsAnUnknownUploadId(): void

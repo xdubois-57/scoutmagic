@@ -664,56 +664,154 @@
         });
 
         /**
-         * The confirmed restore: chunk a large archive first, then submit
-         * the form natively. form.submit() deliberately bypasses the
-         * listener above — the confirmation is asked once, never twice.
+         * The confirmed restore (issue #753): send the archive — as chunks
+         * when it is large, with the share received shown —, then POST the
+         * form from here and read the answer, so that a wrong password or
+         * a restore already running is said under the form at once rather
+         * than after a reload. Only a restore actually queued is polled.
          *
          * @returns {void}
          */
         function startRestore() {
             var submitBtn = /** @type {HTMLButtonElement} */ (document.getElementById('restore-backup-submit'));
+            var errorEl = document.getElementById('restore-backup-error');
+            if (errorEl) errorEl.classList.add('d-none');
+            submitBtn.disabled = true;
 
             // A large uploaded archive can't ride the classic multipart POST
             // (the document-root-wide post_max_size is small now — audit M2):
             // send it first as ~8 MB chunks to the dedicated superadmin
-            // route, then submit the form referencing the assembled file by
+            // route, then POST the form referencing the assembled file by
             // upload_id, with the file input cleared. Small archives keep
-            // the plain multipart POST.
+            // the plain multipart POST, which has no share to show.
             var chunker = window.ScoutMagicChunkedUpload;
             var fileInput = /** @type {HTMLInputElement} */ (document.getElementById('restore-backup-file'));
             var uploadIdInput = /** @type {HTMLInputElement} */ (document.getElementById('restore-upload-id'));
-            var chunkFile = sourceUploadRadio?.checked
-                && fileInput?.files?.[0] ? fileInput.files[0] : null;
+            var isUpload = !!sourceUploadRadio?.checked;
+            var chunkFile = isUpload && fileInput?.files?.[0] ? fileInput.files[0] : null;
             if (chunker && uploadIdInput && chunkFile?.size > chunker.CHUNK_THRESHOLD) {
-                submitBtn.disabled = true;
-                var chunkErrorEl = document.getElementById('restore-backup-error');
-                var chunkProgressEl = document.getElementById('restore-backup-progress');
-                if (chunkErrorEl) chunkErrorEl.classList.add('d-none');
-                if (chunkProgressEl) chunkProgressEl.classList.remove('d-none');
+                showRestoreStage('upload', 0);
                 chunker.uploadInChunks(chunkFile, '/config/maintenance/restore-upload-chunk', {
-                    csrfToken: window.ScoutMagicApi.csrfToken()
+                    csrfToken: window.ScoutMagicApi.csrfToken(),
+                    onProgress: function (sentBytes, totalBytes) {
+                        showRestoreStage('upload', totalBytes > 0 ? (sentBytes * 100) / totalBytes : 0);
+                    }
                 }).then(function (result) {
                     uploadIdInput.value = result.uploadId;
                     fileInput.value = '';
-                    // .submit() bypasses the submit listener — no second
-                    // confirmation, no second chunk pass.
-                    restoreForm.submit();
+                    submitRestore();
                 }).catch(function (err) {
-                    submitBtn.disabled = false;
-                    if (chunkProgressEl) chunkProgressEl.classList.add('d-none');
-                    if (chunkErrorEl) {
-                        chunkErrorEl.textContent = err?.message || 'Le téléversement a échoué.';
-                        chunkErrorEl.classList.remove('d-none');
-                    }
+                    restoreFailed(err?.message || 'Le téléversement a échoué.');
                 });
                 return;
             }
 
-            // Classic multipart submit — the server redirects back with
-            // ?restore_id={id}, picked up by the polling block below.
-            submitBtn.disabled = true;
-            restoreForm.submit();
+            showRestoreStage(isUpload ? 'upload' : 'verify', null);
+            submitRestore();
         }
+
+        /** @returns {void} */
+        function submitRestore() {
+            if (sourceUploadRadio?.checked) {
+                showRestoreStage('verify', null);
+            }
+            fetch(restoreForm.action, {
+                method: 'POST',
+                body: new FormData(restoreForm),
+                credentials: 'same-origin',
+                headers: { Accept: 'application/json' }
+            }).then(function (response) {
+                return response.json().catch(function () { return null; });
+            }).then(function (data) {
+                if (!data?.success) {
+                    restoreFailed(data?.error || 'La restauration n\'a pas pu être lancée.');
+                    return;
+                }
+                window.history.replaceState(null, '', '?restore_id=' + data.action_id);
+                followRestore(data.action_id);
+            }, function () {
+                restoreFailed('La restauration n\'a pas pu être lancée : vérifiez la connexion, puis réessayez.');
+            });
+        }
+
+        /**
+         * Nothing was queued: the archive the server refused is already
+         * deleted, so the form is reset to choose it again.
+         *
+         * @param {string} message
+         * @returns {void}
+         */
+        function restoreFailed(message) {
+            var progressEl = document.getElementById('restore-backup-progress');
+            var errorEl = document.getElementById('restore-backup-error');
+            var uploadIdInput = /** @type {HTMLInputElement|null} */ (document.getElementById('restore-upload-id'));
+            var submitBtn = /** @type {HTMLButtonElement} */ (document.getElementById('restore-backup-submit'));
+            if (progressEl) progressEl.classList.add('d-none');
+            if (uploadIdInput) uploadIdInput.value = '';
+            submitBtn.disabled = false;
+            if (errorEl) {
+                errorEl.textContent = message;
+                errorEl.classList.remove('d-none');
+            }
+        }
+    }
+
+    /**
+     * What the progress line says: sending (with its share when there is
+     * one to measure), checking the archive, or restoring — never
+     * « Restauration en cours… » before anything is being restored.
+     *
+     * @param {'upload'|'verify'|'restore'} stage
+     * @param {number|null} percent the share sent, null when unmeasured
+     * @returns {void}
+     */
+    function showRestoreStage(stage, percent) {
+        var progressEl = document.getElementById('restore-backup-progress');
+        var label = document.getElementById('restore-backup-progress-label');
+        var bar = document.getElementById('restore-backup-upload-bar');
+        if (!progressEl) return;
+        progressEl.classList.remove('d-none');
+        if (!label) return;
+
+        var measured = stage === 'upload' && percent !== null;
+        var rounded = measured ? Math.min(100, Math.max(0, Math.floor(percent))) : 0;
+        if (stage === 'upload') {
+            label.textContent = measured ? 'Envoi de la sauvegarde… ' + rounded + ' %' : 'Envoi de la sauvegarde…';
+        } else if (stage === 'verify') {
+            label.textContent = 'Vérification de l\'archive…';
+        } else {
+            label.textContent = 'Restauration en cours…';
+        }
+        if (bar) {
+            bar.classList.toggle('d-none', !measured);
+            bar.setAttribute('aria-valuenow', String(rounded));
+            var fill = /** @type {HTMLElement|null} */ (bar.querySelector('.progress-bar'));
+            if (fill) fill.style.width = rounded + '%';
+        }
+    }
+
+    /**
+     * A queued restore, polled until it ends.
+     *
+     * @param {string|number} actionId
+     * @returns {void}
+     */
+    function followRestore(actionId) {
+        var restoreErrorEl = document.getElementById('restore-backup-error');
+        showRestoreStage('restore', null);
+        pollResetStatus(
+            actionId,
+            function () { window.location.href = '/config/maintenance/sauvegardes-recentes'; },
+            function (message) {
+                var progressEl = document.getElementById('restore-backup-progress');
+                if (progressEl) progressEl.classList.add('d-none');
+                if (restoreErrorEl) {
+                    restoreErrorEl.textContent = message || 'La restauration a échoué.';
+                    restoreErrorEl.classList.remove('d-none');
+                }
+            },
+            function () { window.location.href = '/config/maintenance/sauvegardes-recentes'; }
+        );
     }
 
     // ——— Off-site destination: showing the passphrase ———
@@ -887,23 +985,10 @@
             });
     }
 
-    // Resume polling after the classic-form restore redirect.
+    // Resume polling after a reload of the page while a restore runs, or
+    // after the redirect of a plain form POST.
     var restoreIdMatch = /[?&]restore_id=(\d+)/.exec(window.location.search);
     if (restoreIdMatch) {
-        var restoreProgressEl = document.getElementById('restore-backup-progress');
-        var restoreErrorEl = document.getElementById('restore-backup-error');
-        if (restoreProgressEl) restoreProgressEl.classList.remove('d-none');
-        pollResetStatus(
-            Number.parseInt(restoreIdMatch[1], 10),
-            function () { window.location.href = '/config/maintenance/sauvegardes-recentes'; },
-            function (message) {
-                if (restoreProgressEl) restoreProgressEl.classList.add('d-none');
-                if (restoreErrorEl) {
-                    restoreErrorEl.textContent = message || 'La restauration a échoué.';
-                    restoreErrorEl.classList.remove('d-none');
-                }
-            },
-            function () { window.location.href = '/config/maintenance/sauvegardes-recentes'; }
-        );
+        followRestore(Number.parseInt(restoreIdMatch[1], 10));
     }
 })();

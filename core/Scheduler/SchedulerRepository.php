@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Core\Scheduler;
 
+use Core\Database\AdvisoryLock;
+
 class SchedulerRepository
 {
     /**
@@ -155,6 +157,63 @@ class SchedulerRepository
         }
 
         return $rows;
+    }
+
+    /**
+     * Inserts a row for this task unless one is already queued or running,
+     * whatever its reference — the atomic « one at a time » a destructive
+     * operation needs (issue #753: a second restore while the first is
+     * pending or running). Returns the new id, or null when it did not
+     * insert.
+     *
+     * **The check and the insert are one step for every other caller**, which
+     * a SELECT then an INSERT is not: two requests can both see nothing and
+     * both insert. A named lock per task is held across the two
+     * ({@see AdvisoryLock}, timeout 0), so a second caller arriving while the
+     * first is between them is refused rather than queued — it is exactly the
+     * caller that would have found a live row a moment later.
+     *
+     * **Any reference counts**, NULL included: rows queued before this
+     * existed carry none, and must not become invisible to the guard during
+     * an upgrade.
+     */
+    public function createUnlessLive(
+        string $moduleId,
+        string $taskKey,
+        string $runAt,
+        ?string $payload,
+        ?string $reference,
+        ?int $requestedByUserAccountId = null
+    ): ?int {
+        $lock = 'scheduler_one_live:' . $moduleId . ':' . $taskKey;
+        if (!AdvisoryLock::acquire($this->pdo, $lock)) {
+            return null;
+        }
+
+        try {
+            if ($this->hasLiveForTask($moduleId, $taskKey)) {
+                return null;
+            }
+
+            return $this->create($moduleId, $taskKey, $runAt, $payload, $reference, $requestedByUserAccountId);
+        } finally {
+            AdvisoryLock::release($this->pdo, $lock);
+        }
+    }
+
+    /**
+     * Whether any row of this task is queued or running, whatever its
+     * reference.
+     */
+    public function hasLiveForTask(string $moduleId, string $taskKey): bool
+    {
+        $stmt = $this->pdo->prepare(
+            "SELECT 1 FROM scheduled_actions
+             WHERE module_id = ? AND task_key = ? AND status IN ('pending', 'processing') LIMIT 1"
+        );
+        $stmt->execute([$moduleId, $taskKey]);
+
+        return $stmt->fetchColumn() !== false;
     }
 
     /**

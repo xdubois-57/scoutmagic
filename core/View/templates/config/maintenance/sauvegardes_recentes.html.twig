@@ -67,8 +67,17 @@
                     <code>storage/keys/</code> et <code>storage/config/</code> ont été recopiés depuis
                     celle-là.
                 </p>
+                {% if restore_active %}
+                    {# One restore at a time (issue #753). The controller
+                       refuses a second one whatever the page says; this
+                       only spares sending an archive for nothing. #}
+                    <div class="alert alert-info small" id="restore-backup-active" role="status">
+                        Une restauration est déjà en attente ou en cours. Attendez sa fin avant d'en lancer une autre.
+                    </div>
+                {% endif %}
                 <form id="restore-backup-form" method="post" action="/config/maintenance/reset/restore" enctype="multipart/form-data">
                     {{ csrf_field()|raw }}
+                    <fieldset id="restore-backup-fields"{% if restore_active %} disabled{% endif %}>
                     {# Set by maintenance.js after a large archive has been
                        sent as chunks (audit M2); the classic POST then
                        references the assembled file instead of carrying it. #}
@@ -138,7 +147,19 @@
                     <button type="submit" class="btn btn-outline-danger btn-sm" id="restore-backup-submit" disabled>
                         Restaurer
                     </button>
-                    <output class="mt-2 small d-none d-block" id="restore-backup-progress"><span class="spinner-border spinner-border-sm"></span> Restauration en cours…</output>
+                    </fieldset>
+                    {# Three stages, each named for what is happening
+                       (issue #753): sending the archive — with the share
+                       received when it goes as chunks —, checking it, and
+                       only then restoring. maintenance.js sets the text. #}
+                    <output class="mt-2 small d-none d-block" id="restore-backup-progress">
+                        <span class="spinner-border spinner-border-sm" aria-hidden="true"></span>
+                        <span id="restore-backup-progress-label">Restauration en cours…</span>
+                        <div class="progress mt-1 d-none" id="restore-backup-upload-bar" role="progressbar"
+                             aria-label="Envoi de la sauvegarde" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+                            <div class="progress-bar" style="width: 0%;"></div>
+                        </div>
+                    </output>
                     <div class="mt-2 small text-danger d-none" id="restore-backup-error" role="alert"></div>
                 </form>
             </div>

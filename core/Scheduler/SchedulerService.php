@@ -323,6 +323,44 @@ class SchedulerService
     }
 
     /**
+     * scheduleAfter() for a task of which only one may be alive at a time:
+     * null, and nothing queued, while a row of it is pending or processing —
+     * {@see SchedulerRepository::createUnlessLive()} for why that is atomic.
+     *
+     * @param array<string, mixed> $payload
+     */
+    public function scheduleAfterUnlessLive(
+        string $moduleId,
+        string $taskKey,
+        int $delaySeconds,
+        array $payload = [],
+        ?string $reference = null,
+        ?int $requestedByUserAccountId = null
+    ): ?int {
+        $id = $this->repository->createUnlessLive(
+            $moduleId,
+            $taskKey,
+            self::secondsFromNow($delaySeconds)->format('Y-m-d H:i:s'),
+            !empty($payload) ? json_encode($payload) : null,
+            $reference,
+            $requestedByUserAccountId
+        );
+
+        if ($id !== null && $this->liveKeys !== null) {
+            $key = $this->liveKey($moduleId, $taskKey, $reference);
+            $this->liveKeys[$key]['pending'] = ($this->liveKeys[$key]['pending'] ?? 0) + 1;
+        }
+
+        return $id;
+    }
+
+    /** Whether any row of this task is queued or running, whatever its reference. */
+    public function hasLiveForTask(string $moduleId, string $taskKey): bool
+    {
+        return $this->repository->hasLiveForTask($moduleId, $taskKey);
+    }
+
+    /**
      * Find a specific scheduled action by module, task key, and optional reference.
      *
      * @return array<string, mixed>|null
