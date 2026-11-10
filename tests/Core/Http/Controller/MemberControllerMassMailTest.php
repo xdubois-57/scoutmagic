@@ -148,6 +148,14 @@ class MemberControllerMassMailTest extends TestCase
             new MemberDocumentService(new MemberDocumentRepository($this->pdo)),
             $memberEmailService,
             $sectionDocumentService,
+            new \Core\Member\PrivateDocumentYears(
+                new \Core\ScoutYear\ScoutYearResolver(
+                    new \Core\Config\ScoutYearService($this->pdo),
+                    $settingService,
+                    new \Core\Import\MemberYearRepository($this->pdo)
+                ),
+                new \Core\Config\ScoutYearService($this->pdo)
+            ),
             null,
             $massMailQuery
         );

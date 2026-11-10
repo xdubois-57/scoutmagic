@@ -25,6 +25,30 @@ class MemberDocumentService
     }
 
     /**
+     * The member's own page (« Espace des animés », issue #1094): the
+     * documents of the window of seasons PrivateDocumentYears gives — the
+     * site's year and the two before it, whatever year of the sheet is
+     * shown — each with the label of its season, newest first.
+     *
+     * @param list<array{id: int, label: string}> $years
+     * @return list<array{document: MemberDocument, year_label: string}>
+     */
+    public function listForMemberPage(int $memberId, array $years): array
+    {
+        $labels = [];
+        foreach ($years as $year) {
+            $labels[$year['id']] = $year['label'];
+        }
+
+        $rows = [];
+        foreach ($this->repository->findByMemberAndYears($memberId, array_keys($labels)) as $document) {
+            $rows[] = ['document' => $document, 'year_label' => $labels[$document->scoutYearId] ?? ''];
+        }
+
+        return $rows;
+    }
+
+    /**
      * The admin member sheet: every year, because the question a chef
      * d'unité is answering (« nous n'avons rien reçu ») is almost always
      * about a past season.

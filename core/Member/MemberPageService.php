@@ -45,6 +45,11 @@ class MemberPageService
         private MemberEmailService $memberEmailService,
         private SectionDocumentService $sectionDocumentService,
         /**
+         * The seasons whose private documents the member's own page lists
+         * (issue #1094) — anchored on the site's year, not on the sheet.
+         */
+        private PrivateDocumentYears $privateDocumentYears,
+        /**
          * Single-implementation CORE hooks (SectionResponsableProvider,
          * FormationPathProvider, MemberPaymentProvider) resolve through
          * the registry at use time (ARCHITECTURE.md §7.4); the three
@@ -147,7 +152,10 @@ class MemberPageService
             'section_info' => $section !== null ? $this->buildSectionInfo($profile, $section, $scoutYearId) : null,
             'recent_mass_mail_emails' => $showPersonal ? $this->getRecentMassMailEmails($profile) : [],
             'member_documents' => $isSelf
-                ? $this->memberDocumentService->listForMember($profile->memberId, $scoutYearId)
+                ? $this->memberDocumentService->listForMemberPage(
+                    $profile->memberId,
+                    $this->privateDocumentYears->window()
+                )
                 : [],
             // §7bis — "Documents de section": every past/present section the
             // member was active in that has staff-uploaded documents, most

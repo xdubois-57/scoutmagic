@@ -34,6 +34,36 @@ class MemberDocumentRepository
     }
 
     /**
+     * The documents of a set of scout years, newest first — the member's own
+     * page, over its window of seasons (PrivateDocumentYears, issue #1094).
+     * Ties on the creation date are broken by id, so a batch published in
+     * one second keeps a stable order.
+     *
+     * @param list<int> $scoutYearIds
+     * @return MemberDocument[] Most recent first.
+     */
+    public function findByMemberAndYears(int $memberId, array $scoutYearIds): array
+    {
+        if ($scoutYearIds === []) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($scoutYearIds), '?'));
+        $stmt = $this->pdo->prepare(
+            "SELECT id, member_id, scout_year_id, title, file_id, created_at, created_by
+             FROM member_documents
+             WHERE member_id = ? AND scout_year_id IN ({$placeholders})
+             ORDER BY created_at DESC, id DESC"
+        );
+        $stmt->execute([$memberId, ...$scoutYearIds]);
+
+        return array_map(
+            fn(array $row) => self::mapRow($row),
+            $stmt->fetchAll(\PDO::FETCH_ASSOC)
+        );
+    }
+
+    /**
      * Every private document this person holds, newest first, across all
      * scout years — what the Staff d'Unité sees on the admin member sheet.
      *
