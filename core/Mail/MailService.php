@@ -356,14 +356,26 @@ class MailService
             $mail->setFrom($fromAddress, $fromName);
             $mail->Sender = $this->fromAddress;
 
-            // Recipient
-            $mail->addAddress($to);
+            // Recipient — its domain in ASCII before PHPMailer sees it
+            // (issue #916). PHPMailer queues an internationalised domain
+            // until send() and lists it nowhere before, so the transport's
+            // recipient-first guard (PhpMailerTransport, RecipientFirstSmtp)
+            // was built from an empty list: a relay refusing
+            // famille@exämple.be had the copy receive the DATA alone. And
+            // without PHP's intl extension, PHPMailer dropped the address
+            // with a bare `false` — a message to the copy only, counted as
+            // sent. Encoded here, the address is listed at once; one that
+            // cannot be is a failure of the send, never a silent omission.
+            if (!$mail->addAddress(self::withAsciiDomain($mail, $to))) {
+                throw new \RuntimeException('The recipient address could not be added to the message.');
+            }
 
-            // Visible copies, validated at the top of this method.
+            // Visible copies, validated at the top of this method, encoded
+            // the same way so they are listed as copies before send().
             // PHPMailer skips one that repeats the recipient — a copy of a
             // message to the address it was already sent to is nothing.
             foreach ($copyAddresses as $copyAddress) {
-                $mail->addCC($copyAddress);
+                $mail->addCC(self::withAsciiDomain($mail, $copyAddress));
             }
 
             // Reply-To — the caller's own when it has one (a module
@@ -919,6 +931,29 @@ class MailService
         } catch (\Throwable) {
             // The message is withheld either way.
         }
+    }
+
+    /**
+     * $address with its domain in punycode, as PHPMailer itself would
+     * encode it inside send() — done before, so the address is listed on
+     * the message the moment it is added (issue #916). The local part is
+     * left as it is: an address with a Unicode local part goes out over
+     * SMTPUTF8, and its domain is valid there in ASCII too.
+     *
+     * @throws \RuntimeException when the domain is not ASCII and cannot be
+     *         made so (PHP's intl extension missing, or a domain IDNA
+     *         refuses): an address that cannot be written on the envelope
+     *         fails the send rather than vanishing from it.
+     */
+    private static function withAsciiDomain(PHPMailer $mail, string $address): string
+    {
+        $encoded = $mail->punyencodeAddress($address);
+        $at = strrpos($encoded, '@');
+        if ($at !== false && preg_match('/[^\x00-\x7F]/', substr($encoded, $at + 1)) === 1) {
+            throw new \RuntimeException('An address domain could not be encoded for sending.');
+        }
+
+        return $encoded;
     }
 
     /**

@@ -263,6 +263,71 @@ class MailServiceCopyTest extends TestCase
         $this->assertSame(['parent@exemple.test'], $relay->asked, 'the copy is never asked for.');
     }
 
+    /**
+     * A recipient whose domain is internationalised (issue #916). PHPMailer
+     * queues such an address until send(), so the recipient-first guard
+     * used to be built from an empty list: the relay refused the family,
+     * the guard did not know it was the family, and the copy received the
+     * DATA alone. The relay here is built from the list the transport
+     * really hands over.
+     */
+    public function testARefusedInternationalisedRecipientSendsNothingToTheCopy(): void
+    {
+        $punycode = 'famille@' . idn_to_ascii('exämple.be', IDNA_DEFAULT, INTL_IDNA_VARIANT_UTS46);
+        $relay = null;
+        $transport = new class ($relay, [$punycode], fn (array $refused, array $recipients) => $this->fakeRelay(
+            $refused,
+            $recipients
+        )) implements MailTransportInterface {
+            /** @param list<string> $refused */
+            public function __construct(
+                public ?RecipientFirstSmtp &$relay,
+                private array $refused,
+                private \Closure $make
+            ) {
+            }
+
+            public function deliver(PHPMailer $mail, MailPurpose $purpose): void
+            {
+                (new PhpMailerTransport(function (array $recipients): RecipientFirstSmtp {
+                    return $this->relay = ($this->make)($this->refused, $recipients);
+                }))->deliver($mail, $purpose);
+            }
+        };
+
+        try {
+            $this->service($transport, null, null, 'smtp')
+                ->send('famille@exämple.be', 'Sujet', '<p>x</p>', 'x', cc: 'unite@exemple.test');
+            $this->fail('A refused recipient must fail the message.');
+        } catch (MailException) {
+        }
+
+        $this->assertNotNull($relay, 'the message carrying a copy went through the guarded session.');
+        $this->assertSame(0, $relay->dataSent, 'nothing may reach the copy.');
+        $this->assertSame([$punycode], $relay->asked, 'the copy is never asked for.');
+    }
+
+    /**
+     * An address whose domain cannot be written in ASCII — PHP without the
+     * intl extension, or a domain IDNA refuses — used to be dropped by
+     * PHPMailer with a bare `false`, and the message went to the copy
+     * alone, counted as sent (issue #916). It is a failed send now:
+     * nothing reaches the transport.
+     */
+    public function testARecipientWhoseDomainCannotBeEncodedFailsTheSend(): void
+    {
+        $transport = $this->recordingTransport();
+
+        try {
+            $this->service($transport)
+                ->send('famille@-exämple.be', 'Sujet', '<p>x</p>', 'x', cc: 'unite@exemple.test');
+            $this->fail('An address that cannot be written on the envelope must fail the send.');
+        } catch (MailException) {
+        }
+
+        $this->assertSame(0, $transport->calls, 'nothing was handed to the transport.');
+    }
+
     /** A callback a caller set on the message is still called. */
     public function testACallbackAlreadySetIsStillCalled(): void
     {
@@ -311,19 +376,23 @@ class MailServiceCopyTest extends TestCase
      * session, which only its two wire calls are replaced in.
      *
      * @param list<string> $refused
+     * @param list<string> $recipients the `To:` addresses the session guards
      */
-    private function fakeRelay(array $refused): RecipientFirstSmtp
+    private function fakeRelay(array $refused, array $recipients = ['parent@exemple.test']): RecipientFirstSmtp
     {
-        return new class ($refused) extends RecipientFirstSmtp {
+        return new class ($refused, $recipients) extends RecipientFirstSmtp {
             public int $dataSent = 0;
             /** @var list<string> */
             public array $asked = [];
             private string $lastRefused = '';
 
-            /** @param list<string> $refused */
-            public function __construct(private array $refused)
+            /**
+             * @param list<string> $refused
+             * @param list<string> $recipients
+             */
+            public function __construct(private array $refused, array $recipients)
             {
-                parent::__construct(['parent@exemple.test']);
+                parent::__construct($recipients);
             }
 
             public function connected()

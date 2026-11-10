@@ -101,7 +101,14 @@ class FamilyEmailCopyService
     /**
      * The address to put in copy of an e-mail to a family, or null for
      * none: the option is off, or no valid address can be resolved — in
-     * which case the e-mail leaves without a copy and the journal says so.
+     * which case the e-mail is sent without a copy and the journal says so.
+     *
+     * The journal line is written HERE, when the address is worked out —
+     * which is before any send is tried, the caller passing this as an
+     * argument of MailService::send(). So it says what is about to happen,
+     * never that an e-mail left (issue #916): a send that then fails, or is
+     * deferred and abandoned, is journaled on its own, and this line must
+     * not claim a delivery nobody made.
      */
     public function copyAddress(): ?string
     {
@@ -115,7 +122,8 @@ class FamilyEmailCopyService
                 'registration',
                 'registration_email_copy_unresolved',
                 'warning',
-                "E-mail à la famille envoyé sans copie : aucune adresse en copie valide n'est configurée"
+                "Copie non résolue : l'e-mail à la famille sera envoyé sans copie, aucune adresse en copie valide "
+                    . "n'est configurée"
             );
         }
 
