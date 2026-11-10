@@ -451,6 +451,34 @@ class RestoreBackupRoundTripTest extends TestCase
         $this->assertSame([], glob($this->storagePath . '/temp/restore_state_*') ?: []);
     }
 
+    /**
+     * The safety copy's file rows name the account running the restore. A
+     * backup older than that account does not know it: the put-back keeps
+     * the rows and drops the name, and the resume pass is queued without
+     * it, rather than failing on a foreign key and undoing the restore.
+     */
+    public function testAnAccountCreatedAfterTheBackupCanRestoreIt(): void
+    {
+        $backupId = $this->takeServerBackup();
+        $this->pdo()->prepare('INSERT INTO user_accounts (email_encrypted, email_blind_index) VALUES (?, ?)')
+            ->execute(['enc', hash('sha256', 'nouvel-admin-' . bin2hex(random_bytes(4)))]);
+        $admin = (int) $this->pdo()->lastInsertId();
+
+        $this->restore(['source' => 'server', 'backup_id' => $backupId, 'requested_by_user_account_id' => $admin]);
+        $this->runResumedPasses();
+
+        $types = $this->journalTypes();
+        $this->assertContains('backup_restored', $types);
+        $this->assertNotContains('restore_state_keep_failed', $types);
+        $this->assertSame(
+            0,
+            (int) $this->pdo()->query(
+                'SELECT COUNT(*) FROM files f LEFT JOIN user_accounts u ON u.id = f.created_by
+                 WHERE f.created_by IS NOT NULL AND u.id IS NULL'
+            )->fetchColumn()
+        );
+    }
+
     /** The incident that motivated the restore stays in the journal, before the restore's own lines. */
     public function testTheJournalKeepsTodaysLinesAndTheRestoresOwn(): void
     {

@@ -65,6 +65,24 @@ final class GoogleDriveBackendTest extends TestCase
     }
 
     /**
+     * A slice of an object, as an off-site copy is brought back (#847,
+     * part 4): by its key, through the file id, and refused for a key that
+     * is not there.
+     */
+    public function testAnObjectIsReadInSlices(): void
+    {
+        $backend = $this->backend();
+        $backend->put('copie.zip', 'abcdefghij', 'application/zip');
+
+        $this->assertSame('cde', $backend->getRange('copie.zip', 2, 3));
+        $this->assertSame('ij', $backend->getRange('copie.zip', 8, 5), 'fewer bytes past the end');
+        $this->assertSame('', $backend->getRange('copie.zip', 10, 5));
+
+        $this->expectException(\RuntimeException::class);
+        $backend->getRange('absente.zip', 0, 3);
+    }
+
+    /**
      * **A key that is not there is a success**, which every backend
      * promises and which a purge depends on: its list of keys comes from
      * something that can be older than the storage, so « already gone » is

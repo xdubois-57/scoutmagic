@@ -1233,8 +1233,15 @@ class RestoreBackupHandler implements TaskHandlerInterface
             throw new \RuntimeException('Le dossier temporaire du site n\'a pas pu être créé.');
         }
         try {
-            file_put_contents($directory . '/master.key', $masterKey);
-            file_put_contents($directory . '/secrets.enc', $secrets);
+            foreach (['master.key' => $masterKey, 'secrets.enc' => $secrets] as $file => $bytes) {
+                // The site's own key in clear: 0600, as everywhere it is held.
+                if (@file_put_contents($directory . '/' . $file, $bytes) === false) {
+                    throw new \RuntimeException('Les clés de ce site n\'ont pas pu être relues.');
+                }
+                if (PHP_OS_FAMILY !== 'Windows') {
+                    @chmod($directory . '/' . $file, 0600);
+                }
+            }
             $today = (new SecretManager($directory . '/master.key', $directory . '/secrets.enc'))->readSecrets();
         } finally {
             @unlink($directory . '/master.key');
@@ -1562,7 +1569,16 @@ class RestoreBackupHandler implements TaskHandlerInterface
         array $extraPayload = []
     ): void
     {
-        $schedulerService = new SchedulerService(new SchedulerRepository($context->connection->getPdo()));
+        $pdo = $context->connection->getPdo();
+        // Queued in the RESTORED database, which may predate the account
+        // that asked for the restore: its foreign key would refuse the row,
+        // and the whole restore would roll back for it.
+        if ($requestedBy !== null) {
+            $known = $pdo->prepare('SELECT 1 FROM user_accounts WHERE id = ?');
+            $known->execute([$requestedBy]);
+            $requestedBy = $known->fetchColumn() !== false ? $requestedBy : null;
+        }
+        $schedulerService = new SchedulerService(new SchedulerRepository($pdo));
         $schedulerService->scheduleAfter(
             'core',
             'restore_backup',

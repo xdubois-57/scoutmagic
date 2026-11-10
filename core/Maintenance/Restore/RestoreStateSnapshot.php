@@ -181,6 +181,11 @@ final class RestoreStateSnapshot
                 $row = $entry['row'];
                 switch ($entry['kind']) {
                     case 'file':
+                        // The safety copy's own rows name the account running
+                        // the restore, which a backup older than it lacks.
+                        if (($row['created_by'] ?? null) !== null && !$accountExists((int) $row['created_by'])) {
+                            $row['created_by'] = null;
+                        }
                         $fileIds[(int) $row['id']] = self::insertFile($pdo, $row);
                         break;
                     case 'backup':
@@ -268,8 +273,14 @@ final class RestoreStateSnapshot
         }
 
         if ($backup !== null) {
+            $accountExists = self::accountChecker($pdo);
             foreach (['file_id', 'db_dump_file_id'] as $column) {
                 $held = $backup[$column] !== null ? ($files[(int) $backup[$column]] ?? null) : null;
+                if ($held !== null && ($held['created_by'] ?? null) !== null
+                    && !$accountExists((int) $held['created_by'])
+                ) {
+                    $held['created_by'] = null;
+                }
                 $backup[$column] = $held !== null ? self::insertFile($pdo, $held) : null;
             }
             $backup['requested_by'] = null;
