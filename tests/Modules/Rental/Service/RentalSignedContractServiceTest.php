@@ -472,7 +472,7 @@ class RentalSignedContractServiceTest extends TestCase
         try {
             $this->service->countersign($booking, $this->asset(), $copy->id, $this->stored($account), null, new \DateTimeImmutable());
             $this->fail('the refused audit line was not reported');
-        } catch (\Throwable $e) {
+        } catch (\PDOException $e) {
             $this->assertStringContainsString('refused', $e->getMessage());
         }
 
