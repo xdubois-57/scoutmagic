@@ -1145,10 +1145,13 @@ class MaintenanceControllerTest extends TestCase
     public function testBackupTypeIsShownAsAHumanReadableLabelEverywhere(): void
     {
         $id = $this->completedBackup('full_no_gallery');
+        // An export too, whose raw type is the one most likely to leak.
+        $this->completedBackup('database');
 
         $body = $this->page('recentBackupsPage');
 
         $this->assertStringContainsString('Complète (sans galerie)', $body);
+        $this->assertStringContainsString('>Base de données</span>', $body);
         $this->assertStringContainsString('<option value="' . $id . '" data-needs-password="1">Complète (sans galerie) — ', $body);
         $this->assertStringNotContainsString('>database<', $body);
         $this->assertStringNotContainsString('>database —', $body);

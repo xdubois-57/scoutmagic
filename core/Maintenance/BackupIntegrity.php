@@ -98,6 +98,7 @@ final class BackupIntegrity
 
         $verifiedSomething = false;
         $missing = false;
+        $presence = new BackupPresence($this->files, $this->storagePath);
 
         foreach ($pairs as [$fileId, $expected]) {
             if ($fileId === null) {
@@ -106,9 +107,9 @@ final class BackupIntegrity
 
             // Resolved the way the list resolves it (BackupPresence), so the
             // daily check and what a row offers never disagree on where a
-            // file is.
-            $path = (new BackupPresence($this->files, $this->storagePath))->pathOf($fileId);
-            if ($path === null || !is_file($path)) {
+            // file is — nor on whether it is there: unreadable is missing.
+            $path = $presence->pathOf($fileId);
+            if ($path === null || !is_file($path) || !is_readable($path)) {
                 $missing = true;
                 continue;
             }

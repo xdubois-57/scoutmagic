@@ -2096,6 +2096,41 @@ describe('maintenance.js: « Copies hors site » (#847, part 4)', () => {
         expect(fetchSpy.mock.calls.length).toBeGreaterThanOrEqual(2);
     });
 
+    it('keeps a single chain of polls when a retry comes in while one is pending', async () => {
+        vi.useFakeTimers();
+        appendAll(el('<div id="remote-copies" data-remote-copies-url="/x"></div>'));
+        const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(() => htmlResponse(
+            '<div id="remote-copies-content" data-remote-busy="1"><button type="button" data-remote-retry>Réessayer</button></div>'
+        ));
+        await boot();
+        for (let i = 0; i < 6; i++) await Promise.resolve();
+
+        /** @type {HTMLButtonElement} */ (document.querySelector('[data-remote-retry]')).click();
+        for (let i = 0; i < 6; i++) await Promise.resolve();
+        const before = fetchSpy.mock.calls.length;
+        await vi.advanceTimersByTimeAsync(4000);
+
+        expect(fetchSpy.mock.calls.length - before).toBe(1);
+    });
+
+    it('shows the session-expired answer when the token is refused', async () => {
+        appendAll(el('<div id="remote-copies" data-remote-copies-url="/x"></div>'));
+        vi.spyOn(globalThis, 'fetch').mockImplementation((url) => (
+            url === '/config/maintenance/remote-backup/restore'
+                ? jsonResponse({ success: false, error: 'Votre session a expiré.' }, 403)
+                : htmlResponse(LISTED)
+        ));
+        await boot();
+        await flush();
+
+        /** @type {HTMLButtonElement} */ (document.querySelector('[data-remote-restore]')).click();
+        /** @type {HTMLInputElement} */ (document.getElementById('remote-restore-keyword')).value = 'RESTAURER';
+        document.getElementById('remote-restore-form').dispatchEvent(new Event('submit', { cancelable: true }));
+        await flush();
+
+        expect(document.getElementById('remote-restore-error').textContent).toBe('Votre session a expiré.');
+    });
+
     it('says so when the card cannot be read', async () => {
         appendAll(el('<div id="remote-copies" data-remote-copies-url="/x"></div>'));
         vi.spyOn(globalThis, 'fetch').mockImplementation(() => Promise.resolve({ ok: false, status: 500, redirected: false }));

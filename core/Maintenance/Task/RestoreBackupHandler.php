@@ -192,8 +192,11 @@ class RestoreBackupHandler implements TaskHandlerInterface
 
         // Before the safety copy (#847, part 3): an off-site send under way
         // would carry on against a database about to be replaced, and its
-        // half-sent copy would never be finished nor cleaned up.
-        $this->interruptRemoteSend($context, $requestedBy);
+        // half-sent copy would never be finished nor cleaned up. Not for
+        // « Configuration seule », which replaces no database.
+        if (!$this->isConfigOnly($payload, $backupRepository)) {
+            $this->interruptRemoteSend($context, $requestedBy);
+        }
 
         $uploadedTempPath = isset($payload['uploaded_temp_path']) ? (string) $payload['uploaded_temp_path'] : null;
         $extractedUploadDbDump = null;

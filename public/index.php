@@ -6944,6 +6944,7 @@ $frontController->registerController(
         $journalService
     )
 );
+$remotePassphrase = new \Core\Maintenance\Remote\RemotePassphrase($settingService, $secretManager);
 $frontController->registerController(
     RemoteBackupController::class,
     new RemoteBackupController(
@@ -6951,11 +6952,11 @@ $frontController->registerController(
         $remoteBackupDestination,
         $storageLocationRepository,
         $journalService,
-        new \Core\Maintenance\Remote\RemotePassphrase($settingService, $secretManager),
+        $remotePassphrase,
         new \Core\Maintenance\Remote\RemoteCopies(
             $remoteBackupDestination,
             new \Core\Maintenance\Remote\RemoteRetention($settingService),
-            new \Core\Maintenance\Remote\RemotePassphrase($settingService, $secretManager)
+            $remotePassphrase
         ),
         $schedulerService,
         $encryptionService,

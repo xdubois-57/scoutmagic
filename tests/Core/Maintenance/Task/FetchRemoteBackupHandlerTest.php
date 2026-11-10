@@ -131,7 +131,7 @@ final class FetchRemoteBackupHandlerTest extends TestCase
         $held = FetchRemoteBackupHandler::held($this->storagePath);
         $this->assertSame(['path' => $path, 'name' => $this->name], array_slice((array) $held, 0, 2));
         $this->assertContains('remote_copy_wrong_passphrase', $this->journalTypes());
-        $discard = $this->pending(FetchRemoteBackupHandler::TASK_KEY);
+        $discard = $this->pending(FetchRemoteBackupHandler::DISCARD_TASK_KEY);
         $this->assertSame(['discard_path' => $path], $discard, 'removed a day later at the latest');
 
         // Typed again, from what was already brought back: no new download.
@@ -141,6 +141,26 @@ final class FetchRemoteBackupHandlerTest extends TestCase
         );
         $this->assertIsArray($this->pending('restore_backup'));
         $this->assertNull(FetchRemoteBackupHandler::held($this->storagePath));
+    }
+
+    /** A restore queued meanwhile wins: the copy is kept, and no second restore starts. */
+    public function testARestoreAlreadyQueuedKeepsTheCopyRatherThanStartingASecond(): void
+    {
+        $this->pdo->exec(
+            "INSERT INTO scheduled_actions (module_id, task_key, run_at, status)
+             VALUES ('core', 'restore_backup', NOW(), 'pending')"
+        );
+        $path = FetchRemoteBackupHandler::newTempPath($this->storagePath);
+
+        $this->handler()->handle($this->payload($path, self::PASSPHRASE), $this->context);
+
+        $this->assertSame(
+            1,
+            (int) $this->pdo->query("SELECT COUNT(*) FROM scheduled_actions WHERE task_key = 'restore_backup'")
+                ->fetchColumn()
+        );
+        $this->assertFileExists($path);
+        $this->assertSame($path, FetchRemoteBackupHandler::held($this->storagePath)['path'] ?? null);
     }
 
     public function testAKeptCopyIsDiscardedWhenItsHoldRunsOut(): void

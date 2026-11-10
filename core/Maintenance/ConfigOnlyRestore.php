@@ -47,6 +47,13 @@ final class ConfigOnlyRestore
      */
     public const KEPT_SETTING_PREFIXES = ['backup_remote_', 'remote_backup_'];
 
+    /**
+     * Kept by a configuration restore only: which support package exists
+     * (`Core\Support\SupportPackageState`) names a file of today's, and the
+     * files are not what this restore brings back.
+     */
+    private const CONFIG_KEPT_PREFIXES = ['support_package_'];
+
     private const TEMPORARY_PREFIX = 'restore_config_';
 
     public function __construct(private readonly \PDO $pdo)
@@ -98,6 +105,17 @@ final class ConfigOnlyRestore
     public static function isKeptSetting(string $key): bool
     {
         foreach (self::KEPT_SETTING_PREFIXES as $prefix) {
+            if (str_starts_with($key, $prefix)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static function isConfigKeptSetting(string $key): bool
+    {
+        foreach (self::CONFIG_KEPT_PREFIXES as $prefix) {
             if (str_starts_with($key, $prefix)) {
                 return true;
             }
@@ -182,7 +200,7 @@ final class ConfigOnlyRestore
         $count = 0;
         foreach ($saved !== false ? $saved->fetchAll(\PDO::FETCH_ASSOC) : [] as $row) {
             $key = (string) ($row['setting_key'] ?? '');
-            if ($key === '' || self::isKeptSetting($key)) {
+            if ($key === '' || self::isKeptSetting($key) || self::isConfigKeptSetting($key)) {
                 continue;
             }
             $exists->execute([$row['module_id'] ?? null, $key]);

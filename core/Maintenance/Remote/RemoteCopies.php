@@ -107,10 +107,24 @@ final class RemoteCopies
      */
     public function find(string $name): ?array
     {
+        return self::pick($this->read(), $name);
+    }
+
+    /**
+     * The copy of that name in a listing {@see read()} returned — for a
+     * caller that needs the listing's location too, without listing twice.
+     *
+     * @param array{
+     *     copies: list<array{name: string, size: int, writtenAt: ?string, generation: ?int, current: bool}>
+     * } $listing
+     * @return array{name: string, size: int, writtenAt: ?string, generation: ?int, current: bool}|null
+     */
+    public static function pick(array $listing, string $name): ?array
+    {
         if (!RemoteRetention::isArchive($name)) {
             return null;
         }
-        foreach ($this->read()['copies'] as $copy) {
+        foreach ($listing['copies'] as $copy) {
             if ($copy['name'] === $name) {
                 return $copy;
             }

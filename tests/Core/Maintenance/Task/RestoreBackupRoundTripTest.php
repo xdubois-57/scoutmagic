@@ -136,13 +136,25 @@ class RestoreBackupRoundTripTest extends TestCase
     {
         $settings = new SettingService(new SettingRepository($this->pdo()));
         $settings->register('backup_remote_location_id', '', 'text', 'Destination', 'Fixture.');
+        $settings->register('support_package_file_id', '', 'text', 'Paquet', 'Fixture.');
         $this->setUnitName('Unité du Chêne');
         $settings->set('backup_remote_location_id', '3');
+        $settings->set('support_package_file_id', '11');
         $this->pdo()->exec("INSERT INTO module_registry (module_id, enabled, installed_version) VALUES ('news', 1, '1.0.0')");
         $backupId = $this->takeEncryptedServerBackup('full_config');
 
         $this->setUnitName('Unité renommée par erreur');
         $settings->set('backup_remote_location_id', '9');
+        $settings->set('support_package_file_id', '12');
+        // An off-site send under way: a configuration restore replaces no
+        // database, and has no reason to stop it.
+        $sending = $this->storagePath . '/maintenance/hors_site_en_cours.zip';
+        @mkdir(dirname($sending), 0o777, true);
+        file_put_contents($sending, 'archive portable');
+        $this->pdo()->prepare(
+            "INSERT INTO scheduled_actions (module_id, task_key, reference, payload, run_at, status)
+             VALUES ('core', 'send_remote_backup', 'auto', ?, NOW(), 'pending')"
+        )->execute([json_encode(['archive_path' => $sending, 'remote_name' => 'copie.zip', 'location_id' => 0])]);
         $this->pdo()->exec("UPDATE module_registry SET enabled = 0, installed_version = '2.0.0' WHERE module_id = 'news'");
         $this->pdo()->exec("INSERT INTO members (desk_id) VALUES ('APRES-LA-SAUVEGARDE')");
         $this->pdo()->exec(
@@ -168,6 +180,15 @@ class RestoreBackupRoundTripTest extends TestCase
                 ->fetchColumn(),
             'the off-site destination is this server\'s, kept as it is today'
         );
+        $this->assertSame(
+            '12',
+            (string) $this->pdo()
+                ->query("SELECT setting_value FROM settings WHERE setting_key = 'support_package_file_id'")
+                ->fetchColumn(),
+            'the support package names today\'s file'
+        );
+        $this->assertFileExists($sending, 'the off-site send was stopped');
+        $this->assertNotContains('remote_backup_interrupted', $this->journalTypes());
         $this->assertSame(
             1,
             (int) $this->pdo()->query("SELECT COUNT(*) FROM members WHERE desk_id = 'APRES-LA-SAUVEGARDE'")->fetchColumn(),

@@ -1107,10 +1107,16 @@
     // few seconds; the page can be closed meanwhile.
     var remoteCopies = document.getElementById('remote-copies');
     var REMOTE_POLL_MS = 4000;
+    /** @type {number|undefined} */
+    var remotePoll;
 
     /** @returns {void} */
     function loadRemoteCopies() {
         if (!remoteCopies) return;
+        // One chain of polls only: a retry or a restore while a poll is
+        // pending replaces it rather than starting a second one.
+        window.clearTimeout(remotePoll);
+        remotePoll = undefined;
         var url = remoteCopies.dataset.remoteCopiesUrl || '';
         fetch(url, { credentials: 'same-origin', headers: { Accept: 'text/html' } })
             .then(function (response) {
@@ -1127,7 +1133,7 @@
                 remoteCopies.innerHTML = html;
                 wireRemoteCopies();
                 if (remoteCopies.querySelector('[data-remote-busy]')) {
-                    window.setTimeout(loadRemoteCopies, REMOTE_POLL_MS);
+                    remotePoll = window.setTimeout(loadRemoteCopies, REMOTE_POLL_MS);
                 }
             }, function () {
                 if (!remoteCopies) return;
@@ -1182,7 +1188,8 @@
             }).then(function (res) {
                 submit.disabled = false;
                 if (!res.data?.success) {
-                    showError(res.data?.message || 'La restauration n\'a pas pu être lancée.');
+                    // `error` is the session-expired answer of the CSRF guard.
+                    showError(res.data?.message || res.data?.error || 'La restauration n\'a pas pu être lancée.');
                     return;
                 }
                 loadRemoteCopies();

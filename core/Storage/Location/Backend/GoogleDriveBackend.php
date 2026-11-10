@@ -117,7 +117,7 @@ final class GoogleDriveBackend implements
     ManagedRootFolderBackend
 {
     /**
-     * Three, and what is absent is as informative as what is there.
+     * Four, and what is absent is as informative as what is there.
      *
      * **Resumable upload** is the native protocol and the reason this
      * destination can hold an archive at all. **Quota** is real: Drive
@@ -129,12 +129,12 @@ final class GoogleDriveBackend implements
      * the upload was cut into, so it compares with a digest computed while
      * reading the source, where a multipart ETag never can.
      *
-     * **No range read and no signed URL**, which is what keeps this
-     * destination out of the gallery for now: without range reads a video
-     * can be started and never seeked in, and without a signed URL every
-     * photograph travels through PHP. Both are IT-07's work, and
-     * declaring either here before its method exists is exactly the lie
-     * this mechanism is for. **No server-side copy**: Drive can copy a
+     * **Range read** since #847 part 4, with {@see getRange()}: an off-site
+     * copy is brought back in slices, and a video in an album here can be
+     * seeked in, each jump a request through PHP. **No signed URL**:
+     * every photograph travels through PHP; declaring it before its method
+     * exists is exactly the lie this mechanism is for. **No server-side
+     * copy**: Drive can copy a
      * file within an account, but not from another storage, so the
      * capability a copier looks for — « move this object without the
      * bytes passing through me » — is one this cannot honour.

@@ -48,6 +48,13 @@ class FetchRemoteBackupHandler implements TaskHandlerInterface
     public const TASK_KEY = 'fetch_remote_backup';
     public const REFERENCE = 'remote_copy';
 
+    /**
+     * The run that discards a kept copy a day later — its own key, so that
+     * a live `fetch_remote_backup` row always means a copy being brought
+     * back, which is what keeps one at a time atomic.
+     */
+    public const DISCARD_TASK_KEY = 'discard_fetched_remote_backup';
+
     /** The same budget and slice as the send, for the same hosting. */
     public const TIME_BUDGET_SECONDS = SendRemoteBackupHandler::TIME_BUDGET_SECONDS;
     public const CHUNK_BYTES = SendRemoteBackupHandler::CHUNK_BYTES;
@@ -263,19 +270,7 @@ class FetchRemoteBackupHandler implements TaskHandlerInterface
             PortableArchive::open($path, $phrase)->close();
         } catch (BackupException | \RuntimeException $e) {
             // Nothing was modified. The copy stays for another try.
-            @file_put_contents(
-                self::heldRecordPath($context->storagePath),
-                (string) json_encode(['path' => $path, 'name' => $name, 'at' => time()])
-            );
-            @chmod(self::heldRecordPath($context->storagePath), 0600);
-            $this->scheduler($context)->scheduleAfter(
-                'core',
-                self::TASK_KEY,
-                self::HOLD_SECONDS,
-                ['discard_path' => $path],
-                null,
-                $requestedBy
-            );
+            $this->hold($context, $requestedBy, $path, $name);
             $context->journal->log(
                 'core',
                 'remote_copy_wrong_passphrase',
@@ -296,8 +291,10 @@ class FetchRemoteBackupHandler implements TaskHandlerInterface
             return;
         }
 
-        @unlink(self::heldRecordPath($context->storagePath));
-        $this->scheduler($context)->scheduleAfter(
+        // One restore at a time, atomically: a restore queued from the form
+        // while this copy was coming back wins, and this copy is kept for
+        // a later try rather than started on top of it.
+        $queued = $this->scheduler($context)->scheduleAfterUnlessLive(
             'core',
             'restore_backup',
             0,
@@ -310,6 +307,20 @@ class FetchRemoteBackupHandler implements TaskHandlerInterface
             null,
             $requestedBy
         );
+        if ($queued === null) {
+            $this->hold($context, $requestedBy, $path, $name);
+            RequesterNotice::sendAboutRestore(
+                $context,
+                $requestedBy,
+                'core.restore_failed',
+                'Restauration non lancée',
+                'Une autre restauration était déjà en cours. La copie hors site rapatriée est gardée un jour : '
+                . 'relancez-la depuis « Copies hors site » une fois l\'autre terminée.'
+            );
+
+            return;
+        }
+        @unlink(self::heldRecordPath($context->storagePath));
         $context->journal->log(
             'core',
             'remote_copy_fetched',
@@ -346,6 +357,24 @@ class FetchRemoteBackupHandler implements TaskHandlerInterface
         }
 
         return $phrase;
+    }
+
+    /** Keeps a brought-back copy for another try, and queues its removal a day later. */
+    private function hold(TaskContext $context, ?int $requestedBy, string $path, string $name): void
+    {
+        @file_put_contents(
+            self::heldRecordPath($context->storagePath),
+            (string) json_encode(['path' => $path, 'name' => $name, 'at' => time()])
+        );
+        @chmod(self::heldRecordPath($context->storagePath), 0600);
+        $this->scheduler($context)->scheduleAfter(
+            'core',
+            self::DISCARD_TASK_KEY,
+            self::HOLD_SECONDS,
+            ['discard_path' => $path],
+            null,
+            $requestedBy
+        );
     }
 
     private function fail(TaskContext $context, ?int $requestedBy, string $message, string $path): void

@@ -135,7 +135,10 @@ final class RemoteBackupController extends AbstractController
         }
 
         $name = is_string($data['name'] ?? null) ? $data['name'] : '';
-        $copy = $this->copies->find($name);
+        // Listed once: the size and the location below come from the same
+        // reading of the destination.
+        $listing = $this->copies->read();
+        $copy = RemoteCopies::pick($listing, $name);
         if ($copy === null) {
             return $this->refuse('Cette copie n\'est pas sur la destination hors site.', 404);
         }
@@ -159,7 +162,7 @@ final class RemoteBackupController extends AbstractController
         $payload = [
             'name' => $name,
             'size' => $copy['size'],
-            'location_id' => $this->copies->read()['locationId'],
+            'location_id' => $listing['locationId'],
             'path' => $reuse ? $held['path'] : FetchRemoteBackupHandler::newTempPath($this->storagePath),
         ];
         if ($reuse) {
@@ -169,7 +172,10 @@ final class RemoteBackupController extends AbstractController
             $payload['encrypted_password'] = base64_encode($this->encryption->encrypt($phrase, 'backup_password'));
         }
         $userId = AuthSession::getUserAccountId();
-        $this->scheduler->scheduleAfter(
+        // Atomic with the check, under the scheduler's own lock: two tabs
+        // can both pass the guard above, only one queues a fetch. The fetch
+        // hands over to the restore the same way.
+        $queued = $this->scheduler->scheduleAfterUnlessLive(
             'core',
             FetchRemoteBackupHandler::TASK_KEY,
             0,
@@ -177,6 +183,9 @@ final class RemoteBackupController extends AbstractController
             FetchRemoteBackupHandler::REFERENCE,
             $userId
         );
+        if ($queued === null) {
+            return $this->refuse('Une restauration est déjà en attente ou en cours. Attendez sa fin.', 409);
+        }
         $this->journalService->log(
             'core',
             'remote_copy_restore_requested',
