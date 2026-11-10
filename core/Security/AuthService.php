@@ -20,6 +20,12 @@ class AuthService
     private const TOKEN_EXPIRY_MINUTES = 15;
     private const MAX_REQUESTS_PER_HOUR = 5;
 
+    /**
+     * Wrong match codes a link survives before it is spent (issue #1099).
+     * With a six-digit code, three guesses give one chance in 333 333.
+     */
+    public const MAX_MATCH_ATTEMPTS = 3;
+
     private UserAccountRepository $userRepo;
     private MagicLinkRepository $magicLinkRepo;
     private MemberEmailRepository $memberEmailRepo;
@@ -68,6 +74,15 @@ class AuthService
         // Generate token
         $rawToken = bin2hex(random_bytes(32));
         $tokenHash = password_hash($rawToken, PASSWORD_DEFAULT);
+
+        // And the code only the requesting window is shown (issue #1099).
+        // The emailed link alone proves the mailbox was READ — by its owner,
+        // or by a mail scanner following every URL —, not that its owner is
+        // the one who asked. Confirming from any other browser requires
+        // this code, which never leaves the window that typed the address.
+        // Generated for every request, account or not, so the answer stays
+        // the same whether the address exists (no enumeration).
+        $matchCode = sprintf('%06d', random_int(0, 999999));
         $expiresAt = new \DateTimeImmutable('+' . self::TOKEN_EXPIRY_MINUTES . ' minutes');
 
         // Can this address log in at all? Either it already has a
@@ -86,7 +101,12 @@ class AuthService
         $viaSecondaryEmail = $user === null && $this->secondaryLoginAddress($blindIndex) !== null;
 
         // Store in database
-        $magicLinkId = $this->magicLinkRepo->create($blindIndex, $tokenHash, $expiresAt);
+        $magicLinkId = $this->magicLinkRepo->create(
+            $blindIndex,
+            $tokenHash,
+            $expiresAt,
+            password_hash($matchCode, PASSWORD_DEFAULT)
+        );
 
         if ($user !== null || $viaSecondaryEmail) {
             // Send the magic link email
@@ -151,7 +171,8 @@ class AuthService
         return new MagicLinkResult(
             success: true,
             magicLinkId: $magicLinkId,
-            error: null
+            error: null,
+            matchCode: $matchCode
         );
     }
 
@@ -230,33 +251,66 @@ class AuthService
     }
 
     /**
-     * Step 2: User clicks the link in their email.
-     *
-     * Verifies the token and marks the link as used.
-     * Returns the verified magic link data, or null if invalid.
+     * Step 2a: the link from the e-mail is OPENED — a GET, which a mail
+     * scanner performs as readily as a person (issue #1099). Checks the
+     * token and says whether the link can still be confirmed, without
+     * consuming or confirming anything: only verifyMagicLink(), behind a
+     * POST, does that.
      */
-    public function verifyMagicLink(int $id, string $rawToken): ?VerifiedMagicLink
+    public function checkMagicLink(int $id, string $rawToken): ?MagicLinkRecord
     {
         $record = $this->magicLinkRepo->findById($id);
+
+        if ($record === null || $record->used || new \DateTimeImmutable() > $record->expiresAt) {
+            return null;
+        }
+
+        return password_verify($rawToken, $record->tokenHash) ? $record : null;
+    }
+
+    /**
+     * Step 2b: the visitor CONFIRMS — a POST from the page step 2a showed.
+     *
+     * Verifies the token again and marks the link as used. $matchCode is
+     * the code the requesting window shows, required whenever the
+     * confirmation does not come from that very session (the caller knows,
+     * through PendingMagicLink); null means it does. A wrong code confirms
+     * nothing, counts against the link, and spends it at
+     * MAX_MATCH_ATTEMPTS.
+     *
+     * Returns the verified magic link data, or null if invalid.
+     *
+     * @throws MagicLinkCodeMismatch when $matchCode is given and wrong
+     */
+    public function verifyMagicLink(int $id, string $rawToken, ?string $matchCode = null): ?VerifiedMagicLink
+    {
+        $record = $this->checkMagicLink($id, $rawToken);
 
         if ($record === null) {
             return null;
         }
 
-        // Check not used
-        if ($record->used) {
-            return null;
-        }
+        if ($matchCode !== null) {
+            $typed = preg_replace('/\D/', '', $matchCode) ?? '';
+            if ($record->matchCodeHash === null || $typed === '' || !password_verify($typed, $record->matchCodeHash)) {
+                $attempts = $this->magicLinkRepo->recordFailedMatch($id);
+                $spent = $attempts >= self::MAX_MATCH_ATTEMPTS;
+                if ($spent) {
+                    $this->magicLinkRepo->invalidate($id);
+                }
+                $this->journalService?->log(
+                    'core',
+                    'magic_link_code_mismatch',
+                    'security',
+                    $spent
+                        ? 'Lien magique annulé : trop de codes de confirmation erronés'
+                        : 'Code de confirmation de lien magique erroné',
+                    ['magic_link_id' => $id, 'attempts' => $attempts],
+                    null
+                );
 
-        // Check not expired
-        $now = new \DateTimeImmutable();
-        if ($now > $record->expiresAt) {
-            return null;
-        }
-
-        // Verify token hash
-        if (!password_verify($rawToken, $record->tokenHash)) {
-            return null;
+                throw new MagicLinkCodeMismatch($spent);
+            }
         }
 
         // Mark as used
@@ -285,6 +339,20 @@ class AuthService
             [],
             $user->id
         );
+        if ($matchCode !== null) {
+            // Confirmed from a browser other than the one that asked,
+            // proven by the code: the asking window is about to be
+            // identified. A line of its own, distinct from a same-browser
+            // login (issue #1099).
+            $this->journalService?->log(
+                'core',
+                'magic_link_confirmed_elsewhere',
+                'security',
+                'Lien magique confirmé depuis un autre navigateur, avec le code de la fenêtre demandeuse',
+                ['magic_link_id' => $id],
+                $user->id
+            );
+        }
 
         return new VerifiedMagicLink(
             email: $user->email,
@@ -304,7 +372,10 @@ class AuthService
             return false;
         }
 
-        return $record->used && $record->confirmedAt !== null;
+        // Expired is expired, confirmed or not (issue #1099): a link
+        // confirmed in time is collected within its fifteen minutes, never
+        // for the rest of the requesting session's life.
+        return $record->used && $record->confirmedAt !== null && new \DateTimeImmutable() <= $record->expiresAt;
     }
 
     /**
@@ -315,7 +386,10 @@ class AuthService
     {
         $record = $this->magicLinkRepo->findById($id);
 
-        if ($record === null || !$record->used || $record->confirmedAt === null) {
+        if (
+            $record === null || !$record->used || $record->confirmedAt === null
+            || new \DateTimeImmutable() > $record->expiresAt
+        ) {
             return null;
         }
 
@@ -333,7 +407,9 @@ class AuthService
     }
 
     /**
-     * Clean up expired magic links.
+     * Clean up expired magic links — those past the rate-limit hour too
+     * (MagicLinkRepository::deleteExpired()). Run by
+     * Task\PurgeExpiredMagicLinksHandler.
      */
     public function cleanupExpiredLinks(): int
     {

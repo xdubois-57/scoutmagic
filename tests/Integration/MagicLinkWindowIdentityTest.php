@@ -26,7 +26,8 @@ use Twig\Environment;
 use Tests\Core\Mail\Template\EmailTemplateRendererFactory;
 
 /**
- * Confirming a magic link is not logging in.
+ * Confirming a magic link is not logging in — and opening one confirms
+ * nothing (issue #1099).
  *
  * A magic link travels by email, and an email is opened wherever the mail
  * happens to be read: a shared family tablet, a work laptop, a webmail on
@@ -58,6 +59,8 @@ class MagicLinkWindowIdentityTest extends TestCase
     private int $scoutYearId;
     /** @var array{to: string, subject: string, body: string}|null */
     private ?array $sentMail = null;
+    /** The code the requesting window was shown for the last link. */
+    private ?string $matchCode = null;
 
     protected function setUp(): void
     {
@@ -92,9 +95,21 @@ class MagicLinkWindowIdentityTest extends TestCase
 
         $twig = $this->buildTwig();
 
+        $authService = new AuthService(
+            $connection,
+            $this->encryption,
+            $mailService,
+            EmailTemplateRendererFactory::overTestDatabase($this->pdo, $twig),
+            'https://example.test',
+            'Test Unit'
+        );
+        $authService->setJournalService(
+            new \Core\Journal\JournalService(new \Core\Journal\JournalRepository($this->pdo))
+        );
+
         $this->controller = new AuthController(
             $twig,
-            new AuthService($connection, $this->encryption, $mailService, EmailTemplateRendererFactory::overTestDatabase($this->pdo, $twig), 'https://example.test', 'Test Unit'),
+            $authService,
             \Tests\SessionGenerationFixture::forPdo($this->pdo),
             new RoleResolver($memberYearRepo, $this->encryption, $this->pdo, $memberEmailRepo),
             new ScoutYearResolver(
@@ -121,71 +136,109 @@ class MagicLinkWindowIdentityTest extends TestCase
     }
 
     /**
-     * The reported case, and the reason this file exists: the mailbox is
-     * open somewhere else, the link is clicked there, and THAT browser
-     * must stay exactly as anonymous as it was.
+     * Issue #1099, the scanner: a mail filter that follows every URL
+     * performs a plain GET. That GET must confirm nothing — the link stays
+     * unused, and the window that asked is not identified.
      */
-    public function testTheBrowserThatOpensTheLinkIsNotIdentified(): void
-    {
-        $this->startTestSession();
-        $magicLinkId = $this->requestLink(self::EMAIL);
-
-        // Another browser entirely: no session state of its own.
-        $_SESSION = [];
-
-        $response = $this->controller->verifyMagicLink($this->verifyRequestFor($magicLinkId), []);
-
-        $this->assertStringContainsString('Connexion confirmée', $response->getBody());
-        $this->assertFalse(AuthSession::isAuthenticated());
-        $this->assertNull(AuthSession::getEmail());
-        // …and it says where the session actually is, rather than
-        // offering a "continuer" that would land on the login page.
-        $this->assertStringContainsString('Retournez à la fenêtre', $response->getBody());
-    }
-
-    /**
-     * The other half of the same rule: the window that asked IS
-     * identified, by polling — the link is confirmed and usable, it just
-     * confers its identity in exactly one place.
-     */
-    public function testTheWindowThatAskedForTheLinkIsTheOneIdentified(): void
+    public function testOpeningTheLinkConfirmsNothing(): void
     {
         $this->startTestSession();
         $magicLinkId = $this->requestLink(self::EMAIL);
         $requestingSession = $_SESSION;
 
-        // Confirmed elsewhere…
         $_SESSION = [];
-        $this->controller->verifyMagicLink($this->verifyRequestFor($magicLinkId), []);
+        $page = $this->controller->verifyMagicLink($this->verifyRequestFor($magicLinkId), []);
+
+        $this->assertStringContainsString('Confirmer la connexion', $page->getBody());
+        $this->assertStringContainsString('name="match_code"', $page->getBody());
+        $this->assertFalse(AuthSession::isAuthenticated());
+        $this->assertSame(0, $this->usedFlag($magicLinkId));
+
+        $_SESSION = $requestingSession;
+        $this->assertFalse($this->poll($magicLinkId));
+        $this->assertFalse(AuthSession::isAuthenticated());
+    }
+
+    /**
+     * Issue #1099, the attack: a window types somebody else's address. The
+     * owner of the mailbox — who asked for nothing — opens the link and
+     * presses the button, with no code or with a guess: nothing is
+     * confirmed, and three wrong codes spend the link for good, the right
+     * code included.
+     */
+    public function testWithoutTheCodeAnotherBrowserConfirmsNothingAndThreeWrongCodesSpendTheLink(): void
+    {
+        $this->startTestSession();
+        $magicLinkId = $this->requestLink(self::EMAIL);
+        $rightCode = (string) $this->matchCode;
+        $requestingSession = $_SESSION;
+
+        $_SESSION = [];
+        $asked = $this->confirm($magicLinkId, '');
+        $this->assertStringContainsString('Saisissez le code', $asked->getBody());
+
+        $wrong = $rightCode === '000000' ? '111111' : '000000';
+        for ($i = 1; $i < \Core\Security\AuthService::MAX_MATCH_ATTEMPTS; $i++) {
+            $this->assertStringContainsString(
+                'Ce code ne correspond pas',
+                $this->confirm($magicLinkId, $wrong)->getBody()
+            );
+        }
+        $this->assertStringContainsString('Lien annulé', $this->confirm($magicLinkId, $wrong)->getBody());
+        $this->assertStringContainsString('Lien invalide', $this->confirm($magicLinkId, $rightCode)->getBody());
         $this->assertFalse(AuthSession::isAuthenticated());
 
-        // …collected here.
+        $_SESSION = $requestingSession;
+        $this->assertFalse($this->poll($magicLinkId));
+        $this->assertFalse(AuthSession::isAuthenticated());
+    }
+
+    /**
+     * The other device, done right: the link opened on a phone, the code
+     * typed from the computer's screen. The phone stays anonymous, the
+     * window that asked is identified, and the journal says it was
+     * confirmed elsewhere.
+     */
+    public function testWithTheCodeTheWindowThatAskedIsIdentifiedAndNotTheOtherBrowser(): void
+    {
+        $this->startTestSession();
+        $magicLinkId = $this->requestLink(self::EMAIL);
+        $code = (string) $this->matchCode;
+        $requestingSession = $_SESSION;
+
+        $_SESSION = [];
+        $response = $this->confirm($magicLinkId, substr($code, 0, 3) . ' ' . substr($code, 3));
+        $this->assertStringContainsString('Connexion confirmée', $response->getBody());
+        $this->assertStringContainsString('Retournez à la fenêtre', $response->getBody());
+        $this->assertFalse(AuthSession::isAuthenticated());
+
         $_SESSION = $requestingSession;
         $this->assertFalse(AuthSession::isAuthenticated());
-
-        $response = $this->controller->pollMagicLink(
-            new Request('GET', '/auth/poll/' . $magicLinkId, [], [], [], []),
-            ['id' => (string) $magicLinkId]
-        );
-
-        $this->assertTrue(json_decode($response->getBody(), true)['confirmed']);
+        $this->assertTrue($this->poll($magicLinkId));
         $this->assertTrue(AuthSession::isAuthenticated());
         $this->assertSame(self::EMAIL, AuthSession::getEmail());
+
+        $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM event_log WHERE event_type = ?');
+        $stmt->execute(['magic_link_confirmed_elsewhere']);
+        $this->assertSame(1, (int) $stmt->fetchColumn());
     }
 
     /**
      * Opening the link in the very session that asked for it — request on
-     * a phone, open the mail app on the same phone — still signs that
-     * session in. It grants nothing new: that session's own poll was
-     * about to do exactly this, and it has now additionally proven it
-     * holds the emailed token.
+     * a phone, open the mail app on the same phone — needs no code: one
+     * button, and that session is signed in. It grants nothing new: its
+     * own poll was about to do exactly this.
      */
-    public function testTheSessionThatAskedForTheLinkIsSignedInWhenItOpensItItself(): void
+    public function testTheSessionThatAskedForTheLinkConfirmsWithOneButton(): void
     {
         $this->startTestSession();
         $magicLinkId = $this->requestLink(self::EMAIL);
 
-        $response = $this->controller->verifyMagicLink($this->verifyRequestFor($magicLinkId), []);
+        $page = $this->controller->verifyMagicLink($this->verifyRequestFor($magicLinkId), []);
+        $this->assertStringNotContainsString('name="match_code"', $page->getBody());
+        $this->assertFalse(AuthSession::isAuthenticated());
+
+        $response = $this->confirm($magicLinkId, null);
 
         $this->assertTrue(AuthSession::isAuthenticated());
         $this->assertSame(self::EMAIL, AuthSession::getEmail());
@@ -193,35 +246,20 @@ class MagicLinkWindowIdentityTest extends TestCase
     }
 
     /**
-     * AND THE TAB IT LEFT BEHIND STOPS WAITING. On a phone the link opens
-     * in a new tab of the same browser, so the tab still showing « En
-     * attente de confirmation… » holds the same session that
-     * verifyMagicLink() has just signed in — and its next poll has to say
-     * so.
-     *
-     * It did not. Confirming the link forgot the pending id, so
-     * `matches()` was false from then on and GET /auth/poll/{id} answered
-     * `{confirmed: false}` for ever, to a session that was already
-     * authenticated. The visitor had to reload by hand, every time
-     * (issue #263, Safari on iPhone, « à chaque fois »).
+     * AND THE TAB IT LEFT BEHIND STOPS WAITING (issue #263): on a phone the
+     * link opens in a new tab of the same browser, so the tab still showing
+     * « En attente de confirmation… » holds the same session — and its next
+     * poll has to say so.
      */
-    public function testTheWaitingWindowIsToldWhenTheSameBrowserOpensTheLink(): void
+    public function testTheWaitingWindowIsToldWhenTheSameBrowserConfirmsTheLink(): void
     {
         $this->startTestSession();
         $magicLinkId = $this->requestLink(self::EMAIL);
 
-        // The mail's link, opened in another tab of the same browser:
-        // same session, same cookie.
-        $this->controller->verifyMagicLink($this->verifyRequestFor($magicLinkId), []);
-
-        // The tab that asked, polling on its timer.
-        $response = $this->controller->pollMagicLink(
-            new Request('GET', '/auth/poll/' . $magicLinkId, [], [], [], []),
-            ['id' => (string) $magicLinkId]
-        );
+        $this->confirm($magicLinkId, null);
 
         $this->assertTrue(
-            json_decode($response->getBody(), true)['confirmed'],
+            $this->poll($magicLinkId),
             'The window that asked for the link is still being told to wait, in a session that is already '
             . 'signed in — so it shows « En attente de confirmation… » until the visitor reloads by hand.'
         );
@@ -233,46 +271,106 @@ class MagicLinkWindowIdentityTest extends TestCase
      * A second browser cannot collect what the first one asked for: the
      * poll endpoint answers "not confirmed yet" to anyone but the
      * requesting session, whatever the id (Core\Security\PendingMagicLink).
-     * Without that, "the browser opening the link is not identified"
-     * would be trivially worked around by polling for the id.
      */
     public function testAnotherBrowserCannotCollectTheSessionByPolling(): void
     {
         $this->startTestSession();
         $magicLinkId = $this->requestLink(self::EMAIL);
+        $code = (string) $this->matchCode;
 
         $_SESSION = [];
-        $this->controller->verifyMagicLink($this->verifyRequestFor($magicLinkId), []);
+        $this->confirm($magicLinkId, $code);
 
-        $response = $this->controller->pollMagicLink(
-            new Request('GET', '/auth/poll/' . $magicLinkId, [], [], [], []),
-            ['id' => (string) $magicLinkId]
-        );
-
-        $this->assertFalse(json_decode($response->getBody(), true)['confirmed']);
+        $this->assertFalse($this->poll($magicLinkId));
         $this->assertFalse(AuthSession::isAuthenticated());
     }
 
     /**
-     * The link stays single-use: confirming it in the mailbox's browser
-     * spends it there, so replaying the same URL identifies nobody, in
-     * any session — including the one that asked.
+     * The link stays single-use: once confirmed, replaying the same
+     * confirmation identifies nobody, in any session — including the one
+     * that asked.
      */
     public function testAConfirmedLinkCannotBeReplayed(): void
     {
         $this->startTestSession();
         $magicLinkId = $this->requestLink(self::EMAIL);
-        $request = $this->verifyRequestFor($magicLinkId);
+        $code = (string) $this->matchCode;
         $requestingSession = $_SESSION;
 
         $_SESSION = [];
-        $this->controller->verifyMagicLink($request, []);
+        $this->confirm($magicLinkId, $code);
 
         $_SESSION = $requestingSession;
-        $response = $this->controller->verifyMagicLink($request, []);
+        $response = $this->confirm($magicLinkId, null);
 
         $this->assertStringContainsString('Lien invalide', $response->getBody());
         $this->assertFalse(AuthSession::isAuthenticated());
+    }
+
+    /**
+     * Issue #1099: a link confirmed in time but collected after it expired
+     * is not collected — the requesting session's life is thirty days, the
+     * link's fifteen minutes.
+     */
+    public function testAConfirmedLinkIsNotCollectedOnceExpired(): void
+    {
+        $this->startTestSession();
+        $magicLinkId = $this->requestLink(self::EMAIL);
+        $code = (string) $this->matchCode;
+        $requestingSession = $_SESSION;
+
+        $_SESSION = [];
+        $this->confirm($magicLinkId, $code);
+        $this->pdo->prepare('UPDATE magic_links SET expires_at = ? WHERE id = ?')
+            ->execute([(new \DateTimeImmutable('-1 minute'))->format('Y-m-d H:i:s'), $magicLinkId]);
+
+        $_SESSION = $requestingSession;
+        $this->assertFalse($this->poll($magicLinkId));
+        $this->assertFalse(AuthSession::isAuthenticated());
+    }
+
+    /**
+     * The confirmation page's POST, from whatever session is current,
+     * after the GET that renders it (which hands that session its CSRF
+     * token). $code null sends no code field at all.
+     */
+    private function confirm(int $magicLinkId, ?string $code): \Core\Http\Response
+    {
+        $get = $this->verifyRequestFor($magicLinkId);
+        $this->controller->verifyMagicLink($get, []);
+        $body = [
+            'token' => (string) $get->getQuery('token', ''),
+            'id' => (string) $magicLinkId,
+            '_csrf_token' => CsrfGuard::generateToken(),
+        ];
+        if ($code !== null) {
+            $body['match_code'] = $code;
+        }
+        $_POST = $body;
+
+        try {
+            return $this->controller->confirmLink(new Request('POST', '/auth/verify', [], $body, [], []), []);
+        } finally {
+            $_POST = [];
+        }
+    }
+
+    private function poll(int $magicLinkId): bool
+    {
+        $response = $this->controller->pollMagicLink(
+            new Request('GET', '/auth/poll/' . $magicLinkId, [], [], [], []),
+            ['id' => (string) $magicLinkId]
+        );
+
+        return (bool) json_decode($response->getBody(), true)['confirmed'];
+    }
+
+    private function usedFlag(int $magicLinkId): int
+    {
+        $stmt = $this->pdo->prepare('SELECT used FROM magic_links WHERE id = ?');
+        $stmt->execute([$magicLinkId]);
+
+        return (int) $stmt->fetchColumn();
     }
 
     private function requestLink(string $email): int
@@ -291,6 +389,8 @@ class MagicLinkWindowIdentityTest extends TestCase
 
         $body = json_decode($response->getBody(), true);
         $this->assertTrue($body['success'], 'magic link request refused: ' . ($body['error'] ?? ''));
+        $this->matchCode = (string) $body['match_code'];
+        $this->assertMatchesRegularExpression('/^\d{6}$/', $this->matchCode);
 
         return (int) $body['poll_id'];
     }

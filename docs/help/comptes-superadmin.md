@@ -25,8 +25,8 @@ droit en plus de ce qu'il a. Ajouter une adresse déjà superadmin ne crée
 pas de doublon.
 
 Il n'y a ni mot de passe à choisir, ni invitation à accepter. La
-personne demande un lien magique depuis la page de connexion, et le clic
-sur ce lien prouve à lui seul que l'adresse est la sienne.
+personne demande un lien magique depuis la page de connexion, et la
+confirmation de ce lien prouve que l'adresse est la sienne.
 
 ## Retirer le droit
 

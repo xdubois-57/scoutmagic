@@ -425,8 +425,12 @@ class AuthControllerTest extends TestCase
             new \Core\Security\UserAccount(5, 'poll@test.com', null, null, null, true, null)
         );
 
-        $response = $this->controller->verifyMagicLink(
-            new Request('GET', '/auth/verify', ['token' => 'tok', 'id' => '7'], [], [], []),
+        $response = $this->controller->confirmLink(
+            new Request('POST', '/auth/verify', [], [
+                'token' => 'tok',
+                'id' => '7',
+                '_csrf_token' => \Core\Security\CsrfGuard::generateToken(),
+            ], [], []),
             []
         );
 

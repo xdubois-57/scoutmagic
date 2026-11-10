@@ -106,6 +106,14 @@ CREATE TABLE magic_links (
     expires_at DATETIME NOT NULL,
     used BOOLEAN NOT NULL DEFAULT FALSE,
     confirmed_at DATETIME,
+    -- The code the window that asked for the link shows, hashed like the
+    -- token (issue #1099): confirming from any other browser requires it,
+    -- so a link opened by somebody who did not ask — or by a mail
+    -- scanner — logs nobody in. NULL on rows from before it existed.
+    match_code_hash VARCHAR(255),
+    -- Wrong codes typed so far; the link is spent at
+    -- AuthService::MAX_MATCH_ATTEMPTS.
+    match_attempts SMALLINT UNSIGNED NOT NULL DEFAULT 0,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_token_hash (token_hash),
     INDEX idx_email_blind (email_blind_index),

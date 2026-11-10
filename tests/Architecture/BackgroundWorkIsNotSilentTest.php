@@ -47,6 +47,9 @@ class BackgroundWorkIsNotSilentTest extends TestCase
         'core/Help/Assistant/Task/PurgeHelpAssistantHandler.php' => 'rate-limit window and answer cache, not events',
         'core/Geo/Task/PurgeGeocodingHandler.php' => 'lookup quota and address cache, not events',
         'core/Security/HumanCheck/Task/PurgeHumanCheckRateLimitsHandler.php' => 'rate-limit counters, not events',
+        // Expired single-use links: their requests and confirmations are
+        // journaled when they happen; the row's removal tells nobody more.
+        'core/Security/Task/PurgeExpiredMagicLinksHandler.php' => 'expired single-use login links, not events',
         'modules/groups/src/Task/PurgeRateLimitHandler.php' => 'rate-limit counters, not events',
         'modules/retro/src/Task/PurgeRateLimitHandler.php' => 'rate-limit counters, not events',
         'modules/support_dashboard/src/Task/PurgeRateLimitsHandler.php' => 'rate-limit counters, not events',

@@ -23,15 +23,14 @@ Aucun mot de passe à retenir.
 
 1. Entrez votre adresse e-mail et touchez « Envoyer le lien de
    connexion ».
-2. La page affiche « Vérifiez vos emails » et attend. **Ne fermez pas
-   cette fenêtre** : c'est elle qui sera connectée.
-3. Ouvrez l'e-mail reçu et cliquez sur le lien — même depuis un autre
-   appareil. La fenêtre d'attente se connecte alors toute seule.
+2. La page affiche « Vérifiez vos emails », un code à six chiffres, et
+   attend. **Ne fermez pas cette fenêtre** : c'est elle qui sera connectée.
+3. Ouvrez l'e-mail reçu, cliquez sur le lien puis sur « Me connecter ».
+   Sur un autre appareil ou navigateur, saisissez d'abord le code.
 
-L'écran qui s'ouvre en cliquant vous dit ce qui s'est passé :
-« Connexion confirmée » — retournez à la fenêtre d'attente, elle est
-connectée ; « Lien invalide » — le lien a expiré ou a déjà servi,
-redemandez-en un.
+« Connexion confirmée » : la fenêtre d'attente est connectée. « Lien
+invalide » : le lien a expiré ou a déjà servi (trois codes faux
+l'annulent), redemandez-en un.
 
 Le lien est valable 15 minutes et ne sert qu'une fois. Rien reçu ?
 Vérifiez le dossier indésirable, puis « Renvoyer le lien ». Si votre

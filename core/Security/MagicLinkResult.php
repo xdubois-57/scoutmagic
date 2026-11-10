@@ -13,7 +13,10 @@ class MagicLinkResult
     public function __construct(
         public readonly bool $success,
         public readonly ?int $magicLinkId,
-        public readonly ?string $error
+        public readonly ?string $error,
+        // The code the requesting window shows (issue #1099), in clear,
+        // for that window only — never stored, never e-mailed.
+        public readonly ?string $matchCode = null
     ) {
     }
 }

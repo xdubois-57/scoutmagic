@@ -86,6 +86,18 @@
     var waitingExpired = document.getElementById('waiting-expired');
     var resendBtn = /** @type {HTMLButtonElement} */ (document.getElementById('resend-magic-link'));
     var resendError = document.getElementById('resend-error');
+    var matchCodeEl = document.getElementById('match-code');
+
+    /**
+     * The code to type when the link is opened in another browser (issue
+     * #1099), shown in two groups of three so it reads aloud.
+     * @param {unknown} code
+     */
+    function showMatchCode(code) {
+        if (!matchCodeEl) return;
+        var digits = typeof code === 'string' ? code : '';
+        matchCodeEl.textContent = digits.length === 6 ? digits.slice(0, 3) + ' ' + digits.slice(3) : digits;
+    }
     var pollingInterval = null;
     var visibilityHandler = null;
     var expiryTimeout = null;
@@ -164,6 +176,7 @@
 
             if (data.success) {
                 sentEmailSpan.textContent = email;
+                showMatchCode(data.match_code);
                 setWaitingExpired(false);
                 resendError.classList.add('d-none');
                 showState(stateWaiting);
@@ -281,6 +294,7 @@
 
             if (data.success) {
                 stopPolling();
+                showMatchCode(data.match_code);
                 setWaitingExpired(false);
                 startPolling(data.poll_id);
             } else {

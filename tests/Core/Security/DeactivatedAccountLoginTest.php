@@ -152,7 +152,8 @@ class DeactivatedAccountLoginTest extends TestCase
     }
 
     // ---------------------------------------------------------------
-    // Path 1 — magic link, GET /auth/verify
+    // Path 1 — magic link, POST /auth/verify (the GET confirms nothing,
+    // issue #1099)
     // ---------------------------------------------------------------
 
     public function testMagicLinkVerifyRefusesADeactivatedAccount(): void
@@ -166,7 +167,14 @@ class DeactivatedAccountLoginTest extends TestCase
         $controller = $this->controllerWith($authService);
         PendingMagicLink::remember(1, \Tests\SessionGenerationFixture::forPdo($this->pdo)->current());
 
-        $controller->verifyMagicLink($this->getRequest('/auth/verify', ['token' => 'tok', 'id' => '1']), []);
+$controller->confirmLink(
+            new \Core\Http\Request('POST', '/auth/verify', [], [
+                'token' => 'tok',
+                'id' => '1',
+                '_csrf_token' => \Core\Security\CsrfGuard::generateToken(),
+            ], [], []),
+            []
+        );
 
         $this->assertFalse(AuthSession::isAuthenticated());
     }
@@ -182,7 +190,14 @@ class DeactivatedAccountLoginTest extends TestCase
         $controller = $this->controllerWith($authService);
         PendingMagicLink::remember(1, \Tests\SessionGenerationFixture::forPdo($this->pdo)->current());
 
-        $controller->verifyMagicLink($this->getRequest('/auth/verify', ['token' => 'tok', 'id' => '1']), []);
+$controller->confirmLink(
+            new \Core\Http\Request('POST', '/auth/verify', [], [
+                'token' => 'tok',
+                'id' => '1',
+                '_csrf_token' => \Core\Security\CsrfGuard::generateToken(),
+            ], [], []),
+            []
+        );
 
         $this->assertTrue(AuthSession::isAuthenticated());
     }

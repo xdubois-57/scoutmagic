@@ -13,7 +13,46 @@
       here — and saying "accéder au site" would send the visitor to a page
       that would simply ask them to log in again.
     #}
-    {% if valid %}
+    {#
+      Issue #1099: opening the link confirms nothing — a GET is what a mail
+      scanner performs on every URL. The first page is a form that POSTs
+      the confirmation; from any browser other than the one that asked,
+      it also asks for the code that window shows.
+    #}
+    {% if valid and not confirmed|default(false) %}
+        <div class="card">
+            <div class="card-body py-4">
+                <h3 class="h5 mb-3 text-center">Confirmer la connexion</h3>
+                <p class="text-body-secondary small text-center">
+                    Demande de connexion faite le {{ requested_at|datetime_fr }}.
+                    Si ce n'est pas vous, fermez simplement cette page : personne ne sera connecté.
+                </p>
+                {% if error|default(null) %}
+                    <div class="alert alert-danger small" role="alert">{{ error }}</div>
+                {% endif %}
+                <form method="post" action="/auth/verify">
+                    {{ csrf_field()|raw }}
+                    <input type="hidden" name="token" value="{{ token }}">
+                    <input type="hidden" name="id" value="{{ link_id }}">
+                    {% if needs_code %}
+                        <div class="mb-3">
+                            <label for="match-code" class="form-label">Code de connexion</label>
+                            <input type="text" class="form-control form-control-lg text-center" id="match-code"
+                                   name="match_code" inputmode="numeric" autocomplete="one-time-code"
+                                   pattern="[0-9 ]*" maxlength="7" required aria-describedby="match-code-help">
+                            <div id="match-code-help" class="form-text">
+                                Le code à 6 chiffres affiché sur l'écran où vous avez demandé la connexion.
+                                Il prouve que c'est bien vous qui l'avez demandée.
+                            </div>
+                        </div>
+                    {% endif %}
+                    <div class="d-grid">
+                        <button type="submit" class="btn btn-primary">Me connecter</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    {% elseif valid %}
         <div class="card">
             <div class="card-body text-center py-4">
                 <div style="font-size: 3rem; color: #198754;" class="mb-3">✓</div>
@@ -37,7 +76,10 @@
         <div class="card">
             <div class="card-body text-center py-4">
                 <div style="font-size: 3rem; color: #dc3545;" class="mb-3">✗</div>
-                {% if not_a_member is defined and not_a_member %}
+                {% if code_spent|default(false) %}
+                    <h3 class="h5 mb-3">Lien annulé</h3>
+                    <p>Trop de codes erronés : ce lien de connexion ne peut plus servir. Demandez-en un nouveau.</p>
+                {% elseif not_a_member is defined and not_a_member %}
                     <h3 class="h5 mb-3">Compte non autorisé</h3>
                     <p>Aucun membre actif n'est associé à cette adresse email. Contactez un(e) responsable de l'unité.</p>
                 {% else %}

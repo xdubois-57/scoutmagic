@@ -3960,6 +3960,15 @@ $schedulerService->seed(
     new DateTimeImmutable()
 );
 
+// Same bootstrap for the purge of expired magic links (Core\Security\
+// Task\PurgeExpiredMagicLinksHandler, issue #1099).
+$schedulerService->seed(
+    'core',
+    \Core\Security\Task\PurgeExpiredMagicLinksHandler::TASK_KEY,
+    \Core\Security\Task\PurgeExpiredMagicLinksHandler::REFERENCE,
+    new DateTimeImmutable()
+);
+
 // Same bootstrap for the purge of the documents the installed
 // application put aside (Core\File\Held\Task\PurgeHeldDocumentsHandler):
 // a member's own files, gone within the hour of their expiry.
@@ -4188,6 +4197,9 @@ $router->addRoute(
     'public',
     ['label' => 'Connexion', 'parents' => []],
 );
+// The link is confirmed by POST only (issue #1099, SECURITY.md §31): the
+// GET above checks the token and shows the button, nothing more.
+$router->addRoute('POST', '/auth/verify', AuthController::class, 'confirmLink', 'public');
 $router->addRoute('GET', '/auth/poll/{id}', AuthController::class, 'pollMagicLink', 'public');
 $router->addRoute('POST', '/logout', AuthController::class, 'logout', 'identified');
 

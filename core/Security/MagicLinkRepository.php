@@ -25,21 +25,27 @@ class MagicLinkRepository
     /**
      * Create a magic link record. Returns the inserted ID.
      */
-    public function create(string $emailBlindIndex, string $tokenHash, \DateTimeImmutable $expiresAt): int
-    {
+    public function create(
+        string $emailBlindIndex,
+        string $tokenHash,
+        \DateTimeImmutable $expiresAt,
+        ?string $matchCodeHash = null
+    ): int {
         // created_at is stamped here rather than left to the column's
         // DEFAULT CURRENT_TIMESTAMP: countRecentByEmail() — the magic-link
         // rate limiter — compares it against a cutoff computed in PHP, and
         // a row written by one clock and filtered by another either lets a
         // flood through or locks a legitimate visitor out for an hour.
         $stmt = $this->pdo->prepare(
-            'INSERT INTO magic_links (email_blind_index, token_hash, expires_at, created_at) VALUES (?, ?, ?, ?)'
+            'INSERT INTO magic_links (email_blind_index, token_hash, expires_at, created_at, match_code_hash)
+             VALUES (?, ?, ?, ?, ?)'
         );
         $stmt->execute([
             $emailBlindIndex,
             $tokenHash,
             $expiresAt->format('Y-m-d H:i:s'),
             (new \DateTimeImmutable())->format('Y-m-d H:i:s'),
+            $matchCodeHash,
         ]);
 
         return (int) $this->pdo->lastInsertId();
@@ -74,6 +80,31 @@ class MagicLinkRepository
     }
 
     /**
+     * One more wrong match code typed for this link; returns the count.
+     */
+    public function recordFailedMatch(int $id): int
+    {
+        $stmt = $this->pdo->prepare('UPDATE magic_links SET match_attempts = match_attempts + 1 WHERE id = ?');
+        $stmt->execute([$id]);
+
+        $stmt = $this->pdo->prepare('SELECT match_attempts FROM magic_links WHERE id = ?');
+        $stmt->execute([$id]);
+
+        return (int) $stmt->fetchColumn();
+    }
+
+    /**
+     * Spends a link without confirming it — too many wrong codes. `used`
+     * with no `confirmed_at`: no window can collect it, and the emailed
+     * token is refused from now on.
+     */
+    public function invalidate(int $id): void
+    {
+        $stmt = $this->pdo->prepare('UPDATE magic_links SET used = TRUE, confirmed_at = NULL WHERE id = ?');
+        $stmt->execute([$id]);
+    }
+
+    /**
      * Count recent magic links for an email (for rate limiting).
      */
     public function countRecentByEmail(string $emailBlindIndex, int $withinSeconds = 3600): int
@@ -88,15 +119,20 @@ class MagicLinkRepository
     }
 
     /**
-     * Delete expired and used magic links. Returns the number of deleted rows.
+     * Delete expired magic links — but only those older than the
+     * rate-limit window too. countRecentByEmail() counts the last hour's
+     * rows, expired or not; a link that has expired after fifteen minutes
+     * still has to be counted for the rest of that hour, or every purge
+     * would hand an address five fresh links. Returns the number deleted.
      */
-    public function deleteExpired(): int
+    public function deleteExpired(int $keepWithinSeconds = 3600): int
     {
         $now = (new \DateTimeImmutable())->format('Y-m-d H:i:s');
+        $cutoff = (new \DateTimeImmutable("-{$keepWithinSeconds} seconds"))->format('Y-m-d H:i:s');
         $stmt = $this->pdo->prepare(
-            'DELETE FROM magic_links WHERE expires_at < ?'
+            'DELETE FROM magic_links WHERE expires_at < ? AND created_at < ?'
         );
-        $stmt->execute([$now]);
+        $stmt->execute([$now, $cutoff]);
 
         return $stmt->rowCount();
     }
@@ -115,7 +151,9 @@ class MagicLinkRepository
             expiresAt: DateInput::requireFromStorage((string) $row['expires_at'], 'expires_at'),
             used: (bool) $row['used'],
             confirmedAt: DateInput::fromStorage($row['confirmed_at'] === null ? null : (string) $row['confirmed_at']),
-            createdAt: DateInput::requireFromStorage((string) $row['created_at'], 'created_at')
+            createdAt: DateInput::requireFromStorage((string) $row['created_at'], 'created_at'),
+            matchCodeHash: isset($row['match_code_hash']) ? (string) $row['match_code_hash'] : null,
+            matchAttempts: (int) ($row['match_attempts'] ?? 0)
         );
     }
 }
