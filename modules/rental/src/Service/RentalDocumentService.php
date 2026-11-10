@@ -445,25 +445,33 @@ class RentalDocumentService
 
         $fileId = $this->storePdf($pdf, $fileName, $booking->id);
 
-        $documentId = $this->documentRepository->create(
-            $booking->id,
-            $fileId,
-            $type,
-            $version,
-            // Generated documents are meant for the renter by definition —
-            // and "for the renter" means "gets emailed", never "gets a
-            // download link" (§6.24).
-            true,
-            (string) json_encode($values, JSON_UNESCAPED_UNICODE),
-            $actorMemberId,
-            RentalDocument::SOURCE_MANUAL,
-            null,
-            null,
-            $type === DocumentType::INVOICE ? $validatedSettlement?->id : null,
-            $type === DocumentType::INVOICE
-                ? ($validatedSettlement?->keptCents() ?? $booking->effectiveTotalCents())
-                : null
-        );
+        try {
+            $documentId = $this->documentRepository->create(
+                $booking->id,
+                $fileId,
+                $type,
+                $version,
+                // Generated documents are meant for the renter by definition —
+                // and "for the renter" means "gets emailed", never "gets a
+                // download link" (§6.24).
+                true,
+                (string) json_encode($values, JSON_UNESCAPED_UNICODE),
+                $actorMemberId,
+                RentalDocument::SOURCE_MANUAL,
+                null,
+                null,
+                $type === DocumentType::INVOICE ? $validatedSettlement?->id : null,
+                $type === DocumentType::INVOICE
+                    ? ($validatedSettlement?->keptCents() ?? $booking->effectiveTotalCents())
+                    : null
+            );
+        } catch (\Throwable $e) {
+            // No document row points at the PDF just written: without this,
+            // a contract or an invoice would stay on disk, survive the
+            // booking's purge, and carry the renter's details (#805).
+            $this->fileRemover->removeOrphan($fileId);
+            throw $e;
+        }
 
         // What this contract says about its booking, so the day the booking
         // stops saying it the contract is known to be void (#708, IT-20).
@@ -680,22 +688,31 @@ class RentalDocumentService
                 );
 
                 $fileName = RentalDocument::fileNameFor($type, $booking->reference, $version);
+                $fileId = $this->storePdf($pdf, $fileName, $booking->id);
 
-                return $this->documentRepository->create(
-                    $booking->id,
-                    $this->storePdf($pdf, $fileName, $booking->id),
-                    $type,
-                    $version,
-                    true,
-                    (string) json_encode($values, JSON_UNESCAPED_UNICODE),
-                    $actorMemberId,
-                    RentalDocument::SOURCE_MANUAL,
-                    null,
-                    null,
-                    $offer->settlement->id,
-                    $offer->settlement->keptCents(),
-                    $original->id
-                );
+                try {
+                    return $this->documentRepository->create(
+                        $booking->id,
+                        $fileId,
+                        $type,
+                        $version,
+                        true,
+                        (string) json_encode($values, JSON_UNESCAPED_UNICODE),
+                        $actorMemberId,
+                        RentalDocument::SOURCE_MANUAL,
+                        null,
+                        null,
+                        $offer->settlement->id,
+                        $offer->settlement->keptCents(),
+                        $original->id
+                    );
+                } catch (\Throwable $e) {
+                    // The rollback takes the rows back, never the bytes
+                    // (#805): removed here, while the `files` row still says
+                    // where they are.
+                    $this->fileRemover->removeOrphan($fileId);
+                    throw $e;
+                }
             }
         );
 

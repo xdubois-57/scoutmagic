@@ -454,6 +454,34 @@ class RentalSignedContractServiceTest extends TestCase
     }
 
     /**
+     * Issue #805: a countersignature that fails AFTER the signed contract was
+     * filed — here its audit line — rolls the rows back, and the PDF it wrote
+     * goes with them: it carries the renter's details and both signatures.
+     */
+    public function testACountersignatureThatFailsAfterFilingTheContractLeavesNoPdfOnDisk(): void
+    {
+        $booking = $this->booking();
+        $copy = $this->service->receiveCopy($booking, $this->asset(), $this->storedFile(self::photo(), 'jpg', 'image/jpeg'));
+        $account = $this->account();
+        $this->signatures->save($account, SignatureImage::fromBytes(self::signaturePng()), new \DateTimeImmutable());
+        $before = glob($this->storagePath . '/rental/documents/*') ?: [];
+        $this->pdo->exec(
+            "CREATE TRIGGER refuse_audit BEFORE INSERT ON entity_changes BEGIN SELECT RAISE(ABORT, 'refused'); END"
+        );
+
+        try {
+            $this->service->countersign($booking, $this->asset(), $copy->id, $this->stored($account), null, new \DateTimeImmutable());
+            $this->fail('the refused audit line was not reported');
+        } catch (\Throwable $e) {
+            $this->assertStringContainsString('refused', $e->getMessage());
+        }
+
+        $this->assertSame($before, glob($this->storagePath . '/rental/documents/*') ?: []);
+        $this->assertNull($this->service->finalContract($booking->id));
+        $this->assertSame($copy->id, $this->service->pendingCopy($booking->id)?->id);
+    }
+
+    /**
      * Another account's stored signature is no use to this one (issue #926):
      * the account signing reads its own, and without one it signs with a
      * signature given now — which leaves the other's untouched.

@@ -515,87 +515,114 @@ class RentalSignedContractService
         //
         // Inside the asset's lock (Repository\AssetLock): countersigning a
         // replacement contract moves the booking's dates (#927, §2.3).
-        $countersign = fn(): RentalDocument => $this->documentRepository->withBookingLocked(
-            $booking->id,
-            function () use (
-                $booking,
-                $asset,
-                $documentId,
-                $signature,
-                $actorName,
-                $actorMemberId,
-                $now,
-                $fileName
-            ): RentalDocument {
-                $copy = $this->pendingCopyOf($booking, $documentId);
-                // « Signer et mémoriser » is one act: kept here, in this
-                // transaction, so that anything failing below — a file
-                // gone, a PDF that cannot be read — keeps nothing.
-                $this->signatures->rememberIfAsked($signature, $now);
-                $path = $this->documents->absolutePath($copy);
-                if ($path === null) {
-                    throw new RentalException(
-                        'Le fichier de cette copie est introuvable. Demandez-en une autre au locataire.'
-                    );
-                }
-
-                // A replacement contract signs the project's terms, not the
-                // booking's: its countersignature page says those.
-                $modifications = $this->modifications;
-                $modification = $copy->modificationId !== null
-                    ? $modifications?->find($booking, $copy->modificationId)
-                    : null;
-                $signed = $modification !== null
-                    ? $booking->withTerms(
-                        $modification->arrivalDate,
-                        $modification->departureDate,
-                        $modification->units,
-                        $modification->persons,
-                        $modification->price
-                    )
-                    : $booking;
-
-                $pdf = $this->assemble($path, $signed, $asset, $copy, $signature->png->bytes(), $actorName, $now);
-                $final = $this->documents->attachPdf(
+        //
+        // The signed PDF on disk is not part of that transaction: it is
+        // remembered here and deleted if the transaction does not commit,
+        // as an inventory's is (#805) — the rows go, and the bytes carry
+        // the renter's name, address and both signatures.
+        $writtenPath = null;
+        $countersign = function () use (
+            $booking,
+            $asset,
+            $documentId,
+            $signature,
+            $actorName,
+            $actorMemberId,
+            $now,
+            $fileName,
+            &$writtenPath
+        ): RentalDocument {
+            return $this->documentRepository->withBookingLocked(
+                $booking->id,
+                function () use (
                     $booking,
-                    $pdf,
-                    DocumentType::SIGNED_CONTRACT,
+                    $asset,
+                    $documentId,
+                    $signature,
+                    $actorName,
+                    $actorMemberId,
+                    $now,
                     $fileName,
-                    true,
-                    $actorMemberId,
-                    $copy->contractDocumentId,
-                    $copy->modificationId
-                );
+                    &$writtenPath
+                ): RentalDocument {
+                    $copy = $this->pendingCopyOf($booking, $documentId);
+                    // « Signer et mémoriser » is one act: kept here, in this
+                    // transaction, so that anything failing below — a file
+                    // gone, a PDF that cannot be read — keeps nothing.
+                    $this->signatures->rememberIfAsked($signature, $now);
+                    $path = $this->documents->absolutePath($copy);
+                    if ($path === null) {
+                        throw new RentalException(
+                            'Le fichier de cette copie est introuvable. Demandez-en une autre au locataire.'
+                        );
+                    }
 
-                $this->bookingAudit->record(
-                    $booking->id,
-                    BookingAudit::STATUS_CHANGED,
-                    DocumentType::SIGNED_COPY->label(),
-                    DocumentType::SIGNED_CONTRACT->label(),
-                    $modification !== null ? 'Contrat de remplacement contresigné' : 'Contrat contresigné',
-                    $actorMemberId,
-                    // The account that signed, the session's — not the one
-                    // a member's address would resolve to.
-                    $signature->accountId
-                );
+                    // A replacement contract signs the project's terms, not the
+                    // booking's: its countersignature page says those.
+                    $modifications = $this->modifications;
+                    $modification = $copy->modificationId !== null
+                        ? $modifications?->find($booking, $copy->modificationId)
+                        : null;
+                    $signed = $modification !== null
+                        ? $booking->withTerms(
+                            $modification->arrivalDate,
+                            $modification->departureDate,
+                            $modification->units,
+                            $modification->persons,
+                            $modification->price
+                        )
+                        : $booking;
 
-                // **The countersignature finalises the modification**, in this
-                // very transaction (chantier §2.3): no button of its own, and
-                // nothing half-applied if anything below fails.
-                if ($modification !== null) {
-                    $modifications->applyOnCountersignature(
-                        $modification,
-                        $this->occupancy?->fresh($booking) ?? $booking,
-                        $asset,
+                    $pdf = $this->assemble($path, $signed, $asset, $copy, $signature->png->bytes(), $actorName, $now);
+                    $final = $this->documents->attachPdf(
+                        $booking,
+                        $pdf,
+                        DocumentType::SIGNED_CONTRACT,
+                        $fileName,
+                        true,
                         $actorMemberId,
-                        $now
+                        $copy->contractDocumentId,
+                        $copy->modificationId
                     );
-                }
+                    $writtenPath = $this->documents->absolutePath($final);
 
-                return $final;
+                    $this->bookingAudit->record(
+                        $booking->id,
+                        BookingAudit::STATUS_CHANGED,
+                        DocumentType::SIGNED_COPY->label(),
+                        DocumentType::SIGNED_CONTRACT->label(),
+                        $modification !== null ? 'Contrat de remplacement contresigné' : 'Contrat contresigné',
+                        $actorMemberId,
+                        // The account that signed, the session's — not the one
+                        // a member's address would resolve to.
+                        $signature->accountId
+                    );
+
+                    // **The countersignature finalises the modification**, in this
+                    // very transaction (chantier §2.3): no button of its own, and
+                    // nothing half-applied if anything below fails.
+                    if ($modification !== null) {
+                        $modifications->applyOnCountersignature(
+                            $modification,
+                            $this->occupancy?->fresh($booking) ?? $booking,
+                            $asset,
+                            $actorMemberId,
+                            $now
+                        );
+                    }
+
+                    return $final;
+                }
+            );
+        };
+        try {
+            $final = $this->occupancy !== null ? $this->occupancy->onAsset($asset->id, $countersign) : $countersign();
+        } catch (\Throwable $e) {
+            if ($writtenPath !== null && is_file($writtenPath)) {
+                @unlink($writtenPath);
             }
-        );
-        $final = $this->occupancy !== null ? $this->occupancy->onAsset($asset->id, $countersign) : $countersign();
+            throw $e;
+        }
         // The act, in the core's journal, once the contract exists: which
         // document, by which account, never a pixel.
         $this->signatures->recordSigning(
