@@ -161,7 +161,9 @@ class MemberPageServiceTest extends TestCase
             );
             $this->publicYearSettings->register(
                 \Core\ScoutYear\ScoutYearResolver::SETTING_PUBLIC_YEAR,
-                '0',
+                // The fixture's year, never the date's: a test that sets
+                // nothing must not drift out of the window as seasons pass.
+                (string) $this->scoutYearId,
                 'number',
                 'Public',
                 'desc',

@@ -46,8 +46,8 @@ insignes sur l'uniforme ? » ouvre le guide des insignes de la fédération.
   comme une attestation fiscale. Vous y trouvez ceux des trois dernières
   années scoutes, du plus récent au plus ancien, chacun avec son année,
   quelle que soit l'année de la fiche affichée. Les plus anciens ne sont
-  pas effacés : demandez-les au Staff d'Unité. Personne d'autre que vous
-  ne les voit — pas même un animateur.
+  pas effacés : demandez-les au Staff d'Unité, qui les voit tous depuis la
+  fiche administrative. Un animateur de section, lui, ne les voit pas.
 - **Documents de section** : plannings, papiers de camp et autres
   documents déposés par le staff de section, année par année.
 - **Galeries photos** : les albums liés aux sections de l'animé, si
