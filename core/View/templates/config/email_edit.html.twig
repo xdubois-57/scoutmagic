@@ -13,11 +13,22 @@
     </div>
 {% endif %}
 
+{% if missing_required %}
+    <div class="alert alert-danger" role="alert">
+        Cet email n'est plus envoyé : son texte personnalisé a perdu une variable obligatoire.
+        {{ missing_required }}
+    </div>
+{% endif %}
+
 {% if template.variables is not empty %}
     <div class="alert alert-secondary">
         Les mots entre accolades — {{ '{{ exemple }}' }} — sont remplacés au moment de l'envoi par
         la vraie valeur. Gardez-les tels quels dans votre texte : ce sont eux qui écrivent le nom,
         la date ou le lien de chaque destinataire.
+        {% if template.variables|filter(v => v.required) is not empty %}
+            Celles marquées « obligatoire » doivent rester dans le texte : sans elles,
+            l'email n'est ni enregistré ni envoyé.
+        {% endif %}
     </div>
 {% endif %}
 
@@ -38,6 +49,7 @@
             {% include 'partials/email_variable_buttons.html.twig' with {
                 variables: template.variables,
                 target: 'email-subject',
+                show_required: false,
                 hint: 'Cliquez pour insérer une variable dans le sujet :',
             } only %}
             <button type="submit" class="btn btn-primary mt-3">Enregistrer le sujet</button>

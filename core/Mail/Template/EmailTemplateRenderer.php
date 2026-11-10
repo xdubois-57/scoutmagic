@@ -118,6 +118,8 @@ class EmailTemplateRenderer
      */
     private function renderCustomised(EmailTemplate $template, array $override, array $context): RenderedEmail
     {
+        $this->refuseWithoutRequiredVariables($template, $override['body_html']);
+
         $bodyHtml = $this->substituteIntoHtml($template, $override['body_html'], $context);
         $frame = self::frameContext($context);
 
@@ -133,6 +135,41 @@ class EmailTemplateRenderer
             bodyText: self::toPlainText($bodyHtml) . "\n\n"
                 . $this->twig->render('email/signature.text.twig', $frame),
         );
+    }
+
+    /**
+     * A stored body that leaves out a required variable is not sent.
+     *
+     * The editor already refuses to save one; this is the same rule at the
+     * other end, because a row can reach the table by another road — an
+     * older version, a restored backup, a script — and an e-mail that
+     * went out without the one link it exists to carry cannot be called
+     * back. Journaled, so the unit learns why a message did not leave,
+     * then thrown, so the sender records its own failure.
+     *
+     * @throws MissingRequiredVariableException
+     */
+    private function refuseWithoutRequiredVariables(EmailTemplate $template, string $bodyHtml): void
+    {
+        $missing = $template->missingRequiredVariables($bodyHtml);
+        if ($missing === []) {
+            return;
+        }
+
+        $this->journal?->log(
+            'core',
+            'email_template_required_variable_missing',
+            'error',
+            "L'email « {$template->label} » n'a pas été envoyé : son texte personnalisé ne contient plus une "
+                . 'variable obligatoire.',
+            [
+                'template_id' => $template->id,
+                'variables' => array_map(static fn(EmailTemplateVariable $v): string => $v->name, $missing),
+            ],
+            null
+        );
+
+        throw new MissingRequiredVariableException(EmailTemplateCustomisationService::missingMessage($missing));
     }
 
     /**
@@ -229,10 +266,19 @@ class EmailTemplateRenderer
             $values[$variable->name] = $value;
         }
 
+        $engine = new TokenEngine(TokenSyntax::identifiers());
+        if ($intoHtml) {
+            // `{{ pri<b>x</b>_total }}` — what a contenteditable makes of a
+            // placeholder somebody bolded across. The same repair the
+            // document editors run, so a name the editor cut in two is
+            // still a name here.
+            $text = $engine->repairTokensSplitByMarkup($text);
+        }
+
         $this->reportUndeclared($template, $text);
 
         // HTML values above are already escaped, including their line breaks.
-        return (new TokenEngine(TokenSyntax::identifiers()))->substitute(
+        return $engine->substitute(
             $text,
             static fn(string $name): ?string => $values[$name] ?? null,
             false

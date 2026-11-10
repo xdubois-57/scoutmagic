@@ -23,6 +23,9 @@ use Core\Security\HtmlSanitizer;
  * - **The body is sanitised before it is written**, exactly like every
  *   other rich text (SECURITY.md §7). Sanitising on the way out would put
  *   the rule in every future caller instead of in one place.
+ * - **A required variable cannot be left out** (EmailTemplateVariable::
+ *   $required). Checked on the body as it will be STORED, after the
+ *   sanitizer, so a link the sanitizer pruned is a link missing.
  */
 class EmailTemplateCustomisationService
 {
@@ -42,7 +45,8 @@ class EmailTemplateCustomisationService
      * was half of issue #306.
      *
      * @throws EmailTemplateException when the e-mail is unknown, is not
-     *         editable, or the subject is empty
+     *         editable, the subject is empty or the body leaves out a
+     *         required variable
      */
     public function customise(string $templateId, string $subject, string $bodyHtml, ?int $updatedBy): string
     {
@@ -54,6 +58,11 @@ class EmailTemplateCustomisationService
         }
 
         $storedBody = $this->sanitizer->sanitize($bodyHtml);
+
+        $missing = $template->missingRequiredVariables($storedBody);
+        if ($missing !== []) {
+            throw new EmailTemplateException(self::missingMessage($missing));
+        }
 
         $this->repository->save($template->id, $subject, $storedBody, $updatedBy);
 
@@ -71,6 +80,25 @@ class EmailTemplateCustomisationService
     public function reset(string $templateId): bool
     {
         return $this->repository->delete($this->requireEditable($templateId)->id);
+    }
+
+    /**
+     * « Le texte doit contenir la variable « Lien de suivi » ({{ lien_suivi }}). »
+     * — the label an administrator recognises from the buttons, and the
+     * placeholder they would type.
+     *
+     * @param non-empty-list<EmailTemplateVariable> $missing
+     */
+    public static function missingMessage(array $missing): string
+    {
+        $names = array_map(
+            static fn(EmailTemplateVariable $v): string => "« {$v->label} » ({{ {$v->name} }})",
+            $missing
+        );
+
+        return count($names) === 1
+            ? "Le texte doit contenir la variable {$names[0]}, obligatoire pour cet email."
+            : 'Le texte doit contenir les variables ' . implode(', ', $names) . ', obligatoires pour cet email.';
     }
 
     /**

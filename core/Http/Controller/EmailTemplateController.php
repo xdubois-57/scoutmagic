@@ -20,9 +20,12 @@ use Core\Mail\Template\EmailTemplateOverrideRepository;
 use Core\Mail\Template\EmailTemplateRegistry;
 use Core\Mail\Template\EmailTemplateRenderer;
 use Core\Mail\Template\EmailTestSendThrottler;
+use Core\Mail\Template\MissingRequiredVariableException;
 use Core\Mail\MailException;
 use Core\Mail\MailService;
 use Core\Security\AuthSession;
+use Core\Template\TokenEngine;
+use Core\Template\TokenSyntax;
 use Twig\Environment;
 
 /**
@@ -107,6 +110,7 @@ class EmailTemplateController extends AbstractController
         }
 
         $override = $this->overrides->find($template->id);
+        $missing = $override !== null ? $template->missingRequiredVariables($override['body_html']) : [];
 
         return $this->render('config/email_edit.html.twig', [
             // The trail ends on the template's own name, the page's title
@@ -121,6 +125,13 @@ class EmailTemplateController extends AbstractController
                 $this->placeholderContext($template)
             ),
             'preview' => $this->preview($template),
+            // A stored body can lack a required variable when it reached
+            // the table another way than this editor (an older version, a
+            // restored backup): it is not sent, and this says so here,
+            // where it can be fixed.
+            'missing_required' => $missing !== []
+                ? EmailTemplateCustomisationService::missingMessage($missing)
+                : null,
             'test_recipient' => AuthSession::getEmail() ?? '',
         ]);
     }
@@ -283,7 +294,13 @@ class EmailTemplateController extends AbstractController
             return $this->redirect($this->editUrl($template->id));
         }
 
-        $email = $this->renderer->render($template->id, $this->exampleContext($template));
+        try {
+            $email = $this->renderer->render($template->id, $this->exampleContext($template));
+        } catch (MissingRequiredVariableException $e) {
+            FlashMessage::set('error', "Le test n'est pas parti. " . $e->getMessage());
+
+            return $this->redirect($this->editUrl($template->id));
+        }
 
         try {
             $this->mailService->send($to, $email->subject, $email->bodyHtml, $email->bodyText);
@@ -450,10 +467,13 @@ class EmailTemplateController extends AbstractController
             // Rendering the WHOLE customised e-mail would nest a complete
             // HTML document inside this page. The body is what an
             // administrator is judging, and it is already sanitised.
-            $rendered = $this->renderer->render($template->id, $context);
-
+            //
+            // The subject goes through the same substitution as the send's,
+            // not through render(): a stored body missing a required
+            // variable is refused there, and this page is where an
+            // administrator repairs it — it must open.
             return [
-                'subject' => $rendered->subject,
+                'subject' => $this->substitutedSubject($template, $override['subject'], $context),
                 // Through the renderer's own substitution, not a second
                 // copy of it: what the preview shows has to be what the
                 // send produces, escaping included.
@@ -473,22 +493,20 @@ class EmailTemplateController extends AbstractController
     }
 
     /**
-     * A subject line is not markup: it is substituted as it is, exactly
-     * as EmailTemplateRenderer does before handing it to MailService.
+     * A subject line is not markup: it is substituted as it is, through
+     * the same TokenEngine EmailTemplateRenderer uses before handing it to
+     * MailService — any spacing, `{{x}}` as well as `{{ x }}` — so the
+     * shipped e-mail's preview and its sent subject cannot disagree.
      *
      * @param array<string, string> $context
      */
     private function substitutedSubject(EmailTemplate $template, string $text, array $context): string
     {
-        foreach ($template->variables as $variable) {
-            $text = str_replace(
-                ['{{ ' . $variable->name . ' }}', '{{' . $variable->name . '}}'],
-                $context[$variable->name] ?? '',
-                $text
-            );
-        }
-
-        return $text;
+        return (new TokenEngine(TokenSyntax::identifiers()))->substitute(
+            $text,
+            static fn(string $name): ?string => $template->hasVariable($name) ? ($context[$name] ?? '') : null,
+            false
+        );
     }
 
     /**

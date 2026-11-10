@@ -21,13 +21,21 @@ namespace Core\Mail\Template;
  * sees a sentence rather than a row of braces. The example is also what
  * the « M'envoyer un test » button sends, which is why it has to read
  * like a real value rather than "xxx".
+ *
+ * `required` marks a variable the message cannot do without — the link a
+ * family follows to read their file, for instance. A customised body
+ * that leaves it out is refused when it is saved
+ * (EmailTemplateCustomisationService) and again when it is sent
+ * (EmailTemplateRenderer), whichever path stored it, and the editor shows
+ * it as « obligatoire ».
  */
 final class EmailTemplateVariable
 {
     public function __construct(
         public readonly string $name,
         public readonly string $label,
-        public readonly string $example
+        public readonly string $example,
+        public readonly bool $required = false
     ) {
     }
 }

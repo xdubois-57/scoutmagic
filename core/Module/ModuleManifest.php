@@ -147,7 +147,7 @@ class ModuleManifest
      *         default_subject: string,
      *         template: string,
      *         editable: bool,
-     *         variables: array<int, array{name: string, label: string, example: string}>
+     *         variables: array<int, array{name: string, label: string, example: string, required: bool}>
      *     }
      * > $emails
      */
@@ -1031,7 +1031,7 @@ class ModuleManifest
      *     default_subject: string,
      *     template: string,
      *     editable: bool,
-     *     variables: array<int, array{name: string, label: string, example: string}>
+     *     variables: array<int, array{name: string, label: string, example: string, required: bool}>
      * }
      */
     private static function validateEmail(string $moduleId, mixed $email, int $index): array
@@ -1079,6 +1079,10 @@ class ModuleManifest
                             . "lowercase identifier"
                     );
                 }
+                if (isset($variable['required']) && !is_bool($variable['required'])) {
+                    throw new ModuleException("Module '{$moduleId}' emails[{$index}] variables[{$j}] 'required' must "
+                        . "be a boolean");
+                }
                 foreach ($variables as $existing) {
                     if ($existing['name'] === $variable['name']) {
                         throw new ModuleException("Module '{$moduleId}' emails[{$index}] declares variable "
@@ -1090,6 +1094,7 @@ class ModuleManifest
                     'name' => $variable['name'],
                     'label' => $variable['label'],
                     'example' => $variable['example'],
+                    'required' => (bool) ($variable['required'] ?? false),
                 ];
             }
         }
