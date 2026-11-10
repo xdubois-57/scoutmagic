@@ -17,8 +17,7 @@ use Core\Mail\MailService;
 use Core\Scheduler\TaskContext;
 use Core\Security\EncryptionService;
 use Core\Security\UserAccountRepository;
-use Core\View\EditableContentRepository;
-use Core\View\EditableContentService;
+use Core\Mail\Template\EmailTemplateOverrideRepository;
 use Modules\Registration\Repository\DecisionEmail;
 use Modules\Registration\Repository\DecisionEmailRepository;
 use Modules\Registration\Repository\RegistrationRequestRepository;
@@ -75,13 +74,22 @@ class SendDecisionEmailsHandlerOnMysqlTest extends TestCase
 
         $settings = $this->settings($this->pdo);
         RegistrationTestHelper::enableAutomaticDecisionEmails($settings, 24);
-        // Written straight into the table: on this schema `modified_by`
-        // references a real account, which nothing here needs.
-        $content = $this->pdo->prepare(
-            "INSERT INTO editable_contents (content_key, content_type, content_value) VALUES (?, 'rich_text', ?)"
+        // Customised through the core store (issue #905), with no author:
+        // on this schema `updated_by` references a real account, which
+        // nothing here needs.
+        $overrides = new EmailTemplateOverrideRepository($this->pdo);
+        $overrides->save(
+            'registration.request_accepted',
+            "Votre demande d'inscription a été acceptée",
+            '<p>Bienvenue {{ prenom_enfant }} {{ lien_suivi }}</p>',
+            null
         );
-        $content->execute(['registration_email_accepted_body', '<p>Bienvenue {{ prenom_enfant }} {{ lien_suivi }}</p>']);
-        $content->execute(['registration_email_refused_body', '<p>Désolés. {{ lien_suivi }}</p>']);
+        $overrides->save(
+            'registration.request_refused',
+            "Votre demande d'inscription a été refusée",
+            '<p>Désolés. {{ lien_suivi }}</p>',
+            null
+        );
     }
 
     /**

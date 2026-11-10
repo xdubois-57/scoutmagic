@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Core\Mail\Template;
 
 use Core\Journal\JournalService;
+use Core\Security\HtmlSanitizer;
 use Core\Template\TokenEngine;
 use Core\Template\TokenSyntax;
 use Twig\Environment;
@@ -58,7 +59,8 @@ class EmailTemplateRenderer
         private Environment $twig,
         private EmailTemplateRegistry $registry,
         private EmailTemplateOverrideRepository $overrides,
-        private ?JournalService $journal = null
+        private ?JournalService $journal = null,
+        private HtmlSanitizer $sanitizer = new HtmlSanitizer()
     ) {
     }
 
@@ -75,6 +77,9 @@ class EmailTemplateRenderer
      * @throws \InvalidArgumentException when $templateId is not declared —
      *         a caller naming an e-mail nobody declared is a bug here, not
      *         a message to send anyway.
+     * @throws MissingRequiredVariableException when the e-mail is customised
+     *         and its stored body leaves out a required variable — not sent,
+     *         and journaled (refuseWithoutRequiredVariables()).
      */
     public function render(string $templateId, array $context = []): RenderedEmail
     {
@@ -221,7 +226,15 @@ class EmailTemplateRenderer
      */
     public function substituteIntoHtml(EmailTemplate $template, string $html, array $context): string
     {
-        return $this->substitute($template, $html, $context, true);
+        // Through the sanitizer once more, for links only in effect.
+        // Escaping keeps a value from becoming markup, but a variable placed
+        // inside an `href` — which the editor's « Lien » button allows —
+        // puts a value somebody typed on a public form where the
+        // sanitizer's scheme check ran BEFORE it was there: a first name
+        // spelled `javascript:…` would become the link itself. Every other
+        // value is escaped text already, so nothing else changes (#905,
+        // carried over from the registration module's own templates).
+        return $this->sanitizer->sanitize($this->substitute($template, $html, $context, true));
     }
 
     /**

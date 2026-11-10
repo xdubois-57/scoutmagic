@@ -16,8 +16,7 @@ use Core\Scheduler\TaskContext;
 use Core\ScoutYear\ScoutYearResolver;
 use Core\Security\EncryptionService;
 use Core\Security\UserAccountRepository;
-use Core\View\EditableContentRepository;
-use Core\View\EditableContentService;
+use Core\Mail\Template\EmailTemplateOverrideRepository;
 use Modules\Registration\Repository\RegistrationRequest;
 use Modules\Registration\Repository\RegistrationRequestRepository;
 use Modules\Registration\Repository\SlotCapacityRepository;
@@ -64,9 +63,19 @@ class AutoAcceptRequestsHandlerTest extends TestCase
         $louveteaux = RegistrationTestHelper::insertAgeBranch($this->pdo, 'LOUV', 'Louveteaux', 20);
         (new SlotCapacityRepository($this->pdo))->upsert($louveteaux, 1, 15);
 
-        $content = new EditableContentService(new EditableContentRepository($this->pdo));
-        $content->set('registration_email_accepted_body', '<p>Bienvenue {{ lien_suivi }}</p>', 'rich_text', 1);
-        $content->set('registration_email_refused_body', '<p>Désolés {{ lien_suivi }}</p>', 'rich_text', 1);
+        $emailOverrides = new EmailTemplateOverrideRepository($this->pdo);
+        $emailOverrides->save(
+            'registration.request_accepted',
+            "Votre demande d'inscription a été acceptée",
+            '<p>Bienvenue {{ lien_suivi }}</p>',
+            null
+        );
+        $emailOverrides->save(
+            'registration.request_refused',
+            "Votre demande d'inscription a été refusée",
+            '<p>Désolés {{ lien_suivi }}</p>',
+            null
+        );
         RegistrationTestHelper::enableAutomaticDecisionEmails($this->settings, 24);
 
         $this->requests = new RegistrationRequestRepository($this->pdo, $encryption);

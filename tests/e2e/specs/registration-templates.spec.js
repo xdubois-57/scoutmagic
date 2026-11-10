@@ -8,15 +8,14 @@
 // chantier was for (issue #843, IT-11), and every step of it crosses a
 // boundary only a browser and a real mailbox can:
 //
-//   1. « Gabarits » (IT-07, #932): the acceptance and the refusal ship with
-//      a text, so they read « Par défaut » on a fresh install; a text
-//      saved without the tracking link is refused with a message saying
-//      how to put it back, and writing one in the site's rich-text editor
-//      — a module script, under the real CSP — with its variables inserted
-//      from « Insérer un champ » turns its badge to « Personnalisé ». The
-//      chips are what makes the tracking link survive the editor: a typed
-//      `{{ lien_suivi }}` can be split across elements as it is edited, a
-//      chip cannot.
+//   1. « Gabarits » (#932, #905): Configuration › E-mails narrowed to the
+//      four request e-mails, reached by an admin. The acceptance and the
+//      refusal ship with a text, so they read « Par défaut » on a fresh
+//      install; the tracking link's button says « obligatoire », a text
+//      saved without it is refused naming it, and writing one in the
+//      shared rich-text editor — under the real CSP — with its variables
+//      inserted from the editor's own buttons turns the badge to
+//      « Personnalisé ».
 //   2. « Réglages › Décisions automatiques » (IT-09/IT-10): « Envoyer
 //      automatiquement les e-mails de décision » can be ticked, and
 //      ticking it makes « Accepter automatiquement les demandes « Oui » »
@@ -43,9 +42,9 @@
 // grids left WITHDRAWN: it is put back « en attente », accepted from the
 // dialog, its e-mail sent, then withdrawn again — the final state that
 // keeps the scout-year transition unvetoed for the spec that runs it
-// later. The two templates stay written — « Rétablir le texte par défaut »
-// would give the shipped text back — and nothing after this spec reads
-// them. Like registration-grids.spec.js, it therefore runs
+// later. The two templates stay written — « Revenir au gabarit par
+// défaut » would give the shipped text back — and nothing after this spec
+// reads them. Like registration-grids.spec.js, it therefore runs
 // once per instance, after its predecessors: scripts/e2e.sh provisions a
 // fresh one for every run.
 import { expect, test } from '@playwright/test';
@@ -64,30 +63,32 @@ const ACCEPTANCE_BODY = `${ACCEPTANCE_TEXT} `;
 const REFUSAL_TEXT = 'Nous sommes désolés : nous ne pouvons pas accueillir votre enfant cette année.';
 
 /**
- * Writes one decision template on its own page under « Gabarits » and
- * comes back to the list. $fields are the variables to insert after the
- * text, each by the description « Insérer un champ » shows for it.
+ * Opens one e-mail's page from the « Gabarits » list, rewrites its body in
+ * the shared editor and saves it. $fields are the variables to insert
+ * after the text, by the label of their button in the editor.
  *
  * @param {import('@playwright/test').Page} page
- * @param {string} name the template's name, as its pencil says it
+ * @param {string} name the e-mail's name, as the list links it
  * @param {string} text
  * @param {string[]} fields
+ * @returns {Promise<{success: boolean, error?: string}>} the save's answer
  */
-async function writeTemplate(page, name, text, fields) {
-    await page.getByRole('link', { name: `Modifier — ${name}` }).click();
-    await expect(page.getByRole('heading', { name: `Modifier — ${name}` })).toBeVisible();
-    // The surface becomes a textbox once its module script has wired it;
-    // the field's menu is a Bootstrap dropdown, inert until the bundle ran.
-    const surface = page.getByRole('textbox', { name: "Texte de l'e-mail" });
-    await surface.fill(text);
-    await page.waitForFunction(() => typeof (/** @type {any} */ (window)).bootstrap !== 'undefined');
+async function writeBody(page, name, text, fields) {
+    await page.goto('/config/inscriptions/gabarits', { waitUntil: 'domcontentloaded' });
+    await page.getByRole('link', { name, exact: true }).click();
+    await expect(page.getByRole('heading', { name, exact: true })).toBeVisible();
+    const dialog = await openModal(page, 'richTextEditorModal', () =>
+        page.locator('.rich-text-field-edit-btn[data-key="email_body"]').click());
+    const editor = dialog.locator('#richTextEditorContent');
+    await editor.fill(text);
     for (const field of fields) {
-        await page.getByRole('button', { name: 'Insérer un champ' }).click();
-        await page.getByRole('button', { name: new RegExp(field) }).click();
+        await dialog.locator('.email-variable-buttons button').filter({ hasText: field }).click();
     }
-    await page.getByRole('button', { name: 'Enregistrer', exact: true }).click();
-    await expect(page.getByRole('alert').filter({ hasText: `« ${name} » enregistré.` })).toBeVisible();
-    expect(new URL(page.url()).pathname, 'saving goes back to the list').toBe('/config/inscriptions/gabarits');
+    const saved = page.waitForResponse((response) =>
+        response.url().endsWith('/corps') && response.request().method() === 'POST');
+    await dialog.getByRole('button', { name: 'Enregistrer', exact: true }).click();
+
+    return (await saved).json();
 }
 
 test('a decision e-mail written in « Gabarits » is sent from the fiche and shows the family its decision', async ({ page, browser }) => {
@@ -115,28 +116,36 @@ test('a decision e-mail written in « Gabarits » is sent from the fiche and sho
     await page.goto('/config/inscriptions/gabarits', { waitUntil: 'domcontentloaded' });
     const rail = page.getByRole('navigation', { name: "Pages Formulaire d'inscription" });
     await expect(rail.getByRole('link', { name: 'Gabarits', exact: true })).toHaveAttribute('aria-current', 'page');
-    const row = (name) => page.locator('.list-editor-item').filter({ hasText: name });
-    await expect(row('Accusé de réception de la demande')).toContainText('Par défaut');
-    await expect(row('Acceptation de la demande')).toContainText('Par défaut');
-    await expect(row('Refus de la demande')).toContainText('Par défaut');
-    await expect(page.locator('.list-editor-item .badge', { hasText: 'À rédiger' })).toHaveCount(0);
+    const row = (name) => page.getByRole('row').filter({ hasText: name });
+    const RECEIPT = "Accusé de réception d'une demande d'inscription";
+    const ACCEPTANCE = "Acceptation d'une demande d'inscription";
+    const REFUSAL = "Refus d'une demande d'inscription";
+    await expect(row(RECEIPT)).toContainText('Par défaut');
+    await expect(row(ACCEPTANCE)).toContainText('Par défaut');
+    await expect(row(REFUSAL)).toContainText('Par défaut');
+    await expect(page.getByRole('row'), 'the four request e-mails and the header row, nothing else').toHaveCount(5);
 
-    // A family text saved without the tracking link is refused, with the way
-    // to put it back; nothing is stored.
-    await page.getByRole('link', { name: 'Modifier — Refus de la demande' }).click();
-    await page.getByRole('textbox', { name: "Texte de l'e-mail" }).fill('Sans le lien de suivi.');
-    await page.getByRole('button', { name: 'Enregistrer', exact: true }).click();
-    await expect(page.getByRole('alert').filter({ hasText: 'doit contenir le lien de suivi' })).toBeVisible();
+    // A family text saved without the tracking link is refused, naming the
+    // variable; nothing is stored.
+    const refused = await writeBody(page, REFUSAL, 'Sans le lien de suivi.', []);
+    expect(refused.success).toBe(false);
+    expect(refused.error).toContain('« Lien de suivi de la demande »');
+    await expect(
+        page.locator('.email-variable-buttons:not([data-target="email-subject"]) button')
+            .filter({ hasText: 'Lien de suivi de la demande' }).first(),
+        'the required variable says so on the body\'s buttons (the subject\'s carry no badge)',
+    ).toContainText('obligatoire');
     await page.goto('/config/inscriptions/gabarits', { waitUntil: 'domcontentloaded' });
-    await expect(row('Refus de la demande')).toContainText('Par défaut');
+    await expect(row(REFUSAL)).toContainText('Par défaut');
 
-    await writeTemplate(page, 'Acceptation de la demande', ACCEPTANCE_BODY, [
+    expect((await writeBody(page, ACCEPTANCE, ACCEPTANCE_BODY, [
         "Prénom de l'enfant",
         'Lien de suivi de la demande',
-    ]);
-    await writeTemplate(page, 'Refus de la demande', REFUSAL_TEXT, ['Lien de suivi de la demande']);
-    await expect(row('Acceptation de la demande')).toContainText('Personnalisé');
-    await expect(row('Refus de la demande')).toContainText('Personnalisé');
+    ])).success).toBe(true);
+    expect((await writeBody(page, REFUSAL, REFUSAL_TEXT, ['Lien de suivi de la demande'])).success).toBe(true);
+    await page.goto('/config/inscriptions/gabarits', { waitUntil: 'domcontentloaded' });
+    await expect(row(ACCEPTANCE)).toContainText('Personnalisé');
+    await expect(row(REFUSAL)).toContainText('Personnalisé');
 
     // ---------------------------------------------------------------
     // « Décisions automatiques »: the sending can be ticked, and the

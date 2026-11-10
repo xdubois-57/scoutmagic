@@ -12,8 +12,7 @@ use Core\Journal\JournalService;
 use Core\Mail\MailService;
 use Core\ScoutYear\ScoutYearResolver;
 use Core\Security\EncryptionService;
-use Core\View\EditableContentRepository;
-use Core\View\EditableContentService;
+use Core\Mail\Template\EmailTemplateOverrideRepository;
 use Modules\Registration\Repository\RegistrationRequest;
 use Modules\Registration\Repository\RegistrationRequestRepository;
 use Modules\Registration\Repository\RegistrationYearCodeRepository;
@@ -69,7 +68,6 @@ class RegistrationServiceTest extends TestCase
 
         $this->mailService = $this->createMock(MailService::class);
         $this->journalService = $this->createStub(JournalService::class);
-        $editableContentService = new EditableContentService(new EditableContentRepository($this->pdo));
 
         $this->service = new RegistrationService(
             $this->requestRepository,
@@ -78,7 +76,7 @@ class RegistrationServiceTest extends TestCase
             $this->scoutYearService,
             $this->settingService,
             $this->mailService,
-            $editableContentService,
+            RegistrationTestHelper::emailRenderer($this->pdo),
             $this->journalService,
             'https://example.com',
             'Unité Test'
@@ -422,13 +420,24 @@ class RegistrationServiceTest extends TestCase
     /**
      * Issue #932: the receipt never goes out without the family's link. The
      * request is recorded all the same — the family has filed — and the
-     * unit is still alerted.
+     * unit is still alerted. Since issue #905 `lien_suivi` is a required
+     * variable of the receipt, so a stored text without it (a row that
+     * reached the table by another road than the editor, which refuses it)
+     * is refused by the core renderer, and the service journals the block.
      */
     public function testAReceiptBodyWithoutTheLinkIsNotSentButTheRequestIsStillFiled(): void
     {
         $this->settingService->set('registration_unit_alert_email', 'unite@example.com', 'registration');
-        $content = new EditableContentService(new EditableContentRepository($this->pdo));
-        $content->set('registration_email_receipt_body', '<p>Merci {{ prenom_enfant }}</p>', 'rich_text', 1);
+        (new EmailTemplateOverrideRepository($this->pdo))->save(
+            RegistrationService::RECEIPT_TEMPLATE,
+            "Demande d'inscription reçue",
+            '<p>Merci {{ prenom_enfant }}</p>',
+            null
+        );
+        $events = [];
+        $this->journalService->method('log')->willReturnCallback(function (...$args) use (&$events): void {
+            $events[] = (string) $args[1];
+        });
         $recipients = [];
         $this->mailService->method('send')->willReturnCallback(function (...$args) use (&$recipients): void {
             $recipients[] = $args[0];
@@ -446,18 +455,30 @@ class RegistrationServiceTest extends TestCase
 
         $this->assertNotNull($this->requestRepository->findById($requestId));
         $this->assertSame(['unite@example.com'], $recipients, 'nothing went to the family, the alert did');
+        $this->assertContains('registration_receipt_email_blocked', $events);
+        $this->assertSame(
+            1,
+            (int) $this->pdo->query(
+                "SELECT COUNT(*) FROM event_log WHERE event_type = 'email_template_required_variable_missing'"
+            )->fetchColumn(),
+            'the core renderer journaled why the receipt did not leave'
+        );
     }
 
-    /** The staff alert never carries the family's secret, not even as a literal variable. */
+    /**
+     * The staff alert never carries the family's secret, not even as a
+     * literal variable: `lien_suivi` is not declared for the unit alert
+     * (module.json, issue #905), so a text the unit writes with it goes out
+     * with the placeholder as written, never the family's URL.
+     */
     public function testTheUnitAlertNeverCarriesTheFamilysToken(): void
     {
         $this->settingService->set('registration_unit_alert_email', 'unite@example.com', 'registration');
-        $content = new EditableContentService(new EditableContentRepository($this->pdo));
-        $content->set(
-            'registration_email_unit_alert_body',
+        (new EmailTemplateOverrideRepository($this->pdo))->save(
+            RegistrationService::UNIT_ALERT_TEMPLATE,
+            "Nouvelle demande d'inscription",
             '<p>Demande de {{ prenom_enfant }} : {{ lien_fiche }} {{ lien_suivi }}</p>',
-            'rich_text',
-            1
+            null
         );
         $bodies = [];
         $this->mailService->method('send')->willReturnCallback(function (...$args) use (&$bodies): void {
@@ -479,6 +500,7 @@ class RegistrationServiceTest extends TestCase
         $this->assertStringNotContainsString($token, $bodies['unite@example.com']);
         $this->assertStringNotContainsString('/inscriptions/suivi/', $bodies['unite@example.com']);
         $this->assertStringContainsString('/config/inscriptions/demandes/' . $requestId, $bodies['unite@example.com']);
+        $this->assertStringContainsString('{{ lien_suivi }}', $bodies['unite@example.com'], 'left as written');
     }
 
     /**
@@ -549,7 +571,7 @@ class RegistrationServiceTest extends TestCase
             $this->scoutYearService,
             $this->settingService,
             $this->mailService,
-            new EditableContentService(new EditableContentRepository($this->pdo)),
+            RegistrationTestHelper::emailRenderer($this->pdo),
             $this->journalService,
             'https://example.com',
             'Unité Test',
@@ -620,12 +642,15 @@ class RegistrationServiceTest extends TestCase
      */
     public function testACustomisedReceiptWrittenInTheEditorIsSubstituted(): void
     {
-        (new \Modules\Registration\Service\RequestEmailTemplateService(
-            new EditableContentService(new EditableContentRepository($this->pdo))
-        ))->save(
-            'registration_email_receipt_body',
+        (new \Core\Mail\Template\EmailTemplateCustomisationService(
+            RegistrationTestHelper::emailRegistry(),
+            new EmailTemplateOverrideRepository($this->pdo),
+            new \Core\Security\HtmlSanitizer()
+        ))->customise(
+            RegistrationService::RECEIPT_TEMPLATE,
+            "Demande d'inscription reçue",
             '<p>Merci pour {{ prenom_enfant }} : <a href="{{ lien_suivi }}">suivre la demande</a></p>',
-            1
+            null
         );
         $target = $this->service->resolveTargetYear(null);
 

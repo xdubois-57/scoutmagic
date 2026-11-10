@@ -1,0 +1,13 @@
+{% extends 'email/base.html.twig' %}
+{#
+  Acknowledgement of a registration request (issue #905: declared in the
+  core registry, editable from « Gabarits » and Configuration > E-mails).
+  `lien_suivi` is REQUIRED (module.json): the family's one way back to its
+  request. The unit's name and the closing line come from the frame.
+#}
+{% block content %}
+    <p style="margin:0 0 16px;">Bonjour,</p>
+    <p style="margin:0 0 16px;">Nous avons bien reçu votre demande d'inscription pour {{ prenom_enfant }} pour l'année scoute {{ annee_scoute }}.</p>
+    <p style="margin:0 0 16px;"><strong>Ceci n'est pas encore une acceptation.</strong> Votre demande sera examinée par l'unité.</p>
+    <p style="margin:0 0 16px;">Vous pouvez suivre l'état de votre demande à tout moment via ce lien : <a href="{{ lien_suivi }}">{{ lien_suivi }}</a></p>
+{% endblock %}

@@ -654,6 +654,42 @@ class EmailTemplateControllerTest extends TestCase
         $this->assertNull($this->overrides->find('demo.receipt'));
     }
 
+    // ── the same page, seen from a module (#905) ──────────────────────
+
+    public function testAScopedPageListsAndReachesOnlyItsOwnEmailsUnderItsOwnAddress(): void
+    {
+        $scoped = $this->scopedController(['retro.board_closed']);
+
+        $list = $scoped->index(new Request('GET', '/module/emails', [], [], [], []), [])->getBody();
+        $this->assertStringContainsString('href="/module/emails/retro.board_closed"', $list);
+        $this->assertStringNotContainsString(self::OPEN_TEMPLATE, $list);
+        $this->assertStringNotContainsString('/config/emails/', $list);
+
+        $edit = $scoped->edit(
+            new Request('GET', '/module/emails/retro.board_closed', [], [], [], []),
+            ['template' => 'retro.board_closed']
+        )->getBody();
+        $this->assertStringContainsString('action="/module/emails/retro.board_closed/sujet"', $edit);
+        $this->assertStringContainsString('/module/emails/retro.board_closed/corps', $edit);
+        $this->assertStringNotContainsString('/config/emails/', $edit);
+
+        // An e-mail outside the scope is answered as an unknown one —
+        // on a read and on a write alike.
+        $outside = $scoped->edit(
+            new Request('GET', '/module/emails/' . self::OPEN_TEMPLATE, [], [], [], []),
+            ['template' => self::OPEN_TEMPLATE]
+        );
+        $this->assertSame(302, $outside->getStatusCode());
+        $this->assertSame('/module/emails', $outside->getHeaders()['Location'] ?? null);
+
+        $write = $scoped->saveBody(
+            $this->jsonRequest(['key' => 'email_body', 'value' => '<p>Écrit ailleurs.</p>', 'type' => 'html']),
+            ['template' => self::OPEN_TEMPLATE]
+        );
+        $this->assertSame(404, $write->getStatusCode());
+        $this->assertNull($this->overrides->find(self::OPEN_TEMPLATE));
+    }
+
     // ── « M'envoyer un test » ─────────────────────────────────────────
 
     public function testTheTestSendGoesThroughMailServiceAndNowhereElse(): void
@@ -737,6 +773,28 @@ class EmailTemplateControllerTest extends TestCase
     /**
      * @param array<string, string> $fields
      */
+    /**
+     * @param list<string> $ids
+     */
+    private function scopedController(array $ids): EmailTemplateController
+    {
+        $twig = (new \ReflectionProperty(EmailTemplateController::class, 'twig'))->getValue($this->controller);
+        $journal = new JournalService(new JournalRepository($this->pdo));
+
+        return new EmailTemplateController(
+            $twig,
+            $this->registry,
+            $this->overrides,
+            $this->renderer,
+            new EmailTemplateCustomisationService($this->registry, $this->overrides, new HtmlSanitizer()),
+            $journal,
+            $this->mailService,
+            new EmailTestSendThrottler($this->pdo),
+            '/module/emails',
+            $ids
+        );
+    }
+
     private function registerReceiptWithARequiredLink(): void
     {
         $this->registry->registerModuleTemplates('demo', 'Démo', [[

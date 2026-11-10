@@ -8,173 +8,64 @@ declare(strict_types=1);
 
 namespace Modules\Registration\Controller;
 
-use Core\Http\Controller\AbstractController;
-use Core\Http\FlashMessage;
-use Core\Http\Request;
-use Core\Http\Response;
+use Core\Http\Controller\EmailTemplateController;
 use Core\Journal\JournalService;
-use Core\Security\AuthSession;
-use Modules\Registration\Service\RegistrationException;
-use Modules\Registration\Service\RequestEmailTemplate;
-use Modules\Registration\Service\RequestEmailTemplateService;
+use Core\Mail\MailService;
+use Core\Mail\Template\EmailTemplateCustomisationService;
+use Core\Mail\Template\EmailTemplateOverrideRepository;
+use Core\Mail\Template\EmailTemplateRegistry;
+use Core\Mail\Template\EmailTemplateRenderer;
+use Core\Mail\Template\EmailTestSendThrottler;
 use Twig\Environment;
 
 /**
- * « Gabarits », the third sub-page of « Formulaire d'inscription » (issue
- * #843, D10): the four e-mails of the request flow as a list — each with its
- * state and a pencil — and one edit page per e-mail, on the model of a
- * rental asset's Gabarits (`modules/rental`, #708 IT-10).
+ * « Gabarits », the third sub-page of « Formulaire d'inscription »: the
+ * four e-mails of the request flow, as Configuration > E-mails shows them
+ * (issue #905).
  *
- * Every route is `role_min: admin`, the floor of the whole page; RBAC is
- * the router's, never this class's. What a template may say, what its state
- * is and how its body is stored all belong to
- * Service\RequestEmailTemplateService — this controller reads the form,
- * checks the token, journals, and sends the visitor back to the list.
+ * The e-mails are declared in this module's manifest and live in the core
+ * registry, so this page IS the core one — the same list, editor, states,
+ * reset and test send — narrowed to these four ids and reached from here.
+ * What changes is the address and the role: every route is
+ * `role_min: admin`, the floor of the whole « Formulaire d'inscription »
+ * page, where Configuration > E-mails stays superadmin. An id outside
+ * REQUEST_EMAILS is answered here as an unknown one, so this wider door
+ * opens onto these four e-mails and nothing else.
  */
-class RegistrationTemplateController extends AbstractController
+final class RegistrationTemplateController extends EmailTemplateController
 {
-    private const PATH_LIST = '/config/inscriptions/gabarits';
+    public const PAGE_URL = '/config/inscriptions/gabarits';
+
+    /** The request-flow e-mails, in the order the page lists them. */
+    public const REQUEST_EMAILS = [
+        'registration.request_receipt',
+        'registration.request_unit_alert',
+        'registration.request_accepted',
+        'registration.request_refused',
+    ];
 
     public function __construct(
-        protected Environment $twig,
-        private RequestEmailTemplateService $templateService,
-        private JournalService $journalService
+        Environment $twig,
+        EmailTemplateRegistry $registry,
+        EmailTemplateOverrideRepository $overrides,
+        EmailTemplateRenderer $renderer,
+        EmailTemplateCustomisationService $customisation,
+        JournalService $journalService,
+        MailService $mailService,
+        EmailTestSendThrottler $throttler
     ) {
-    }
-
-    /**
-     * GET /config/inscriptions/gabarits — the four templates and their
-     * state.
-     *
-     * @param array<string, string> $params
-     */
-    public function index(Request $request, array $params): Response
-    {
-        $rows = [];
-        foreach ($this->templateService->all() as $template) {
-            $state = $this->templateService->stateOf($template->key);
-            $rows[] = [
-                'slug' => $template->slug,
-                'name' => $template->name,
-                'description' => $template->description,
-                'state' => $state,
-                'state_label' => RequestEmailTemplateService::STATE_LABELS[$state],
-            ];
-        }
-
-        return $this->render('@registration/config/templates.html.twig', ['templates' => $rows]);
-    }
-
-    /**
-     * GET /config/inscriptions/gabarits/{template} — one template's editor,
-     * its variables shown open beside it. The editor holds the text that
-     * would go out today: the unit's own, or the default while nobody has
-     * written one.
-     *
-     * @param array<string, string> $params
-     */
-    public function edit(Request $request, array $params): Response
-    {
-        $template = $this->templateService->findBySlug((string) ($params['template'] ?? ''));
-        if ($template === null) {
-            return $this->notFound();
-        }
-
-        $body = $this->templateService->bodyFor($template->key);
-
-        return $this->render('@registration/config/template_edit.html.twig', [
-            'template' => $template,
-            'state' => $this->templateService->stateOf($template->key),
-            'body' => $body,
-            'variables' => $template->variables->palette(),
-            'unknown_variables' => $this->templateService->unknownVariablesIn($template, $body),
-            'breadcrumb_current' => 'Modifier — ' . $template->name,
-        ]);
-    }
-
-    /**
-     * POST /config/inscriptions/gabarits/{template} — stores the body,
-     * sanitised by the content store itself (SECURITY.md §7), and goes back
-     * to the list. A body that renders as nothing, or that lacks the tracking
-     * link on a family template, is refused, and the edit page reopens on the
-     * text stored before.
-     *
-     * @param array<string, string> $params
-     */
-    public function save(Request $request, array $params): Response
-    {
-        $template = $this->templateService->findBySlug((string) ($params['template'] ?? ''));
-        if ($template === null) {
-            return $this->notFound();
-        }
-        if (($guard = $this->guardCsrf($request, $this->editPath($template))) !== null) {
-            return $guard;
-        }
-
-        try {
-            $this->templateService->save(
-                $template->key,
-                (string) $request->getBody('body', ''),
-                (int) AuthSession::getUserAccountId()
-            );
-        } catch (RegistrationException $e) {
-            FlashMessage::set('error', $e->getMessage());
-
-            return $this->redirect($this->editPath($template));
-        }
-
-        $this->journal($template, 'registration_email_template_saved', 'Gabarit d\'e-mail de demande enregistré');
-        FlashMessage::set('success', '« ' . $template->name . ' » enregistré.');
-
-        return $this->redirect(self::PATH_LIST);
-    }
-
-    /**
-     * POST /config/inscriptions/gabarits/{template}/defaut — « Rétablir le
-     * texte par défaut », which gives back a text with the tracking link.
-     *
-     * @param array<string, string> $params
-     */
-    public function restoreDefault(Request $request, array $params): Response
-    {
-        $template = $this->templateService->findBySlug((string) ($params['template'] ?? ''));
-        if ($template === null) {
-            return $this->notFound();
-        }
-        if (($guard = $this->guardCsrf($request, $this->editPath($template))) !== null) {
-            return $guard;
-        }
-
-        $this->templateService->restoreDefault($template->key);
-
-        $this->journal(
-            $template,
-            'registration_email_template_reset',
-            'Gabarit d\'e-mail de demande rétabli par défaut'
-        );
-        FlashMessage::set('success', '« ' . $template->name . ' » utilise de nouveau le texte par défaut.');
-
-        return $this->redirect(self::PATH_LIST);
-    }
-
-    private function editPath(RequestEmailTemplate $template): string
-    {
-        return self::PATH_LIST . '/' . $template->slug;
-    }
-
-    /**
-     * A body is the unit's wording, not personal data — the journal names
-     * which template changed and who changed it, never its text.
-     */
-    private function journal(RequestEmailTemplate $template, string $action, string $message): void
-    {
-        $this->journalService->log(
-            'registration',
-            $action,
-            'info',
-            $message,
-            ['template' => $template->key],
-            (int) AuthSession::getUserAccountId()
+        parent::__construct(
+            $twig,
+            $registry,
+            $overrides,
+            $renderer,
+            $customisation,
+            $journalService,
+            $mailService,
+            $throttler,
+            self::PAGE_URL,
+            self::REQUEST_EMAILS,
+            '@registration/config/templates.html.twig'
         );
     }
 }

@@ -2,7 +2,7 @@
   "id": "registration",
   "name": "Inscriptions",
   "description": "Inscriptions, réinscriptions, passages de branche et départs.",
-  "version": "6.24.1",
+  "version": "6.25.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -363,10 +363,19 @@
       }
     },
     {
-      "path": "/config/inscriptions/gabarits/{template}",
+      "path": "/config/inscriptions/gabarits/{template}/sujet",
       "method": "POST",
       "controller": "Modules\\Registration\\Controller\\RegistrationTemplateController",
-      "action": "save",
+      "action": "saveSubject",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/config/inscriptions/gabarits/{template}/corps",
+      "method": "POST",
+      "controller": "Modules\\Registration\\Controller\\RegistrationTemplateController",
+      "action": "saveBody",
       "menu": "espace_admin",
       "role_min": "admin",
       "label": ""
@@ -375,7 +384,16 @@
       "path": "/config/inscriptions/gabarits/{template}/defaut",
       "method": "POST",
       "controller": "Modules\\Registration\\Controller\\RegistrationTemplateController",
-      "action": "restoreDefault",
+      "action": "reset",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/config/inscriptions/gabarits/{template}/test",
+      "method": "POST",
+      "controller": "Modules\\Registration\\Controller\\RegistrationTemplateController",
+      "action": "sendTest",
       "menu": "espace_admin",
       "role_min": "admin",
       "label": ""
@@ -1114,6 +1132,115 @@
   ],
   "storage": {},
   "emails": [
+    {
+      "id": "registration.request_receipt",
+      "label": "Accusé de réception d'une demande d'inscription",
+      "description": "Envoyé à la famille dès le dépôt de sa demande, avec son lien de suivi. Le lien de suivi est obligatoire : sans lui, la famille n'a aucun moyen de retrouver sa demande.",
+      "default_subject": "Demande d'inscription reçue",
+      "template": "@registration/email/request_receipt.html.twig",
+      "variables": [
+        {
+          "name": "prenom_enfant",
+          "label": "Prénom de l'enfant",
+          "example": "Léa"
+        },
+        {
+          "name": "annee_scoute",
+          "label": "Année scoute demandée",
+          "example": "2027-2028"
+        },
+        {
+          "name": "lien_suivi",
+          "label": "Lien de suivi de la demande",
+          "example": "https://exemple.be/inscriptions/suivi/42/abc",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "registration.request_unit_alert",
+      "label": "Alerte à l'unité pour une nouvelle demande d'inscription",
+      "description": "Envoyé à l'adresse d'alerte de l'unité à chaque nouvelle demande. Il ne contient que le prénom de l'enfant et le lien vers la fiche, jamais le lien de suivi de la famille.",
+      "default_subject": "Nouvelle demande d'inscription",
+      "template": "@registration/email/request_unit_alert.html.twig",
+      "variables": [
+        {
+          "name": "prenom_enfant",
+          "label": "Prénom de l'enfant",
+          "example": "Léa"
+        },
+        {
+          "name": "annee_scoute",
+          "label": "Année scoute demandée",
+          "example": "2027-2028"
+        },
+        {
+          "name": "creneau",
+          "label": "Branche et année de parcours",
+          "example": "Louveteaux — 1re année"
+        },
+        {
+          "name": "date_reception",
+          "label": "Date de réception",
+          "example": "14/03/2027"
+        },
+        {
+          "name": "lien_fiche",
+          "label": "Lien vers la fiche de la demande",
+          "example": "https://exemple.be/config/inscriptions/demandes/42"
+        }
+      ]
+    },
+    {
+      "id": "registration.request_accepted",
+      "label": "Acceptation d'une demande d'inscription",
+      "description": "Envoyé à la famille quand sa demande est acceptée, à la main depuis la fiche ou automatiquement. Le lien de suivi est obligatoire.",
+      "default_subject": "Votre demande d'inscription a été acceptée",
+      "template": "@registration/email/request_accepted.html.twig",
+      "variables": [
+        {
+          "name": "prenom_enfant",
+          "label": "Prénom de l'enfant",
+          "example": "Léa"
+        },
+        {
+          "name": "annee_scoute",
+          "label": "Année scoute demandée",
+          "example": "2027-2028"
+        },
+        {
+          "name": "lien_suivi",
+          "label": "Lien de suivi de la demande",
+          "example": "https://exemple.be/inscriptions/suivi/42/abc",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "registration.request_refused",
+      "label": "Refus d'une demande d'inscription",
+      "description": "Envoyé à la famille quand sa demande est refusée, à la main depuis la fiche ou automatiquement. Le lien de suivi est obligatoire.",
+      "default_subject": "Votre demande d'inscription a été refusée",
+      "template": "@registration/email/request_refused.html.twig",
+      "variables": [
+        {
+          "name": "prenom_enfant",
+          "label": "Prénom de l'enfant",
+          "example": "Léa"
+        },
+        {
+          "name": "annee_scoute",
+          "label": "Année scoute demandée",
+          "example": "2027-2028"
+        },
+        {
+          "name": "lien_suivi",
+          "label": "Lien de suivi de la demande",
+          "example": "https://exemple.be/inscriptions/suivi/42/abc",
+          "required": true
+        }
+      ]
+    },
     {
       "id": "registration.secondary_email_confirmation",
       "label": "Confirmation d'une adresse ajoutée à une demande",

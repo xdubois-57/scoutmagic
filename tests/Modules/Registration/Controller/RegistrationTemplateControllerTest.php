@@ -12,36 +12,65 @@ use Core\Http\Response;
 use Core\Http\Router;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
+use Core\Mail\MailService;
+use Core\Mail\Template\EmailTemplateCustomisationService;
+use Core\Mail\Template\EmailTemplateOverrideRepository;
+use Core\Mail\Template\EmailTemplateRegistry;
+use Core\Mail\Template\EmailTemplateRenderer;
+use Core\Mail\Template\EmailTestSendThrottler;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
-use Core\View\EditableContentRepository;
-use Core\View\EditableContentService;
+use Core\Security\HtmlSanitizer;
 use Modules\Registration\Controller\RegistrationTemplateController;
-use Modules\Registration\Service\RequestEmailTemplateService;
+use Modules\Registration\Service\RegistrationService;
+use Modules\Registration\Service\RequestEmailService;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Registration\RegistrationTestHelper;
+use Tests\RequestWithInput;
 use Tests\TestTwig;
 use Twig\Environment;
 
 /**
- * « Gabarits » (issue #843, IT-07) through the real controller, the real
- * templates and — for the role boundary and the breadcrumb — the module's
- * real manifest and front controller: the list of the four request e-mails
- * with their state and pencil, the warning while a decision e-mail cannot
- * leave, one edit page per e-mail, saving, restoring the default, and
- * `role_min: admin` on every route (chief refused).
+ * « Gabarits » (issue #843, IT-07; issue #905) through the real controller,
+ * the real templates and — for the role boundary and the breadcrumb — the
+ * module's real manifest and front controller.
+ *
+ * Since issue #905 the page IS Configuration > E-mails narrowed to the four
+ * request-flow e-mails the module declares in its manifest: the list with
+ * « Par défaut » / « Personnalisé », the shared editor, the reset and the
+ * test send, under `/config/inscriptions/gabarits` and `role_min: admin`.
+ * What this file pins is what that narrowing must hold:
+ *
+ * - **the scope** — the four ids and nothing else, neither the module's
+ *   other e-mails nor core's, on a read or a write: this door is open to a
+ *   wider role than the core page;
+ * - **the family's link** — `lien_suivi` is required in the receipt, the
+ *   acceptance and the refusal, so a body without it is refused and named,
+ *   and the unit alert does not even offer it;
+ * - **`role_min: admin`** on every route, a chief refused.
  */
 #[\PHPUnit\Framework\Attributes\Group('database')]
 class RegistrationTemplateControllerTest extends TestCase
 {
-    private const LIST = '/config/inscriptions/gabarits';
+    private const LIST = RegistrationTemplateController::PAGE_URL;
+
+    /** The three e-mails that go to the family, and so must carry its link. */
+    private const FAMILY_EMAILS = [
+        RegistrationService::RECEIPT_TEMPLATE,
+        RequestEmailService::ACCEPTED_TEMPLATE,
+        RequestEmailService::REFUSED_TEMPLATE,
+    ];
 
     private \PDO $pdo;
     private Environment $twig;
-    private EditableContentService $content;
+    private EmailTemplateRegistry $registry;
+    private EmailTemplateOverrideRepository $overrides;
     private RegistrationTemplateController $controller;
-    private JournalRepository $journal;
+
+    /** Every message the controller's MailService "sends", in order. */
+    private \ArrayObject $sent;
 
     protected function setUp(): void
     {
@@ -59,346 +88,361 @@ class RegistrationTemplateControllerTest extends TestCase
         $twig->addGlobal('csp_nonce', 'test-nonce');
         $this->twig = $twig;
 
-        $this->content = new EditableContentService(new EditableContentRepository($this->pdo));
-        $this->journal = new JournalRepository($this->pdo);
+        // Core's e-mails plus every one this module declares — the shape
+        // the composition root builds — so the scope is tested against
+        // e-mails that really are there to leak.
+        $this->registry = RegistrationTestHelper::emailRegistry();
+        $this->overrides = new EmailTemplateOverrideRepository($this->pdo);
+        $journal = new JournalService(new JournalRepository($this->pdo));
+
+        $this->sent = new \ArrayObject();
+        $mailService = new class ($this->sent) extends MailService {
+            public function __construct(private \ArrayObject $sent)
+            {
+            }
+
+            /**
+             * @param array<int, array{path: string, name: string}> $attachments
+             * @param array<string, string> $extraHeaders
+             * @param string|list<string>|null $cc
+             */
+            public function send(
+                string $to,
+                string $subject,
+                string $bodyHtml,
+                string $bodyText,
+                ?string $replyTo = null,
+                array $attachments = [],
+                ?string $fromAddressOverride = null,
+                ?string $fromNameOverride = null,
+                array $extraHeaders = [],
+                \Core\Mail\MailPurpose $purpose = \Core\Mail\MailPurpose::Ordinary,
+                bool $vouchesForRecipient = false,
+                ?string $bulkRunReference = null,
+                ?\Core\Mail\Feedback\Seed\SeedCopyContent $bulkCopy = null,
+                string|array|null $cc = null
+            ): void {
+                $this->sent[] = ['to' => $to, 'subject' => $subject, 'html' => $bodyHtml, 'text' => $bodyText];
+            }
+        };
+
         $this->controller = new RegistrationTemplateController(
             $twig,
-            new RequestEmailTemplateService($this->content),
-            new JournalService($this->journal)
+            $this->registry,
+            $this->overrides,
+            new EmailTemplateRenderer($twig, $this->registry, $this->overrides, $journal),
+            new EmailTemplateCustomisationService($this->registry, $this->overrides, new HtmlSanitizer()),
+            $journal,
+            $mailService,
+            new EmailTestSendThrottler($this->pdo)
         );
 
         if (session_status() === PHP_SESSION_NONE) {
-            session_start();
+            @session_start();
         }
         $_SESSION = [];
+        $_POST = [];
         AuthSession::login(1, 'admin@test.be', 'admin');
     }
 
     protected function tearDown(): void
     {
         AuthSession::logout();
+        $_SESSION = [];
+        $_POST = [];
     }
 
     // ------------------------------------------------------------------
     // The list
     // ------------------------------------------------------------------
 
-    public function testTheListShowsTheFourEmailsWithTheirDescriptionStateAndPencil(): void
+    public function testTheListShowsTheFourRequestEmailsAndNothingElse(): void
     {
         $body = $this->renderList();
 
         $this->assertStringContainsString('Gabarits des e-mails de demande', $body);
-        $rows = [
-            'accuse-de-reception' => [
-                'Accusé de réception de la demande',
-                'Envoyé à la famille dès le dépôt.',
-                'Par défaut',
-            ],
-            'alerte-unite' => [
-                'Alerte à l&#039;unité',
-                'Envoyé à l&#039;unité à chaque nouvelle demande.',
-                'Par défaut',
-            ],
-            'acceptation' => [
-                'Acceptation de la demande',
-                'Envoyé à la famille quand la demande est acceptée.',
-                'Par défaut',
-            ],
-            'refus' => ['Refus de la demande', 'Envoyé à la famille quand la demande est refusée.', 'Par défaut'],
-        ];
-        $this->assertSame(4, substr_count($body, 'class="list-editor-item '));
-        foreach ($rows as $slug => [$name, $description, $state]) {
-            $row = $this->rowOf($body, $slug);
-            $this->assertStringContainsString($name, $row);
-            $this->assertStringContainsString($description, $row);
-            $this->assertMatchesRegularExpression(
-                '#<span class="badge [^"]*">' . preg_quote($state, '#') . '</span>#u',
-                $row
-            );
-            $this->assertMatchesRegularExpression(
-                '#<a href="/config/inscriptions/gabarits/' . $slug . '"\s+class="btn btn-sm btn-outline-secondary"\s+'
-                    . 'aria-label="Modifier — ' . preg_quote($name, '#') . '" title="Modifier — '
-                    . preg_quote($name, '#') . '">\s*<i class="bi bi-pencil"#u',
-                $row
-            );
+        $this->assertSame(4, substr_count($body, '<a href="' . self::LIST . '/'));
+        foreach (RegistrationTemplateController::REQUEST_EMAILS as $id) {
+            $template = $this->registry->find($id);
+            $this->assertNotNull($template, $id);
+            $row = $this->rowOf($body, $id);
+            $this->assertStringContainsString($this->escaped($template->label), $row);
+            $this->assertStringContainsString($this->escaped($template->description), $row);
+            $this->assertStringContainsString('>Par défaut</span>', $row, $id);
         }
-        $this->assertStringContainsString(
-            'Les e-mails de réinscription se règlent dans la',
-            $body
-        );
+
+        // Neither the module's other e-mails nor core's: this page is open
+        // to a chief d'unité, Configuration > E-mails is not.
+        foreach ([
+            'registration.secondary_email_confirmation',
+            'registration.reenrollment_opening',
+            'magic_link',
+            'member_email_unsubscribe_confirmation',
+        ] as $outside) {
+            $this->assertNotNull($this->registry->find($outside), "{$outside} is declared, so it could leak");
+            $this->assertStringNotContainsString($outside, $body);
+        }
+        $this->assertStringNotContainsString('/config/emails', $body);
+
+        $this->assertStringContainsString('doivent contenir le lien de suivi', $body);
+        $this->assertStringNotContainsString('À rédiger', $body);
         $this->assertStringContainsString(
             '<a href="/config/reinscription/reglages">gestion des réinscriptions</a>',
             $body
         );
     }
 
-    /**
-     * Issue #932: no template is « à rédiger » any more, so the list shows
-     * no warning and no such state; it says the three family e-mails carry
-     * the tracking link.
-     */
-    public function testTheListNeverWarnsOfATemplateToWriteAndNamesTheLinkRule(): void
+    public function testACustomisedEmailReadsPersonnaliseAndTheOthersParDefaut(): void
     {
-        $body = $this->renderList();
-
-        $this->assertStringNotContainsString('À rédiger', $body);
-        $this->assertStringNotContainsString('doivent être rédigés', $body);
-        $this->assertStringContainsString('doivent contenir le lien de suivi', $body);
-
-        $this->content->set(RequestEmailTemplateService::KEY_ACCEPTED, '<p>Bienvenue {{ lien_suivi }}</p>', 'rich_text', 1);
-        $this->content->set(RequestEmailTemplateService::KEY_REFUSED, '<p>Désolé {{ lien_suivi }}</p>', 'rich_text', 1);
-        $body = $this->renderList();
-        $this->assertStringContainsString('Personnalisé', $this->rowOf($body, 'acceptation'));
-        $this->assertStringContainsString('Personnalisé', $this->rowOf($body, 'refus'));
-    }
-
-    public function testACustomisedSubmissionEmailReadsPersonnalise(): void
-    {
-        $this->content->set(
-            RequestEmailTemplateService::KEY_RECEIPT,
-            '<p>Merci {{ prenom_enfant }}</p>',
-            'rich_text',
-            1
+        $this->overrides->save(
+            RequestEmailService::ACCEPTED_TEMPLATE,
+            'Bienvenue',
+            '<p>Bienvenue {{ lien_suivi }}</p>',
+            null
         );
 
         $body = $this->renderList();
 
-        $this->assertStringContainsString('Personnalisé', $this->rowOf($body, 'accuse-de-reception'));
-        $this->assertStringContainsString('Par défaut', $this->rowOf($body, 'alerte-unite'));
+        $this->assertStringContainsString(
+            '>Personnalisé</span>',
+            $this->rowOf($body, RequestEmailService::ACCEPTED_TEMPLATE)
+        );
+        $others = array_diff(RegistrationTemplateController::REQUEST_EMAILS, [RequestEmailService::ACCEPTED_TEMPLATE]);
+        foreach ($others as $id) {
+            $this->assertStringContainsString('>Par défaut</span>', $this->rowOf($body, $id), $id);
+        }
     }
 
     /**
      * A sub-page of « Formulaire d'inscription » like the other three: the
-     * module's title, the rail with « Gabarits » selected — on the edit page
-     * too — and nothing folded away.
+     * module's title and the rail with « Gabarits » selected.
      */
-    public function testTheListAndTheEditPageCarryTheRailWithGabaritsSelected(): void
+    public function testTheListCarriesTheRailWithGabaritsSelected(): void
     {
-        $pages = [
-            $this->renderList(),
-            $this->renderEdit('refus', self::LIST . '/refus'),
-        ];
+        $body = $this->renderList();
 
-        foreach ($pages as $body) {
-            $this->assertMatchesRegularExpression('/<h1[^>]*>\s*Formulaire d&#039;inscription\s*</', $body);
-            $this->assertSame(1, substr_count($body, 'aria-current="page"'));
-            $this->assertMatchesRegularExpression('#<a[^>]*aria-current="page"[^>]*>\s*<span>Gabarits</span>#u', $body);
-            $this->assertStringNotContainsString('data-bs-toggle="collapse"', $body);
-        }
+        $this->assertMatchesRegularExpression('/<h1[^>]*>\s*Formulaire d&#039;inscription\s*</', $body);
+        $this->assertSame(1, substr_count($body, 'aria-current="page"'));
+        $this->assertMatchesRegularExpression('#<a[^>]*aria-current="page"[^>]*>\s*<span>Gabarits</span>#u', $body);
+    }
+
+    // ------------------------------------------------------------------
+    // The scope
+    // ------------------------------------------------------------------
+
+    /**
+     * @return array<string, array{string}>
+     */
+    public static function outsideTheScope(): array
+    {
+        return [
+            'another e-mail of the module' => ['registration.secondary_email_confirmation'],
+            'a re-enrolment e-mail' => ['registration.reenrollment_opening'],
+            'a core e-mail' => ['member_email_unsubscribe_confirmation'],
+            'an undeclared id' => ['registration.inconnu'],
+        ];
+    }
+
+    #[DataProvider('outsideTheScope')]
+    public function testAnEmailOutsideTheFourIsAnsweredAsAnUnknownOne(string $id): void
+    {
+        $edit = $this->controller->edit(new Request('GET', self::LIST . '/' . $id, [], [], [], []), [
+            'template' => $id,
+        ]);
+        $this->assertSame(302, $edit->getStatusCode());
+        $this->assertSame(self::LIST, $edit->getHeaders()['Location'] ?? null);
+
+        $body = $this->controller->saveBody(
+            $this->jsonRequest(['key' => 'email_body', 'value' => '<p>Écrit ailleurs.</p>', 'type' => 'html']),
+            ['template' => $id]
+        );
+        $this->assertSame(404, $body->getStatusCode());
+
+        $subject = $this->controller->saveSubject($this->formRequest(['subject' => 'Détourné']), ['template' => $id]);
+        $this->assertSame(self::LIST, $subject->getHeaders()['Location'] ?? null);
+
+        $this->controller->sendTest($this->formRequest([]), ['template' => $id]);
+
+        $this->assertNull($this->overrides->find($id));
+        $this->assertCount(0, $this->sent);
     }
 
     // ------------------------------------------------------------------
     // The edit page
     // ------------------------------------------------------------------
 
-    public function testTheEditPageOfASubmissionEmailStartsFromItsDefaultWithItsVariables(): void
+    public function testTheEditPageOfAFamilyEmailMarksTheTrackingLinkObligatoire(): void
     {
-        $body = $this->renderEdit('accuse-de-reception');
+        foreach (self::FAMILY_EMAILS as $id) {
+            $body = $this->renderEdit($id);
 
-        $this->assertStringContainsString('Modifier — Accusé de réception de la demande', $body);
-        $this->assertStringContainsString('texte par défaut</strong>', $body);
-        $this->assertStringContainsString('Nous avons bien reçu votre demande', $this->hiddenBodyValue($body));
-        $this->assertStringContainsString('action="/config/inscriptions/gabarits/accuse-de-reception"', $body);
-        foreach (['prenom_enfant', 'annee_scoute', 'lien_suivi', 'nom_unite'] as $variable) {
-            $this->assertStringContainsString('data-insert-keyword="' . $variable . '"', $body);
-            $this->assertStringContainsString('<code>{{ ' . $variable . ' }}</code>', $body);
+            $this->assertStringContainsString('action="' . self::LIST . '/' . $id . '/sujet"', $body, $id);
+            $this->assertStringContainsString(self::LIST . '/' . $id . '/corps', $body, $id);
+            $this->assertStringNotContainsString('/config/emails/', $body, $id);
+            $this->assertStringContainsString('data-variable="lien_suivi"', $body, $id);
+            // The body's two rows of buttons (the page's and the editor
+            // modal's) mark it, never the subject's.
+            $this->assertSame(2, substr_count($body, '>obligatoire</span>'), $id);
+            $this->assertStringContainsString('« obligatoire » doivent rester dans le texte', $body, $id);
+            // Seeded with the shipped text, the placeholder kept as such.
+            $this->assertStringContainsString('{{ lien_suivi }}', $body, $id);
         }
-        $this->assertStringNotContainsString('data-insert-keyword="lien_fiche"', $body);
-        // Nothing to restore while the default is in force.
-        $this->assertStringNotContainsString('Rétablir le texte par défaut', $body);
-        $this->assertStringContainsString(
-            '<a href="/config/inscriptions/gabarits" class="btn btn-outline-secondary">Annuler</a>',
-            $body
-        );
     }
 
-    public function testTheEditPageOfADecisionEmailStartsFromItsDefaultWithTheLink(): void
+    public function testTheUnitAlertEditPageOffersNoTrackingLink(): void
     {
-        $body = $this->renderEdit('acceptation');
+        $body = $this->renderEdit(RegistrationService::UNIT_ALERT_TEMPLATE);
 
-        $this->assertStringContainsString('texte par défaut</strong>', $body);
-        $this->assertStringContainsString('a été acceptée', $this->hiddenBodyValue($body));
-        $this->assertStringContainsString('lien_suivi', $this->hiddenBodyValue($body));
-        $this->assertStringContainsString('doit contenir le lien de suivi', $body);
-        $this->assertStringNotContainsString('à rédiger', $body);
-        $this->assertStringNotContainsString('Rétablir le texte par défaut', $body);
-    }
-
-    public function testTheUnitAlertEditPageDoesNotAskForTheTrackingLink(): void
-    {
-        $body = $this->renderEdit('alerte-unite');
-
-        $this->assertStringNotContainsString('doit contenir le lien de suivi', $body);
-        $this->assertStringNotContainsString('data-insert-keyword="lien_suivi"', $body);
-    }
-
-    public function testACustomisedSubmissionEmailOffersToRestoreTheDefaultAndAsksFirst(): void
-    {
-        $this->content->set(
-            RequestEmailTemplateService::KEY_UNIT_ALERT,
-            '<p>Demande : {{ prenom_enfant }}</p>',
-            'rich_text',
-            1
-        );
-
-        $body = $this->renderEdit('alerte-unite');
-
-        $this->assertMatchesRegularExpression(
-            '#<form method="post" action="/config/inscriptions/gabarits/alerte-unite/defaut" class="mt-2"\s+'
-                . 'data-confirm="Rétablir le texte par défaut \? Le texte que vous avez écrit sera perdu.">#u',
-            $body
-        );
-        $this->assertStringContainsString('Demande : {{ prenom_enfant }}', $this->hiddenBodyValue($body));
-    }
-
-    public function testACustomisedDecisionEmailOffersToRestoreTheDefault(): void
-    {
-        $this->content->set(RequestEmailTemplateService::KEY_REFUSED, '<p>Désolé {{ lien_suivi }}</p>', 'rich_text', 1);
-
-        $body = $this->renderEdit('refus');
-
-        $this->assertStringContainsString('Rétablir le texte par défaut', $body);
-        $this->assertStringContainsString('/config/inscriptions/gabarits/refus/defaut', $body);
-    }
-
-    public function testTheEditPageNamesAnUnknownVariable(): void
-    {
-        $this->content->set(RequestEmailTemplateService::KEY_ACCEPTED, '<p>{{ creneau }}</p>', 'rich_text', 1);
-
-        $body = $this->renderEdit('acceptation');
-
-        $this->assertStringContainsString('Variables non reconnues', $body);
-        $this->assertStringContainsString('<code>{{ creneau }}</code>', $body);
-    }
-
-    public function testAnUnknownTemplateIsNotFound(): void
-    {
-        $response = $this->controller->edit(new Request('GET', self::LIST . '/inconnu', [], [], [], []), [
-            'template' => 'inconnu',
-        ]);
-
-        $this->assertSame(404, $response->getStatusCode());
-    }
-
-    // ------------------------------------------------------------------
-    // Saving and restoring
-    // ------------------------------------------------------------------
-
-    public function testSavingStoresTheSanitisedBodyJournalsAndGoesBackToTheList(): void
-    {
-        $response = $this->post('save', 'acceptation', [
-            'body' => '<p>Bienvenue {{ prenom_enfant }} ! {{ lien_suivi }}</p><script>alert(1)</script>',
-        ]);
-
-        $this->assertSame(302, $response->getStatusCode());
-        $this->assertSame(self::LIST, $response->getHeaders()['Location'] ?? null);
-        $stored = (string) $this->content->get(RequestEmailTemplateService::KEY_ACCEPTED);
-        $this->assertStringContainsString('Bienvenue {{ prenom_enfant }} !', $stored);
-        $this->assertStringNotContainsString('script', $stored);
-        $this->assertSame(
-            ['type' => 'success', 'message' => '« Acceptation de la demande » enregistré.'],
-            FlashMessage::get()
-        );
-
-        $entries = $this->journalEntries('registration_email_template_saved');
-        $this->assertCount(1, $entries);
-        $this->assertSame(
-            ['template' => 'registration_email_accepted_body'],
-            json_decode((string) $entries[0]['context'], true)
-        );
-        $this->assertStringNotContainsString('Bienvenue', json_encode($entries[0], JSON_UNESCAPED_UNICODE) ?: '');
-    }
-
-    public function testABlankBodyIsRefusedAndTheEditPageReopened(): void
-    {
-        $response = $this->post('save', 'refus', ['body' => '<p>&nbsp;</p>']);
-
-        $this->assertSame(self::LIST . '/refus', $response->getHeaders()['Location'] ?? null);
-        $this->assertSame('error', FlashMessage::get()['type'] ?? null);
-        $this->assertNull($this->content->get(RequestEmailTemplateService::KEY_REFUSED));
-        $this->assertCount(0, $this->journalEntries('registration_email_template_saved'));
+        $this->assertStringNotContainsString('data-variable="lien_suivi"', $body);
+        $this->assertStringNotContainsString('{{ lien_suivi }}', $body);
+        $this->assertStringNotContainsString('>obligatoire</span>', $body);
+        $this->assertStringContainsString('data-variable="lien_fiche"', $body);
     }
 
     /**
-     * Issue #932: a family template saved without `{{ lien_suivi }}` is
-     * refused with the way to put it back, nothing is stored or journaled,
-     * and the edit page reopens.
+     * A family body that lost its link by another road than this editor
+     * (an older version, a restored backup) opens with the reason it is no
+     * longer sent, and is not sent as a test either.
      */
-    public function testAFamilyBodyWithoutTheTrackingLinkIsRefusedWithAHelpfulMessage(): void
+    public function testAStoredFamilyBodyWithoutTheLinkOpensWithTheReasonAndIsNotSentAsATest(): void
     {
-        foreach (['accuse-de-reception', 'acceptation', 'refus'] as $slug) {
-            $response = $this->post('save', $slug, ['body' => '<p>Merci, à bientôt.</p>']);
+        $this->overrides->save(RequestEmailService::REFUSED_TEMPLATE, 'Refus', '<p>Désolés.</p>', null);
 
-            $this->assertSame(self::LIST . '/' . $slug, $response->getHeaders()['Location'] ?? null, $slug);
-            $flash = FlashMessage::get();
-            $this->assertSame('error', $flash['type'] ?? null, $slug);
-            $this->assertSame(RequestEmailTemplateService::MISSING_LINK_MESSAGE, $flash['message'] ?? null, $slug);
+        $body = $this->renderEdit(RequestEmailService::REFUSED_TEMPLATE);
+        $this->assertStringContainsString("Cet email n'est plus envoyé", $body);
+        $this->assertStringContainsString('Lien de suivi de la demande', $body);
+
+        $this->controller->sendTest($this->formRequest([]), ['template' => RequestEmailService::REFUSED_TEMPLATE]);
+
+        $this->assertCount(0, $this->sent);
+        $this->assertSame('error', FlashMessage::get()['type'] ?? null);
+    }
+
+    // ------------------------------------------------------------------
+    // Saving, resetting, testing
+    // ------------------------------------------------------------------
+
+    /**
+     * Issue #932, kept by #905: a family e-mail saved without
+     * `{{ lien_suivi }}` is refused with the variable named as the editor
+     * labels it, and nothing is stored or journaled.
+     */
+    public function testAFamilyBodyWithoutTheTrackingLinkIsRefusedNamingIt(): void
+    {
+        foreach (self::FAMILY_EMAILS as $id) {
+            $response = $this->controller->saveBody(
+                $this->jsonRequest(['key' => 'email_body', 'value' => '<p>Merci, à bientôt.</p>', 'type' => 'html']),
+                ['template' => $id]
+            );
+
+            $this->assertSame(400, $response->getStatusCode(), $id);
+            $error = (string) (json_decode($response->getBody(), true)['error'] ?? '');
+            $this->assertStringContainsString('« Lien de suivi de la demande »', $error, $id);
+            $this->assertStringContainsString('{{ lien_suivi }}', $error, $id);
+            $this->assertNull($this->overrides->find($id), $id);
         }
-        foreach ([
-            RequestEmailTemplateService::KEY_RECEIPT,
-            RequestEmailTemplateService::KEY_ACCEPTED,
-            RequestEmailTemplateService::KEY_REFUSED,
-        ] as $key) {
-            $this->assertNull($this->content->get($key), $key);
-        }
-        $this->assertCount(0, $this->journalEntries('registration_email_template_saved'));
+        $this->assertSame(0, $this->journalCount('email_template_customised'));
+    }
+
+    public function testAFamilyBodyWithTheLinkIsStoredSanitisedAndJournaledWithoutItsContent(): void
+    {
+        $response = $this->controller->saveBody(
+            $this->jsonRequest([
+                'key' => 'email_body',
+                'value' => '<p>Bienvenue {{ prenom_enfant }} ! {{ lien_suivi }}</p><script>alert(1)</script>',
+                'type' => 'html',
+            ]),
+            ['template' => RequestEmailService::ACCEPTED_TEMPLATE]
+        );
+
+        $this->assertSame(200, $response->getStatusCode(), $response->getBody());
+        $stored = $this->overrides->find(RequestEmailService::ACCEPTED_TEMPLATE);
+        $this->assertNotNull($stored);
+        $this->assertStringContainsString('Bienvenue {{ prenom_enfant }} ! {{ lien_suivi }}', $stored['body_html']);
+        $this->assertStringNotContainsString('script', $stored['body_html']);
+        $this->assertSame("Votre demande d'inscription a été acceptée", $stored['subject']);
+        $this->assertSame(1, $stored['updated_by']);
+        $this->assertSame(1, $this->journalCount('email_template_customised'));
+        $context = $this->journalContext('email_template_customised');
+        $this->assertStringContainsString(RequestEmailService::ACCEPTED_TEMPLATE, $context);
+        $this->assertStringNotContainsString('Bienvenue', $context);
     }
 
     public function testTheUnitAlertIsSavedWithoutTheTrackingLink(): void
     {
-        $response = $this->post('save', 'alerte-unite', ['body' => '<p>Nouvelle demande {{ lien_fiche }}</p>']);
+        $response = $this->controller->saveBody(
+            $this->jsonRequest(['key' => 'email_body', 'value' => '<p>Nouvelle demande {{ lien_fiche }}</p>']),
+            ['template' => RegistrationService::UNIT_ALERT_TEMPLATE]
+        );
 
-        $this->assertSame(self::LIST, $response->getHeaders()['Location'] ?? null);
+        $this->assertSame(200, $response->getStatusCode());
         $this->assertStringContainsString(
             '{{ lien_fiche }}',
-            (string) $this->content->get(RequestEmailTemplateService::KEY_UNIT_ALERT)
+            (string) ($this->overrides->find(RegistrationService::UNIT_ALERT_TEMPLATE)['body_html'] ?? '')
         );
+    }
+
+    /**
+     * Saving the subject alone stores a customisation whose body is the
+     * shipped one, link included — so the receipt still leaves with it.
+     */
+    public function testSavingTheSubjectStoresItAndKeepsTheShippedBodyWithItsLink(): void
+    {
+        $response = $this->controller->saveSubject(
+            $this->formRequest(['subject' => 'Bien reçu pour {{ prenom_enfant }}']),
+            ['template' => RegistrationService::RECEIPT_TEMPLATE]
+        );
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame(
+            self::LIST . '/' . RegistrationService::RECEIPT_TEMPLATE,
+            $response->getHeaders()['Location'] ?? null
+        );
+        $stored = $this->overrides->find(RegistrationService::RECEIPT_TEMPLATE);
+        $this->assertNotNull($stored);
+        $this->assertSame('Bien reçu pour {{ prenom_enfant }}', $stored['subject']);
+        $this->assertStringContainsString('{{ lien_suivi }}', $stored['body_html']);
+        $this->assertSame('success', FlashMessage::get()['type'] ?? null);
     }
 
     public function testAnExpiredTokenSavesNothing(): void
     {
         CsrfGuard::generateToken();
-        $response = $this->controller->save(
-            new Request(
-                'POST',
-                self::LIST . '/refus',
-                [],
-                ['_csrf_token' => 'nope', 'body' => '<p>Désolé {{ lien_suivi }}</p>'],
-                [],
-                []
-            ),
-            ['template' => 'refus']
+        $response = $this->controller->saveSubject(
+            new Request('POST', self::LIST, [], ['_csrf_token' => 'nope', 'subject' => 'Autre'], [], []),
+            ['template' => RequestEmailService::REFUSED_TEMPLATE]
         );
 
-        $this->assertSame(self::LIST . '/refus', $response->getHeaders()['Location'] ?? null);
-        $this->assertNull($this->content->get(RequestEmailTemplateService::KEY_REFUSED));
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertNull($this->overrides->find(RequestEmailService::REFUSED_TEMPLATE));
     }
 
-    public function testRestoringTheDefaultForgetsTheUnitsTextAndJournals(): void
+    public function testResetDeletesTheCustomisationAndJournals(): void
     {
-        $this->content->set(RequestEmailTemplateService::KEY_RECEIPT, '<p>Merci</p>', 'rich_text', 1);
+        $this->overrides->save(RegistrationService::RECEIPT_TEMPLATE, 'Merci', '<p>Merci {{ lien_suivi }}</p>', null);
 
-        $response = $this->post('restoreDefault', 'accuse-de-reception', []);
+        $response = $this->controller->reset(
+            $this->formRequest([]),
+            ['template' => RegistrationService::RECEIPT_TEMPLATE]
+        );
 
-        $this->assertSame(self::LIST, $response->getHeaders()['Location'] ?? null);
-        $this->assertNull($this->content->get(RequestEmailTemplateService::KEY_RECEIPT));
-        $this->assertStringContainsString('Par défaut', $this->rowOf($this->renderList(), 'accuse-de-reception'));
-        $this->assertCount(1, $this->journalEntries('registration_email_template_reset'));
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertNull($this->overrides->find(RegistrationService::RECEIPT_TEMPLATE));
+        $this->assertSame(1, $this->journalCount('email_template_reset'));
+        $this->assertStringContainsString(
+            '>Par défaut</span>',
+            $this->rowOf($this->renderList(), RegistrationService::RECEIPT_TEMPLATE)
+        );
     }
 
-    /**
-     * « Rétablir le texte par défaut » on a decision e-mail gives back a
-     * text with a working link (issue #932).
-     */
-    public function testRestoringADecisionEmailGivesBackTheDefaultWithTheLink(): void
+    public function testTheTestSendGoesToTheSignedInAdminWithTheExampleLink(): void
     {
-        $this->content->set(RequestEmailTemplateService::KEY_ACCEPTED, '<p>Bienvenue {{ lien_suivi }}</p>', 'rich_text', 1);
+        $this->controller->sendTest($this->formRequest([]), ['template' => RequestEmailService::ACCEPTED_TEMPLATE]);
 
-        $response = $this->post('restoreDefault', 'acceptation', []);
-
-        $this->assertSame(self::LIST, $response->getHeaders()['Location'] ?? null);
-        $this->assertNull($this->content->get(RequestEmailTemplateService::KEY_ACCEPTED));
-        $this->assertStringContainsString('lien_suivi', $this->hiddenBodyValue($this->renderEdit('acceptation')));
+        $this->assertCount(1, $this->sent);
+        $this->assertSame('admin@test.be', $this->sent[0]['to']);
+        $this->assertSame("Votre demande d'inscription a été acceptée", $this->sent[0]['subject']);
+        $this->assertStringContainsString('https://exemple.be/inscriptions/suivi/42/abc', $this->sent[0]['html']);
     }
 
     // ------------------------------------------------------------------
@@ -406,48 +450,89 @@ class RegistrationTemplateControllerTest extends TestCase
     // ------------------------------------------------------------------
 
     /**
-     * Every « Gabarits » route the manifest declares.
+     * Every « Gabarits » route the manifest declares, on one of the four
+     * e-mails.
      *
      * @return array<string, array{string, string, string}>
      */
     public static function routeProvider(): array
     {
+        $edit = self::LIST . '/' . RegistrationService::RECEIPT_TEMPLATE;
+
         return [
             'list' => ['GET', self::LIST, 'index'],
-            'edit' => ['GET', self::LIST . '/accuse-de-reception', 'edit'],
-            'save' => ['POST', self::LIST . '/accuse-de-reception', 'save'],
-            'restore' => ['POST', self::LIST . '/accuse-de-reception/defaut', 'restoreDefault'],
+            'edit' => ['GET', $edit, 'edit'],
+            'subject' => ['POST', $edit . '/sujet', 'saveSubject'],
+            'body' => ['POST', $edit . '/corps', 'saveBody'],
+            'reset' => ['POST', $edit . '/defaut', 'reset'],
+            'test' => ['POST', $edit . '/test', 'sendTest'],
         ];
     }
 
-    #[\PHPUnit\Framework\Attributes\DataProvider('routeProvider')]
+    public function testTheManifestDeclaresExactlyTheseRoutesAllRoleMinAdmin(): void
+    {
+        $declared = [];
+        foreach ($this->manifestRoutes() as $route) {
+            if ($route['controller'] !== RegistrationTemplateController::class) {
+                continue;
+            }
+            $declared[$route['method'] . ' ' . $route['path'] . ' ' . $route['action']] = $route['role_min'];
+        }
+
+        $expected = [];
+        foreach (self::routeProvider() as [$method, $path, $action]) {
+            $path = str_replace('/' . RegistrationService::RECEIPT_TEMPLATE, '/{template}', $path);
+            $expected[$method . ' ' . $path . ' ' . $action] = 'admin';
+        }
+        ksort($declared);
+        ksort($expected);
+        $this->assertSame($expected, $declared);
+    }
+
+    #[DataProvider('routeProvider')]
     public function testAdminReachesEveryRoute(string $method, string $path, string $action): void
     {
         $response = $this->dispatch($method, $path, $action, 'admin');
 
-        if ($method === 'GET') {
-            $this->assertSame(200, $response->getStatusCode(), substr((string) $response->getBody(), 0, 400));
-        } else {
-            $this->assertSame(302, $response->getStatusCode());
-            $this->assertSame(self::LIST, $response->getHeaders()['Location'] ?? null, 'the action went through');
+        $status = $response->getStatusCode();
+        $this->assertContains($status, $method === 'GET' ? [200] : [200, 302], substr($response->getBody(), 0, 400));
+        if ($action === 'saveBody') {
+            $this->assertTrue((bool) (json_decode($response->getBody(), true)['success'] ?? false));
+        }
+        if ($action === 'saveSubject') {
+            $stored = $this->overrides->find(RegistrationService::RECEIPT_TEMPLATE);
+            $this->assertSame('Sujet', $stored['subject'] ?? null);
+        }
+        if ($action === 'sendTest') {
+            $this->assertCount(1, $this->sent);
         }
     }
 
-    #[\PHPUnit\Framework\Attributes\DataProvider('routeProvider')]
+    #[DataProvider('routeProvider')]
     public function testOneRoleBelowIsRefused(string $method, string $path, string $action): void
     {
-        $this->content->set(RequestEmailTemplateService::KEY_RECEIPT, '<p>Merci</p>', 'rich_text', 1);
+        $this->overrides->save(RegistrationService::RECEIPT_TEMPLATE, 'Merci', '<p>Merci {{ lien_suivi }}</p>', null);
 
         $response = $this->dispatch($method, $path, $action, 'chief');
 
-        $this->assertSame(403, $response->getStatusCode());
-        $this->assertSame('<p>Merci</p>', $this->content->get(RequestEmailTemplateService::KEY_RECEIPT));
+        $this->assertSame(403, $response->getStatusCode(), $action);
+        $stored = $this->overrides->find(RegistrationService::RECEIPT_TEMPLATE);
+        $this->assertSame(
+            ['Merci', '<p>Merci {{ lien_suivi }}</p>'],
+            [$stored['subject'] ?? null, $stored['body_html'] ?? null]
+        );
+        $this->assertCount(0, $this->sent);
     }
 
     public function testTheListAndTheEditPageCarryTheFullBreadcrumb(): void
     {
-        $list = (string) $this->dispatch('GET', self::LIST, 'index', 'admin')->getBody();
-        $edit = (string) $this->dispatch('GET', self::LIST . '/alerte-unite', 'edit', 'admin')->getBody();
+        $list = $this->dispatch('GET', self::LIST, 'index', 'admin')->getBody();
+        $edit = $this->dispatch(
+            'GET',
+            self::LIST . '/' . RegistrationService::UNIT_ALERT_TEMPLATE,
+            'edit',
+            'admin'
+        )->getBody();
 
         foreach ([$list, $edit] as $body) {
             $this->assertStringContainsString('Espace chefs d&#039;U', $body);
@@ -461,7 +546,10 @@ class RegistrationTemplateControllerTest extends TestCase
             '#<a href="/config/inscriptions/gabarits" class="text-decoration-none">Gabarits</a>#',
             $edit
         );
-        $this->assertMatchesRegularExpression('#aria-current="page">Modifier — Alerte à l&\#039;unité</li>#u', $edit);
+        $this->assertMatchesRegularExpression(
+            '#aria-current="page">Alerte à l&\#039;unité pour une nouvelle demande d&\#039;inscription</li>#u',
+            $edit
+        );
     }
 
     // ------------------------------------------------------------------
@@ -472,73 +560,93 @@ class RegistrationTemplateControllerTest extends TestCase
         $response = $this->controller->index(new Request('GET', self::LIST, [], [], [], []), []);
         $this->assertSame(200, $response->getStatusCode());
 
-        return (string) $response->getBody();
+        return $response->getBody();
     }
 
-    private function renderEdit(string $slug, ?string $currentPath = null): string
+    private function renderEdit(string $id): string
     {
-        $this->twig->addGlobal('current_path', $currentPath ?? self::LIST . '/' . $slug);
-        $response = $this->controller->edit(new Request('GET', self::LIST . '/' . $slug, [], [], [], []), [
-            'template' => $slug,
+        $this->twig->addGlobal('current_path', self::LIST . '/' . $id);
+        $response = $this->controller->edit(new Request('GET', self::LIST . '/' . $id, [], [], [], []), [
+            'template' => $id,
         ]);
         $this->assertSame(200, $response->getStatusCode());
 
-        return (string) $response->getBody();
+        return $response->getBody();
     }
 
-    /**
-     * @param array<string, string> $body
-     */
-    private function post(string $action, string $slug, array $body): Response
-    {
-        $path = self::LIST . '/' . $slug . ($action === 'restoreDefault' ? '/defaut' : '');
-
-        return $this->controller->$action(
-            new Request('POST', $path, [], $body + ['_csrf_token' => CsrfGuard::generateToken()], [], []),
-            ['template' => $slug]
-        );
-    }
-
-    /** The list row of one template, from its pencil's address back to its opening tag. */
-    private function rowOf(string $body, string $slug): string
+    /** The table row of one e-mail, found by its link. */
+    private function rowOf(string $body, string $id): string
     {
         $this->assertSame(
             1,
             preg_match(
-                '#<div class="list-editor-item [^"]*"[^>]*data-id="' . preg_quote($slug, '#') . '".*?</a>#su',
+                '#<tr>\s*<td>\s*<a href="' . preg_quote(self::LIST . '/' . $id, '#') . '">.*?</tr>#su',
                 $body,
                 $match
             ),
-            "the list has a row for {$slug}"
+            "the list has a row for {$id}"
         );
 
         return $match[0];
     }
 
-    /** The value the editor's form would post, decoded. */
-    private function hiddenBodyValue(string $body): string
+    private function escaped(string $text): string
     {
-        $this->assertSame(
-            1,
-            preg_match(
-                '#<input type="hidden" class="rich-text-form-value" name="body" value="([^"]*)">#',
-                $body,
-                $match
-            )
-        );
+        return htmlspecialchars($text, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    }
 
-        return html_entity_decode($match[1], ENT_QUOTES | ENT_HTML5, 'UTF-8');
+    /**
+     * @param array<string, string> $fields
+     */
+    private function formRequest(array $fields): Request
+    {
+        $token = CsrfGuard::generateToken();
+        $_POST['_csrf_token'] = $token;
+
+        return new Request('POST', self::LIST, [], $fields + ['_csrf_token' => $token], [], []);
+    }
+
+    /**
+     * The JSON payload `public/assets/js/rich-text-field.js` posts.
+     *
+     * @param array<string, string> $payload
+     */
+    private function jsonRequest(array $payload, string $path = self::LIST): Request
+    {
+        $payload['_csrf_token'] = CsrfGuard::generateToken();
+
+        return new RequestWithInput('POST', $path, [], [], [], [], json_encode($payload));
+    }
+
+    private function journalCount(string $type): int
+    {
+        $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM event_log WHERE event_type = ?');
+        $stmt->execute([$type]);
+
+        return (int) $stmt->fetchColumn();
+    }
+
+    private function journalContext(string $type): string
+    {
+        $stmt = $this->pdo->prepare('SELECT description, context FROM event_log WHERE event_type = ?');
+        $stmt->execute([$type]);
+
+        return implode(' ', array_map('strval', (array) $stmt->fetch(\PDO::FETCH_ASSOC)));
     }
 
     /**
      * @return list<array<string, mixed>>
      */
-    private function journalEntries(string $type): array
+    private function manifestRoutes(): array
     {
-        return array_values(array_filter(
-            $this->journal->search('registration'),
-            static fn(array $entry): bool => $entry['event_type'] === $type
-        ));
+        $manifest = json_decode(
+            (string) file_get_contents(dirname(__DIR__, 4) . '/modules/registration/module.json'),
+            true,
+            512,
+            JSON_THROW_ON_ERROR
+        );
+
+        return $manifest['routes'];
     }
 
     private function dispatch(string $method, string $path, string $action, string $role): Response
@@ -546,14 +654,8 @@ class RegistrationTemplateControllerTest extends TestCase
         AuthSession::login(1, $role . '@test.be', $role);
         $this->twig->addGlobal('current_path', $path);
 
-        $manifest = json_decode(
-            (string) file_get_contents(dirname(__DIR__, 4) . '/modules/registration/module.json'),
-            true,
-            512,
-            JSON_THROW_ON_ERROR
-        );
         $router = new Router();
-        foreach ($manifest['routes'] as $route) {
+        foreach ($this->manifestRoutes() as $route) {
             $router->addRoute(
                 $route['method'],
                 $route['path'],
@@ -565,12 +667,18 @@ class RegistrationTemplateControllerTest extends TestCase
             );
         }
 
-        $request = $method === 'POST'
-            ? new Request('POST', $path, [], [
-                '_csrf_token' => CsrfGuard::generateToken(),
-                'body' => '<p>Bonjour {{ prenom_enfant }} {{ lien_suivi }}</p>',
-            ], [], [])
-            : new Request('GET', $path, [], [], [], []);
+        if ($action === 'saveBody') {
+            $request = $this->jsonRequest(
+                ['key' => 'email_body', 'value' => '<p>Bonjour {{ prenom_enfant }} {{ lien_suivi }}</p>'],
+                $path
+            );
+        } elseif ($method === 'POST') {
+            $token = CsrfGuard::generateToken();
+            $_POST['_csrf_token'] = $token;
+            $request = new Request('POST', $path, [], ['_csrf_token' => $token, 'subject' => 'Sujet'], [], []);
+        } else {
+            $request = new Request('GET', $path, [], [], [], []);
+        }
         $resolved = $router->resolve($request);
         $this->assertNotNull($resolved, "the manifest declares {$method} {$path}");
         $this->assertSame(RegistrationTemplateController::class, $resolved->controllerClass);

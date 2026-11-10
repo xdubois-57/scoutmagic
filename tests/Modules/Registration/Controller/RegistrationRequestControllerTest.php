@@ -23,8 +23,7 @@ use Core\Member\SectionService;
 use Core\ScoutYear\ScoutYearResolver;
 use Core\Security\CsrfGuard;
 use Core\Security\EncryptionService;
-use Core\View\EditableContentRepository;
-use Core\View\EditableContentService;
+use Core\Mail\Template\EmailTemplateOverrideRepository;
 use Core\View\TwigFactory;
 use Modules\Registration\Controller\RegistrationRequestController;
 use Modules\Registration\Controller\RequestDecisionEmailController;
@@ -71,7 +70,7 @@ class RegistrationRequestControllerTest extends TestCase
     private RegistrationRequestController $controller;
     private RegistrationRequestRepository $requestRepository;
     private JournalRepository $journalRepository;
-    private EditableContentService $editableContentService;
+    private EmailTemplateOverrideRepository $emailOverrides;
     private int $baladinsId;
     private int $louveteauxId;
     private int $baladinsSectionId;
@@ -171,7 +170,7 @@ class RegistrationRequestControllerTest extends TestCase
             }
             $this->sentMails[] = ['to' => (string) $arguments[0], 'cc' => $arguments[$ccIndex] ?? null];
         });
-        $this->editableContentService = new EditableContentService(new EditableContentRepository($this->pdo));
+        $this->emailOverrides = new EmailTemplateOverrideRepository($this->pdo);
         $module = 'registration';
         $settingService->register(FamilyEmailCopyService::SETTING_ENABLED, '1', 'boolean', 'Copie', 'desc', $module);
         $settingService->register(FamilyEmailCopyService::SETTING_ADDRESS, '', 'email', 'Adresse', 'desc', $module);
@@ -186,7 +185,7 @@ class RegistrationRequestControllerTest extends TestCase
         $emailService = new RequestEmailService(
             $this->requestRepository,
             $mailService,
-            $this->editableContentService,
+            RegistrationTestHelper::emailRenderer($this->pdo, $journalService),
             $journalService,
             'https://example.com',
             'Unité Test',
@@ -660,9 +659,19 @@ class RegistrationRequestControllerTest extends TestCase
 
     private function writeBodies(): void
     {
-        $content = $this->editableContentService;
-        $content->set('registration_email_accepted_body', '<p>Bienvenue {{prenom_enfant}} ! {{ lien_suivi }}</p>', 'rich_text', 1);
-        $content->set('registration_email_refused_body', '<p>Désolés. {{ lien_suivi }}</p>', 'rich_text', 1);
+        // Customised through the core store (issue #905), each with the link.
+        $this->emailOverrides->save(
+            RequestEmailService::ACCEPTED_TEMPLATE,
+            "Votre demande d'inscription a été acceptée",
+            '<p>Bienvenue {{prenom_enfant}} ! {{ lien_suivi }}</p>',
+            null
+        );
+        $this->emailOverrides->save(
+            RequestEmailService::REFUSED_TEMPLATE,
+            "Votre demande d'inscription a été refusée",
+            '<p>Désolés. {{ lien_suivi }}</p>',
+            null
+        );
     }
 
     private function acceptedRequest(): int

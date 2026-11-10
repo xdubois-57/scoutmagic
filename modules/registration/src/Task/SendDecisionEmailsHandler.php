@@ -12,8 +12,6 @@ use Core\Config\ScoutYearService;
 use Core\Scheduler\SchedulerService;
 use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
-use Core\View\EditableContentRepository;
-use Core\View\EditableContentService;
 use Modules\Registration\Repository\DecisionEmailRepository;
 use Modules\Registration\Repository\RegistrationRequestRepository;
 use Modules\Registration\Service\DecisionEmailService;
@@ -123,7 +121,7 @@ class SendDecisionEmailsHandler implements TaskHandlerInterface
             $emailService = new RequestEmailService(
                 $requests,
                 $context->mailService->withoutDeferral(),
-                new EditableContentService(new EditableContentRepository($pdo)),
+                TaskEmailRenderer::create($context),
                 $context->journal,
                 (string) ($context->settings->get('base_url') ?: ''),
                 (string) ($context->settings->get('site_name') ?: 'Unité scoute'),

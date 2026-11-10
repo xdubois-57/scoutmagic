@@ -54,11 +54,23 @@ use Twig\Environment;
  *
  * The subject is a plain text field: it is one line, it must never carry
  * markup, and a rich-text editor for it would invite exactly that.
+ *
+ * **One page, also seen through a module** (issue #905). A module that
+ * wants its own e-mails edited from its own configuration — and by the
+ * role that configures it, rather than by superadmins only — extends this
+ * controller with a narrower scope: its own URL, the ids it may reach and
+ * the list view that wraps the shared table. Nothing is forked: the same
+ * editor, the same states, the same reset, the same refusals. An id
+ * outside the scope is answered exactly like an unknown one, so a route
+ * opened to a wider role reaches no e-mail beyond the ones it names.
  */
 class EmailTemplateController extends AbstractController
 {
     private const PAGE_URL = '/config/emails';
 
+    /**
+     * @param list<string>|null $templateIds
+     */
     public function __construct(
         protected Environment $twig,
         private EmailTemplateRegistry $registry,
@@ -67,7 +79,11 @@ class EmailTemplateController extends AbstractController
         private EmailTemplateCustomisationService $customisation,
         private JournalService $journalService,
         private MailService $mailService,
-        private EmailTestSendThrottler $throttler
+        private EmailTestSendThrottler $throttler,
+        private string $pageUrl = self::PAGE_URL,
+        // null is every declared e-mail; a list is the scope above.
+        private ?array $templateIds = null,
+        private string $listView = 'config/emails.html.twig'
     ) {
     }
 
@@ -80,6 +96,12 @@ class EmailTemplateController extends AbstractController
 
         $groups = [];
         foreach ($this->registry->groupedByModule() as $moduleId => $templates) {
+            $templates = array_values(
+                array_filter($templates, fn (EmailTemplate $t): bool => $this->inScope($t->id))
+            );
+            if ($templates === []) {
+                continue;
+            }
             $groups[] = [
                 'module_id' => $moduleId,
                 'label' => $this->registry->moduleLabel($moduleId),
@@ -96,7 +118,7 @@ class EmailTemplateController extends AbstractController
             ];
         }
 
-        return $this->render('config/emails.html.twig', ['groups' => $groups]);
+        return $this->render($this->listView, ['groups' => $groups, 'page_url' => $this->pageUrl]);
     }
 
     /**
@@ -104,9 +126,9 @@ class EmailTemplateController extends AbstractController
      */
     public function edit(Request $request, array $params): Response
     {
-        $template = $this->registry->find($params['template'] ?? '');
+        $template = $this->find($params['template'] ?? '');
         if ($template === null) {
-            return $this->redirect(self::PAGE_URL);
+            return $this->redirect($this->pageUrl);
         }
 
         $override = $this->overrides->find($template->id);
@@ -133,6 +155,7 @@ class EmailTemplateController extends AbstractController
                 ? EmailTemplateCustomisationService::missingMessage($missing)
                 : null,
             'test_recipient' => AuthSession::getEmail() ?? '',
+            'page_url' => $this->pageUrl,
         ]);
     }
 
@@ -144,9 +167,9 @@ class EmailTemplateController extends AbstractController
      */
     public function saveSubject(Request $request, array $params): Response
     {
-        $template = $this->registry->find($params['template'] ?? '');
+        $template = $this->find($params['template'] ?? '');
         if ($template === null) {
-            return $this->redirect(self::PAGE_URL);
+            return $this->redirect($this->pageUrl);
         }
 
         if (($guard = $this->guardCsrf($request, $this->editUrl($template->id))) !== null) {
@@ -183,7 +206,7 @@ class EmailTemplateController extends AbstractController
             return $guard;
         }
 
-        $template = $this->registry->find($params['template'] ?? '');
+        $template = $this->find($params['template'] ?? '');
         if ($template === null) {
             return $this->json(['success' => false, 'error' => "Cet email n'existe pas."], 404);
         }
@@ -222,9 +245,9 @@ class EmailTemplateController extends AbstractController
      */
     public function reset(Request $request, array $params): Response
     {
-        $template = $this->registry->find($params['template'] ?? '');
+        $template = $this->find($params['template'] ?? '');
         if ($template === null) {
-            return $this->redirect(self::PAGE_URL);
+            return $this->redirect($this->pageUrl);
         }
 
         if (($guard = $this->guardCsrf($request, $this->editUrl($template->id))) !== null) {
@@ -269,9 +292,9 @@ class EmailTemplateController extends AbstractController
      */
     public function sendTest(Request $request, array $params): Response
     {
-        $template = $this->registry->find($params['template'] ?? '');
+        $template = $this->find($params['template'] ?? '');
         if ($template === null) {
-            return $this->redirect(self::PAGE_URL);
+            return $this->redirect($this->pageUrl);
         }
 
         if (($guard = $this->guardCsrf($request, $this->editUrl($template->id))) !== null) {
@@ -571,6 +594,21 @@ class EmailTemplateController extends AbstractController
 
     private function editUrl(string $templateId): string
     {
-        return self::PAGE_URL . '/' . rawurlencode($templateId);
+        return $this->pageUrl . '/' . rawurlencode($templateId);
+    }
+
+    /**
+     * The declared e-mail this page may reach — null for an id nobody
+     * declared AND for one outside this page's scope, so a scoped page
+     * answers both the same way.
+     */
+    private function find(string $templateId): ?EmailTemplate
+    {
+        return $this->inScope($templateId) ? $this->registry->find($templateId) : null;
+    }
+
+    private function inScope(string $templateId): bool
+    {
+        return $this->templateIds === null || in_array($templateId, $this->templateIds, true);
     }
 }

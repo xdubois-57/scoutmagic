@@ -13,8 +13,9 @@ use Core\Config\SettingService;
 use Core\Journal\JournalService;
 use Core\Mail\MailException;
 use Core\Mail\MailService;
+use Core\Mail\Template\EmailTemplateRenderer;
+use Core\Mail\Template\MissingRequiredVariableException;
 use Core\ScoutYear\ScoutYearResolver;
-use Core\View\EditableContentService;
 use Modules\Registration\Repository\RegistrationRequest;
 use Modules\Registration\Repository\RegistrationRequestRepository;
 use Modules\Registration\Repository\RegistrationYearCodeRepository;
@@ -32,6 +33,10 @@ use Modules\Registration\Repository\RegistrationYearCodeRepository;
  */
 class RegistrationService
 {
+    /** The two submission e-mails, as module.json declares them to the core registry (issue #905). */
+    public const RECEIPT_TEMPLATE = 'registration.request_receipt';
+    public const UNIT_ALERT_TEMPLATE = 'registration.request_unit_alert';
+
     public function __construct(
         private RegistrationRequestRepository $requestRepository,
         private RegistrationYearCodeRepository $yearCodeRepository,
@@ -39,7 +44,7 @@ class RegistrationService
         private ScoutYearService $scoutYearService,
         private SettingService $settingService,
         private MailService $mailService,
-        private EditableContentService $editableContentService,
+        private EmailTemplateRenderer $renderer,
         private JournalService $journalService,
         private string $baseUrl,
         private string $siteName,
@@ -208,16 +213,23 @@ class RegistrationService
         string $childFirstName,
         string $targetYearLabel,
         string $trackingUrl
-    ): void
-    {
-        // The body, its default and its variables are the « Gabarits »
-        // catalogue's (issue #843, D10).
-        $template = $this->requestEmailBody(RequestEmailTemplateService::KEY_RECEIPT);
-        // Never an acknowledgement without the family's link (issue #932).
-        // The request is already recorded, so this is a journal entry and a
-        // staff-visible trace, not a failure of the submission: the family
-        // has filed, whatever the unit's e-mail configuration says.
-        if (!RequestEmailTemplateService::hasTrackingLink($template)) {
+    ): void {
+        // The subject, the body and its variables are the core registry's
+        // (module.json `emails`, issue #905), customisable from « Gabarits ».
+        try {
+            $email = $this->renderer->render(self::RECEIPT_TEMPLATE, [
+                'site_name' => $this->siteName,
+                'prenom_enfant' => $childFirstName,
+                'annee_scoute' => $targetYearLabel,
+                'lien_suivi' => $trackingUrl,
+            ]);
+        } catch (MissingRequiredVariableException) {
+            // Never an acknowledgement without the family's link (issue
+            // #932): `lien_suivi` is required, and the renderer refused a
+            // stored text without it (and journaled why). The request is
+            // already recorded, so this is a trace for the staff, not a
+            // failure of the submission: the family has filed, whatever the
+            // unit's e-mail configuration says.
             $this->journalService->log(
                 'registration',
                 'registration_receipt_email_blocked',
@@ -228,19 +240,13 @@ class RegistrationService
 
             return;
         }
-        $body = RequestEmailTemplateService::substitute($template, [
-            'prenom_enfant' => $childFirstName,
-            'annee_scoute' => $targetYearLabel,
-            'lien_suivi' => $trackingUrl,
-            'nom_unite' => $this->siteName,
-        ]);
 
         try {
             $this->mailService->send(
                 to: $to,
-                subject: "Demande d'inscription reçue",
-                bodyHtml: $body,
-                bodyText: RequestEmailService::toPlainText($body),
+                subject: $email->subject,
+                bodyHtml: $email->bodyHtml,
+                bodyText: $email->bodyText,
                 cc: $this->familyEmailCopy?->copyAddress()
             );
         } catch (MailException $e) {
@@ -258,22 +264,22 @@ class RegistrationService
      * $ficheUrl is the STAFF fiche (/config/inscriptions/demandes/{id}),
      * never the family's tracking url — see submit()'s own note. Only the
      * child's first name and the slot ever appear here, never contact
-     * details (module spec).
+     * details (module spec). `lien_suivi` is not even declared for this
+     * e-mail (module.json), so no text a unit writes can make it appear.
      */
     private function sendUnitAlertEmail(
         string $childFirstName,
         string $targetYearLabel,
         string $slotLabel,
         string $ficheUrl
-    ): void
-    {
+    ): void {
         $alertEmail = (string) $this->settingService->get('registration_unit_alert_email', 'registration', '');
         if ($alertEmail === '') {
             return;
         }
 
-        $template = $this->requestEmailBody(RequestEmailTemplateService::KEY_UNIT_ALERT);
-        $body = RequestEmailTemplateService::substitute($template, [
+        $email = $this->renderer->render(self::UNIT_ALERT_TEMPLATE, [
+            'site_name' => $this->siteName,
             'prenom_enfant' => $childFirstName,
             'annee_scoute' => $targetYearLabel,
             'creneau' => $slotLabel,
@@ -282,15 +288,14 @@ class RegistrationService
         ]);
 
         try {
+            // The default subject keeps the child's first name — public-form
+            // input — out of the Subject header (audit hardening); the body
+            // names the child for staff triage.
             $this->mailService->send(
                 to: $alertEmail,
-                // The child's first name is attacker-supplied public-form input
-                // — keep it out of the Subject header (a social-engineering
-                // surface) and let the body carry it (audit hardening). The
-                // body already names the child for staff triage.
-                subject: "Nouvelle demande d'inscription",
-                bodyHtml: $body,
-                bodyText: RequestEmailService::toPlainText($body)
+                subject: $email->subject,
+                bodyHtml: $email->bodyHtml,
+                bodyText: $email->bodyText
             );
         } catch (MailException $e) {
             $this->journalService->log(
@@ -301,15 +306,5 @@ class RegistrationService
                 ['error' => $e->getMessage()]
             );
         }
-    }
-
-    /**
-     * The body a submission e-mail goes out with: the unit's own, or the
-     * default it ships with — every template has one, so this is never
-     * empty.
-     */
-    private function requestEmailBody(string $key): string
-    {
-        return (new RequestEmailTemplateService($this->editableContentService))->bodyFor($key);
     }
 }

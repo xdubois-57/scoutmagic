@@ -10,8 +10,7 @@ use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Mail\MailService;
 use Core\Security\EncryptionService;
-use Core\View\EditableContentRepository;
-use Core\View\EditableContentService;
+use Core\Mail\Template\EmailTemplateOverrideRepository;
 use Modules\Registration\Repository\DecisionEmail;
 use Modules\Registration\Repository\DecisionEmailRepository;
 use Modules\Registration\Repository\RegistrationRequestRepository;
@@ -38,7 +37,7 @@ class AutomaticDecisionEmailServiceTest extends TestCase
     private \PDO $pdo;
     private EncryptionService $encryption;
     private SettingService $settings;
-    private EditableContentService $content;
+    private EmailTemplateOverrideRepository $emailOverrides;
     private RegistrationRequestRepository $requests;
     private DecisionEmailService $decisionEmails;
     private AutomaticDecisionEmailService $service;
@@ -59,7 +58,7 @@ class AutomaticDecisionEmailServiceTest extends TestCase
         $journal = new JournalService(new JournalRepository($this->pdo));
         $repository = new DecisionEmailRepository($this->pdo);
         $this->requests = new RegistrationRequestRepository($this->pdo, $encryption, null, $repository);
-        $this->content = new EditableContentService(new EditableContentRepository($this->pdo));
+        $this->emailOverrides = new EmailTemplateOverrideRepository($this->pdo);
         $this->decisionEmails = new DecisionEmailService($repository, $journal);
         $this->service = new AutomaticDecisionEmailService($this->settings, $this->decisionEmails);
         $this->yearId = RegistrationTestHelper::insertScoutYear($this->pdo, '2027-2028', '2027-09-01', '2028-08-31');
@@ -287,8 +286,18 @@ class AutomaticDecisionEmailServiceTest extends TestCase
 
     private function writeTemplates(): void
     {
-        $this->content->set('registration_email_accepted_body', '<p>Bienvenue {{ lien_suivi }}</p>', 'rich_text', 1);
-        $this->content->set('registration_email_refused_body', '<p>Désolés {{ lien_suivi }}</p>', 'rich_text', 1);
+        $this->emailOverrides->save(
+            'registration.request_accepted',
+            "Votre demande d'inscription a été acceptée",
+            '<p>Bienvenue {{ lien_suivi }}</p>',
+            null
+        );
+        $this->emailOverrides->save(
+            'registration.request_refused',
+            "Votre demande d'inscription a été refusée",
+            '<p>Désolés {{ lien_suivi }}</p>',
+            null
+        );
     }
 
     private function acceptedRequest(string $firstName = 'Léa'): \Modules\Registration\Repository\RegistrationRequest

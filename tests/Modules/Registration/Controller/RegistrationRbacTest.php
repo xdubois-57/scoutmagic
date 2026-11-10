@@ -151,7 +151,7 @@ class RegistrationRbacTest extends TestCase
         $emailService = new \Modules\Registration\Service\RequestEmailService(
             $requestRepository,
             $mailService,
-            $editableContentService,
+            RegistrationTestHelper::emailRenderer($this->pdo, $journalService),
             $journalService,
             'https://example.com',
             'Unité Test',
@@ -160,10 +160,9 @@ class RegistrationRbacTest extends TestCase
                 $journalService
             )
         );
-        // Both decision e-mails written, so what answers each e-mail
-        // button below is the role check and nothing else.
-        $editableContentService->set('registration_email_accepted_body', '<p>Bienvenue {{ lien_suivi }}</p>', 'rich_text', 1);
-        $editableContentService->set('registration_email_refused_body', '<p>Désolés {{ lien_suivi }}</p>', 'rich_text', 1);
+        // Both decision e-mails ship with a text (module.json `emails`,
+        // issue #905), so what answers each e-mail button below is the role
+        // check and nothing else.
         $decisionService = RegistrationTestHelper::decisionService(
             $this->pdo,
             $encryption,

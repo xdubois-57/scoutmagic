@@ -233,6 +233,32 @@ class RequiredEmailVariableTest extends TestCase
         self::assertSame('Inscription de Léa', $email->subject);
     }
 
+    /**
+     * A variable placed in a link's address puts a value typed on a public
+     * form where the sanitizer's scheme check ran before it was there. The
+     * substituted body is sanitized once more, so a first name spelled
+     * `javascript:…` never becomes the link (carried over from the
+     * registration module's own templates, #905).
+     */
+    public function testAValueSubstitutedIntoALinkCannotBecomeAScript(): void
+    {
+        $this->overrides->save(
+            self::TEMPLATE,
+            'Sujet',
+            '<p><a href="{{ prenom }}">Voir</a> {{ lien }}</p>',
+            null
+        );
+
+        $email = $this->renderer->render(self::TEMPLATE, [
+            'site_name' => 'U',
+            'prenom' => 'javascript:alert(1)',
+            'lien' => 'https://u.be/s/1',
+        ]);
+
+        self::assertStringNotContainsString('javascript:', $email->bodyHtml);
+        self::assertStringContainsString('Voir', $email->bodyHtml);
+    }
+
     private function customisation(): EmailTemplateCustomisationService
     {
         return new EmailTemplateCustomisationService($this->registry, $this->overrides, new HtmlSanitizer());

@@ -16,8 +16,7 @@ use Core\Mail\MailService;
 use Core\ScoutYear\ScoutYearResolver;
 use Core\Security\CsrfGuard;
 use Core\Security\EncryptionService;
-use Core\View\EditableContentRepository;
-use Core\View\EditableContentService;
+use Core\Mail\Template\EmailTemplateOverrideRepository;
 use Modules\Registration\Controller\RequestDecisionController;
 use Modules\Registration\Repository\RegistrationRequestRepository;
 use Modules\Registration\Repository\SlotCapacityRepository;
@@ -43,7 +42,7 @@ class RequestDecisionControllerTest extends TestCase
 {
     private \PDO $pdo;
     private RegistrationRequestRepository $requests;
-    private EditableContentService $content;
+    private EmailTemplateOverrideRepository $emailOverrides;
     private RequestDecisionController $controller;
     private int $pastYearId;
     private int $targetYearId;
@@ -74,7 +73,7 @@ class RequestDecisionControllerTest extends TestCase
 
         $this->requests = new RegistrationRequestRepository($this->pdo, $encryption);
         $journal = new JournalService(new JournalRepository($this->pdo));
-        $this->content = new EditableContentService(new EditableContentRepository($this->pdo));
+        $this->emailOverrides = new EmailTemplateOverrideRepository($this->pdo);
         $decisions = RegistrationTestHelper::decisionService(
             $this->pdo,
             $encryption,
@@ -148,7 +147,12 @@ class RequestDecisionControllerTest extends TestCase
     public function testRefusingWithItsReasonSaysNoEmailLeft(): void
     {
         $id = $this->file();
-        $this->content->set('registration_email_refused_body', '<p>Désolés {{ lien_suivi }}</p>', 'rich_text', 1);
+        $this->emailOverrides->save(
+            'registration.request_refused',
+            "Votre demande d'inscription a été refusée",
+            '<p>Désolés {{ lien_suivi }}</p>',
+            null
+        );
 
         $this->post($id, ['decision' => 'refuse', 'refusal_reason' => 'no_room', 'internal_notes' => '']);
 
