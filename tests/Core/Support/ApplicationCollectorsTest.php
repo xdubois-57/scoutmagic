@@ -260,7 +260,7 @@ class ApplicationCollectorsTest extends TestCase
 
         $this->assertSame(['recent_event', 'still_inside_the_window'], $types, 'inside the window, newest first');
         $digest = $entries['event-journal-resume.txt'];
-        $this->assertStringContainsString('résumé des 7 jours derniers', $digest);
+        $this->assertStringContainsString('résumé des 7 derniers jours', $digest);
         $this->assertStringContainsString('Total : 2 entrée(s)', $digest);
         $this->assertStringContainsString('still_inside_the_window', $digest);
         $this->assertStringNotContainsString('too_old_event', $digest);
@@ -289,6 +289,51 @@ class ApplicationCollectorsTest extends TestCase
             $result['entries']['event-journal-resume.txt']
         );
         $this->assertContains('Le journal n\'est conservé que 3 jour(s) sur cette installation', $result['notes']);
+    }
+
+    /**
+     * A flooded week: the detail stops at MAX_ROWS in the query itself, the
+     * newest kept, and the digest still counts every entry — the counts are
+     * the database's, not the rows read.
+     */
+    public function testAFloodedWeekIsTruncatedInTheDetailAndCountedWholeInTheDigest(): void
+    {
+        $this->pdo->beginTransaction();
+        $stmt = $this->pdo->prepare(
+            "INSERT INTO event_log (logged_at, category, event_type, level, description) VALUES (?, 'core', ?, 'info', 'x')"
+        );
+        $start = new \DateTimeImmutable('-1 day');
+        for ($i = 0; $i <= EventJournalCollector::MAX_ROWS; $i++) {
+            $stmt->execute([$start->modify('+' . $i . ' seconds')->format('Y-m-d H:i:s'), $i === EventJournalCollector::MAX_ROWS ? 'newest' : 'looping_task']);
+        }
+        $this->pdo->commit();
+
+        $result = $this->runCollector(new EventJournalCollector());
+        $rows = $this->readSheet($result['entries']['event-journal.xlsx']);
+
+        $this->assertCount(EventJournalCollector::MAX_ROWS + 1, $rows, 'header plus MAX_ROWS entries');
+        $this->assertSame('newest', $rows[1][4]);
+        $this->assertStringContainsString('Total : ' . (EventJournalCollector::MAX_ROWS + 1) . ' entrée(s)', $result['entries']['event-journal-resume.txt']);
+        $this->assertStringContainsString('Le détail ne reprend que les ' . EventJournalCollector::MAX_ROWS, $result['entries']['event-journal-resume.txt']);
+    }
+
+    /** Long contexts: the text budget stops the detail before the row cap does, newest first. */
+    public function testLongEntriesAreBoundedByTheirTextNotOnlyByTheirNumber(): void
+    {
+        $context = str_repeat('x', 1024 * 1024);
+        $stmt = $this->pdo->prepare(
+            "INSERT INTO event_log (logged_at, category, event_type, level, description, context) VALUES (?, 'core', ?, 'error', 'x', ?)"
+        );
+        for ($i = 0; $i < 12; $i++) {
+            $stmt->execute([(new \DateTimeImmutable('-' . (12 - $i) . ' minutes'))->format('Y-m-d H:i:s'), 'trace_' . $i, $context]);
+        }
+
+        $result = $this->runCollector(new EventJournalCollector());
+        $rows = $this->readSheet($result['entries']['event-journal.xlsx']);
+
+        $this->assertLessThan(13, count($rows), 'the twelve megabytes were all kept');
+        $this->assertSame('trace_11', $rows[1][4], 'the newest first');
+        $this->assertStringContainsString('Total : 12 entrée(s)', $result['entries']['event-journal-resume.txt']);
     }
 
     public function testAWeekOfJournalSaysNothingAboutRetentionWhenItIsKept(): void

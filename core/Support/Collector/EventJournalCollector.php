@@ -31,10 +31,12 @@ use Core\Export\TabularSpreadsheet;
  * actually goes rather than announcing a span the database no longer
  * holds.
  *
- * Read row by row rather than through `fetchAll()`, and bounded at
- * MAX_ROWS: a week of a journal flooded by a looping task (24 896 entries
- * in 48 hours on one installation, §8.5) must not exhaust the memory of
- * the job that is meant to diagnose it.
+ * The detail is bounded at MAX_ROWS **in the SQL** and at MAX_DETAIL_BYTES
+ * of text, the newest kept, and the digest's counts
+ * are aggregates the database computes: a week of a journal flooded by a
+ * looping task (24 896 entries in 48 hours on one installation, §8.5) must
+ * not exhaust the memory of the job meant to diagnose it, and mysqlnd
+ * buffers a whole result set at execute(), before any PHP cap could act.
  *
  * The journal contains no personal data by construction (SECURITY.md §11 —
  * entries reference a member by id, never by name), but it does carry
@@ -47,7 +49,14 @@ class EventJournalCollector implements SupportCollectorInterface
      * A ceiling well above any healthy week, which a journal flooded by a
      * runaway task still reaches; the newest rows are the ones kept.
      */
-    public const MAX_ROWS = 50000;
+    public const MAX_ROWS = 10000;
+
+    /**
+     * And at most this much text in the detail: a row count alone does not
+     * bound memory when entries carry long contexts — a stack trace each —
+     * and the workbook holds every cell at once while it is written.
+     */
+    public const MAX_DETAIL_BYTES = 8 * 1024 * 1024;
 
     /** What `public/cron.php` purges after when the setting is empty. */
     private const DEFAULT_RETENTION_DAYS = 730;
@@ -59,28 +68,47 @@ class EventJournalCollector implements SupportCollectorInterface
 
     public function collect(SupportCollectorContext $context): void
     {
-        $stmt = $context->pdo()->prepare(
-            'SELECT logged_at, user_account_id, ip_address, category, event_type, level, description, context
-             FROM event_log
-             WHERE logged_at >= ?
-             ORDER BY logged_at DESC, id DESC'
-        );
-        $stmt->execute([DiagnosticWindow::cutoff()]);
+        $cutoff = DiagnosticWindow::cutoff();
+        $pdo = $context->pdo();
 
-        $rows = [];
+        // The counts come from the database, never from the rows read: the
+        // detail stops at MAX_ROWS in the SQL itself, because mysqlnd
+        // buffers a whole result set at execute() and a cap applied in PHP
+        // would come after the memory was spent.
         $byType = [];
         $byLevel = [];
         $total = 0;
-        $oldest = null;
+        $counts = $pdo->prepare(
+            'SELECT event_type, level, COUNT(*) AS n FROM event_log WHERE logged_at >= ? GROUP BY event_type, level'
+        );
+        $counts->execute([$cutoff]);
+        foreach ($counts->fetchAll(\PDO::FETCH_ASSOC) ?: [] as $count) {
+            $type = self::asString($count['event_type'] ?? null);
+            $level = self::asString($count['level'] ?? null);
+            $n = (int) ($count['n'] ?? 0);
+            $byType[$type] = ($byType[$type] ?? 0) + $n;
+            $byLevel[$level] = ($byLevel[$level] ?? 0) + $n;
+            $total += $n;
+        }
+        $oldestQuery = $pdo->prepare('SELECT MIN(logged_at) FROM event_log WHERE logged_at >= ?');
+        $oldestQuery->execute([$cutoff]);
+        $oldest = self::asString($oldestQuery->fetchColumn());
+
+        $stmt = $pdo->prepare(
+            'SELECT logged_at, user_account_id, ip_address, category, event_type, level, description, context
+             FROM event_log
+             WHERE logged_at >= ?
+             ORDER BY logged_at DESC, id DESC
+             LIMIT ' . self::MAX_ROWS
+        );
+        $stmt->execute([$cutoff]);
+
+        $rows = [];
+        $bytes = 0;
         while (($entry = $stmt->fetch(\PDO::FETCH_ASSOC)) !== false) {
-            $total++;
-            $type = self::asString($entry['event_type'] ?? null);
-            $level = self::asString($entry['level'] ?? null);
-            $byType[$type] = ($byType[$type] ?? 0) + 1;
-            $byLevel[$level] = ($byLevel[$level] ?? 0) + 1;
-            $oldest = self::asString($entry['logged_at'] ?? null);
-            if (count($rows) >= self::MAX_ROWS) {
-                continue;
+            $bytes += array_sum(array_map(static fn(mixed $cell): int => strlen(self::asString($cell)), $entry));
+            if ($bytes > self::MAX_DETAIL_BYTES && $rows !== []) {
+                break;
             }
             $rows[] = [
                 self::localTimestamp(self::asString($entry['logged_at'] ?? null)),
@@ -104,7 +132,7 @@ class EventJournalCollector implements SupportCollectorInterface
         }
         if ($total > count($rows)) {
             $context->addNote(
-                'Détail tronqué aux ' . self::MAX_ROWS . ' entrées les plus récentes ; '
+                'Détail tronqué aux ' . count($rows) . ' entrées les plus récentes ; '
                 . 'le résumé les compte toutes'
             );
         }
@@ -168,7 +196,7 @@ class EventJournalCollector implements SupportCollectorInterface
         arsort($byLevel);
 
         $lines = [
-            '# Journal des événements — résumé des ' . DiagnosticWindow::label() . ' derniers',
+            '# Journal des événements — résumé des ' . DiagnosticWindow::DAYS . ' derniers jours',
             '# Le détail ligne à ligne est dans event-journal.xlsx.',
             '',
             "Total : {$total} entrée(s)",
