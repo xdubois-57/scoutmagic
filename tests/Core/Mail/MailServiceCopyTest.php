@@ -269,8 +269,11 @@ class MailServiceCopyTest extends TestCase
      * used to be built from an empty list: the relay refused the family,
      * the guard did not know it was the family, and the copy received the
      * DATA alone. The relay here is built from the list the transport
-     * really hands over.
+     * really hands over. It needs intl: without it the domain cannot be
+     * encoded at all, and the send fails before the relay — the case the
+     * next test pins.
      */
+    #[\PHPUnit\Framework\Attributes\RequiresPhpExtension('intl')]
     public function testARefusedInternationalisedRecipientSendsNothingToTheCopy(): void
     {
         $punycode = 'famille@' . idn_to_ascii('exämple.be', IDNA_DEFAULT, INTL_IDNA_VARIANT_UTS46);
@@ -299,7 +302,8 @@ class MailServiceCopyTest extends TestCase
             $this->service($transport, null, null, 'smtp')
                 ->send('famille@exämple.be', 'Sujet', '<p>x</p>', 'x', cc: 'unite@exemple.test');
             $this->fail('A refused recipient must fail the message.');
-        } catch (MailException) {
+        } catch (MailException $e) {
+            $this->assertStringContainsString('550 5.1.1', $e->getMessage());
         }
 
         $this->assertNotNull($relay, 'the message carrying a copy went through the guarded session.');
@@ -322,7 +326,8 @@ class MailServiceCopyTest extends TestCase
             $this->service($transport)
                 ->send('famille@-exämple.be', 'Sujet', '<p>x</p>', 'x', cc: 'unite@exemple.test');
             $this->fail('An address that cannot be written on the envelope must fail the send.');
-        } catch (MailException) {
+        } catch (MailException $e) {
+            $this->assertSame('An address domain could not be encoded for sending.', $e->getMessage());
         }
 
         $this->assertSame(0, $transport->calls, 'nothing was handed to the transport.');
