@@ -110,7 +110,11 @@ use Core\Storage\Location\StoredObject;
  * The warning belongs on this location's own card, which is where the
  * screen puts it.
  */
-final class GoogleDriveBackend implements ResumableUploadBackend, QuotaReportingBackend, ManagedRootFolderBackend
+final class GoogleDriveBackend implements
+    ResumableUploadBackend,
+    RangeReadableBackend,
+    QuotaReportingBackend,
+    ManagedRootFolderBackend
 {
     /**
      * Three, and what is absent is as informative as what is there.
@@ -143,6 +147,9 @@ final class GoogleDriveBackend implements ResumableUploadBackend, QuotaReporting
             StorageCapability::ResumableUpload,
             StorageCapability::Quota,
             StorageCapability::Checksum,
+            // Since #847 part 4, which brings an off-site archive back in
+            // slices. A video in an album on Drive becomes seekable with it.
+            StorageCapability::RangeRead,
         ];
     }
 
@@ -310,6 +317,16 @@ final class GoogleDriveBackend implements ResumableUploadBackend, QuotaReporting
         }
 
         return $this->client->download($this->accessToken(), $file['id']);
+    }
+
+    public function getRange(string $key, int $offset, int $length): string
+    {
+        $file = $this->metadataFor($key);
+        if ($file === null) {
+            throw new \RuntimeException("Stored file not found: {$key}");
+        }
+
+        return $this->client->downloadRange($this->accessToken(), $file['id'], $offset, $length);
     }
 
     public function size(string $key): ?int

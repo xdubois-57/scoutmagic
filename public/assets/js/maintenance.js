@@ -640,6 +640,22 @@
     if (backupSelect) backupSelect.addEventListener('change', toggleRestoreSource);
     toggleRestoreSource();
 
+    // « Annuler cette restauration » (#847, part 3): the copy taken before
+    // the last restore, chosen in the form below, which still asks for
+    // RESTAURER and confirms.
+    document.querySelectorAll('[data-undo-restore]').forEach(function (button) {
+        button.addEventListener('click', function () {
+            var id = /** @type {HTMLElement} */ (button).dataset.undoRestore || '';
+            if (!backupSelect || backupSelect.disabled) return;
+            var serverRadio = /** @type {HTMLInputElement|null} */ (sourceServerRadio);
+            if (serverRadio) serverRadio.checked = true;
+            backupSelect.value = id;
+            toggleRestoreSource();
+            document.getElementById('maintenance-restore')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            document.getElementById('restore-backup-keyword')?.focus();
+        });
+    });
+
     var restoreForm = /** @type {HTMLFormElement | null} */ (document.getElementById('restore-backup-form'));
     if (restoreForm) {
         // The dialog is asynchronous, so the browser's own submission can
@@ -1082,6 +1098,98 @@
                 output.classList.remove('d-none');
             });
     }
+
+    // ——— Copies hors site (#847, part 4) ———
+    //
+    // The card loads itself once the page is shown: listing a destination
+    // is a network call, and the page does not wait on it. While a copy is
+    // brought back or restored (data-remote-busy), it is read again every
+    // few seconds; the page can be closed meanwhile.
+    var remoteCopies = document.getElementById('remote-copies');
+    var REMOTE_POLL_MS = 4000;
+
+    /** @returns {void} */
+    function loadRemoteCopies() {
+        if (!remoteCopies) return;
+        var url = remoteCopies.dataset.remoteCopiesUrl || '';
+        fetch(url, { credentials: 'same-origin', headers: { Accept: 'text/html' } })
+            .then(function (response) {
+                // Signed out by the restore that just finished: the page
+                // itself says how it went once signed in again.
+                if (response.redirected) {
+                    window.location.reload();
+                    return Promise.reject(new Error('redirected'));
+                }
+                return response.ok ? response.text() : Promise.reject(new Error(String(response.status)));
+            })
+            .then(function (html) {
+                if (!remoteCopies) return;
+                remoteCopies.innerHTML = html;
+                wireRemoteCopies();
+                if (remoteCopies.querySelector('[data-remote-busy]')) {
+                    window.setTimeout(loadRemoteCopies, REMOTE_POLL_MS);
+                }
+            }, function () {
+                if (!remoteCopies) return;
+                remoteCopies.textContent = 'Les copies hors site n\'ont pas pu être lues.';
+            });
+    }
+
+    /** @returns {void} */
+    function wireRemoteCopies() {
+        if (!remoteCopies) return;
+        remoteCopies.querySelector('[data-remote-retry]')?.addEventListener('click', loadRemoteCopies);
+
+        var form = /** @type {HTMLFormElement|null} */ (remoteCopies.querySelector('#remote-restore-form'));
+        if (!form) return;
+        var nameInput = /** @type {HTMLInputElement} */ (form.querySelector('#remote-restore-name'));
+        var phraseField = form.querySelector('#remote-restore-phrase-field');
+        var phraseInput = /** @type {HTMLInputElement} */ (form.querySelector('#remote-restore-phrase'));
+        var keywordInput = /** @type {HTMLInputElement} */ (form.querySelector('#remote-restore-keyword'));
+        var submit = /** @type {HTMLButtonElement} */ (form.querySelector('#remote-restore-submit'));
+        var errorEl = form.querySelector('#remote-restore-error');
+
+        remoteCopies.querySelectorAll('[data-remote-restore]').forEach(function (button) {
+            button.addEventListener('click', function () {
+                var el = /** @type {HTMLElement} */ (button);
+                nameInput.value = el.dataset.remoteRestore || '';
+                phraseField?.classList.toggle('d-none', el.dataset.remoteCurrent === '1');
+                phraseInput.value = '';
+                keywordInput.value = '';
+                errorEl?.classList.add('d-none');
+                el.closest('li')?.after(form);
+                form.classList.remove('d-none');
+                keywordInput.focus();
+            });
+        });
+
+        form.addEventListener('submit', function (event) {
+            event.preventDefault();
+            var showError = function (/** @type {string} */ message) {
+                if (!errorEl) return;
+                errorEl.textContent = message;
+                errorEl.classList.remove('d-none');
+            };
+            if (keywordInput.value !== 'RESTAURER') {
+                showError('Tapez RESTAURER pour confirmer.');
+                return;
+            }
+            submit.disabled = true;
+            void window.ScoutMagicApi.postJson('/config/maintenance/remote-backup/restore', {
+                name: nameInput.value,
+                passphrase: phraseInput.value,
+                confirm_keyword: keywordInput.value
+            }).then(function (res) {
+                submit.disabled = false;
+                if (!res.data?.success) {
+                    showError(res.data?.message || 'La restauration n\'a pas pu être lancée.');
+                    return;
+                }
+                loadRemoteCopies();
+            });
+        });
+    }
+    loadRemoteCopies();
 
     // Resume polling after a reload of the page while a restore runs, or
     // after the redirect of a plain form POST.

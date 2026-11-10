@@ -51,6 +51,33 @@ final class PortableBackupLingerCheckTest extends TestCase
         ))->read();
     }
 
+    /** An off-site copy kept after a wrong phrase is a portable archive too, past its day (#847, part 4). */
+    public function testAFetchedCopyKeptPastItsDayIsReported(): void
+    {
+        $storage = sys_get_temp_dir() . '/linger_' . bin2hex(random_bytes(6));
+        @mkdir($storage . '/temp', 0700, true);
+        $copy = \Core\Maintenance\Task\FetchRemoteBackupHandler::newTempPath($storage);
+        file_put_contents($copy, 'archive');
+        $now = new \DateTimeImmutable('2026-09-10 12:00:00', new \DateTimeZone('UTC'));
+        $record = static fn(int $at): int|false => file_put_contents(
+            $storage . '/temp/remote_copy_held.json',
+            (string) json_encode(['path' => $copy, 'name' => 'scoutmagic-x-g1.zip', 'at' => $at])
+        );
+
+        try {
+            $record($now->getTimestamp() - 3600);
+            $fresh = (new PortableBackupLingerCheck($this->backups, $now, $storage))->read();
+            $this->assertFalse($fresh->overTrigger, 'within its day');
+
+            $record($now->getTimestamp() - 2 * 86400);
+            $stale = (new PortableBackupLingerCheck($this->backups, $now, $storage))->read();
+            $this->assertTrue($stale->overTrigger);
+            $this->assertSame('Une copie hors site rapatriée est restée sur le serveur.', $stale->title);
+        } finally {
+            exec('rm -rf ' . escapeshellarg($storage));
+        }
+    }
+
     public function testNothingOnTheServerIsTheStateThisCheckWants(): void
     {
         $reading = $this->read();

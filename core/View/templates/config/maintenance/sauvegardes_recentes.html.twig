@@ -4,6 +4,9 @@
 {% block maintenance_title %}Sauvegardes récentes{% endblock %}
 
 {% block maintenance_content %}
+    {% if restore_completed %}
+        <div class="alert alert-success" role="status" id="restore-completed">{{ restore_completed }}</div>
+    {% endif %}
     {# ————— Sauvegardes récentes —————
 
        One list sorted by date, families mixed: one looks here for « the
@@ -40,6 +43,22 @@
                         </button>
                     {% endif %}
                 {% endif %}
+            </div>
+        </div>
+    </div>
+
+    {# ————— Copies hors site (#847, part 4) —————
+
+       Loaded by maintenance.js once the page is shown: the list is read
+       on the destination, which can be slow or out of reach, and the
+       page must not wait on it. #}
+    <div class="card mb-4" id="maintenance-remote-copies">
+        <div class="card-body">
+            {{ m.section_header('Copies hors site') }}
+            <div class="mt-3" id="maintenance-remote-copies-body">
+                <div id="remote-copies" data-remote-copies-url="/config/maintenance/remote-backup/archives" aria-live="polite">
+                    <p class="small text-body-secondary mb-0" data-remote-state="loading">Lecture des copies sur la destination…</p>
+                </div>
             </div>
         </div>
     </div>
@@ -113,7 +132,7 @@
                                out. #}
                             {% for backup in backups %}
                                 {% if backup.canRestore %}
-                                    <option value="{{ backup.id }}"{% if backup.needsTypedPassword %} data-needs-password="1"{% endif %}{% if backup.configNote %} data-config-note="{{ backup.configNote }}"{% endif %}>{{ backup.typeLabel }} — {{ backup.createdAt }}</option>
+                                    <option value="{{ backup.id }}"{% if backup.needsTypedPassword %} data-needs-password="1"{% endif %}{% if backup.configNote %} data-config-note="{{ backup.configNote }}"{% endif %}>{% if backup.undoesRestore %}Annuler la dernière restauration — copie du {{ backup.createdAt }}{% else %}{{ backup.typeLabel }} — {{ backup.createdAt }}{% endif %}</option>
                                 {% endif %}
                             {% endfor %}
                         </select>

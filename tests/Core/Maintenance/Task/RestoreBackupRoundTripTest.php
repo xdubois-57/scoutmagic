@@ -13,7 +13,9 @@ use Core\Journal\JournalService;
 use Core\Mail\MailService;
 use Core\Maintenance\BackupRepository;
 use Core\Maintenance\BackupService;
+use Core\Maintenance\Remote\RemoteBackupDestination;
 use Core\Maintenance\Task\RestoreBackupHandler;
+use Core\Maintenance\Task\SendRemoteBackupHandler;
 use Core\Scheduler\TaskContext;
 use Core\Security\EncryptionService;
 use Core\Security\UserAccountRepository;
@@ -133,14 +135,14 @@ class RestoreBackupRoundTripTest extends TestCase
     public function testAConfigurationRestoreBringsBackOnlyTheConfiguration(): void
     {
         $settings = new SettingService(new SettingRepository($this->pdo()));
-        $settings->register('remote_backup_location_id', '', 'text', 'Destination', 'Fixture.');
+        $settings->register('backup_remote_location_id', '', 'text', 'Destination', 'Fixture.');
         $this->setUnitName('Unité du Chêne');
-        $settings->set('remote_backup_location_id', '3');
+        $settings->set('backup_remote_location_id', '3');
         $this->pdo()->exec("INSERT INTO module_registry (module_id, enabled, installed_version) VALUES ('news', 1, '1.0.0')");
         $backupId = $this->takeEncryptedServerBackup('full_config');
 
         $this->setUnitName('Unité renommée par erreur');
-        $settings->set('remote_backup_location_id', '9');
+        $settings->set('backup_remote_location_id', '9');
         $this->pdo()->exec("UPDATE module_registry SET enabled = 0, installed_version = '2.0.0' WHERE module_id = 'news'");
         $this->pdo()->exec("INSERT INTO members (desk_id) VALUES ('APRES-LA-SAUVEGARDE')");
         $this->pdo()->exec(
@@ -161,7 +163,9 @@ class RestoreBackupRoundTripTest extends TestCase
         );
         $this->assertSame(
             '9',
-            (string) $this->pdo()->query("SELECT setting_value FROM settings WHERE setting_key = 'remote_backup_location_id'")->fetchColumn(),
+            (string) $this->pdo()
+                ->query("SELECT setting_value FROM settings WHERE setting_key = 'backup_remote_location_id'")
+                ->fetchColumn(),
             'the off-site destination is this server\'s, kept as it is today'
         );
         $this->assertSame(
@@ -399,6 +403,243 @@ class RestoreBackupRoundTripTest extends TestCase
             (int) $this->pdo()->query("SELECT COUNT(*) FROM settings WHERE setting_key = 'ajoute_apres'")->fetchColumn(),
             'A restore is a return to a moment, not a merge with it.'
         );
+    }
+
+    // ── today's state (#847, part 3) ──────────────────────────────────
+
+    /**
+     * The list of backups is this server's, not the restored date's: a
+     * backup taken after the restored one stays, the copy taken just
+     * before the restore is listed under its own type, and the backup
+     * restored from is still there.
+     */
+    public function testTheBackupListAfterARestoreIsTodays(): void
+    {
+        $backupId = $this->takeServerBackup();
+        $laterId = $this->takeServerBackup();
+
+        $this->restore(['source' => 'server', 'backup_id' => $backupId]);
+        $this->runResumedPasses();
+
+        $types = $this->pdo()->query('SELECT id, type FROM backups ORDER BY id')->fetchAll(\PDO::FETCH_KEY_PAIR);
+        $this->assertArrayHasKey($backupId, $types);
+        $this->assertArrayHasKey($laterId, $types, 'a backup taken after the restored one must not vanish');
+        $this->assertContains(RestoreBackupHandler::SAFETY_TYPE, $types, 'the copy taken before the restore');
+        $this->assertContains('restore_state_kept', $this->journalTypes());
+        $restored = (new JournalRepository($this->pdo()))->findLatestEvent('core', 'backup_restored');
+        $this->assertIsArray($restored);
+        $this->assertMatchesRegularExpression(
+            '~^\d{1,2} \p{L}+ \d{4} à \d{2}:\d{2}$~u',
+            (string) (json_decode((string) $restored['context'], true)['restored_from'] ?? ''),
+            'the date the site went back to, for the message after the restore'
+        );
+
+        // And each row still points at a file that exists.
+        $files = new FileRepository($this->pdo());
+        foreach ((new BackupRepository($this->pdo()))->findAllNewestFirst() as $backup) {
+            foreach ([$backup->fileId, $backup->dbDumpFileId] as $fileId) {
+                if ($fileId !== null) {
+                    $file = $files->findById($fileId);
+                    $this->assertNotNull($file, 'backup ' . $backup->id . ' lost its files row');
+                    $this->assertFileExists($this->storagePath . '/' . $file->relativePath);
+                }
+            }
+        }
+        $this->assertSame([], glob($this->storagePath . '/temp/restore_state_*') ?: []);
+    }
+
+    /** The incident that motivated the restore stays in the journal, before the restore's own lines. */
+    public function testTheJournalKeepsTodaysLinesAndTheRestoresOwn(): void
+    {
+        $backupId = $this->takeServerBackup();
+        $this->context()->journal->log('core', 'incident_du_jour', 'error', 'Le problème qui motive la restauration');
+
+        $this->restore(['source' => 'server', 'backup_id' => $backupId]);
+        $this->runResumedPasses();
+
+        $ids = $this->pdo()->query('SELECT event_type, MIN(id) FROM event_log GROUP BY event_type')
+            ->fetchAll(\PDO::FETCH_KEY_PAIR);
+        $this->assertArrayHasKey('incident_du_jour', $ids);
+        $this->assertArrayHasKey('backup_restored', $ids);
+        $this->assertArrayHasKey('restore_tasks_reset', $ids, 'a line the restore wrote before the put-back');
+        $this->assertLessThan($ids['restore_tasks_reset'], $ids['incident_du_jour']);
+        $this->assertLessThan($ids['backup_restored'], $ids['restore_tasks_reset']);
+    }
+
+    /** The off-site destination chosen after the backup is still the one in use. */
+    public function testTheOffSiteDestinationStaysAsToday(): void
+    {
+        $this->declareDrive(2, 'dossier-hors-site');
+        $settings = new SettingService(new SettingRepository($this->pdo()));
+        $settings->register(RemoteBackupDestination::LOCATION_SETTING, '', 'text', 'Destination', 'Fixture.');
+        $backupId = $this->takeServerBackup();
+        $settings->set(RemoteBackupDestination::LOCATION_SETTING, '2');
+
+        $this->restore(['source' => 'server', 'backup_id' => $backupId]);
+        $this->runResumedPasses();
+
+        $this->assertSame(
+            '2',
+            (string) $this->pdo()->query(
+                "SELECT setting_value FROM settings WHERE setting_key = '"
+                    . RemoteBackupDestination::LOCATION_SETTING . "'"
+            )->fetchColumn()
+        );
+        // And a copy of the restored state leaves now, not at the next slot.
+        $this->assertSame(
+            1,
+            (int) $this->pdo()->query(
+                "SELECT COUNT(*) FROM scheduled_actions WHERE task_key = '" . SendRemoteBackupHandler::TASK_KEY . "'
+                 AND status = 'pending' AND run_at <= NOW() + INTERVAL 1 MINUTE"
+            )->fetchColumn()
+        );
+    }
+
+    /** A restore that fails sends nothing: the site is as it was. */
+    public function testNoOffSiteSendFollowsAFailedRestore(): void
+    {
+        $settings = new SettingService(new SettingRepository($this->pdo()));
+        $settings->register(RemoteBackupDestination::LOCATION_SETTING, '2', 'text', 'Destination', 'Fixture.');
+        $backupId = $this->takeServerBackup();
+
+        $this->restore(['source' => 'server', 'backup_id' => $backupId]);
+        @unlink((string) $this->resumePayload()['restore_state_hold']);
+        $this->runResumedPasses();
+
+        $this->assertSame(
+            0,
+            (int) $this->pdo()->query(
+                "SELECT COUNT(*) FROM scheduled_actions WHERE task_key = '" . SendRemoteBackupHandler::TASK_KEY . "'
+                 AND status = 'pending'"
+            )->fetchColumn()
+        );
+    }
+
+    /**
+     * Nothing of the restored date keeps running: its chains are re-armed
+     * fresh, with an empty payload, and its one-shot tasks are dropped —
+     * all of it said in the journal.
+     */
+    public function testTheTasksOfTheRestoredDateStartFromACleanState(): void
+    {
+        $this->pdo()->exec(
+            "INSERT INTO scheduled_actions (module_id, task_key, reference, payload, run_at, status) VALUES
+             ('core', 'chaine_du_jour', 'auto', '{\"curseur\": 42}', '2030-01-01 03:00:00', 'processing'),
+             ('core', 'tache_ponctuelle', NULL, NULL, '2030-01-01 03:00:00', 'pending')"
+        );
+        $backupId = $this->takeServerBackup();
+
+        $this->restore(['source' => 'server', 'backup_id' => $backupId]);
+        $this->runResumedPasses();
+
+        $live = $this->pdo()->query(
+            "SELECT task_key, reference, payload, run_at, status FROM scheduled_actions
+             WHERE status IN ('pending', 'processing') AND task_key <> '" . SendRemoteBackupHandler::TASK_KEY . "'"
+        )->fetchAll(\PDO::FETCH_ASSOC);
+        $this->assertCount(1, $live);
+        $this->assertSame('chaine_du_jour', $live[0]['task_key']);
+        $this->assertSame('pending', $live[0]['status']);
+        $this->assertNull($live[0]['payload']);
+        $this->assertSame('2030-01-01 03:00:00', $live[0]['run_at']);
+        $this->assertContains('restore_tasks_reset', $this->journalTypes());
+    }
+
+    /**
+     * The id of the running restore is not handed to another row: the
+     * scheduler marks that id done once the pass returns, and a resume
+     * pass or a chain under it would be marked done without ever running.
+     */
+    public function testTheRunningRestoreKeepsItsOwnRow(): void
+    {
+        $backupId = $this->takeServerBackup();
+        $this->pdo()->exec(
+            "INSERT INTO scheduled_actions (module_id, task_key, run_at, status)
+             VALUES ('core', 'restore_backup', NOW(), 'processing')"
+        );
+        $runningId = (int) $this->pdo()->lastInsertId();
+
+        $this->restore(['source' => 'server', 'backup_id' => $backupId, 'scheduled_action_id' => $runningId]);
+
+        $row = $this->pdo()->query("SELECT task_key, status, payload FROM scheduled_actions WHERE id = {$runningId}")
+            ->fetch(\PDO::FETCH_ASSOC);
+        $this->assertIsArray($row);
+        $this->assertSame('processing', $row['status']);
+        $this->assertNull($row['payload'], 'this is the running row, not the resume pass');
+        $this->assertNotSame([], $this->resumePayload());
+    }
+
+    /**
+     * The put-back cannot fail quietly: without it the list would be the
+     * restored date's and the safety copy gone from it. The restore rolls
+     * back, the journal says why, and the copy is listed.
+     */
+    public function testAPutBackThatFailsRollsTheRestoreBack(): void
+    {
+        $this->setUnitName('Unité du Chêne');
+        $backupId = $this->takeServerBackup();
+        $this->setUnitName('Unité d\'aujourd\'hui');
+
+        $this->restore(['source' => 'server', 'backup_id' => $backupId]);
+        @unlink((string) $this->resumePayload()['restore_state_hold']);
+        $this->runResumedPasses();
+
+        $this->assertSame('Unité d\'aujourd\'hui', $this->unitName());
+        $types = $this->journalTypes();
+        $this->assertContains('restore_state_keep_failed', $types);
+        $this->assertContains('backup_restore_rolled_back', $types);
+        $this->assertNotContains('backup_restored', $types);
+        $this->assertSame(
+            1,
+            (int) $this->pdo()->query(
+                "SELECT COUNT(*) FROM backups WHERE type = '" . RestoreBackupHandler::SAFETY_TYPE . "'"
+            )->fetchColumn()
+        );
+    }
+
+    /** A send under way stops before the safety copy: its local archive goes, and the journal says so. */
+    public function testAnOffSiteSendUnderWayIsInterrupted(): void
+    {
+        $archive = $this->storagePath . '/maintenance/hors_site_en_cours.zip';
+        @mkdir(dirname($archive), 0o777, true);
+        file_put_contents($archive, 'archive portable');
+        $this->pdo()->prepare(
+            "INSERT INTO scheduled_actions (module_id, task_key, reference, payload, run_at, status)
+             VALUES ('core', ?, 'auto', ?, NOW(), 'pending')"
+        )->execute([
+            SendRemoteBackupHandler::TASK_KEY,
+            json_encode(['archive_path' => $archive, 'remote_name' => 'copie.zip', 'location_id' => 0]),
+        ]);
+        $backupId = $this->takeServerBackup();
+
+        $this->restore(['source' => 'server', 'backup_id' => $backupId]);
+
+        $this->assertFileDoesNotExist($archive);
+        $this->runResumedPasses();
+        $this->assertContains('remote_backup_interrupted', $this->journalTypes());
+    }
+
+    /**
+     * A restore that fails rolls back to a dump taken before its safety
+     * copy's row existed — the row comes back, so the copy stays listed
+     * and purgeable.
+     */
+    public function testARestoreThatFailsKeepsItsSafetyCopyListed(): void
+    {
+        $upload = $this->storagePath . '/corrompu.zip';
+        $zip = new \ZipArchive();
+        $zip->open($upload, \ZipArchive::CREATE);
+        $zip->addFromString('database.sql', 'CECI N\'EST PAS DU SQL;');
+        $zip->close();
+
+        $this->restore(['source' => 'upload', 'uploaded_temp_path' => $upload]);
+
+        $this->assertContains('backup_restore_rolled_back', $this->journalTypes());
+        $safety = $this->pdo()->query(
+            "SELECT file_id, db_dump_file_id FROM backups WHERE type = '" . RestoreBackupHandler::SAFETY_TYPE . "'"
+        )->fetch(\PDO::FETCH_ASSOC);
+        $this->assertIsArray($safety, 'the safety copy is on the disk and must be in the list');
+        $this->assertNotNull($safety['file_id']);
+        $this->assertSame([], glob($this->storagePath . '/temp/restore_state_*') ?: []);
     }
 
     // ── the storage bindings (#832) ───────────────────────────────────
@@ -871,7 +1112,7 @@ class RestoreBackupRoundTripTest extends TestCase
         $files = new FileRepository($this->pdo());
 
         // More than the purge keeps of the family a restore's own purge
-        // touches — 'auto_reset', the safety copy this pass takes — each
+        // touches — 'auto_restore', the safety copy this pass takes — each
         // pointing at a file, so the purge actually reaches for the table.
         // The family matters since IT-04: a purge triggered by an
         // operational backup no longer walks the manual ones, so seven
@@ -1009,7 +1250,7 @@ class RestoreBackupRoundTripTest extends TestCase
     private function resumePayload(): array
     {
         $raw = $this->pdo()
-            ->query("SELECT payload FROM scheduled_actions WHERE task_key = 'restore_backup'")
+            ->query("SELECT payload FROM scheduled_actions WHERE task_key = 'restore_backup' AND status = 'pending'")
             ->fetchColumn();
         $decoded = is_string($raw) ? json_decode($raw, true) : null;
 

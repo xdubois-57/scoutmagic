@@ -40,8 +40,12 @@ final class ConfigOnlyRestore
 {
     public const TABLES = ['settings', 'module_registry'];
 
-    /** Settings that describe this server, kept as they are today by every restore. */
-    public const KEPT_SETTING_PREFIXES = ['remote_backup_'];
+    /**
+     * Settings that describe this server, kept as they are today by every
+     * restore: the off-site destination, its passphrase generation, its
+     * retention and its state (`backup_remote_*`, `remote_backup_*`).
+     */
+    public const KEPT_SETTING_PREFIXES = ['backup_remote_', 'remote_backup_'];
 
     private const TEMPORARY_PREFIX = 'restore_config_';
 

@@ -45,6 +45,16 @@ class JournalService
     }
 
     /**
+     * The newest entry of one event type, or null.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function latest(string $category, string $type): ?array
+    {
+        return $this->repository->findLatestEvent($category, $type);
+    }
+
+    /**
      * Best-effort client IP for the current request. Null on CLI / when unavailable.
      */
     private static function currentIp(): ?string

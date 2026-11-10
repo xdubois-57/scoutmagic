@@ -31,6 +31,7 @@ use Core\Security\AuthSession;
 use Core\Security\Role;
 use Core\Security\EncryptionService;
 use Core\Security\SecretManager;
+use Core\Maintenance\Task\RestoreBackupHandler;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\TestTwig;
@@ -321,7 +322,7 @@ class MaintenanceControllerTest extends TestCase
             // One box since IT-05: « Hors site » is its second half, no
             // longer a box of its own (see the test just below).
             'automaticBackupPage' => ['maintenance-backups-automatic'],
-            'recentBackupsPage' => ['maintenance-backups-list', 'maintenance-restore'],
+            'recentBackupsPage' => ['maintenance-backups-list', 'maintenance-remote-copies', 'maintenance-restore'],
             'resetPage' => ['maintenance-reset'],
         ];
 
@@ -2474,6 +2475,65 @@ class MaintenanceControllerTest extends TestCase
             $body
         );
         $this->assertStringContainsString('<div class="form-text d-none" id="restore-config-note"></div>', $body);
+    }
+
+    /**
+     * The newest copy taken before a restore is offered as the way to undo
+     * it (#847, part 3) — that one only, and an older one as itself.
+     */
+    public function testTheLastRestoreCanBeUndoneFromItsSafetyCopy(): void
+    {
+        $older = $this->completedBackup(RestoreBackupHandler::SAFETY_TYPE);
+        $newest = $this->completedBackup(RestoreBackupHandler::SAFETY_TYPE);
+
+        $body = $this->page('recentBackupsPage');
+
+        $this->assertMatchesRegularExpression(
+            '~<option value="' . $newest . '"[^>]* data-config-note="Le site reviendra à son état d&#039;avant la '
+                . 'dernière restauration\.[^"]*">Annuler la dernière restauration — copie du ~u',
+            $body
+        );
+        $this->assertMatchesRegularExpression('~<option value="' . $older . '">Avant restauration — ~u', $body);
+        $this->assertSame(1, substr_count($body, 'Annuler la dernière restauration'));
+        // On the rows: each copy says what it is, the newest one offers the undo.
+        $this->assertSame(2, preg_match_all(
+            '~Copie de sécurité prise avant la restauration du \d{1,2} \p{L}+ \d{4} à \d{2} h \d{2}\.~u',
+            $body
+        ));
+        $this->assertStringContainsString(
+            'data-undo-restore="' . $newest . '">Annuler cette restauration</button>',
+            $body
+        );
+        $this->assertStringNotContainsString('data-undo-restore="' . $older . '"', $body);
+    }
+
+    /** Back on the page after a restore, it says where the site went back to (#847, part 3). */
+    public function testTheRestoreThatJustFinishedIsSaidOnThePage(): void
+    {
+        (new JournalService(new JournalRepository($this->pdo)))->log(
+            'core',
+            'backup_restored',
+            'info',
+            'Sauvegarde restaurée',
+            ['source' => 'server', 'restored_from' => '8 octobre 2026 à 03:00']
+        );
+
+        $body = $this->page('recentBackupsPage');
+
+        $this->assertStringContainsString(
+            'Restauration terminée. Le site est revenu à la sauvegarde du 8 octobre 2026 à 03:00.',
+            $body
+        );
+    }
+
+    /** An hour later, the message is gone. */
+    public function testAnOldRestoreIsNoLongerAnnounced(): void
+    {
+        (new JournalService(new JournalRepository($this->pdo)))
+            ->log('core', 'backup_restored', 'info', 'Sauvegarde restaurée');
+        $this->pdo->exec("UPDATE event_log SET logged_at = '2020-01-01 00:00:00' WHERE event_type = 'backup_restored'");
+
+        $this->assertStringNotContainsString('Restauration terminée', $this->page('recentBackupsPage'));
     }
 
     /** Deleting a row whose files are already gone goes through. */

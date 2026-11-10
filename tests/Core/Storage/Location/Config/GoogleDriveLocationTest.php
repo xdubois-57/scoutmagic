@@ -116,7 +116,7 @@ final class GoogleDriveLocationTest extends TestCase
         $this->assertSame('Google Drive', $type->frenchLabel());
         $this->assertTrue($type->supports(StorageCapability::ResumableUpload));
         $this->assertTrue($type->supports(StorageCapability::Quota));
-        $this->assertFalse($type->supports(StorageCapability::RangeRead));
+        $this->assertTrue($type->supports(StorageCapability::RangeRead), 'since #847, part 4');
         $this->assertInstanceOf(
             GoogleDriveLocationConfig::class,
             $type->configFromArray(['client_id' => 'client-1'])
@@ -137,9 +137,8 @@ final class GoogleDriveLocationTest extends TestCase
         }
 
         $this->assertCount(4, $consequences);
-        // No range read: a video can be started and never seeked in,
-        // which is a refusal rather than a slowdown.
-        $this->assertSame('non', $byArea[StorageConsequence::AREA_VIDEOS] ?? null);
+        // Range reads since #847 part 4: a video can be seeked in.
+        $this->assertSame('oui', $byArea[StorageConsequence::AREA_VIDEOS] ?? null);
         // Resumable upload: what an archive of gibibytes needs.
         $this->assertSame('oui', $byArea[StorageConsequence::AREA_BACKUPS] ?? null);
         // And it is the first declared type that can say how full it is.

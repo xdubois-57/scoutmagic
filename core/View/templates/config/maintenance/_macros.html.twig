@@ -52,6 +52,16 @@
                     {% if backup.isExport %}
                         <div class="small text-body-secondary">À télécharger seulement : sans les fichiers du site, elle ne se restaure pas ici.</div>
                     {% endif %}
+                    {% if backup.safetyNote %}
+                        <div class="small text-body-secondary">{{ backup.safetyNote }}</div>
+                    {% endif %}
+                    {# The newest copy taken before a restore undoes it
+                       (#847, part 3): an ordinary restore of that copy,
+                       through the form below and its RESTAURER keyword —
+                       it takes a copy of its own, so it can be undone too. #}
+                    {% if backup.undoesRestore %}
+                        <button type="button" class="btn btn-link btn-sm p-0" data-undo-restore="{{ backup.id }}">Annuler cette restauration</button>
+                    {% endif %}
                 </div>
                 {# Icons rather than labelled buttons. A row already
                    carries up to three badges, a date and a size; the

@@ -40,10 +40,11 @@ final class GoogleDriveBackendTest extends TestCase
         $this->assertTrue($backend->supports(StorageCapability::Quota));
         $this->assertTrue($backend->supports(StorageCapability::Checksum));
 
-        // The two that keep this destination out of the gallery until
-        // IT-07 gives it the methods. A capability announced ahead of its
+        // Range reads since #847 part 4, which brings an off-site archive
+        // back in slices; a capability announced ahead of its
         // implementation is the lie the enum exists to prevent.
-        $this->assertFalse($backend->supports(StorageCapability::RangeRead));
+        $this->assertTrue($backend->supports(StorageCapability::RangeRead));
+        $this->assertInstanceOf(\Core\Storage\Location\Backend\RangeReadableBackend::class, $backend);
         $this->assertFalse($backend->supports(StorageCapability::SignedUrl));
         $this->assertFalse($backend->supports(StorageCapability::ServerSideCopy));
     }

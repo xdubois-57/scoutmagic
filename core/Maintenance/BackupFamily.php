@@ -71,7 +71,7 @@ enum BackupFamily: string
         return match ($type) {
             'database', 'full_config', 'full_no_gallery', 'full_with_gallery' => self::Manual,
             'auto_backup' => self::Scheduled,
-            'auto_update', 'auto_reset' => self::Operational,
+            'auto_update', 'auto_reset', 'auto_restore' => self::Operational,
             Backup::PORTABLE_TYPE => self::Portable,
             default => null,
         };

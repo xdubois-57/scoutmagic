@@ -1966,3 +1966,142 @@ describe('maintenance.js: « Configuration seule » says what its restore touche
         expect(note.classList.contains('d-none')).toBe(true);
     });
 });
+
+describe('maintenance.js: « Annuler cette restauration » (#847, part 3)', () => {
+    it('chooses the copy taken before the last restore in the form and asks for the keyword', async () => {
+        appendAll(
+            el('<button type="button" data-undo-restore="7">Annuler cette restauration</button>'),
+            el('<input type="radio" name="source" id="restore-source-server">'),
+            el('<input type="radio" name="source" id="restore-source-upload" checked>'),
+            el(`<select id="restore-backup-id">
+                    <option value="3">Planifiée</option>
+                    <option value="7" data-config-note="Le site reviendra à son état d'avant la dernière restauration.">Annuler la dernière restauration</option>
+                </select>`),
+            el('<div class="form-text d-none" id="restore-config-note"></div>'),
+            el('<div id="maintenance-restore"></div>'),
+            el('<form><input type="text" id="restore-backup-keyword"><button type="submit">Restaurer</button></form>'),
+        );
+        const restoreCard = document.getElementById('maintenance-restore');
+        restoreCard.scrollIntoView = vi.fn();
+        await boot();
+
+        /** @type {HTMLButtonElement} */ (document.querySelector('[data-undo-restore]')).click();
+
+        expect(/** @type {HTMLSelectElement} */ (document.getElementById('restore-backup-id')).value).toBe('7');
+        expect(/** @type {HTMLInputElement} */ (document.getElementById('restore-source-server')).checked).toBe(true);
+        expect(document.getElementById('restore-config-note').textContent)
+            .toBe('Le site reviendra à son état d\'avant la dernière restauration.');
+        expect(restoreCard.scrollIntoView).toHaveBeenCalled();
+        expect(document.activeElement?.id).toBe('restore-backup-keyword');
+    });
+});
+
+describe('maintenance.js: « Copies hors site » (#847, part 4)', () => {
+    const LISTED = `<div id="remote-copies-content">
+        <ul><li data-remote-copy="scoutmagic-a-g1.zip"><button type="button" data-remote-restore="scoutmagic-a-g1.zip" data-remote-current="0">Restaurer</button></li></ul>
+        <form class="d-none" id="remote-restore-form">
+            <input type="hidden" id="remote-restore-name">
+            <div class="d-none" id="remote-restore-phrase-field"><input type="password" id="remote-restore-phrase"></div>
+            <input type="text" id="remote-restore-keyword">
+            <button type="submit" id="remote-restore-submit">Restaurer cette copie</button>
+            <div class="d-none" id="remote-restore-error"></div>
+        </form>
+    </div>`;
+
+    function htmlResponse(html, extra = {}) {
+        return Promise.resolve({ ok: true, status: 200, redirected: false, text: () => Promise.resolve(html), ...extra });
+    }
+
+    async function flush() {
+        for (let i = 0; i < 6; i++) await Promise.resolve();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+
+    it('loads itself once the page is shown, without the page waiting on it', async () => {
+        appendAll(el('<div id="remote-copies" data-remote-copies-url="/config/maintenance/remote-backup/archives"><p>Lecture…</p></div>'));
+        const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(() => htmlResponse(LISTED));
+
+        await boot();
+        await flush();
+
+        expect(fetchSpy).toHaveBeenCalledWith('/config/maintenance/remote-backup/archives', expect.anything());
+        expect(document.querySelector('[data-remote-copy]')).not.toBeNull();
+    });
+
+    it('asks the phrase of a copy of an older phrase, and refuses without the keyword', async () => {
+        appendAll(el('<div id="remote-copies" data-remote-copies-url="/x"></div>'));
+        const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(() => htmlResponse(LISTED));
+        await boot();
+        await flush();
+
+        /** @type {HTMLButtonElement} */ (document.querySelector('[data-remote-restore]')).click();
+        expect(document.getElementById('remote-restore-form').classList.contains('d-none')).toBe(false);
+        expect(document.getElementById('remote-restore-phrase-field').classList.contains('d-none')).toBe(false);
+        expect(/** @type {HTMLInputElement} */ (document.getElementById('remote-restore-name')).value).toBe('scoutmagic-a-g1.zip');
+
+        document.getElementById('remote-restore-form').dispatchEvent(new Event('submit', { cancelable: true }));
+        expect(document.getElementById('remote-restore-error').textContent).toBe('Tapez RESTAURER pour confirmer.');
+        expect(fetchSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('sends the name, the phrase and the keyword, then shows the server\'s refusal', async () => {
+        appendAll(el('<div id="remote-copies" data-remote-copies-url="/x"></div>'));
+        const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation((url) => (
+            url === '/config/maintenance/remote-backup/restore'
+                ? jsonResponse({ success: false, message: 'Cette copie n\'est pas sur la destination hors site.' }, 404)
+                : htmlResponse(LISTED)
+        ));
+        await boot();
+        await flush();
+
+        /** @type {HTMLButtonElement} */ (document.querySelector('[data-remote-restore]')).click();
+        /** @type {HTMLInputElement} */ (document.getElementById('remote-restore-phrase')).value = 'ancienne';
+        /** @type {HTMLInputElement} */ (document.getElementById('remote-restore-keyword')).value = 'RESTAURER';
+        document.getElementById('remote-restore-form').dispatchEvent(new Event('submit', { cancelable: true }));
+        await flush();
+
+        const call = fetchSpy.mock.calls.find(([url]) => url === '/config/maintenance/remote-backup/restore');
+        expect(JSON.parse(call[1].body)).toMatchObject({
+            name: 'scoutmagic-a-g1.zip', passphrase: 'ancienne', confirm_keyword: 'RESTAURER',
+        });
+        expect(document.getElementById('remote-restore-error').textContent)
+            .toBe('Cette copie n\'est pas sur la destination hors site.');
+    });
+
+    it('offers a retry when the destination did not answer', async () => {
+        appendAll(el('<div id="remote-copies" data-remote-copies-url="/x"></div>'));
+        const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(() => htmlResponse(
+            '<div id="remote-copies-content"><button type="button" data-remote-retry>Réessayer</button></div>'
+        ));
+        await boot();
+        await flush();
+
+        /** @type {HTMLButtonElement} */ (document.querySelector('[data-remote-retry]')).click();
+        await flush();
+
+        expect(fetchSpy).toHaveBeenCalledTimes(2);
+    });
+
+    it('reads the card again while a copy is being brought back', async () => {
+        vi.useFakeTimers();
+        appendAll(el('<div id="remote-copies" data-remote-copies-url="/x"></div>'));
+        const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(() => htmlResponse(
+            '<div id="remote-copies-content" data-remote-busy="1">Rapatriement…</div>'
+        ));
+        await boot();
+        for (let i = 0; i < 6; i++) await Promise.resolve();
+
+        await vi.advanceTimersByTimeAsync(4000);
+
+        expect(fetchSpy.mock.calls.length).toBeGreaterThanOrEqual(2);
+    });
+
+    it('says so when the card cannot be read', async () => {
+        appendAll(el('<div id="remote-copies" data-remote-copies-url="/x"></div>'));
+        vi.spyOn(globalThis, 'fetch').mockImplementation(() => Promise.resolve({ ok: false, status: 500, redirected: false }));
+        await boot();
+        await flush();
+
+        expect(document.getElementById('remote-copies').textContent).toBe('Les copies hors site n\'ont pas pu être lues.');
+    });
+});

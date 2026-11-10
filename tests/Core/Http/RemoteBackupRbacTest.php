@@ -54,6 +54,9 @@ final class RemoteBackupRbacTest extends TestCase
         ['POST', '/config/maintenance/remote/passphrase/reveal'],
         ['POST', '/config/maintenance/remote/passphrase/confirm'],
         ['POST', '/config/maintenance/remote/passphrase/regenerate'],
+        // The off-site copies card and restoring one of them (#847, part 4).
+        ['GET', '/config/maintenance/remote-backup/archives'],
+        ['POST', '/config/maintenance/remote-backup/restore'],
     ];
 
     /**

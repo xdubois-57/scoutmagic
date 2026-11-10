@@ -109,6 +109,12 @@ class SqlInjectionAuditTest extends TestCase
                 'Column names from the settings table\'s own result metadata intersected with the dump\'s, '
                 . 'every value bound; $placeholders is a run of literal question marks.',
         ],
+        'core/Maintenance/Restore/RestoreStateSnapshot.php' => [
+            '$pdo->prepare(\'INSERT INTO `\' . $table . \'` (\' . $columnList . \') VALUES (\' . $placeholders . \')\')' =>
+                '$table is typed to four literal names (backups, files, event_log, settings); the columns are '
+                . 'today\'s own result metadata for that table intersected with the held row\'s keys, every value '
+                . 'is bound, and $placeholders is a run of literal question marks.',
+        ],
         'core/Http/Controller/SetupController.php' => [
             '$pdo->exec(\'DROP TABLE IF EXISTS `\' . $table . \'`\');' =>
                 'Empties the database during first-time setup. $table comes from '

@@ -16,7 +16,7 @@ use Core\Scheduler\SchedulerService;
  * `InstallUpdateHandler` takes an `auto_update` backup before it touches
  * anything, and that backup is the ONLY thing its automatic rollback can
  * start from; `RestoreBackupHandler` does the same with its own
- * `auto_reset` safety copy. Deleting one while its operation is queued or
+ * `auto_restore` safety copy. Deleting one while its operation is queued or
  * running removes the net at the exact moment something is falling — and
  * the person clicking « Supprimer » on a list of dates has no way of
  * knowing that.
@@ -33,7 +33,7 @@ use Core\Scheduler\SchedulerService;
  *
  * **A task that creates its own net declares it mid-run**, and it has to:
  * a payload is written when the task is scheduled, and
- * `RestoreBackupHandler` takes its `auto_reset` copy long after that. Until
+ * `RestoreBackupHandler` takes its `auto_restore` copy long after that. Until
  * the copy is named in the running row — `SchedulerRepository::
  * rememberInPayload()`, called in the same breath as marking it complete —
  * it is a `completed` row like any other, listed with a working

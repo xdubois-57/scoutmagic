@@ -467,7 +467,8 @@ class MaintenanceController extends AbstractController
             // One restore at a time (issue #753): while one is pending or
             // running the form offers none, and restoreBackup() refuses
             // whatever reaches it anyway.
-            'restore_active' => $this->schedulerService->hasLiveForTask('core', 'restore_backup'),
+            'restore_active' => $this->restoreIsLive(),
+            'restore_completed' => $this->restoreCompletedNote(),
             'zip_encryption_supported' => $zipEncryptionSupported,
             // 'weekly' — the registered default since issue #286; a
             // fallback still spelling 'monthly' would put the select on a
@@ -1289,6 +1290,41 @@ class MaintenanceController extends AbstractController
     }
 
     /**
+     * Whether a restore is queued or running — an off-site copy being
+     * brought back for one included (#847, part 4): one at a time, either
+     * way round.
+     */
+    private function restoreIsLive(): bool
+    {
+        return $this->schedulerService->hasLiveForTask('core', 'restore_backup')
+            || $this->schedulerService->findLive(
+                'core',
+                \Core\Maintenance\Task\FetchRemoteBackupHandler::TASK_KEY,
+                \Core\Maintenance\Task\FetchRemoteBackupHandler::REFERENCE
+            ) !== null;
+    }
+
+    /**
+     * « Restauration terminée. Le site est revenu à la sauvegarde du … »
+     * (#847, part 3), for an hour after a restore finished: whoever ran it
+     * signs in again (the sessions were invalidated) and lands here. Read
+     * from the journal, which the restore keeps.
+     */
+    private function restoreCompletedNote(): ?string
+    {
+        $latest = $this->journalService->latest('core', 'backup_restored');
+        if ($latest === null || strtotime((string) ($latest['logged_at'] ?? '')) < time() - 3600) {
+            return null;
+        }
+        $context = json_decode((string) ($latest['context'] ?? ''), true);
+        $from = is_array($context) && is_string($context['restored_from'] ?? null) ? $context['restored_from'] : null;
+
+        return $from !== null
+            ? 'Restauration terminée. Le site est revenu à la sauvegarde du ' . $from . '.'
+            : 'Restauration terminée.';
+    }
+
+    /**
      * The rows « Sauvegardes récentes » renders, already spelled for the
      * screen.
      *
@@ -1312,6 +1348,7 @@ class MaintenanceController extends AbstractController
 
         $presence = $this->backupPresence();
         $rows = [];
+        $undoOffered = false;
         foreach ($this->backupRepository->findForList(self::BACKUPS_LISTED) as $backup) {
             $family = \Core\Maintenance\BackupFamily::tryFromType($backup->type);
             // What a row offers follows what is on the disk NOW (#847), not
@@ -1322,6 +1359,12 @@ class MaintenanceController extends AbstractController
             $dumpMissing = $components['dump'] === false;
             $isExport = $backup->type === \Core\Maintenance\Backup::EXPORT_TYPE;
             $isPortable = $backup->type === \Core\Maintenance\Backup::PORTABLE_TYPE;
+            $canRestore = $completed && !$isExport && !$isPortable && !$archiveMissing && !$dumpMissing;
+            // The newest copy taken before a restore is how that restore is
+            // undone (#847, part 3) — offered under that name, once.
+            $undoesRestore = !$undoOffered && $canRestore
+                && $backup->type === \Core\Maintenance\Task\RestoreBackupHandler::SAFETY_TYPE;
+            $undoOffered = $undoOffered || $undoesRestore;
             $rows[] = [
                 'id' => $backup->id,
                 'typeLabel' => \Core\Maintenance\Backup::typeLabel($backup->type),
@@ -1344,14 +1387,25 @@ class MaintenanceController extends AbstractController
                 'dumpPresent' => $components['dump'],
                 'missingBadge' => self::missingBadge($archiveMissing, $dumpMissing),
                 'canDownload' => $completed && $components['archive'] === true,
-                'canRestore' => $completed && !$isExport && !$isPortable && !$archiveMissing && !$dumpMissing,
+                'canRestore' => $canRestore,
+                'undoesRestore' => $undoesRestore,
+                // What the copy is, said on its row (#847, part 3) — from
+                // its type and date, no column.
+                'safetyNote' => $backup->type === \Core\Maintenance\Task\RestoreBackupHandler::SAFETY_TYPE
+                    ? 'Copie de sécurité prise avant la restauration du '
+                        . \Core\View\DateFilterExtension::frenchDate($backup->createdAt) . ' à '
+                        . str_replace(':', ' h ', \Core\View\DateFilterExtension::timeFr($backup->createdAt)) . '.'
+                    : null,
                 // What a « Configuration seule » restore brings back, said
                 // under the picker when it is chosen (#847, part 2).
-                'configNote' => $backup->type === 'full_config'
-                    ? 'Seuls les réglages et l\'état des modules reviendront au '
+                'configNote' => match (true) {
+                    $backup->type === 'full_config' => 'Seuls les réglages et l\'état des modules reviendront au '
                         . \Core\View\DateFilterExtension::frenchDate($backup->createdAt)
-                        . '. Les membres, les finances, les actualités et tout le reste ne bougeront pas.'
-                    : null,
+                        . '. Les membres, les finances, les actualités et tout le reste ne bougeront pas.',
+                    $undoesRestore => 'Le site reviendra à son état d\'avant la dernière restauration. La liste '
+                        . 'des sauvegardes et le journal restent ceux d\'aujourd\'hui.',
+                    default => null,
+                },
                 // Only archives whose generated password the site kept
                 // (IT-03): an older one was encrypted with a password its
                 // operator typed, and nobody here can say it again.
@@ -1546,7 +1600,7 @@ class MaintenanceController extends AbstractController
         }
         // Said before an archive is moved anywhere — the cheap answer for
         // the common case. The guarantee is the scheduling call below.
-        if ($this->schedulerService->hasLiveForTask('core', 'restore_backup')) {
+        if ($this->restoreIsLive()) {
             $this->discardRestoreUpload($request);
 
             return $this->restoreRefused($wantsJson, self::RESTORE_ALREADY_ACTIVE, 409);
@@ -1768,7 +1822,7 @@ class MaintenanceController extends AbstractController
         // An archive that could not be restored once it arrived (issue
         // #753): refused at the first fragment it sends, and what it had
         // already sent is deleted.
-        if ($this->schedulerService->hasLiveForTask('core', 'restore_backup')) {
+        if ($this->restoreIsLive()) {
             $this->discardRestoreUpload($request);
 
             return $this->json(['success' => false, 'error' => self::RESTORE_ALREADY_ACTIVE], 409);

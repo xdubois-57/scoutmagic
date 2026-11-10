@@ -5690,6 +5690,23 @@ $router->addRoute(
     'regeneratePassphrase',
     'superadmin',
 );
+// The off-site copies card (#847, part 4): the list read on the
+// destination, as a fragment the page loads by itself, and restoring one
+// of them — a name from that list only, never an arbitrary key.
+$router->addRoute(
+    'GET',
+    '/config/maintenance/remote-backup/archives',
+    RemoteBackupController::class,
+    'archives',
+    'superadmin',
+);
+$router->addRoute(
+    'POST',
+    '/config/maintenance/remote-backup/restore',
+    RemoteBackupController::class,
+    'restoreCopy',
+    'superadmin',
+);
 // The only public, CSRF-free route in the codebase — GitHub is a machine
 // caller with no session; the HMAC-SHA256 signature (Core\Maintenance\
 // GitHubWebhookService::verifySignature()) is what authenticates it
@@ -6934,7 +6951,16 @@ $frontController->registerController(
         $remoteBackupDestination,
         $storageLocationRepository,
         $journalService,
-        new \Core\Maintenance\Remote\RemotePassphrase($settingService, $secretManager)
+        new \Core\Maintenance\Remote\RemotePassphrase($settingService, $secretManager),
+        new \Core\Maintenance\Remote\RemoteCopies(
+            $remoteBackupDestination,
+            new \Core\Maintenance\Remote\RemoteRetention($settingService),
+            new \Core\Maintenance\Remote\RemotePassphrase($settingService, $secretManager)
+        ),
+        $schedulerService,
+        $encryptionService,
+        new \Core\Storage\DiskBudget($storagePath, $settingService),
+        $storagePath
     )
 );
 $frontController->registerController(

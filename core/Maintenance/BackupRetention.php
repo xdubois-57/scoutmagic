@@ -61,8 +61,13 @@ final class BackupRetention
      * One rule since D10 (see the class docblock): the family's own
      * quota — the family of the row just created, and no other, so a
      * scheduled backup never evicts a manual one.
+     *
+     * $keep is a row the caller's own operation still stands on and that
+     * no task payload names any more — the copy taken before a restore
+     * that has just finished, which « Annuler cette restauration » restores
+     * (#847, part 3).
      */
-    public function purgeAfterCreating(string $createdType): void
+    public function purgeAfterCreating(string $createdType, ?int $keep = null): void
     {
         // Read once: two rules over the same handful of rows, and a table
         // that changes under them as forget() runs would make the second
@@ -73,6 +78,9 @@ final class BackupRetention
         // costs two queries, and asking it per candidate row would pay
         // that for every eviction rather than for every purge.
         $protected = $this->safetyNet?->protectedIds() ?? [];
+        if ($keep !== null) {
+            $protected[] = $keep;
+        }
 
         $family = BackupFamily::tryFromType($createdType);
         if ($family !== null) {
