@@ -728,6 +728,61 @@ class RentalDocumentServiceTest extends TestCase
 
     // ── Level 3: the PDF ────────────────────────────────────────────────
 
+    /**
+     * Issue #805: a document row refused after the PDF was written leaves
+     * neither the PDF on disk nor its `files` row — a contract nobody points
+     * at would survive the booking's purge with the renter's details.
+     */
+    public function testAGeneratedDocumentWhoseRowIsRefusedLeavesNoFileBehind(): void
+    {
+        $booking = $this->createBooking();
+        $this->service->saveBookingText($booking, DocumentType::CONTRACT, '<p>Contrat entre l unite et le locataire.</p>');
+        [$filesBefore, $rowsBefore] = $this->storedPdfs();
+        $this->refuseDocumentRows();
+
+        try {
+            $this->service->generate($booking, $this->asset(), DocumentType::CONTRACT, $this->settings());
+            $this->fail('the refused row was not reported');
+        } catch (\PDOException) {
+        }
+
+        $this->assertSame([$filesBefore, $rowsBefore], $this->storedPdfs());
+    }
+
+    /** The same under the booking's lock, where the rollback takes the rows and never the bytes. */
+    public function testASupplementaryInvoiceWhoseRowIsRefusedLeavesNoFileBehind(): void
+    {
+        $booking = $this->createBooking();
+        $this->sentInvoice($booking);
+        $validated = $this->settlement(7, 1, self::stayWithBrokenWindow(), true, 3000, $booking->id);
+        [$filesBefore, $rowsBefore] = $this->storedPdfs();
+        $this->refuseDocumentRows();
+
+        try {
+            $this->service->generateSupplementaryInvoice($booking, $this->asset(), $this->settings(), [$validated], 1);
+            $this->fail('the refused row was not reported');
+        } catch (\PDOException) {
+        }
+
+        $this->assertSame([$filesBefore, $rowsBefore], $this->storedPdfs());
+    }
+
+    private function refuseDocumentRows(): void
+    {
+        $this->pdo->exec(
+            "CREATE TRIGGER refuse_document BEFORE INSERT ON rental_documents BEGIN SELECT RAISE(ABORT, 'refused'); END"
+        );
+    }
+
+    /** @return array{0: list<string>, 1: int} the PDFs on disk, and the `files` rows */
+    private function storedPdfs(): array
+    {
+        $files = glob($this->storagePath . '/rental/documents/*.pdf') ?: [];
+        sort($files);
+
+        return [$files, (int) $this->pdo->query('SELECT COUNT(*) FROM files')->fetchColumn()];
+    }
+
     public function testGeneratingProducesARealPdfRegisteredAsAFile(): void
     {
         $this->setTemplate('<p>Contrat pour {{ locataire_nom }}, référence {{ reference }}.</p>');
