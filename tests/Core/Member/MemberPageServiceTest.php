@@ -133,6 +133,50 @@ class MemberPageServiceTest extends TestCase
         $this->sectionId = (int) $this->pdo->lastInsertId();
     }
 
+    /**
+     * The window of seasons the member's own page lists, anchored on the
+     * public year this test sets (or, unset, the date's year).
+     */
+    private function privateDocumentYears(): \Core\Member\PrivateDocumentYears
+    {
+        $scoutYears = new \Core\Config\ScoutYearService($this->pdo);
+
+        return new \Core\Member\PrivateDocumentYears(
+            new \Core\ScoutYear\ScoutYearResolver(
+                $scoutYears,
+                $this->publicYearSettings(),
+                new MemberYearRepository($this->pdo)
+            ),
+            $scoutYears
+        );
+    }
+
+    private ?\Core\Config\SettingService $publicYearSettings = null;
+
+    private function publicYearSettings(): \Core\Config\SettingService
+    {
+        if ($this->publicYearSettings === null) {
+            $this->publicYearSettings = new \Core\Config\SettingService(
+                new \Core\Config\SettingRepository($this->pdo)
+            );
+            $this->publicYearSettings->register(
+                \Core\ScoutYear\ScoutYearResolver::SETTING_PUBLIC_YEAR,
+                // The fixture's year, never the date's: a test that sets
+                // nothing must not drift out of the window as seasons pass.
+                (string) $this->scoutYearId,
+                'number',
+                'Public',
+                'desc',
+                null,
+                '^[0-9]+$',
+                null,
+                false
+            );
+        }
+
+        return $this->publicYearSettings;
+    }
+
     private function buildService(
         ?SectionResponsableProvider $responsableProvider = null,
         ?MassMailQueryInterface $massMailQuery = null,
@@ -165,6 +209,7 @@ class MemberPageServiceTest extends TestCase
             $this->memberDocumentService,
             $this->memberEmailService,
             $this->sectionDocumentService,
+            $this->privateDocumentYears(),
             $hooks,
             $massMailQuery,
             $galleryAlbumProvider,
@@ -467,6 +512,98 @@ class MemberPageServiceTest extends TestCase
 
         $dataAsChief = $this->buildService()->buildPageData($profile, $this->scoutYearId, false, true, Role::CHIEF);
         $this->assertSame([], $dataAsChief['member_documents']);
+    }
+
+    /**
+     * Issue #1094: the member's own page lists the private documents of the
+     * site's year and the two before it — whatever year of the sheet is
+     * viewed —, newest first, each with its season. Older ones stay off this
+     * page (the admin sheet still lists them), and nobody else's appear.
+     */
+    public function testMemberDocumentsCoverTheThreeSeasonsOfTheSitesYearWhateverSheetIsViewed(): void
+    {
+        $profile = $this->createMemberInSection();
+        $year = [];
+        foreach (['2022-2023', '2023-2024', '2024-2025', '2026-2027'] as $label) {
+            [$start] = explode('-', $label);
+            $this->pdo->prepare('INSERT INTO scout_years (label, start_date, end_date) VALUES (?, ?, ?)')
+                ->execute([$label, "{$start}-09-01", ((int) $start + 1) . '-08-31']);
+            $year[$label] = (int) $this->pdo->lastInsertId();
+        }
+        $year['2025-2026'] = $this->scoutYearId;
+        $this->publicYearSettings()->setInternal(
+            \Core\ScoutYear\ScoutYearResolver::SETTING_PUBLIC_YEAR,
+            (string) $year['2026-2027']
+        );
+
+        $documents = new MemberDocumentRepository($this->pdo);
+        $file = function (int $memberId): int {
+            $this->pdo->prepare(
+                "INSERT INTO files (relative_path, original_name, mime_type, size_bytes, role_min, owner_member_id)
+                 VALUES (?, 'a.pdf', 'application/pdf', 10, 'identified', ?)"
+            )->execute([uniqid('doc', true) . '.pdf.enc', $memberId]);
+
+            return (int) $this->pdo->lastInsertId();
+        };
+        $created = [];
+        foreach (['2023-2024' => '2024-01-10', '2024-2025' => '2025-01-10', '2025-2026' => '2026-01-10',
+            '2026-2027' => '2026-10-10'] as $label => $date) {
+            $id = $documents->create(
+                $profile->memberId,
+                $year[$label],
+                "Attestation {$label}",
+                $file($profile->memberId),
+                null
+            );
+            $this->pdo->prepare('UPDATE member_documents SET created_at = ? WHERE id = ?')
+                ->execute([$date . ' 10:00:00', $id]);
+            $created[$label] = $id;
+        }
+        // Same second, same season: the later id comes first.
+        $twin = $documents->create(
+            $profile->memberId,
+            $year['2025-2026'],
+            'Fiche santé',
+            $file($profile->memberId),
+            null
+        );
+        $this->pdo->prepare('UPDATE member_documents SET created_at = ? WHERE id = ?')
+            ->execute(['2026-01-10 10:00:00', $twin]);
+        // Somebody else's document in the window: never on this page.
+        $other = $this->createMemberInSection('DESK2');
+        $documents->create($other->memberId, $year['2026-2027'], 'Pas à moi', $file($other->memberId), null);
+
+        $expected = [
+            ['Attestation 2026-2027', '2026-2027'],
+            ['Fiche santé', '2025-2026'],
+            ['Attestation 2025-2026', '2025-2026'],
+            ['Attestation 2024-2025', '2024-2025'],
+        ];
+        // The sheet of an older year shows the same list as the current one.
+        foreach ([$this->scoutYearId, $year['2022-2023']] as $viewedYear) {
+            $rows = $this->buildService()
+                ->buildPageData($profile, $viewedYear, true, false, Role::IDENTIFIED)['member_documents'];
+            $this->assertSame(
+                $expected,
+                array_map(static fn(array $row): array => [$row['document']->title, $row['year_label']], $rows)
+            );
+        }
+
+        // The older one is kept, and still on the admin sheet's list.
+        $this->assertCount(5, $this->memberDocumentService->listForMemberAllYears($profile->memberId));
+        $this->assertNotNull($documents->findById($created['2023-2024']));
+
+        // The window moves with the site's year.
+        $this->publicYearSettings()->setInternal(
+            \Core\ScoutYear\ScoutYearResolver::SETTING_PUBLIC_YEAR,
+            (string) $year['2024-2025']
+        );
+        $rows = $this->buildService()
+            ->buildPageData($profile, $this->scoutYearId, true, false, Role::IDENTIFIED)['member_documents'];
+        $this->assertSame(
+            ['2024-2025', '2023-2024'],
+            array_values(array_unique(array_column($rows, 'year_label')))
+        );
     }
 
     /**

@@ -6684,6 +6684,7 @@ $memberPageService = new \Core\Member\MemberPageService(
     $memberDocumentService,
     $memberEmailService,
     $sectionDocumentService,
+    new \Core\Member\PrivateDocumentYears($scoutYearResolver, $scoutYearService),
     $moduleHooks
 );
 
@@ -13136,6 +13137,7 @@ if (
         $memberDocumentService,
         $memberEmailService,
         $sectionDocumentService,
+        new \Core\Member\PrivateDocumentYears($scoutYearResolver, $scoutYearService),
         $moduleHooks,
         $massMailQueryForMember,
         $galleryAlbumProviderForMember,

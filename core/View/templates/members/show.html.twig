@@ -206,20 +206,31 @@
                 <div class="card mb-3">
                     <div class="card-body">
                         <h2 class="h5 mb-3">Documents privés</h2>
+                        {# Issue #1094: the site's scout year and the two before it,
+                           whatever year of the sheet is shown — a certificate is
+                           published for a season that is often already over.
+                           Each row says its season; the admin sheet keeps every
+                           year. #}
+                        <p class="small text-body-secondary">
+                            Les documents des trois dernières années scoutes, du plus récent au plus ancien.
+                        </p>
                         {% if member_documents|length > 0 %}
                             <ul class="list-unstyled mb-0 small">
-                                {% for document in member_documents %}
-                                    <li class="d-flex justify-content-between border-bottom py-2">
-                                        <a href="{{ file_url(document.fileId) }}" class="text-decoration-none">
-                                            <i class="bi bi-file-earmark-lock" aria-hidden="true"></i> {{ document.title }}
+                                {% for row in member_documents %}
+                                    <li class="d-flex justify-content-between gap-2 border-bottom py-2">
+                                        <a href="{{ file_url(row.document.fileId) }}" class="text-decoration-none">
+                                            <i class="bi bi-file-earmark-lock" aria-hidden="true"></i> {{ row.document.title }}
                                         </a>
-                                        <span class="text-body-secondary">{{ document.createdAt|french_date }}</span>
+                                        <span class="text-body-secondary text-end">
+                                            {%- if row.year_label %}Année {{ row.year_label }} — {% endif -%}
+                                            {{ row.document.createdAt|french_date }}
+                                        </span>
                                     </li>
                                 {% endfor %}
                             </ul>
                         {% else %}
                             {% include 'partials/empty_state.html.twig' with {
-                                message: 'Aucun document privé pour le moment.',
+                                message: "Aucun document privé pour ces trois années. Pour un document plus ancien, adressez-vous au Staff d'Unité.",
                                 compact: true,
                             } only %}
                         {% endif %}
