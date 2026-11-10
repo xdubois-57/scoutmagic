@@ -77,6 +77,9 @@ async function writeBody(page, name, text, fields) {
     await page.goto('/config/inscriptions/gabarits', { waitUntil: 'domcontentloaded' });
     await page.getByRole('link', { name, exact: true }).click();
     await expect(page.getByRole('heading', { name, exact: true })).toBeVisible();
+    // The pencil is wired by rich-text-field.js, a deferred script: a click
+    // before `load` lands on a button nothing listens to yet.
+    await page.waitForLoadState('load');
     const dialog = await openModal(page, 'richTextEditorModal', () =>
         page.locator('.rich-text-field-edit-btn[data-key="email_body"]').click());
     const editor = dialog.locator('#richTextEditorContent');
