@@ -434,9 +434,12 @@ class RestoreBackupRoundTripTest extends TestCase
             'the date the site went back to, for the message after the restore'
         );
 
-        // And each row still points at a file that exists.
+        // And each row still points at its files, and those exist: the
+        // backup restored from, the later one and the safety copy each
+        // declare a dump.
         $files = new FileRepository($this->pdo());
         foreach ((new BackupRepository($this->pdo()))->findAllNewestFirst() as $backup) {
+            $this->assertNotNull($backup->dbDumpFileId, 'backup ' . $backup->id . ' lost its dump');
             foreach ([$backup->fileId, $backup->dbDumpFileId] as $fileId) {
                 if ($fileId !== null) {
                     $file = $files->findById($fileId);

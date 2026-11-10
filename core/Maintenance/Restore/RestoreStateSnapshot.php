@@ -66,12 +66,15 @@ final class RestoreStateSnapshot
 
         try {
             self::write($handle, ['format' => self::FORMAT]);
-            foreach (self::rows($pdo, 'SELECT * FROM backups ORDER BY id') as $row) {
-                self::write($handle, ['kind' => 'backup', 'row' => $row]);
-            }
+            // The files BEFORE the backups that point at them: putBack()
+            // reads this once, in order, and a backup line resolves its
+            // file ids from the file lines already read.
             foreach (self::rows($pdo, 'SELECT * FROM files WHERE id IN (SELECT file_id FROM backups) '
                 . 'OR id IN (SELECT db_dump_file_id FROM backups) ORDER BY id') as $row) {
                 self::write($handle, ['kind' => 'file', 'row' => $row]);
+            }
+            foreach (self::rows($pdo, 'SELECT * FROM backups ORDER BY id') as $row) {
+                self::write($handle, ['kind' => 'backup', 'row' => $row]);
             }
             foreach (self::rows($pdo, 'SELECT * FROM settings WHERE ' . self::keptSettingsCondition()) as $row) {
                 self::write($handle, ['kind' => 'setting', 'row' => $row]);
