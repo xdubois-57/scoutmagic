@@ -68,24 +68,39 @@ class MagicLinkRepository
     }
 
     /**
-     * Mark a magic link as used.
+     * Mark a magic link as used. Only an unused link is claimed, in one
+     * statement: of two requests racing on the same link, exactly one
+     * gets `true` and goes on to log somebody in.
      */
-    public function markUsed(int $id): void
+    public function markUsed(int $id): bool
     {
         $now = (new \DateTimeImmutable())->format('Y-m-d H:i:s');
         $stmt = $this->pdo->prepare(
-            'UPDATE magic_links SET used = TRUE, confirmed_at = ? WHERE id = ?'
+            'UPDATE magic_links SET used = TRUE, confirmed_at = ? WHERE id = ? AND used = FALSE'
         );
         $stmt->execute([$now, $id]);
+
+        return $stmt->rowCount() > 0;
     }
 
     /**
-     * One more wrong match code typed for this link; returns the count.
+     * Takes one of the link's match-code attempts BEFORE the code is
+     * compared, and returns the attempt's number — or null when the link
+     * is spent or out of attempts. The check and the count are one
+     * statement, so concurrent guesses cannot all slip in while the
+     * counter still reads low: at most `$maxAttempts` codes are ever
+     * compared for a link, however many requests arrive at once.
      */
-    public function recordFailedMatch(int $id): int
+    public function reserveMatchAttempt(int $id, int $maxAttempts): ?int
     {
-        $stmt = $this->pdo->prepare('UPDATE magic_links SET match_attempts = match_attempts + 1 WHERE id = ?');
-        $stmt->execute([$id]);
+        $stmt = $this->pdo->prepare(
+            'UPDATE magic_links SET match_attempts = match_attempts + 1
+             WHERE id = ? AND used = FALSE AND match_attempts < ?'
+        );
+        $stmt->execute([$id, $maxAttempts]);
+        if ($stmt->rowCount() === 0) {
+            return null;
+        }
 
         $stmt = $this->pdo->prepare('SELECT match_attempts FROM magic_links WHERE id = ?');
         $stmt->execute([$id]);
@@ -100,7 +115,9 @@ class MagicLinkRepository
      */
     public function invalidate(int $id): void
     {
-        $stmt = $this->pdo->prepare('UPDATE magic_links SET used = TRUE, confirmed_at = NULL WHERE id = ?');
+        $stmt = $this->pdo->prepare(
+            'UPDATE magic_links SET used = TRUE, confirmed_at = NULL WHERE id = ? AND used = FALSE'
+        );
         $stmt->execute([$id]);
     }
 

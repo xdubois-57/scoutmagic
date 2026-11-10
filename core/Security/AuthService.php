@@ -291,9 +291,15 @@ class AuthService
         }
 
         if ($matchCode !== null) {
+            // The attempt is counted before the code is compared, so that
+            // parallel requests cannot each get a guess in while the
+            // counter still reads low (one atomic UPDATE gates them).
+            $attempts = $this->magicLinkRepo->reserveMatchAttempt($id, self::MAX_MATCH_ATTEMPTS);
+            if ($attempts === null) {
+                throw new MagicLinkCodeMismatch(true);
+            }
             $typed = preg_replace('/\D/', '', $matchCode) ?? '';
             if ($record->matchCodeHash === null || $typed === '' || !password_verify($typed, $record->matchCodeHash)) {
-                $attempts = $this->magicLinkRepo->recordFailedMatch($id);
                 $spent = $attempts >= self::MAX_MATCH_ATTEMPTS;
                 if ($spent) {
                     $this->magicLinkRepo->invalidate($id);
@@ -313,8 +319,12 @@ class AuthService
             }
         }
 
-        // Mark as used
-        $this->magicLinkRepo->markUsed($id);
+        // Mark as used — and only the request that actually claims the
+        // link goes on: a concurrent confirmation of the same link, or one
+        // that a third wrong code spent meanwhile, stops here.
+        if (!$this->magicLinkRepo->markUsed($id)) {
+            return null;
+        }
 
         // Find (or, for a confirmed secondary address logging in for the
         // first time, create) the account this link identifies.

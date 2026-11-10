@@ -559,6 +559,30 @@ class AuthServiceTest extends TestCase
         $this->assertNull($this->authService->verifyMagicLink($id, 'tok', (string) $result->matchCode));
     }
 
+    /**
+     * Review of #1099: parallel guesses. Requests already in flight have
+     * taken every attempt, but none has spent the link yet (`used` still
+     * FALSE, which is all the token check looks at). A further guess —
+     * even the right one — is not compared at all: the cap is the
+     * counter, not the `used` flag written after the fact.
+     */
+    public function testNoCodeIsComparedOnceTheAttemptsAreTakenEvenBeforeTheLinkIsSpent(): void
+    {
+        $this->userRepo->create('race@test.com');
+        $result = $this->authService->requestMagicLink('race@test.com');
+        $id = (int) $result->magicLinkId;
+        $this->pdo->prepare('UPDATE magic_links SET token_hash = ?, match_attempts = ? WHERE id = ?')
+            ->execute([password_hash('tok', PASSWORD_DEFAULT), AuthService::MAX_MATCH_ATTEMPTS, $id]);
+
+        try {
+            $this->authService->verifyMagicLink($id, 'tok', (string) $result->matchCode);
+            $this->fail('No attempt is left: the code must not be compared.');
+        } catch (\Core\Security\MagicLinkCodeMismatch $e) {
+            $this->assertTrue($e->linkSpent);
+        }
+        $this->assertFalse($this->authService->isMagicLinkConfirmed($id));
+    }
+
     public function testTheRightCodeConfirmsWhateverItsSpacing(): void
     {
         $this->userRepo->create('spaced@test.com');
