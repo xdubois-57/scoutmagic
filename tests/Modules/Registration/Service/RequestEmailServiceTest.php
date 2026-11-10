@@ -275,10 +275,9 @@ class RequestEmailServiceTest extends TestCase
         $this->assertSame(DecisionEmail::FAILURE_BODY_NOT_WRITTEN, $attempt->failureCode);
         $this->assertSame(RequestEmailService::BODY_WITHOUT_LINK_MESSAGE, $attempt->failureMessage);
         // The core renderer journaled why, under the e-mail's registry id.
-        $this->assertSame(1, (int) $this->pdo->query(
-            "SELECT COUNT(*) FROM event_log WHERE event_type = 'email_template_required_variable_missing'"
-            . " AND context LIKE '%registration.request_accepted%'"
-        )->fetchColumn());
+        $count = $this->pdo->prepare('SELECT COUNT(*) FROM event_log WHERE event_type = ? AND context LIKE ?');
+        $count->execute(['email_template_required_variable_missing', '%registration.request_accepted%']);
+        $this->assertSame(1, (int) $count->fetchColumn());
         $this->assertNull($attempt->sentAt);
         $this->assertNull($this->requestRepository->findById($requestId)->decisionEmailSentAt);
     }
