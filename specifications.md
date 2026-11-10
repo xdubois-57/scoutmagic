@@ -2547,7 +2547,9 @@ Trois précautions suffisent, et aucune table tampon n'est construite.
 
 **Ne compter que ce qui le mérite** : les réponses HTML en 200 sur des routes de page. Pas les
 appels JSON, pas les téléchargements de fichiers, pas les 404, pas les 403, pas les redirections,
-pas les POST. Cela élimine l'essentiel du volume sans rien perdre d'utile.
+pas les POST. Pas non plus les pages que l'application installée télécharge d'avance pour le hors
+connexion, aide comprise : personne ne les a ouvertes, et le service worker les marque d'un en-tête
+`X-Offline-Precache` (#1066). Cela élimine l'essentiel du volume sans rien perdre d'utile.
 
 **Écarter les robots avant d'écrire.** Une comparaison de chaîne sur l'en-tête `User-Agent` coûte
 quelques microsecondes et évite l'écriture entièrement. On **lit** cet en-tête pour décider, on ne le

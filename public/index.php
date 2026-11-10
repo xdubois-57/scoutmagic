@@ -13606,7 +13606,8 @@ if ($usageStatsRecorder !== null) {
         isset($usageStatsHeaders['content-type']) ? (string) $usageStatsHeaders['content-type'] : null,
         $response->getBodyFilePath() !== null,
         (string) $request->getServer('HTTP_USER_AGENT', ''),
-        \Core\Security\Role::fromString(\Core\Security\AuthSession::getRole())
+        \Core\Security\Role::fromString(\Core\Security\AuthSession::getRole()),
+        offlinePrecache: $request->getServer('HTTP_X_OFFLINE_PRECACHE') !== null
     );
 }
 

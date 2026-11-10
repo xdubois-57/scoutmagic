@@ -140,6 +140,25 @@ describe('sw.js: refreshOfflineCopies() — the pass (#883)', () => {
         expect(copy.headers.get(sw.STORED_AT_HEADER)).not.toBeNull();
     });
 
+    it('marks every page it downloads ahead, help included, so it is not counted as a visit (#1066)', async () => {
+        await seed();
+        const marked = {};
+        const page = (path) => (init) => {
+            marked[path] = init.headers?.[sw.PRECACHE_HEADER];
+            return html(path);
+        };
+        serve({
+            '/api/offline/manifest': manifest(['/contact'], ['/aide/premiers-pas']),
+            '/contact': page('/contact'),
+            '/aide/premiers-pas': page('/aide/premiers-pas'),
+        });
+
+        await sw.refreshOfflineCopies();
+
+        expect(sw.PRECACHE_HEADER).toBe('X-Offline-Precache');
+        expect(marked).toEqual({ '/contact': '1', '/aide/premiers-pas': '1' });
+    });
+
     it('never stores a redirect — the login page answering for a session that ended', async () => {
         await seed();
         serve({

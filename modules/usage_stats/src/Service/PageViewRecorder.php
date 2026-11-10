@@ -45,6 +45,9 @@ class PageViewRecorder
      *                              matched nothing
      * @param ?string $moduleId     the module that declared the route, or null
      *                              for a core route
+     * @param bool    $offlinePrecache whether the request carries
+     *                                 PageViewPolicy::OFFLINE_PRECACHE_HEADER —
+     *                                 a page downloaded ahead, not opened
      * @return bool whether a counter was actually incremented — for tests and
      *              for callers that want to know, never used to branch on the
      *              request path
@@ -58,9 +61,18 @@ class PageViewRecorder
         bool $servesAFile,
         string $userAgent,
         Role $role,
-        ?\DateTimeImmutable $now = null
+        ?\DateTimeImmutable $now = null,
+        bool $offlinePrecache = false
     ): bool {
-        if (!PageViewPolicy::shouldCount($method, $routePattern, $statusCode, $contentType, $servesAFile, $userAgent)) {
+        if (!PageViewPolicy::shouldCount(
+            $method,
+            $routePattern,
+            $statusCode,
+            $contentType,
+            $servesAFile,
+            $userAgent,
+            $offlinePrecache
+        )) {
             return false;
         }
 

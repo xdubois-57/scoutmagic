@@ -224,6 +224,11 @@ const PASS_URL = 'https://offline-config.internal/pass';
 // the cache is the memory of its progress. Device time on both sides, so
 // a server clock that drifts cannot make a copy look done or undone.
 const STORED_AT_HEADER = 'X-Offline-Stored-At';
+
+// Sent on every page downloaded ahead (refreshPage()) and on nothing else,
+// so that the page-view counter does not take it for a visit (issue #1066,
+// Modules\UsageStats\Service\PageViewPolicy::OFFLINE_PRECACHE_HEADER).
+const PRECACHE_HEADER = 'X-Offline-Precache';
 const PASS_CONCURRENCY = 2;
 // How long an unfinished pass is resumed rather than started again: long
 // enough to cover an app closed mid-pass and reopened, short enough that a
@@ -883,7 +888,7 @@ function refreshPage(cache, path, startedAt, scope) {
         if (storedSince(cached, startedAt)) {
             return undefined;
         }
-        const headers = {};
+        const headers = { [PRECACHE_HEADER]: '1' };
         const etag = cached ? cached.headers.get('ETag') : null;
         if (etag) {
             headers['If-None-Match'] = etag;
@@ -1880,6 +1885,7 @@ globalThis.ScoutMagicServiceWorkerInternals = {
     LIST_URL: LIST_URL,
     PASS_URL: PASS_URL,
     STORED_AT_HEADER: STORED_AT_HEADER,
+    PRECACHE_HEADER: PRECACHE_HEADER,
     formatOfflineTimestamp: formatOfflineTimestamp,
     cachedCopy: cachedCopy,
     keepAlive: keepAlive,
