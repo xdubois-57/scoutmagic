@@ -1,0 +1,49 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{#
+  Step 1 of the ICS calendar import (Importer\IcsCalendarImporter): the
+  fields and the button. The shared step_source partial draws the form
+  around them, with its CSRF token, and posts it to …/calendrier/source.
+#}
+<div class="alert alert-info" role="note">
+    <p class="fw-semibold mb-1">Copie unique, pas un abonnement.</p>
+    <p class="mb-0">Les événements sont copiés une fois. Ce qui changera plus tard à cette adresse n'arrivera pas dans ScoutMagic.</p>
+</div>
+
+<div class="mb-3">
+    <label class="form-label" for="ics-address">Adresse du calendrier (ICS)</label>
+    <input type="url" class="form-control" id="ics-address" name="adresse" required maxlength="2000"
+           placeholder="https://…/basic.ics" autocomplete="off" spellcheck="false" aria-describedby="ics-address-help">
+    <div class="form-text" id="ics-address-help">L'adresse publique ou secrète du fichier ICS, telle que votre ancien agenda la donne. Les adresses webcal:// sont acceptées.</div>
+</div>
+
+<div class="mb-3">
+    <label class="form-label" for="ics-calendar">Calendrier de destination</label>
+    {% if ics_calendars is empty %}
+        <p class="text-body-secondary mb-0" id="ics-calendar">Vous ne pouvez modifier aucun calendrier. Demandez l'accès à un calendrier avant d'importer.</p>
+    {% else %}
+        <select class="form-select" id="ics-calendar" name="calendrier" required aria-describedby="ics-calendar-help">
+            {% for calendar in ics_calendars %}
+                <option value="{{ calendar.id }}">{{ calendar.label }}</option>
+            {% endfor %}
+        </select>
+        <div class="form-text" id="ics-calendar-help">Seuls les calendriers que vous pouvez modifier sont proposés.</div>
+    {% endif %}
+</div>
+
+<div class="mb-3">
+    <label class="form-label" for="ics-min-date">Importer les événements à partir du</label>
+    <input type="date" class="form-control w-auto" id="ics-min-date" name="date_minimale" value="{{ ics_default_min_date }}" required aria-describedby="ics-min-date-help">
+    <div class="form-text" id="ics-min-date-help">Par défaut, deux ans avant aujourd'hui.</div>
+</div>
+
+<div class="alert alert-warning" role="note">
+    <strong>Les événements récurrents ne sont pas importés</strong>, ni leurs occurrences modifiées. Recréez-les dans ScoutMagic si besoin.
+</div>
+
+<button type="submit" class="btn btn-primary w-100-below-sm" {{ ics_calendars is empty ? 'disabled' }}>Lire le calendrier</button>
+<p class="small text-body-secondary mt-3 mb-0">
+    Rien n'est écrit tant que vous n'avez pas confirmé, à l'étape 4. Le fichier téléchargé est effacé du serveur au plus tard 24 heures après la fin de l'import.
+</p>

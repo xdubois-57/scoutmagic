@@ -1234,7 +1234,11 @@ en particulier : (a) que le fichier déposé peut contenir des données personne
 mouvement, qu'il n'est jamais extrait sur le disque ni inclus dans une sauvegarde ; (c) que les données importées
 suivent ensuite les règles du module qui les accueille ; (d) que le site garde, sans donnée personnelle, la
 correspondance entre les références de l'ancien site et les éléments importés, et que le bilan ne montre jamais le nom
-d'une personne ; (e) qu'aucun courriel ni aucune notification n'est envoyé par un import. Ce module n'introduit
+d'une personne ; (e) qu'aucun courriel ni aucune notification n'est envoyé par un import ; (f) le paragraphe « Copie
+d'un calendrier en ligne » : l'import ICS télécharge une seule fois le fichier de l'agenda dont l'adresse est indiquée,
+seule requête sortante du module, qui n'envoie aucune donnée de l'unité au serveur de cet agenda, et l'adresse n'est
+pas conservée (seulement une empreinte). Si "calendar" ne figure PAS dans la liste des modules actifs, retire ce
+paragraphe et la mention des événements de calendrier. Ce module n'introduit
 **aucun sous-traitant** et ne fait **aucun appel à une IA** : ne l'ajoute ni en section 4 ni en section 5.2.
 
 34. **Assistant d'aide (fonctionnalité du cœur du site, section 2.8)** : Cette section ne dépend d'aucun module — elle

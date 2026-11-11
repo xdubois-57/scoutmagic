@@ -114,6 +114,7 @@ final class UserFacingExceptionInventoryTest extends TestCase
     private const INTERNAL = [
         // Control flow inside the import engine, constructed with no message.
         \Modules\DataMigration\Service\RunMovedException::class => 'no message; internal control flow of a slice',
+        \Modules\DataMigration\Ics\IcsUnreadableException::class => 'English; the ICS importer replaces it with its own French sentence, and per event a short French reason',
         // Library and driver text, or internal identifiers.
         \Core\Cookie\CookieConsentException::class => 'English, names a cookie category and its consent state',
         \Core\Mail\MailException::class => "PHPMailer's ErrorInfo — an SMTP transcript, always English",
