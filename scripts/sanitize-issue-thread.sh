@@ -79,4 +79,10 @@ case "${kind}" in
       bash "${BASH_SOURCE[0]}" thread "${number}"
     done <<<"${numbers}"
     ;;
+  *)
+    # Unreachable — the kind was checked above — kept so a kind added to
+    # that check without a branch here fails loudly instead of doing nothing.
+    echo "unhandled kind: ${kind}" >&2
+    exit 2
+    ;;
 esac

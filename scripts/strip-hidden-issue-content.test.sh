@@ -14,13 +14,12 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 codepoints() { python3 -c 'import sys; sys.stdout.buffer.write("".join(chr(int(c, 16)) for c in sys.argv[1:]).encode("utf-8"))' "$@"; }
 
 expect() { # expect <wanted> <input>
-  local got
-  got="$(printf '%s' "$2" | bash "${root}/scripts/strip-hidden-issue-content.sh")"
-  [[ "${got}" == "$1" ]] || fail "for [$2]: expected [$1], got [${got}]"
+  local wanted="$1" input="$2" got again
+  got="$(printf '%s' "${input}" | bash "${root}/scripts/strip-hidden-issue-content.sh")"
+  [[ "${got}" == "${wanted}" ]] || fail "for [${input}]: expected [${wanted}], got [${got}]"
   # Idempotence: a second pass changes nothing.
-  local again
   again="$(printf '%s' "${got}" | bash "${root}/scripts/strip-hidden-issue-content.sh")"
-  [[ "${again}" == "${got}" ]] || fail "not idempotent on [$2]: [${got}] then [${again}]"
+  [[ "${again}" == "${got}" ]] || fail "not idempotent on [${input}]: [${got}] then [${again}]"
 }
 
 # HTML comments: simple, inline, multi-line, several, unclosed.
