@@ -1,0 +1,94 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{#
+  Steps 3 and 4: « Ce que l'import fera », then the confirmation dialog.
+  The missing past years (D5) are checkboxes of the confirmation form, so
+  the dialog posts what the administrator ticked.
+#}
+<div class="alert alert-info" role="status">
+    <p class="fw-semibold mb-1">{{ run.file_name ?: 'La source' }} est valable.</p>
+    {% if run.format_version %}
+        <p class="small mb-0">
+            Version {{ run.format_version }} du format
+            {%- if run.exported_on %} · exporté le {{ run.exported_on }}{% endif %}
+            {%- if run.installation_id %} depuis « {{ run.installation_id }} »{% endif %} · contenu vérifié.
+        </p>
+    {% endif %}
+</div>
+
+{% set _tiles = [
+    { label: 'À importer', value: preview.to_import, icon: 'bi-box-arrow-in-down', tone: 'success' },
+    { label: 'Déjà présents', value: preview.present, icon: 'bi-check2-all', tone: 'secondary' },
+] %}
+{% if preview.ambiguous > 0 %}
+    {% set _tiles = _tiles|merge([{ label: 'Ambigus, non créés', value: preview.ambiguous, icon: 'bi-question-circle', tone: 'warning' }]) %}
+{% endif %}
+{% set _tiles = _tiles|merge([{ label: 'Ignorés', value: preview.ignored, icon: 'bi-slash-circle', tone: 'warning' }]) %}
+{% if preview.errors > 0 %}
+    {% set _tiles = _tiles|merge([{ label: 'Illisibles', value: preview.errors, icon: 'bi-exclamation-octagon', tone: 'danger' }]) %}
+{% endif %}
+{% include 'partials/stat_tiles.html.twig' with { tiles: _tiles, columns: _tiles|length } only %}
+
+{% for note in preview.notes %}
+    <div class="alert {{ note.level == 'warning' ? 'alert-warning' : 'alert-info' }} py-2" role="note">{{ note.text }}</div>
+{% endfor %}
+
+<form method="post" action="{{ urls.confirm }}" id="data-migration-confirm-form">
+    {{ csrf_field()|raw }}
+
+    {% if preview.missing_years is not empty %}
+        <div class="card mb-3">
+            <div class="card-body">
+                <h2 class="h6 mb-2">Années scoutes manquantes</h2>
+                <p>Des {{ importer.unit }} visent des années qui n'existent pas encore dans ScoutMagic. Cochez celles à créer. Les {{ importer.unit }} des années non cochées seront ignorés.</p>
+                {% for label, count in preview.missing_years %}
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" name="years[]" value="{{ label }}" id="data-migration-year-{{ loop.index }}" checked>
+                        <label class="form-check-label" for="data-migration-year-{{ loop.index }}">{{ label }} <span class="small text-body-secondary">({{ count }} {{ importer.unit }})</span></label>
+                    </div>
+                {% endfor %}
+                <p class="small text-body-secondary mt-2 mb-0">Seules des années passées sont proposées. L'année en cours et les suivantes ne sont jamais créées ici.</p>
+            </div>
+        </div>
+    {% endif %}
+
+    {% if preview.ignored + preview.ambiguous > 0 %}
+        <details class="card mb-3">
+            <summary class="card-body py-2 fw-semibold">Pourquoi {{ preview.ignored + preview.ambiguous }} {{ importer.unit }} ne seront pas importés</summary>
+            <div class="card-body pt-0">
+                {% include '@data_migration/partials/reasons.html.twig' with { reasons: preview.ignored_reasons, ambiguous: preview.ambiguous, samples: preview.samples } only %}
+            </div>
+        </details>
+    {% endif %}
+
+    <div class="card mb-3">
+        <div class="card-body">
+            <h2 class="h6 mb-2">Ce que l'import fera</h2>
+            <ul class="mb-0">
+                {% for effect in importer.effects %}<li>{{ effect }}</li>{% endfor %}
+            </ul>
+        </div>
+    </div>
+
+    <div class="d-flex flex-wrap gap-2 mb-3">
+        <button type="button" class="btn btn-primary w-100-below-sm" data-bs-toggle="modal" data-bs-target="#data-migration-confirm" {{ preview.to_import == 0 ? 'disabled' }}>
+            Importer {{ preview.to_import }} {{ importer.unit }}
+        </button>
+        <a class="btn btn-outline-secondary w-100-below-sm" href="{{ urls.new }}">Choisir un autre fichier</a>
+    </div>
+
+    {% embed 'partials/modal.html.twig' with { id: 'data-migration-confirm', title: 'Importer ' ~ preview.to_import ~ ' ' ~ importer.unit ~ ' ?' } %}
+        {% block body %}
+            <ul>
+                {% for effect in importer.effects %}<li>{{ effect }}</li>{% endfor %}
+            </ul>
+            <p class="mb-0">Gardez cette page ouverte pendant l'import. Si elle se ferme, vous pourrez le reprendre là où il s'est arrêté.</p>
+        {% endblock %}
+        {% block footer %}
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Annuler</button>
+            <button type="submit" class="btn btn-primary">Importer</button>
+        {% endblock %}
+    {% endembed %}
+</form>

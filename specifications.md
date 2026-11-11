@@ -15,6 +15,7 @@ Everything beyond the core site is a module (`modules/<id>/`, ARCHITECTURE.md §
 | `calendar` | Calendrier | §27 |
 | `camps` | Camps | §26 |
 | `covoiturage` | Covoiturage | §45 |
+| `data_migration` | Migration de données | §49 |
 | `documents` | Documents | §46 |
 | `fees` | Cotisations | §31 |
 | `finance` | Finances | §28, §30, §48 |
@@ -209,6 +210,7 @@ The sheet never shows a number the page itself would not: who sees which number 
 | Membres | admin | Member search (name/email/phone), with a membership filter (**actifs** by default, inactifs, tous) and an on-demand widening to every past scout year. Results are grouped by person. Excel export of all results or of a checked selection, in the canonical member-export format — reusable as-is as a mail-merge audience (§24). A result opens **the member's own page**, `/admin/members/{id}` (below). |
 | Bannière (module) | admin | Homepage banner messages: rich text, minimum viewer role, active/inactive, delete. One of them is drawn at random on every homepage load — the list's own order is for the administrator's convenience and decides nothing on screen (§36) |
 | Gérer le téléphone d'urgence (module sos_staff) | admin | On-call duty roster (month grid), default forwarding number, live redirect status, scheduled redirection list |
+| Migration de données (module data_migration) | admin | One-off import of the unit's former website, from ZIP archives prepared there: only the imports whose target module is enabled are offered, each analysed and previewed before anything is written, executed in slices, resumable, and re-runnable without duplicates — see §49 |
 | Rétrospectives — Config (module) | admin | The rules common to every board: minimum role to create one and to close one, the defaults a new board starts from (word length, vote budget, refresh interval) and the automatic AI moderation mode. Each board then keeps its own settings — see §37 |
 | Formulaire d'inscription (module registration) | admin | See §17 — request management in four sub-pages: Tableau de bord (four figures, capacity-verification table), Demandes (year selector, request list with filter/search/export, "non clôturées" encart with bulk refuse/withdraw), Gabarits, Réglages (opening and recurring schedule, year code, capacities — age brackets are read-only, federation-fixed, shared with the Statistiques module), and a per-request fiche (status transitions, section prévue, tarif, internal notes, acceptance/refusal emails, « Lier à un membre Desk ») |
 | Passages de branche (module registration) | admin | Split arriving families and promoted animés between sections ahead of next scout year — see §18.2. Chef d'unité only (not a per-section chief), since spreading arrivals across sections needs the whole unit at once |
@@ -4074,3 +4076,34 @@ Chantier : `docs/chantiers/CHANTIER-locations-incidents.md`, §2.6 (issue #980).
 ### 48.9 Hors périmètre
 
 **Ponto** (téléchargement automatique des extraits via l'API d'Isabel) : tarif non publié, liaison DSP2 à refaire tous les 90 jours, et surtout le certificat client Ibanity, incompatible avec un logiciel libre auto-hébergé. Il fait l'objet d'une issue distincte. Écartés aussi : créer une année scoute ou un compte depuis un relevé, un récapitulatif à valider avant écriture, et un choix de compte ou de format toujours affiché.
+
+## 49. Migration de données (module data_migration)
+
+Le module reprend **une fois**, lors de l'adoption du site, des données que l'unité tenait sur son ancien site. Il est désactivé par défaut et ne dépend d'aucun autre module : chaque import dépend du sien. Ce chapitre décrit le socle commun (chantier « Migration de données », lot A) ; les sept imports y ajoutent chacun leur section au fil de la vague 2.
+
+### 49.1 Accès et disponibilité
+
+- Une seule entrée de menu, « Migration de données », dans Espace chefs d'U, colonne « Services de l'unité », réservée aux chefs d'unité (`admin`).
+- L'accueil liste les imports **disponibles**, leur dernier état (« Jamais lancé », « Importé le … », « Interrompu à N % »…) et signale un import interrompu.
+- Un import n'existe que si son module cible est actif : il n'apparaît pas sur l'accueil, et son adresse, ses appels AJAX et ses tranches répondent 404.
+
+### 49.2 Le parcours commun
+
+Chaque import suit les mêmes six étapes, sur la même page :
+
+1. **Source** : dépôt d'un fichier ZIP par morceaux d'environ 8 Mo, jusqu'à 2 Go, avec reprise après une coupure dans le même onglet. Un import dont la source est un formulaire (le calendrier ICS) affiche son propre formulaire à la place.
+2. **Analyse**, par tranches pilotées par la page. L'archive est vérifiée d'abord : chemins, liens symboliques, extensions, tailles mesurées à la décompression, manifeste, version majeure, empreinte SHA-256 de chaque fichier. Un défaut fait refuser **toute** l'archive, avec son motif, avant toute écriture, et efface le fichier. Chaque élément est ensuite classé sans rien écrire.
+3. **Aperçu** : à importer, déjà présents, ambigus, ignorés avec leurs motifs et les références de l'ancien site (jamais un nom de personne), notes propres à l'import, années scoutes passées manquantes à cocher, et « Ce que l'import fera ».
+4. **Confirmation** dans un dialogue. Rien n'est écrit avant. Les années cochées sont créées à ce moment, jamais l'année en cours ni une année future.
+5. **Exécution** par tranches d'environ 5 secondes. Chaque élément est écrit dans sa propre transaction, avec sa correspondance. « Mettre en pause », la fermeture de la page ou dix minutes sans tranche interrompent l'import ; « Reprendre l'import » repart du curseur sans rien refaire. « Abandonner et effacer le fichier » garde ce qui est importé.
+6. **Bilan** : importés, déjà présents, ignorés pour données manquantes ou non reconnues, erreurs techniques. « Relancer le même fichier » ne retente que ce qui n'a pas été importé.
+
+Un import n'envoie aucun courriel ni aucune notification.
+
+### 49.3 Correspondance et dédoublonnage
+
+Le site retient, pour chaque objet importé, le quadruplet (installation d'origine, format, type d'objet, identifiant d'origine) et l'objet qu'il est devenu. Un objet déjà retenu est « déjà présent » et n'est jamais réécrit. Les identifiants sont des chaînes, comparées octet par octet. Le format des archives est documenté pour les exporteurs dans `docs/formats/data-migration/`.
+
+### 49.4 Conservation
+
+Le fichier déposé est effacé automatiquement **24 heures** après le dernier mouvement de l'import, quel que soit son état : terminé, abandonné, en attente ou interrompu. Un import qui avance n'est jamais privé de son fichier. Rien n'est extrait sur le disque, et le fichier n'entre dans aucune sauvegarde. La correspondance du §49.3 est conservée sans limite et ne contient aucune donnée personnelle.

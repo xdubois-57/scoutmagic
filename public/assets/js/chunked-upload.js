@@ -56,6 +56,9 @@
      *   fields:     extra FormData fields on every chunk,
      *   lastFields: extra FormData fields on the last chunk only,
      *   onProgress: function (sentBytes, totalBytes),
+     *   startOffset: bytes the server already holds under `uploadId` — a
+     *               deposit resumed after the page was reloaded starts
+     *               there instead of re-sending what arrived (default 0),
      *   chunkSize, uploadId: overrides (mostly for tests)
      * }
      */
@@ -98,7 +101,8 @@
             });
         }
 
-        return sendFrom(0);
+        var start = opts.startOffset > 0 && opts.startOffset < total ? opts.startOffset : 0;
+        return sendFrom(start);
     }
 
     window.ScoutMagicChunkedUpload = {

@@ -1,0 +1,130 @@
+{
+  "id": "data_migration",
+  "name": "Migration de données",
+  "description": "Reprend une fois, depuis l'ancien site de l'unité, des données préparées en fichiers ZIP : chaque import se vérifie avant d'écrire et se relance sans doublon.",
+  "version": "1.0.0",
+  "category": "technique",
+  "enabled_by_default": false,
+  "routes": [
+    {
+      "path": "/admin/migration-donnees",
+      "method": "GET",
+      "controller": "Modules\\DataMigration\\Controller\\DataMigrationController",
+      "action": "index",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": "Migration de données",
+      "menu_icon": "bi-box-arrow-in-down",
+      "menu_group": "services",
+      "menu_order": 190,
+      "breadcrumb": {
+        "label": "Migration de données",
+        "parents": [
+          "Espace chefs d'U"
+        ]
+      }
+    },
+    {
+      "path": "/admin/migration-donnees/{importer}",
+      "method": "GET",
+      "controller": "Modules\\DataMigration\\Controller\\DataMigrationController",
+      "action": "show",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": "",
+      "breadcrumb": {
+        "label": "Import",
+        "parents": [
+          "Espace chefs d'U"
+        ],
+        "ancestors": [
+          {
+            "label": "Migration de données",
+            "path": "/admin/migration-donnees"
+          }
+        ]
+      }
+    },
+    {
+      "path": "/admin/migration-donnees/{importer}/depot",
+      "method": "POST",
+      "controller": "Modules\\DataMigration\\Controller\\DataMigrationController",
+      "action": "uploadChunk",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/admin/migration-donnees/{importer}/source",
+      "method": "POST",
+      "controller": "Modules\\DataMigration\\Controller\\DataMigrationController",
+      "action": "submitSource",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/admin/migration-donnees/{importer}/avancer",
+      "method": "POST",
+      "controller": "Modules\\DataMigration\\Controller\\DataMigrationController",
+      "action": "advance",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/admin/migration-donnees/{importer}/confirmer",
+      "method": "POST",
+      "controller": "Modules\\DataMigration\\Controller\\DataMigrationController",
+      "action": "confirm",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/admin/migration-donnees/{importer}/pause",
+      "method": "POST",
+      "controller": "Modules\\DataMigration\\Controller\\DataMigrationController",
+      "action": "pause",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/admin/migration-donnees/{importer}/reprendre",
+      "method": "POST",
+      "controller": "Modules\\DataMigration\\Controller\\DataMigrationController",
+      "action": "resume",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/admin/migration-donnees/{importer}/abandonner",
+      "method": "POST",
+      "controller": "Modules\\DataMigration\\Controller\\DataMigrationController",
+      "action": "abandon",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/admin/migration-donnees/{importer}/relancer",
+      "method": "POST",
+      "controller": "Modules\\DataMigration\\Controller\\DataMigrationController",
+      "action": "restart",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    }
+  ],
+  "settings": [],
+  "cookies": [],
+  "scheduled_tasks": [
+    {
+      "key": "purge_uploads",
+      "handler": "Modules\\DataMigration\\Task\\PurgeUploadsHandler"
+    }
+  ],
+  "storage": {}
+}
