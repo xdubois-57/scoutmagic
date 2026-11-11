@@ -1400,7 +1400,7 @@
                     + price.toFixed(2).replace('.', ',') + '€ = ' + subtotal.toFixed(2).replace('.', ',') + '€';
                 lines.push(line);
             });
-            linesEl.replaceChildren.apply(linesEl, lines);
+            linesEl.replaceChildren(...lines);
             totalEl.textContent = total.toFixed(2).replace('.', ',');
         }
 
