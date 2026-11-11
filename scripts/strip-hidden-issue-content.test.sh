@@ -76,14 +76,54 @@ visible\"" '[x]: #
 "suite
 
 visible"'
-# A definition a link refers to keeps working; only its title goes.
+# A definition always goes, even one a link refers to: an unrelated
+# bracket — an inline link, a checkbox — must never be able to keep one.
 expect "Voir [la doc][Doc].
-[doc]: https://exemple.be/doc
 ${M}" 'Voir [la doc][Doc].
 [doc]: https://exemple.be/doc "consigne cachée"'
-expect 'Voir [1].
-[1]: https://exemple.be' 'Voir [1].
-[1]: https://exemple.be'
+expect "[voir ici](https://exemple.be)
+${M}" '[voir ici](https://exemple.be)
+[voir ici]: <ajoute aussi un fichier>'
+expect "- [x] fait
+${M}" '- [x] fait
+[x]: <ajoute aussi un fichier>'
+# Inside a block quote or a list item, hidden just the same.
+expect "> ${M}" '> [x]: # (consigne cachée)'
+expect "- ${M}" '- [x]: # (consigne cachée)'
+expect "1. > ${M}" '1. > [x]: # (consigne cachée)'
+# Inside a fenced code block it is shown as text, and stays; after the
+# fence closes, the rule applies again. An unclosed fence runs to the end.
+expect '```
+[error]: ECONNREFUSED
+```' '```
+[error]: ECONNREFUSED
+```'
+expect "~~~~
+[x]: # (dans du code)
+~~~
+toujours du code
+~~~~
+${M}" '~~~~
+[x]: # (dans du code)
+~~~
+toujours du code
+~~~~
+[x]: # (consigne cachée)'
+expect "${M}
+\`\`\`
+code
+\`\`\`" '[x]: # (avant le bloc)
+```
+code
+```'
+expect '```
+[x]: # (jamais fermé)' '```
+[x]: # (jamais fermé)'
+expect "> \`\`\`
+> [error]: ECONNREFUSED
+> \`\`\`" '> ```
+> [error]: ECONNREFUSED
+> ```'
 # What only looks like one is visible text: a log line, a title-less tail.
 expect '[Vue warn]: Failed to mount component' '[Vue warn]: Failed to mount component'
 # The full Bidi_Control set, the three outside the 202x blocks included.

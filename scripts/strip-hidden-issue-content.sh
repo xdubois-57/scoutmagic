@@ -21,10 +21,13 @@ set -euo pipefail
 #     and title may span lines (never a blank one), the destination is one
 #     token, and a title, if any, is the last thing on its line — so
 #     `[Vue warn]: Failed to mount component` is visible text and stays.
-#     An unused definition goes whole. One a link in the text refers to
-#     keeps its label and destination, so the link still works, and loses
-#     its title (a hover tooltip, never shown otherwise), with the marker
-#     on the next line. A footnote, `[^1]: text`, is rendered and stays.
+#     Inside a block quote or a list item too (`> [x]: …`, `- [x]: …`),
+#     which hide it just the same. The definition always goes, even one a
+#     link refers to: telling a real reference from any other bracket is a
+#     parser's job, and a link that falls back to plain text next to the
+#     marker is a visible loss, never a hidden one. Inside a fenced code
+#     block it stays, because there GitHub shows it as text. A footnote,
+#     `[^1]: text`, is rendered and stays.
 #
 # `--title` applies to an issue title, which GitHub shows as plain text:
 # nothing in it is Markdown, so the link-definition rule is not applied
@@ -54,20 +57,30 @@ MARKER="${MARKER}" TITLE="${TITLE}" exec perl -CSDA -0777 -pe '
     if (!$ENV{TITLE}) {
         # A newline, but never a blank line, may sit inside a label or title.
         my $nl    = qr/\n(?![ \t]*\n)/;
-        my $label = qr/\[(?!\^)((?:[^\[\]\\\n]|\\.|$nl)+)\]/;
+        # Block quote and list item markers, nested any number of times.
+        my $cont  = qr/(?:[ ]{0,3}(?:>[ ]?|[-*+][ ]+|\d{1,9}[.)][ ]+))*/;
+        my $label = qr/\[(?!\^)(?:[^\[\]\\\n]|\\.|$nl)+\]/;
         my $dest  = qr/<[^<>\n]*>|[^\s<]\S*/;
         my $title = qr/"(?:[^"\\\n]|\\.|$nl)*"|\x27(?:[^\x27\\\n]|\\.|$nl)*\x27|\((?:[^()\\\n]|\\.|$nl)*\)/;
-        my $def   = qr/^[ ]{0,3}$label:[ \t]*\n?[ \t]*($dest)(?:(?:[ \t]+|[ \t]*\n[ \t]*)($title))?[ \t]*$/m;
-        my $norm  = sub { my $l = lc shift; $l =~ s/\s+/ /g; $l =~ s/^ | $//g; $l };
-        # What the text refers to, read with every definition taken out.
-        (my $rest = $_) =~ s/$def//g;
-        my %used;
-        $used{ $norm->($1) } = 1 while $rest =~ /\[((?:[^\[\]\\]|\\.)+)\]/gs;
-        s{$def}{
-            my ($whole, $l, $d, $t) = ($&, $1, $2, $3);
-            !$used{ $norm->($l) } ? $m
-            : defined $t ? "[$l]: $d\n$m"
-            : $whole
-        }ge;
+        my $def   = qr/^($cont)[ ]{0,3}$label:[ \t]*\n?[ \t]*(?:$dest)(?:(?:[ \t]+|[ \t]*\n[ \t]*)(?:$title))?[ \t]*$/m;
+        # Fenced code blocks are copied as they are; the rest is filtered.
+        # An unclosed fence runs to the end of the text, as CommonMark has it.
+        my ($out, $prose, $fence) = (q{}, q{}, undef);
+        for my $line (split /(?<=\n)/, $_) {
+            if (defined $fence) {
+                $out .= $line;
+                $fence = undef if $line =~ /^$cont[ ]{0,3}$fence[ \t]*\n?\z/;
+            } elsif ($line =~ /^$cont[ ]{0,3}(`{3,}|~{3,})/) {
+                my $open = $1;
+                $prose =~ s/$def/$1$m/g;
+                $out .= $prose . $line;
+                $prose = q{};
+                $fence = quotemeta(substr($open, 0, 1)) . "{" . length($open) . ",}";
+            } else {
+                $prose .= $line;
+            }
+        }
+        $prose =~ s/$def/$1$m/g;
+        $_ = $out . $prose;
     }
 '
