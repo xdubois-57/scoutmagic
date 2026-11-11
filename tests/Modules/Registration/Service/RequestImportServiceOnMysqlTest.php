@@ -79,7 +79,7 @@ class RequestImportServiceOnMysqlTest extends TestCase
         );
     }
 
-    private function count(string $table): int
+    private function rowCount(string $table): int
     {
         return (int) $this->pdo->query('SELECT COUNT(*) FROM ' . $table)->fetchColumn();
     }
@@ -89,12 +89,12 @@ class RequestImportServiceOnMysqlTest extends TestCase
         $this->pdo->beginTransaction();
         $id = $this->service->write($this->request('accepted'));
         $this->assertTrue($this->pdo->inTransaction(), 'The write must not commit the caller\'s transaction.');
-        $this->assertSame(1, $this->count('registration_requests'));
+        $this->assertSame(1, $this->rowCount('registration_requests'));
         $this->pdo->rollBack();
 
         $this->assertNull($this->requests->findById($id));
-        $this->assertSame(0, $this->count('registration_decision_emails'));
-        $this->assertSame(0, $this->count('registration_secondary_emails'));
+        $this->assertSame(0, $this->rowCount('registration_decision_emails'));
+        $this->assertSame(0, $this->rowCount('registration_secondary_emails'));
     }
 
     public function testTheCommunicatedLineIsWrittenOnlyForTheDecisionTheRequestHolds(): void

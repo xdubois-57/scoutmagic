@@ -156,7 +156,7 @@ final class RegistrationRequestsImporterOnMysqlTest extends TestCase
 
         $this->assertSame(5, $run->analysis['to_import']);
         $this->assertSame([], $run->analysis['ignored']);
-        $this->assertSame(0, $this->count('registration_requests'), 'The analysis wrote something.');
+        $this->assertSame(0, $this->rowCount('registration_requests'), 'The analysis wrote something.');
         $this->assertSame([
             'Année visée par le fichier : 2027-2028. 1 en attente, 1 acceptée, 1 refusée, 1 retirée, '
                 . '1 encodée dans Desk.',
@@ -209,8 +209,8 @@ final class RegistrationRequestsImporterOnMysqlTest extends TestCase
 
         $this->assertSame(0, $again->report['imported']);
         $this->assertSame(5, $again->report['present']);
-        $this->assertSame(5, $this->count('registration_requests'));
-        $this->assertSame(3, $this->count('registration_decision_emails'));
+        $this->assertSame(5, $this->rowCount('registration_requests'));
+        $this->assertSame(3, $this->rowCount('registration_decision_emails'));
     }
 
     public function testEveryRequestThatCannotBeRepresentedIsIgnoredWithItsReasonAndNoName(): void
@@ -239,7 +239,7 @@ final class RegistrationRequestsImporterOnMysqlTest extends TestCase
 
         $run = $this->drive($this->service->confirm($run, []) ?? $this->fail('Not confirmed.'));
         $this->assertSame(0, $run->report['imported']);
-        $this->assertSame(0, $this->count('registration_requests'));
+        $this->assertSame(0, $this->rowCount('registration_requests'));
     }
 
     public function testALookAlikeOfAnExistingRequestIsImportedAndAnnounced(): void
@@ -277,17 +277,17 @@ final class RegistrationRequestsImporterOnMysqlTest extends TestCase
             $this->assertSame(Run::ABANDONED, $run->state, $fixture);
             $this->assertNotNull($run->rejectionReason, $fixture);
         }
-        $this->assertSame(0, $this->count('registration_requests'));
+        $this->assertSame(0, $this->rowCount('registration_requests'));
     }
 
     private function assertNothingWasOrWillBeSent(): void
     {
         $this->assertSame(0, $this->decisionEmails->countScheduled());
         $this->assertSame([], $this->decisionEmails->findDue(new \DateTimeImmutable('+10 years'), 100));
-        $this->assertSame(0, $this->count('registration_decision_emails WHERE active_request_id IS NOT NULL'));
-        $this->assertSame(0, $this->count("registration_decision_emails WHERE state <> 'communicated_elsewhere'"));
-        $this->assertSame(0, $this->count('registration_decision_emails WHERE sent_at IS NOT NULL'));
-        $this->assertSame(0, $this->count(
+        $this->assertSame(0, $this->rowCount('registration_decision_emails WHERE active_request_id IS NOT NULL'));
+        $this->assertSame(0, $this->rowCount("registration_decision_emails WHERE state <> 'communicated_elsewhere'"));
+        $this->assertSame(0, $this->rowCount('registration_decision_emails WHERE sent_at IS NOT NULL'));
+        $this->assertSame(0, $this->rowCount(
             'registration_secondary_emails WHERE confirmation_token_hash IS NOT NULL OR last_confirmation_sent_at IS NOT NULL'
         ));
         $this->assertSame(0, $this->requests->countDecisionEmailsToSendForYears([$this->yearId]));
@@ -334,7 +334,7 @@ final class RegistrationRequestsImporterOnMysqlTest extends TestCase
         );
     }
 
-    private function count(string $from): int
+    private function rowCount(string $from): int
     {
         return (int) $this->pdo->query('SELECT COUNT(*) FROM ' . $from)->fetchColumn();
     }
