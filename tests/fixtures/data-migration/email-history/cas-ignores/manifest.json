@@ -1,0 +1,97 @@
+{
+    "format": "scoutmagic.email-history",
+    "format_version": "1.0.0",
+    "source": {
+        "installation_id": "site-exempleville",
+        "name": "Ancien site du 99e Exempleville"
+    },
+    "export_id": "export-2026-11-08-courriels",
+    "exported_at": "2026-11-08T14:30:00+01:00",
+    "files": [
+        {
+            "path": "attachments/3c96a45af84221e8bcc7444180204047f0e237ed313b5154ff010c3d7ae061d8",
+            "sha256": "3c96a45af84221e8bcc7444180204047f0e237ed313b5154ff010c3d7ae061d8",
+            "size": 23
+        },
+        {
+            "path": "attachments/77c958ed09aafc2453a51a2135972c3a7cdd62eca7c68104f363102086f8606b",
+            "sha256": "77c958ed09aafc2453a51a2135972c3a7cdd62eca7c68104f363102086f8606b",
+            "size": 228
+        },
+        {
+            "path": "communications/i-01-sans-sujet.json",
+            "sha256": "76f193f68c6bbc4a62cd71bcd997299ea767b762a66565c375ae6a67ca57b44c",
+            "size": 281
+        },
+        {
+            "path": "communications/i-02-sans-date.json",
+            "sha256": "4635a5766eb2126555b541730e7bd94cfdead9c8dffdce97363d48a7dec438e7",
+            "size": 241
+        },
+        {
+            "path": "communications/i-03-date-sans-fuseau.json",
+            "sha256": "2b19b65316244c5c5d357954c718f0311a62c5732ea9ebb60ccad1596e322844",
+            "size": 286
+        },
+        {
+            "path": "communications/i-04-sans-expediteur.json",
+            "sha256": "8d07629d6998dd8563aecd4fec83b1faaaf87cb7c8f5ad39e8fbd89d1bf76146",
+            "size": 275
+        },
+        {
+            "path": "communications/i-05-expediteur-invalide.json",
+            "sha256": "fbe2d43a585773af4a619e4eb8f116cd594e681a2c4d78d757e987c860de2d15",
+            "size": 289
+        },
+        {
+            "path": "communications/i-06-sans-contenu.json",
+            "sha256": "e317fbce9faf6dacbe9175c6909e5ba768518054017227b0a9a24904ae018866",
+            "size": 187
+        },
+        {
+            "path": "communications/i-07-contenu-vide-une-fois-nettoye.json",
+            "sha256": "1c7bc11f89e713ff0aece45027f39ed2a154259cb7cd4aeeb60395fc9b59968c",
+            "size": 305
+        },
+        {
+            "path": "communications/i-08-contenu-introuvable.json",
+            "sha256": "5f7ab89834948982d22f214a8a0dde1f1883a671df09973411f04bc18f773d42",
+            "size": 295
+        },
+        {
+            "path": "communications/i-12-identifiant-numerique.json",
+            "sha256": "9f4f6c39cddbfa76fa2da2889432a5a8bd1c482e76605cc98694943c0c2196ac",
+            "size": 271
+        },
+        {
+            "path": "communications/i-13-pas-du-json.json",
+            "sha256": "b0ddbe010ec4b28f5c861adc8906e0e08f8552839cdce9b3357c5e6d0e7d2a06",
+            "size": 25
+        },
+        {
+            "path": "communications/p-09-piece-jointe-empreinte-fausse.json",
+            "sha256": "e9e6aebc830dcf0a348e3eda19b6d7fb1a13fd498c0486fc6c4bd17321f57682",
+            "size": 578
+        },
+        {
+            "path": "communications/p-10-piece-jointe-type-refuse.json",
+            "sha256": "afbf16f558bb2ce34100b1d1894050fe62e0c764c3d8f361a52d4625c799ac18",
+            "size": 575
+        },
+        {
+            "path": "communications/p-11-destinataire-invalide-et-membre-inconnu.json",
+            "sha256": "f55c54a8bf0c9588063cbe0f7e71457f07d11ba0eab4d7519cdcfe8ed5528a53",
+            "size": 625
+        },
+        {
+            "path": "content/43850b18c97386a8fb44637e9e12f84876d0d52635b3b5ee0a63ec97743cb501.html",
+            "sha256": "43850b18c97386a8fb44637e9e12f84876d0d52635b3b5ee0a63ec97743cb501",
+            "size": 29
+        },
+        {
+            "path": "content/b381041f11bdc5ee044a5b1e9c87dd3ee0a7275b6fb67cbd072603da40cd3f9d.html",
+            "sha256": "b381041f11bdc5ee044a5b1e9c87dd3ee0a7275b6fb67cbd072603da40cd3f9d",
+            "size": 37
+        }
+    ]
+}

@@ -1,0 +1,54 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{#
+  The « Composition » view of an email imported from a former site: what
+  it said, to whom and from whom, and nothing to act with. No form, no
+  status button and no attachment control — and the server refuses them
+  anyway (decision D11).
+
+  Usage:
+  {% include '@mass_mail/partials/_imported_email.html.twig' with {
+      email: email,
+      sender: original_sender,
+      attachments: attachments,
+  } only %}
+#}
+{% include '@mass_mail/partials/_imported_notice.html.twig' with { imported_at: email.importedAt } only %}
+
+<dl class="row mb-3">
+    <dt class="col-5 col-sm-3">Envoyé le</dt>
+    <dd class="col-7 col-sm-9">{{ email.sentAt|datetime_fr }}</dd>
+    <dt class="col-5 col-sm-3">Expéditeur d'origine</dt>
+    <dd class="col-7 col-sm-9 text-break">
+        {% if sender %}
+            {% if sender.name %}{{ sender.name }} &lt;{{ sender.address }}&gt;{% else %}{{ sender.address }}{% endif %}
+        {% else %}
+            —
+        {% endif %}
+    </dd>
+    <dt class="col-5 col-sm-3">Liste d'origine</dt>
+    <dd class="col-7 col-sm-9">{{ email.originalAudienceName ? '« ' ~ email.originalAudienceName ~ ' » (nom d\'origine)' : '—' }}</dd>
+</dl>
+
+<div class="mb-3">
+    <span class="form-label d-block">Message</span>
+    {# Sanitized at import (Core\Security\HtmlSanitizer), like every body
+       this module stores. A mail merge is its template text (D3). #}
+    <div class="border rounded p-2 bg-body-tertiary">{{ email.bodyHtml|raw }}</div>
+</div>
+
+<div class="mb-4">
+    <div class="form-label d-block">Pièces jointes</div>
+    <div class="d-flex flex-column gap-1">
+        {% for attachment in attachments %}
+            <div class="border rounded px-2 py-1">
+                <a href="/files/{{ attachment.file_id }}"
+                   download="{{ attachment.name }}" target="_blank" rel="noopener">{{ attachment.name }}</a>
+            </div>
+        {% else %}
+            <p class="text-body-secondary fst-italic small mb-0">Aucune pièce jointe.</p>
+        {% endfor %}
+    </div>
+</div>

@@ -281,6 +281,23 @@ class MemberShowTemplateTest extends TestCase
      * left for this member (issue #999) — and must say so, never let it
      * read as sent.
      */
+    /**
+     * An email imported from a former site (data_migration, D11) carries
+     * the « Importé » badge on the member page, as in the mass-mail list.
+     */
+    public function testAnImportedCommunicationCarriesTheImportedBadge(): void
+    {
+        $item = ['id' => 8, 'subject' => "Infos camp d'été 2024", 'sent_at' => '2024-05-21 18:30:00',
+            'section_name' => 'Éclaireurs', 'merge_purged' => false, 'not_sent' => false];
+        $context = ['mass_mail_enabled' => true];
+
+        $imported = $this->render($this->makeMember(), true, $context + ['recent_mass_mail_emails' => [$item + ['imported' => true]]]);
+        $native = $this->render($this->makeMember(), true, $context + ['recent_mass_mail_emails' => [$item + ['imported' => false]]]);
+
+        $this->assertStringContainsString('>Importé<', $imported);
+        $this->assertStringNotContainsString('>Importé<', $native);
+    }
+
     public function testACommunicationNotSentIsMarkedNonEnvoyee(): void
     {
         $item = ['id' => 7, 'subject' => 'Réunion', 'sent_at' => '2026-01-01 10:00:00', 'section_name' => 'Meute A', 'merge_purged' => false];

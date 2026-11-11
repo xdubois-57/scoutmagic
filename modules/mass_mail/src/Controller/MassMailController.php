@@ -27,6 +27,7 @@ use Core\Security\CsrfGuard;
 use Core\Security\Role;
 use Core\View\SectionPickerHelper;
 use Modules\MassMail\Repository\Email;
+use Modules\MassMail\Repository\EmailAttachment;
 use Modules\MassMail\Repository\ListBlock;
 use Modules\MassMail\Service\AudienceImportException;
 use Modules\MassMail\Service\AudienceImportService;
@@ -42,8 +43,8 @@ use Twig\Environment;
 
 class MassMailController extends AbstractController
 {
-    private const ATTACHMENT_ALLOWED_MIMES = ['application/pdf', 'image/jpeg', 'image/png', 'image/gif', 'image/webp'];
-    private const ATTACHMENT_MAX_SIZE_BYTES = 10 * 1024 * 1024;
+    private const ATTACHMENT_ALLOWED_MIMES = EmailAttachment::ALLOWED_MIMES;
+    private const ATTACHMENT_MAX_SIZE_BYTES = EmailAttachment::MAX_SIZE_BYTES;
     private const AUDIENCE_MAX_SIZE_BYTES = 5 * 1024 * 1024;
     private const SETTING_PREVIOUS_YEAR_CUTOFF = 'previous_year_active_cutoff';
     private const DEFAULT_PREVIOUS_YEAR_CUTOFF = '07-31';
@@ -122,6 +123,11 @@ class MassMailController extends AbstractController
             'sections' => $sections,
             'sections_by_id' => $sectionsById,
             'custom_lists_by_id' => $customListsById,
+            // The sender an imported email had on the former site, shown as
+            // is beside it (D6) — one query for the page.
+            'original_senders' => $this->massMailService->getOriginalSenders(
+                array_map(static fn(Email $email): int => $email->id, $result['emails'])
+            ),
         ]);
     }
 
@@ -245,7 +251,9 @@ class MassMailController extends AbstractController
         }
 
         try {
-            $estimate = $this->massMailService->estimateRecipientCount($id);
+            // An imported email has no list to count: its recipients are the
+            // ones the former site knew, in the « Suivi » tab.
+            $estimate = $email->isImported() ? null : $this->massMailService->estimateRecipientCount($id);
         } catch (MassMailException|MailingListException $e) {
             // Both families, because the one that can actually arrive here
             // is MailingListException: estimateRecipientCount() resolves
@@ -733,6 +741,8 @@ class MassMailController extends AbstractController
             'breadcrumb_current' => "Suivi de l'envoi",
             'breadcrumb_trail' => [['label' => $data['email']->subject, 'url' => '/mass-mail/' . $data['email']->id]],
             'csrf_token' => CsrfGuard::generateToken(),
+            'original_sender' => $this->massMailService->getOriginalSenders([$data['email']->id])[$data['email']->id]
+                ?? null,
         ]);
     }
 
@@ -842,9 +852,13 @@ class MassMailController extends AbstractController
                 : ['address' => '', 'name' => ''],
             'counts' => $email !== null
                 ? $this->massMailService->getStatusCounts($email->id)
-                : ['total' => 0, 'sent' => 0, 'pending' => 0, 'error' => 0],
+                : ['total' => 0, 'sent' => 0, 'pending' => 0, 'error' => 0, 'unknown' => 0],
             'current_user_email' => AuthSession::getEmail() ?? '',
             'csrf_token' => CsrfGuard::generateToken(),
+            // An imported email's sender as the former site recorded it (D6).
+            'original_sender' => $email !== null && $email->isImported()
+                ? ($this->massMailService->getOriginalSenders([$email->id])[$email->id] ?? null)
+                : null,
         ];
     }
 
@@ -1042,6 +1056,11 @@ class MassMailController extends AbstractController
      */
     private function describeList(Email $email): string
     {
+        if ($email->listType === Email::LIST_TYPE_IMPORTED) {
+            return $email->originalAudienceName !== null
+                ? '« ' . $email->originalAudienceName . ' » (nom d\'origine)'
+                : 'Liste d\'origine inconnue';
+        }
         if ($email->listType === Email::LIST_TYPE_MAIL_MERGE) {
             return 'Publipostage — fichier Excel';
         }

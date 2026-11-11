@@ -72,6 +72,10 @@ Le « Journal » garde une ligne par message, parti ou non, avec le
 numéro de l'e-mail — celui de son adresse de page — et le motif de ce
 qui a échoué.
 
+## Les courriels importés de l'ancien site
+
+Un courriel repris de l'ancien site par la migration de données porte le badge « Importé » et le bandeau « Élément historique en lecture seule ». Il garde sa date, son expéditeur et le nom de sa liste d'origine, et il ne peut être ni modifié, ni supprimé, ni renvoyé : il n'y a pas de bouton « Renvoyer » dans son « Suivi ». Le statut de chaque message est celui que l'ancien site connaissait — « Accepté par le serveur d'envoi », « Erreur » ou « Inconnu ».
+
 ## La désinscription
 
 Chaque message porte un lien de désinscription. L'adresse ne reçoit

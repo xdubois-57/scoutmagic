@@ -42,6 +42,20 @@ final class RgpdCoverageTest extends TestCase
         $this->assertStringContainsString('retire entièrement la sous-section "Module Migration de données"', $prompt);
     }
 
+    /**
+     * The email history import stores personal data in mass_mail that no
+     * native send does: the sender as the former site recorded it.
+     */
+    public function testTheImportedEmailsAndTheirOriginalSenderAreDescribed(): void
+    {
+        $page = self::read('core/View/rgpd_default.html');
+        $prompt = self::read('core/View/RgpdContentService.php');
+
+        $this->assertStringContainsString('<strong>Courriels importés de l\'ancien site</strong>', $page);
+        $this->assertStringContainsString('<strong>adresse et le nom de son expéditeur d\'origine</strong> (chiffrés au repos)', $page);
+        $this->assertStringContainsString('« Courriels importés de l\'ancien site »', $prompt);
+    }
+
     public function testThePromisedDurationIsTheOneThePurgeApplies(): void
     {
         $this->assertSame(24 * 3600, RunService::FILE_RETENTION_SECONDS);

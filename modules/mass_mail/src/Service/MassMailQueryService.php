@@ -80,6 +80,7 @@ class MassMailQueryService implements MassMailQueryInterface
                 // remove.
                 'merge_purged' => $isMerge && $data === null,
                 'not_sent' => $entry['not_sent'],
+                'imported' => $entry['imported'],
             ];
         }, $entries);
     }
@@ -115,6 +116,7 @@ class MassMailQueryService implements MassMailQueryInterface
                 // have lost.
                 'merge_purged' => $isMerge,
                 'not_sent' => $entry['not_sent'],
+                'imported' => $entry['imported'],
                 'other_targets' => $others,
             ];
         }
@@ -126,6 +128,7 @@ class MassMailQueryService implements MassMailQueryInterface
             'section_name' => $entry['section_name'],
             'merge_purged' => false,
             'not_sent' => $entry['not_sent'],
+            'imported' => $entry['imported'],
             'other_targets' => [],
         ];
     }

@@ -22,6 +22,15 @@
             .
         </p>
     {% endif %}
+    {# An email imported from a former site (data_migration, D11): a
+       record of the past, which nothing on this site can change or send
+       again. #}
+    {% if email.imported|default(false) %}
+        <div class="alert alert-secondary" role="status">
+            <strong>Élément historique en lecture seule</strong>
+            <span class="d-block small">Ce courriel a été importé de l'ancien site. Il ne peut pas être modifié, supprimé ni renvoyé.</span>
+        </div>
+    {% endif %}
     {# Nothing of it left for this member — every message in error, or no
        address it could go to. The content is still what was meant for
        them, so it is shown, under a sentence that says so. #}

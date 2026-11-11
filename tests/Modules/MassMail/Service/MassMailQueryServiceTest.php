@@ -372,6 +372,52 @@ class MassMailQueryServiceTest extends TestCase
     }
 
     /** §5: « 2 campagnes séparées, mêmes destinataires et objet » — 2 entries. */
+    /**
+     * An email imported from a former site (data_migration, D11) is listed
+     * with its flag, at its historical date, and never « Non envoyée »: a
+     * message of unknown fate — or a member concerned with no address the
+     * former site knew — is an unknown, not a failure.
+     */
+    public function testAnImportedEmailIsFlaggedDatedByItsSendingAndNeverNotSent(): void
+    {
+        $pdo = DatabaseTestHelper::createTestDatabase();
+        MassMailTestHelper::createTables($pdo);
+        $storage = sys_get_temp_dir();
+        \Tests\Modules\MassMail\ImportedEmailFixture::staffSection($pdo);
+        $pdo->exec("INSERT INTO members (desk_id) VALUES ('900001')");
+        $withUnknown = (int) $pdo->lastInsertId();
+        $pdo->exec("INSERT INTO members (desk_id) VALUES ('900002')");
+        $withoutAddress = (int) $pdo->lastInsertId();
+
+        $email = \Tests\Modules\MassMail\ImportedEmailFixture::email('c-hist', [
+            new \Modules\MassMail\Api\ImportedRecipient(
+                'famille@exemple.test',
+                \Modules\MassMail\Api\ImportedRecipient::UNKNOWN,
+                null,
+                [$withUnknown]
+            ),
+        ], [$withoutAddress]);
+        \Tests\Modules\MassMail\ImportedEmailFixture::service($pdo, $storage)->import($email);
+
+        $service = new MassMailQueryService(
+            new TargetRepository($pdo),
+            new AudienceRepository($pdo, \Tests\Modules\MassMail\ImportedEmailFixture::encryption()),
+            new MergeRenderer()
+        );
+        $expected = $email->sentAt->setTimezone(new \DateTimeZone(date_default_timezone_get()))->format('Y-m-d H:i:s');
+        foreach ([$withUnknown, $withoutAddress] as $memberId) {
+            $entries = $service->getRecentEmailsForMember($memberId, 10);
+            $this->assertCount(1, $entries);
+            $this->assertTrue($entries[0]['imported']);
+            $this->assertFalse($entries[0]['not_sent']);
+            $this->assertSame($expected, $entries[0]['sent_at']);
+
+            $detail = $service->findEmailDetailForMember($memberId, $entries[0]['id']);
+            $this->assertTrue($detail['imported'] ?? null);
+            $this->assertFalse($detail['not_sent'] ?? null);
+        }
+    }
+
     public function testTwoCampaignsWithTheSameSubjectAreTwoEntries(): void
     {
         $f = $this->historyFixture();

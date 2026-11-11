@@ -19,6 +19,11 @@ final class Delivery
     public const STATUS_PENDING = 'pending';
     public const STATUS_SENT = 'sent';
     public const STATUS_ERROR = 'error';
+    /**
+     * Only on an email imported from a former site, which did not say what
+     * became of this message. Never sent, never resent, never « Remis ».
+     */
+    public const STATUS_UNKNOWN = 'unknown';
 
     public function __construct(
         public readonly int $id,

@@ -27,6 +27,10 @@ Cette page sert à reprendre, une seule fois, ce que votre ancien site contenait
 
 Le site retient, pour chaque élément importé, sa référence sur l'ancien site. « Relancer le même fichier » ne crée donc rien deux fois : seuls les éléments ignorés ou en erreur sont retentés. L'import n'envoie aucun courriel et aucune notification.
 
+## Historique des courriels
+
+L'import « Historique des courriels » reprend les courriels envoyés par l'ancien site dans « Envoi de mails », en lecture seule. Un courriel est rattaché à la section dont l'adresse l'a envoyé, sinon au Staff d'U ; l'adresse et le nom d'expéditeur d'origine restent affichés tels quels. Un courriel sans sujet, sans contenu, sans date ou sans expéditeur est ignoré. Les destinataires sont facultatifs, et leur statut reste celui d'origine : « Accepté par le serveur d'envoi » ne devient jamais « Remis ». Aucun courriel n'est envoyé ni renvoyé.
+
 ## Abandonner
 
 « Abandonner et effacer le fichier » garde ce qui est déjà importé et efface le fichier déposé.

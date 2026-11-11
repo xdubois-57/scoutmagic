@@ -234,6 +234,26 @@ class MemberEmailControllerTest extends TestCase
     }
 
     /**
+     * An email imported from a former site (data_migration, D11) opens
+     * under the banner that says it is a read-only record of the past.
+     */
+    public function testAnImportedEmailOpensUnderItsReadOnlyBanner(): void
+    {
+        AuthSession::login(1, 'member@test.example', 'identified');
+        $massMailQuery = $this->createStub(MassMailQueryInterface::class);
+        $massMailQuery->method('findEmailDetailForMember')->willReturn($this->detail(['imported' => true]));
+
+        $body = $this->show($massMailQuery, 5)->getBody();
+
+        $this->assertStringContainsString('Élément historique en lecture seule', $body);
+        $this->assertStringContainsString('<p>Corps</p>', $body);
+
+        $massMailQuery = $this->createStub(MassMailQueryInterface::class);
+        $massMailQuery->method('findEmailDetailForMember')->willReturn($this->detail(['imported' => false]));
+        $this->assertStringNotContainsString('Élément historique en lecture seule', $this->show($massMailQuery, 5)->getBody());
+    }
+
+    /**
      * « Concerne aussi » (issue #999, §2.5): a parent who may open Bob's page
      * (his Desk address is theirs) sees him named, with a link to HIS entry
      * through his own member_years row; Zelda, whom they may not see, is never
@@ -341,6 +361,7 @@ class MemberEmailControllerTest extends TestCase
             'section_name' => 'Meute A',
             'merge_purged' => false,
             'not_sent' => false,
+            'imported' => false,
             'other_targets' => [],
         ];
     }

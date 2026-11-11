@@ -1,0 +1,11 @@
+{
+    "id": "i-08-contenu-introuvable",
+    "sent_at": "2021-03-01T10:00:00+01:00",
+    "subject": "Un sujet",
+    "sender": {
+        "address": "baladins@exemple.test"
+    },
+    "body": {
+        "html": "content/0000000000000000000000000000000000000000000000000000000000000000.html"
+    }
+}

@@ -595,7 +595,12 @@ durées de conservation de la section 3.1, l'exception qui accompagne (d) : la n
 publipostage est supprimée avec les données importées qu'elle décrit, lue ou non, alors que toute autre notification
 non lue est conservée sans limite — son texte peut reprendre le sujet personnalisé du destinataire, et le garder
 reviendrait à conserver cette valeur après l'avoir effacée partout ailleurs ; préciser que les notifications d'un
-envoi groupé ordinaire, dont le sujet est le même pour tout le monde, ne sont pas concernées
+envoi groupé ordinaire, dont le sujet est le même pour tout le monde, ne sont pas concernées ; (f) conserver le
+paragraphe « Courriels importés de l'ancien site », même si data_migration n'est plus actif (les courriels importés
+restent après sa désactivation) : un courriel importé garde l'adresse et
+le nom de son expéditeur d'origine, chiffrés au repos, les adresses connues de ses destinataires avec leur statut
+d'origine, chiffrées au repos, et le lien vers les fiches des membres concernés ; il est en lecture seule, n'est jamais
+renvoyé et suit la même conservation que les autres envois
 10ter. **Actualités et formulaires** : Si news actif, conserver explicitement dans la section 2.4 : (a) que chaque
 article peut inclure un formulaire collectant une adresse email de contact (toujours obligatoire) et les réponses aux
 champs configurés par l'auteur de l'article (qui peuvent inclure nom, téléphone, email, texte libre) ; (b) que ces

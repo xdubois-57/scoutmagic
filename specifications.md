@@ -4107,3 +4107,16 @@ Le site retient, pour chaque objet importé, le quadruplet (installation d'origi
 ### 49.4 Conservation
 
 Le fichier déposé est effacé automatiquement **24 heures** après le dernier mouvement de l'import, quel que soit son état : terminé, abandonné, en attente ou interrompu. Un import qui avance n'est jamais privé de son fichier. Rien n'est extrait sur le disque, et le fichier n'entre dans aucune sauvegarde. La correspondance du §49.3 est conservée sans limite et ne contient aucune donnée personnelle.
+
+### 49.5 Historique des courriels (module mass_mail)
+
+Import « Historique des courriels », disponible si le module Envoi de mails est actif. Archive au format `scoutmagic.email-history` 1.0.0 (`docs/formats/data-migration/email-history.md`) : un fichier par courriel sous `communications/`, les corps sous `content/` et les pièces jointes sous `attachments/`.
+
+- **Ce qui fait un courriel** : un sujet, un contenu (HTML ou texte), une date d'envoi avec fuseau et une adresse d'expéditeur. Sans l'un d'eux, le courriel est ignoré avec son motif (« Sans sujet », « Sans contenu », « Sans date d'envoi », « Sans expéditeur »…). Tout le reste est facultatif.
+- **Section (D6)** : si l'adresse d'expédition est celle d'une section, le courriel lui est rattaché ; sinon il va au Staff d'U. L'adresse et le nom d'expéditeur d'origine sont conservés, chiffrés, et affichés tels quels.
+- **Destinataires** : facultatifs. Chaque adresse connue devient un message dans son état d'origine : « Accepté par le serveur d'envoi », « Erreur » ou « Inconnu » — jamais « Remis », et jamais « En attente ». Un identifiant Desk relie le courriel à la fiche du membre (alias de fusion compris) ; un identifiant inconnu est ignoré, sans créer de membre. Le nom de la liste d'origine est gardé comme simple texte : les destinataires ne sont jamais recalculés depuis l'annuaire actuel.
+- **Publipostage (D3)** : un seul courriel, avec son texte modèle ; les versions personnalisées ne sont pas reprises.
+- **Contenu et pièces jointes** : le HTML est nettoyé comme tout courriel du site. Une pièce jointe dont l'empreinte, le type réel ou la taille ne conviennent pas (PDF ou image, 10 Mo) est ignorée, et le courriel importé sans elle. Une image intégrée (`cid:`) est reprise comme pièce jointe si elle est fournie comme telle.
+- **Dédoublonnage** : la correspondance du §49.3 (type d'objet `email`), et en plus la provenance que le module Envoi de mails garde sur le courriel lui-même : une relance ne duplique rien, même sans sa correspondance.
+
+**Dans Envoi de mails**, un courriel importé porte le badge « Importé » dans la liste, la composition, le suivi et sur la fiche des animés concernés, avec le bandeau « Élément historique en lecture seule ». Il n'a ni formulaire, ni pièce jointe modifiable, ni bouton « Renvoyer ». Le serveur refuse de le modifier, de le supprimer, d'en changer les pièces jointes, d'en lancer l'envoi ou d'en renvoyer un message. Ce verrou est porté par le courriel lui-même : désactiver la migration de données ne le lève pas. Sur la fiche d'un animé, un courriel importé est daté de son envoi d'origine et n'est jamais marqué « Non envoyée ».

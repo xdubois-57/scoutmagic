@@ -149,6 +149,14 @@
                                                     label: 'Non envoyée',
                                                 } only %}
                                             {% endif %}
+                                            {# Imported from a former site (data_migration, D11):
+                                               read-only for ever, and said so wherever it is listed. #}
+                                            {% if item.imported|default(false) %}
+                                                {% include 'partials/status_badge.html.twig' with {
+                                                    status: 'neutral',
+                                                    label: 'Importé',
+                                                } only %}
+                                            {% endif %}
                                             {% if item.merge_purged %}
                                                 <span class="text-body-secondary fst-italic">— personnalisation effacée</span>
                                             {% endif %}
