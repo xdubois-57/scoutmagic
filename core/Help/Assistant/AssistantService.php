@@ -11,6 +11,7 @@ namespace Core\Help\Assistant;
 use Core\Help\HelpException;
 use Core\Help\HelpService;
 use Core\Help\HelpTopic;
+use Core\Http\Controller\TextPageController;
 use Core\Http\Request;
 use Core\Http\Router;
 use Core\Journal\JournalService;
@@ -27,13 +28,13 @@ use Modules\LlmConnector\Api\LlmTier;
  * ---------------------------------------------------------------------
  * What it never does
  * ---------------------------------------------------------------------
- * **It never reads the database.** No member, no section, no amount, not
- * aggregated and not anonymised, ever enters a prompt. What it is given
- * is the shipped documentation and the question — which is why this whole
- * feature needed no RGPD change beyond naming the endpoint: nothing about
- * the unit leaves the installation that was not already in the release.
- * There is no tool-calling here and no SQL, deliberately, and adding
- * either would be a different feature with a different privacy answer.
+ * **It never reads unit records.** No member record, section list or
+ * amount is fetched, aggregated or anonymised to build a prompt. It is
+ * given shipped documentation and the reader's own question and recent
+ * exchanges. That free text can contain personal data; nothing else
+ * about the unit is fetched for the provider. There is no tool-calling
+ * and no SQL capability for the model. Adding either would be a different
+ * feature with a different privacy answer.
  *
  * **It never journals the question.** It is free text a human typed and
  * can hold a name, an address, an amount. The journal gets counters and
@@ -238,11 +239,18 @@ class AssistantService
     private function routePatternFor(?string $path): ?string
     {
         if ($path === null || strlen($path) > self::MAX_PATH_LENGTH
-            || !str_starts_with($path, '/') || preg_match('/[\\x00-\\x20\\x7f?#]/', $path) === 1) {
+            || !str_starts_with($path, '/') || preg_match('/[\\p{Cc}\\p{Z}?#]/u', $path) !== 0) {
             return null;
         }
 
-        return $this->router?->resolve(new Request('GET', $path, [], [], [], []))?->path;
+        $route = $this->router?->resolve(new Request('GET', $path, [], [], [], []));
+        // Text pages register literal paths from unit-entered titles, unlike
+        // the static route declarations. Their slugs must not leave the site.
+        if ($route?->controllerClass === TextPageController::class) {
+            return '/pages/{slug}';
+        }
+
+        return $route?->path;
     }
 
     /**

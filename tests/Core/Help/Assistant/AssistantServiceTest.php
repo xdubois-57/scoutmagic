@@ -16,6 +16,7 @@ use Core\Help\Assistant\AssistantRateLimitRepository;
 use Core\Help\Assistant\AssistantService;
 use Core\Help\HelpRegistry;
 use Core\Help\HelpService;
+use Core\Http\Controller\TextPageController;
 use Core\Http\Router;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
@@ -85,6 +86,9 @@ final class AssistantServiceTest extends TestCase
         foreach (['/r/{token}', '/members/{id}', '/mass-mail'] as $path) {
             $router->addRoute('GET', $path, 'UnusedController', 'index', 'public');
         }
+
+        $router->addRoute('GET', '/pages/camp-des-dupont', TextPageController::class, 'show', 'chief');
+        $router->addRoute('GET', '/pages/assemblee-des-durand', TextPageController::class, 'show', 'chief');
 
         return new AssistantService(
             $helpService,
@@ -387,9 +391,22 @@ final class AssistantServiceTest extends TestCase
         $this->assertStringNotContainsString('private-board-token', $prompt);
     }
 
+    public function testTextPageTitlesNeverReachTheProviderThroughTheirRegisteredPath(): void
+    {
+        $connector = $this->connectorAnswering(['calendrier']);
+        $service = $this->service($connector);
+        $service->ask('Comment faire ?', Role::CHIEF, 1, [], '/pages/camp-des-dupont');
+        $prompt = (string) $connector->promptFor(LlmTier::CHEAP);
+        $this->assertStringContainsString('/pages/{slug}', $prompt);
+        $this->assertStringNotContainsString('camp-des-dupont', $prompt);
+        $this->assertTrue(
+            $service->ask('Comment faire ?', Role::CHIEF, 2, [], '/pages/assemblee-des-durand')->fromCache
+        );
+    }
+
     public function testUnusablePathsNeverReachTheProvider(): void
     {
-        foreach (['/unknown-secret', '/r/' . str_repeat('x', 2049), "/r/secret\n", "/r/secret\0", "/r/secret\x7f", '/r/secret?key=private', '/r/secret#private', 'https://example.org/r/secret'] as $index => $path) {
+        foreach (['/unknown-secret', '/r/' . str_repeat('x', 2049), "/r/secret\n", "/r/secret\0", "/r/secret\x7f", "/r/secret\u{0085}", "/r/secret\xff", '/r/secret?key=private', '/r/secret#private', 'https://example.org/r/secret'] as $index => $path) {
             $connector = $this->connectorAnswering(['calendrier']);
             $this->service($connector)->ask('Comment faire ' . $index . ' ?', Role::CHIEF, 1, [], $path);
             $prompt = (string) $connector->promptFor(LlmTier::CHEAP);
