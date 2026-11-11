@@ -122,6 +122,7 @@ becomes a GitHub issue — the issue must be fixable from its text alone:
    change (the register, each `usedIn` file, the shipped default). Say which test pins it:
    `tests/Architecture/ExternalSourcesAreRegisteredTest.php` fails until
    the register, the files and the defaults agree.
+
 In the workflow you do not write to GitHub at all: you return the
 title (without the `Source externe « <id> » :` prefix) and the body
 (without the type line and without the markers) as JSON, and the workflow
