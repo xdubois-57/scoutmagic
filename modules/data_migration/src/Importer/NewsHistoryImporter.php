@@ -687,9 +687,8 @@ final class NewsHistoryImporter implements Importer
             || preg_match('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?(\.\d+)?(Z|[+-]\d{2}:\d{2})$/', $value) !== 1) {
             return null;
         }
-        try {
-            $moment = new \DateTimeImmutable($value);
-        } catch (\Exception) {
+        $moment = \Core\Service\DateInput::fromStorage($value);
+        if ($moment === null) {
             return null;
         }
 
