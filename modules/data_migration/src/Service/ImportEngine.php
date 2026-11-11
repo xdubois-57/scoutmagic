@@ -109,7 +109,11 @@ class ImportEngine
                 // resume()): a poll still in flight when the page paused
                 // must not start it again.
                 if ($run->state !== Run::RUNNING) {
-                    $run = $this->runs->update($run, ['state' => Run::RUNNING], $this->now());
+                    $started = $this->runs->updateIfState($run, Run::CONFIRMED, ['state' => Run::RUNNING], $this->now());
+                    if ($started === null) {
+                        return $this->fresh($run);
+                    }
+                    $run = $started;
                 }
 
                 return $this->execute($importer, $run, $deadline);
@@ -129,15 +133,22 @@ class ImportEngine
      */
     public function reject(Run $run, string $reason): Run
     {
-        $this->storage->delete($run->filePath);
         $now = $this->now();
-        $run = $this->runs->update($run, [
+        // Only while the run is still where this request found it: a pause
+        // or an abandon that landed meanwhile is the visitor's decision, and
+        // a file it already deleted makes every read fail.
+        $rejected = $this->runs->updateIfState($run, $run->state, [
             'state' => Run::ABANDONED,
             'rejection_reason' => mb_substr($reason, 0, 500),
             'file_path' => null,
             'file_purged_at' => $now,
             'finished_at' => $now,
         ], $now);
+        if ($rejected === null) {
+            return $this->fresh($run);
+        }
+        $this->storage->delete($run->filePath);
+        $run = $rejected;
 
         $this->journal->log('data_migration', 'archive_rejected', 'info', 'Fichier de migration refusé avant toute écriture', [
             'run_id' => $run->id,
@@ -188,6 +199,11 @@ class ImportEngine
         $manifest = $source->manifest ?? throw new \LogicException('An archive source has a manifest.');
         $paths = self::inventoryInArchiveOrder($archive, $manifest);
         $position = $run->position();
+        // What earlier slices measured, plus what THIS one reads of the
+        // members — not the manifest, which every slice re-reads to open the
+        // source and would otherwise be counted once per slice.
+        $carried = (int) ($run->progress['measured'] ?? 0);
+        $openedAt = $archive->measuredTotal();
 
         try {
             while ($position < count($paths)) {
@@ -203,22 +219,22 @@ class ImportEngine
             return $this->reject($run, $e->getMessage());
         }
 
-        $measured = $archive->measuredTotal();
+        $measured = $carried + ($archive->measuredTotal() - $openedAt);
         $archive->close();
 
         if ($position < count($paths)) {
-            return $this->runs->update($run, ['progress' => [
+            return $this->save($run, Run::UPLOADED, ['progress' => [
                 'phase' => self::PHASE_VERIFY,
                 'position' => $position,
                 'measured' => $measured,
                 'steps' => count($paths),
-            ]], $this->now());
+            ]]);
         }
 
-        return $this->runs->update($run, [
+        return $this->save($run, Run::UPLOADED, [
             'progress' => ['phase' => self::PHASE_ANALYSE, 'position' => 0],
             'analysis' => self::emptyAnalysis(),
-        ], $this->now());
+        ]);
     }
 
     private function analyse(Importer $importer, Run $run, float $deadline): Run
@@ -263,17 +279,17 @@ class ImportEngine
         self::closeSource($source);
 
         if (!$finished) {
-            return $this->runs->update($run, [
+            return $this->save($run, Run::UPLOADED, [
                 'progress' => ['phase' => self::PHASE_ANALYSE, 'position' => $position],
                 'analysis' => $analysis,
-            ], $this->now());
+            ]);
         }
 
-        return $this->runs->update($run, [
+        return $this->save($run, Run::UPLOADED, [
             'state' => Run::ANALYSED,
             'progress' => ['phase' => self::PHASE_ANALYSE, 'position' => $position],
             'analysis' => $analysis,
-        ], $this->now());
+        ]);
     }
 
     private function execute(Importer $importer, Run $run, float $deadline): Run
@@ -319,12 +335,19 @@ class ImportEngine
                             );
                             $report['imported'] = (int) $report['imported'] + 1;
 
-                            return $this->runs->update($run, [
+                            // Paused or abandoned while this slice ran: the
+                            // item is rolled back with the cursor it would
+                            // have moved, and the slice stops here.
+                            return $this->runs->updateIfState($run, Run::RUNNING, [
                                 'progress' => ['phase' => self::PHASE_EXECUTE, 'position' => $next],
                                 'report' => $report,
-                            ], $this->now());
+                            ], $this->now()) ?? throw new RunMovedException();
                         });
                         $report = $run->report;
+                    } catch (RunMovedException) {
+                        self::closeSource($source);
+
+                        return $this->fresh($run);
                     } catch (\Throwable $e) {
                         $report = self::countError($report, $item);
                         $this->journalItemError($run, 'execute', $e);
@@ -347,19 +370,23 @@ class ImportEngine
         self::closeSource($source);
 
         if (!$finished) {
-            return $this->runs->update($run, [
+            return $this->save($run, Run::RUNNING, [
                 'progress' => ['phase' => self::PHASE_EXECUTE, 'position' => $position],
                 'report' => $report,
-            ], $this->now());
+            ]);
         }
 
         $now = $this->now();
-        $run = $this->runs->update($run, [
+        $done = $this->runs->updateIfState($run, Run::RUNNING, [
             'state' => Run::DONE,
             'progress' => ['phase' => self::PHASE_EXECUTE, 'position' => $position],
             'report' => $report,
             'finished_at' => $now,
         ], $now);
+        if ($done === null) {
+            return $this->fresh($run);
+        }
+        $run = $done;
 
         $this->journal->log('data_migration', 'import_finished', 'info', 'Import de migration de données terminé', [
             'run_id' => $run->id,
@@ -558,6 +585,22 @@ class ImportEngine
         if ($source->manifest !== null) {
             $source->archive()->close();
         }
+    }
+
+    /**
+     * Writes a slice's result only while the run is still in the state the
+     * slice found it in; otherwise the run as somebody else left it.
+     *
+     * @param array<string, mixed> $changes
+     */
+    private function save(Run $run, string $expectedState, array $changes): Run
+    {
+        return $this->runs->updateIfState($run, $expectedState, $changes, $this->now()) ?? $this->fresh($run);
+    }
+
+    private function fresh(Run $run): Run
+    {
+        return $this->runs->find($run->id) ?? $run;
     }
 
     private function now(): string

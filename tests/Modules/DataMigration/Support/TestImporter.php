@@ -38,10 +38,17 @@ final class TestImporter implements Importer
     /** @var list<string> source ids whose write throws, to test technical errors */
     public array $failingIds = [];
 
+    /** @var (\Closure(SourceItem): void)|null runs at the start of inspect() — something happening meanwhile */
+    public ?\Closure $onInspect = null;
+
+    /** @var (\Closure(SourceItem): void)|null runs at the start of write() */
+    public ?\Closure $onWrite = null;
+
     public function __construct(
         private \PDO $pdo,
         private string $key = 'essai',
-        private ?string $requiredModule = null
+        private ?string $requiredModule = null,
+        private ?ArchiveLimits $limits = null
     ) {
         $this->pdo->exec(
             'CREATE TABLE IF NOT EXISTS test_written (id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY, source_id VARCHAR(190) NOT NULL)'
@@ -75,7 +82,11 @@ final class TestImporter implements Importer
 
     public function archiveFormat(): ?ArchiveFormat
     {
-        return new ArchiveFormat(self::FORMAT, 1, new ArchiveLimits(20, 1048576, 4194304, ['json', 'jsonl']));
+        return new ArchiveFormat(
+            self::FORMAT,
+            1,
+            $this->limits ?? new ArchiveLimits(20, 1048576, 4194304, ['json', 'jsonl'])
+        );
     }
 
     public function items(ImportSource $source, int $from): iterable
@@ -92,6 +103,9 @@ final class TestImporter implements Importer
 
     public function inspect(SourceItem $item, ImportContext $context): ItemVerdict
     {
+        if ($this->onInspect !== null) {
+            ($this->onInspect)($item);
+        }
         if (($item->data['name'] ?? '') === '') {
             return ItemVerdict::ignored('Sans nom');
         }
@@ -106,6 +120,9 @@ final class TestImporter implements Importer
 
     public function write(SourceItem $item, ImportContext $context): WrittenTarget
     {
+        if ($this->onWrite !== null) {
+            ($this->onWrite)($item);
+        }
         $this->pdo->prepare('INSERT INTO test_written (source_id) VALUES (?)')->execute([$item->sourceId]);
         if (in_array($item->sourceId, $this->failingIds, true)) {
             throw new \RuntimeException('Simulated failure after a partial write.');

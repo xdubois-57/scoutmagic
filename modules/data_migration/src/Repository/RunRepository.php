@@ -145,6 +145,33 @@ class RunRepository
         return $this->find($run->id) ?? throw new \LogicException('A run vanished while it was updated.');
     }
 
+    /**
+     * {@see update()}, only while the run is still in `$expectedState` —
+     * null, with nothing written, when somebody moved it meanwhile.
+     *
+     * This is what lets a slice, which works from the row it read when it
+     * started, never write back over a pause or an abandon that landed while
+     * it was running: the row is re-read under a lock, its state compared,
+     * and the changes written over that fresh row. Decided on the read, not on `rowCount()`, which
+     * counts CHANGED rows on MySQL and MATCHED rows elsewhere.
+     *
+     * @param array<string, mixed> $changes
+     */
+    public function updateIfState(Run $run, string $expectedState, array $changes, string $now): ?Run
+    {
+        return \Core\Database\TransactionScope::run($this->pdo, function () use ($run, $expectedState, $changes, $now): ?Run {
+            $stmt = $this->pdo->prepare('SELECT state FROM data_migration_runs WHERE id = ? FOR UPDATE');
+            $stmt->execute([$run->id]);
+            $state = $stmt->fetchColumn();
+            $stmt->closeCursor();
+            $fresh = $state === $expectedState ? $this->find($run->id) : null;
+
+            // Written over the row as it is NOW, never over the caller's
+            // snapshot: the columns it does not change keep their value.
+            return $fresh === null ? null : $this->update($fresh, $changes, $now);
+        });
+    }
+
     public function find(int $id): ?Run
     {
         $stmt = $this->pdo->prepare('SELECT * FROM data_migration_runs WHERE id = ?');

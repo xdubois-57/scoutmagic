@@ -57,13 +57,16 @@ class UploadPurger
         $cutoff = $now->sub(new \DateInterval('PT' . RunService::FILE_RETENTION_SECONDS . 'S'));
         $purged = 0;
         foreach ($this->runs->findWithFileIdleSince($cutoff->format('Y-m-d H:i:s')) as $run) {
-            $this->storage->delete($run->filePath);
             $changes = ['file_path' => null, 'file_purged_at' => $stamp];
             if ($run->isActive()) {
                 $changes['state'] = Run::ABANDONED;
                 $changes['finished_at'] = $stamp;
             }
-            $this->runs->update($run, $changes, $stamp);
+            // A run that moved since it was listed is left alone.
+            if ($this->runs->updateIfState($run, $run->state, $changes, $stamp) === null) {
+                continue;
+            }
+            $this->storage->delete($run->filePath);
             $purged++;
         }
 

@@ -361,6 +361,84 @@ final class RunServiceOnMysqlTest extends TestCase
         $this->deposit(TestArchive::items([['id' => '3', 'name' => 'Trois']]));
     }
 
+    /**
+     * The visitor abandons while an analysis slice is running: the slice,
+     * which works from the row it read when it started, must not write the
+     * run back to `uploaded` — nor bring back a file that is gone.
+     */
+    public function testAnAbandonDuringASliceIsNotOverwrittenByIt(): void
+    {
+        $run = $this->deposit(TestArchive::items([['id' => '1', 'name' => 'Un'], ['id' => '2', 'name' => 'Deux']]));
+        $run = $this->service->advance($this->importer, $run);
+        $this->assertSame(ImportEngine::PHASE_ANALYSE, $run->phase());
+        $file = $this->uploads->absolute((string) $run->filePath);
+
+        $this->importer->onInspect = function () use ($run): void {
+            $this->importer->onInspect = null;
+            $this->service->abandon($this->runs->find($run->id) ?? $run);
+        };
+        $after = $this->service->advance($this->importer, $run);
+
+        $this->assertSame(Run::ABANDONED, $after->state);
+        $stored = $this->runs->find($run->id) ?? $this->fail('Run vanished.');
+        $this->assertSame(Run::ABANDONED, $stored->state);
+        $this->assertNull($stored->filePath);
+        $this->assertFileDoesNotExist($file);
+    }
+
+    /**
+     * A pause from another request while an item is being written: that
+     * item is rolled back with the cursor it would have moved, the slice
+     * stops, the run stays interrupted, and a resumption writes it once.
+     */
+    public function testAPauseDuringAWriteRollsTheItemBackAndStopsTheSlice(): void
+    {
+        $run = $this->analysed(TestArchive::items([['id' => '1', 'name' => 'Un'], ['id' => '2', 'name' => 'Deux']]));
+        $run = $this->service->confirm($run, []) ?? $this->fail('Not confirmed.');
+
+        $other = self::productionEngineConnection((string) $this->pdo->query('SELECT DATABASE()')->fetchColumn())->getPdo();
+        $this->importer->onWrite = function () use ($other, $run): void {
+            $this->importer->onWrite = null;
+            $other->prepare("UPDATE data_migration_runs SET state = 'interrupted' WHERE id = ?")->execute([$run->id]);
+        };
+
+        $after = $this->service->advance($this->importer, $run);
+
+        $this->assertSame(Run::INTERRUPTED, $after->state);
+        $this->assertSame(0, $this->writtenCount());
+        $this->assertSame(0, $this->mappingCount());
+
+        $done = $this->drive($this->service->resume($after));
+        $this->assertSame(Run::DONE, $done->state);
+        $this->assertSame(2, $this->writtenCount());
+        $this->assertSame(2, $done->report['imported']);
+    }
+
+    /**
+     * The decompressed total carried from one verification slice to the
+     * next counts the members once — not the manifest every slice re-reads
+     * to open the archive, which used to push a valid archive verified in
+     * many slices past its ceiling.
+     */
+    public function testTheVerificationCountsTheManifestOnceAndNotOncePerSlice(): void
+    {
+        $this->importer = new TestImporter(
+            $this->pdo,
+            'essai',
+            null,
+            new \Core\Archive\ArchiveLimits(30, 1048576, 6000, ['json', 'jsonl'])
+        );
+        $files = [];
+        for ($i = 0; $i < 12; $i++) {
+            $files['part-' . $i . '.json'] = str_repeat('a', 100);
+        }
+        $files['items.jsonl'] = '{"id":"1","name":"Un"}' . "\n";
+
+        $run = $this->drive($this->deposit(TestArchive::build($files)));
+
+        $this->assertSame(Run::ANALYSED, $run->state, (string) $run->rejectionReason);
+    }
+
     // --- harness --------------------------------------------------------
 
     private function deposit(string $zip): Run

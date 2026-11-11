@@ -203,16 +203,19 @@ class RunService
             array_unique($chosenYears),
             fn (string $label): bool => in_array($label, $offered, true) && $this->years->isCreatable($label)
         ));
-        $created = $this->years->create($chosen);
-
         $now = $this->now();
-        $run = $this->runs->update($run, [
+        $confirmed = $this->runs->updateIfState($run, Run::ANALYSED, [
             'state' => Run::CONFIRMED,
             'chosen_years' => $chosen,
             'confirmed_at' => $now,
             'progress' => ['phase' => ImportEngine::PHASE_EXECUTE, 'position' => 0],
             'report' => ImportEngine::emptyReport(),
         ], $now);
+        if ($confirmed === null) {
+            return null;
+        }
+        $run = $confirmed;
+        $created = $this->years->create($chosen);
 
         $this->journal->log('data_migration', 'import_confirmed', 'info', 'Import de migration de données confirmé', [
             'run_id' => $run->id,
@@ -231,7 +234,8 @@ class RunService
             return $run;
         }
 
-        return $this->runs->update($run, ['state' => Run::INTERRUPTED], $this->now());
+        return $this->runs->updateIfState($run, $run->state, ['state' => Run::INTERRUPTED], $this->now())
+            ?? $this->runs->find($run->id) ?? $run;
     }
 
     /** « Reprendre l'import »: back to `running`, from the cursor. */
@@ -241,7 +245,8 @@ class RunService
             return $run;
         }
 
-        return $this->runs->update($run, ['state' => Run::RUNNING], $this->now());
+        return $this->runs->updateIfState($run, Run::INTERRUPTED, ['state' => Run::RUNNING], $this->now())
+            ?? $this->runs->find($run->id) ?? $run;
     }
 
     /**
@@ -254,14 +259,24 @@ class RunService
             return $run;
         }
 
-        $this->storage->delete($run->filePath);
         $now = $this->now();
-        $run = $this->runs->update($run, [
+        $abandoned = $this->runs->updateIfState($run, $run->state, [
             'state' => Run::ABANDONED,
             'file_path' => null,
             'file_purged_at' => $now,
             'finished_at' => $now,
         ], $now);
+        if ($abandoned === null) {
+            // Moved meanwhile (a slice finished it, another tab abandoned
+            // it): act on what it is now, once.
+            $current = $this->runs->find($run->id);
+
+            return $current !== null && $current->isActive() && $current->state !== $run->state
+                ? $this->abandon($current)
+                : ($current ?? $run);
+        }
+        $this->storage->delete($run->filePath);
+        $run = $abandoned;
 
         $this->journal->log('data_migration', 'import_abandoned', 'info', 'Import de migration de données abandonné', [
             'run_id' => $run->id,
