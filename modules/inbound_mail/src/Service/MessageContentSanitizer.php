@@ -143,7 +143,7 @@ class MessageContentSanitizer
 
         $cut = mb_strcut($html, 0, self::MAX_HTML_BYTES, 'UTF-8');
 
-        return $this->htmlSanitizer->sanitize($cut) . self::HTML_TRUNCATION_MARK;
+        return $this->htmlSanitizer->sanitizeWithoutImages($cut) . self::HTML_TRUNCATION_MARK;
     }
 
     /**
