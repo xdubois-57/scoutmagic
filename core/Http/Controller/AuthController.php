@@ -27,6 +27,7 @@ use Core\Security\LoginThrottler;
 use Core\Security\PasswordAuthMethod;
 use Core\Security\MagicLinkCodeMismatch;
 use Core\Security\PendingMagicLink;
+use Core\Security\RecentAuthentication;
 use Core\Security\Role;
 use Core\Security\RoleResolver;
 use Core\Security\SessionGeneration;
@@ -84,14 +85,19 @@ class AuthController extends AbstractController
      *
      * `?return=<path>` is where the visitor goes once logged in
      * (Core\Security\LoginReturn, issue #833). A visitor already logged
-     * in goes there at once.
+     * in goes there at once — unless `?reauth=1` asks them to confirm
+     * their identity (Core\Security\RecentAuthentication, issue #1115):
+     * then the page shows as usual, any of its methods signs them in
+     * afresh, and they land back on `return`.
      *
      * @param array<string, string> $params
      */
     public function login(Request $request, array $params): Response
     {
         $return = (string) $request->getQuery('return', '');
-        if (AuthSession::isAuthenticated()) {
+        $reauth = AuthSession::isAuthenticated()
+            && (string) $request->getQuery(RecentAuthentication::QUERY_FLAG, '') === '1';
+        if (AuthSession::isAuthenticated() && !$reauth) {
             LoginReturn::forget();
             return $this->redirect(SafeRedirect::loginReturnPath($return));
         }
@@ -109,6 +115,10 @@ class AuthController extends AbstractController
             // HumanCheck (audit M3) — render its challenge here (a distinct
             // form key, so the two challenges are not interchangeable).
             'human_check_reset' => $this->humanCheck?->generateChallenge(PasswordResetController::HUMAN_CHECK_FORM_KEY),
+            // « Confirmez votre identité »: the notice above the form, and
+            // the address already typed — it is the account being confirmed.
+            'reauth_notice' => $reauth ? RecentAuthentication::LOGIN_NOTICE : null,
+            'prefill_email' => $reauth ? (string) AuthSession::getEmail() : '',
         ]);
     }
 
@@ -380,6 +390,16 @@ class AuthController extends AbstractController
                 $role = $this->resolveRole($user->email, $user->id);
                 AuthSession::login($user->id, $user->email, $role, $this->installationGeneration);
                 $this->storeLinkedMembers($user->email);
+            }
+        } else {
+            // A signed-in session that asked for a link for its OWN account
+            // — « confirmez votre identité » (issue #1115) — has just proved
+            // it again, from wherever the link was opened. A link for some
+            // other account changes nothing here: the session stays who it
+            // was, and no fresher than it was.
+            $user = $this->authService->getUserForConfirmedLink($id);
+            if ($user !== null && $user->id === AuthSession::getUserAccountId()) {
+                AuthSession::markAuthenticatedNow();
             }
         }
 

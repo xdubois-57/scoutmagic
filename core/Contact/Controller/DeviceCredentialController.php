@@ -16,6 +16,7 @@ use Core\Http\Request;
 use Core\Http\Response;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
+use Core\Security\RecentAuthentication;
 use Twig\Environment;
 
 /**
@@ -97,6 +98,12 @@ class DeviceCredentialController extends AbstractController
         $data = json_decode($request->getRawBody(), true);
         if (!is_array($data) || !CsrfGuard::validateToken((string) ($data['_csrf_token'] ?? ''))) {
             return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
+        }
+
+        // A device credential is a way into the staff address book that
+        // outlives this session: a recent login first (issue #1115).
+        if (!RecentAuthentication::isRecent()) {
+            return $this->json(RecentAuthentication::jsonRefusal('/account/devices'), 403);
         }
 
         if (!$this->service->canCreateFor($userAccountId)) {

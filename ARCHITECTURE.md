@@ -6059,6 +6059,12 @@ route a client polls every few minutes, where a wrong guess must cost a
 comparison rather than a bcrypt (`SECURITY.md` §2, the same reasoning the
 triage token and the one-click unsubscribe token already carry).
 
+**Creating one needs a recent login.** `POST /api/account/devices` answers
+403 with a `reauth_url` when the creator's session last signed in more
+than ten minutes ago (`Core\Security\RecentAuthentication`, issue #1115,
+`SECURITY.md` §2): a credential outlives the session that made it, so a
+stolen session must not be able to make one.
+
 **The rule that does not bend: the role is re-resolved on EVERY request.**
 `DeviceAuthenticator` never lets a credential authorise anything by
 itself. It says which account is asking; the account's role is then

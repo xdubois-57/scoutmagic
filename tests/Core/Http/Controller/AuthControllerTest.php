@@ -13,6 +13,7 @@ use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Security\EncryptionService;
 use Core\Security\PendingMagicLink;
+use Core\Security\RecentAuthentication;
 use Core\Security\UserAccountRepository;
 use PHPUnit\Framework\TestCase;
 use Tests\TestTwig;
@@ -448,6 +449,108 @@ class AuthControllerTest extends TestCase
         $this->controller->logout(new Request('POST', '/logout', [], ['_csrf_token' => $token], [], []), []);
 
         $this->assertSame('/', \Core\Security\LoginReturn::target());
+    }
+
+    // --- « confirmez votre identité » (issue #1115) ---------------------
+
+    public function testTheLoginPageShowsItselfToASignedInVisitorAskedToConfirm(): void
+    {
+        $this->startTestSession();
+        AuthSession::login(1, 'user@test.com', 'identified');
+
+        $response = $this->controller->login(
+            new Request('GET', '/login', ['return' => '/account', 'reauth' => '1'], [], [], []),
+            []
+        );
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertStringContainsString(
+            htmlspecialchars(RecentAuthentication::LOGIN_NOTICE, ENT_QUOTES),
+            $response->getBody()
+        );
+        $this->assertStringContainsString('value="user@test.com"', $response->getBody());
+        $this->assertSame('/account', \Core\Security\LoginReturn::target());
+        $this->assertSame(1, AuthSession::getUserAccountId(), 'Showing the page signs nobody out.');
+    }
+
+    public function testTheConfirmModeIsTheOrdinaryPageForAVisitorWhoIsNotSignedIn(): void
+    {
+        $this->startTestSession();
+
+        $response = $this->controller->login(
+            new Request('GET', '/login', ['return' => '/account', 'reauth' => '1'], [], [], []),
+            []
+        );
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertStringNotContainsString('confirmez votre identité', $response->getBody());
+        $this->assertSame('/account', \Core\Security\LoginReturn::target());
+    }
+
+    public function testTheConfirmModeNeverKeepsAnExternalReturnAddress(): void
+    {
+        $this->startTestSession();
+        AuthSession::login(1, 'user@test.com', 'identified');
+
+        $this->controller->login(
+            new Request('GET', '/login', ['return' => 'https://evil.example/', 'reauth' => '1'], [], [], []),
+            []
+        );
+
+        $this->assertSame('/', \Core\Security\LoginReturn::target());
+    }
+
+    public function testAMagicLinkForItsOwnAccountMakesASignedInSessionRecentAgain(): void
+    {
+        $this->startTestSession();
+        AuthSession::login(5, 'poll@test.com', 'identified');
+        $_SESSION['_auth']['authenticated_at'] = time() - 3600;
+        \Core\Security\LoginReturn::remember('/account');
+
+        $member = new \Core\Security\UserAccount(5, 'poll@test.com', null, null, null, false, null);
+        $this->authService->method('isMagicLinkConfirmed')->willReturn(true);
+        $this->authService->method('getUserForConfirmedLink')->willReturn($member);
+        PendingMagicLink::remember(1, $this->generation->current());
+
+        $response = $this->controller->pollMagicLink(new Request('GET', '/auth/poll/1', [], [], [], []), ['id' => '1']);
+
+        $body = json_decode($response->getBody(), true);
+        $this->assertTrue($body['confirmed']);
+        $this->assertSame('/account', $body['redirect']);
+        $this->assertTrue(RecentAuthentication::isRecent());
+        $this->assertSame(5, AuthSession::getUserAccountId());
+    }
+
+    public function testAMagicLinkForAnotherAccountLeavesASignedInSessionAsItWas(): void
+    {
+        $this->startTestSession();
+        AuthSession::login(5, 'poll@test.com', 'identified');
+        $stale = time() - 3600;
+        $_SESSION['_auth']['authenticated_at'] = $stale;
+
+        $other = new \Core\Security\UserAccount(9, 'other@test.com', null, null, null, false, null);
+        $this->authService->method('isMagicLinkConfirmed')->willReturn(true);
+        $this->authService->method('getUserForConfirmedLink')->willReturn($other);
+        PendingMagicLink::remember(1, $this->generation->current());
+
+        $this->controller->pollMagicLink(new Request('GET', '/auth/poll/1', [], [], [], []), ['id' => '1']);
+
+        $this->assertSame(5, AuthSession::getUserAccountId());
+        $this->assertSame($stale, AuthSession::authenticatedAt());
+    }
+
+    public function testAMagicLinkLoginIsAFreshAuthentication(): void
+    {
+        $this->startTestSession();
+        $member = new \Core\Security\UserAccount(5, 'poll@test.com', null, null, null, true, null);
+        $this->authService->method('isMagicLinkConfirmed')->willReturn(true);
+        $this->authService->method('getUserForConfirmedLink')->willReturn($member);
+        $this->authService->method('getUserById')->willReturn($member);
+        PendingMagicLink::remember(1, $this->generation->current());
+
+        $this->controller->pollMagicLink(new Request('GET', '/auth/poll/1', [], [], [], []), ['id' => '1']);
+
+        $this->assertTrue(RecentAuthentication::isRecent());
     }
 
     private function startTestSession(): void
