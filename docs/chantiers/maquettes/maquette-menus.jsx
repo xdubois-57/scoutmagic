@@ -70,7 +70,7 @@ const AFTER = [
     { label: "Membres et année", items: [["Import Desk", 4], ["Membres", 4], ["Badges", 4], ["Année scoute", 4], ["Encadrement", 4], ["Attestations", 4]] },
     { label: "Communication", items: [["Édition du site", 4], ["Listes de diffusion", 4], ["Courrier reçu", 4]] },
     { label: "Effectifs", items: [["Réinscriptions", 4], ["Passages de branche", 4], ["Formulaire d'inscription", 4], ["Cotisations", 4]] },
-    { label: "Services de l'unité", items: [["Biens à louer", 4], ["Gérer le téléphone d'urgence", 4]] }] },
+    { label: "Services de l'unité", items: [["Biens à louer", 4], ["Gérer le téléphone d'urgence", 4], ["Migration de données", 4]] }] },
   { label: "Configuration", icon: "🎛️", role: 5, groups: [
     { label: "L'unité", items: [["Correspondances Desk", 5], ["RGPD", 5], ["Synchronisation des contacts", 5]] },
     { label: "Le site", items: [["Installation & serveur", 5], ["Modules", 5], ["Pages de texte", 5], ["Paramètres", 5], ["Comptes superadmin", 5]] },

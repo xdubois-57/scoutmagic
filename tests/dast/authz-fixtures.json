@@ -383,6 +383,9 @@
     },
     "/admin/leadership/{page}": {
       "page": "training"
+    },
+    "/admin/migration-donnees/{importer}": {
+      "importer": "essai"
     }
   }
 }

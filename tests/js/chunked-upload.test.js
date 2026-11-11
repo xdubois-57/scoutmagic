@@ -148,4 +148,25 @@ describe('chunked-upload.js: uploadInChunks', () => {
 
         expect(progress.mock.calls).toEqual([[4, 6], [6, 6]]);
     });
+    it('starts from startOffset when the server already holds the beginning', async () => {
+        const chunker = await boot();
+        global.fetch = vi.fn()
+            .mockReturnValueOnce(okResponse({ success: true }))
+            .mockReturnValueOnce(okResponse({ success: true, complete: true }));
+
+        await chunker.uploadInChunks(new File(['0123456789'], 'a.zip'), '/u', { chunkSize: 4, startOffset: 4 });
+
+        expect(sentForm(0).chunk_offset).toBe('4');
+        expect(sentForm(1).chunk_offset).toBe('8');
+        expect(sentForm(1).last).toBe('1');
+    });
+
+    it('ignores a startOffset at or past the end of the file', async () => {
+        const chunker = await boot();
+        global.fetch = vi.fn(() => okResponse({ success: true }));
+
+        await chunker.uploadInChunks(new File(['abc'], 'a.zip'), '/u', { chunkSize: 4, startOffset: 3 });
+
+        expect(sentForm(0).chunk_offset).toBe('0');
+    });
 });

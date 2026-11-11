@@ -542,7 +542,8 @@ interface Window {
         setSelected?: (pickerId: string, id: string, selected: boolean) => void;
     };
     // public/assets/js/chunked-upload.js (audit M2) — consumed by
-    // public/assets/js/gallery.js and public/assets/js/maintenance.js.
+    // public/assets/js/gallery.js, public/assets/js/maintenance.js and
+    // public/assets/js/data-migration.js.
     ScoutMagicChunkedUpload?: {
         uploadInChunks: (file: File, url: string, options?: {
             csrfToken?: string;
@@ -551,6 +552,7 @@ interface Window {
             onProgress?: (sentBytes: number, totalBytes: number) => void;
             chunkSize?: number;
             uploadId?: string;
+            startOffset?: number;
         }) => Promise<{ uploadId: string, data: any }>;
         newUploadId: () => string;
         CHUNK_SIZE: number;
@@ -583,5 +585,13 @@ interface Window {
     // picker carries the two dates itself, so there is nothing else here.
     ScoutMagicEventPicker?: {
         datesFrom: (value: string) => { start: string, end: string } | null;
+    };
+    // public/assets/js/data-migration.js — its pure helpers, exposed for
+    // the unit tests.
+    ScoutMagicDataMigration?: {
+        uploadKey: (importer: string, file: { name: string, size: number, lastModified: number }) => string;
+        percentOf: (sent: number, total: number) => number;
+        needsReload: (drawnFor: string | null, answer: { state?: string } | null) => boolean;
+        isMigrationUrl: (url: unknown) => boolean;
     };
 }

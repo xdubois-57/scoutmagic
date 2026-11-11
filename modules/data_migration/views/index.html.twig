@@ -1,0 +1,54 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{% extends 'base.html.twig' %}
+{% block title %}Migration de données — {{ site_name }}{% endblock %}
+{% block content %}
+    <div class="page-medium">
+        {% include 'partials/page_header.html.twig' with {
+            title: 'Migration de données',
+            subtitle: "Pour reprendre, en une fois, les données de votre ancien site. Chaque import se prépare sur l'ancien site sous forme de fichier ZIP, se vérifie ici avant d'écrire quoi que ce soit, et peut se relancer sans créer de doublons.",
+        } only %}
+
+        {% if interrupted %}
+            <div class="alert alert-warning" role="status">
+                <p class="fw-semibold mb-1">L'import « {{ interrupted.title }} » a été interrompu à {{ interrupted.percent }} %.</p>
+                <p class="mb-0">Reprenez-le : les {{ interrupted.imported }} {{ interrupted.unit }} déjà importés ne seront pas importés deux fois.</p>
+            </div>
+        {% endif %}
+
+        <div class="card mb-3">
+            <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+                <h2 class="h6 mb-0">Imports disponibles</h2>
+                <a class="small" href="https://github.com/xdubois-57/scoutmagic/tree/main/docs/formats/data-migration" target="_blank" rel="noopener">Formats des fichiers ZIP</a>
+            </div>
+            {% if importers is empty %}
+                <div class="card-body">
+                    {% include 'partials/empty_state.html.twig' with {
+                        message: "Aucun import n'est disponible pour l'instant.",
+                        icon: 'bi-box-arrow-in-down',
+                        compact: true,
+                    } only %}
+                </div>
+            {% else %}
+                <ul class="list-group list-group-flush">
+                    {% for item in importers %}
+                        <li class="list-group-item py-3">
+                            <div class="d-flex flex-wrap justify-content-between align-items-start gap-2">
+                                <h3 class="h6 mb-1">{{ item.title }}</h3>
+                                <a class="btn btn-sm {{ item.resume ? 'btn-primary' : 'btn-outline-secondary' }}" href="{{ item.url }}">{{ item.resume ? 'Reprendre' : 'Ouvrir' }}</a>
+                            </div>
+                            <p class="small text-body-secondary mb-1">{{ item.description }}</p>
+                            {% include 'partials/status_badge.html.twig' with { status: item.status.tone, label: item.status.label } only %}
+                        </li>
+                    {% endfor %}
+                </ul>
+            {% endif %}
+        </div>
+
+        <p class="small text-body-secondary border-start border-3 ps-2">
+            Seuls les imports dont le module est actif sont proposés, et les autres ne s'ouvrent pas non plus par leur adresse.
+        </p>
+    </div>
+{% endblock %}

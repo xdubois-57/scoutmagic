@@ -174,70 +174,43 @@ final class BoundedArchive
                 return [];
             }
 
-            $zip = new \ZipArchive();
-            if (@$zip->open($path) !== true) {
-                return [];
-            }
-
-            try {
-                return $this->membersOfOpenZip($zip);
-            } finally {
-                $zip->close();
-            }
+            return $this->membersOfZipFile($path);
         } finally {
             @unlink($path);
         }
     }
 
     /**
+     * The checks live in {@see \Core\Archive\BoundedZipReader} since the
+     * data migration module became this site's second reader of foreign
+     * archives; the limits stay this format's own. Any refusal is still an
+     * empty list, for the reason {@see membersOf()} gives.
+     *
      * @return list<string>
      */
-    private function membersOfOpenZip(\ZipArchive $zip): array
+    private function membersOfZipFile(string $path): array
     {
-        if ($zip->numFiles > self::MAX_ENTRIES) {
+        try {
+            $archive = (new \Core\Archive\BoundedZipReader(new \Core\Archive\ArchiveLimits(
+                self::MAX_ENTRIES,
+                self::MAX_ENTRY_BYTES,
+                self::MAX_TOTAL_BYTES
+            )))->open($path);
+        } catch (\Core\Archive\ArchiveRejectedException) {
             return [];
         }
 
-        $members = [];
-        $total = 0;
-
-        for ($index = 0; $index < $zip->numFiles; $index++) {
-            $stat = $zip->statIndex($index);
-            if ($stat === false) {
-                return [];
+        try {
+            $members = [];
+            foreach ($archive->names() as $name) {
+                $members[] = $archive->read($name);
             }
 
-            // A directory entry carries no bytes and is not a member.
-            if (str_ends_with((string) $stat['name'], '/')) {
-                continue;
-            }
-
-            // The declared size is written by whoever built the archive,
-            // so it is worth a cheap refusal and nothing more — the real
-            // bound is the capped read below.
-            if ((int) $stat['size'] > self::MAX_ENTRY_BYTES) {
-                return [];
-            }
-
-            // Reading one byte past the ceiling is what makes « exactly at
-            // the ceiling » distinguishable from « truncated here ».
-            $content = @$zip->getFromIndex($index, self::MAX_ENTRY_BYTES + 1);
-            if ($content === false) {
-                return [];
-            }
-
-            if (strlen($content) > self::MAX_ENTRY_BYTES) {
-                return [];
-            }
-
-            $total += strlen($content);
-            if ($total > self::MAX_TOTAL_BYTES) {
-                return [];
-            }
-
-            $members[] = $content;
+            return $members;
+        } catch (\Core\Archive\ArchiveRejectedException) {
+            return [];
+        } finally {
+            $archive->close();
         }
-
-        return $members;
     }
 }

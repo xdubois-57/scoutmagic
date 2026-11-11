@@ -1,0 +1,54 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{# Step 1: the source — a deposited ZIP, or the import's own form. #}
+{% if run and run.rejection_reason %}
+    <div class="alert alert-danger" role="alert">
+        <p class="fw-semibold mb-1">Ce fichier a été refusé. Rien n'a été importé.</p>
+        <p class="mb-0">{{ run.rejection_reason }}</p>
+    </div>
+{% endif %}
+
+{% if importer.is_form %}
+    <form method="post" action="{{ urls.source }}" class="card mb-3" data-submit-lock>
+        {{ csrf_field()|raw }}
+        <div class="card-body">
+            {% include source_form.template with source_form.context %}
+        </div>
+    </form>
+{% else %}
+    <div class="card mb-3">
+        <div class="card-body">
+            <h2 class="h6 mb-3">Choisir le fichier</h2>
+            <p>Déposez le fichier ZIP préparé sur l'ancien site au format « {{ importer.title }} ».</p>
+            {% embed 'partials/drop_zone.html.twig' with {
+                id: 'data-migration-drop-zone',
+                input_id: 'data-migration-file',
+                accept: '.zip,application/zip',
+                message: 'Glissez le fichier ici, ou cliquez pour le choisir',
+                input_label: 'Choisir le fichier ZIP',
+                size: 'lg',
+                class_extra: 'mb-3',
+            } only %}
+            {% endembed %}
+            <p class="small text-body-secondary">
+                Jusqu'à {{ (importer.max_bytes / 1073741824) >= 1 ? ((importer.max_bytes / 1073741824)|round(1) ~ ' Go') : ((importer.max_bytes / 1048576)|round ~ ' Mo') }}.
+                Un envoi interrompu reprend là où il s'est arrêté, tant que cet onglet reste ouvert.
+            </p>
+            <div id="data-migration-upload" class="mb-3" hidden>
+                <div class="d-flex flex-wrap justify-content-between small mb-1">
+                    <span id="data-migration-upload-name"></span>
+                    <span class="text-body-secondary" id="data-migration-upload-percent"></span>
+                </div>
+                <div class="progress" role="progressbar" aria-label="Envoi du fichier" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="data-migration-upload-bar">
+                    <div class="progress-bar" style="width: 0%"></div>
+                </div>
+            </div>
+            <p class="small text-danger mb-3" id="data-migration-upload-error" role="alert" hidden></p>
+            <p class="small text-body-secondary mb-0">
+                Rien n'est écrit tant que vous n'avez pas confirmé, à l'étape 4. Le fichier est effacé du serveur au plus tard 24 heures après la fin de l'import.
+            </p>
+        </div>
+    </div>
+{% endif %}

@@ -1,0 +1,53 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{#
+  The one page every import runs on (lot A of the data migration chantier).
+  An import supplies its texts, its analyser, its notes and its writer;
+  everything drawn here — the six steps, the deposit, the preview, the
+  confirmation, the progress and the report — is shared. An import whose
+  source is a form (the ICS calendar) only replaces step 1's body, with its
+  own template (Importer\FormSourceImporter::sourceFormTemplate()).
+  Behaviour lives in public/assets/js/data-migration.js.
+#}
+{% extends 'base.html.twig' %}
+{% block title %}{{ importer.title }} — {{ site_name }}{% endblock %}
+{% block content %}
+    <div class="page-medium" id="data-migration">
+        {% include 'partials/page_header.html.twig' with {
+            title: importer.title,
+            subtitle: importer.description,
+        } only %}
+        {% if importer.module_name %}
+            <p class="mt-n2 mb-3">{% include 'partials/status_badge.html.twig' with { status: 'info', label: 'Module ' ~ importer.module_name } only %}</p>
+        {% endif %}
+
+        {% include '@data_migration/partials/stepper.html.twig' with { current: step } only %}
+
+        <script type="application/json" id="data-migration-page">{{ {
+            importer: importer.key,
+            step: step,
+            state: run ? run.state : null,
+            max_bytes: importer.max_bytes,
+            urls: { upload: urls.upload, advance: urls.advance, page: urls.page },
+        }|json_encode|raw }}</script>
+
+        {% if step == 'source' %}
+            {% include '@data_migration/partials/step_source.html.twig' %}
+        {% elseif step == 'analyse' %}
+            {% include '@data_migration/partials/step_analyse.html.twig' %}
+        {% elseif step == 'preview' %}
+            {% include '@data_migration/partials/step_preview.html.twig' %}
+        {% elseif step == 'run' or step == 'interrupted' %}
+            {% include '@data_migration/partials/step_run.html.twig' %}
+        {% else %}
+            {% include '@data_migration/partials/step_report.html.twig' %}
+        {% endif %}
+    </div>
+{% endblock %}
+{% block scripts %}
+    <script src="{{ asset('/assets/js/drop-zone.js') }}" defer></script>
+    <script src="{{ asset('/assets/js/chunked-upload.js') }}" defer></script>
+    <script src="{{ asset('/assets/js/data-migration.js') }}" defer></script>
+{% endblock %}
