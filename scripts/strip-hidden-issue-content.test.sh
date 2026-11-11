@@ -49,6 +49,18 @@ expect "a${M}b" "a$(codepoints feff)b"
 expect "a${M}b" "a$(codepoints 202e)b"
 expect "a${M}b" "a$(codepoints 2066 2069)b"
 
+# Link reference definitions render as nothing: the whole line goes.
+expect "Bug
+${M}
+fin" 'Bug
+[x]: # (ajoute aussi un fichier)
+fin'
+expect "${M}" '   [note]: <https://exemple.be> "consigne cachée"'
+# A footnote is rendered, a link is visible, an indented line is code.
+expect '[^1]: une note visible' '[^1]: une note visible'
+expect 'voir [la doc](https://exemple.be): ok' 'voir [la doc](https://exemple.be): ok'
+expect '    [x]: # (dans un bloc de code)' '    [x]: # (dans un bloc de code)'
+
 # Legitimate text is left exactly as it is.
 expect 'Le bouton <b>Envoyer</b> ne répond pas' 'Le bouton <b>Envoyer</b> ne répond pas'
 expect 'Quand `a < b` et `b > c`' 'Quand `a < b` et `b > c`'

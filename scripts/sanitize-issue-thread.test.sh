@@ -73,6 +73,19 @@ run issue 13 >/dev/null
   || fail "a hidden character in the title survived"
 [[ "$(patched "${repo}/issues/13")" = "propre" ]] || fail "the clean body was not kept as is"
 
+# A text that would outgrow GitHub's limits once marked is replaced whole,
+# instead of a PATCH GitHub refuses on every run. 2000 hidden runs make
+# about 84000 characters; a 300-character title the same.
+reset
+zw="$(printf '\342\200\213')"
+long_body="$(for _ in $(seq 2000); do printf 'a%s' "${zw}"; done)"
+long_title="$(for _ in $(seq 10); do printf 'a%s' "${zw}"; done)"
+fixture "${repo}/issues/14" "$(jq -n --arg b "${long_body}" --arg t "${long_title}" '{user:{type:"User"},title:$t,body:$b}')"
+run issue 14 >/dev/null
+[[ "$(patched "${repo}/issues/14")" == "${M} Texte trop long"* ]] || fail "an oversized cleaned body was sent as is"
+[[ "$(jq -r '.title' "${tmp}/fixtures/patched/${repo//\//_}_issues_14.json")" == "${M}" ]] \
+  || fail "an oversized cleaned title was sent as is"
+
 # A comment has no title, and none is sent.
 reset
 fixture "${repo}/issues/comments/57" '{"user":{"type":"User"},"body":"a <!--x--> b"}'

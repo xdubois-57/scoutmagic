@@ -37,6 +37,15 @@ esac
 [[ "${id}" =~ ^[0-9]+$ ]] || { echo "not a number: ${id}" >&2; exit 2; }
 : "${GITHUB_REPOSITORY:?}"
 
+# GitHub's limits on an issue or comment body and on an issue title.
+BODY_LIMIT=65536
+TITLE_LIMIT=256
+MARKER='⚠️ [contenu caché retiré automatiquement]'
+MARKER_TOO_LONG="${MARKER} Texte trop long une fois nettoyé : l'original reste dans l'historique des modifications."
+
+# chars <text> → its length in characters, whatever the runner's locale.
+chars() { jq -rn --arg s "$1" '$s | length'; }
+
 # sanitize_one <api path of the object> <label for the log>
 sanitize_one() {
   local path="$1" label="$2" json body clean title clean_title
@@ -53,16 +62,27 @@ sanitize_one() {
   if [[ "${clean}" == "${body}" && "${clean_title}" == "${title}" ]]; then
     return 0
   fi
+  # Every hidden run becomes a 41-character marker, so a text alternating
+  # hidden and visible characters grows about twentyfold — past GitHub's
+  # limits, and the PATCH would then fail the step and the agent job behind
+  # it, on every run, for one crafted issue. Such a text is replaced whole;
+  # its original stays in GitHub's edit history, which no agent reads.
+  if (( $(chars "${clean}") > BODY_LIMIT )); then
+    clean="${MARKER_TOO_LONG}"
+  fi
+  if (( $(chars "${clean_title}") > TITLE_LIMIT )); then
+    clean_title="${MARKER}"
+  fi
   jq -n --arg body "${clean}" --arg title "${clean_title}" --argjson original "${json}" \
     '{body: $body} + (if ($original | has("title")) then {title: $title} else {} end)' \
     | gh api -X PATCH "${path}" --input - >/dev/null
-  echo "${label}: contenu caché retiré"
+  echo "${label}: hidden content removed"
 }
 
 repo="repos/${GITHUB_REPOSITORY}"
 case "${kind}" in
   issue)   sanitize_one "${repo}/issues/${id}" "issue #${id}" ;;
-  comment) sanitize_one "${repo}/issues/comments/${id}" "commentaire ${id}" ;;
+  comment) sanitize_one "${repo}/issues/comments/${id}" "comment ${id}" ;;
   thread)
     sanitize_one "${repo}/issues/${id}" "issue #${id}"
     # Listed first, then walked: inside `for … in $(…)` a failed listing
@@ -71,7 +91,7 @@ case "${kind}" in
     ids="$(gh api --paginate "${repo}/issues/${id}/comments" --jq '.[].id')"
     while IFS= read -r comment; do
       [[ -n "${comment}" ]] || continue
-      sanitize_one "${repo}/issues/comments/${comment}" "commentaire ${comment}"
+      sanitize_one "${repo}/issues/comments/${comment}" "comment ${comment}"
     done <<<"${ids}"
     ;;
   open)
