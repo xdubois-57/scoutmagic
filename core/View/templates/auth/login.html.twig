@@ -11,7 +11,7 @@
        issue #1115): a signed-in visitor sent here before adding a new way
        into their account. #}
     {% if reauth_notice|default(null) %}
-    <div class="alert alert-info" role="status">{{ reauth_notice }}</div>
+    <output class="alert alert-info d-block">{{ reauth_notice }}</output>
     {% endif %}
 
     {# Tabs — data-default marks which one the server pre-selected (module addendum: remembers the last method used, via an optional functional cookie). #}
