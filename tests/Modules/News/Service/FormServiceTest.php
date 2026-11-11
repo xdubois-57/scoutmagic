@@ -93,6 +93,69 @@ class FormServiceTest extends TestCase
         ]);
     }
 
+    /**
+     * Issue #1120 (audit SEC-025): a field label is text. `<` and `>` are
+     * refused before anything is written, so a refused save leaves no
+     * form behind, and the public page can never be handed a tag through
+     * a label, whatever a script later does with it.
+     *
+     * @return iterable<string, array{string}>
+     */
+    public static function labelsHoldingMarkup(): iterable
+    {
+        yield 'a tag' => ['Repas <b>du samedi</b>'];
+        yield 'an image' => ['<img src=/favicon.ico>'];
+        yield 'a lone closing bracket' => ['Repas > 2 ans'];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('labelsHoldingMarkup')]
+    public function testALabelHoldingMarkupIsRefusedBeforeAnythingIsWritten(string $label): void
+    {
+        try {
+            $this->service->save($this->articleId, $this->baseSettings(), [
+                self::labelledField(FormField::TYPE_NUMBER, $label, 8.0),
+            ]);
+            $this->fail('A label holding < or > was accepted.');
+        } catch (NewsException $e) {
+            $this->assertStringContainsString('< et >', $e->getMessage());
+        }
+
+        $this->assertNull($this->service->findByArticleId($this->articleId));
+    }
+
+    public function testALabelLongerThanItsColumnIsRefused(): void
+    {
+        $this->expectException(NewsException::class);
+        $this->expectExceptionMessage('255 caractères');
+
+        $this->service->save($this->articleId, $this->baseSettings(), [
+            self::labelledField(FormField::TYPE_SHORT_TEXT, str_repeat('é', 256)),
+        ]);
+    }
+
+    public function testALabelAtTheColumnLengthIsKeptAsTyped(): void
+    {
+        $label = str_repeat('é', 254) . '&';
+        $form = $this->service->save($this->articleId, $this->baseSettings(), [
+            self::labelledField(FormField::TYPE_SHORT_TEXT, $label),
+        ]);
+
+        $this->assertSame($label, $this->service->getFields($form->id)[0]->label);
+    }
+
+    /**
+     * @return array{id: null, field_type: string, label: string, is_required: false, options_source: null,
+     *     options_manual: null, capacity_max: null, price_per_unit: ?float, confirmation_text: null}
+     */
+    private static function labelledField(string $type, string $label, ?float $price = null): array
+    {
+        return [
+            'id' => null, 'field_type' => $type, 'label' => $label, 'is_required' => false,
+            'options_source' => null, 'options_manual' => null, 'capacity_max' => null,
+            'price_per_unit' => $price, 'confirmation_text' => null,
+        ];
+    }
+
     public function testSecondSavePreservesExistingFieldIdWhenIdIsPassed(): void
     {
         $form = $this->service->save($this->articleId, $this->baseSettings(), [

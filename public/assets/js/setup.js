@@ -324,7 +324,7 @@
                         if (dbNotEmptyWarning) { dbNotEmptyWarning.classList.add('d-none'); }
                     }
                 } else {
-                    dbResult.innerHTML = '<span class="text-danger">\u2717 ' + json.message + '</span>';
+                    dbResult.innerHTML = '<span class="text-danger">\u2717 ' + escapeHtml(json.message) + '</span>';
                     dbTestPassed = false;
                     updateSaveState();
                     if (dbNotEmptyWarning) { dbNotEmptyWarning.classList.add('d-none'); }
@@ -360,7 +360,7 @@
             .then(function(json) {
                 backupEmptySpinner.classList.add('d-none');
                 if (!json.success) {
-                    backupEmptyResult.innerHTML = '<span class="text-danger">\u2717 ' + json.message + '</span>';
+                    backupEmptyResult.innerHTML = '<span class="text-danger">\u2717 ' + escapeHtml(json.message) + '</span>';
                     btnBackupEmptyDb.disabled = false;
                     // Only offer "empty anyway" once the backup step itself
                     // is confirmed to be what failed (not e.g. a wrong
@@ -485,9 +485,9 @@
                 .then(function(json) {
                     emailSpinner.classList.add('d-none');
                     if (json.success) {
-                        emailResult.innerHTML = '<span class="text-success">\u2713 ' + json.message + '</span>';
+                        emailResult.innerHTML = '<span class="text-success">\u2713 ' + escapeHtml(json.message) + '</span>';
                     } else {
-                        emailResult.innerHTML = '<span class="text-danger">\u2717 ' + json.message + '</span>';
+                        emailResult.innerHTML = '<span class="text-danger">\u2717 ' + escapeHtml(json.message) + '</span>';
                     }
                 })
                 .catch(function() {
@@ -515,7 +515,7 @@
                 .then(function(json) {
                     dkimGenSpinner.classList.add('d-none');
                     if (!json.success) {
-                        dkimGenResult.innerHTML = '<span class="text-danger">\u2717 ' + json.message + '</span>';
+                        dkimGenResult.innerHTML = '<span class="text-danger">\u2717 ' + escapeHtml(json.message) + '</span>';
                         return;
                     }
                     // Rebuilt in place (no location.reload()) so the rest
@@ -531,7 +531,7 @@
                     html += '<div class="mb-2">';
                     html += '<small class="text-body-secondary">Cl\u00e9 publique (pour l\'enregistrement DNS) :</small>';
                     html += '<div class="input-group input-group-sm mt-1">';
-                    html += '<input type="text" class="form-control font-monospace" value="' + json.public_key + '" readonly id="dkim-pubkey-display">';
+                    html += '<input type="text" class="form-control font-monospace" value="' + escapeAttr(json.public_key) + '" readonly id="dkim-pubkey-display">';
                     html += '<button type="button" class="btn btn-outline-secondary btn-copy-value" data-copy-target="dkim-pubkey-display">Copier</button>';
                     html += '</div>';
                     html += '</div>';

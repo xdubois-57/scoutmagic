@@ -2346,6 +2346,66 @@ class NewsIntegrationTest extends TestCase
     }
 
     /**
+     * Issue #1120: a refused field label is checked before the article is
+     * written — no draft is left behind without its form.
+     */
+    public function testStoreWithARefusedLabelWritesNoArticle(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        $request = new Request('POST', '/news', [], [
+            '_csrf_token' => CsrfGuard::generateToken(),
+            'title' => 'Souper',
+            'summary' => 'Un résumé en une phrase.',
+            'visibility' => 'public',
+            'form_response_limit' => 'unlimited',
+            'form_response_role_min' => 'chief',
+            'fields_json' => json_encode([
+                ['field_type' => 'number', 'label' => 'Repas <b>x</b>', 'price_per_unit' => 8],
+            ]),
+        ], [], []);
+        $_FILES['image'] = $this->fakeUploadedImage();
+
+        $response = $this->newsController->store($request, []);
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertStringContainsString('ne peut pas contenir les caractères', $response->getBody());
+        $this->assertSame([], $this->articleRepository->findAll());
+    }
+
+    /**
+     * Issue #1120: on an existing article, the same refusal leaves the
+     * article exactly as it was.
+     */
+    public function testUpdateWithARefusedLabelLeavesTheArticleUntouched(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        $articleId = $this->articleRepository->create(
+            'Avant',
+            Article::VISIBILITY_PUBLIC,
+            true,
+            null,
+            null,
+            $this->chiefAccountId
+        );
+        $request = new Request('POST', '/news/' . $articleId, [], [
+            '_csrf_token' => CsrfGuard::generateToken(),
+            'title' => 'Après',
+            'summary' => 'Un résumé en une phrase.',
+            'visibility' => 'public',
+            'form_response_limit' => 'unlimited',
+            'form_response_role_min' => 'chief',
+            'fields_json' => json_encode([['field_type' => 'short_text', 'label' => 'Nom >']]),
+        ], [], []);
+        $_FILES['image'] = $this->fakeUploadedImage();
+
+        $response = $this->newsController->update($request, ['id' => (string) $articleId]);
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertStringContainsString('ne peut pas contenir les caractères', $response->getBody());
+        $this->assertSame('Avant', $this->articleRepository->findById($articleId)?->title);
+    }
+
+    /**
      * @dataProvider visibilityAccessProvider
      */
     #[\PHPUnit\Framework\Attributes\DataProvider('visibilityAccessProvider')]

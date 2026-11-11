@@ -363,6 +363,9 @@ class NewsController extends AbstractController
         $intent = (string) $request->getBody('intent', self::INTENT_SAVE);
 
         try {
+            // Before anything is written: a refused field label must not
+            // leave a new draft behind without its form (issue #1120).
+            $this->formService->assertFieldLabels($this->extractFields($request));
             $scheduleAt = $this->requestedScheduleMoment($request, $intent, null);
             $imageFileId = $this->resolveUploadedImageFileId($request, $visibility, $accountId);
 
@@ -467,6 +470,9 @@ class NewsController extends AbstractController
         $intent = (string) $request->getBody('intent', self::INTENT_SAVE);
 
         try {
+            // Before anything is written: a refused field label must not
+            // leave the article updated and its form not (issue #1120).
+            $this->formService->assertFieldLabels($this->extractFields($request));
             $scheduleAt = $this->requestedScheduleMoment($request, $intent, $article);
             $imageFileId = $this->resolveUploadedImageFileId($request, $visibility, $accountId);
 

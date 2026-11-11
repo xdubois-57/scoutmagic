@@ -752,3 +752,36 @@ describe('news-form-builder.js: reordering the form fields', () => {
         expect(labels()).toEqual(['Bloc de texte', 'Charlie', 'Bravo']);
     });
 });
+
+// Issue #1120 (audit SEC-025): the payment summary used to concatenate a
+// field's `dataset.label` into an innerHTML string. Every innerHTML left in
+// this file must be fed by literals — never a dataset value, an input's
+// value, a field label or a joined list of built lines. Each assignment is
+// read as a whole statement, up to its `;`, so a value built on the lines
+// after `x.innerHTML =` is read too, and `+=` counts as an assignment. The
+// one indirection, `addFieldEditRow(panel, html)` → `div.innerHTML = html`,
+// is pinned by the test above: every caller hands it a literal.
+describe('news-form-builder.js: no form data reaches innerHTML', () => {
+    it('no innerHTML assignment reads a dataset, a value, a label or a joined list', async () => {
+        const { readFileSync } = await import('node:fs');
+        const { fileURLToPath } = await import('node:url');
+        const { dirname, resolve } = await import('node:path');
+        const here = dirname(fileURLToPath(import.meta.url));
+        const source = readFileSync(
+            resolve(here, '../../public/assets/js/news-form-builder.js'),
+            'utf8',
+        );
+        const statements = [...source.matchAll(/\.innerHTML\s*\+?=([\s\S]*?);/g)].map((m) => m[1]);
+
+        expect(statements.length).toBeGreaterThan(0);
+        // The multi-line one exists, so the whole-statement read is exercised.
+        expect(statements.some((value) => value.includes('\n'))).toBe(true);
+        for (const value of statements) {
+            // `cmd.label` and `t.label` are the toolbar and field-type
+            // constants defined in this file, not anything a person typed;
+            // `html` is addFieldEditRow's parameter, covered above.
+            const rest = value.replace(/\b(cmd|t)\.label\b/g, '');
+            expect(rest).not.toMatch(/dataset|\.join\(|\.value\b|\.label\b/);
+        }
+    });
+});

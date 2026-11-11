@@ -1379,6 +1379,11 @@
         var linesEl = document.getElementById('news-payment-lines');
         var totalEl = document.getElementById('news-payment-total');
 
+        // Each line is built as a node and filled through textContent: the
+        // label is whatever the author typed, and `dataset` hands it back
+        // DECODED, so a label holding `<b>` or `<img>` concatenated into
+        // innerHTML would render as markup on a public page (issue #1120,
+        // audit SEC-025). As text it shows exactly as typed.
         function recalcPayment() {
             var total = 0;
             var lines = [];
@@ -1389,9 +1394,13 @@
                 var qty = Number.parseFloat(input.value) || 0;
                 var subtotal = qty * price;
                 total += subtotal;
-                lines.push('<p class="mb-1">' + input.dataset.label + ' : ' + qty + ' × ' + price.toFixed(2).replace('.', ',') + '€ = ' + subtotal.toFixed(2).replace('.', ',') + '€</p>');
+                var line = document.createElement('p');
+                line.className = 'mb-1';
+                line.textContent = (input.dataset.label || '') + ' : ' + qty + ' × '
+                    + price.toFixed(2).replace('.', ',') + '€ = ' + subtotal.toFixed(2).replace('.', ',') + '€';
+                lines.push(line);
             });
-            linesEl.innerHTML = lines.join('');
+            linesEl.replaceChildren(...lines);
             totalEl.textContent = total.toFixed(2).replace('.', ',');
         }
 
