@@ -392,6 +392,32 @@ the installable artifact and attaches it to a rolling **prerelease** tagged
 `releases/latest`, which excludes prereleases, and that single fact is what
 keeps the two update channels apart.
 
+`.github/workflows/issue-sanitize.yml` (issue #1117) removes what the rendered
+view of an issue hides but an agent reading the raw text sees: HTML comments
+(`<!-- … -->`, an unclosed one to the end of the text, inside code blocks too)
+and their siblings — declarations, CDATA, processing instructions —, every
+Unicode Default_Ignorable_Code_Point (tag characters, zero-width characters,
+the soft hyphen, Bidi controls, variation selectors used to smuggle bytes;
+a lone emoji style selector excepted), and Markdown link reference definitions
+(`[x]: # (…)`, rendered as nothing; at any indentation and inside code too,
+never looked for in a title) and footnote definitions (`[^x]: …`, dropped when
+nothing refers to them, so all of them go). It runs on every new or edited issue title, body and
+comment, rewrites the text with a VISIBLE « ⚠️ [contenu caché retiré
+automatiquement] » in place of each hidden run, lets a text written by a bot
+keep only this repository's own markers in their exact form (its workflows
+write them on purpose; anything else a person adds to a bot's issue goes), keeps
+line endings as they were, and writes
+nothing when nothing was hidden, which is also what keeps its own `edited`
+event from looping. It holds `issues: write` alone and runs two scripts read
+from `main` (`scripts/strip-hidden-issue-content.sh`, the filter, and
+`scripts/sanitize-issue-thread.sh`), each tested offline by its `.test.sh`
+through `tests/Security/BacklogProjectScriptsTest.php`. The two triage
+workflows run the same script on the whole thread themselves, before their
+agent starts, since nothing makes this workflow finish first. What it does
+not do: detect a malicious instruction that is visible — the maintainer reads
+it before moving an issue to Ready — nor anything rendered misleadingly (text
+folded in `<details>`, a link whose text differs from its target).
+
 `.github/workflows/issue-triage.yml` is not CI and gates nothing: it runs
 on `issues: [opened, reopened]` and answers the reporter — and on
 `issue_comment: [created]`, which is how the reporter answers back. It is the one

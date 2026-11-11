@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Tests\Security;
 
+use Core\ExternalSource\ExternalSource;
+use Core\ExternalSource\ExternalSources;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
@@ -43,6 +45,9 @@ final class BacklogProjectScriptsTest extends TestCase
             'project-canceled-sync',
             'project-agent',
             'project-backfill',
+            // Issue #1117: what every agent-facing issue text goes through.
+            'strip-hidden-issue-content',
+            'sanitize-issue-thread',
         ] as $name) {
             yield $name => [$name];
         }
@@ -131,6 +136,33 @@ final class BacklogProjectScriptsTest extends TestCase
             // An assignee would start a native agent session (issue #923 § 3).
             self::assertDoesNotMatchRegularExpression('/--add-assignee|assignees\[\]|-f assignee/', $source, basename($path));
         }
+    }
+
+    /**
+     * Issue #1117: a bot's issue keeps an `<!-- external-source:<id> -->`
+     * marker only for an id of the register, so a person editing it cannot
+     * keep a kebab-case sentence hidden behind the prefix. The filter is
+     * read from `main` by workflows that check nothing out, so it carries
+     * the ids itself, and this keeps the copy and the register equal.
+     */
+    public function testTheBotMarkerAllowListIsTheSourceRegister(): void
+    {
+        $script = (string) file_get_contents(self::root() . '/scripts/strip-hidden-issue-content.sh');
+        self::assertSame(1, preg_match(
+            "/^# BEGIN external-source ids\nSOURCE_IDS='\n(.*?)\n'\n# END external-source ids$/ms",
+            $script,
+            $match,
+        ));
+        $listed = preg_split('/\s+/', trim($match[1])) ?: [];
+        $registered = array_map(static fn (ExternalSource $source): string => $source->id, ExternalSources::all());
+        sort($listed);
+        sort($registered);
+
+        self::assertSame(
+            $registered,
+            $listed,
+            'scripts/strip-hidden-issue-content.sh lists other external-source ids than ExternalSources::all().',
+        );
     }
 
     /** Comments explain the rule; only code could break it. */

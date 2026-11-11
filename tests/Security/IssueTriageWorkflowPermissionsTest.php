@@ -59,6 +59,13 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
      */
     private const FIXED_COMMENT = '.github/workflows/issue-fixed-comment.yml';
 
+    /**
+     * Strips hidden content from issues and comments before any agent
+     * reads them (issue #1117). Runs no agent and holds no Claude token,
+     * but it REWRITES public text, so what it may hold is asserted below.
+     */
+    private const SANITIZE = '.github/workflows/issue-sanitize.yml';
+
     /** The complete set either job may hold. Nothing may be added. */
     private const ALLOWED_PERMISSIONS = [
         'issues' => 'write',
@@ -89,7 +96,10 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
      */
     public static function everyIssueWorkflow(): array
     {
-        return self::issueWorkflows() + ['fix landed on an issue' => [self::FIXED_COMMENT]];
+        return self::issueWorkflows() + [
+            'fix landed on an issue' => [self::FIXED_COMMENT],
+            'hidden content removed' => [self::SANITIZE],
+        ];
     }
 
     /**
@@ -2907,5 +2917,97 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
         self::assertIsString($contents, 'Could not read ' . $workflow . '.');
 
         return $contents;
+    }
+
+    /**
+     * Issue #1117. The sanitizing workflow rewrites text written by the
+     * public, so it holds `issues: write` and nothing else, runs no action
+     * at all (two scripts read from `main`, nothing checked out), never
+     * pastes an issue's text into its shell — only numeric ids travel, by
+     * `env:` — and never acts on a bot's event, which is also what stops it
+     * from looping on its own rewrites.
+     */
+    public function testTheSanitizeWorkflowHoldsOnlyWhatItNeeds(): void
+    {
+        $blocks = $this->indentedPermissionBlocks(self::SANITIZE);
+        self::assertSame(
+            [['issues' => 'write']],
+            $blocks,
+            'issue-sanitize.yml must hold `issues: write` and nothing else.',
+        );
+
+        $code = implode("\n", array_filter(
+            $this->lines(self::SANITIZE),
+            static fn (string $line): bool => preg_match('/^\s*#/', $line) !== 1,
+        ));
+        self::assertDoesNotMatchRegularExpression('/^\s*-?\s*uses:/m', $code, 'issue-sanitize.yml runs no action.');
+        self::assertDoesNotMatchRegularExpression(
+            '/\$\{\{\s*github\.event\.(issue|comment)\.(body|title)/',
+            $code,
+            'issue-sanitize.yml must never interpolate an issue\'s text; the script reads it from the API.',
+        );
+        self::assertStringContainsString(
+            "if: github.event.sender.type != 'Bot' && !github.event.issue.pull_request",
+            $code,
+            'issue-sanitize.yml must skip bots and pull request comments.',
+        );
+        self::assertStringContainsString('contents/scripts/${script}?ref=main', $code);
+        self::assertMatchesRegularExpression('/^\s+timeout-minutes:\s*\d+/m', $code);
+    }
+
+    /**
+     * Issue #1117: a marker is an HTML comment anybody can type, so every
+     * lookup that acts on one reads a bot's text only — otherwise an
+     * imitated `<!-- issue-fixed-comment: … -->` suppresses the « fixed »
+     * notice, and an imitated `<!-- external-source:<id> -->` makes a
+     * person's issue receive that source's updates.
+     */
+    public function testMarkerLookupsTrustOnlyABotsText(): void
+    {
+        $sources = $this->contents('.github/workflows/external-sources-check.yml');
+        self::assertMatchesRegularExpression(
+            '/select\(\.pull_request == null\)\s*\|\s*select\(\.user\.type == "Bot"\)\s*'
+                . '\|\s*select\(\(\.body \/\/ ""\) \| contains\(env\.MARKER\)\)/',
+            $sources,
+            'external-sources-check.yml must find a source\'s issue among bot-opened issues only.',
+        );
+        self::assertMatchesRegularExpression(
+            '/\/comments" --paginate\s*\\\\\s*--jq \'\.\[\] \| select\(\.user\.type == "Bot"\) \| \.body\'/',
+            $sources,
+            'external-sources-check.yml must read the fingerprints from bot comments only.',
+        );
+
+        $fixed = $this->contents(self::FIXED_COMMENT);
+        self::assertMatchesRegularExpression(
+            '/\/comments"\s*\\\\\s*--jq \'\.\[\] \| select\(\.user\.type == "Bot"\) \| \.body\'/',
+            $fixed,
+            'issue-fixed-comment.yml must look for its notice among bot comments only.',
+        );
+
+        foreach (['external-sources-check.yml' => $sources, 'issue-fixed-comment.yml' => $fixed] as $name => $file) {
+            self::assertStringNotContainsString(
+                "--jq '.[] | .body'",
+                $file,
+                $name . ' reads comment bodies without filtering on their author.',
+            );
+        }
+    }
+
+    /**
+     * Issue #1117: both triage jobs clean the thread themselves, BEFORE
+     * their agent runs — the sanitizing workflow starts on the same event
+     * and nothing makes it finish first.
+     */
+    #[DataProvider('issueWorkflows')]
+    public function testTheThreadIsCleanedBeforeTheAgentReadsIt(string $workflow): void
+    {
+        $file = $this->contents($workflow);
+        $clean = strpos($file, '- name: Remove hidden content from the thread');
+        $agent = strpos($file, 'anthropics/claude-code-action@');
+
+        self::assertNotFalse($clean, $workflow . ' no longer removes hidden content before triage.');
+        self::assertNotFalse($agent);
+        self::assertLessThan($agent, $clean, $workflow . ' cleans the thread only after its agent has read it.');
+        self::assertStringContainsString('sanitize-issue-thread.sh" thread', $file);
     }
 }

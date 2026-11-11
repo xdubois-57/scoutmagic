@@ -733,7 +733,7 @@ jobs:
           set -euo pipefail
 
           mkdir -p "${RUNNER_TEMP}/triage-scripts"
-          for script in support-triage-extract.sh triage-comment-gate.sh project-effort.sh triage-title.sh triage-dependencies.sh; do
+          for script in support-triage-extract.sh triage-comment-gate.sh project-effort.sh triage-title.sh triage-dependencies.sh strip-hidden-issue-content.sh sanitize-issue-thread.sh; do
             gh api -H 'Accept: application/vnd.github.raw+json' \
               "repos/${GITHUB_REPOSITORY}/contents/scripts/${script}?ref=main" \
               > "${RUNNER_TEMP}/triage-scripts/${script}"
@@ -741,6 +741,23 @@ jobs:
               echo "::error title=Triage script missing::scripts/${script} could not be read from main."
               exit 1
             }
+          done
+
+      # HIDDEN CONTENT REMOVED BEFORE THE AGENT READS ANYTHING (issue
+      # #1117). issue-sanitize.yml does the same on every new or edited
+      # text, but it starts on the same event as this job and nothing makes
+      # it finish first: an HTML comment or an invisible-Unicode instruction
+      # the maintainer never saw would otherwise reach the agent. Same
+      # script, same rules: bot texts untouched, a visible marker in place
+      # of what was removed, nothing written when nothing was hidden.
+      - name: Remove hidden content from the thread
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBERS: ${{ github.event.issue.number }}
+        run: |
+          set -euo pipefail
+          for issue in ${ISSUE_NUMBERS//,/ }; do
+            bash "${RUNNER_TEMP}/triage-scripts/sanitize-issue-thread.sh" thread "${issue}"
           done
 
       # THE SUPPORT TICKET EXTRACT, fetched before the agent runs and by

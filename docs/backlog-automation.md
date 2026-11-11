@@ -130,6 +130,7 @@ Routine, which is why it is not claimed to be installed.
 
 | Workflow / script | Credential | What it writes |
 | --- | --- | --- |
+| `issue-sanitize.yml` (every new or edited issue and comment) | `github.token` (`issues: write`) | the text, rewritten only when it hid something: HTML comments, invisible Unicode and Markdown link reference definitions replaced by a visible « ⚠️ [contenu caché retiré automatiquement] », a bot text keeping only the repository's own markers (`scripts/sanitize-issue-thread.sh`, issue #1117) — so an agent implementing a Ready issue reads what the maintainer saw |
 | `issue-triage.yml`, `issue-backlog-scan.yml` | model: read tools only | nothing — it returns JSON: verdict, comment, `effort`, `category`, `blocked_by` |
 | same workflows, *Normalise the title…* step | `github.token` (`issues: write`) | the `[Bug]`/`[Test]`/`[Idée]` title prefix (`scripts/triage-title.sh`) and the native `blocked by` links (`scripts/triage-dependencies.sh`) |
 | same workflows, *Set Effort…* step | `PROJECTS_TOKEN` | `Effort`, only when empty (`scripts/project-effort.sh`) |
