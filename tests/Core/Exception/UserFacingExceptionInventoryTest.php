@@ -38,6 +38,7 @@ final class UserFacingExceptionInventoryTest extends TestCase
      * @var list<class-string>
      */
     private const USER_FACING = [
+        \Core\Archive\ArchiveRejectedException::class,
         \Core\Badge\BadgeException::class,
         \Core\Config\SettingException::class,
         \Core\Contact\ContactCardException::class,
@@ -78,6 +79,8 @@ final class UserFacingExceptionInventoryTest extends TestCase
         \Modules\Covoiturage\Service\CarpoolException::class,
         \Modules\Covoiturage\Service\DuplicateCarpoolException::class,
         \Modules\Covoiturage\Service\LocationMismatchException::class,
+        \Modules\DataMigration\Importer\SourceRejectedException::class,
+        \Modules\DataMigration\Manifest\ManifestException::class,
         \Modules\Documents\Service\DocumentException::class,
         \Modules\Gallery\Api\GalleryException::class,
         \Modules\Gallery\Service\GalleryLocationException::class,
@@ -109,6 +112,8 @@ final class UserFacingExceptionInventoryTest extends TestCase
      * @var array<class-string, string>
      */
     private const INTERNAL = [
+        // Control flow inside the import engine, constructed with no message.
+        \Modules\DataMigration\Service\RunMovedException::class => 'no message; internal control flow of a slice',
         // Library and driver text, or internal identifiers.
         \Core\Cookie\CookieConsentException::class => 'English, names a cookie category and its consent state',
         \Core\Mail\MailException::class => "PHPMailer's ErrorInfo — an SMTP transcript, always English",

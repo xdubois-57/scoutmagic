@@ -45,6 +45,7 @@ final class ModulesPageMockupTest extends TestCase
      */
     private const ARRIVED_AFTER_THE_MOCKUP = [
         'covoiturage' => 'activites',
+        'data_migration' => 'technique',
         'documents' => 'communication',
         'social' => 'communication',
     ];
