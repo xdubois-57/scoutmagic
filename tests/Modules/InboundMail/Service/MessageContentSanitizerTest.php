@@ -145,8 +145,10 @@ class MessageContentSanitizerTest extends TestCase
 
     public function testATruncatedBodyKeepsNoImageEither(): void
     {
+        // The tag comes FIRST, inside the part the cut keeps: placed after
+        // the filler, the cut alone would discard it and prove nothing.
         $filler = str_repeat('<p>' . str_repeat('x', 1000) . '</p>', 600);
-        $html = $this->sanitizer->sanitizeHtml($filler . '<im<img x>g src="https://traceur.exemple/p.gif">');
+        $html = $this->sanitizer->sanitizeHtml('<p>Bonjour</p><img src="https://traceur.exemple/p.gif">' . $filler);
 
         $this->assertStringEndsWith(MessageContentSanitizer::HTML_TRUNCATION_MARK, $html);
         $this->assertStringNotContainsString('traceur.exemple', $html);

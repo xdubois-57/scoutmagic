@@ -8225,18 +8225,26 @@ if ($isEnabled('inbound_mail')) {
             );
         }
 
-        $step = $inboundMailForOthers->resanitizeStoredHtmlBodies(
-            new \Modules\InboundMail\Service\MessageContentSanitizer(new \Core\Security\HtmlSanitizer()),
-            (int) $resanitizedThrough,
-            200
-        );
+        // A failure here must never cost the page: a row that fails is
+        // skipped inside the step, and anything else (the batch's own read)
+        // leaves the cursor where it was for the next request to retry,
+        // while this one carries on.
+        try {
+            $step = $inboundMailForOthers->resanitizeStoredHtmlBodies(
+                new \Modules\InboundMail\Service\MessageContentSanitizer(new \Core\Security\HtmlSanitizer()),
+                (int) $resanitizedThrough,
+                200
+            );
 
-        $settingRepo->updateValue(
-            null,
-            'inbound_mail_html_bodies_resanitized',
-            $step['done'] ? 'done' : (string) $step['last_id']
-        );
-        $settingService->clearCache();
+            $settingRepo->updateValue(
+                null,
+                'inbound_mail_html_bodies_resanitized',
+                $step['done'] ? 'done' : (string) $step['last_id']
+            );
+            $settingService->clearCache();
+        } catch (\Throwable $resanitizeError) {
+            error_log('Inbound mail HTML reprise deferred: ' . $resanitizeError->getMessage());
+        }
     }
 
     // One-time reprise of the `unsorted` associations Camps used to make

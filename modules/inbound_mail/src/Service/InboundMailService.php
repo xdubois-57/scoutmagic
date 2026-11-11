@@ -649,27 +649,44 @@ class InboundMailService implements InboundMailInterface
      * handles at most `$limit` messages after `$afterId` and says where it
      * stopped; a body is rewritten only when cleaning changes it.
      *
-     * @return array{last_id: int, done: bool, rewritten: int}
+     * One row that cannot be cleaned or written is skipped, never retried:
+     * a failure that stopped the batch would leave the cursor where it was,
+     * and every later page view would meet the same row and fail the same
+     * way. `failed` counts them.
+     *
+     * @return array{last_id: int, done: bool, rewritten: int, failed: int}
      */
     public function resanitizeStoredHtmlBodies(MessageContentSanitizer $sanitizer, int $afterId, int $limit): array
     {
         $rows = $this->messageRepository->findHtmlBodiesAfter($afterId, $limit);
         $lastId = $afterId;
         $rewritten = 0;
+        $failed = 0;
 
         foreach ($rows as $row) {
             $lastId = $row['id'];
             if ($row['body_html'] === null) {
+                $failed++;
                 continue;
             }
-            $cleaned = $sanitizer->resanitizeStoredHtml($row['body_html']);
-            if ($cleaned !== $row['body_html']) {
-                $this->messageRepository->updateBodyHtml($row['id'], $cleaned);
-                $rewritten++;
+            try {
+                $cleaned = $sanitizer->resanitizeStoredHtml($row['body_html']);
+                if ($cleaned !== $row['body_html']) {
+                    $this->messageRepository->updateBodyHtml($row['id'], $cleaned);
+                    $rewritten++;
+                }
+            } catch (\Throwable $e) {
+                error_log('Inbound mail HTML reprise skipped message ' . $row['id'] . ': ' . $e->getMessage());
+                $failed++;
             }
         }
 
-        return ['last_id' => $lastId, 'done' => count($rows) < $limit, 'rewritten' => $rewritten];
+        return [
+            'last_id' => $lastId,
+            'done' => count($rows) < $limit,
+            'rewritten' => $rewritten,
+            'failed' => $failed,
+        ];
     }
 
     /**

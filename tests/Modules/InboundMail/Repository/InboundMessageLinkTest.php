@@ -360,7 +360,7 @@ class InboundMessageLinkTest extends TestCase
 
         $step = $this->service->resanitizeStoredHtmlBodies($sanitizer, 0, 50);
 
-        $this->assertSame(['last_id' => $clean, 'done' => true, 'rewritten' => 1], $step);
+        $this->assertSame(['last_id' => $clean, 'done' => true, 'rewritten' => 1, 'failed' => 0], $step);
         $this->assertSame('<p>Bonjour</p>', $this->storedHtml($tainted));
         $this->assertSame('<p>Bonjour</p>', $this->storedHtml($clean));
     }
@@ -372,16 +372,46 @@ class InboundMessageLinkTest extends TestCase
         $sanitizer = new \Modules\InboundMail\Service\MessageContentSanitizer(new \Core\Security\HtmlSanitizer());
 
         $step = $this->service->resanitizeStoredHtmlBodies($sanitizer, 0, 1);
-        $this->assertSame(['last_id' => $first, 'done' => false, 'rewritten' => 1], $step);
+        $this->assertSame(['last_id' => $first, 'done' => false, 'rewritten' => 1, 'failed' => 0], $step);
         $this->assertStringContainsString('traceur.exemple', (string) $this->storedHtml($second));
 
         $step = $this->service->resanitizeStoredHtmlBodies($sanitizer, $step['last_id'], 1);
-        $this->assertSame(['last_id' => $second, 'done' => false, 'rewritten' => 1], $step);
+        $this->assertSame(['last_id' => $second, 'done' => false, 'rewritten' => 1, 'failed' => 0], $step);
         $this->assertSame('<p>Deux</p>', $this->storedHtml($second));
 
         // The batch after the last message is empty, which is what says done.
         $step = $this->service->resanitizeStoredHtmlBodies($sanitizer, $step['last_id'], 1);
-        $this->assertSame(['last_id' => $second, 'done' => true, 'rewritten' => 0], $step);
+        $this->assertSame(['last_id' => $second, 'done' => true, 'rewritten' => 0, 'failed' => 0], $step);
+    }
+
+    public function testTheHtmlRepriseSkipsARowItCannotWriteAndMovesPastIt(): void
+    {
+        $broken = $this->storeMessageWithHtml('<p>Un</p><img src="https://traceur.exemple/1.gif">');
+        $next = $this->storeMessageWithHtml('<p>Deux</p><img src="https://traceur.exemple/2.gif">');
+        $sanitizer = new \Modules\InboundMail\Service\MessageContentSanitizer(new \Core\Security\HtmlSanitizer());
+
+        // The first row's write fails; the second must still be cleaned,
+        // and the cursor must end past both — never stuck on the first.
+        $messages = new class ($this->pdo, $this->encryption, $broken) extends InboundMessageRepository {
+            public function __construct(\PDO $pdo, EncryptionService $encryption, private int $brokenId)
+            {
+                parent::__construct($pdo, $encryption);
+            }
+
+            public function updateBodyHtml(int $id, string $bodyHtml): void
+            {
+                if ($id === $this->brokenId) {
+                    throw new \PDOException('disk full');
+                }
+                parent::updateBodyHtml($id, $bodyHtml);
+            }
+        };
+        $service = new InboundMailService($messages, new InboundMailboxRepository($this->pdo, $this->encryption));
+
+        $step = $service->resanitizeStoredHtmlBodies($sanitizer, 0, 50);
+
+        $this->assertSame(['last_id' => $next, 'done' => true, 'rewritten' => 1, 'failed' => 1], $step);
+        $this->assertSame('<p>Deux</p>', $this->storedHtml($next));
     }
 
     public function testTheHtmlRepriseEmptiesABodyThatWasOnlyAnImageAndNeverCutsTwice(): void
