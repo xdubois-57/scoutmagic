@@ -531,7 +531,7 @@
                     html += '<div class="mb-2">';
                     html += '<small class="text-body-secondary">Cl\u00e9 publique (pour l\'enregistrement DNS) :</small>';
                     html += '<div class="input-group input-group-sm mt-1">';
-                    html += '<input type="text" class="form-control font-monospace" value="' + json.public_key + '" readonly id="dkim-pubkey-display">';
+                    html += '<input type="text" class="form-control font-monospace" value="' + escapeAttr(json.public_key) + '" readonly id="dkim-pubkey-display">';
                     html += '<button type="button" class="btn btn-outline-secondary btn-copy-value" data-copy-target="dkim-pubkey-display">Copier</button>';
                     html += '</div>';
                     html += '</div>';
