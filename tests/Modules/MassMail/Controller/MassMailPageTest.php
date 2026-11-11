@@ -1708,6 +1708,11 @@ class MassMailPageTest extends TestCase
 
         $composer = (string) $this->controller->createForm($this->get('/mass-mail/new'), [])->getBody();
         self::assertSame(
+            1,
+            preg_match('~value="default_section:' . $pionniers . '"(?![^>]*disabled)~', $composer),
+            "the parent's own section list is not offered, so the check below proves nothing"
+        );
+        self::assertSame(
             0,
             preg_match('~value="default_section:' . $this->sectionId . '"(?![^>]*disabled)~', $composer),
             'the Louveteaux list is offered to a parent who only has a child there'
@@ -1725,7 +1730,7 @@ class MassMailPageTest extends TestCase
             []
         );
 
-        self::assertNotSame(302, $forged->getStatusCode(), 'a forged Louveteaux list was accepted');
+        self::assertSame(422, $forged->getStatusCode(), 'a forged Louveteaux list was accepted');
         self::assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM mass_mail_emails')->fetchColumn());
     }
 
