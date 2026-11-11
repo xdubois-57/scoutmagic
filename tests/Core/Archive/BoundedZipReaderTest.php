@@ -175,6 +175,20 @@ final class BoundedZipReaderTest extends TestCase
         $this->reader()->open($path);
     }
 
+    /**
+     * A member named « 12 » becomes an integer array key inside the reader;
+     * it must come back as the string it is, or a caller typed `string`
+     * meets a TypeError instead of a refusal.
+     */
+    public function testANumericMemberNameComesBackAsAString(): void
+    {
+        $archive = (new BoundedZipReader(new ArchiveLimits(5, 1024, 4096)))->open($this->zip(['12' => 'douze']));
+
+        $this->assertSame(['12'], $archive->names());
+        $this->assertSame('douze', $archive->read($archive->names()[0]));
+        $archive->close();
+    }
+
     public function testAMessageQuotesAMemberNameShortAndPrintable(): void
     {
         $this->assertSame('a?b', BoundedZipReader::shown("a\x01b"));
@@ -196,7 +210,7 @@ final class BoundedZipReaderTest extends TestCase
         $zip = new \ZipArchive();
         $zip->open($path, \ZipArchive::CREATE);
         foreach ($files as $name => $content) {
-            $content === null ? $zip->addEmptyDir(rtrim($name, '/')) : $zip->addFromString($name, $content);
+            $content === null ? $zip->addEmptyDir(rtrim((string) $name, "/")) : $zip->addFromString((string) $name, $content);
         }
         if ($tweak !== null) {
             $tweak($zip);

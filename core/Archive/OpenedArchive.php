@@ -48,7 +48,9 @@ final class OpenedArchive
      */
     public function names(): array
     {
-        return array_keys($this->files);
+        // A member named « 12 » is an integer array key: cast back, or a
+        // caller typed `string` gets a TypeError instead of a refusal.
+        return array_map('strval', array_keys($this->files));
     }
 
     public function has(string $name): bool

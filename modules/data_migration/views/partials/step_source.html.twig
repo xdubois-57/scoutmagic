@@ -5,7 +5,12 @@
 {# Step 1: the source — a deposited ZIP, or the import's own form. #}
 {% if run and run.rejection_reason %}
     <div class="alert alert-danger" role="alert">
-        <p class="fw-semibold mb-1">Ce fichier a été refusé. Rien n'a été importé.</p>
+        {% if report is defined and report.imported > 0 %}
+            <p class="fw-semibold mb-1">Ce fichier est devenu illisible pendant l'import, qui s'est arrêté.</p>
+            <p class="mb-1">Les {{ report.imported }} {{ importer.unit }} déjà importés le restent. Déposez à nouveau le fichier : ils ne seront pas importés deux fois.</p>
+        {% else %}
+            <p class="fw-semibold mb-1">Ce fichier a été refusé. Rien n'a été importé.</p>
+        {% endif %}
         <p class="mb-0">{{ run.rejection_reason }}</p>
     </div>
 {% endif %}

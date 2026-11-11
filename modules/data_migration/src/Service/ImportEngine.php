@@ -150,10 +150,22 @@ class ImportEngine
         $this->storage->delete($run->filePath);
         $run = $rejected;
 
-        $this->journal->log('data_migration', 'archive_rejected', 'info', 'Fichier de migration refusé avant toute écriture', [
-            'run_id' => $run->id,
-            'importer' => $run->importerKey,
-        ]);
+        // During the execution, items may already have been written: they
+        // stay (D9), the report keeps counting them, and the journal says
+        // which of the two happened.
+        $imported = (int) ($run->report['imported'] ?? 0);
+        if ($run->phase() === self::PHASE_EXECUTE) {
+            $this->journal->log('data_migration', 'import_stopped', 'info', 'Import de migration arrêté : le fichier est devenu illisible en cours d\'import', [
+                'run_id' => $run->id,
+                'importer' => $run->importerKey,
+                'imported' => $imported,
+            ]);
+        } else {
+            $this->journal->log('data_migration', 'archive_rejected', 'info', 'Fichier de migration refusé avant toute écriture', [
+                'run_id' => $run->id,
+                'importer' => $run->importerKey,
+            ]);
+        }
 
         return $run;
     }
@@ -313,13 +325,17 @@ class ImportEngine
                 try {
                     $verdict = $this->classify($importer, $item, $context, false);
                 } catch (\Throwable $e) {
+                    // Counted, and the slice's deadline still applies below:
+                    // a connection that keeps failing must not turn one poll
+                    // into a walk through the whole source.
+                    $verdict = null;
                     $report = self::countError($report, $item);
                     $this->journalItemError($run, 'execute', $e);
-                    $position = $next;
-                    continue;
                 }
 
-                if ($verdict->outcome === ItemVerdict::IMPORT) {
+                if ($verdict === null) {
+                    // Nothing more to do for this item.
+                } elseif ($verdict->outcome === ItemVerdict::IMPORT) {
                     try {
                         $run = TransactionScope::run($this->pdo, function () use ($importer, $item, $context, $run, $report, $next): Run {
                             $target = $importer->write($item, $context);

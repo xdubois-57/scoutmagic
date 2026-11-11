@@ -439,6 +439,86 @@ final class RunServiceOnMysqlTest extends TestCase
         $this->assertSame(Run::ANALYSED, $run->state, (string) $run->rejectionReason);
     }
 
+    /**
+     * An item whose classification throws is counted, and the slice still
+     * stops at its deadline: a failing connection must not make one poll
+     * walk the whole source (and be killed before saving its cursor).
+     */
+    public function testAFailingClassificationStillStopsTheSliceAtItsDeadline(): void
+    {
+        $run = $this->analysed(TestArchive::items([
+            ['id' => '1', 'name' => 'Un'], ['id' => '2', 'name' => 'Deux'], ['id' => '3', 'name' => 'Trois'],
+        ]));
+        $run = $this->service->confirm($run, []) ?? $this->fail('Not confirmed.');
+        $this->importer->onInspect = static function (): void {
+            throw new \RuntimeException('Simulated lost connection.');
+        };
+
+        $run = $this->service->advance($this->importer, $run);
+
+        $this->assertSame(Run::RUNNING, $run->state);
+        $this->assertSame(1, $run->position());
+        $this->assertSame(1, $run->report['errors']);
+    }
+
+    /**
+     * The file disappears during the execution: the run stops, what was
+     * imported stays and is still counted, and the journal does not claim
+     * that nothing was written.
+     */
+    public function testAFileLostDuringTheExecutionKeepsWhatWasImported(): void
+    {
+        $run = $this->analysed(TestArchive::items([['id' => '1', 'name' => 'Un'], ['id' => '2', 'name' => 'Deux']]));
+        $run = $this->service->advance($this->importer, $this->service->confirm($run, []) ?? $this->fail('Not confirmed.'));
+        $this->assertSame(1, $run->report['imported']);
+
+        unlink($this->uploads->absolute((string) $run->filePath));
+        $run = $this->service->advance($this->importer, $run);
+
+        $this->assertSame(Run::ABANDONED, $run->state);
+        $this->assertNotNull($run->rejectionReason);
+        $this->assertSame(1, $run->report['imported']);
+        $this->assertSame(
+            'import_stopped',
+            $this->pdo->query("SELECT event_type FROM event_log WHERE category = 'data_migration' ORDER BY id DESC LIMIT 1")->fetchColumn()
+        );
+    }
+
+    /**
+     * A deposit completed while an import of the same kind started moving
+     * is refused AND discarded at once: no complete archive left in the
+     * chunk store for 24 hours, and nothing a retry would trip over.
+     */
+    public function testADepositRefusedOnItsLastFragmentIsDiscarded(): void
+    {
+        $run = $this->analysed(TestArchive::items([['id' => '1', 'name' => 'Un'], ['id' => '2', 'name' => 'Deux']]));
+
+        $zip = TestArchive::items([['id' => '3', 'name' => 'Trois']]);
+        $bytes = (string) file_get_contents($zip);
+        @unlink($zip);
+        $half = intdiv(strlen($bytes), 2);
+        $uploadId = bin2hex(random_bytes(16));
+        $first = sys_get_temp_dir() . '/dm_part1_' . bin2hex(random_bytes(4));
+        $second = sys_get_temp_dir() . '/dm_part2_' . bin2hex(random_bytes(4));
+        file_put_contents($first, substr($bytes, 0, $half));
+        file_put_contents($second, substr($bytes, $half));
+
+        try {
+            $this->service->receiveChunk($this->importer, $uploadId, 'test-session', 0, $first, false, 'export.zip', null);
+            $this->service->advance($this->importer, $this->service->confirm($run, []) ?? $this->fail('Not confirmed.'));
+
+            try {
+                $this->service->receiveChunk($this->importer, $uploadId, 'test-session', $half, $second, true, 'export.zip', null);
+                $this->fail('A deposit was accepted while an import was moving.');
+            } catch (UploadException) {
+                $this->assertSame(0, $this->service->receivedBytes($uploadId, 'test-session'));
+            }
+        } finally {
+            @unlink($first);
+            @unlink($second);
+        }
+    }
+
     // --- harness --------------------------------------------------------
 
     private function deposit(string $zip): Run

@@ -366,7 +366,10 @@ class DataMigrationController extends AbstractController
         if ($run !== null && $run->state === Run::ANALYSED) {
             $context['preview'] = $this->preview($importer, $run);
         }
-        if ($run !== null && in_array($run->state, [Run::RUNNING, Run::INTERRUPTED, Run::CONFIRMED, Run::DONE], true)) {
+        if ($run !== null && (
+            in_array($run->state, [Run::RUNNING, Run::INTERRUPTED, Run::CONFIRMED, Run::DONE], true)
+            || ($run->state === Run::ABANDONED && $run->report !== [])
+        )) {
             $context['report'] = self::reportView($run);
         }
 

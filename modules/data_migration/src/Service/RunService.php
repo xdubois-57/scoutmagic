@@ -101,8 +101,16 @@ class RunService
             return ['received' => $this->chunks->receivedBytes($uploadId, $sessionId), 'run' => null];
         }
 
-        $this->assertNothingMoving($importer);
-        $this->abandonPrevious($importer);
+        try {
+            $this->assertNothingMoving($importer);
+            $this->abandonPrevious($importer);
+        } catch (\Throwable $e) {
+            // The assembled archive goes now, not in 24 h — and a retry
+            // from the same tab must start from nothing, not from a
+            // complete file the store would refuse to append to.
+            $this->chunks->discard($uploadId, $sessionId);
+            throw $e;
+        }
 
         $relative = $this->storage->newArchivePath();
         $size = (int) (filesize($assembled) ?: 0);
