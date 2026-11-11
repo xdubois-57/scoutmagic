@@ -193,7 +193,7 @@ class MassMailPageTest extends TestCase
             $twig,
             $this->massMailService,
             $listService,
-            new MassMailAccessService($memberService, $sectionService),
+            \Tests\Modules\MassMail\MassMailAccessFactory::create($this->pdo, $encryption, $sectionService),
             $memberService,
             $sectionService,
             new ScoutYearService($this->pdo),
@@ -1624,4 +1624,158 @@ class MassMailPageTest extends TestCase
         return $path;
     }
 
+
+    // -----------------------------------------------------------------
+    // Issue #1105 — an animateur of one section is not staff of another
+    // because a child sharing their Desk address is an animé there.
+    // -----------------------------------------------------------------
+
+    /**
+     * The scenario of #1105: the signed-in account animates the Pionniers
+     * (PIO01); a child sharing its Desk address is an animé of the
+     * Louveteaux ($this->sectionId). Returns the Pionniers' section id.
+     *
+     * @param string $childRole the child's function role in the Louveteaux:
+     *        an animé's, or a real animateur's for the positive case
+     */
+    private function parentAnimateurWithAChildIn(string $childRole): int
+    {
+        $branchId = (int) $this->pdo->query("SELECT age_branch_id FROM sections WHERE id = {$this->sectionId}")
+            ->fetchColumn();
+        $this->pdo->exec(
+            "INSERT INTO sections (desk_code, age_branch_id, name) VALUES ('PIO01', {$branchId}, 'Poste')"
+        );
+        $pionniers = (int) $this->pdo->lastInsertId();
+
+        $this->linkedMemberOfCurrentAccount('PARENT', $pionniers, 'chief');
+        $this->linkedMemberOfCurrentAccount('CHILD', $this->sectionId, $childRole);
+        AuthSession::login($this->accountId, 'chief@test.com', 'chief');
+
+        return $pionniers;
+    }
+
+    private function linkedMemberOfCurrentAccount(string $deskId, int $sectionId, string $role): void
+    {
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $this->pdo->prepare('INSERT INTO members (desk_id) VALUES (?)')->execute([$deskId]);
+        $memberId = (int) $this->pdo->lastInsertId();
+        $this->pdo->prepare(
+            'INSERT INTO member_years
+                (member_id, scout_year_id, first_name_encrypted, last_name_encrypted,
+                 email_encrypted, email_blind_index)
+             VALUES (?, ?, ?, ?, ?, ?)'
+        )->execute([
+            $memberId,
+            $this->scoutYearId,
+            $encryption->encrypt($deskId, 'member_years.first_name'),
+            $encryption->encrypt('Famille', 'member_years.last_name'),
+            $encryption->encrypt('chief@test.com', 'member_years.email'),
+            $encryption->blindIndex(EncryptionService::normalizeEmailForIndex('chief@test.com'), 'email'),
+        ]);
+        $memberYearId = (int) $this->pdo->lastInsertId();
+        $this->pdo->prepare('INSERT INTO functions (desk_code, label, role, confirmed) VALUES (?, ?, ?, 1)')
+            ->execute(['F-' . $deskId, 'Fonction ' . $deskId, $role]);
+        $functionId = (int) $this->pdo->lastInsertId();
+        $this->pdo->prepare(
+            'INSERT INTO member_functions (member_year_id, function_id, section_id, is_main_function)
+             VALUES (?, ?, ?, 1)'
+        )->execute([$memberYearId, $functionId, $sectionId]);
+    }
+
+    /** A Louveteaux draft written by another account, to the Louveteaux' families. */
+    private function louveteauxDraftOfSomebodyElse(): Email
+    {
+        $this->pdo->prepare('INSERT INTO user_accounts (email_encrypted, email_blind_index) VALUES (?, ?)')
+            ->execute(['x', 'blind-lou-staff-' . uniqid()]);
+
+        return $this->massMailService->createDraft(
+            'Réunion des Louveteaux',
+            '<p>Bonjour</p>',
+            $this->sectionId,
+            Email::LIST_TYPE_DEFAULT_SECTION,
+            null,
+            $this->sectionId,
+            [$this->scoutYearId],
+            (int) $this->pdo->lastInsertId(),
+            new SenderAuthorization(true, [], null),
+            null
+        );
+    }
+
+    public function testAChildAniméDoesNotOpenItsSectionListToTheParent(): void
+    {
+        $pionniers = $this->parentAnimateurWithAChildIn('identified');
+
+        $composer = (string) $this->controller->createForm($this->get('/mass-mail/new'), [])->getBody();
+        self::assertSame(
+            1,
+            preg_match('~value="default_section:' . $pionniers . '"(?![^>]*disabled)~', $composer),
+            "the parent's own section list is not offered, so the check below proves nothing"
+        );
+        self::assertSame(
+            0,
+            preg_match('~value="default_section:' . $this->sectionId . '"(?![^>]*disabled)~', $composer),
+            'the Louveteaux list is offered to a parent who only has a child there'
+        );
+
+        $forged = $this->controller->create(
+            $this->post([
+                '_csrf_token' => CsrfGuard::generateToken(),
+                'section_id' => (string) $pionniers,
+                'list' => 'default_section:' . $this->sectionId,
+                'scout_year_ids' => [(string) $this->scoutYearId],
+                'subject' => 'À toutes les familles',
+                'body_html' => '<p>Message</p>',
+            ]),
+            []
+        );
+
+        self::assertSame(422, $forged->getStatusCode(), 'a forged Louveteaux list was accepted');
+        self::assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM mass_mail_emails')->fetchColumn());
+    }
+
+    public function testAChildAniméDoesNotOpenItsSectionsMailingsToTheParent(): void
+    {
+        $draft = $this->louveteauxDraftOfSomebodyElse();
+        $this->parentAnimateurWithAChildIn('identified');
+        $id = ['id' => (string) $draft->id];
+        $csrf = CsrfGuard::generateToken();
+
+        $answers = [
+            'show' => $this->controller->show($this->get('/mass-mail/' . $draft->id), $id),
+            'recipients' => $this->controller->recipients($this->get('/mass-mail/' . $draft->id . '/recipients'), $id),
+            'tracking' => $this->controller->tracking($this->get('/mass-mail/' . $draft->id . '/tracking'), $id),
+            'save' => $this->controller->save($this->post([
+                '_csrf_token' => $csrf,
+                'section_id' => (string) $this->sectionId,
+                'list' => 'default_section:' . $this->sectionId,
+                'scout_year_ids' => [(string) $this->scoutYearId],
+                'subject' => 'Réécrit',
+                'body_html' => '<p>Réécrit</p>',
+            ]), $id),
+            'to_test' => $this->controller->changeStatus(
+                $this->post(['_csrf_token' => $csrf, 'action' => 'to_test']),
+                $id
+            ),
+            'delete' => $this->controller->delete($this->post(['_csrf_token' => $csrf]), $id),
+        ];
+
+        self::assertSame(
+            array_fill_keys(array_keys($answers), 404),
+            array_map(static fn($response): int => $response->getStatusCode(), $answers)
+        );
+        // Refused before anything was written (#387).
+        $after = $this->massMailService->findById($draft->id);
+        self::assertSame(['Réunion des Louveteaux', Email::STATUS_DRAFT], [$after?->subject, $after?->status]);
+    }
+
+    public function testAParentWhoReallyAnimatesBothSectionsKeepsBoth(): void
+    {
+        $draft = $this->louveteauxDraftOfSomebodyElse();
+        $this->parentAnimateurWithAChildIn('chief');
+
+        $response = $this->controller->show($this->get('/mass-mail/' . $draft->id), ['id' => (string) $draft->id]);
+
+        self::assertSame(200, $response->getStatusCode());
+    }
 }

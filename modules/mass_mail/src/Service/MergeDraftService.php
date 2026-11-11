@@ -8,7 +8,6 @@ declare(strict_types=1);
 
 namespace Modules\MassMail\Service;
 
-use Core\Config\ScoutYearService;
 use Core\Member\MemberService;
 use Core\Member\SectionService;
 use Core\Security\Role;
@@ -44,8 +43,7 @@ class MergeDraftService implements MassMailDraftInterface
         private AudienceRepository $audienceRepository,
         private MassMailAccessService $accessService,
         private MemberService $memberService,
-        private SectionService $sectionService,
-        private ScoutYearService $scoutYearService
+        private SectionService $sectionService
     ) {
     }
 
@@ -172,7 +170,7 @@ class MergeDraftService implements MassMailDraftInterface
             return new SenderAuthorization(true, [], null);
         }
 
-        $currentYearId = $this->scoutYearService->getCurrentYear()['id'];
+        $currentYearId = $this->accessService->authorizationYearId();
 
         return new SenderAuthorization(
             false,
@@ -187,7 +185,7 @@ class MergeDraftService implements MassMailDraftInterface
      */
     private function resolveSenderSection(string $actorEmail): ?int
     {
-        $currentYearId = $this->scoutYearService->getCurrentYear()['id'];
+        $currentYearId = $this->accessService->authorizationYearId();
 
         return SectionPickerHelper::resolveDefault(
             null,
