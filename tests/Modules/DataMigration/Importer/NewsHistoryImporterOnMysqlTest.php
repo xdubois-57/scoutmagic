@@ -146,7 +146,7 @@ final class NewsHistoryImporterOnMysqlTest extends TestCase
         $run = $this->analysed($this->copy(self::FIXTURES . '/exemple.zip'));
 
         $this->assertSame(4, $run->analysis['to_import']);
-        $this->assertSame(0, $this->count('news_articles'), 'The analysis wrote something.');
+        $this->assertSame(0, $this->rows('news_articles'), 'The analysis wrote something.');
         $notes = array_map(static fn ($note): string => $note->text, $this->importer->previewNotes($this->summary($run)));
         $this->assertContains('1 formulaire est importé et fermé. Le fichier ne contient aucune réponse.', $notes);
         $this->assertContains('1 actualité a une visibilité inconnue. Elle sera visible des seuls « Membres connectés ».', $notes);
@@ -191,8 +191,8 @@ final class NewsHistoryImporterOnMysqlTest extends TestCase
         $this->assertMatchesRegularExpression('~<img[^>]*src="/files/\d+"~', $body);
         $this->assertStringNotContainsString('media/', $body);
 
-        $this->assertSame(0, $this->count('news_form_responses'));
-        $this->assertSame(0, $this->count('scheduled_actions'));
+        $this->assertSame(0, $this->rows('news_form_responses'));
+        $this->assertSame(0, $this->rows('scheduled_actions'));
     }
 
     public function testEveryInvalidCaseIsIgnoredWithItsReason(): void
@@ -228,16 +228,16 @@ final class NewsHistoryImporterOnMysqlTest extends TestCase
         $run = $this->drive($this->service->resume($run));
 
         $this->assertSame(Run::DONE, $run->state);
-        $this->assertSame(3, $this->count('news_articles'));
-        $this->assertSame(4, $this->count('data_migration_items'));
+        $this->assertSame(3, $this->rows('news_articles'));
+        $this->assertSame(4, $this->rows('data_migration_items'));
 
         $again = $this->drive($this->service->restart($this->importer, $run, $this->adminId) ?? $this->fail('No restart.'));
         $this->assertSame(4, $again->analysis['present']);
         $again = $this->drive($this->service->confirm($again, []) ?? $this->fail('Not confirmed.'));
         $this->assertSame(0, $again->report['imported']);
         $this->assertSame(4, $again->report['present']);
-        $this->assertSame(3, $this->count('news_articles'));
-        $this->assertSame(2, $this->count('news_form_fields WHERE field_type = \'number\''));
+        $this->assertSame(3, $this->rows('news_articles'));
+        $this->assertSame(2, $this->rows('news_form_fields WHERE field_type = \'number\''));
     }
 
     /**
@@ -333,7 +333,7 @@ final class NewsHistoryImporterOnMysqlTest extends TestCase
         return $path;
     }
 
-    private function count(string $table): int
+    private function rows(string $table): int
     {
         return (int) $this->pdo->query('SELECT COUNT(*) FROM ' . $table)->fetchColumn();
     }
