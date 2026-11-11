@@ -13207,7 +13207,13 @@ if ($isEnabled('data_migration')) {
     // One line per import (vague 2 of the chantier), kept alphabetical by key:
     // $dataMigrationImporters->add(new \Modules\DataMigration\Importer\…Importer(…));
     $dataMigrationImporters->add(new \Modules\DataMigration\Importer\CampPlacesImporter($campsPlaceImportWriterForOthers ?? null));
-    $dataMigrationImporters->add(new \Modules\DataMigration\Importer\RegistrationRequestsImporter($registrationRequestImportForOthers ?? null, $scoutYearService, new \Modules\DataMigration\Service\SectionByDeskCode($sectionService), new \Core\Import\MemberRepository($pdo), new \Core\Import\FeeCategoryRepository($pdo)));
+    $dataMigrationImporters->add(new \Modules\DataMigration\Importer\RegistrationRequestsImporter(
+        $registrationRequestImportForOthers ?? null,
+        $scoutYearService,
+        new \Modules\DataMigration\Service\SectionByDeskCode($sectionService),
+        new \Core\Import\MemberRepository($pdo),
+        new \Core\Import\FeeCategoryRepository($pdo)
+    ));
 
     $dataMigrationRuns = new \Modules\DataMigration\Repository\RunRepository($pdo, $encryptionService);
     $dataMigrationStorage = new \Modules\DataMigration\Service\UploadStorage($storagePath);

@@ -116,7 +116,10 @@ class RequestImportServiceOnMysqlTest extends TestCase
         // A later change of decision supersedes it, as any e-mail of the old one.
         $this->requests->updateStatus($id, 'refused', $now, 'other');
         $this->assertSame([], $this->decisionEmails->communicatedElsewhereByRequest([$id]));
-        $this->assertSame(DecisionEmail::STATE_COMMUNICATED_ELSEWHERE, $this->decisionEmails->findById($row->id)?->state);
+        $this->assertSame(
+            DecisionEmail::STATE_COMMUNICATED_ELSEWHERE,
+            $this->decisionEmails->findById($row->id)?->state
+        );
     }
 
     public function testALiveRequestOfTheSameChildIsFoundOnlyInItsYearAndWhileLive(): void

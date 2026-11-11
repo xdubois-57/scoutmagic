@@ -167,7 +167,9 @@ final class RegistrationRequestValidator
             && !in_array($answer, [RegistrationRequest::PREVIOUS_UNIT_NO, RegistrationRequest::PREVIOUS_UNIT_YES], true)
         ) {
             $violations[] = self::invalid('previous_unit_answer', self::MESSAGE_PREVIOUS_UNIT_ANSWER);
-        } elseif ($answer === RegistrationRequest::PREVIOUS_UNIT_YES && ($fields['previous_unit_name'] ?? null) === null) {
+        } elseif ($answer === RegistrationRequest::PREVIOUS_UNIT_YES
+            && ($fields['previous_unit_name'] ?? null) === null
+        ) {
             $violations[] = self::missing('previous_unit_name', self::MESSAGE_PREVIOUS_UNIT_NAME);
         }
 

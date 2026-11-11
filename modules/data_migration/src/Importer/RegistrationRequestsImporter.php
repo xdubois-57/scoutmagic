@@ -135,7 +135,8 @@ final class RegistrationRequestsImporter implements Importer
 
     public function description(): string
     {
-        return 'Les nouvelles demandes d\'inscription en cours. Elles rejoignent la liste des demandes et se traitent comme les autres.';
+        return 'Les nouvelles demandes d\'inscription en cours. '
+            . 'Elles rejoignent la liste des demandes et se traitent comme les autres.';
     }
 
     public function unitLabel(): string
@@ -236,15 +237,19 @@ final class RegistrationRequestsImporter implements Importer
         $decided = $summary->tag(self::TAG_DECIDED);
         if ($decided > 0) {
             $notes[] = PreviewNote::info($decided === 1
-                ? 'La décision déjà prise est marquée « Communiquée par l\'ancien site ». La famille la voit tout de suite, sans nouvel e-mail.'
-                : 'Les ' . $decided . ' décisions déjà prises sont marquées « Communiquée par l\'ancien site ». Les familles les voient tout de suite, sans nouvel e-mail.');
+                ? 'La décision déjà prise est marquée « Communiquée par l\'ancien site ». '
+                    . 'La famille la voit tout de suite, sans nouvel e-mail.'
+                : 'Les ' . $decided . ' décisions déjà prises sont marquées « Communiquée par l\'ancien site ». '
+                    . 'Les familles les voient tout de suite, sans nouvel e-mail.');
         }
 
         $duplicates = $summary->tag(self::TAG_DUPLICATE);
         if ($duplicates > 0) {
             $notes[] = PreviewNote::warning($duplicates === 1
-                ? '1 demande ressemble à une demande déjà présente. Elle est importée et signalée « doublon possible », comme une demande normale.'
-                : $duplicates . ' demandes ressemblent à une demande déjà présente. Elles sont importées et signalées « doublon possible », comme une demande normale.');
+                ? '1 demande ressemble à une demande déjà présente. '
+                    . 'Elle est importée et signalée « doublon possible », comme une demande normale.'
+                : $duplicates . ' demandes ressemblent à une demande déjà présente. '
+                    . 'Elles sont importées et signalées « doublon possible », comme une demande normale.');
         }
 
         foreach ([
@@ -401,7 +406,11 @@ final class RegistrationRequestsImporter implements Importer
             $state = is_array($entry) ? ($entry['status'] ?? null) : null;
             if (!is_string($email)
                 || filter_var(trim($email), FILTER_VALIDATE_EMAIL) === false
-                || !in_array($state, [ImportedSecondaryEmail::STATUS_PENDING, ImportedSecondaryEmail::STATUS_VALID], true)
+                || !in_array(
+                    $state,
+                    [ImportedSecondaryEmail::STATUS_PENDING, ImportedSecondaryEmail::STATUS_VALID],
+                    true
+                )
             ) {
                 $emailDropped = true;
                 continue;

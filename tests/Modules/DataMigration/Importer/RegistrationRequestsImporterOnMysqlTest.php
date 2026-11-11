@@ -111,7 +111,8 @@ final class RegistrationRequestsImporterOnMysqlTest extends TestCase
 
         $this->yearId = RegistrationTestHelper::insertScoutYear($this->pdo, '2027-2028', '2027-09-01', '2028-08-31');
         $branch = RegistrationTestHelper::insertAgeBranch($this->pdo, 'LOU', 'Louveteaux', 2);
-        $this->pdo->prepare('INSERT INTO sections (age_branch_id, desk_code) VALUES (?, ?)')->execute([$branch, 'LOU-A']);
+        $this->pdo->prepare('INSERT INTO sections (age_branch_id, desk_code) VALUES (?, ?)')
+            ->execute([$branch, 'LOU-A']);
         $this->sectionId = (int) $this->pdo->lastInsertId();
         $this->pdo->exec("INSERT INTO fee_categories (desk_code, label) VALUES ('COT-1', 'Cotisation 1')");
         $this->siblingId = RegistrationTestHelper::insertMember($this->pdo, '0001234');
@@ -183,7 +184,10 @@ final class RegistrationRequestsImporterOnMysqlTest extends TestCase
         ], $byChild);
 
         $camille = $this->requestOf('Camille');
-        $this->assertSame('2026-10-12 17:04', $camille->receivedAt->setTimezone(new \DateTimeZone('UTC'))->format('Y-m-d H:i'));
+        $this->assertSame(
+            '2026-10-12 17:04',
+            $camille->receivedAt->setTimezone(new \DateTimeZone('UTC'))->format('Y-m-d H:i')
+        );
         $this->assertSame($this->sectionId, $camille->desiredSectionId);
         $this->assertSame('12e Unité d\'essai', $camille->previousUnitName);
         $this->assertSame([$this->siblingId], $this->requests->findSiblingMemberIds($camille->id));
@@ -254,7 +258,8 @@ final class RegistrationRequestsImporterOnMysqlTest extends TestCase
 
         $this->assertSame(5, $run->analysis['to_import']);
         $this->assertContains(
-            '1 demande ressemble à une demande déjà présente. Elle est importée et signalée « doublon possible », '
+            '1 demande ressemble à une demande déjà présente. '
+                . 'Elle est importée et signalée « doublon possible », '
                 . 'comme une demande normale.',
             $this->notes($run)
         );
@@ -288,7 +293,8 @@ final class RegistrationRequestsImporterOnMysqlTest extends TestCase
         $this->assertSame(0, $this->rowCount("registration_decision_emails WHERE state <> 'communicated_elsewhere'"));
         $this->assertSame(0, $this->rowCount('registration_decision_emails WHERE sent_at IS NOT NULL'));
         $this->assertSame(0, $this->rowCount(
-            'registration_secondary_emails WHERE confirmation_token_hash IS NOT NULL OR last_confirmation_sent_at IS NOT NULL'
+            'registration_secondary_emails'
+                . ' WHERE confirmation_token_hash IS NOT NULL OR last_confirmation_sent_at IS NOT NULL'
         ));
         $this->assertSame(0, $this->requests->countDecisionEmailsToSendForYears([$this->yearId]));
 
