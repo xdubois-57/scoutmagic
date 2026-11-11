@@ -193,4 +193,93 @@ class DeviceCredentialServiceTest extends TestCase
         $this->assertNull($this->service->findOwned(999999, $this->accountId));
         $this->assertNull($this->service->findOwned(0, $this->accountId));
     }
+
+    /**
+     * A stolen admin session could mint itself a lasting way into the
+     * address book; the account's holder is told by e-mail, at their own
+     * address, naming the device (issue #1115). The journal keeps the one
+     * `device_credential_created` line it always had — the alert adds no
+     * second one.
+     */
+    public function testCreatingACredentialAlertsTheAccountsHolder(): void
+    {
+        $encryption = new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $userRepo = new \Core\Security\UserAccountRepository($this->pdo, $encryption);
+        $holder = $userRepo->create('titulaire@example.com');
+
+        $mailService = $this->createMock(\Core\Mail\MailService::class);
+        $mailService->expects($this->once())
+            ->method('send')
+            ->with(
+                $this->equalTo('titulaire@example.com'),
+                $this->equalTo('Alerte de sécurité sur votre compte'),
+                $this->anything(),
+                $this->stringContains('Thunderbird')
+            );
+
+        $journal = new JournalService(new JournalRepository($this->pdo));
+        $service = new DeviceCredentialService(
+            $this->repository,
+            new SettingService(new SettingRepository($this->pdo)),
+            $journal,
+            null,
+            new \Core\Security\AccountSecurityAlertService(
+                $userRepo,
+                $mailService,
+                \Tests\Core\Mail\Template\EmailTemplateRendererFactory::overTestDatabase(
+                    $this->pdo,
+                    \Tests\TestTwig::create()
+                ),
+                'Unité Test',
+                'https://unite.example',
+                $journal
+            )
+        );
+
+        $created = $service->create($holder->id, 'Thunderbird', $holder->id);
+
+        $this->assertSame(64, strlen($created->secret));
+        $this->assertSame(['device_credential_created'], array_column($this->journalEntries(), 'event_type'));
+    }
+
+    /**
+     * The secret exists in one place only: a mail server being down must
+     * never cost the caller the value it was just handed.
+     */
+    public function testAFailedAlertStillHandsTheSecretBack(): void
+    {
+        $encryption = new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $userRepo = new \Core\Security\UserAccountRepository($this->pdo, $encryption);
+        $holder = $userRepo->create('titulaire@example.com');
+
+        $mailService = $this->createStub(\Core\Mail\MailService::class);
+        $mailService->method('send')->willThrowException(new \Core\Mail\MailException('SMTP connect() failed'));
+
+        $journal = new JournalService(new JournalRepository($this->pdo));
+        $service = new DeviceCredentialService(
+            $this->repository,
+            new SettingService(new SettingRepository($this->pdo)),
+            $journal,
+            null,
+            new \Core\Security\AccountSecurityAlertService(
+                $userRepo,
+                $mailService,
+                \Tests\Core\Mail\Template\EmailTemplateRendererFactory::overTestDatabase(
+                    $this->pdo,
+                    \Tests\TestTwig::create()
+                ),
+                'Unité Test',
+                'https://unite.example',
+                $journal
+            )
+        );
+
+        $created = $service->create($holder->id, 'Thunderbird', $holder->id);
+
+        $this->assertSame(64, strlen($created->secret));
+        $this->assertSame(
+            ['device_credential_created', 'account_security_alert_failed'],
+            array_column($this->journalEntries(), 'event_type')
+        );
+    }
 }

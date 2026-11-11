@@ -597,6 +597,186 @@ class AccountControllerTest extends TestCase
         $this->assertSame('/login', $response->getHeaders()['Location'] ?? null);
     }
 
+    // --- the holder is told when a way into the account changes (#1115) --
+
+    public function testSettingAFirstPasswordAlertsTheHolder(): void
+    {
+        $controller = $this->controllerWithAlerts();
+
+        $controller->updatePassword(new Request('POST', '/account/password', [], [
+            '_csrf_token' => CsrfGuard::generateToken(),
+            'new_password' => 'MySecureP@ss1',
+            'confirm_password' => 'MySecureP@ss1',
+        ], [], []), []);
+
+        $this->assertSame(['test@example.com'], array_column($this->alertsSent, 'to'));
+        $this->assertStringContainsString('Un mot de passe a été défini', $this->alertsSent[0]['text']);
+        $this->assertSame(['password_set'], $this->journaledEvents());
+    }
+
+    public function testChangingThePasswordAlertsTheHolder(): void
+    {
+        $this->userRepo->updatePasswordHash($this->userId, password_hash('OldPassword', PASSWORD_DEFAULT));
+        $controller = $this->controllerWithAlerts();
+
+        $controller->updatePassword(new Request('POST', '/account/password', [], [
+            '_csrf_token' => CsrfGuard::generateToken(),
+            'current_password' => 'OldPassword',
+            'new_password' => 'NewSecureP@ss1',
+            'confirm_password' => 'NewSecureP@ss1',
+        ], [], []), []);
+
+        $this->assertSame(['test@example.com'], array_column($this->alertsSent, 'to'));
+        $this->assertStringContainsString(
+            'Le mot de passe de votre compte a été modifié',
+            $this->alertsSent[0]['text']
+        );
+        $this->assertSame(['password_changed'], $this->journaledEvents());
+    }
+
+    public function testARefusedPasswordChangeAlertsNobody(): void
+    {
+        $this->userRepo->updatePasswordHash($this->userId, password_hash('OldPassword', PASSWORD_DEFAULT));
+        $controller = $this->controllerWithAlerts();
+
+        $controller->updatePassword(new Request('POST', '/account/password', [], [
+            '_csrf_token' => CsrfGuard::generateToken(),
+            'current_password' => 'WrongPassword',
+            'new_password' => 'NewSecureP@ss1',
+            'confirm_password' => 'NewSecureP@ss1',
+        ], [], []), []);
+
+        $this->assertSame([], $this->alertsSent);
+        $this->assertSame([], $this->journaledEvents());
+    }
+
+    public function testRegisteringAPasskeyAlertsTheHolder(): void
+    {
+        $webAuthn = $this->createStub(WebAuthnService::class);
+        $webAuthn->method('verifyRegistration')->willReturn(42);
+        $controller = $this->controllerWithAlerts($webAuthn);
+
+        $response = $controller->passkeyRegister($this->makeJsonRequest(
+            ['device_label' => 'Clé USB bleue'],
+            ['HTTP_X_CSRF_TOKEN' => CsrfGuard::generateToken()]
+        ), []);
+
+        $this->assertTrue(json_decode($response->getBody(), true)['success']);
+        $this->assertSame(['test@example.com'], array_column($this->alertsSent, 'to'));
+        $this->assertStringContainsString('Clé USB bleue', $this->alertsSent[0]['text']);
+        $this->assertSame(['passkey_registered'], $this->journaledEvents());
+        $this->assertSame(
+            ['credential_id' => 42],
+            json_decode((string) $this->pdo->query('SELECT context FROM event_log')->fetchColumn(), true)
+        );
+    }
+
+    public function testARefusedPasskeyRegistrationAlertsNobody(): void
+    {
+        $webAuthn = $this->createStub(WebAuthnService::class);
+        $webAuthn->method('verifyRegistration')->willThrowException(new \RuntimeException('bad attestation'));
+        $controller = $this->controllerWithAlerts($webAuthn);
+
+        $response = $controller->passkeyRegister($this->makeJsonRequest(
+            ['device_label' => 'Clé USB bleue'],
+            ['HTTP_X_CSRF_TOKEN' => CsrfGuard::generateToken()]
+        ), []);
+
+        $this->assertFalse(json_decode($response->getBody(), true)['success']);
+        $this->assertSame([], $this->alertsSent);
+        $this->assertSame([], $this->journaledEvents());
+    }
+
+    public function testRemovingAPasskeyAlertsTheHolder(): void
+    {
+        $id = $this->webAuthnRepo->create($this->userId, random_bytes(32), random_bytes(64), 'Clé USB bleue');
+        $controller = $this->controllerWithAlerts();
+
+        $response = $controller->passkeyDelete(
+            $this->makeJsonRequest(['id' => $id], ['HTTP_X_CSRF_TOKEN' => CsrfGuard::generateToken()]),
+            []
+        );
+
+        $this->assertTrue(json_decode($response->getBody(), true)['success']);
+        $this->assertSame(['test@example.com'], array_column($this->alertsSent, 'to'));
+        $this->assertStringContainsString('retirée de votre compte', $this->alertsSent[0]['text']);
+        $this->assertStringContainsString('Clé USB bleue', $this->alertsSent[0]['text']);
+        $this->assertSame(['passkey_deleted'], $this->journaledEvents());
+    }
+
+    /**
+     * Somebody else's key is answered « introuvable » and stays where it
+     * is — and nobody is told about a removal that did not happen.
+     */
+    public function testRefusingToRemoveSomebodyElsesPasskeyAlertsNobody(): void
+    {
+        $other = $this->userRepo->create('other@example.com');
+        $id = $this->webAuthnRepo->create($other->id, random_bytes(32), random_bytes(64), 'Other Key');
+        $controller = $this->controllerWithAlerts();
+
+        $response = $controller->passkeyDelete(
+            $this->makeJsonRequest(['id' => $id], ['HTTP_X_CSRF_TOKEN' => CsrfGuard::generateToken()]),
+            []
+        );
+
+        $this->assertFalse(json_decode($response->getBody(), true)['success']);
+        $this->assertSame([], $this->alertsSent);
+        $this->assertSame([], $this->journaledEvents());
+    }
+
+    /** @var list<array{to: string, text: string}> */
+    private array $alertsSent = [];
+
+    private function controllerWithAlerts(?WebAuthnService $webAuthn = null): AccountController
+    {
+        $this->alertsSent = [];
+        $mailService = $this->createStub(\Core\Mail\MailService::class);
+        $mailService->method('send')->willReturnCallback(
+            function (string $to, string $subject, string $bodyHtml, string $bodyText): void {
+                $this->alertsSent[] = ['to' => $to, 'text' => $bodyText];
+            }
+        );
+
+        $twig = $this->createStub(Environment::class);
+        $twig->method('render')->willReturn('<html></html>');
+
+        return new AccountController(
+            $twig,
+            $this->userRepo,
+            $this->webAuthnRepo,
+            $webAuthn ?? new WebAuthnService(
+                $this->webAuthnRepo,
+                $this->userRepo,
+                'localhost',
+                'Test Scout',
+                'https://localhost'
+            ),
+            null,
+            null,
+            null,
+            new \Core\Security\AccountSecurityAlertService(
+                $this->userRepo,
+                $mailService,
+                \Tests\Core\Mail\Template\EmailTemplateRendererFactory::overTestDatabase(
+                    $this->pdo,
+                    \Tests\TestTwig::create()
+                ),
+                'Test Scout',
+                'https://localhost',
+                new \Core\Journal\JournalService(new \Core\Journal\JournalRepository($this->pdo))
+            )
+        );
+    }
+
+    /** @return list<string> */
+    private function journaledEvents(): array
+    {
+        return array_map(
+            'strval',
+            $this->pdo->query('SELECT event_type FROM event_log ORDER BY id')->fetchAll(\PDO::FETCH_COLUMN)
+        );
+    }
+
     private function createFile(): int
     {
         $stmt = $this->pdo->prepare(

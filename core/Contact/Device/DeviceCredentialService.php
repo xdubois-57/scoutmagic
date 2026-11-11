@@ -10,6 +10,8 @@ namespace Core\Contact\Device;
 
 use Core\Config\SettingService;
 use Core\Journal\JournalService;
+use Core\Security\AccountSecurityAlertService;
+use Core\Security\AccountSecurityChange;
 use Core\Security\UserAccountRepository;
 
 /**
@@ -52,7 +54,14 @@ class DeviceCredentialService
          * this codebase: without it the page names accounts by their id,
          * which is honest rather than broken.
          */
-        private ?UserAccountRepository $userAccountRepository = null
+        private ?UserAccountRepository $userAccountRepository = null,
+        /**
+         * Tells the account's holder a credential was just created for
+         * their account (issue #1115): a stolen admin session could
+         * otherwise mint itself a lasting way into the address book. Same
+         * rule: optional, and with none the creation is silent.
+         */
+        private ?AccountSecurityAlertService $securityAlerts = null
     ) {
     }
 
@@ -179,6 +188,15 @@ class DeviceCredentialService
             'Identifiant d\'appareil créé pour la synchronisation des contacts',
             ['credential_id' => $created->id, 'user_account_id' => $userAccountId],
             $actorAccountId
+        );
+
+        // Never throws: the alert is best-effort, and the secret above
+        // must reach the caller whatever happens to an e-mail.
+        $this->securityAlerts?->report(
+            $userAccountId,
+            AccountSecurityChange::DeviceCredentialCreated,
+            $created->id,
+            $created->label
         );
 
         return new NewDeviceCredential($created, $secret);

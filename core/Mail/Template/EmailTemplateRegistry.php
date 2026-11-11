@@ -50,8 +50,11 @@ class EmailTemplateRegistry
     private ?array $cache = null;
 
     /**
-     * The e-mails core sends. Nine of them, and four are authentication
-     * e-mails declared `editable: false` — see EmailTemplate.
+     * The e-mails core sends. Ten of them, and the authentication e-mails
+     * among them are declared `editable: false` — see EmailTemplate. That
+     * includes the alert an account's holder gets when a way into their
+     * account changes (Core\Security\AccountSecurityAlertService, issue
+     * #1115): an alarm a unit could reword into silence is no alarm.
      *
      * `site_name` is deliberately not a variable anywhere: the header, the
      * footer and the unit's name belong to email/base.html.twig, which
@@ -91,6 +94,35 @@ class EmailTemplateRegistry
                         'https://exemple.be/password-reset/12'
                     ),
                     new EmailTemplateVariable('expiry_minutes', 'Durée de validité (minutes)', '30'),
+                ],
+                editable: false
+            ),
+            new EmailTemplate(
+                id: 'account_security_change',
+                label: 'Alerte de sécurité du compte',
+                description: "Envoyé au titulaire d'un compte quand un mot de passe y est défini ou modifié, "
+                    . "quand une clé d'accès (passkey) y est ajoutée ou retirée, ou quand un identifiant "
+                    . "d'appareil y est créé.",
+                defaultSubject: 'Alerte de sécurité sur votre compte',
+                template: 'email/account_security_change.html.twig',
+                variables: [
+                    new EmailTemplateVariable(
+                        'change_label',
+                        'Ce qui a changé',
+                        "Une clé d'accès (passkey) a été ajoutée à votre compte"
+                    ),
+                    new EmailTemplateVariable('changed_at', 'Date et heure du changement', '11/11/2026 à 14:32'),
+                    new EmailTemplateVariable('credential_label', "Nom de la clé ou de l'appareil", 'iPhone'),
+                    new EmailTemplateVariable(
+                        'login_url',
+                        'Lien vers la page de connexion',
+                        'https://exemple.be/login'
+                    ),
+                    new EmailTemplateVariable(
+                        'account_url',
+                        'Lien vers « Mon compte »',
+                        'https://exemple.be/account'
+                    ),
                 ],
                 editable: false
             ),
