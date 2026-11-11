@@ -189,7 +189,6 @@ class SosAdminController extends AbstractController
 
         $staffOptions = $this->settingsService->getStaffOptions($effectiveYear->id);
         $orderedStaffMemberIds = array_column($staffOptions, 'member_id');
-        $today = $this->currentTime()->format('Y-m-d');
 
         return $this->render('@sos_staff/settings.html.twig', [
             'sos_page' => self::PAGE_SETTINGS,
@@ -203,7 +202,7 @@ class SosAdminController extends AbstractController
             // acts on. A permanent warning that is wrong half the time
             // ends up ignored.
             'today_uses_default_number' => $this->onCallService
-                ->resolveTargetForDate($today, $orderedStaffMemberIds) === null,
+                ->resolveExpectedTargetAt($this->currentTime(), $orderedStaffMemberIds)['member_id'] === null,
             'transition_hour' => $this->settingsService->getTransitionHour(),
             'email_notifications_enabled' => $this->settingsService->isEmailNotificationsEnabled(),
         ]);
@@ -938,18 +937,26 @@ class SosAdminController extends AbstractController
     }
 
     /**
-     * The year these pages work in: the year the site is ON, never a
-     * session preview (issue #1102). The roster a planning is validated
-     * against, the member a default number may be, the year the scheduled
-     * transitions look phone numbers up in — every one of them is a
-     * decision about where the unit's emergency calls go, and
-     * ScoutYearResolver keeps the preview for display alone. A planning
-     * saved while previewing next year silently dropped the duties of
-     * every current Staff d'U member absent from next year's roster.
+     * The year these pages work in: the year the site is ON — the PUBLIC
+     * year, never a session preview and never a staff-year override (issue
+     * #1102). The roster a planning is validated against, the member a
+     * default number may be, the year the scheduled transitions look phone
+     * numbers up in — every one of them decides where the unit's emergency
+     * calls go, and there is one line for the whole unit. A planning saved
+     * while previewing next year silently dropped the duties of every
+     * current Staff d'U member absent from next year's roster.
+     *
+     * Not getAuthorizationYear(): during the passage, an eligible chief is
+     * served the next staff year there, while Task\ReconcileRedirectHandler
+     * — which has no session — resolves the public year. A save would put
+     * the line on next year's roster and the hourly check put it back on
+     * this year's. Both read getCurrentPublicYear().
      */
     private function operationalYear(): EffectiveScoutYear
     {
-        return $this->scoutYearResolver->getAuthorizationYear();
+        $year = $this->scoutYearResolver->getCurrentPublicYear();
+
+        return new EffectiveScoutYear($year['id'], $year['label'], null);
     }
 
     /**
@@ -963,7 +970,7 @@ class SosAdminController extends AbstractController
             Role::fromString(AuthSession::getRole())
         );
         $operational = $this->operationalYear();
-        if ($previewed->id === $operational->id) {
+        if ($previewed->overrideType !== 'session' || $previewed->id === $operational->id) {
             return null;
         }
 

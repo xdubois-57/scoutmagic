@@ -57,6 +57,8 @@ class SosAdminControllerTest extends TestCase
     private \Modules\SosStaff\Service\RedirectService $redirectService;
     private int $scoutYearId;
     private ?\DateTimeImmutable $now = null;
+    private ScoutYearResolver $scoutYearResolver;
+    private SettingService $settingService;
     /**
      * What the stubbed provider configuration answers: a provider by
      * default (the page's ordinary state), null for « nothing configured ».
@@ -156,6 +158,8 @@ class SosAdminControllerTest extends TestCase
 
         $scoutYearService = new ScoutYearService($this->pdo);
         $scoutYearResolver = new ScoutYearResolver($scoutYearService, $settingService, $memberYearRepository);
+        $this->scoutYearResolver = $scoutYearResolver;
+        $this->settingService = $settingService;
 
         $moduleViews = dirname(__DIR__, 4) . '/modules/sos_staff/views';
         $this->twig = TestTwig::create(['sos_staff' => $moduleViews]);
@@ -1232,8 +1236,11 @@ class SosAdminControllerTest extends TestCase
 
     public function testThePlanningNamesThePersonWhoActuallyReceivesTheCallsOnADay(): void
     {
+        // After the changeover hour, so today's duty is the one in force
+        // (before it, yesterday's is — see the morning test below).
+        $this->now = new \DateTimeImmutable('today 12:00');
         $akela = $this->createStaffduMember('Akela', '+32470000001');
-        $today = (new \DateTimeImmutable())->format('Y-m-d');
+        $today = $this->now->format('Y-m-d');
         $this->onCallRepository->replaceRange($today, $today, [
             new OnCallAssignment($akela, $today, OnCallAssignment::STATE_ONCALL),
         ]);
@@ -1276,8 +1283,11 @@ class SosAdminControllerTest extends TestCase
 
     public function testThePlanningDoesNotFlagADayWithASingleOnCall(): void
     {
+        // After the changeover hour, so today's duty is the one in force
+        // (before it, yesterday's is — see the morning test below).
+        $this->now = new \DateTimeImmutable('today 12:00');
         $akela = $this->createStaffduMember('Akela', '+32470000001');
-        $today = (new \DateTimeImmutable())->format('Y-m-d');
+        $today = $this->now->format('Y-m-d');
         $this->onCallRepository->replaceRange($today, $today, [
             new OnCallAssignment($akela, $today, OnCallAssignment::STATE_ONCALL),
         ]);
@@ -1496,8 +1506,11 @@ class SosAdminControllerTest extends TestCase
 
     public function testDefaultNumberWarningIsHiddenWhenTodayHasAnOnCall(): void
     {
+        // After the changeover hour, so today's duty is the one in force
+        // (before it, yesterday's is — see the morning test below).
+        $this->now = new \DateTimeImmutable('today 12:00');
         $akela = $this->createStaffduMember('Akela', '+32470000001');
-        $today = (new \DateTimeImmutable())->format('Y-m-d');
+        $today = $this->now->format('Y-m-d');
         $this->onCallRepository->replaceRange($today, $today, [
             new OnCallAssignment($akela, $today, OnCallAssignment::STATE_ONCALL),
         ]);
@@ -2111,5 +2124,76 @@ class SosAdminControllerTest extends TestCase
             "Vous prévisualisez l'année 2099-2100",
             html_entity_decode($page->getBody(), ENT_QUOTES | ENT_HTML5)
         );
+    }
+
+    /**
+     * Before the changeover hour the line is still yesterday's, and the
+     * save reconciles against exactly that — so the warning that saving
+     * will move the line follows the same rule, not « today's » duty
+     * (review of #1135).
+     *
+     * @return iterable<string, array{bool, bool}>
+     */
+    public static function morningDuties(): iterable
+    {
+        // [yesterday on duty, today on duty] => warning shown?
+        yield 'yesterday on duty, not today' => [true, false];
+        yield 'today on duty, not yesterday' => [false, true];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('morningDuties')]
+    public function testBeforeTheChangeoverTheDefaultWarningFollowsYesterdaysDuty(bool $yesterday, bool $today): void
+    {
+        $this->now = new \DateTimeImmutable('2001-02-03 08:00:00');
+        $member = $this->createStaffduMember('Akela', '+32470000021');
+        $date = $yesterday ? '2001-02-02' : '2001-02-03';
+        $this->onCallRepository->replaceRange($date, $date, [
+            new OnCallAssignment($member, $date, OnCallAssignment::STATE_ONCALL),
+        ]);
+
+        self::assertSame($today, str_contains($this->settingsPage(), 'id="default-number-immediate-warning"'));
+    }
+
+    /**
+     * During the passage an eligible chief is served next year's STAFF
+     * year everywhere else; the SOS pages stay on the public year, which is
+     * also the one the session-less hourly check resolves (review of
+     * #1135) — one line, one roster.
+     */
+    public function testAStaffYearOverrideDoesNotMoveThePagesOffThePublicYear(): void
+    {
+        $this->now = new \DateTimeImmutable('2026-06-15 08:00:00');
+        $alice = $this->createStaffduMember('Alice', '+32470000031');
+        [$nextLabel, $nextStart, $nextEnd] = DatabaseTestHelper::scoutYear(1);
+        $this->pdo->exec(
+            "INSERT INTO scout_years (label, start_date, end_date, is_current) "
+                . "VALUES ('{$nextLabel}', '{$nextStart}', '{$nextEnd}', 0)"
+        );
+        $nextYear = (int) $this->pdo->lastInsertId();
+        $this->settingService->register(
+            ScoutYearResolver::SETTING_STAFF_YEAR,
+            (string) $nextYear,
+            'text',
+            'Année',
+            'desc'
+        );
+        $this->scoutYearResolver->setStaffYearEligibility(static fn(int $yearId): bool => true);
+        self::assertSame($nextYear, $this->scoutYearResolver->getAuthorizationYear()->id, 'the override is live');
+
+        $response = $this->controller->saveOnCall(
+            $this->jsonRequest([
+                'year' => 2026,
+                'month' => 7,
+                'cells' => [
+                    ['member_id' => $alice, 'date' => '2026-07-05', 'state' => OnCallAssignment::STATE_ONCALL],
+                ],
+                '_csrf_token' => $this->csrfToken(),
+            ]),
+            []
+        );
+
+        self::assertTrue(json_decode($response->getBody(), true)['success']);
+        self::assertCount(1, $this->onCallRepository->findForDate('2026-07-05'));
+        self::assertStringNotContainsString('prévisualisez', $this->settingsPage());
     }
 }

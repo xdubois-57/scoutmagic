@@ -57,13 +57,14 @@ final class ReconcileRedirectHandler implements TaskHandlerInterface
         $attempt = isset($payload['attempt']) ? (int) $payload['attempt'] : 0;
 
         try {
-            // The year the site is ON — never a preview, which only ever
-            // lives in somebody's session (ARCHITECTURE.md, scout years).
+            // The public year — the one the SOS pages work in too
+            // (SosAdminController::operationalYear()), so a save and this
+            // check can never compare the line with two different rosters.
             $scoutYearId = (new ScoutYearResolver(
                 new ScoutYearService($pdo),
                 $context->settings,
                 new MemberYearRepository($pdo)
-            ))->getAuthorizationYear()->id;
+            ))->getCurrentPublicYear()['id'];
 
             $result = SosTaskServices::build($context)->reconciler->reconcile(
                 $scoutYearId,
