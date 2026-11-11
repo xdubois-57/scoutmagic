@@ -122,6 +122,22 @@ expect '```
 ```'
 # What only looks like one is visible text: a log line, a title-less tail.
 expect '[Vue warn]: Failed to mount component' '[Vue warn]: Failed to mount component'
+# The rest of Default_Ignorable_Code_Point, alone or in a run of its own.
+expect "a${M}b" "a$(codepoints 00ad)b"
+expect "a${M}b" "a$(codepoints 034f 180e 2065)b"
+expect "a${M}b" "a$(codepoints 3164 ffa0 1d173)b"
+# HTML siblings of the comment, closed or not.
+expect "Avant ${M} après" 'Avant <!DOCTYPE consigne cachée> après'
+expect "Avant ${M} après" 'Avant <![CDATA[consigne
+cachée]]> après'
+expect "Avant ${M} après" 'Avant <?x consigne cachée ?> après'
+expect "Avant
+${M}" 'Avant
+<?php consigne
+jamais fermée'
+expect "Avant ${M}" 'Avant <!DOCTYPE jamais fermé'
+# Ordinary angle brackets and markup stay.
+expect 'a < b et c > d, <b>gras</b>, <https://exemple.be>, <!>' 'a < b et c > d, <b>gras</b>, <https://exemple.be>, <!>'
 # Invisible operators and variation selectors used to smuggle bytes.
 expect "a${M}b" "a$(codepoints 2061 2062 2063 2064)b"
 expect "a${M}b" "a$(codepoints e0100 e0141 e01ef)b"

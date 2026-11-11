@@ -394,10 +394,11 @@ keeps the two update channels apart.
 
 `.github/workflows/issue-sanitize.yml` (issue #1117) removes what the rendered
 view of an issue hides but an agent reading the raw text sees: HTML comments
-(`<!-- … -->`, an unclosed one to the end of the text, inside code blocks too),
-invisible Unicode — tag characters U+E0000–U+E007F, zero-width characters,
-invisible operators, variation selectors used to smuggle bytes, the whole
-Bidi_Control set — and Markdown link reference definitions
+(`<!-- … -->`, an unclosed one to the end of the text, inside code blocks too)
+and their siblings — declarations, CDATA, processing instructions —, every
+Unicode Default_Ignorable_Code_Point (tag characters, zero-width characters,
+the soft hyphen, Bidi controls, variation selectors used to smuggle bytes;
+a lone emoji style selector excepted), and Markdown link reference definitions
 (`[x]: # (…)`, rendered as nothing; at any indentation and inside code too,
 never looked for in a title) and footnote definitions (`[^x]: …`, dropped when
 nothing refers to them, so all of them go). It runs on every new or edited issue title, body and

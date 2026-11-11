@@ -8,17 +8,19 @@ set -euo pipefail
 # itself can be seen by the maintainer reading the issue.
 #
 #   - every HTML comment `<!-- … -->`, multi-line, and an unclosed one up
-#     to the end of the text. Inside a code block too: a fence does not
-#     make an agent ignore what it reads, and the safer reading wins;
-#   - Unicode "tag" characters U+E0000–U+E007F, which can spell a whole
-#     ASCII instruction without drawing anything;
-#   - zero-width characters U+200B–U+200D, U+2060, U+FEFF, and the
-#     invisible operators U+2061–U+2064;
-#   - variation selectors, which can encode bytes on the character before
-#     them: U+FE00–U+FE0D and U+E0100–U+E01EF always, U+FE0E/U+FE0F (text
-#     or emoji style) only in a run or next to another hidden character;
-#   - bidirectional controls, Unicode's whole Bidi_Control set: U+061C,
-#     U+200E, U+200F, U+202A–U+202E, U+2066–U+2069;
+#     to the end of the text, and its siblings GitHub renders as nothing:
+#     declarations `<!X…>`, CDATA `<![CDATA[…]]>`, processing instructions
+#     `<?…?>`. Inside a code block too: a fence does not make an agent
+#     ignore what it reads, and the safer reading wins — a `<?php` snippet
+#     in a report shows the marker, its original in the edit history;
+#   - every Default_Ignorable_Code_Point: the property Unicode gives to
+#     what renders as nothing — tag characters U+E0000–U+E0FFF that can
+#     spell a whole ASCII instruction, zero-width characters, the soft
+#     hyphen, invisible operators, the whole Bidi_Control set, variation
+#     selectors that can encode bytes on the character before them, and
+#     the rest. U+FE0E/U+FE0F (text or emoji style) are the one exception:
+#     one alone after a character is an ordinary emoji, so they go only in
+#     a run or next to another hidden character;
 #   - every Markdown link reference definition, `[label]: destination
 #     "title"`, which GitHub renders as nothing at all — the classic
 #     `[x]: # (an instruction)`. Matched as CommonMark defines it: label
@@ -123,12 +125,19 @@ MARKER="${MARKER}" TITLE="${TITLE}" BOT="${BOT}" OWN_IDS="${OWN_IDS}" exec perl 
     my $m = $ENV{MARKER};
     utf8::decode($m) unless utf8::is_utf8($m);
     my $own = qr/<!-- (?:external-source:(?:$ENV{OWN_IDS})|external-source-fingerprint:[0-9a-f]{16}(?::sans-analyse)?|issue-fixed-comment: pull request #[0-9]+) -->/;
-    s{(<!--.*?(?:-->|\z))}{ my $c = $1; $ENV{BOT} && $c =~ m{\A$own\z} ? $c : $m }gse;
+    # HTML comments, and the sibling constructs GitHub renders as nothing:
+    # declarations, CDATA sections, processing instructions — closed, or
+    # unclosed to the end of the text, as an HTML block runs.
+    my $html = qr/<!--.*?(?:-->|\z)|<!\[CDATA\[.*?(?:\]\]>|\z)|<![A-Za-z][^>]*(?:>|\z)|<\?.*?(?:\?>|\z)/s;
+    s{($html)}{ my $c = $1; $ENV{BOT} && $c =~ m{\A$own\z} ? $c : $m }gse;
     # Invisible on their own. U+FE0E/U+FE0F choose text or emoji style, and
     # one alone after a character is ordinary (the ⚠️ of the marker ends in
     # one): only a run of them, or one touching another hidden character,
     # can carry anything, so only that goes.
-    my $hidden = qr/[\x{E0000}-\x{E007F}\x{E0100}-\x{E01EF}\x{200B}-\x{200F}\x{2060}-\x{2064}\x{FE00}-\x{FE0D}\x{FEFF}\x{061C}\x{202A}-\x{202E}\x{2066}-\x{2069}]/;
+    # Unicode marks every character meant to render as nothing
+    # Default_Ignorable_Code_Point: the whole property, not a hand-picked
+    # list that the next unlisted one walks past.
+    my $hidden = qr/(?![\x{FE0E}\x{FE0F}])\p{Default_Ignorable_Code_Point}/;
     my $style  = qr/[\x{FE0E}\x{FE0F}]/;
     s/(?:$hidden|$style)*$hidden(?:$hidden|$style)*|$style{2,}/$m/g;
     if (!$ENV{TITLE}) {
