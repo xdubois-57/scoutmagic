@@ -172,6 +172,25 @@ final class IcsCalendarImportOnMysqlTest extends TestCase
     }
 
     /**
+     * Purged 24 hours after the last move: « Relancer » from a page left
+     * open is a rejected run with a sentence, not an error page.
+     */
+    public function testRestartingAfterThePurgeIsRejectedWithAReason(): void
+    {
+        $done = $this->importAll(self::ADDRESS);
+        $this->pdo->prepare('UPDATE data_migration_runs SET file_path = NULL WHERE id = ?')
+            ->execute([$done->id]);
+        $purged = $this->service->current($this->importer) ?? $this->fail('No run.');
+
+        $restarted = $this->service->restart($this->importer, $purged, $this->adminId) ?? $this->fail('No restart.');
+        $again = $this->drive($restarted);
+
+        $this->assertSame(Run::ABANDONED, $again->state);
+        $this->assertStringContainsString('n\'est plus sur le serveur', (string) $again->rejectionReason);
+        $this->assertSame(7, $this->eventCount());
+    }
+
+    /**
      * The report keeps the categories apart: recurring, cancelled and
      * unreadable each have their own reason, and the plain events are
      * imported.

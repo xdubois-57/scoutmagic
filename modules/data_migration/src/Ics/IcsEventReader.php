@@ -56,6 +56,10 @@ final class IcsEventReader
     public const TIME_ZONE = 'Europe/Brussels';
     /** One VEVENT bigger than this (an attachment inlined in base64…) is not read. */
     public const MAX_EVENT_BYTES = 256 * 1024;
+    /** One VTIMEZONE definition bigger than this is not kept. */
+    public const MAX_TIME_ZONE_BYTES = 16 * 1024;
+    /** And no more definitions than this, so all of them stay small too. */
+    public const MAX_TIME_ZONES = 16;
     /** calendar_events.title and .location, in characters. */
     public const MAX_TITLE_CHARS = 200;
     public const MAX_LOCATION_CHARS = 255;
@@ -93,8 +97,8 @@ final class IcsEventReader
                 $count = 0;
                 $uids = [];
                 foreach ($this->events($in) as $raw) {
-                    $record = $raw === null
-                        ? self::unreadable('événement trop volumineux')
+                    $record = $raw instanceof IcsUnreadableException
+                        ? self::unreadable($raw->getMessage())
                         : $this->read($raw, $timeZones);
                     $record = self::withUniqueUid($record, $uids);
                     $json = json_encode($record, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
@@ -304,8 +308,14 @@ final class IcsEventReader
     }
 
     /**
-     * The VTIMEZONE blocks at the top level of the calendar, by TZID — and
-     * the check that the file is a calendar at all.
+     * The VTIMEZONE blocks of the calendar, by TZID — and the check that
+     * the file is a calendar at all.
+     *
+     * A block is kept only up to MAX_TIME_ZONE_BYTES, and at most
+     * MAX_TIME_ZONES of them: each is handed to vobject again with every event that
+     * names it, so one enormous definition would bring back the memory
+     * problem this class exists to avoid. A larger one is dropped, and the
+     * events that need it are reported with « fuseau horaire inconnu ».
      *
      * @param resource $in
      * @return array<string, string>
@@ -315,9 +325,9 @@ final class IcsEventReader
     private function timeZones($in): array
     {
         $zones = [];
+        $block = null;
+        $tooLarge = false;
         $first = true;
-        $collecting = null;
-        $depth = 0;
         while (($line = fgets($in)) !== false) {
             $line = rtrim($line, "\r\n");
             if ($first) {
@@ -332,20 +342,35 @@ final class IcsEventReader
                 continue;
             }
             [$begin, $end] = self::boundary($line);
-            if ($collecting !== null) {
-                $collecting .= $line . "\r\n";
-                $depth += $begin !== null ? 1 : ($end !== null ? -1 : 0);
-                if ($depth === 0) {
-                    if (preg_match('/^TZID(?:;[^:]*)?:(.+)$/mi', $collecting, $m) === 1) {
-                        $zones[trim($m[1])] = $collecting;
-                    }
-                    $collecting = null;
+            if ($block === null) {
+                if ($begin === 'VTIMEZONE') {
+                    $block = $line . "\r\n";
+                    $tooLarge = false;
                 }
                 continue;
             }
-            if ($begin === 'VTIMEZONE' && strlen(implode('', $zones)) < self::MAX_EVENT_BYTES) {
-                $collecting = $line . "\r\n";
-                $depth = 1;
+            if ($begin === 'VTIMEZONE' || $begin === 'VEVENT' || $end === 'VCALENDAR') {
+                // A block that never ended: dropped, and this line read anew.
+                $block = $begin === 'VTIMEZONE' ? $line . "\r\n" : null;
+                $tooLarge = false;
+                continue;
+            }
+            if (!$tooLarge) {
+                $block .= $line . "\r\n";
+                if (strlen($block) > self::MAX_TIME_ZONE_BYTES) {
+                    $tooLarge = true;
+                    $block = '';
+                }
+            }
+            if ($end === 'VTIMEZONE') {
+                if (
+                    !$tooLarge
+                    && count($zones) < self::MAX_TIME_ZONES
+                    && preg_match('/^TZID(?:;[^:]*)?:(.+)$/mi', $block, $m) === 1
+                ) {
+                    $zones[trim($m[1])] = $block;
+                }
+                $block = null;
             }
         }
         if ($first) {
@@ -356,17 +381,28 @@ final class IcsEventReader
     }
 
     /**
-     * Each top-level VEVENT's lines, in file order; null for one larger
-     * than MAX_EVENT_BYTES, whose lines are skipped rather than kept.
+     * Each VEVENT's lines, in file order — or, for one that cannot be
+     * handed to vobject, the reason why.
+     *
+     * The components are followed with a stack, not a counter, so that a
+     * malformed file loses one event at most and never the rest of it:
+     *
+     * - an `END:` that closes nothing open is ignored;
+     * - `END:VEVENT` closes the event, even if a component inside it
+     *   (a VALARM) never said `END:` — that `END:` is supplied, and a
+ *   stray one inside the event is dropped;
+     * - a `BEGIN:VEVENT` inside an event that was never closed reports that
+     *   event as unfinished and starts the new one;
+     * - the end of the file inside an event reports it as cut off.
      *
      * @param resource $in
-     * @return \Generator<int, ?string>
+     * @return \Generator<int, string|IcsUnreadableException>
      */
     private function events($in): \Generator
     {
-        $depth = 0;
+        $open = [];
+        $inner = [];
         $event = null;
-        $eventDepth = 0;
         $tooLarge = false;
         $first = true;
         while (($line = fgets($in)) !== false) {
@@ -376,41 +412,67 @@ final class IcsEventReader
                 $first = false;
             }
             [$begin, $end] = self::boundary($line);
+
             if ($event !== null) {
-                if (!$tooLarge) {
-                    $event .= $line . "\r\n";
-                    if (strlen($event) > self::MAX_EVENT_BYTES) {
-                        $tooLarge = true;
-                        $event = '';
-                    }
-                }
-                if ($begin !== null) {
-                    $eventDepth++;
-                } elseif ($end !== null) {
-                    $eventDepth--;
-                }
-                if ($eventDepth === 0) {
-                    yield $tooLarge ? null : $event;
+                if ($begin === 'VEVENT' || $end === 'VCALENDAR') {
+                    yield new IcsUnreadableException('événement non terminé');
                     $event = null;
-                    $tooLarge = false;
+                    if ($end === 'VCALENDAR') {
+                        $open = [];
+                        continue;
+                    }
+                } else {
+                    if ($end === 'VEVENT') {
+                        // Close what the event left open, so that vobject
+                        // gets a well-formed event.
+                        foreach (array_reverse($inner) as $component) {
+                            $line = 'END:' . $component . "\r\n" . $line;
+                        }
+                        $inner = [];
+                    } elseif ($begin !== null) {
+                        $inner[] = $begin;
+                    } elseif ($end !== null) {
+                        $at = array_search($end, $inner, true);
+                        if ($at === false) {
+                            continue;
+                        }
+                        $inner = array_slice($inner, 0, (int) $at);
+                    }
+                    if (!$tooLarge) {
+                        $event .= $line . "\r\n";
+                        if (strlen($event) > self::MAX_EVENT_BYTES) {
+                            $tooLarge = true;
+                            $event = '';
+                        }
+                    }
+                    if ($end === 'VEVENT') {
+                        yield $tooLarge ? new IcsUnreadableException('événement trop volumineux') : $event;
+                        $event = null;
+                    }
+                    continue;
                 }
-                continue;
             }
+
             if ($begin !== null) {
-                $depth++;
-                // Depth 2: a component directly inside the VCALENDAR.
-                if ($begin === 'VEVENT' && $depth === 2) {
+                // An event directly inside the calendar; one nested in some
+                // other component is not the calendar's.
+                if ($begin === 'VEVENT' && array_diff($open, ['VCALENDAR']) === []) {
                     $event = $line . "\r\n";
-                    $eventDepth = 1;
-                    $depth--;
+                    $inner = [];
+                    $tooLarge = false;
+                    continue;
                 }
+                $open[] = $begin;
             } elseif ($end !== null) {
-                $depth--;
+                $at = array_search($end, $open, true);
+                if ($at !== false) {
+                    $open = array_slice($open, 0, (int) $at);
+                }
             }
         }
         if ($event !== null) {
-            // The file ended inside an event.
-            yield null;
+            // The file ended inside an event: a download cut off.
+            yield new IcsUnreadableException('fichier coupé au milieu de cet événement');
         }
     }
 

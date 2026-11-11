@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\DataMigration\Importer;
 
+use Core\Archive\ArchiveRejectedException;
 use Core\Http\UrlMetadataFetcher;
 use Core\Service\DateInput;
 use Core\Service\IntegerInput;
@@ -169,11 +170,19 @@ final class IcsCalendarImporter implements FormSourceImporter
         );
     }
 
+    /**
+     * @throws ArchiveRejectedException when the converted file was purged
+     */
     public function items(ImportSource $source, int $from): iterable
     {
         $file = $source->filePath !== null ? @fopen($source->filePath, 'rb') : false;
         if ($file === false) {
-            throw new \RuntimeException('The converted calendar is missing.');
+            // Purged 24 hours after the run's last move, like an archive:
+            // the module rejects the run with this sentence, as it does for
+            // an archive that is no longer there.
+            throw new ArchiveRejectedException(
+                'Le calendrier téléchargé n\'est plus sur le serveur. Lisez à nouveau le calendrier depuis son adresse.'
+            );
         }
 
         try {

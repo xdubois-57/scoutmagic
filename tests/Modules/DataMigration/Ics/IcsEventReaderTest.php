@@ -157,7 +157,79 @@ final class IcsEventReaderTest extends TestCase
 
         $this->assertSame(2, $events);
         $this->assertSame('event', $lines[0]['state']);
-        $this->assertSame('unreadable', $lines[1]['state']);
+        $this->assertSame(
+            ['unreadable', 'fichier coupé au milieu de cet événement'],
+            [$lines[1]['state'], $lines[1]['reason']]
+        );
+    }
+
+    /**
+     * A malformed file loses one event at most: a stray END closes
+     * nothing, an event whose VALARM never ended still ends at END:VEVENT,
+     * and an event that never ended is reported, not merged with the next.
+     */
+    public function testUnbalancedComponentsLoseNoOtherEvent(): void
+    {
+        $lines = $this->convertText(
+            "BEGIN:VCALENDAR\nEND:VTODO\n"
+            . "BEGIN:VEVENT\nUID:a\nDTSTART;VALUE=DATE:20250101\nSUMMARY:Un\nBEGIN:VALARM\nTRIGGER:-PT1H\nEND:VEVENT\n"
+            . "BEGIN:VEVENT\nUID:b\nDTSTART;VALUE=DATE:20250102\nSUMMARY:Deux\n"
+            . "BEGIN:VEVENT\nUID:c\nDTSTART;VALUE=DATE:20250103\nSUMMARY:Trois\nEND:VEVENT\n"
+            . "END:VCALENDAR\nBEGIN:VEVENT\nUID:d\nDTSTART;VALUE=DATE:20250104\nSUMMARY:Quatre\nEND:VEVENT\n"
+        );
+
+        $this->assertSame(
+            [['event', 'a'], ['unreadable', null], ['event', 'c'], ['event', 'd']],
+            array_map(static fn (array $l): array => [$l['state'], $l['uid'] !== '' ? $l['uid'] : null], $lines)
+        );
+        $this->assertSame('événement non terminé', $lines[1]['reason']);
+    }
+
+    public function testAnOversizedEventIsReportedAsSuch(): void
+    {
+        $lines = $this->convertText(
+            "BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:gros\nDTSTART;VALUE=DATE:20250101\nSUMMARY:Gros\n"
+            . str_repeat("X-PADDING:" . str_repeat('x', 1000) . "\n", 300)
+            . "END:VEVENT\nEND:VCALENDAR\n"
+        );
+
+        $this->assertSame(['unreadable', 'événement trop volumineux'], [$lines[0]['state'], $lines[0]['reason']]);
+    }
+
+    /**
+     * One VTIMEZONE is handed to vobject with every event that names it:
+     * an enormous one is dropped, and its events are « fuseau inconnu »
+     * rather than each parsed with megabytes of definition.
+     */
+    public function testAnEnormousTimeZoneIsNotKept(): void
+    {
+        $lines = $this->convertText(
+            "BEGIN:VCALENDAR\nBEGIN:VTIMEZONE\nTZID:Zone/Enorme\n"
+            . str_repeat("X-PADDING:" . str_repeat('x', 1000) . "\n", 100)
+            . "END:VTIMEZONE\n"
+            . "BEGIN:VEVENT\nUID:z\nDTSTART;TZID=Zone/Enorme:20250101T100000\nSUMMARY:Zone\nEND:VEVENT\nEND:VCALENDAR\n"
+        );
+
+        $this->assertSame(['unreadable', 'fuseau horaire inconnu'], [$lines[0]['state'], $lines[0]['reason']]);
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private function convertText(string $ics): array
+    {
+        $file = sys_get_temp_dir() . '/ics_text_' . bin2hex(random_bytes(4)) . '.ics';
+        file_put_contents($file, $ics);
+        try {
+            (new IcsEventReader())->convert($file, $this->out);
+        } finally {
+            @unlink($file);
+        }
+
+        return array_map(
+            static fn (string $line): array => json_decode($line, true, 512, JSON_THROW_ON_ERROR),
+            file($this->out, FILE_IGNORE_NEW_LINES) ?: []
+        );
     }
 
     public function testATitleIsKeptOnOneLineAndCutToTheColumn(): void
