@@ -18,6 +18,7 @@ use Modules\DataMigration\Importer\Importer;
 use Modules\DataMigration\Importer\ImportSource;
 use Modules\DataMigration\Importer\ItemVerdict;
 use Modules\DataMigration\Importer\SourceItem;
+use Modules\DataMigration\Importer\ThrottledImporter;
 use Modules\DataMigration\Manifest\Manifest;
 use Modules\DataMigration\Manifest\ManifestException;
 use Modules\DataMigration\Manifest\ManifestReader;
@@ -64,6 +65,9 @@ class ImportEngine
     public const PHASE_VERIFY = 'verify';
     public const PHASE_ANALYSE = 'analyse';
     public const PHASE_EXECUTE = 'execute';
+
+    /** How many times the current slice asked the import's inspect(). */
+    private int $inspections = 0;
 
     /**
      * @param \Closure(): \DateTimeImmutable|null $clock
@@ -316,11 +320,23 @@ class ImportEngine
 
         $report = $run->report !== [] ? $run->report : self::emptyReport();
         $position = $run->phase() === self::PHASE_EXECUTE ? $run->position() : 0;
-        $context = $this->context($importer, $run, $source);
+        $context = $this->context($importer, $run, $source, true);
         $finished = true;
+        // An import whose inspection reads the network asks for fewer items
+        // per slice than the deadline alone would allow: the deadline is
+        // only checked between two items, and one remote page can take
+        // several seconds on its own.
+        $this->inspections = 0;
+        $inspectionLimit = $importer instanceof ThrottledImporter ? max(1, $importer->inspectionsPerExecutionSlice()) : null;
 
         try {
             foreach ($importer->items($source, $position) as $itemPosition => $item) {
+                // Checked before the item rather than after it, so that the
+                // slice which inspects the last item also finishes the run.
+                if ($inspectionLimit !== null && $this->inspections >= $inspectionLimit) {
+                    $finished = false;
+                    break;
+                }
                 $next = $itemPosition + 1;
                 try {
                     $verdict = $this->classify($importer, $item, $context, false);
@@ -432,6 +448,7 @@ class ImportEngine
             return ItemVerdict::present();
         }
 
+        $this->inspections++;
         $verdict = $importer->inspect($item, $context);
         $label = $verdict->scoutYearLabel;
         if ($verdict->outcome !== ItemVerdict::IMPORT || $label === null || $this->years->resolve($label) !== null) {
@@ -450,7 +467,7 @@ class ImportEngine
         return $planning ? $verdict : ItemVerdict::ignored('Année scoute non créée');
     }
 
-    private function context(Importer $importer, Run $run, ImportSource $source): ImportContext
+    private function context(Importer $importer, Run $run, ImportSource $source, bool $executing = false): ImportContext
     {
         return new ImportContext(
             $run->id,
@@ -458,7 +475,8 @@ class ImportEngine
             $run->format ?? ($importer->archiveFormat() !== null ? $importer->archiveFormat()->format : $importer->key()),
             $run->createdBy,
             $source,
-            fn (string $label): ?int => $this->years->resolve($label)
+            fn (string $label): ?int => $this->years->resolve($label),
+            $executing
         );
     }
 

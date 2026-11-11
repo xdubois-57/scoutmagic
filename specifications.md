@@ -2034,7 +2034,7 @@ Another module may own an album that gallery merely stores — a discussion grou
 
 ### 33.6 Notification, and what is out of scope
 
-**Creating an album** notifies every identified member (in-app and push on by default, email off), never its own creator — there is deliberately no per-section targeting, the same simplification the calendar module makes for its events. The notification carries the album's title and opens the gallery, so a member the album is not scoped to lands on a list without it rather than on a page they may not read. Adding media to an existing album notifies nobody.
+**Creating an album** notifies every identified member (in-app and push on by default, email off), never its own creator — there is deliberately no per-section targeting, the same simplification the calendar module makes for its events. The notification carries the album's title and opens the gallery, so a member the album is not scoped to lands on a list without it rather than on a page they may not read. Adding media to an existing album notifies nobody. Neither does an album brought in by the data migration's « Galeries photo » import (§49.5): hundreds of historical albums arriving at once are not news.
 
 No public album. No per-album storage choice for animateurs. No image editing beyond the automatic resizing and transcoding. No face recognition, no tagging of people, ever.
 
@@ -4107,3 +4107,14 @@ Le site retient, pour chaque objet importé, le quadruplet (installation d'origi
 ### 49.4 Conservation
 
 Le fichier déposé est effacé automatiquement **24 heures** après le dernier mouvement de l'import, quel que soit son état : terminé, abandonné, en attente ou interrompu. Un import qui avance n'est jamais privé de son fichier. Rien n'est extrait sur le disque, et le fichier n'entre dans aucune sauvegarde. La correspondance du §49.3 est conservée sans limite et ne contient aucune donnée personnelle.
+
+### 49.5 Galeries photo (import `galeries`)
+
+Disponible si le module `gallery` est actif. L'archive (format `scoutmagic-gallery-links` 1.0.0, documenté dans `docs/formats/data-migration/gallery-links.md`) liste dans `albums.jsonl` les albums que l'ancien site montrait par un lien. Chacun devient un **album externe** ordinaire de la Galerie (§33), sans badge ni verrou ; aucune photo n'est copiée.
+
+- **Aucune notification** « Nouvel album » : l'album est créé par l'interface `Modules\Gallery\Api\ExternalAlbumWriter`, sans le service qui notifie. Son auteur est le chef d'unité qui importe.
+- **Section** par code Desk (D10). Sans code, l'album est visible de toute l'unité ; un code inconnu fait ignorer l'album (« Section sans correspondance »), jamais élargir sa visibilité.
+- **Année scoute** : celle du fichier, sinon celle de la date de l'album (obligatoire). Une année passée absente est proposée à la création ; un album d'une année non cochée est ignoré, jamais rangé dans l'année en cours.
+- **Page de l'album** : son titre, sa description et son image Open Graph sont relus **pendant l'exécution seulement**, un album par tranche, par le même outil de récupération protégé que les albums ajoutés à la main. L'aperçu l'annonce (« Comptez environ deux secondes par album »). Le titre du fichier l'emporte ; sans titre dans le fichier, celui de la page est pris ; sans aucun des deux, l'album est ignoré. Une page illisible laisse les seules données du fichier.
+- **Dédoublonnage** : en plus de la correspondance (§49.3), une adresse déjà connue de la Galerie, comparée avec le schéma et l'hôte en minuscules et sans fragment, rend l'album « déjà présent ». L'album existant n'est pas modifié.
+- Les albums externes désactivés dans la configuration de la Galerie font ignorer chaque album.
