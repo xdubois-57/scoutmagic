@@ -241,11 +241,11 @@ final class CampPlacesImportOnMysqlTest extends TestCase
     public function testTheImportSendsNothingAndSchedulesNothing(): void
     {
         $tables = ['notifications', 'scheduled_actions', 'mail_deferred_messages', 'mail_lane_entries'];
-        $before = array_map(fn (string $table): int => $this->count($table), $tables);
+        $before = array_map(fn (string $table): int => $this->rowCount($table), $tables);
 
         $this->imported('endroits-de-camp.zip');
 
-        $this->assertSame($before, array_map(fn (string $table): int => $this->count($table), $tables));
+        $this->assertSame($before, array_map(fn (string $table): int => $this->rowCount($table), $tables));
     }
 
     private function imported(string $fixture): Run
@@ -305,10 +305,10 @@ final class CampPlacesImportOnMysqlTest extends TestCase
 
     private function placeCount(): int
     {
-        return $this->count('camp_places');
+        return $this->rowCount('camp_places');
     }
 
-    private function count(string $table): int
+    private function rowCount(string $table): int
     {
         return (int) $this->pdo->query('SELECT COUNT(*) FROM ' . $table)->fetchColumn();
     }
