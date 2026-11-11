@@ -155,9 +155,7 @@ class FormService
             );
         }
 
-        foreach ($fields as $field) {
-            self::assertPlainLabel($field['label'] ?? null);
-        }
+        $this->assertFieldLabels($fields);
 
         $existing = $this->formRepository->findByArticleId($articleId);
 
@@ -328,6 +326,21 @@ class FormService
      * label can carry a tag at all, and the length is the column's own, so
      * an overlong label is a message rather than a database error.
      */
+    /**
+     * Every field label of a submission, checked on its own: the editor
+     * calls this before it writes the article, so a refused label leaves
+     * neither a draft without its form nor a half-updated article, and
+     * save() checks again for any other caller.
+     *
+     * @param array<int, array{label?: ?string}> $fields
+     */
+    public function assertFieldLabels(array $fields): void
+    {
+        foreach ($fields as $field) {
+            self::assertPlainLabel($field['label'] ?? null);
+        }
+    }
+
     private static function assertPlainLabel(?string $label): void
     {
         if ($label === null) {

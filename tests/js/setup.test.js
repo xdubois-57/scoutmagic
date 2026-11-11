@@ -345,6 +345,55 @@ describe('setup.js: a server message is text, never markup (issue #1120)', () =>
         expect(result.querySelector('img')).toBeNull();
     });
 
+    it('shows a failing backup message literally', async () => {
+        fetch.mockReturnValue(jsonResponse({ success: false, message: '<img src=x>mysqldump', backup_failed: true }));
+        await boot();
+
+        document.getElementById('btn-backup-empty-db').click();
+        await settle();
+
+        const result = document.getElementById('backup-empty-result');
+        expect(result.textContent).toContain('<img src=x>mysqldump');
+        expect(result.querySelector('img')).toBeNull();
+    });
+
+    it('shows a failing mail test message literally', async () => {
+        fetch.mockReturnValue(jsonResponse({ success: false, message: '<b>relais refusé</b>' }));
+        await boot();
+
+        /** @type {HTMLInputElement} */ (document.getElementById('test_email_recipient')).value = 'moi@exemple.be';
+        document.getElementById('btn-test-email').click();
+        await settle();
+
+        const result = document.getElementById('email-test-result');
+        expect(result.textContent).toContain('<b>relais refusé</b>');
+        expect(result.querySelector('b')).toBeNull();
+    });
+
+    it('shows a failing DKIM generation message literally', async () => {
+        fetch.mockReturnValue(jsonResponse({ success: false, message: '<b>openssl absent</b>' }));
+        await boot();
+
+        document.getElementById('btn-generate-dkim').click();
+        await settle();
+
+        const result = document.getElementById('dkim-gen-result');
+        expect(result.textContent).toContain('<b>openssl absent</b>');
+        expect(result.querySelector('b')).toBeNull();
+    });
+
+    it('keeps a generated public key inside its value attribute', async () => {
+        fetch.mockReturnValue(jsonResponse({ success: true, public_key: 'p=MIIB" autofocus onfocus="x' }));
+        await boot();
+
+        document.getElementById('btn-generate-dkim').click();
+        await settle();
+
+        const display = /** @type {HTMLInputElement} */ (document.getElementById('dkim-pubkey-display'));
+        expect(display.value).toBe('p=MIIB" autofocus onfocus="x');
+        expect(display.hasAttribute('onfocus')).toBe(false);
+    });
+
     it('shows a mail test message literally', async () => {
         fetch.mockReturnValue(jsonResponse({ success: true, message: '<b>envoyé</b>' }));
         await boot();
