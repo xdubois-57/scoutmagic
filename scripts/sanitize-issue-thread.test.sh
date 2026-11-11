@@ -74,11 +74,13 @@ run issue 13 >/dev/null
 [[ "$(patched "${repo}/issues/13")" = "propre" ]] || fail "the clean body was not kept as is"
 
 # A text that would outgrow GitHub's limits once marked is replaced whole,
-# instead of a PATCH GitHub refuses on every run. 2000 hidden runs make
-# about 84000 characters; a 300-character title the same.
+# instead of a PATCH GitHub refuses on every run. 3000 hidden runs make
+# about 126000 characters, over 140 KiB: more than one command-line
+# argument may carry, so this also proves no text travels as one.
+# A title of ten hidden runs, about 420 characters, the same.
 reset
 zw="$(printf '\342\200\213')"
-long_body="$(for _ in $(seq 2000); do printf 'a%s' "${zw}"; done)"
+long_body="$(for _ in $(seq 3000); do printf 'a%s' "${zw}"; done)"
 long_title="$(for _ in $(seq 10); do printf 'a%s' "${zw}"; done)"
 fixture "${repo}/issues/14" "$(jq -n --arg b "${long_body}" --arg t "${long_title}" '{user:{type:"User"},title:$t,body:$b}')"
 run issue 14 >/dev/null

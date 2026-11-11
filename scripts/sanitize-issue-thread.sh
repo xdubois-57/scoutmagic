@@ -43,10 +43,17 @@ TITLE_LIMIT=256
 MARKER='⚠️ [contenu caché retiré automatiquement]'
 MARKER_TOO_LONG="${MARKER} Texte trop long une fois nettoyé : l'original reste dans l'historique des modifications."
 
-# chars <text> → its length in characters, whatever the runner's locale.
+# A text can be far larger than one command-line argument may be (Linux
+# caps each at 128 KiB), so every text reaches jq on stdin or from a file,
+# never as `--arg`: past that size the exec fails, and a failed check reads
+# as false.
+work="$(mktemp -d)"
+trap 'rm -rf "${work}"' EXIT
+
+# chars <file> → the length of its text in characters, whatever the locale.
 chars() {
-  local text="$1"
-  jq -rn --arg s "${text}" '$s | length'
+  local file="$1"
+  jq -Rrs 'length' <"${file}"
 }
 
 # sanitize_one <api path of the object> <label for the log>
@@ -70,14 +77,20 @@ sanitize_one() {
   # limits, and the PATCH would then fail the step and the agent job behind
   # it, on every run, for one crafted issue. Such a text is replaced whole;
   # its original stays in GitHub's edit history, which no agent reads.
-  if (( $(chars "${clean}") > BODY_LIMIT )); then
-    clean="${MARKER_TOO_LONG}"
+  local length has_title
+  printf '%s' "${clean}" >"${work}/body"
+  printf '%s' "${clean_title}" >"${work}/title"
+  length="$(chars "${work}/body")"
+  if (( length > BODY_LIMIT )); then
+    printf '%s' "${MARKER_TOO_LONG}" >"${work}/body"
   fi
-  if (( $(chars "${clean_title}") > TITLE_LIMIT )); then
-    clean_title="${MARKER}"
+  length="$(chars "${work}/title")"
+  if (( length > TITLE_LIMIT )); then
+    printf '%s' "${MARKER}" >"${work}/title"
   fi
-  jq -n --arg body "${clean}" --arg title "${clean_title}" --argjson original "${json}" \
-    '{body: $body} + (if ($original | has("title")) then {title: $title} else {} end)' \
+  has_title="$(jq 'has("title")' <<<"${json}")"
+  jq -n --rawfile body "${work}/body" --rawfile title "${work}/title" --argjson has_title "${has_title}" \
+    '{body: $body} + (if $has_title then {title: $title} else {} end)' \
     | gh api -X PATCH "${path}" --input - >/dev/null
   echo "${label}: hidden content removed"
 }
