@@ -31,8 +31,11 @@ set -euo pipefail
 #     past this rule. The definition always goes, even one a link refers
 #     to. What this costs is visible, never hidden: a link falls back to
 #     plain text, and a code line shaped exactly like `[label]: token`
-#     shows the marker, its original in the edit history. A footnote,
-#     `[^1]: text`, is rendered and stays.
+#     shows the marker, its original in the edit history;
+#   - every footnote definition, `[^1]: text`, with the lines that continue
+#     it: GitHub drops one nothing refers to, and deciding what "refers"
+#     means (a reference in inline code renders nothing) is the same
+#     approximation as above. A real footnote shows the marker instead.
 #
 # `--bot` applies to a text a bot wrote. It keeps the repository's own
 # markers — the exact forms its workflows write on issues, nothing looser:
@@ -139,6 +142,13 @@ MARKER="${MARKER}" TITLE="${TITLE}" BOT="${BOT}" OWN_IDS="${OWN_IDS}" exec perl 
         my $dest  = qr/<[^<>\r\n]*>|[^\s<]\S*/;
         my $title = qr/"(?:[^"\\\r\n]|\\.|$nl)*"|\x27(?:[^\x27\\\r\n]|\\.|$nl)*\x27|\((?:[^()\\\r\n]|\\.|$nl)*\)/;
         # A line ends in LF or CRLF, and keeps whichever it had.
+        # A footnote definition, `[^x]: text`: GitHub drops one nothing
+        # refers to, and a reference only counts where Markdown renders it,
+        # so it always goes — its first line, the lines that run on from it
+        # (lazy continuation), and indented paragraphs after a blank line.
+        my $line  = qr/[^\r\n]*/;
+        my $more  = qr/(?:\r?\n(?![ \t]*\r?$)$line)*/m;
+        s/^($cont)\[\^[^\]\r\n]+\]:$line$more(?:(?:\r?\n[ \t]*)*\r?\n(?:[ ]{4}|\t)$line$more)*/$1$m/gm;
         s/^($cont)$label:[ \t]*(?:\r?\n)?[ \t]*(?:$dest)(?:(?:[ \t]+|[ \t]*\r?\n[ \t]*)(?:$title))?[ \t]*(?=\r?$)/$1$m/gm;
     }
 '
