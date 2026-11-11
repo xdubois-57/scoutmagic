@@ -4107,3 +4107,15 @@ Le site retient, pour chaque objet importé, le quadruplet (installation d'origi
 ### 49.4 Conservation
 
 Le fichier déposé est effacé automatiquement **24 heures** après le dernier mouvement de l'import, quel que soit son état : terminé, abandonné, en attente ou interrompu. Un import qui avance n'est jamais privé de son fichier. Rien n'est extrait sur le disque, et le fichier n'entre dans aucune sauvegarde. La correspondance du §49.3 est conservée sans limite et ne contient aucune donnée personnelle.
+
+### 49.5 Photos des membres
+
+Import « Photos des membres », adresse `/admin/migration-donnees/photos`. Fonction du cœur : il est proposé dès que le module est actif, sans autre module requis. Format `scoutmagic-member-photos` 1.x, décrit pour les exporteurs dans `docs/formats/data-migration/member-photos.md`.
+
+- **Une ligne de `photos.jsonl`, une photo** : un membre par son identifiant Desk (`desk_id`), une année par son libellé, une image `images/<sha256>.<extension>` (JPEG, PNG ou WebP).
+- **Membre** cherché par son identifiant Desk, anciens identifiants des fiches fusionnées compris. Introuvable : la photo est ignorée (« Membre introuvable dans ScoutMagic ») et aucun membre n'est créé.
+- **Année** : une année passée absente du site est proposée à la création dans l'aperçu (§49.2) ; les photos d'une année non cochée sont ignorées.
+- **Jamais d'écrasement.** Un membre qui a déjà une photo pour l'année la garde : la ligne compte parmi les « Déjà présents », et l'aperçu dit combien d'animés sont dans ce cas. Si le fichier vise plusieurs fois le même membre et la même année, seule la première ligne dont l'image est valide est prise ; les suivantes sont ignorées.
+- **Contrôles** : l'empreinte annoncée par la ligne est celle que le manifeste a vérifiée ; le type réel de l'image (et non son nom), 10 Mo au plus, 16 mégapixels et 10 000 pixels de côté au plus, et une image qui se décode. Sinon la photo est ignorée avec son motif (« Image illisible »…).
+- **Le traitement normal des photos de membre** : orientation appliquée, métadonnées supprimées, réencodage, vignette, fichier réservé aux visiteurs connectés. La photo s'affiche au trombinoscope et sur la fiche comme une photo ajoutée à la main, sans marque ni écran d'historique. Les photos de compte, de section et les albums ne sont pas touchés.
+- **Limites** : 4 000 images par archive (le manifeste les inventorie toutes) ; au-delà, plusieurs archives du même site, qui se dédoublonnent entre elles.

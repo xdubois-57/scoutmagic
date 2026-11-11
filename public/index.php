@@ -13179,6 +13179,7 @@ if ($isEnabled('data_migration')) {
     );
     // One line per import (vague 2 of the chantier), kept alphabetical by key:
     // $dataMigrationImporters->add(new \Modules\DataMigration\Importer\…Importer(…));
+    $dataMigrationImporters->add(new \Modules\DataMigration\Importer\MemberPhotosImporter($memberRepo, new \Core\Photo\ImportedMemberPhotoWriter($photoIngestionService, new MemberPhotoRepository($pdo))));
 
     $dataMigrationRuns = new \Modules\DataMigration\Repository\RunRepository($pdo, $encryptionService);
     $dataMigrationStorage = new \Modules\DataMigration\Service\UploadStorage($storagePath);
