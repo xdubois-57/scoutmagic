@@ -72,7 +72,11 @@ final class CalendarImportWriterTest extends TestCase
         $eventRepository = new CalendarEventRepository($this->pdo);
         $sectionService = new SectionService(
             new SectionRepository(Connection::withPdo($this->pdo)),
-            new MemberProfileRepository(Connection::withPdo($this->pdo), $encryption, new MemberBadgeRepository($this->pdo))
+            new MemberProfileRepository(
+                Connection::withPdo($this->pdo),
+                $encryption,
+                new MemberBadgeRepository($this->pdo)
+            )
         );
         $this->calendarService = new CalendarService(
             $this->calendarRepository,
@@ -86,7 +90,13 @@ final class CalendarImportWriterTest extends TestCase
         $this->scheduler = new SchedulerService(new SchedulerRepository($this->pdo));
 
         $dispatched = &$this->dispatched;
-        $notifications = new class ($this->scheduler, $settings, $this->calendarService, $eventRepository, $dispatched) extends CalendarNotificationService {
+        $notifications = new class (
+            $this->scheduler,
+            $settings,
+            $this->calendarService,
+            $eventRepository,
+            $dispatched
+        ) extends CalendarNotificationService {
             /** @param list<string> $dispatched */
             public function __construct(
                 SchedulerService $scheduler,
@@ -132,7 +142,8 @@ final class CalendarImportWriterTest extends TestCase
             $this->calendarService,
             $accountRights
         );
-        $this->supplementaryId = $this->calendarRepository->createSupplementaryCalendar('Animateurs', true, Calendar::VISIBILITY_PUBLIC, 'tok');
+        $this->supplementaryId = $this->calendarRepository
+            ->createSupplementaryCalendar('Animateurs', true, Calendar::VISIBILITY_PUBLIC, 'tok');
         $this->rights[self::ACCOUNT] = ['role' => Role::ADMIN, 'sections' => []];
     }
 
@@ -150,15 +161,32 @@ final class CalendarImportWriterTest extends TestCase
 
         $event = (new CalendarEventRepository($this->pdo))->findById($id) ?? $this->fail('Not created.');
         $this->assertSame(
-            ['Réunion du samedi', '2025-03-15', null, '14:00', '17:30', 'Local', 'Apporter un pique-nique.', self::ACCOUNT, false],
-            [$event->title, $event->startDate, $event->endDate, substr((string) $event->startTime, 0, 5), substr((string) $event->endTime, 0, 5), $event->location, $event->description, $event->createdBy, $event->autoCreateRetro]
+            [
+                'Réunion du samedi', '2025-03-15', null, '14:00', '17:30',
+                'Local', 'Apporter un pique-nique.', self::ACCOUNT, false,
+            ],
+            [
+                $event->title,
+                $event->startDate,
+                $event->endDate,
+                substr((string) $event->startTime, 0, 5),
+                substr((string) $event->endTime, 0, 5),
+                $event->location,
+                $event->description,
+                $event->createdBy,
+                $event->autoCreateRetro,
+            ]
         );
         $this->assertSame([], $this->dispatched, 'An imported event was announced to the members.');
     }
 
     public function testAnAllDayEventKeepsNoTime(): void
     {
-        $id = $this->writer->createImportedEvent(self::ACCOUNT, $this->supplementaryId, new ImportedEvent('Journée', '2025-09-13', null, null, '17:00'));
+        $id = $this->writer->createImportedEvent(
+            self::ACCOUNT,
+            $this->supplementaryId,
+            new ImportedEvent('Journée', '2025-09-13', null, null, '17:00')
+        );
 
         $event = (new CalendarEventRepository($this->pdo))->findById($id) ?? $this->fail('Not created.');
         $this->assertTrue($event->isAllDay());
@@ -174,31 +202,39 @@ final class CalendarImportWriterTest extends TestCase
         $sectionCalendar = $this->sectionCalendar();
         $this->rights[self::ACCOUNT] = ['role' => Role::ADMIN, 'sections' => [$this->sectionOf($sectionCalendar)]];
 
-        $past = $this->writer->createImportedEvent(self::ACCOUNT, $sectionCalendar, new ImportedEvent('Camp passé', '2024-07-20', '2024-07-30'));
+        $past = $this->writer->createImportedEvent(
+            self::ACCOUNT,
+            $sectionCalendar,
+            new ImportedEvent('Camp passé', '2024-07-20', '2024-07-30')
+        );
         $future = $this->writer->createImportedEvent(
             self::ACCOUNT,
             $sectionCalendar,
-            new ImportedEvent('Camp à venir', (new \DateTimeImmutable('+2 months'))->format('Y-m-d'), (new \DateTimeImmutable('+2 months +10 days'))->format('Y-m-d'))
+            new ImportedEvent(
+                'Camp à venir',
+                (new \DateTimeImmutable('+2 months'))->format('Y-m-d'),
+                (new \DateTimeImmutable('+2 months +10 days'))->format('Y-m-d')
+            )
         );
 
-        $this->assertNull($this->scheduler->find(CalendarNotificationService::MODULE_ID, CalendarNotificationService::TASK_KEY, 'event-' . $past));
-        $this->assertNotNull($this->scheduler->find(CalendarNotificationService::MODULE_ID, CalendarNotificationService::TASK_KEY, 'event-' . $future));
+        $this->assertNull($this->reminderOf($past));
+        $this->assertNotNull($this->reminderOf($future));
         $this->assertSame([], $this->dispatched);
     }
 
     public function testTheWritableCalendarsAreTheChiefPagesEditableSet(): void
     {
-        $adminOnly = $this->calendarRepository->createSupplementaryCalendar('Direction', false, Calendar::VISIBILITY_ADMIN, 'tok-admin');
+        $adminOnly = $this->adminOnlyCalendar();
         $section = $this->sectionCalendar();
 
         $this->rights[self::ACCOUNT] = ['role' => Role::CHIEF, 'sections' => []];
-        $ids = array_map(static fn (SelectableCalendar $c): int => $c->id, $this->writer->writableCalendars(self::ACCOUNT));
+        $ids = $this->writableIds();
         $this->assertContains($this->supplementaryId, $ids);
         $this->assertNotContains($adminOnly, $ids, 'A chief may not write to an admin-only calendar.');
         $this->assertNotContains($section, $ids, 'A chief may not write to a section he does not staff.');
 
         $this->rights[self::ACCOUNT] = ['role' => Role::ADMIN, 'sections' => [$this->sectionOf($section)]];
-        $ids = array_map(static fn (SelectableCalendar $c): int => $c->id, $this->writer->writableCalendars(self::ACCOUNT));
+        $ids = $this->writableIds();
         $this->assertContains($adminOnly, $ids);
         $this->assertContains($section, $ids);
         $this->assertTrue($this->writer->canWriteTo(self::ACCOUNT, $adminOnly));
@@ -210,7 +246,7 @@ final class CalendarImportWriterTest extends TestCase
      */
     public function testTheRightIsCheckedAgainAtEveryWrite(): void
     {
-        $adminOnly = $this->calendarRepository->createSupplementaryCalendar('Direction', false, Calendar::VISIBILITY_ADMIN, 'tok-admin');
+        $adminOnly = $this->adminOnlyCalendar();
         $this->writer->createImportedEvent(self::ACCOUNT, $adminOnly, new ImportedEvent('Avant', '2025-01-01'));
         $asked = $this->rightsAsked;
 
@@ -243,7 +279,9 @@ final class CalendarImportWriterTest extends TestCase
         return [
             'no title' => [new ImportedEvent('  ', '2025-01-01')],
             'a title over 200 characters' => [new ImportedEvent(str_repeat('a', 201), '2025-01-01')],
-            'a place over 255 characters' => [new ImportedEvent('Titre', '2025-01-01', null, null, null, str_repeat('a', 256))],
+            'a place over 255 characters' => [
+                new ImportedEvent('Titre', '2025-01-01', null, null, null, str_repeat('a', 256)),
+            ],
             'no date' => [new ImportedEvent('Titre', '')],
             'an end before the start' => [new ImportedEvent('Titre', '2025-01-02', '2025-01-01')],
             'an impossible hour' => [new ImportedEvent('Titre', '2025-01-01', null, '25:00')],
@@ -263,11 +301,42 @@ final class CalendarImportWriterTest extends TestCase
         $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM calendar_events')->fetchColumn());
     }
 
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function reminderOf(int $eventId): ?array
+    {
+        return $this->scheduler->find(
+            CalendarNotificationService::MODULE_ID,
+            CalendarNotificationService::TASK_KEY,
+            'event-' . $eventId
+        );
+    }
+
+    /**
+     * @return list<int>
+     */
+    private function writableIds(): array
+    {
+        return array_map(
+            static fn (SelectableCalendar $c): int => $c->id,
+            $this->writer->writableCalendars(self::ACCOUNT)
+        );
+    }
+
+    private function adminOnlyCalendar(): int
+    {
+        return $this->calendarRepository
+            ->createSupplementaryCalendar('Direction', false, Calendar::VISIBILITY_ADMIN, 'tok-admin');
+    }
+
     private function sectionCalendar(): int
     {
-        $this->pdo->prepare('INSERT INTO age_branches (desk_code, label, sort_order) VALUES (?, ?, ?)')->execute(['LOU', 'Louveteaux', 20]);
+        $this->pdo->prepare('INSERT INTO age_branches (desk_code, label, sort_order) VALUES (?, ?, ?)')
+            ->execute(['LOU', 'Louveteaux', 20]);
         $branchId = (int) $this->pdo->lastInsertId();
-        $this->pdo->prepare('INSERT INTO sections (desk_code, age_branch_id, name) VALUES (?, ?, ?)')->execute(['LOU01', $branchId, 'Meute']);
+        $this->pdo->prepare('INSERT INTO sections (desk_code, age_branch_id, name) VALUES (?, ?, ?)')
+            ->execute(['LOU01', $branchId, 'Meute']);
         $sectionId = (int) $this->pdo->lastInsertId();
 
         return $this->calendarRepository->createSectionCalendar($sectionId, Calendar::VISIBILITY_PUBLIC);

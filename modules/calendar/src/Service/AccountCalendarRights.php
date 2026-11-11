@@ -51,13 +51,18 @@ class AccountCalendarRights
             return null;
         }
 
-        $role = Role::fromString($this->roles->resolveAcrossYears($account->email, $this->authorizationYears->resolve()));
+        $role = Role::fromString(
+            $this->roles->resolveAcrossYears($account->email, $this->authorizationYears->resolve())
+        );
         $sections = $this->staff->getStaffedSections(
             $account->email,
             $role->value,
             (int) $this->scoutYears->getCurrentYear()['id']
         );
 
-        return ['role' => $role, 'sections' => array_values(array_map(static fn (array $s): int => (int) $s['id'], $sections))];
+        return [
+            'role' => $role,
+            'sections' => array_values(array_map(static fn (array $s): int => (int) $s['id'], $sections)),
+        ];
     }
 }

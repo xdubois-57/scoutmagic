@@ -63,7 +63,8 @@ final class IcsCalendarStack
     public function __construct(\PDO $pdo, Connection $connection, EncryptionService $encryption)
     {
         [$year, $start, $end] = DatabaseTestHelper::scoutYear();
-        $pdo->prepare('INSERT INTO scout_years (label, start_date, end_date) VALUES (?, ?, ?)')->execute([$year, $start, $end]);
+        $pdo->prepare('INSERT INTO scout_years (label, start_date, end_date) VALUES (?, ?, ?)')
+            ->execute([$year, $start, $end]);
 
         $this->accounts = new UserAccountRepository($pdo, $encryption);
         $scoutYears = new ScoutYearService($pdo);
@@ -75,12 +76,29 @@ final class IcsCalendarStack
         $memberEmails = new MemberEmailRepository($pdo, $encryption);
         $calendarRepository = new CalendarRepository($pdo, $encryption);
         $events = new CalendarEventRepository($pdo);
-        $calendars = new CalendarService($calendarRepository, $events, $sections, new CalendarUnitFeedTokenRepository($pdo, $encryption));
+        $calendars = new CalendarService(
+            $calendarRepository,
+            $events,
+            $sections,
+            new CalendarUnitFeedTokenRepository($pdo, $encryption)
+        );
 
         $this->dispatched = new \ArrayObject();
-        $notifications = new class (new SchedulerService(new SchedulerRepository($pdo)), $settings, $calendars, $events, $this->dispatched) extends CalendarNotificationService {
+        $notifications = new class (
+            new SchedulerService(new SchedulerRepository($pdo)),
+            $settings,
+            $calendars,
+            $events,
+            $this->dispatched
+        ) extends CalendarNotificationService {
             /** @param \ArrayObject<int, string> $dispatched */
-            public function __construct(SchedulerService $s, SettingService $t, CalendarService $c, CalendarEventRepository $e, private \ArrayObject $dispatched)
+            public function __construct(
+                SchedulerService $s,
+                SettingService $t,
+                CalendarService $c,
+                CalendarEventRepository $e,
+                private \ArrayObject $dispatched
+            )
             {
                 parent::__construct($s, $t, $c, $e);
             }
@@ -98,11 +116,15 @@ final class IcsCalendarStack
                 $this->accounts,
                 new RoleResolver(new MemberYearRepository($pdo), $encryption, $pdo, $memberEmails),
                 new AuthorizationYearService($scoutYears, $settings),
-                new SectionStaffAuthorizationService(new StaffedSectionRepository($connection, $encryption, $memberEmails), $sections),
+                new SectionStaffAuthorizationService(
+                    new StaffedSectionRepository($connection, $encryption, $memberEmails),
+                    $sections
+                ),
                 $scoutYears
             )
         );
-        $this->calendarId = $calendarRepository->createSupplementaryCalendar('Animateurs', true, Calendar::VISIBILITY_PUBLIC, 'tok');
+        $this->calendarId = $calendarRepository
+            ->createSupplementaryCalendar('Animateurs', true, Calendar::VISIBILITY_PUBLIC, 'tok');
         // A super-administrator: every calendar is theirs to write to.
         $this->adminId = $this->accounts->create('chef.unite@exemple.test', true)->id;
 

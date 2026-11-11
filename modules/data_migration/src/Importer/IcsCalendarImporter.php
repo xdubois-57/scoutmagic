@@ -114,7 +114,9 @@ final class IcsCalendarImporter implements FormSourceImporter
         $address = self::normalisedAddress((string) ($fields['adresse'] ?? ''));
         $host = $address !== null ? parse_url($address, PHP_URL_HOST) : null;
         if ($address === null || !is_string($host) || $host === '') {
-            throw new SourceRejectedException('Indiquez l\'adresse complète du calendrier, qui commence par https://, http:// ou webcal://.');
+            throw new SourceRejectedException(
+                'Indiquez l\'adresse complète du calendrier, qui commence par https://, http:// ou webcal://.'
+            );
         }
 
         $calendarId = IntegerInput::id($fields['calendrier'] ?? null);
@@ -136,8 +138,8 @@ final class IcsCalendarImporter implements FormSourceImporter
         $body = $this->fetcher->fetchCalendar($address);
         if ($body === null) {
             throw new SourceRejectedException(
-                'Le calendrier n\'a pas pu être téléchargé. Vérifiez que l\'adresse est publique, qu\'elle mène bien à un fichier ICS '
-                . '(et non à une page web) et que ce fichier fait au plus 5 Mo.'
+                'Le calendrier n\'a pas pu être téléchargé. Vérifiez que l\'adresse est publique, '
+                . 'qu\'elle mène bien à un fichier ICS (et non à une page web) et que ce fichier fait au plus 5 Mo.'
             );
         }
 
@@ -151,7 +153,9 @@ final class IcsCalendarImporter implements FormSourceImporter
         try {
             $this->reader->convert($raw, $events);
         } catch (IcsUnreadableException) {
-            throw new SourceRejectedException('Ce fichier n\'est pas un calendrier ICS lisible, ou il ne contient aucun événement.');
+            throw new SourceRejectedException(
+                'Ce fichier n\'est pas un calendrier ICS lisible, ou il ne contient aucun événement.'
+            );
         } finally {
             @unlink($raw);
         }
@@ -241,13 +245,18 @@ final class IcsCalendarImporter implements FormSourceImporter
         foreach ($summary->tags as $tag => $count) {
             if (str_starts_with($tag, self::TAG_DESTINATION)) {
                 $notes[] = PreviewNote::info(sprintf(
-                    $count > 1 ? '%d événements ajoutés au calendrier « %s ».' : '%d événement ajouté au calendrier « %s ».',
+                    $count > 1
+                        ? '%d événements ajoutés au calendrier « %s ».'
+                        : '%d événement ajouté au calendrier « %s ».',
                     $count,
                     substr($tag, strlen(self::TAG_DESTINATION))
                 ));
             }
         }
-        $notes[] = PreviewNote::info('Les heures sont converties à l\'heure de Bruxelles. Les événements sans heure deviennent « toute la journée ».');
+        $notes[] = PreviewNote::info(
+            'Les heures sont converties à l\'heure de Bruxelles. '
+            . 'Les événements sans heure deviennent « toute la journée ».'
+        );
 
         $before = 0;
         $unreadable = 0;
@@ -312,13 +321,19 @@ final class IcsCalendarImporter implements FormSourceImporter
     {
         $row = json_decode($line, true);
         if (!is_array($row)) {
-            return SourceItem::unreadable(self::KIND, 'événement n° ' . ($position + 1), self::UNREADABLE_PREFIX . 'ligne illisible');
+            return SourceItem::unreadable(
+                self::KIND,
+                'événement n° ' . ($position + 1),
+                self::UNREADABLE_PREFIX . 'ligne illisible'
+            );
         }
         $uid = (string) ($row['uid'] ?? '');
         $reference = self::reference($position, $uid, is_string($row['date'] ?? null) ? $row['date'] : null);
 
         if (($row['state'] ?? null) === IcsEventReader::STATE_UNREADABLE) {
-            return SourceItem::unreadable(self::KIND, $reference, self::UNREADABLE_PREFIX . (string) ($row['reason'] ?? 'événement incomplet'));
+            $reason = (string) ($row['reason'] ?? 'événement incomplet');
+
+            return SourceItem::unreadable(self::KIND, $reference, self::UNREADABLE_PREFIX . $reason);
         }
         if ($uid === '') {
             // A recurring or cancelled event without a UID: nothing will be
@@ -372,6 +387,8 @@ final class IcsCalendarImporter implements FormSourceImporter
 
     private function now(): \DateTimeImmutable
     {
-        return $this->clock !== null ? ($this->clock)() : new \DateTimeImmutable('now', new \DateTimeZone(IcsEventReader::TIME_ZONE));
+        return $this->clock !== null
+            ? ($this->clock)()
+            : new \DateTimeImmutable('now', new \DateTimeZone(IcsEventReader::TIME_ZONE));
     }
 }

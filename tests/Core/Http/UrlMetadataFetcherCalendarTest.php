@@ -29,7 +29,7 @@ final class UrlMetadataFetcherCalendarTest extends TestCase
 
     public function testACalendarServedAsTextCalendarIsReturnedWhole(): void
     {
-        $fetcher = self::answering([['status' => 200, 'headers' => ['content-type' => 'text/calendar; charset=utf-8'], 'body' => self::ICS]]);
+        $fetcher = self::answering([self::ok(self::ICS, 'text/calendar; charset=utf-8')]);
 
         $this->assertSame(self::ICS, $fetcher->fetchCalendar('https://agenda.example/basic.ics'));
         $this->assertSame([['agenda.example', '93.184.216.34', '/basic.ics']], $fetcher->requests);
@@ -42,11 +42,12 @@ final class UrlMetadataFetcherCalendarTest extends TestCase
      */
     public function testTheCeilingIsFiveMegabytesAndLargerIsRefusedRatherThanCut(): void
     {
-        $exact = self::answering([['status' => 200, 'headers' => ['content-type' => 'text/calendar'], 'body' => str_repeat('a', UrlMetadataFetcher::MAX_CALENDAR_BYTES)]]);
-        $this->assertSame(UrlMetadataFetcher::MAX_CALENDAR_BYTES, strlen((string) $exact->fetchCalendar('https://agenda.example/a.ics')));
+        $exact = self::answering([self::ok(str_repeat('a', UrlMetadataFetcher::MAX_CALENDAR_BYTES))]);
+        $body = (string) $exact->fetchCalendar('https://agenda.example/a.ics');
+        $this->assertSame(UrlMetadataFetcher::MAX_CALENDAR_BYTES, strlen($body));
         $this->assertSame([UrlMetadataFetcher::MAX_CALENDAR_BYTES + 1], $exact->maxBytes);
 
-        $over = self::answering([['status' => 200, 'headers' => ['content-type' => 'text/calendar'], 'body' => str_repeat('a', UrlMetadataFetcher::MAX_CALENDAR_BYTES + 1)]]);
+        $over = self::answering([self::ok(str_repeat('a', UrlMetadataFetcher::MAX_CALENDAR_BYTES + 1))]);
         $this->assertNull($over->fetchCalendar('https://agenda.example/a.ics'));
         $this->assertSame(5 * 1024 * 1024, UrlMetadataFetcher::MAX_CALENDAR_BYTES);
     }
@@ -67,14 +68,15 @@ final class UrlMetadataFetcherCalendarTest extends TestCase
     #[DataProvider('notACalendar')]
     public function testAnythingButTextCalendarIsRefused(string $contentType): void
     {
-        $fetcher = self::answering([['status' => 200, 'headers' => $contentType === '' ? [] : ['content-type' => $contentType], 'body' => self::ICS]]);
+        $headers = $contentType === '' ? [] : ['content-type' => $contentType];
+        $fetcher = self::answering([['status' => 200, 'headers' => $headers, 'body' => self::ICS]]);
 
         $this->assertNull($fetcher->fetchCalendar('https://agenda.example/basic.ics'));
     }
 
     public function testAnErrorStatusIsRefused(): void
     {
-        $fetcher = self::answering([['status' => 404, 'headers' => ['content-type' => 'text/calendar'], 'body' => self::ICS]]);
+        $fetcher = self::answering([['status' => 404] + self::ok(self::ICS)]);
 
         $this->assertNull($fetcher->fetchCalendar('https://agenda.example/basic.ics'));
     }
@@ -103,7 +105,7 @@ final class UrlMetadataFetcherCalendarTest extends TestCase
     #[DataProvider('unsafeTargets')]
     public function testAnUnsafeTargetIsRefusedBeforeAnyRequest(string $url): void
     {
-        $fetcher = self::answering([['status' => 200, 'headers' => ['content-type' => 'text/calendar'], 'body' => self::ICS]]);
+        $fetcher = self::answering([self::ok(self::ICS)]);
 
         $this->assertNull($fetcher->fetchCalendar($url));
         $this->assertSame([], $fetcher->requests);
@@ -137,10 +139,19 @@ final class UrlMetadataFetcherCalendarTest extends TestCase
 
     public function testAnEndlessRedirectChainStops(): void
     {
-        $fetcher = self::answering(array_fill(0, 20, ['status' => 302, 'headers' => ['location' => '/encore'], 'body' => '']));
+        $redirect = ['status' => 302, 'headers' => ['location' => '/encore'], 'body' => ''];
+        $fetcher = self::answering(array_fill(0, 20, $redirect));
 
         $this->assertNull($fetcher->fetchCalendar('https://agenda.example/basic.ics'));
         $this->assertLessThanOrEqual(6, count($fetcher->requests));
+    }
+
+    /**
+     * @return array{status: int, headers: array<string, string>, body: string}
+     */
+    private static function ok(string $body, string $contentType = 'text/calendar'): array
+    {
+        return ['status' => 200, 'headers' => ['content-type' => $contentType], 'body' => $body];
     }
 
     /**

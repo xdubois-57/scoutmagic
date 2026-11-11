@@ -58,7 +58,8 @@ final class IcsCalendarImporterTest extends TestCase
         $this->importer = new IcsCalendarImporter(
             $this->calendars,
             $this->fetcher,
-            clock: static fn (): \DateTimeImmutable => new \DateTimeImmutable('2026-11-11 10:00', new \DateTimeZone('Europe/Brussels'))
+            clock: static fn (): \DateTimeImmutable
+                => new \DateTimeImmutable('2026-11-11 10:00', new \DateTimeZone('Europe/Brussels'))
         );
     }
 
@@ -89,7 +90,8 @@ final class IcsCalendarImporterTest extends TestCase
     {
         $context = $this->importer->sourceFormContext(self::ACCOUNT);
 
-        $this->assertSame([3, 5], array_map(static fn (SelectableCalendar $c): int => $c->id, $context['ics_calendars']));
+        $ids = array_map(static fn (SelectableCalendar $c): int => $c->id, $context['ics_calendars']);
+        $this->assertSame([3, 5], $ids);
         $this->assertSame('2024-11-11', $context['ics_default_min_date']);
         $this->assertSame([], $this->importer->sourceFormContext(99)['ics_calendars']);
     }
@@ -132,7 +134,10 @@ final class IcsCalendarImporterTest extends TestCase
 
         $this->assertSame(hash('sha256', self::ADDRESS), $accepted->installationId);
         $this->assertSame('ics', $accepted->format);
-        $this->assertSame(['calendar_id' => 5, 'calendar_label' => 'Louveteaux', 'min_date' => '2024-11-11'], $accepted->parameters);
+        $this->assertSame(
+            ['calendar_id' => 5, 'calendar_label' => 'Louveteaux', 'min_date' => '2024-11-11'],
+            $accepted->parameters
+        );
         $this->assertSame('Le calendrier de agenda.exemple.test', $accepted->label);
         $this->assertSame($this->workspace . '/events.jsonl', $accepted->filePath);
         $this->assertCount(8, file((string) $accepted->filePath) ?: []);
@@ -162,14 +167,26 @@ final class IcsCalendarImporterTest extends TestCase
 
         return [
             'no address' => [['adresse' => ''] + $ok, 'l\'adresse complète du calendrier'],
-            'not a web address' => [['adresse' => 'ftp://agenda.exemple.test/a.ics'] + $ok, 'l\'adresse complète du calendrier'],
+            'not a web address' => [
+                ['adresse' => 'ftp://agenda.exemple.test/a.ics'] + $ok,
+                'l\'adresse complète du calendrier',
+            ],
             'no host' => [['adresse' => 'https://'] + $ok, 'l\'adresse complète du calendrier'],
-            'a calendar of somebody else' => [['calendrier' => '4'] + $ok, 'un calendrier de destination que vous pouvez modifier'],
+            'a calendar of somebody else' => [
+                ['calendrier' => '4'] + $ok,
+                'un calendrier de destination que vous pouvez modifier',
+            ],
             'no calendar' => [['calendrier' => ''] + $ok, 'un calendrier de destination que vous pouvez modifier'],
             'no date' => [['date_minimale' => ''] + $ok, 'une date valide'],
             'an impossible date' => [['date_minimale' => '2024-02-30'] + $ok, 'une date valide'],
-            'an address that does not answer' => [['adresse' => 'https://agenda.exemple.test/absent.ics'] + $ok, 'n\'a pas pu être téléchargé'],
-            'a page that is not a calendar' => [['adresse' => 'https://agenda.exemple.test/page.html'] + $ok, 'n\'est pas un calendrier ICS lisible'],
+            'an address that does not answer' => [
+                ['adresse' => 'https://agenda.exemple.test/absent.ics'] + $ok,
+                'n\'a pas pu être téléchargé',
+            ],
+            'a page that is not a calendar' => [
+                ['adresse' => 'https://agenda.exemple.test/page.html'] + $ok,
+                'n\'est pas un calendrier ICS lisible',
+            ],
         ];
     }
 
@@ -191,7 +208,11 @@ final class IcsCalendarImporterTest extends TestCase
     public function testNothingIsDownloadedBeforeTheFormIsValid(): void
     {
         try {
-            $this->importer->acceptSource(['adresse' => self::ADDRESS, 'calendrier' => '4', 'date_minimale' => '2024-11-11'], $this->workspace, self::ACCOUNT);
+            $this->importer->acceptSource(
+                ['adresse' => self::ADDRESS, 'calendrier' => '4', 'date_minimale' => '2024-11-11'],
+                $this->workspace,
+                self::ACCOUNT
+            );
         } catch (SourceRejectedException) {
         }
 
@@ -204,7 +225,10 @@ final class IcsCalendarImporterTest extends TestCase
 
         // Seven events from 2025 on; the 2020 one is before the minimum date.
         $this->assertSame(array_fill(0, 7, ItemVerdict::IMPORT), array_slice(array_column($verdicts, 'outcome'), 0, 7));
-        $this->assertSame([ItemVerdict::IGNORED, 'Antérieur au 11/11/2024 (date minimale)'], [$verdicts[7]['outcome'], $verdicts[7]['reason']]);
+        $this->assertSame(
+            [ItemVerdict::IGNORED, 'Antérieur au 11/11/2024 (date minimale)'],
+            [$verdicts[7]['outcome'], $verdicts[7]['reason']]
+        );
         $this->assertSame(['destination:Louveteaux'], $verdicts[0]['tags']);
 
         $recurring = $this->verdicts('https://agenda.exemple.test/recurrences.ics', '2024-11-11');
@@ -220,7 +244,12 @@ final class IcsCalendarImporterTest extends TestCase
         $verdicts = $this->verdicts(self::ADDRESS, '2025-07-04');
 
         $this->assertSame(
-            [ItemVerdict::IGNORED, ItemVerdict::IGNORED, ItemVerdict::IMPORT, ItemVerdict::IMPORT, ItemVerdict::IMPORT, ItemVerdict::IMPORT, ItemVerdict::IMPORT, ItemVerdict::IGNORED],
+            [
+                ItemVerdict::IGNORED,
+                ItemVerdict::IGNORED,
+                ...array_fill(0, 5, ItemVerdict::IMPORT),
+                ItemVerdict::IGNORED,
+            ],
             array_column($verdicts, 'outcome')
         );
     }
@@ -270,7 +299,10 @@ final class IcsCalendarImporterTest extends TestCase
 
         $verdict = $this->importer->inspect($item, $this->context($accepted));
 
-        $this->assertSame([ItemVerdict::IGNORED, 'Calendrier de destination non modifiable'], [$verdict->outcome, $verdict->reason]);
+        $this->assertSame(
+            [ItemVerdict::IGNORED, 'Calendrier de destination non modifiable'],
+            [$verdict->outcome, $verdict->reason]
+        );
     }
 
     public function testWriteHandsTheConvertedEventToTheCalendarModule(): void
@@ -287,9 +319,20 @@ final class IcsCalendarImporterTest extends TestCase
         $this->assertSame([self::ACCOUNT, 5], [$utc['account'], $utc['calendar']]);
         $this->assertSame(
             ['Conseil d\'unité (heure UTC)', '2025-06-20', null, '20:00', '22:00', null, null],
-            [$utc['event']->title, $utc['event']->startDate, $utc['event']->endDate, $utc['event']->startTime, $utc['event']->endTime, $utc['event']->location, $utc['event']->description]
+            [
+                $utc['event']->title,
+                $utc['event']->startDate,
+                $utc['event']->endDate,
+                $utc['event']->startTime,
+                $utc['event']->endTime,
+                $utc['event']->location,
+                $utc['event']->description,
+            ]
         );
-        $this->assertSame(['2025-07-20', '2025-07-30', null, null], [$camp['event']->startDate, $camp['event']->endDate, $camp['event']->startTime, $camp['event']->endTime]);
+        $this->assertSame(
+            ['2025-07-20', '2025-07-30', null, null],
+            [$camp['event']->startDate, $camp['event']->endDate, $camp['event']->startTime, $camp['event']->endTime]
+        );
     }
 
     public function testAVeryLongUidIsStillOneStableKey(): void
@@ -327,9 +370,11 @@ final class IcsCalendarImporterTest extends TestCase
 
         $this->assertSame([
             'info 288 événements ajoutés au calendrier « Animateurs ».',
-            'info Les heures sont converties à l\'heure de Bruxelles. Les événements sans heure deviennent « toute la journée ».',
+            'info Les heures sont converties à l\'heure de Bruxelles. '
+                . 'Les événements sans heure deviennent « toute la journée ».',
             'info 61 événements antérieurs à la date minimale : non importés.',
-            'warning 37 événements récurrents ou occurrences modifiées : exclus. Recréez-les dans ScoutMagic si besoin.',
+            'warning 37 événements récurrents ou occurrences modifiées : exclus. '
+                . 'Recréez-les dans ScoutMagic si besoin.',
             'warning 8 événements illisibles ou incomplets : ignorés.',
         ], $texts);
     }
@@ -378,6 +423,13 @@ final class IcsCalendarImporterTest extends TestCase
 
     private function context(AcceptedSource $accepted): ImportContext
     {
-        return new ImportContext(1, $accepted->installationId, $accepted->format, self::ACCOUNT, self::source($accepted), static fn (string $label): ?int => null);
+        return new ImportContext(
+            1,
+            $accepted->installationId,
+            $accepted->format,
+            self::ACCOUNT,
+            self::source($accepted),
+            static fn (string $label): ?int => null
+        );
     }
 }

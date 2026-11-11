@@ -97,7 +97,8 @@ final class IcsEventReader
                         ? self::unreadable('événement trop volumineux')
                         : $this->read($raw, $timeZones);
                     $record = self::withUniqueUid($record, $uids);
-                    fwrite($out, json_encode($record, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n");
+                    $json = json_encode($record, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+                    fwrite($out, $json . "\n");
                     $count++;
                 }
             } finally {
@@ -177,7 +178,9 @@ final class IcsEventReader
             'date' => $when['start_date'],
             'title' => self::cut($title, self::MAX_TITLE_CHARS),
             ...$when,
-            'location' => self::nullIfEmpty(self::cut(self::oneLine(self::text($event, 'LOCATION')), self::MAX_LOCATION_CHARS)),
+            'location' => self::nullIfEmpty(
+                self::cut(self::oneLine(self::text($event, 'LOCATION')), self::MAX_LOCATION_CHARS)
+            ),
             'description' => self::nullIfEmpty(self::description(self::text($event, 'DESCRIPTION'))),
         ];
     }
@@ -225,7 +228,12 @@ final class IcsEventReader
                 throw new IcsUnreadableException('la fin précède le début');
             }
 
-            return ['start_date' => $first, 'end_date' => $last > $first ? $last : null, 'start_time' => null, 'end_time' => null];
+            return [
+                'start_date' => $first,
+                'end_date' => $last > $first ? $last : null,
+                'start_time' => null,
+                'end_time' => null,
+            ];
         }
 
         $startLocal = $startAt->setTimezone($brussels);
@@ -237,7 +245,9 @@ final class IcsEventReader
 
         return [
             'start_date' => $startLocal->format('Y-m-d'),
-            'end_date' => $hasEnd && $endLocal->format('Y-m-d') !== $startLocal->format('Y-m-d') ? $endLocal->format('Y-m-d') : null,
+            'end_date' => $hasEnd && $endLocal->format('Y-m-d') !== $startLocal->format('Y-m-d')
+                ? $endLocal->format('Y-m-d')
+                : null,
             'start_time' => $startLocal->format('H:i'),
             'end_time' => $hasEnd ? $endLocal->format('H:i') : null,
         ];
@@ -488,6 +498,8 @@ final class IcsEventReader
         }
         $text = trim((string) preg_replace("/\n{3,}/", "\n\n", str_replace(["\r\n", "\r"], "\n", $text)));
 
-        return strlen($text) > self::MAX_DESCRIPTION_BYTES ? mb_strcut($text, 0, self::MAX_DESCRIPTION_BYTES - 3) . '…' : $text;
+        return strlen($text) > self::MAX_DESCRIPTION_BYTES
+            ? mb_strcut($text, 0, self::MAX_DESCRIPTION_BYTES - 3) . '…'
+            : $text;
     }
 }

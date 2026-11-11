@@ -77,7 +77,7 @@ final class IcsEventReaderTest extends TestCase
         $events = $this->convert('recurrences.ics');
 
         $this->assertSame(
-            [IcsEventReader::STATE_RECURRING, IcsEventReader::STATE_RECURRING, IcsEventReader::STATE_RECURRING, IcsEventReader::STATE_RECURRING, IcsEventReader::STATE_EVENT],
+            [...array_fill(0, 4, IcsEventReader::STATE_RECURRING), IcsEventReader::STATE_EVENT],
             array_column($events, 'state')
         );
         $this->assertSame('simple@exemple.test', $events[4]['uid']);
@@ -85,7 +85,9 @@ final class IcsEventReaderTest extends TestCase
 
     public function testAnUnparseableRecurringEventIsStillExcludedAsRecurring(): void
     {
-        $record = (new IcsEventReader())->read("BEGIN:VEVENT\r\nUID:x\r\nRRULE:FREQ=WEEKLY\r\nDTSTART:pas une date\r\n");
+        $record = (new IcsEventReader())->read(
+            "BEGIN:VEVENT\r\nUID:x\r\nRRULE:FREQ=WEEKLY\r\nDTSTART:pas une date\r\n"
+        );
 
         $this->assertSame(IcsEventReader::STATE_RECURRING, $record['state']);
     }
@@ -137,11 +139,18 @@ final class IcsEventReaderTest extends TestCase
     public function testAFileEndingInsideAnEventKeepsTheEventsBefore(): void
     {
         $file = sys_get_temp_dir() . '/ics_cut_' . bin2hex(random_bytes(4)) . '.ics';
-        file_put_contents($file, "\xEF\xBB\xBFBEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:a\nDTSTART;VALUE=DATE:20250101\nSUMMARY:Un\nEND:VEVENT\nBEGIN:VEVENT\nUID:b\nDTSTART");
+        file_put_contents(
+            $file,
+            "\xEF\xBB\xBFBEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:a\nDTSTART;VALUE=DATE:20250101\nSUMMARY:Un\n"
+            . "END:VEVENT\nBEGIN:VEVENT\nUID:b\nDTSTART"
+        );
 
         try {
             $events = (new IcsEventReader())->convert($file, $this->out);
-            $lines = array_map(static fn (string $l): array => json_decode($l, true), file($this->out, FILE_IGNORE_NEW_LINES) ?: []);
+            $lines = array_map(
+                static fn (string $l): array => json_decode($l, true),
+                file($this->out, FILE_IGNORE_NEW_LINES) ?: []
+            );
         } finally {
             @unlink($file);
         }
@@ -154,7 +163,8 @@ final class IcsEventReaderTest extends TestCase
     public function testATitleIsKeptOnOneLineAndCutToTheColumn(): void
     {
         $record = (new IcsEventReader())->read(
-            "BEGIN:VEVENT\r\nUID:long\r\nDTSTART;VALUE=DATE:20250101\r\nSUMMARY:" . str_repeat('é', 250) . "\r\nEND:VEVENT\r\n"
+            "BEGIN:VEVENT\r\nUID:long\r\nDTSTART;VALUE=DATE:20250101\r\nSUMMARY:"
+            . str_repeat('é', 250) . "\r\nEND:VEVENT\r\n"
         );
 
         $this->assertSame(IcsEventReader::MAX_TITLE_CHARS, mb_strlen($record['title']));
@@ -173,8 +183,9 @@ final class IcsEventReaderTest extends TestCase
         $i = 0;
         while (ftell($handle) < 5 * 1024 * 1024 - 400) {
             $i++;
-            fwrite($handle, "BEGIN:VEVENT\r\nUID:evt-$i@exemple.test\r\nDTSTART;TZID=Europe/Brussels:20250101T140000\r\n"
-                . "DTEND;TZID=Europe/Brussels:20250101T170000\r\nSUMMARY:Réunion $i\r\nDESCRIPTION:Une description pour remplir le fichier $i\r\nEND:VEVENT\r\n");
+            fwrite($handle, "BEGIN:VEVENT\r\nUID:evt-$i@exemple.test\r\n"
+                . "DTSTART;TZID=Europe/Brussels:20250101T140000\r\nDTEND;TZID=Europe/Brussels:20250101T170000\r\n"
+                . "SUMMARY:Réunion $i\r\nDESCRIPTION:Une description pour remplir le fichier $i\r\nEND:VEVENT\r\n");
         }
         fwrite($handle, "END:VCALENDAR\r\n");
         fclose($handle);

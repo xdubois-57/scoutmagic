@@ -75,7 +75,16 @@ final class IcsCalendarImportOnMysqlTest extends TestCase
         $years = new MissingScoutYears($scoutYears);
         $this->service = new RunService(
             $runs,
-            new ImportEngine($this->pdo, $runs, new ItemMappingRepository($this->pdo), $years, $uploads, new ManifestReader(), $journal, 0.0),
+            new ImportEngine(
+                $this->pdo,
+                $runs,
+                new ItemMappingRepository($this->pdo),
+                $years,
+                $uploads,
+                new ManifestReader(),
+                $journal,
+                0.0
+            ),
             $years,
             $uploads,
             new ChunkedUploadStore($this->storage),
@@ -115,14 +124,20 @@ final class IcsCalendarImportOnMysqlTest extends TestCase
             $this->when('Conseil d\'unité (heure UTC)')
         );
         $this->assertSame(['2025-07-20', '2025-07-30', null, null], $this->when('Grand camp'));
-        $this->assertSame([], $this->stack->dispatched->getArrayCopy(), 'An imported event was announced to the members.');
+        $this->assertSame(
+            [],
+            $this->stack->dispatched->getArrayCopy(),
+            'An imported event was announced to the members.'
+        );
         $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM notifications')->fetchColumn());
         // Every event of the fixture is past: no reminder at all.
-        $this->assertSame(0, (int) $this->pdo->query("SELECT COUNT(*) FROM scheduled_actions WHERE module_id = 'calendar'")->fetchColumn());
-        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM calendar_events WHERE auto_create_retro = 1')->fetchColumn());
+        $this->assertSame(0, $this->countRows("SELECT COUNT(*) FROM scheduled_actions WHERE module_id = 'calendar'"));
+        $this->assertSame(0, $this->countRows('SELECT COUNT(*) FROM calendar_events WHERE auto_create_retro = 1'));
         $this->assertSame(
             [hash('sha256', self::ADDRESS), 'ics', 'event', 'calendar_event'],
-            array_values($this->pdo->query('SELECT installation_id, format, source_kind, target_type FROM data_migration_items LIMIT 1')->fetch(\PDO::FETCH_ASSOC) ?: [])
+            array_values($this->pdo->query(
+                'SELECT installation_id, format, source_kind, target_type FROM data_migration_items LIMIT 1'
+            )->fetch(\PDO::FETCH_ASSOC) ?: [])
         );
     }
 
@@ -132,7 +147,7 @@ final class IcsCalendarImportOnMysqlTest extends TestCase
      */
     public function testTheSameAddressImportedAgainCreatesNothing(): void
     {
-        $this->drive($this->service->confirm($this->drive($this->accept(self::ADDRESS)), []) ?? $this->fail('Not confirmed.'));
+        $this->importAll(self::ADDRESS);
 
         $again = $this->drive($this->accept('webcal://agenda.exemple.test/private-abc/basic.ics'));
         $this->assertSame(7, $again->analysis['present']);
@@ -146,9 +161,10 @@ final class IcsCalendarImportOnMysqlTest extends TestCase
 
     public function testRestartingTheSameRunCreatesNothingEither(): void
     {
-        $done = $this->drive($this->service->confirm($this->drive($this->accept(self::ADDRESS)), []) ?? $this->fail('Not confirmed.'));
+        $done = $this->importAll(self::ADDRESS);
 
-        $again = $this->drive($this->service->restart($this->importer, $done, $this->adminId) ?? $this->fail('No restart.'));
+        $restarted = $this->service->restart($this->importer, $done, $this->adminId) ?? $this->fail('No restart.');
+        $again = $this->drive($restarted);
         $again = $this->drive($this->service->confirm($again, []) ?? $this->fail('Not confirmed.'));
 
         $this->assertSame(7, $again->report['present']);
@@ -162,22 +178,27 @@ final class IcsCalendarImportOnMysqlTest extends TestCase
      */
     public function testRecurringCancelledAndUnreadableEventsAreCountedApart(): void
     {
-        $recurring = $this->drive($this->service->confirm($this->drive($this->accept(IcsCalendarStack::RECURRENCES)), []) ?? $this->fail('Not confirmed.'));
+        $recurring = $this->importAll(IcsCalendarStack::RECURRENCES);
         $this->assertSame(1, $recurring->report['imported']);
         $this->assertSame(['Événement récurrent, exclu' => 4], $recurring->report['ignored']);
 
-        $incomplete = $this->drive($this->service->confirm($this->drive($this->accept(IcsCalendarStack::INCOMPLETE)), []) ?? $this->fail('Not confirmed.'));
+        $incomplete = $this->importAll(IcsCalendarStack::INCOMPLETE);
         $this->assertSame(1, $incomplete->report['imported']);
         $this->assertSame(1, $incomplete->report['ignored']['Événement annulé']);
         $this->assertSame(1, $incomplete->report['ignored']['Illisible : UID en double dans le fichier']);
         $this->assertSame(7, array_sum(array_map(
             'intval',
-            array_filter($incomplete->report['ignored'], static fn (string $r): bool => str_starts_with($r, 'Illisible : '), ARRAY_FILTER_USE_KEY)
+            array_filter(
+                $incomplete->report['ignored'],
+                static fn (string $r): bool => str_starts_with($r, 'Illisible : '),
+                ARRAY_FILTER_USE_KEY
+            )
         )));
         $this->assertSame(0, $incomplete->report['errors']);
         $this->assertSame(2, $this->eventCount());
         // D8: the report shows a day and a UID, never a title.
-        $this->assertStringNotContainsString('Second du nom', (string) json_encode($incomplete->report, JSON_UNESCAPED_UNICODE));
+        $report = (string) json_encode($incomplete->report, JSON_UNESCAPED_UNICODE);
+        $this->assertStringNotContainsString('Second du nom', $report);
     }
 
     /**
@@ -233,6 +254,19 @@ final class IcsCalendarImportOnMysqlTest extends TestCase
         return $run;
     }
 
+    /** Accepted, analysed, confirmed and executed. */
+    private function importAll(string $address): Run
+    {
+        $analysed = $this->drive($this->accept($address));
+
+        return $this->drive($this->service->confirm($analysed, []) ?? $this->fail('Not confirmed.'));
+    }
+
+    private function countRows(string $sql): int
+    {
+        return (int) $this->pdo->query($sql)->fetchColumn();
+    }
+
     private function eventCount(): int
     {
         return (int) $this->pdo->query('SELECT COUNT(*) FROM calendar_events')->fetchColumn();
@@ -243,7 +277,9 @@ final class IcsCalendarImportOnMysqlTest extends TestCase
      */
     private function when(string $title): array
     {
-        $statement = $this->pdo->prepare('SELECT start_date, end_date, start_time, end_time FROM calendar_events WHERE title = ?');
+        $statement = $this->pdo->prepare(
+            'SELECT start_date, end_date, start_time, end_time FROM calendar_events WHERE title = ?'
+        );
         $statement->execute([$title]);
         $row = $statement->fetch(\PDO::FETCH_NUM) ?: $this->fail('No event ' . $title);
 

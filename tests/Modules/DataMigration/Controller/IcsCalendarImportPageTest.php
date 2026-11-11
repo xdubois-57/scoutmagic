@@ -62,7 +62,11 @@ final class IcsCalendarImportPageTest extends TestCase
         $this->pdo = $this->productionEngine();
         $this->storage = sys_get_temp_dir() . '/dm_ics_page_' . bin2hex(random_bytes(6));
         mkdir($this->storage, 0700, true);
-        $this->stack = new IcsCalendarStack($this->pdo, $this->productionEngineSchemaConnection(), new EncryptionService(str_repeat('k', 32), str_repeat('b', 32)));
+        $this->stack = new IcsCalendarStack(
+            $this->pdo,
+            $this->productionEngineSchemaConnection(),
+            new EncryptionService(str_repeat('k', 32), str_repeat('b', 32))
+        );
 
         if (session_status() === PHP_SESSION_NONE) {
             session_start();
@@ -92,7 +96,8 @@ final class IcsCalendarImportPageTest extends TestCase
         $this->assertStringContainsString('Calendrier (fichier ICS)', $body);
         $this->assertStringContainsString('Copie unique, pas un abonnement.', $body);
         $this->assertStringContainsString('action="' . self::PAGE . '/source"', $body);
-        $this->assertStringContainsString('<option value="' . $this->stack->calendarId . '">Animateurs</option>', $body);
+        $option = '<option value="' . $this->stack->calendarId . '">Animateurs</option>';
+        $this->assertStringContainsString($option, $body);
         $this->assertStringContainsString('Les événements récurrents ne sont pas importés', $body);
         $this->assertStringContainsString('Lire le calendrier', $body);
         $this->assertStringNotContainsString('id="data-migration-drop-zone"', $body);
@@ -181,7 +186,13 @@ final class IcsCalendarImportPageTest extends TestCase
         $router = new Router();
         $manifest = ModuleManifest::fromFile(dirname(__DIR__, 4) . '/modules/data_migration/module.json');
         foreach ($manifest->routes as $route) {
-            $router->addRoute($route['method'], $route['path'], $route['controller'], $route['action'], $route['role_min']);
+            $router->addRoute(
+                $route['method'],
+                $route['path'],
+                $route['controller'],
+                $route['action'],
+                $route['role_min']
+            );
         }
         $configFile = sys_get_temp_dir() . '/dm_ics_config_' . bin2hex(random_bytes(4)) . '.php';
         file_put_contents($configFile, "<?php\nreturn ['site_name' => 'Test', 'debug' => false];");
@@ -208,7 +219,16 @@ final class IcsCalendarImportPageTest extends TestCase
                 $registry,
                 new RunService(
                     $runs,
-                    new ImportEngine($this->pdo, $runs, new ItemMappingRepository($this->pdo), $years, $uploads, new ManifestReader(), $journal, 0.0),
+                    new ImportEngine(
+                        $this->pdo,
+                        $runs,
+                        new ItemMappingRepository($this->pdo),
+                        $years,
+                        $uploads,
+                        new ManifestReader(),
+                        $journal,
+                        0.0
+                    ),
                     $years,
                     $uploads,
                     new ChunkedUploadStore($this->storage),
