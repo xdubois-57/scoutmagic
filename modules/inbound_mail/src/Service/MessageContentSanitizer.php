@@ -25,7 +25,8 @@ use Core\Security\HtmlSanitizer;
  *   and wrong here: a 1×1 image in a stranger's email is a read receipt,
  *   and loading it tells the sender when a manager opened their message and
  *   from which network. Remote sources are removed rather than proxied —
- *   proxying still fetches them, just from the server.
+ *   proxying still fetches them, just from the server — and removed from
+ *   the parsed tree, never by a pattern on the text (issue #1122).
  * - **`cid:` images are removed too.** They point at parts of the message
  *   the browser cannot resolve, so they would render as broken images even
  *   if they were harmless.
@@ -69,17 +70,12 @@ class MessageContentSanitizer
             return '';
         }
 
-        // Strip images BEFORE sanitising: the sanitizer's allowlist keeps
-        // <img src="https://..."> as legitimate content, so removing them
-        // afterwards would mean parsing its own output back.
-        $withoutImages = preg_replace('/<img\b[^>]*>/i', '', $html) ?? $html;
-
-        // Some clients set a background image on a table cell; same tracking
-        // problem, different attribute.
-        $withoutImages = preg_replace('/\sbackground\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)/i', '', $withoutImages)
-            ?? $withoutImages;
-
-        $sanitized = $this->htmlSanitizer->sanitize($withoutImages);
+        // Images are removed from the PARSED tree, never from the text
+        // beforehand: a regular expression run first could be "repaired" by
+        // a nested tag, `<im<img x>g src=…>`, into the very tag it removed
+        // (issue #1122). A `background` or `style` attribute — the other
+        // ways mail clients set an image — never survives the sanitizer.
+        $sanitized = $this->htmlSanitizer->sanitizeWithoutImages($html);
 
         // A photo sent from a phone is `<div><img src="cid:…"></div>` and
         // nothing else. Stripping the image leaves markup that renders as
@@ -93,6 +89,23 @@ class MessageContentSanitizer
         }
 
         return $this->truncateHtml($sanitized);
+    }
+
+    /**
+     * A body stored by an earlier version, cleaned again under today's rules
+     * (issue #1122) — the same tree pass and the same « nothing to read »
+     * answer as a new message, but no truncation: a stored body was cut
+     * already, and cutting it again would append a second mark.
+     */
+    public function resanitizeStoredHtml(string $html): string
+    {
+        if (trim($html) === '') {
+            return '';
+        }
+
+        $sanitized = $this->htmlSanitizer->sanitizeWithoutImages($html);
+
+        return self::rendersNothing($sanitized) ? '' : $sanitized;
     }
 
     /**
@@ -130,7 +143,7 @@ class MessageContentSanitizer
 
         $cut = mb_strcut($html, 0, self::MAX_HTML_BYTES, 'UTF-8');
 
-        return $this->htmlSanitizer->sanitize($cut) . self::HTML_TRUNCATION_MARK;
+        return $this->htmlSanitizer->sanitizeWithoutImages($cut) . self::HTML_TRUNCATION_MARK;
     }
 
     /**

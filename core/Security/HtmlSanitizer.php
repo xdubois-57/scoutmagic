@@ -46,6 +46,30 @@ class HtmlSanitizer
      */
     private const URL_SCHEME_ALLOWLIST = ['http', 'https', 'mailto', 'tel'];
 
+    /** Set only for the duration of sanitizeWithoutImages(). */
+    private bool $dropImages = false;
+
+    /**
+     * The same pass with no image at all in the result.
+     *
+     * For HTML written by a stranger — an incoming email — where an image is
+     * a read receipt rather than content (issue #1122, audit SEC-027). The
+     * images are removed from the parsed tree, so no spelling of the tag can
+     * survive: a regular expression run on the text beforehand could be
+     * "repaired" by a nested tag (`<im<img x>g src=…>`) into the very tag it
+     * was meant to remove. No attribute this class keeps can carry a remote
+     * image otherwise: `style` and `background` are never allowed.
+     */
+    public function sanitizeWithoutImages(string $html): string
+    {
+        $this->dropImages = true;
+        try {
+            return $this->sanitize($html);
+        } finally {
+            $this->dropImages = false;
+        }
+    }
+
     /**
      * Sanitize HTML string. Removes all tags and attributes not in ALLOWED.
      */
@@ -188,8 +212,9 @@ class HtmlSanitizer
         }
 
         // An <img> that lost its src to the scheme check is an empty, broken
-        // element — drop it rather than leave a bare <img> behind.
-        if ($tagName === 'img' && !$element->hasAttribute('src')) {
+        // element — drop it rather than leave a bare <img> behind. In the
+        // no-image mode every <img> goes, whatever its src.
+        if ($tagName === 'img' && ($this->dropImages || !$element->hasAttribute('src'))) {
             $element->parentNode?->removeChild($element);
             return;
         }
