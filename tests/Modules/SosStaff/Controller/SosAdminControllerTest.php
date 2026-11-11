@@ -2076,6 +2076,40 @@ class SosAdminControllerTest extends TestCase
         self::assertStringContainsString("la redirection n'a pas pu être modifiée", $decoded['message']);
         self::assertStringContainsString('Prochaine bascule le 20/08/2026 à 10:00 vers', $decoded['message']);
         self::assertStringContainsString('Alice', $decoded['message']);
+        // And the quick retries are armed, as for a failed scheduled
+        // transition — not left to the next hourly check (review of #1135).
+        $retries = array_values(array_filter(
+            $this->schedulerRepository->findByModuleAndTaskKey('sos_staff', 'reconcile_redirect'),
+            static fn(array $row): bool => $row['status'] === 'pending' && $row['reference'] === 'retry'
+        ));
+        self::assertCount(1, $retries);
+    }
+
+    /**
+     * The line sits on the default number, which is some Staff d'U
+     * member's own mobile. Moving it to the person on duty must not tell
+     * that member their duty ended: they were never on duty (review of
+     * #1135).
+     */
+    public function testLeavingTheDefaultNumberTellsNobodyTheirDutyEnded(): void
+    {
+        $this->now = new \DateTimeImmutable('2026-08-12 12:00:00');
+        $alice = $this->createStaffduMember('Alice', '+32470000031');
+        $default = $this->createStaffduMember('Chil', '+32470000039');
+        $this->settingsService->setDefaultNumberFromMember($default);
+        $this->onCallRepository->replaceRange('2026-08-12', '2026-08-12', [
+            new OnCallAssignment($alice, '2026-08-12', OnCallAssignment::STATE_ONCALL),
+        ]);
+        $this->forwarding = new \Modules\SosStaff\Api\ForwardingState(true, '+32470000039');
+
+        $this->controller->saveOnCall(
+            $this->jsonRequest(['year' => 2026, 'month' => 8, 'cells' => [
+                ['member_id' => $alice, 'date' => '2026-08-12', 'state' => OnCallAssignment::STATE_ONCALL],
+            ], '_csrf_token' => $this->csrfToken()]),
+            []
+        );
+
+        self::assertSame([[$alice, null, $this->scoutYearId]], $this->applyCalls);
     }
 
     /**

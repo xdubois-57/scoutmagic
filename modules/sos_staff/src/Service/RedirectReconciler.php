@@ -126,8 +126,17 @@ class RedirectReconciler
             return $outcome(self::ALIGNED);
         }
 
+        // Who the line is leaving, for the « fin de garde » notice. Not the
+        // holder of the default number when the line sits on it: that is
+        // nobody's duty — the scheduled path passes null for such a day too
+        // — and the default number is always some Staff d'U member's own
+        // mobile, so a lookup by number alone would find them every time.
         $previousMemberId = null;
-        if ($live->active && $live->number !== null) {
+        if (
+            $live->active
+            && $live->number !== null
+            && $live->number !== $this->settingsService->getDefaultNumber($scoutYearId)
+        ) {
             foreach ($this->settingsService->getStaffOptions($scoutYearId) as $option) {
                 if ($option['mobile'] === $live->number) {
                     $previousMemberId = (int) $option['member_id'];

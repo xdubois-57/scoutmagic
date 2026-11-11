@@ -307,6 +307,39 @@ class RedirectServiceTest extends TestCase
     }
 
     /**
+     * One recipient whose address cannot be read (a decryption failure)
+     * must not cost the chefs after it their alert (review of #1135).
+     */
+    public function testOneUnreadableRecipientDoesNotStopTheOthers(): void
+    {
+        $this->providerConfigService->method('getActiveProvider')->willReturn(null);
+        $this->userAccountRepository->method('findStaffAndSuperAdminIds')->willReturn([1, 2]);
+        $this->userAccountRepository->method('findById')->willReturnCallback(
+            static function (int $id): UserAccount {
+                if ($id === 1) {
+                    throw new \RuntimeException('decryption failed');
+                }
+                return new UserAccount(2, 'chef@test.be', null, null, null, false, null);
+            }
+        );
+        $sentTo = [];
+        $this->mailService->method('send')->willReturnCallback(
+            static function (string $to) use (&$sentTo): void {
+                $sentTo[] = $to;
+            }
+        );
+        $logged = $this->recordJournal();
+
+        try {
+            $this->service()->apply(1, null, 100);
+        } catch (SosException) {
+        }
+
+        self::assertSame(['chef@test.be'], $sentTo);
+        self::assertSame('warning', $logged['admin_alert_failed'] ?? null);
+    }
+
+    /**
      * The journal lines apply() writes, type => level.
      *
      * @return \ArrayObject<string, string>

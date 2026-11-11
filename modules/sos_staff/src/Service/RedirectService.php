@@ -286,11 +286,14 @@ class RedirectService
             // own words.
             $email = $this->emailTemplateRenderer->render('sos_staff.admin_alert', ['message' => $message]);
             foreach ($accountIds as $accountId) {
-                $account = $this->userAccountRepository->findById($accountId);
-                if ($account === null) {
-                    continue;
-                }
+                // One recipient at a time, the lookup included: an address
+                // that cannot be decrypted must not cost every chef after it
+                // their alert.
                 try {
+                    $account = $this->userAccountRepository->findById($accountId);
+                    if ($account === null) {
+                        continue;
+                    }
                     $this->mailService->send(
                         to: $account->email,
                         subject: $email->subject,

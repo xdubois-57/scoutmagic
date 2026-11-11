@@ -31,6 +31,7 @@ use Modules\SosStaff\Service\RedirectReconciler;
 use Modules\SosStaff\Service\RedirectService;
 use Modules\SosStaff\Service\SosException;
 use Modules\SosStaff\Service\SosSettingsService;
+use Modules\SosStaff\Task\ReconcileRedirectHandler;
 use Twig\Environment;
 
 /**
@@ -604,7 +605,7 @@ class SosAdminController extends AbstractController
 
         // The line follows at once when it is the default number that
         // governs right now; reconcile() finds nothing to do otherwise.
-        $reconciled = $this->reconciler()->reconcile($effectiveYear->id, 'default_number');
+        $reconciled = $this->reconcileAndRetry($effectiveYear->id, 'default_number');
 
         return $this->json([
             'success' => true,
@@ -745,7 +746,7 @@ class SosAdminController extends AbstractController
         // removed after its handover: no transition, line left on the
         // person just taken off. A failure is journaled, recorded and
         // alerted inside; the grid save itself still succeeded.
-        $reconciled = $this->reconciler()->reconcile($effectiveYear->id, 'planning');
+        $reconciled = $this->reconcileAndRetry($effectiveYear->id, 'planning');
 
         $this->journalService->log(
             'sos_staff',
@@ -1018,6 +1019,24 @@ class SosAdminController extends AbstractController
         }
 
         return $this->settingsService->labelForMember($memberId, $scoutYearId) ?? 'la personne de garde';
+    }
+
+    /**
+     * reconcile(), and the quick retries (5, 15, 60 minutes) when it could
+     * not put the line right — the same ones a failed scheduled transition
+     * or hourly check arms. Without them a failure on save waited for the
+     * next hourly pass.
+     *
+     * @return array{status: string, expected_member_id: ?int, expected_number: ?string}
+     */
+    private function reconcileAndRetry(int $scoutYearId, string $trigger): array
+    {
+        $reconciled = $this->reconciler()->reconcile($scoutYearId, $trigger);
+        if (in_array($reconciled['status'], [RedirectReconciler::FAILED, RedirectReconciler::UNREADABLE], true)) {
+            ReconcileRedirectHandler::scheduleRetry($this->schedulerService);
+        }
+
+        return $reconciled;
     }
 
     private function reconciler(): RedirectReconciler
