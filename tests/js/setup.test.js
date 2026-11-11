@@ -329,6 +329,36 @@ describe('setup.js: save gating on the DB test', () => {
     });
 });
 
+describe('setup.js: a server message is text, never markup (issue #1120)', () => {
+    // The messages can carry what the server got back from MySQL or the
+    // mail relay, so they are escaped like every other value this file
+    // interpolates into innerHTML.
+    it('shows a failing database message literally', async () => {
+        fetch.mockReturnValue(jsonResponse({ success: false, message: '<img src=x>refusé' }));
+        await boot();
+
+        document.getElementById('btn-test-db').click();
+        await settle();
+
+        const result = document.getElementById('db-test-result');
+        expect(result.textContent).toContain('<img src=x>refusé');
+        expect(result.querySelector('img')).toBeNull();
+    });
+
+    it('shows a mail test message literally', async () => {
+        fetch.mockReturnValue(jsonResponse({ success: true, message: '<b>envoyé</b>' }));
+        await boot();
+
+        /** @type {HTMLInputElement} */ (document.getElementById('test_email_recipient')).value = 'moi@exemple.be';
+        document.getElementById('btn-test-email').click();
+        await settle();
+
+        const result = document.getElementById('email-test-result');
+        expect(result.textContent).toContain('<b>envoyé</b>');
+        expect(result.querySelector('b')).toBeNull();
+    });
+});
+
 describe('setup.js: non-empty database barrier', () => {
     it('blocks Save and reveals the backup-and-empty warning when tables already exist', async () => {
         fetch.mockReturnValue(jsonResponse({ success: true, has_existing_tables: true, table_count: 12 }));

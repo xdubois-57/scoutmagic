@@ -22,6 +22,8 @@ document.body.innerHTML = `
         <input class="news-number-field" data-price="12.50" data-label="Repas" value="2">
         <input class="news-number-field" data-price="3.25" data-label="Boisson" value="">
         <input class="news-number-field" data-label="Sans prix" value="9">
+        <input class="news-number-field" data-price="1" id="news-html-label"
+            data-label="&lt;b&gt;X&lt;/b&gt;&lt;img src=/favicon.ico&gt;" value="0">
         <div id="news-payment-lines"></div>
         <span id="news-payment-total"></span>
     </div>
@@ -75,5 +77,17 @@ describe('news-form-builder.js: live payment total', () => {
         // Only the drink line survives: 4 × 3,25 = 13,00.
         expect(total()).toBe('13,00');
         expect(total()).not.toContain('NaN');
+    });
+
+    it('shows a label holding HTML as the text it is (issue #1120)', () => {
+        // `dataset` hands the label back decoded: the attribute above reads
+        // `<b>X</b><img src=/favicon.ico>` once parsed. Rendered as markup it
+        // would draw bold text and an image on a public page.
+        const lineHolder = document.getElementById('news-payment-lines');
+        const text = lineHolder.textContent;
+
+        expect(text).toContain('<b>X</b><img src=/favicon.ico> : 0 × 1,00€ = 0,00€');
+        expect(lineHolder.querySelector('b, img')).toBeNull();
+        expect(Array.from(lineHolder.children).every((el) => el.tagName === 'P')).toBe(true);
     });
 });

@@ -29,6 +29,9 @@ use Modules\News\Repository\NewsForm;
  */
 class FormService
 {
+    /** `news_form_fields.label` is `VARCHAR(255)`. */
+    private const LABEL_MAX_LENGTH = 255;
+
     private HtmlSanitizer $htmlSanitizer;
 
     public function __construct(
@@ -150,6 +153,10 @@ class FormService
             throw new NewsException(
                 'Choisissez la catégorie Finances dans laquelle classer les paiements de ce formulaire.'
             );
+        }
+
+        foreach ($fields as $field) {
+            self::assertPlainLabel($field['label'] ?? null);
         }
 
         $existing = $this->formRepository->findByArticleId($articleId);
@@ -311,6 +318,29 @@ class FormService
         }
 
         $this->fieldRepository->reorder($validIds);
+    }
+
+    /**
+     * A field's label is text, shown as text — never HTML. Twig escapes it
+     * on the page, but a script reading it back through `dataset` gets the
+     * decoded characters, and one that puts them into markup would render
+     * them (issue #1120, audit SEC-025). `<` and `>` are refused here so no
+     * label can carry a tag at all, and the length is the column's own, so
+     * an overlong label is a message rather than a database error.
+     */
+    private static function assertPlainLabel(?string $label): void
+    {
+        if ($label === null) {
+            return;
+        }
+        if (strpbrk($label, '<>') !== false) {
+            throw new NewsException('Le libellé d\'un champ ne peut pas contenir les caractères < et >.');
+        }
+        if (mb_strlen($label) > self::LABEL_MAX_LENGTH) {
+            throw new NewsException(
+                'Le libellé d\'un champ ne peut pas dépasser ' . self::LABEL_MAX_LENGTH . ' caractères.'
+            );
+        }
     }
 
     /**
