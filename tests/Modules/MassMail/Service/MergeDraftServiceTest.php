@@ -40,7 +40,6 @@ use Modules\MassMail\Repository\DeliveryRepository;
 use Modules\MassMail\Repository\TargetRepository;
 use Modules\MassMail\Repository\SuppressedAddressRepository;
 use Modules\MassMail\Service\MailingListService;
-use Modules\MassMail\Service\MassMailAccessService;
 use Modules\MassMail\Api\MassMailException;
 use Modules\MassMail\Service\MassMailService;
 use Modules\MassMail\Service\MergeDraftService;
@@ -133,10 +132,9 @@ class MergeDraftServiceTest extends TestCase
         $this->service = new MergeDraftService(
             $massMailService,
             $this->audienceRepository,
-            new MassMailAccessService($memberService, $sectionService),
+            \Tests\Modules\MassMail\MassMailAccessFactory::create($this->pdo, $encryption, $sectionService),
             $memberService,
-            $sectionService,
-            $scoutYearService
+            $sectionService
         );
 
         $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('2025-2026', '2025-09-01', '2026-08-31', 1)");

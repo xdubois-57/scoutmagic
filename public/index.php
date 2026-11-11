@@ -9283,7 +9283,13 @@ if ($isEnabled('mass_mail')) {
         new \Modules\MassMail\Service\MailingListBadgeUsageService($massMailBlockRepo)
     );
 
-    $massMailAccessService = new \Modules\MassMail\Service\MassMailAccessService($memberService, $sectionService);
+    // The sections an animateur may target and see the mailings of are the
+    // ones they STAFF — the core's role-filtered resolution, never « any
+    // function » of a linked member (issue #1105) — in the authorization year.
+    $massMailAccessService = new \Modules\MassMail\Service\MassMailAccessService(
+        $sectionStaffAuthorizationService,
+        $scoutYearResolver
+    );
     $massMailService = new \Modules\MassMail\Service\MassMailService(
         $massMailEmailRepo,
         $massMailDeliveryRepo,
@@ -9318,7 +9324,6 @@ if ($isEnabled('mass_mail')) {
         $massMailAccessService,
         $memberService,
         $sectionService,
-        $scoutYearService,
     );
 
     $frontController->registerController(

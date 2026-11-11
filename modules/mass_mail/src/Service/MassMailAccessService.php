@@ -8,8 +8,8 @@ declare(strict_types=1);
 
 namespace Modules\MassMail\Service;
 
-use Core\Member\MemberService;
-use Core\Member\SectionService;
+use Core\Member\SectionStaffAuthorizationService;
+use Core\ScoutYear\ScoutYearResolver;
 use Modules\MassMail\Repository\Email;
 
 /**
@@ -24,33 +24,43 @@ use Modules\MassMail\Repository\Email;
 class MassMailAccessService
 {
     public function __construct(
-        private MemberService $memberService,
-        private SectionService $sectionService
+        private SectionStaffAuthorizationService $sectionStaffAuthorization,
+        private ScoutYearResolver $scoutYearResolver
     ) {
     }
 
     /**
-     * Every section id where any member linked to this account holds any
-     * function, this scout year — the set a plain chief may target a
-     * "Section - {nom}" default list for.
+     * The year every decision here is taken in: the authorization year,
+     * like the rest of the core (ScoutYearResolver::getAuthorizationYear())
+     * — the one the session's role was resolved in. The date-computed year
+     * this module used to read holds no roster at all between 1 September
+     * and the passage, which left every animateur with no section.
+     */
+    public function authorizationYearId(): int
+    {
+        return $this->scoutYearResolver->getAuthorizationYear()->id;
+    }
+
+    /**
+     * The sections this account STAFFS this scout year — through a member
+     * linked to it (Desk address or currently-valid secondary address) that
+     * holds a chief or admin function there. The set a plain chief may
+     * target a "Section - {nom}" default list for, and see the mailings of.
+     *
+     * **Never « any function »** (issue #1105). It was, and an animé's own
+     * function carries their section: an animateur of the Pionniers whose
+     * child — sharing the parent's Desk address, as children often do — is
+     * a Louveteau was staff of the Louveteaux here, free to mail every
+     * family of that section in the unit's name and to open, rewrite, send
+     * and delete its staff's drafts. The role-filtered resolution is the
+     * core's, StaffedSectionRepository::staffedSectionIds(), which exists
+     * for exactly this trap.
      *
      * @return int[]
      */
     public function getUserSectionIds(string $email, int $scoutYearId): array
     {
-        $sections = $this->sectionService->getAllWithBranches();
-        $idByDeskCode = array_column($sections, 'id', 'desk_code');
-
-        $sectionIds = [];
-        foreach ($this->memberService->getLinkedMembers($email, $scoutYearId) as $profile) {
-            foreach ($profile->functions as $function) {
-                if ($function->sectionCode !== null && isset($idByDeskCode[$function->sectionCode])) {
-                    $sectionIds[$idByDeskCode[$function->sectionCode]] = true;
-                }
-            }
-        }
-
-        return array_keys($sectionIds);
+        return $this->sectionStaffAuthorization->ownStaffedSectionIds($email, $scoutYearId);
     }
 
     /**

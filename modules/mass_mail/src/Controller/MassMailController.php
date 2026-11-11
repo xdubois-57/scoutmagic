@@ -1148,7 +1148,7 @@ class MassMailController extends AbstractController
         }
 
         $email = AuthSession::getEmail() ?? '';
-        $currentYearId = $this->scoutYearService->getCurrentYear()['id'];
+        $currentYearId = $this->massMailAccessService->authorizationYearId();
 
         $userSectionIds = $this->massMailAccessService->getUserSectionIds($email, $currentYearId);
         $linkedMembers = $this->memberService->getLinkedMembers($email, $currentYearId);
