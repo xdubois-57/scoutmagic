@@ -9,11 +9,14 @@ declare(strict_types=1);
 namespace Tests\Modules\MassMail\Service;
 
 use Core\Badge\MemberBadgeRepository;
+use Core\Config\SettingRepository;
+use Core\Config\SettingService;
 use Core\Database\Connection;
 use Core\Member\MemberEmailRepository;
 use Core\Member\Repository\MemberProfileRepository;
 use Core\Member\Repository\SectionRepository;
 use Core\Member\SectionService;
+use Core\ScoutYear\ScoutYearResolver;
 use Core\Security\EncryptionService;
 use Modules\MassMail\Service\MassMailAccessService;
 use PHPUnit\Framework\Attributes\Group;
@@ -109,6 +112,33 @@ final class MassMailAccessServiceTest extends TestCase
         // No public-year setting: the date-computed year, which is the one
         // DatabaseTestHelper::scoutYear() labels.
         self::assertSame($this->year, $this->service->authorizationYearId());
+    }
+
+    /**
+     * The case the year change is for: the site is still on last year while
+     * the calendar has moved on (1 September, before the passage). The
+     * date-computed year — which this module used to read — holds no
+     * roster then; the configured public year is the one the role was
+     * resolved in, and the one sections must be read in too.
+     */
+    public function testAConfiguredPublicYearWinsOverTheCalendar(): void
+    {
+        [$label, $start, $end] = DatabaseTestHelper::scoutYear(-1);
+        $this->pdo->exec(
+            'INSERT INTO scout_years (label, start_date, end_date, is_current) '
+                . "VALUES ('{$label}', '{$start}', '{$end}', 0)"
+        );
+        $lastYear = (int) $this->pdo->lastInsertId();
+        (new SettingService(new SettingRepository($this->pdo)))->register(
+            ScoutYearResolver::SETTING_PUBLIC_YEAR,
+            (string) $lastYear,
+            'text',
+            'Année publique',
+            'desc'
+        );
+
+        self::assertNotSame($this->year, $lastYear);
+        self::assertSame($lastYear, $this->service->authorizationYearId());
     }
 
     private function member(string $deskId, string $email, int $sectionId, string $role): int
