@@ -250,7 +250,10 @@ class MemberEmailControllerTest extends TestCase
 
         $massMailQuery = $this->createStub(MassMailQueryInterface::class);
         $massMailQuery->method('findEmailDetailForMember')->willReturn($this->detail(['imported' => false]));
-        $this->assertStringNotContainsString('Élément historique en lecture seule', $this->show($massMailQuery, 5)->getBody());
+        $this->assertStringNotContainsString(
+            'Élément historique en lecture seule',
+            $this->show($massMailQuery, 5)->getBody(),
+        );
     }
 
     /**

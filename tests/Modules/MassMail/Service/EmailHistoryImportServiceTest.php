@@ -108,7 +108,10 @@ final class EmailHistoryImportServiceTest extends TestCase
         $this->assertSame(Delivery::STATUS_UNKNOWN, $byAddress['famille.beta@exemple.test']->status);
         $this->assertNull($byAddress['famille.beta@exemple.test']->sentAt);
         $this->assertSame(Delivery::STATUS_ERROR, $byAddress['ancien.chef@exemple.test']->status);
-        $this->assertSame(EmailHistoryImportService::FAILED_MESSAGE, $byAddress['ancien.chef@exemple.test']->errorMessage);
+        $this->assertSame(
+            EmailHistoryImportService::FAILED_MESSAGE,
+            $byAddress['ancien.chef@exemple.test']->errorMessage,
+        );
         foreach ($deliveries as $delivery) {
             $this->assertSame(0, $delivery->attempts, 'no attempt was made on this site');
         }
@@ -128,9 +131,14 @@ final class EmailHistoryImportServiceTest extends TestCase
             'SELECT original_sender_address_encrypted, original_sender_name_encrypted FROM mass_mail_emails WHERE id = '
                 . $result->emailId
         )->fetch(\PDO::FETCH_ASSOC);
-        $this->assertStringNotContainsString('eclaireurs@exemple.test', (string) $row['original_sender_address_encrypted']);
+        $this->assertStringNotContainsString(
+            'eclaireurs@exemple.test',
+            (string) $row['original_sender_address_encrypted'],
+        );
         $this->assertStringNotContainsString('Exempleville', (string) $row['original_sender_name_encrypted']);
-        foreach ($this->pdo->query('SELECT email_address_encrypted FROM mass_mail_deliveries')->fetchAll(\PDO::FETCH_COLUMN) as $cipher) {
+        $ciphers = $this->pdo->query('SELECT email_address_encrypted FROM mass_mail_deliveries')
+            ->fetchAll(\PDO::FETCH_COLUMN);
+        foreach ($ciphers as $cipher) {
             $this->assertStringNotContainsString('@exemple.test', (string) $cipher);
         }
 
@@ -168,7 +176,8 @@ final class EmailHistoryImportServiceTest extends TestCase
     public function testTwoSectionsSharingTheAddressLeaveTheEmailToTheStaff(): void
     {
         $this->pdo->exec(
-            "INSERT INTO sections (desk_code, age_branch_id, name, email) SELECT 'ECL02', age_branch_id, 'Éclaireurs B', "
+            "INSERT INTO sections (desk_code, age_branch_id, name, email) "
+                . "SELECT 'ECL02', age_branch_id, 'Éclaireurs B', "
                 . "'eclaireurs@exemple.test' FROM sections WHERE id = {$this->sectionId}"
         );
 
@@ -203,9 +212,13 @@ final class EmailHistoryImportServiceTest extends TestCase
 
     public function testMembersBecomeTargetsLinkedToTheirMessageWithTheirLatestYear(): void
     {
-        $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date) VALUES ('2022-2023', '2022-09-01', '2023-08-31')");
+        $this->pdo->exec(
+            "INSERT INTO scout_years (label, start_date, end_date) VALUES ('2022-2023', '2022-09-01', '2023-08-31')",
+        );
         $older = (int) $this->pdo->lastInsertId();
-        $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date) VALUES ('2023-2024', '2023-09-01', '2024-08-31')");
+        $this->pdo->exec(
+            "INSERT INTO scout_years (label, start_date, end_date) VALUES ('2023-2024', '2023-09-01', '2024-08-31')",
+        );
         $latest = (int) $this->pdo->lastInsertId();
         $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('900001')");
         $alpha = (int) $this->pdo->lastInsertId();
@@ -257,7 +270,12 @@ final class EmailHistoryImportServiceTest extends TestCase
                 . 'JOIN files f ON f.id = a.file_id'
         )->fetch(\PDO::FETCH_ASSOC);
         $this->assertSame(
-            ['original_name' => 'programme.pdf', 'mime_type' => 'application/pdf', 'role_min' => 'chief', 'module_id' => 'mass_mail'],
+            [
+                'original_name' => 'programme.pdf',
+                'mime_type' => 'application/pdf',
+                'role_min' => 'chief',
+                'module_id' => 'mass_mail',
+            ],
             $file
         );
     }
@@ -295,7 +313,10 @@ final class EmailHistoryImportServiceTest extends TestCase
 
     public function testTheAcceptedAttachmentsAreTheOnesAChiefMayAdd(): void
     {
-        $this->assertSame(\Modules\MassMail\Repository\EmailAttachment::ALLOWED_MIMES, $this->service->acceptedAttachmentTypes());
+        $this->assertSame(
+            \Modules\MassMail\Repository\EmailAttachment::ALLOWED_MIMES,
+            $this->service->acceptedAttachmentTypes(),
+        );
         $this->assertSame(10 * 1024 * 1024, $this->service->maxAttachmentBytes());
     }
 

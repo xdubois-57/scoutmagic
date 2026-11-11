@@ -102,7 +102,12 @@ final class EmailHistoryImporter implements Importer
             self::FORMAT,
             1,
             // '' admits the attachments, named by their fingerprint alone.
-            new ArchiveLimits(self::MAX_ENTRIES, self::MAX_ENTRY_BYTES, self::MAX_TOTAL_BYTES, ['json', 'html', 'txt', ''])
+            new ArchiveLimits(
+                self::MAX_ENTRIES,
+                self::MAX_ENTRY_BYTES,
+                self::MAX_TOTAL_BYTES,
+                ['json', 'html', 'txt', ''],
+            )
         );
     }
 
@@ -154,8 +159,8 @@ final class EmailHistoryImporter implements Importer
         $byStaff = $summary->tag(self::TAG_SECTION_STAFF);
         if ($bySender > 0) {
             $notes[] = PreviewNote::info(sprintf(
-                '%s rattaché%s à une section d\'après %s adresse d\'expédition, %d au Staff d\'U. L\'adresse et le nom '
-                . 'd\'origine restent affichés tels quels.',
+                '%s rattaché%s à une section d\'après %s adresse d\'expédition, %d au Staff d\'U. '
+                . 'L\'adresse et le nom d\'origine restent affichés tels quels.',
                 self::count($bySender, 'courriel est', 'courriels sont'),
                 $bySender > 1 ? 's' : '',
                 $bySender > 1 ? 'leur' : 'son',
@@ -163,8 +168,8 @@ final class EmailHistoryImporter implements Importer
             ));
         } elseif ($byStaff > 0) {
             $notes[] = PreviewNote::info(sprintf(
-                '%s rattaché%s au Staff d\'U : aucune adresse d\'expédition n\'est celle d\'une section. L\'adresse et '
-                . 'le nom d\'origine restent affichés tels quels.',
+                '%s rattaché%s au Staff d\'U : aucune adresse d\'expédition n\'est celle d\'une section. '
+                . 'L\'adresse et le nom d\'origine restent affichés tels quels.',
                 self::count($byStaff, 'courriel est', 'courriels sont'),
                 $byStaff > 1 ? 's' : ''
             ));
@@ -196,7 +201,11 @@ final class EmailHistoryImporter implements Importer
         if (($invalid = $summary->tag(self::TAG_RECIPIENT_INVALID)) > 0) {
             $notes[] = PreviewNote::warning(sprintf(
                 '%s : %s pas reprise%s. Le reste du courriel est importé.',
-                self::count($invalid, 'adresse de destinataire est invalide', 'adresses de destinataire sont invalides'),
+                self::count(
+                    $invalid,
+                    'adresse de destinataire est invalide',
+                    'adresses de destinataire sont invalides',
+                ),
                 $invalid > 1 ? 'elles ne sont' : 'elle n\'est',
                 $invalid > 1 ? 's' : ''
             ));
@@ -216,7 +225,8 @@ final class EmailHistoryImporter implements Importer
         return [
             'Aucun courriel n\'est envoyé ni renvoyé.',
             'Les courriels importés ne peuvent être ni modifiés, ni supprimés, ni renvoyés.',
-            'Les statuts restent ceux d\'origine : « Accepté par le serveur d\'envoi » ne devient jamais « Remis ».',
+            'Les statuts restent ceux d\'origine : « Accepté par le serveur d\'envoi » ne devient jamais '
+                . '« Remis ».',
         ];
     }
 
@@ -502,7 +512,12 @@ final class EmailHistoryImporter implements Importer
         $size = 0;
         $limit = $this->emails->maxAttachmentBytes();
         try {
-            $source->archive()->stream($path, static function (string $chunk) use ($handle, $hash, &$size, $limit): void {
+            $source->archive()->stream($path, static function (string $chunk) use (
+                $handle,
+                $hash,
+                &$size,
+                $limit,
+            ): void {
                 $size += strlen($chunk);
                 hash_update($hash, $chunk);
                 if ($size <= $limit) {

@@ -68,10 +68,13 @@ final class EmailHistoryImporterOnMysqlTest extends TestCase
         $this->storage = sys_get_temp_dir() . '/dm_mail_' . bin2hex(random_bytes(6));
         mkdir($this->storage, 0700, true);
 
-        $this->pdo->exec("INSERT INTO age_branches (desk_code, label) VALUES ('ECL', 'Éclaireurs'), ('STAFF', 'Staff d''U')");
+        $this->pdo->exec(
+            "INSERT INTO age_branches (desk_code, label) VALUES ('ECL', 'Éclaireurs'), ('STAFF', 'Staff d''U')",
+        );
         $this->pdo->exec(
             "INSERT INTO sections (age_branch_id, desk_code, name, email) VALUES "
-                . "((SELECT id FROM age_branches WHERE desk_code = 'ECL'), 'ECL01', 'Éclaireurs', 'Eclaireurs@Exemple.test'), "
+                . "((SELECT id FROM age_branches WHERE desk_code = 'ECL'), 'ECL01', 'Éclaireurs', "
+                . "'Eclaireurs@Exemple.test'), "
                 . "((SELECT id FROM age_branches WHERE desk_code = 'STAFF'), 'STAFFDU', 'Staff d''U', NULL)"
         );
         $this->sectionId = (int) $this->pdo->query("SELECT id FROM sections WHERE desk_code = 'ECL01'")->fetchColumn();
@@ -139,11 +142,14 @@ final class EmailHistoryImporterOnMysqlTest extends TestCase
             $this->importer->previewNotes(self::summary($run))
         );
         $this->assertContains(
-            '1 courriel est rattaché à une section d\'après son adresse d\'expédition, 2 au Staff d\'U. L\'adresse et le nom '
-                . 'd\'origine restent affichés tels quels.',
+            '1 courriel est rattaché à une section d\'après son adresse d\'expédition, 2 au Staff d\'U. '
+                . 'L\'adresse et le nom d\'origine restent affichés tels quels.',
             $notes
         );
-        $this->assertContains('1 publipostage est importé avec son texte modèle, sans les versions personnalisées.', $notes);
+        $this->assertContains(
+            '1 publipostage est importé avec son texte modèle, sans les versions personnalisées.',
+            $notes,
+        );
     }
 
     public function testTheSampleArchiveBecomesAReadOnlyHistoryAndNothingToSend(): void
@@ -156,16 +162,21 @@ final class EmailHistoryImporterOnMysqlTest extends TestCase
         $this->assertSame(3, $this->rows('data_migration_items'));
 
         // D6: the section whose address sent it, else the Staff d'U.
-        $sections = $this->pdo->query('SELECT subject, section_id FROM mass_mail_emails')->fetchAll(\PDO::FETCH_KEY_PAIR);
+        $sections = $this->pdo->query(
+            'SELECT subject, section_id FROM mass_mail_emails',
+        )->fetchAll(\PDO::FETCH_KEY_PAIR);
         $this->assertSame($this->sectionId, (int) $sections["Infos camp d'été 2024"]);
         $this->assertSame($this->staffId, (int) $sections['Réunion de rentrée']);
 
         // The camp email: its known messages, statuses as the former site
         // said, its two valid attachments, two members linked — and the
         // unknown Desk id created nobody.
-        $campId = (int) $this->pdo->query("SELECT id FROM mass_mail_emails WHERE subject = 'Infos camp d''été 2024'")->fetchColumn();
+        $campId = (int) $this->pdo->query(
+            "SELECT id FROM mass_mail_emails WHERE subject = 'Infos camp d''été 2024'",
+        )->fetchColumn();
         $statuses = [];
-        foreach ((new DeliveryRepository($this->pdo, ImportedEmailFixture::encryption()))->findByEmailId($campId) as $delivery) {
+        $repository = new DeliveryRepository($this->pdo, ImportedEmailFixture::encryption());
+        foreach ($repository->findByEmailId($campId) as $delivery) {
             $statuses[$delivery->emailAddress] = $delivery->status;
         }
         $this->assertSame([
@@ -173,7 +184,12 @@ final class EmailHistoryImporterOnMysqlTest extends TestCase
             'famille.beta@exemple.test' => Delivery::STATUS_UNKNOWN,
             'ancien.chef@exemple.test' => Delivery::STATUS_ERROR,
         ], $statuses);
-        $this->assertSame(2, (int) $this->pdo->query("SELECT COUNT(*) FROM mass_mail_attachments WHERE email_id = {$campId}")->fetchColumn());
+        $this->assertSame(
+            2,
+            (int) $this->pdo->query(
+                "SELECT COUNT(*) FROM mass_mail_attachments WHERE email_id = {$campId}",
+            )->fetchColumn(),
+        );
         $this->assertSame(
             [$this->alpha, $this->beta],
             array_map('intval', $this->pdo->query(
@@ -188,16 +204,29 @@ final class EmailHistoryImporterOnMysqlTest extends TestCase
         $this->assertSame('Parents des Éclaireurs', $camp?->originalAudienceName);
         $this->assertSame(
             ['address' => 'eclaireurs@exemple.test', 'name' => 'Éclaireurs 99e Exempleville'],
-            (new ImportedEmailRepository($this->pdo, ImportedEmailFixture::encryption()))->findOriginalSenders([$campId])[$campId]
+            (new ImportedEmailRepository($this->pdo, ImportedEmailFixture::encryption()))
+                ->findOriginalSenders([$campId])[$campId]
         );
 
         // The mail merge is ONE email, its template text (D3).
-        $merge = $this->pdo->query("SELECT body_html FROM mass_mail_emails WHERE subject = 'Cotisation {{Annee}}'")->fetchColumn();
+        $merge = $this->pdo->query(
+            "SELECT body_html FROM mass_mail_emails WHERE subject = 'Cotisation {{Annee}}'",
+        )->fetchColumn();
         $this->assertStringContainsString('{{Prenom}}', (string) $merge);
 
         // Nothing to send, nothing scheduled, nobody notified.
-        $this->assertSame(0, (int) $this->pdo->query("SELECT COUNT(*) FROM mass_mail_deliveries WHERE status = 'pending'")->fetchColumn());
-        $this->assertSame(0, (int) $this->pdo->query("SELECT COUNT(*) FROM scheduled_actions WHERE module_id = 'mass_mail'")->fetchColumn());
+        $this->assertSame(
+            0,
+            (int) $this->pdo->query(
+                "SELECT COUNT(*) FROM mass_mail_deliveries WHERE status = 'pending'",
+            )->fetchColumn(),
+        );
+        $this->assertSame(
+            0,
+            (int) $this->pdo->query(
+                "SELECT COUNT(*) FROM scheduled_actions WHERE module_id = 'mass_mail'",
+            )->fetchColumn(),
+        );
         $this->assertSame(0, $this->rows('notifications'));
         $this->assertSame(0, $this->rows('mass_mail_notified_accounts'));
     }
@@ -247,9 +276,17 @@ final class EmailHistoryImporterOnMysqlTest extends TestCase
         // The three whose optional part only was invalid are imported without it.
         $this->assertSame(3, $run->report['imported']);
         $this->assertSame(0, $this->rows('mass_mail_attachments'));
-        $this->assertSame(0, (int) $this->pdo->query("SELECT COUNT(*) FROM mass_mail_deliveries WHERE status = 'sent'")->fetchColumn());
+        $this->assertSame(
+            0,
+            (int) $this->pdo->query("SELECT COUNT(*) FROM mass_mail_deliveries WHERE status = 'sent'")->fetchColumn(),
+        );
         // « delivered » is not a status this format knows: never « Remis ».
-        $this->assertSame(1, (int) $this->pdo->query("SELECT COUNT(*) FROM mass_mail_deliveries WHERE status = 'unknown'")->fetchColumn());
+        $this->assertSame(
+            1,
+            (int) $this->pdo->query(
+                "SELECT COUNT(*) FROM mass_mail_deliveries WHERE status = 'unknown'",
+            )->fetchColumn(),
+        );
         $this->assertSame(2, $this->rows('members'), 'an unknown Desk id created nobody');
 
         // D8: the report names the former site's references, never a person.
@@ -265,9 +302,13 @@ final class EmailHistoryImporterOnMysqlTest extends TestCase
         $this->assertSame(2, $run->analysis['tags'][EmailHistoryImporter::TAG_ATTACHMENT_INVALID] ?? 0);
         $this->assertSame(1, $run->analysis['tags'][EmailHistoryImporter::TAG_RECIPIENT_INVALID] ?? 0);
         $this->assertSame(2, $run->analysis['tags'][EmailHistoryImporter::TAG_MEMBER_UNKNOWN] ?? 0);
-        $notes = array_map(static fn ($note): string => $note->level . ' ' . $note->text, $this->importer->previewNotes(self::summary($run)));
+        $notes = array_map(
+            static fn ($note): string => $note->level . ' ' . $note->text,
+            $this->importer->previewNotes(self::summary($run)),
+        );
         $this->assertContains(
-            'warning 2 pièces jointes sont invalides (empreinte, type ou taille). Leur courriel est importé sans elles.',
+            'warning 2 pièces jointes sont invalides (empreinte, type ou taille). '
+                . 'Leur courriel est importé sans elles.',
             $notes
         );
     }

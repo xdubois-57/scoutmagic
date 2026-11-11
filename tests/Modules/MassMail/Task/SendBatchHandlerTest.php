@@ -389,7 +389,8 @@ class SendBatchHandlerTest extends TestCase
     public function testAPendingMessageOfAnImportedEmailIsFailedRatherThanSent(): void
     {
         $this->pdo->exec(
-            "UPDATE mass_mail_emails SET list_type = 'imported', imported_at = '2026-11-09 10:00:00' WHERE id = {$this->emailId}"
+            "UPDATE mass_mail_emails SET list_type = 'imported', imported_at = '2026-11-09 10:00:00' "
+                . "WHERE id = {$this->emailId}"
         );
 
         $mailService = $this->createMock(MailService::class);
@@ -402,7 +403,9 @@ class SendBatchHandlerTest extends TestCase
         $this->assertNotContains('sent', $statuses);
         $this->assertSame(
             'Courriel importé, jamais envoyé',
-            $this->pdo->query("SELECT error_message FROM mass_mail_deliveries WHERE status = 'error' LIMIT 1")->fetchColumn()
+            $this->pdo->query(
+                "SELECT error_message FROM mass_mail_deliveries WHERE status = 'error' LIMIT 1",
+            )->fetchColumn()
         );
     }
 

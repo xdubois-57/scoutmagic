@@ -44,7 +44,8 @@ final class EmailHistoryFixturesTest extends TestCase
         $onDisk = [];
         $root = realpath(self::DIR . $name);
         $this->assertNotFalse($root);
-        foreach (new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($root, \FilesystemIterator::SKIP_DOTS)) as $file) {
+        $files = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($root, \FilesystemIterator::SKIP_DOTS));
+        foreach ($files as $file) {
             $onDisk[substr($file->getPathname(), strlen($root) + 1)] = (string) file_get_contents($file->getPathname());
         }
         ksort($inZip);
@@ -60,8 +61,12 @@ final class EmailHistoryFixturesTest extends TestCase
         $this->assertSame(EmailHistoryImporter::FORMAT, $manifest['format']);
         $this->assertSame('1.0.0', $manifest['format_version']);
 
-        $limits = (new EmailHistoryImporter(null, $this->createStub(\Core\Import\MemberRepository::class), new \Core\Security\HtmlSanitizer()))
-            ->archiveFormat()->limits;
+        $importer = new EmailHistoryImporter(
+            null,
+            $this->createStub(\Core\Import\MemberRepository::class),
+            new \Core\Security\HtmlSanitizer(),
+        );
+        $limits = $importer->archiveFormat()->limits;
         $listed = [];
         foreach ($manifest['files'] as $file) {
             $bytes = (string) file_get_contents(self::DIR . $name . '/' . $file['path']);

@@ -127,7 +127,10 @@ class ImportedEmailRepository
                     self::SENDER_ADDRESS_CONTEXT
                 ),
                 'name' => $row['original_sender_name_encrypted'] !== null
-                    ? $this->encryption->decrypt((string) $row['original_sender_name_encrypted'], self::SENDER_NAME_CONTEXT)
+                    ? $this->encryption->decrypt(
+                        (string) $row['original_sender_name_encrypted'],
+                        self::SENDER_NAME_CONTEXT,
+                    )
                     : null,
             ];
         }

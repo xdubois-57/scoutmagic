@@ -101,7 +101,12 @@ final class ImportedEmailLockTest extends TestCase
         $pdf = ImportedEmailFixture::pdf();
         try {
             $this->emailId = ImportedEmailFixture::service($this->pdo, $this->storage)->import(
-                ImportedEmailFixture::email('c-lock', null, [], [new \Modules\MassMail\Api\ImportedAttachment($pdf, 'programme.pdf')])
+                ImportedEmailFixture::email(
+                    'c-lock',
+                    null,
+                    [],
+                    [new \Modules\MassMail\Api\ImportedAttachment($pdf, 'programme.pdf')],
+                )
             )->emailId;
         } finally {
             @unlink($pdf);
@@ -209,7 +214,9 @@ final class ImportedEmailLockTest extends TestCase
     public function testTheLockIsTheColumnNotTheMigrationModule(): void
     {
         $this->assertFalse(
-            (bool) $this->pdo->query("SELECT COUNT(*) FROM sqlite_master WHERE name LIKE 'data_migration%'")->fetchColumn(),
+            (bool) $this->pdo->query(
+                "SELECT COUNT(*) FROM sqlite_master WHERE name LIKE 'data_migration%'",
+            )->fetchColumn(),
             'this harness must not hold anything of data_migration'
         );
         $email = $this->service->findById($this->emailId);
@@ -258,6 +265,8 @@ final class ImportedEmailLockTest extends TestCase
 
     private function deliveryStatus(int $deliveryId): string
     {
-        return (string) $this->pdo->query("SELECT status FROM mass_mail_deliveries WHERE id = {$deliveryId}")->fetchColumn();
+        return (string) $this->pdo->query(
+            "SELECT status FROM mass_mail_deliveries WHERE id = {$deliveryId}",
+        )->fetchColumn();
     }
 }

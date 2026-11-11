@@ -111,7 +111,8 @@ class MassMailService
     {
         if ($email->isImported()) {
             throw new MassMailException(
-                'Ce courriel a été importé de l\'ancien site : il est en lecture seule et ne peut pas être ' . $action . '.'
+                'Ce courriel a été importé de l\'ancien site : il est en lecture seule et ne peut pas être '
+                    . $action . '.'
             );
         }
     }

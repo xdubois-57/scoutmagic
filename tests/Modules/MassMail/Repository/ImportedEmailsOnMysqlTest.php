@@ -50,7 +50,9 @@ final class ImportedEmailsOnMysqlTest extends TestCase
         mkdir($this->storage, 0700, true);
         $this->pdo->exec("INSERT INTO age_branches (desk_code, label) VALUES ('STAFF', 'Staff d''U')");
         $branch = (int) $this->pdo->lastInsertId();
-        $this->pdo->exec("INSERT INTO sections (age_branch_id, desk_code, name) VALUES ({$branch}, 'STAFFDU', 'Staff d''U')");
+        $this->pdo->exec(
+            "INSERT INTO sections (age_branch_id, desk_code, name) VALUES ({$branch}, 'STAFFDU', 'Staff d''U')",
+        );
         $this->service = ImportedEmailFixture::service($this->pdo, $this->storage);
     }
 
@@ -147,7 +149,10 @@ final class ImportedEmailsOnMysqlTest extends TestCase
         );
         $nativeId = (int) $this->pdo->lastInsertId();
         $target = (new TargetRepository($this->pdo))->create($nativeId, $memberId, null);
-        $deliveries = new \Modules\MassMail\Repository\DeliveryRepository($this->pdo, ImportedEmailFixture::encryption());
+        $deliveries = new \Modules\MassMail\Repository\DeliveryRepository(
+            $this->pdo,
+            ImportedEmailFixture::encryption(),
+        );
         $delivery = $deliveries->create($nativeId, 'famille@exemple.test');
         $deliveries->linkTargets($delivery, [$target]);
         $deliveries->recordSendSuccess($delivery);

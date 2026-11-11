@@ -1973,11 +1973,23 @@ class MassMailPageTest extends TestCase
      */
     public static function importedEmailRouteProvider(): array
     {
-        $wanted = ['show', 'save', 'recipients', 'delete', 'uploadAttachment', 'deleteAttachment', 'tracking', 'resend', 'index'];
+        $wanted = [
+            'show',
+            'save',
+            'recipients',
+            'delete',
+            'uploadAttachment',
+            'deleteAttachment',
+            'tracking',
+            'resend',
+            'index',
+        ];
         $manifest = \Core\Module\ModuleManifest::fromFile(dirname(__DIR__, 4) . '/modules/mass_mail/module.json');
         $cases = [];
         foreach ($manifest->routes as $route) {
-            if (str_ends_with($route['controller'], 'MassMailController') && in_array($route['action'], $wanted, true)) {
+            if (str_ends_with($route['controller'], 'MassMailController')
+                && in_array($route['action'], $wanted, true)
+            ) {
                 $cases["{$route['method']} {$route['path']}"] = [$route['method'], $route['path'], $route['action']];
             }
         }

@@ -291,8 +291,16 @@ class MemberShowTemplateTest extends TestCase
             'section_name' => 'Éclaireurs', 'merge_purged' => false, 'not_sent' => false];
         $context = ['mass_mail_enabled' => true];
 
-        $imported = $this->render($this->makeMember(), true, $context + ['recent_mass_mail_emails' => [$item + ['imported' => true]]]);
-        $native = $this->render($this->makeMember(), true, $context + ['recent_mass_mail_emails' => [$item + ['imported' => false]]]);
+        $imported = $this->render(
+            $this->makeMember(),
+            true,
+            $context + ['recent_mass_mail_emails' => [$item + ['imported' => true]]],
+        );
+        $native = $this->render(
+            $this->makeMember(),
+            true,
+            $context + ['recent_mass_mail_emails' => [$item + ['imported' => false]]],
+        );
 
         $this->assertStringContainsString('>Importé<', $imported);
         $this->assertStringNotContainsString('>Importé<', $native);

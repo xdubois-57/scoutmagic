@@ -103,7 +103,8 @@ class EmailHistoryImportService implements EmailHistoryImportInterface
         $section = $this->senderSection($email->senderAddress);
         if ($section === null) {
             throw new MassMailException(
-                'Ce courriel ne peut être rattaché à aucune section : la section « Staff d\'U » n\'existe pas encore.'
+                'Ce courriel ne peut être rattaché à aucune section : la section « Staff d\'U » '
+                    . 'n\'existe pas encore.'
             );
         }
 
@@ -263,7 +264,10 @@ class EmailHistoryImportService implements EmailHistoryImportInterface
      */
     public static function hasContent(string $sanitizedHtml): bool
     {
-        return trim(html_entity_decode(strip_tags($sanitizedHtml), ENT_QUOTES | ENT_HTML5, 'UTF-8'), " \t\n\r\0\x0B\u{00A0}") !== ''
+        return trim(
+            html_entity_decode(strip_tags($sanitizedHtml), ENT_QUOTES | ENT_HTML5, 'UTF-8'),
+            " \t\n\r\0\x0B\u{00A0}",
+        ) !== ''
             || stripos($sanitizedHtml, '<img') !== false;
     }
 

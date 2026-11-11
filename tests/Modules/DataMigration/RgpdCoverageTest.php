@@ -52,7 +52,10 @@ final class RgpdCoverageTest extends TestCase
         $prompt = self::read('core/View/RgpdContentService.php');
 
         $this->assertStringContainsString('<strong>Courriels importés de l\'ancien site</strong>', $page);
-        $this->assertStringContainsString('<strong>adresse et le nom de son expéditeur d\'origine</strong> (chiffrés au repos)', $page);
+        $this->assertStringContainsString(
+            '<strong>adresse et le nom de son expéditeur d\'origine</strong> (chiffrés au repos)',
+            $page,
+        );
         $this->assertStringContainsString('« Courriels importés de l\'ancien site »', $prompt);
     }
 
