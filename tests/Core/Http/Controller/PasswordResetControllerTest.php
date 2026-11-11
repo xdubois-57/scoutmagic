@@ -261,6 +261,203 @@ class PasswordResetControllerTest extends TestCase
     }
 
     /**
+     * Issue #1115: a good link answers with the account's passkeys and
+     * live devices, for the form to list each ticked; a dead link lists
+     * nothing at all.
+     */
+    public function testCheckListsTheAccountsPasskeysAndDevicesForAGoodLinkOnly(): void
+    {
+        $account = $this->userRepo->create('listed@test.com');
+        $this->withRevoker();
+        $key = $this->passkeys->create($account->id, random_bytes(16), 'pk', 'Mon téléphone');
+        $device = $this->devices->create($account->id, 'Ordinateur', 's')->id;
+        [$id, $rawToken] = $this->createRawToken('listed@test.com');
+        $csrf = CsrfGuard::generateToken();
+
+        $good = json_decode($this->controller->check(
+            new Request('POST', '/x', [], ['token' => $rawToken, '_csrf_token' => $csrf], [], []),
+            ['id' => (string) $id]
+        )->getBody(), true);
+        $this->assertSame(
+            [
+                'valid' => true,
+                'passkeys' => [['id' => $key, 'label' => 'Mon téléphone']],
+                'devices' => [['id' => $device, 'label' => 'Ordinateur']],
+            ],
+            $good
+        );
+
+        $dead = json_decode($this->controller->check(
+            new Request('POST', '/x', [], ['token' => 'wrong', '_csrf_token' => $csrf], [], []),
+            ['id' => (string) $id]
+        )->getBody(), true);
+        $this->assertSame(['valid' => false], $dead);
+    }
+
+    /**
+     * The holder unticks the passkey they recognise: it stays, the device
+     * still ticked goes, and the message says something was disconnected.
+     */
+    public function testSubmitKeepsWhatWasListedAndUntickedAndRevokesTheRest(): void
+    {
+        $account = $this->userRepo->create('keep@test.com');
+        $this->withRevoker();
+        $mine = $this->passkeys->create($account->id, random_bytes(16), 'pk', 'Le mien');
+        $theirs = $this->passkeys->create($account->id, random_bytes(16), 'pk', 'Inconnu');
+        $device = $this->devices->create($account->id, 'Inconnu', 's')->id;
+        [$id, $rawToken] = $this->createRawToken('keep@test.com');
+
+        $this->controller->submit($this->submitRequest($id, $rawToken, [
+            'listed_passkeys' => [(string) $mine, (string) $theirs],
+            'revoke_passkeys' => [(string) $theirs],
+            'listed_devices' => [(string) $device],
+            'revoke_devices' => [(string) $device],
+        ]), ['id' => (string) $id]);
+
+        $this->assertSame(
+            [$mine],
+            array_map(static fn(array $r): int => (int) $r['id'], $this->passkeys->findByUserAccountId($account->id))
+        );
+        $this->assertTrue($this->devices->findById($device)?->isRevoked());
+        $message = (string) (\Core\Http\FlashMessage::get()['message'] ?? '');
+        $this->assertStringContainsString('ont été déconnectés', $message);
+    }
+
+    /**
+     * A form that arrives without its list — no JavaScript, a tampered
+     * request — keeps nothing: an access the holder never saw is revoked.
+     * An unticked box for an id that was never listed keeps nothing either.
+     */
+    public function testSubmitWithoutTheListRevokesEverything(): void
+    {
+        $account = $this->userRepo->create('nolist@test.com');
+        $this->withRevoker();
+        $this->passkeys->create($account->id, random_bytes(16), 'pk', 'Clé');
+        $device = $this->devices->create($account->id, 'Appareil', 's')->id;
+        [$id, $rawToken] = $this->createRawToken('nolist@test.com');
+
+        $this->controller->submit($this->submitRequest($id, $rawToken, [
+            'revoke_passkeys' => [],
+            'listed_devices' => 'not-a-list',
+        ]), ['id' => (string) $id]);
+
+        $this->assertSame([], $this->passkeys->findByUserAccountId($account->id));
+        $this->assertTrue($this->devices->findById($device)?->isRevoked());
+    }
+
+    /**
+     * Malformed identifiers are ignored, never cast into an id: « 1abc »
+     * must not keep passkey 1.
+     */
+    public function testSubmitIgnoresIdentifiersThatAreNotPlainPositiveIntegers(): void
+    {
+        $account = $this->userRepo->create('junk@test.com');
+        $this->withRevoker();
+        $key = $this->passkeys->create($account->id, random_bytes(16), 'pk', 'Clé');
+        [$id, $rawToken] = $this->createRawToken('junk@test.com');
+
+        $this->controller->submit($this->submitRequest($id, $rawToken, [
+            'listed_passkeys' => [$key . 'abc', ' ' . $key, '-' . $key, [(string) $key]],
+        ]), ['id' => (string) $id]);
+
+        $this->assertSame([], $this->passkeys->findByUserAccountId($account->id));
+    }
+
+    /**
+     * Nothing to take back, or everything kept: the plain message, with no
+     * claim that anything was disconnected.
+     */
+    public function testSubmitSaysNothingWasDisconnectedWhenNothingWas(): void
+    {
+        $account = $this->userRepo->create('plain@test.com');
+        $this->withRevoker();
+        $key = $this->passkeys->create($account->id, random_bytes(16), 'pk', 'Clé');
+        [$id, $rawToken] = $this->createRawToken('plain@test.com');
+
+        $this->controller->submit($this->submitRequest($id, $rawToken, [
+            'listed_passkeys' => [(string) $key],
+        ]), ['id' => (string) $id]);
+
+        $this->assertCount(1, $this->passkeys->findByUserAccountId($account->id));
+        $message = (string) (\Core\Http\FlashMessage::get()['message'] ?? '');
+        $this->assertStringContainsString('réinitialisé', $message);
+        $this->assertStringNotContainsString('déconnectés', $message);
+    }
+
+    /**
+     * Either kind alone is enough for the message: here only a passkey
+     * goes, and then only a device.
+     *
+     * @return iterable<string, array{0: bool}>
+     */
+    public static function oneKindOnly(): iterable
+    {
+        yield 'a passkey only' => [true];
+        yield 'a device only' => [false];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('oneKindOnly')]
+    public function testSubmitSaysSoWhenOnlyOneKindWasDisconnected(bool $passkey): void
+    {
+        $account = $this->userRepo->create('one@test.com');
+        $this->withRevoker();
+        if ($passkey) {
+            $this->passkeys->create($account->id, random_bytes(16), 'pk', 'Clé');
+        } else {
+            $this->devices->create($account->id, 'Appareil', 's');
+        }
+        [$id, $rawToken] = $this->createRawToken('one@test.com');
+
+        $this->controller->submit($this->submitRequest($id, $rawToken, []), ['id' => (string) $id]);
+
+        $message = (string) (\Core\Http\FlashMessage::get()['message'] ?? '');
+        $this->assertStringContainsString('ont été déconnectés', $message);
+    }
+
+    /**
+     * A refused submission (here: an already used link) revokes nothing.
+     */
+    public function testARefusedSubmissionRevokesNothing(): void
+    {
+        $account = $this->userRepo->create('refused@test.com');
+        $this->withRevoker();
+        $this->passkeys->create($account->id, random_bytes(16), 'pk', 'Clé');
+        [$id, $rawToken] = $this->createRawToken('refused@test.com');
+        $this->pdo->prepare('UPDATE password_reset_tokens SET used = 1 WHERE id = ?')->execute([$id]);
+
+        $this->controller->submit($this->submitRequest($id, $rawToken, []), ['id' => (string) $id]);
+
+        $this->assertCount(1, $this->passkeys->findByUserAccountId($account->id));
+    }
+
+    private \Core\Security\WebAuthnCredentialRepository $passkeys;
+    private \Core\Contact\Device\DeviceCredentialRepository $devices;
+
+    private function withRevoker(): void
+    {
+        $this->passkeys = new \Core\Security\WebAuthnCredentialRepository($this->pdo);
+        $this->devices = new \Core\Contact\Device\DeviceCredentialRepository($this->pdo);
+        $this->service->setAccessRevoker(new \Core\Security\AccountAccessRevoker(
+            $this->passkeys,
+            $this->devices,
+            new \Core\Journal\JournalService(new \Core\Journal\JournalRepository($this->pdo))
+        ));
+    }
+
+    /**
+     * @param array<string, mixed> $extra
+     */
+    private function submitRequest(int $id, string $rawToken, array $extra): Request
+    {
+        return new Request('POST', '/password-reset/' . $id, [], [
+            '_csrf_token' => CsrfGuard::generateToken(),
+            'token' => $rawToken,
+            'new_password' => 'MyNewSecureP@ss1',
+            'confirm_password' => 'MyNewSecureP@ss1',
+        ] + $extra, [], []);
+    }
+
+    /**
      * @return array{0: int, 1: string}
      */
     private function createRawToken(string $email): array
