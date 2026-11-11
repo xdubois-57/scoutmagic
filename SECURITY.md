@@ -567,6 +567,12 @@ The automated issue triage (`.github/workflows/issue-triage.yml`, docs/quality-p
 - **Nothing of it is kept on GitHub.** The retry's transcript is printed only on a run that fetched no extract; the extract is removed from the runner in a step that always runs; the journal entry on the receiver names the reference, the issue and the size, never a line.
 - **The token is one hash, rotated from one page.** §12; revoking it on the tickets page stops every extract at once.
 
+### 18quater. Hidden content in issues is removed before an agent reads it
+
+Anyone can open or comment on an issue, and agents read the raw text — the triage, and the « fixe le backlog » agent, which implements an issue once the maintainer moved it to Ready after reading it in GitHub's rendered view. Whatever the rendered view hides is removed first (issue #1117, audit SEC-020): every HTML comment and the invisible Unicode families (tag characters U+E0000–U+E007F, zero-width characters U+200B–U+200D, U+2060, U+FEFF, bidirectional controls U+202A–U+202E, U+2066–U+2069), each run replaced with a visible marker so the removal can be seen. `.github/workflows/issue-sanitize.yml` does it on every new or edited text, and both triage jobs do it again on the whole thread before their agent starts. A text written by a bot is never rewritten — the repository's workflows write HTML-comment markers on purpose — and the workflows that search for those markers only trust a bot's (`issue-fixed-comment.yml`, `external-sources-check.yml`), so a marker typed by somebody else can neither suppress a notice nor capture a source's updates.
+
+**What it does not cover, deliberately:** a malicious instruction that is visible (the maintainer reads it before Ready), text folded in `<details>`, a link whose text differs from its target, and the few seconds between an edit and the sanitizing run that follows it.
+
 ### 18bis. Sending a third party's web page to an AI provider
 
 `Modules\Fees\Service\FederalScaleLookupService` (« Chercher les montants » on the barème, ARCHITECTURE.md §8.75) is the first feature that fetches a page **this project does not control** and hands it to a model whose answer then lands in a form field. That is a prompt-injection surface, not a data-protection one: the page carries no personal data, but it can carry a sentence written to be read as an instruction. The contract, in the order it actually runs:

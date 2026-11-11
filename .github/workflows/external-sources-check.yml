@@ -232,10 +232,15 @@ jobs:
             body="$(printf '**Type: bug**\n\n%s\n\n### Rapport du contrôle\n\n```\n%s\n```\n\n%s\n%s\n' \
               "${analysis}" "${section}" "${marker}" "${stamp}")"
 
+            # Only an issue a BOT opened can be this source's (issue #1117):
+            # the marker is an HTML comment anybody can type, and an issue
+            # carrying an imitated one would otherwise receive this
+            # source's updates.
             # All of them read, the first kept: `| head -n1` would close
             # the pipe early and pipefail would end the step on gh's SIGPIPE.
             existing="$(MARKER="${marker}" gh api "repos/${GITHUB_REPOSITORY}/issues?state=open&per_page=100" \
               --paginate --jq '.[] | select(.pull_request == null)
+                | select(.user.type == "Bot")
                 | select((.body // "") | contains(env.MARKER)) | .number')" || {
                 echo "::warning title=Issues not read::${id}: the open issues could not be listed."
                 failed="${failed} ${id}"

@@ -43,6 +43,9 @@ final class BacklogProjectScriptsTest extends TestCase
             'project-canceled-sync',
             'project-agent',
             'project-backfill',
+            // Issue #1117: what every agent-facing issue text goes through.
+            'strip-hidden-issue-content',
+            'sanitize-issue-thread',
         ] as $name) {
             yield $name => [$name];
         }

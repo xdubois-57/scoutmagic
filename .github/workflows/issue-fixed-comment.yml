@@ -209,8 +209,12 @@ jobs:
             # on the only run where it matters, and post the duplicate it
             # was written to prevent.
             outcome=0
+            # A BOT's comments only (issue #1117): a person can type the
+            # same HTML comment, and an imitated marker must not make this
+            # run believe the notice was already given.
             said="$(attempt gh api --paginate \
-              "repos/${GITHUB_REPOSITORY}/issues/${issue}/comments" --jq '.[].body')" || outcome=$?
+              "repos/${GITHUB_REPOSITORY}/issues/${issue}/comments" \
+              --jq '.[] | select(.user.type == "Bot") | .body')" || outcome=$?
 
             if [ "${outcome}" -eq 1 ]; then
               echo "::warning title=No such issue here::#${issue} is not an issue of \

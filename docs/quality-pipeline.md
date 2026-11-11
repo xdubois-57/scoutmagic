@@ -392,6 +392,25 @@ the installable artifact and attaches it to a rolling **prerelease** tagged
 `releases/latest`, which excludes prereleases, and that single fact is what
 keeps the two update channels apart.
 
+`.github/workflows/issue-sanitize.yml` (issue #1117) removes what the rendered
+view of an issue hides but an agent reading the raw text sees: HTML comments
+(`<!-- … -->`, an unclosed one to the end of the text, inside code blocks too)
+and invisible Unicode — tag characters U+E0000–U+E007F, zero-width characters,
+bidirectional controls. It runs on every new or edited issue body and comment,
+rewrites the text with a VISIBLE « ⚠️ [contenu caché retiré automatiquement] »
+in place of each hidden run, never touches a text written by a bot (this
+repository's own workflows write HTML-comment markers on purpose), and writes
+nothing when nothing was hidden, which is also what keeps its own `edited`
+event from looping. It holds `issues: write` alone and runs two scripts read
+from `main` (`scripts/strip-hidden-issue-content.sh`, the filter, and
+`scripts/sanitize-issue-thread.sh`), each tested offline by its `.test.sh`
+through `tests/Security/BacklogProjectScriptsTest.php`. The two triage
+workflows run the same script on the whole thread themselves, before their
+agent starts, since nothing makes this workflow finish first. What it does
+not do: detect a malicious instruction that is visible — the maintainer reads
+it before moving an issue to Ready — nor anything rendered misleadingly (text
+folded in `<details>`, a link whose text differs from its target).
+
 `.github/workflows/issue-triage.yml` is not CI and gates nothing: it runs
 on `issues: [opened, reopened]` and answers the reporter — and on
 `issue_comment: [created]`, which is how the reporter answers back. It is the one
