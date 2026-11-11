@@ -12,7 +12,11 @@ set -euo pipefail
 #     make an agent ignore what it reads, and the safer reading wins;
 #   - Unicode "tag" characters U+E0000–U+E007F, which can spell a whole
 #     ASCII instruction without drawing anything;
-#   - zero-width characters U+200B–U+200D, U+2060, U+FEFF;
+#   - zero-width characters U+200B–U+200D, U+2060, U+FEFF, and the
+#     invisible operators U+2061–U+2064;
+#   - variation selectors, which can encode bytes on the character before
+#     them: U+FE00–U+FE0D and U+E0100–U+E01EF always, U+FE0E/U+FE0F (text
+#     or emoji style) only in a run or next to another hidden character;
 #   - bidirectional controls, Unicode's whole Bidi_Control set: U+061C,
 #     U+200E, U+200F, U+202A–U+202E, U+2066–U+2069;
 #   - every Markdown link reference definition, `[label]: destination
@@ -117,7 +121,13 @@ MARKER="${MARKER}" TITLE="${TITLE}" BOT="${BOT}" OWN_IDS="${OWN_IDS}" exec perl 
     utf8::decode($m) unless utf8::is_utf8($m);
     my $own = qr/<!-- (?:external-source:(?:$ENV{OWN_IDS})|external-source-fingerprint:[0-9a-f]{16}(?::sans-analyse)?|issue-fixed-comment: pull request #[0-9]+) -->/;
     s{(<!--.*?(?:-->|\z))}{ my $c = $1; $ENV{BOT} && $c =~ m{\A$own\z} ? $c : $m }gse;
-    s/[\x{E0000}-\x{E007F}\x{200B}-\x{200F}\x{2060}\x{FEFF}\x{061C}\x{202A}-\x{202E}\x{2066}-\x{2069}]+/$m/g;
+    # Invisible on their own. U+FE0E/U+FE0F choose text or emoji style, and
+    # one alone after a character is ordinary (the ⚠️ of the marker ends in
+    # one): only a run of them, or one touching another hidden character,
+    # can carry anything, so only that goes.
+    my $hidden = qr/[\x{E0000}-\x{E007F}\x{E0100}-\x{E01EF}\x{200B}-\x{200F}\x{2060}-\x{2064}\x{FE00}-\x{FE0D}\x{FEFF}\x{061C}\x{202A}-\x{202E}\x{2066}-\x{2069}]/;
+    my $style  = qr/[\x{FE0E}\x{FE0F}]/;
+    s/(?:$hidden|$style)*$hidden(?:$hidden|$style)*|$style{2,}/$m/g;
     if (!$ENV{TITLE}) {
         # A newline, but never a blank line, may sit inside a label or title.
         my $nl    = qr/\r?\n(?![ \t]*\r?\n)/;

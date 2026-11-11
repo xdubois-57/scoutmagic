@@ -122,6 +122,16 @@ expect '```
 ```'
 # What only looks like one is visible text: a log line, a title-less tail.
 expect '[Vue warn]: Failed to mount component' '[Vue warn]: Failed to mount component'
+# Invisible operators and variation selectors used to smuggle bytes.
+expect "a${M}b" "a$(codepoints 2061 2062 2063 2064)b"
+expect "a${M}b" "a$(codepoints e0100 e0141 e01ef)b"
+expect "a${M}b" "a$(codepoints fe00 fe0d)b"
+expect "a${M}b" "a$(codepoints fe0f fe0f)b"
+expect "a${M}b" "a$(codepoints fe0f e0141 fe0e)b"
+# One style selector alone is an ordinary emoji: it stays, and so does
+# the marker, whose ⚠️ carries one.
+expect "ok $(codepoints 2764 fe0f) merci" "ok $(codepoints 2764 fe0f) merci"
+expect "${M}" "${M}"
 # The full Bidi_Control set, the three outside the 202x blocks included.
 expect "a${M}b" "a$(codepoints 061c)b"
 expect "a${M}b" "a$(codepoints 200e 200f)b"
