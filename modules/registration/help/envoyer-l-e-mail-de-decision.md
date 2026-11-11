@@ -35,6 +35,11 @@ l'e-mail de la décision actuelle :
   peut-être pas ; « Réessayer » le relance ;
 - « Annulé suite à un changement de décision » : l'e-mail prévu pour
   l'ancienne décision ne partira pas.
+- « Communiquée par l'ancien site » : la demande a été reprise de
+  l'ancien site de l'unité avec une décision déjà annoncée là-bas. Aucun
+  e-mail n'est parti d'ici et aucun n'est à envoyer : la famille voit la
+  décision sur sa page de suivi. Si la décision change ensuite, le
+  nouvel e-mail suit le chemin habituel.
 
 Le bloc n'apparaît pas sur une demande en attente ou retirée : il n'y a
 pas de décision à annoncer.

@@ -272,4 +272,33 @@ class DecisionEmailPanelTest extends TestCase
             )
         );
     }
+
+    /**
+     * Chantier #1142, D2: an imported decision the old site had told the
+     * family — « Communiquée par l'ancien site », no button, one line in
+     * the history at the old site's date.
+     */
+    public function testADecisionCommunicatedByTheOldSiteOffersNoSend(): void
+    {
+        $communicated = new DecisionEmail(
+            $this->nextId++, 7, DecisionEmail::DECISION_REFUSED, DecisionEmail::STATE_COMMUNICATED_ELSEWHERE,
+            null, 0, false, null, null, null, null, null, null, null, null,
+            new \DateTimeImmutable('2026-11-10 09:00:00'),
+            communicatedAt: new \DateTimeImmutable('2026-11-03 10:00:00')
+        );
+
+        $panel = self::build(RegistrationRequest::STATUS_REFUSED, [$communicated]);
+
+        $this->assertSame(DecisionEmailPanel::STATE_COMMUNICATED_ELSEWHERE, $panel?->state);
+        $this->assertSame('2026-11-03', $panel->at?->format('Y-m-d'));
+        $this->assertSame([], $panel->actions);
+        $this->assertFalse($panel->allows(DecisionEmailPanel::ACTION_SEND_NOW));
+        $this->assertSame(
+            [[DecisionEmailEvent::COMMUNICATED_ELSEWHERE, '2026-11-03 10:00:00']],
+            array_map(
+                static fn(DecisionEmailEvent $e): array => [$e->kind, $e->at->format('Y-m-d H:i:s')],
+                $panel->history
+            )
+        );
+    }
 }

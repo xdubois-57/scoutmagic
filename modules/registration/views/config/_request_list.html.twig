@@ -108,9 +108,9 @@
                             </td>
                             <td>
                                 {% if r.status == 'accepted' or r.status == 'encoded' %}
-                                    {{ r.acceptedEmailSentAt ? 'Envoyé le ' ~ r.acceptedEmailSentAt|french_date : 'Non envoyé' }}
+                                    {{ r.acceptedEmailSentAt ? 'Envoyé le ' ~ r.acceptedEmailSentAt|french_date : (r.decisionCommunicatedElsewhere ? "Communiquée par l'ancien site" : 'Non envoyé') }}
                                 {% elseif r.status == 'refused' %}
-                                    {{ r.refusedEmailSentAt ? 'Envoyé le ' ~ r.refusedEmailSentAt|french_date : 'Non envoyé' }}
+                                    {{ r.refusedEmailSentAt ? 'Envoyé le ' ~ r.refusedEmailSentAt|french_date : (r.decisionCommunicatedElsewhere ? "Communiquée par l'ancien site" : 'Non envoyé') }}
                                 {% else %}
                                     —
                                 {% endif %}

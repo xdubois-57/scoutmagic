@@ -198,6 +198,54 @@ class DecisionEmailRepository
     }
 
     /**
+     * Records that the old site a request was imported from had already
+     * told the family its $decision (chantier #1142, D2): one row in
+     * state 'communicated_elsewhere', which no send path ever reads — no
+     * due date, no claim (`active_request_id` stays NULL, so the request
+     * is free for any e-mail a chief starts later), no attempt (0), no
+     * `sent_at`: nothing pretends an e-mail of this site went out.
+     *
+     * $communicatedAt is when the old site decided, as the archive says,
+     * or null when it does not say.
+     *
+     * Like insert(), the row is selected FROM the request, filtered on the
+     * statuses that call for $decision: a request that does not hold it
+     * gets no row, and the answer is null.
+     *
+     * @return int|null the new row's id, or null when nothing was created
+     */
+    public function insertCommunicatedElsewhere(
+        int $requestId,
+        string $decision,
+        ?\DateTimeImmutable $communicatedAt,
+        \DateTimeImmutable $now
+    ): ?int {
+        $statuses = DecisionEmail::statusesFor($decision);
+        if ($statuses === []) {
+            throw new \InvalidArgumentException('A communicated decision is an acceptance or a refusal.');
+        }
+
+        $stamp = self::format($now);
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO registration_decision_emails
+                (registration_request_id, decision, state, attempt, communicated_at, created_at, updated_at)
+             SELECT id, ?, ?, 0, ?, ?, ?
+             FROM registration_requests
+             WHERE id = ? AND status IN (' . implode(', ', array_fill(0, count($statuses), '?')) . ')'
+        );
+        $stmt->execute(array_merge([
+            $decision,
+            DecisionEmail::STATE_COMMUNICATED_ELSEWHERE,
+            $communicatedAt !== null ? self::format($communicatedAt) : null,
+            $stamp,
+            $stamp,
+            $requestId,
+        ], $statuses));
+
+        return $stmt->rowCount() === 1 ? (int) $this->pdo->lastInsertId() : null;
+    }
+
+    /**
      * Takes a scheduled e-mail for sending — 'scheduled' to 'sending',
      * only if it still is scheduled and still describes the request's
      * decision. True for exactly one of any number of concurrent callers.
@@ -387,6 +435,39 @@ class DecisionEmailRepository
     }
 
     /**
+     * For each request, the decisions its old site had already told the
+     * family (chantier #1142, D2) and that are still its current ones —
+     * a `communicated_elsewhere` row not superseded since. What makes the
+     * decision visible without an e-mail (Service\RequestStatusService::
+     * visibleStatus()).
+     *
+     * @param array<int> $requestIds
+     * @return array<int, array<string, true>> request id => decision => true
+     */
+    public function communicatedElsewhereByRequest(array $requestIds): array
+    {
+        $requestIds = array_values(array_unique(array_map('intval', $requestIds)));
+        if ($requestIds === []) {
+            return [];
+        }
+
+        $stmt = $this->pdo->prepare(
+            "SELECT DISTINCT registration_request_id, decision
+             FROM registration_decision_emails
+             WHERE state = 'communicated_elsewhere' AND superseded_at IS NULL
+               AND registration_request_id IN (" . implode(', ', array_fill(0, count($requestIds), '?')) . ')'
+        );
+        $stmt->execute($requestIds);
+
+        $communicated = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $communicated[(int) $row['registration_request_id']][(string) $row['decision']] = true;
+        }
+
+        return $communicated;
+    }
+
+    /**
      * Every e-mail of one request — RegistrationRequestRepository::
      * deleteById() calls this before deleting the request itself, so the
      * purge removes them whether or not the engine enforces the cascade.
@@ -530,7 +611,8 @@ class DecisionEmailRepository
             supersededAt: $date('superseded_at'),
             createdAt: DateInput::requireFromStorage((string) $row['created_at'], 'created_at'),
             automaticAttempt: (bool) $row['automatic_attempt'],
-            automaticRetryCount: (int) $row['automatic_retry_count']
+            automaticRetryCount: (int) $row['automatic_retry_count'],
+            communicatedAt: $date('communicated_at')
         );
     }
 }

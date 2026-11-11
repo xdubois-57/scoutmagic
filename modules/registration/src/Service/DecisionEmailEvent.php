@@ -27,6 +27,8 @@ final class DecisionEmailEvent
     public const CANCELLED = 'cancelled';
     /** Claimed and not reported back yet. */
     public const SENDING = 'sending';
+    /** « Communiquée par l'ancien site » (chantier #1142, D2): told by the site the request was imported from. */
+    public const COMMUNICATED_ELSEWHERE = 'communicated_elsewhere';
     /** Claimed so long ago that it will never report back: whether it left is unknown. */
     public const INTERRUPTED = 'interrupted';
 

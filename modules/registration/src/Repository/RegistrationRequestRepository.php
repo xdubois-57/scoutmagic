@@ -139,9 +139,24 @@ class RegistrationRequestRepository
         // created but link-less, with the exception escaping before Service\
         // RegistrationService::submit() could send the receipt email — so the
         // family got nothing at all for a request that did exist. Same
-        // begin/commit/rollBack shape as Service\MigrationService::migrate().
-        $this->pdo->beginTransaction();
-        try {
+        // begin/commit/rollBack shape as Service\MigrationService::migrate() —
+        // through transactional(), so that a caller already holding a
+        // transaction (the import of an old site's requests, chantier
+        // #1142, writes each one inside the data migration module's own)
+        // decides, rather than a nested BEGIN failing.
+        return $this->transactional(function () use (
+            $scoutYearId,
+            $fields,
+            $nameDobBlind,
+            $desiredSectionId,
+            $trackingTokenHash,
+            $trackingTokenEncrypted,
+            $receivedAt,
+            $trackingExpiresAt,
+            $addressBlind,
+            $siblingMemberIds,
+            $trackingToken
+        ): array {
             $id = $this->insertRequestAndSiblings([
                 $scoutYearId,
                 $this->encryption->encrypt($fields['parent_name'], 'registration_requests.parent_name'),
@@ -184,13 +199,8 @@ class RegistrationRequestRepository
                         : null,
             ], $siblingMemberIds);
 
-            $this->pdo->commit();
-        } catch (\Throwable $e) {
-            $this->pdo->rollBack();
-            throw $e;
-        }
-
-        return ['id' => $id, 'tracking_token' => $trackingToken];
+            return ['id' => $id, 'tracking_token' => $trackingToken];
+        });
     }
 
     /**
@@ -337,6 +347,37 @@ class RegistrationRequestRepository
     }
 
     /**
+     * Whether $scoutYearId already holds a LIVE request — pending,
+     * accepted or encoded — of the child named by these three values: the
+     * « doublon possible » Service\RecommendationService flags on the
+     * management list (the same child, `name_dob_blind_index`, filed twice
+     * in one year). Read by the import of an old site's requests (chantier
+     * #1142, lot H) to announce it in the preview; it never refuses or
+     * merges anything, exactly as the public form never does.
+     */
+    public function hasLiveRequestForChild(
+        int $scoutYearId,
+        string $childLastName,
+        string $childFirstName,
+        string $birthDate
+    ): bool {
+        $stmt = $this->pdo->prepare(
+            "SELECT 1 FROM registration_requests
+             WHERE scout_year_id = ? AND name_dob_blind_index = ? AND status IN ('pending', 'accepted', 'encoded')
+             LIMIT 1"
+        );
+        $stmt->execute([
+            $scoutYearId,
+            $this->encryption->blindIndex(
+                self::normalizeForNameDobBlindIndex($childLastName, $childFirstName, $birthDate),
+                'registration_name_dob'
+            ),
+        ]);
+
+        return $stmt->fetchColumn() !== false;
+    }
+
+    /**
      * Every request for $scoutYearId, oldest first ("premier arrivé,
      * premier servi" — module spec) — Controller\RegistrationConfigController's
      * management list.
@@ -382,7 +423,9 @@ class RegistrationRequestRepository
      * still `accepted`, or already `encoded` in Desk — or a refusal stays
      * invisible to the family until an e-mail of THAT decision, not
      * superseded by a later status change, has been sent
-     * (`registration_decision_emails`, issue #843 IT-05). So this counts
+     * (`registration_decision_emails`, issue #843 IT-05) — or was
+     * communicated by the old site the request was imported from (chantier
+     * #1142, D2), which no e-mail of this site owes. So this counts
      * exactly the decisions a family cannot see yet, whatever their e-mail
      * is doing — scheduled, failed, or never planned. Withdrawn requests
      * send nothing and are never counted.
@@ -404,7 +447,7 @@ class RegistrationRequestRepository
                AND NOT EXISTS (
                    SELECT 1 FROM registration_decision_emails e
                    WHERE e.registration_request_id = r.id
-                     AND e.state = 'sent' AND e.superseded_at IS NULL
+                     AND e.state IN ('sent', 'communicated_elsewhere') AND e.superseded_at IS NULL
                      AND e.decision = CASE WHEN r.status = 'refused' THEN 'refused' ELSE 'accepted' END
                )",
             $scoutYearIds
@@ -1187,19 +1230,21 @@ class RegistrationRequestRepository
      */
     private function hydrateAll(array $rows): array
     {
-        $sentAt = $this->decisionEmails->firstSentAtByRequest(
-            array_map(static fn(array $row): int => (int) $row['id'], $rows)
-        );
+        $ids = array_map(static fn(array $row): int => (int) $row['id'], $rows);
+        $sentAt = $this->decisionEmails->firstSentAtByRequest($ids);
+        $communicated = $this->decisionEmails->communicatedElsewhereByRequest($ids);
 
-        return array_map(function (array $row) use ($sentAt): RegistrationRequest {
+        return array_map(function (array $row) use ($sentAt, $communicated): RegistrationRequest {
             // Only the e-mail of the decision the request holds NOW: a
             // refused request whose acceptance e-mail went out earlier owes
             // its refusal e-mail, and is not "sent".
             $decision = DecisionEmail::decisionForStatus((string) $row['status']);
+            $id = (int) $row['id'];
 
             return $this->hydrate(
                 $row,
-                $decision !== null ? ($sentAt[(int) $row['id']][$decision] ?? null) : null
+                $decision !== null ? ($sentAt[$id][$decision] ?? null) : null,
+                $decision !== null && isset($communicated[$id][$decision])
             );
         }, $rows);
     }
@@ -1207,8 +1252,11 @@ class RegistrationRequestRepository
     /**
      * @param array<string, mixed> $row
      */
-    private function hydrate(array $row, ?\DateTimeImmutable $decisionEmailSentAt): RegistrationRequest
-    {
+    private function hydrate(
+        array $row,
+        ?\DateTimeImmutable $decisionEmailSentAt,
+        bool $decisionCommunicatedElsewhere = false
+    ): RegistrationRequest {
         return new RegistrationRequest(
             id: (int) $row['id'],
             scoutYearId: (int) $row['scout_year_id'],
@@ -1257,7 +1305,8 @@ class RegistrationRequestRepository
                 : null,
             refusalReason: self::normalizeRefusalReason(
                 isset($row['refusal_reason']) ? (string) $row['refusal_reason'] : null
-            )
+            ),
+            decisionCommunicatedElsewhere: $decisionCommunicatedElsewhere
         );
     }
 
