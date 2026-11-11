@@ -44,7 +44,10 @@ MARKER='⚠️ [contenu caché retiré automatiquement]'
 MARKER_TOO_LONG="${MARKER} Texte trop long une fois nettoyé : l'original reste dans l'historique des modifications."
 
 # chars <text> → its length in characters, whatever the runner's locale.
-chars() { jq -rn --arg s "$1" '$s | length'; }
+chars() {
+  local text="$1"
+  jq -rn --arg s "${text}" '$s | length'
+}
 
 # sanitize_one <api path of the object> <label for the log>
 sanitize_one() {
