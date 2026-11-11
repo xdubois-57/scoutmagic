@@ -7,6 +7,7 @@ set -euo pipefail
 #   sanitize-issue-thread.sh issue   <issue number>
 #   sanitize-issue-thread.sh comment <comment id>
 #   sanitize-issue-thread.sh thread  <issue number>   # body + every comment
+#   sanitize-issue-thread.sh open    0                # every open issue's thread
 #
 # NEVER rewrites a text written by a bot. This repository's own workflows
 # write HTML comments on purpose — `<!-- external-source:<id> -->`,
@@ -30,8 +31,8 @@ strip="${here}/strip-hidden-issue-content.sh"
 kind="${1:-}"
 id="${2:-}"
 case "${kind}" in
-  issue|comment|thread) ;;
-  *) echo "usage: $0 issue|comment|thread <id>" >&2; exit 2 ;;
+  issue|comment|thread|open) ;;
+  *) echo "usage: $0 issue|comment|thread|open <id>" >&2; exit 2 ;;
 esac
 [[ "${id}" =~ ^[0-9]+$ ]] || { echo "not a number: ${id}" >&2; exit 2; }
 : "${GITHUB_REPOSITORY:?}"
@@ -58,8 +59,24 @@ case "${kind}" in
   comment) sanitize_one "${repo}/issues/comments/${id}" "commentaire ${id}" ;;
   thread)
     sanitize_one "${repo}/issues/${id}" "issue #${id}"
-    for comment in $(gh api --paginate "${repo}/issues/${id}/comments" --jq '.[].id'); do
+    # Listed first, then walked: inside `for … in $(…)` a failed listing
+    # is not caught by `set -e`, the loop runs over nothing, and the agent
+    # that runs next reads the comments as they were.
+    ids="$(gh api --paginate "${repo}/issues/${id}/comments" --jq '.[].id')"
+    while IFS= read -r comment; do
+      [[ -n "${comment}" ]] || continue
       sanitize_one "${repo}/issues/comments/${comment}" "commentaire ${comment}"
-    done
+    done <<<"${ids}"
+    ;;
+  open)
+    # Every open issue's thread — the one-off pass over what was written
+    # before this filter existed (issue-sanitize.yml, workflow_dispatch).
+    # `id` is ignored but still required numeric, so the usage stays one.
+    numbers="$(gh api --paginate "${repo}/issues?state=open&per_page=100" \
+      --jq '.[] | select(.pull_request == null) | .number')"
+    while IFS= read -r number; do
+      [[ -n "${number}" ]] || continue
+      bash "${BASH_SOURCE[0]}" thread "${number}"
+    done <<<"${numbers}"
     ;;
 esac

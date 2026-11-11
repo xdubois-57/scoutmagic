@@ -29,6 +29,9 @@ while [ $i -lt ${#args[@]} ]; do
   esac
   i=$((i+1))
 done
+if [ -n "${GH_FAIL_PATH:-}" ] && [ "${path}" = "${GH_FAIL_PATH}" ]; then
+  echo "HTTP 502" >&2; exit 1
+fi
 file="${GH_FIXTURES}/${path//\//_}.json"
 if [ "$method" = PATCH ]; then
   mkdir -p "${GH_FIXTURES}/patched"
@@ -92,6 +95,23 @@ run thread 9 >/dev/null
 [ "$(patched "${repo}/issues/comments/101")" = "a ${M} b" ] || fail "the hidden comment of the thread was not cleaned"
 [ "$(patched "${repo}/issues/comments/102")" = NONE ] || fail "the bot comment of the thread was rewritten"
 [ "$(patched "${repo}/issues/comments/103")" = NONE ] || fail "the clean comment of the thread was rewritten"
+
+# A comment listing that fails stops the run: an empty loop would hand the
+# triage agent the comments as they were, and call it a success.
+reset
+fixture "${repo}/issues/10" '{"user":{"type":"User"},"body":"propre"}'
+if GH_FAIL_PATH="${repo}/issues/10/comments" run thread 10 >/dev/null 2>&1; then
+  fail "a failed comment listing was reported as a success"
+fi
+
+# The one-off pass: every open issue's thread, pull requests skipped.
+reset
+fixture "${repo}/issues?state=open&per_page=100" '[{"number":11},{"number":12,"pull_request":{}}]'
+fixture "${repo}/issues/11" '{"user":{"type":"User"},"body":"vieux <!-- caché --> texte"}'
+fixture "${repo}/issues/11/comments" '[]'
+run open 0 >/dev/null
+[ "$(patched "${repo}/issues/11")" = "vieux ${M} texte" ] || fail "an old open issue was not cleaned"
+[ "$(patched "${repo}/issues/12")" = NONE ] || fail "a pull request was touched by the open pass"
 
 # Arguments are checked before anything is read.
 reset

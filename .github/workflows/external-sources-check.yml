@@ -261,7 +261,8 @@ jobs:
             fi
 
             seen="$( { gh api "repos/${GITHUB_REPOSITORY}/issues/${existing}" --jq '.body // ""';
-              gh api "repos/${GITHUB_REPOSITORY}/issues/${existing}/comments" --paginate --jq '.[].body'; } \
+              gh api "repos/${GITHUB_REPOSITORY}/issues/${existing}/comments" --paginate \
+                --jq '.[] | select(.user.type == "Bot") | .body'; } \
               | grep -cF "${known}" || true)"
             if [ "${seen}" -gt 0 ]; then
               echo "#${existing} already reports ${id} as it diverges today; nothing written."

@@ -45,6 +45,11 @@ on:
     types: [opened, edited]
   issue_comment:
     types: [created, edited]
+  # Once, by hand, after this workflow first lands: every OPEN issue's
+  # thread, since what was written before it existed was never filtered —
+  # the Ready queue included, and the open issues the external-sources
+  # agent lists. Idempotent, so a second run writes nothing.
+  workflow_dispatch:
 
 concurrency:
   # One run at a time per text: an edit landing while the previous rewrite
@@ -87,7 +92,9 @@ jobs:
           COMMENT_ID: ${{ github.event.comment.id }}
         run: |
           set -euo pipefail
-          if [ "${EVENT_NAME}" = "issue_comment" ]; then
+          if [ "${EVENT_NAME}" = "workflow_dispatch" ]; then
+            bash "${RUNNER_TEMP}/sanitize/sanitize-issue-thread.sh" open 0
+          elif [ "${EVENT_NAME}" = "issue_comment" ]; then
             bash "${RUNNER_TEMP}/sanitize/sanitize-issue-thread.sh" comment "${COMMENT_ID}"
           else
             bash "${RUNNER_TEMP}/sanitize/sanitize-issue-thread.sh" issue "${ISSUE_NUMBER}"

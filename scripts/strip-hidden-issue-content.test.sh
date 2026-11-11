@@ -11,7 +11,7 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 # Characters are built from their code points by python3, never written
 # literally in this file, nor by `printf` escapes, whose output depends on
 # the locale: either way the test would quietly test nothing.
-cp() { python3 -c 'import sys; sys.stdout.buffer.write("".join(chr(int(c, 16)) for c in sys.argv[1:]).encode("utf-8"))' "$@"; }
+codepoints() { python3 -c 'import sys; sys.stdout.buffer.write("".join(chr(int(c, 16)) for c in sys.argv[1:]).encode("utf-8"))' "$@"; }
 
 expect() { # expect <wanted> <input>
   local got
@@ -43,12 +43,12 @@ ${M}
 ```'
 
 # Each family of invisible characters, one marker per run.
-expect "a${M}b" "a$(cp e0049 e0047 e004e)b"
-expect "a${M}b" "a$(cp 200b 200c 200d)b"
-expect "a${M}b" "a$(cp 2060)b"
-expect "a${M}b" "a$(cp feff)b"
-expect "a${M}b" "a$(cp 202e)b"
-expect "a${M}b" "a$(cp 2066 2069)b"
+expect "a${M}b" "a$(codepoints e0049 e0047 e004e)b"
+expect "a${M}b" "a$(codepoints 200b 200c 200d)b"
+expect "a${M}b" "a$(codepoints 2060)b"
+expect "a${M}b" "a$(codepoints feff)b"
+expect "a${M}b" "a$(codepoints 202e)b"
+expect "a${M}b" "a$(codepoints 2066 2069)b"
 
 # Legitimate text is left exactly as it is.
 expect 'Le bouton <b>Envoyer</b> ne répond pas' 'Le bouton <b>Envoyer</b> ne répond pas'
