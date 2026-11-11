@@ -125,7 +125,7 @@ final class ImportedEmailLockTest extends TestCase
     {
         $this->assertRefused(fn() => $this->service->resendDelivery($this->acceptedId, null), 'renvoyé');
 
-        $this->assertSame(Delivery::STATUS_SENT, $this->status($this->acceptedId));
+        $this->assertSame(Delivery::STATUS_SENT, $this->deliveryStatus($this->acceptedId));
         $this->assertSame(Email::STATUS_SENT, $this->service->findById($this->emailId)?->status);
         $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM scheduled_actions')->fetchColumn());
     }
@@ -134,7 +134,7 @@ final class ImportedEmailLockTest extends TestCase
     {
         $this->assertRefused(fn() => $this->service->resendDelivery($this->unknownId, null), 'renvoyé');
 
-        $this->assertSame(Delivery::STATUS_UNKNOWN, $this->status($this->unknownId));
+        $this->assertSame(Delivery::STATUS_UNKNOWN, $this->deliveryStatus($this->unknownId));
     }
 
     public function testEditingIsRefused(): void
@@ -256,7 +256,7 @@ final class ImportedEmailLockTest extends TestCase
         return (int) $stmt->fetchColumn();
     }
 
-    private function status(int $deliveryId): string
+    private function deliveryStatus(int $deliveryId): string
     {
         return (string) $this->pdo->query("SELECT status FROM mass_mail_deliveries WHERE id = {$deliveryId}")->fetchColumn();
     }

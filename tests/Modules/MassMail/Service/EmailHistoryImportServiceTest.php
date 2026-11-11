@@ -114,10 +114,10 @@ final class EmailHistoryImportServiceTest extends TestCase
         }
 
         // The whole of « no side effect », as the database sees it.
-        $this->assertSame(0, $this->count("SELECT COUNT(*) FROM mass_mail_deliveries WHERE status = 'pending'"));
-        $this->assertSame(0, $this->count('SELECT COUNT(*) FROM scheduled_actions'));
-        $this->assertSame(0, $this->count('SELECT COUNT(*) FROM notifications'));
-        $this->assertSame(0, $this->count('SELECT COUNT(*) FROM mass_mail_notified_accounts'));
+        $this->assertSame(0, $this->rows("SELECT COUNT(*) FROM mass_mail_deliveries WHERE status = 'pending'"));
+        $this->assertSame(0, $this->rows('SELECT COUNT(*) FROM scheduled_actions'));
+        $this->assertSame(0, $this->rows('SELECT COUNT(*) FROM notifications'));
+        $this->assertSame(0, $this->rows('SELECT COUNT(*) FROM mass_mail_notified_accounts'));
     }
 
     public function testTheAddressesAndTheOriginalSenderAreEncryptedAtRest(): void
@@ -230,7 +230,7 @@ final class EmailHistoryImportServiceTest extends TestCase
             static fn(mixed $year): ?int => $year !== null ? (int) $year : null,
             $targets
         ));
-        $this->assertSame(1, $this->count('SELECT COUNT(*) FROM mass_mail_delivery_targets'));
+        $this->assertSame(1, $this->rows('SELECT COUNT(*) FROM mass_mail_delivery_targets'));
     }
 
     public function testAnAttachmentTheStorageRefusesIsLeftOutAndTheEmailKept(): void
@@ -311,7 +311,7 @@ final class EmailHistoryImportServiceTest extends TestCase
         return $keys;
     }
 
-    private function count(string $sql): int
+    private function rows(string $sql): int
     {
         return (int) $this->pdo->query($sql)->fetchColumn();
     }

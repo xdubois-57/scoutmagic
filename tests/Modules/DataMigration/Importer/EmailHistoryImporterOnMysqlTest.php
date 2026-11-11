@@ -132,7 +132,7 @@ final class EmailHistoryImporterOnMysqlTest extends TestCase
         $this->assertSame(2, $run->analysis['tags'][EmailHistoryImporter::TAG_SECTION_STAFF] ?? 0);
         $this->assertSame(1, $run->analysis['tags'][EmailHistoryImporter::TAG_MAIL_MERGE] ?? 0);
         $this->assertSame(1, $run->analysis['tags'][EmailHistoryImporter::TAG_MEMBER_UNKNOWN] ?? 0);
-        $this->assertSame(0, $this->count('mass_mail_emails'));
+        $this->assertSame(0, $this->rows('mass_mail_emails'));
 
         $notes = array_map(
             static fn ($note): string => $note->text,
@@ -152,8 +152,8 @@ final class EmailHistoryImporterOnMysqlTest extends TestCase
 
         $this->assertSame(3, $run->report['imported']);
         $this->assertSame(0, $run->report['errors']);
-        $this->assertSame(3, $this->count('mass_mail_emails'));
-        $this->assertSame(3, $this->count('data_migration_items'));
+        $this->assertSame(3, $this->rows('mass_mail_emails'));
+        $this->assertSame(3, $this->rows('data_migration_items'));
 
         // D6: the section whose address sent it, else the Staff d'U.
         $sections = $this->pdo->query('SELECT subject, section_id FROM mass_mail_emails')->fetchAll(\PDO::FETCH_KEY_PAIR);
@@ -180,7 +180,7 @@ final class EmailHistoryImporterOnMysqlTest extends TestCase
                 "SELECT member_id FROM mass_mail_targets WHERE email_id = {$campId} ORDER BY member_id"
             )->fetchAll(\PDO::FETCH_COLUMN))
         );
-        $this->assertSame(2, $this->count('members'));
+        $this->assertSame(2, $this->rows('members'));
 
         $camp = (new EmailRepository($this->pdo))->findById($campId);
         $this->assertTrue($camp?->isImported());
@@ -198,8 +198,8 @@ final class EmailHistoryImporterOnMysqlTest extends TestCase
         // Nothing to send, nothing scheduled, nobody notified.
         $this->assertSame(0, (int) $this->pdo->query("SELECT COUNT(*) FROM mass_mail_deliveries WHERE status = 'pending'")->fetchColumn());
         $this->assertSame(0, (int) $this->pdo->query("SELECT COUNT(*) FROM scheduled_actions WHERE module_id = 'mass_mail'")->fetchColumn());
-        $this->assertSame(0, $this->count('notifications'));
-        $this->assertSame(0, $this->count('mass_mail_notified_accounts'));
+        $this->assertSame(0, $this->rows('notifications'));
+        $this->assertSame(0, $this->rows('mass_mail_notified_accounts'));
     }
 
     public function testARerunImportsNothingTwice(): void
@@ -210,7 +210,7 @@ final class EmailHistoryImporterOnMysqlTest extends TestCase
 
         $this->assertSame(0, $again->report['imported']);
         $this->assertSame(3, $again->report['present']);
-        $this->assertSame(3, $this->count('mass_mail_emails'));
+        $this->assertSame(3, $this->rows('mass_mail_emails'));
     }
 
     /**
@@ -246,11 +246,11 @@ final class EmailHistoryImporterOnMysqlTest extends TestCase
         ], $run->report['ignored']);
         // The three whose optional part only was invalid are imported without it.
         $this->assertSame(3, $run->report['imported']);
-        $this->assertSame(0, $this->count('mass_mail_attachments'));
+        $this->assertSame(0, $this->rows('mass_mail_attachments'));
         $this->assertSame(0, (int) $this->pdo->query("SELECT COUNT(*) FROM mass_mail_deliveries WHERE status = 'sent'")->fetchColumn());
         // « delivered » is not a status this format knows: never « Remis ».
         $this->assertSame(1, (int) $this->pdo->query("SELECT COUNT(*) FROM mass_mail_deliveries WHERE status = 'unknown'")->fetchColumn());
-        $this->assertSame(2, $this->count('members'), 'an unknown Desk id created nobody');
+        $this->assertSame(2, $this->rows('members'), 'an unknown Desk id created nobody');
 
         // D8: the report names the former site's references, never a person.
         foreach ($run->report['samples'] as $sample) {
@@ -278,7 +278,7 @@ final class EmailHistoryImporterOnMysqlTest extends TestCase
 
         $this->assertNotSame(Run::ANALYSED, $run->state);
         $this->assertStringContainsString('2.0.0', (string) $run->rejectionReason);
-        $this->assertSame(0, $this->count('mass_mail_emails'));
+        $this->assertSame(0, $this->rows('mass_mail_emails'));
     }
 
     /**
@@ -300,7 +300,7 @@ final class EmailHistoryImporterOnMysqlTest extends TestCase
             $this->assertFalse($email?->isEditable());
             $this->assertFalse($emails->deleteIfNotStarted((int) $id));
         }
-        $this->assertSame(3, $this->count('mass_mail_emails'));
+        $this->assertSame(3, $this->rows('mass_mail_emails'));
         $this->assertSame([], $deliveries->findOldestPending(100));
     }
 
@@ -325,7 +325,7 @@ final class EmailHistoryImporterOnMysqlTest extends TestCase
         $run = $this->drive($this->deposit($zip));
 
         $this->assertNotSame(Run::ANALYSED, $run->state);
-        $this->assertSame(0, $this->count('mass_mail_emails'));
+        $this->assertSame(0, $this->rows('mass_mail_emails'));
     }
 
     private function analysed(string $fixture): Run
@@ -374,7 +374,7 @@ final class EmailHistoryImporterOnMysqlTest extends TestCase
         return $run;
     }
 
-    private function count(string $table): int
+    private function rows(string $table): int
     {
         return (int) $this->pdo->query("SELECT COUNT(*) FROM {$table}")->fetchColumn();
     }
