@@ -100,6 +100,66 @@ class MessageContentSanitizerTest extends TestCase
         $this->assertStringContainsString('Texte', $html);
     }
 
+    /**
+     * Issue #1122 (audit SEC-027): every spelling of an image, and every
+     * attribute a client uses to set one, leaves no remote URL behind. The
+     * nested tag is the one a regular expression run on the text used to
+     * "repair" into a real `<img>`.
+     *
+     * @return iterable<string, array{string}>
+     */
+    public static function remoteImageSpellings(): iterable
+    {
+        yield 'a nested tag' => ['<p>Bonjour</p><im<img x>g src="https://traceur.exemple/pixel.gif">'];
+        yield 'upper case' => ['<p>Bonjour</p><IMG SRC="https://traceur.exemple/pixel.gif">'];
+        yield 'a newline before src' => ["<p>Bonjour</p><img\nsrc=\"https://traceur.exemple/pixel.gif\">"];
+        yield 'a slash as separator' => ['<p>Bonjour</p><img/src="https://traceur.exemple/pixel.gif">'];
+        yield 'a background attribute' => [
+            '<table><tr><td background="https://traceur.exemple/bg.png">Bonjour</td></tr></table>',
+        ];
+        yield 'a style url' => ['<p style="background:url(https://traceur.exemple/bg.png)">Bonjour</p>'];
+        yield 'a nested background' => ['<p back<b x>ground="https://traceur.exemple/bg.png">Bonjour</p>'];
+        yield 'an image inside a link' => [
+            '<a href="https://exemple.be"><img src="https://traceur.exemple/p.gif">Bonjour</a>',
+        ];
+        yield 'an image in an unknown tag' => [
+            '<center><font><img src="https://traceur.exemple/p.gif"></font>Bonjour</center>',
+        ];
+        yield 'a srcset' => ['<p>Bonjour</p><img srcset="https://traceur.exemple/p.gif 1x">'];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('remoteImageSpellings')]
+    public function testNoSpellingOfARemoteImageSurvives(string $body): void
+    {
+        $html = $this->sanitizer->sanitizeHtml($body);
+
+        // What the criterion is about: no TAG in the result carries a remote
+        // URL. A broken tag the parser read as text may still show its URL
+        // as visible, escaped text (`g src="https://…"&gt;`) — that fetches
+        // nothing and is what the sender actually wrote.
+        $this->assertStringNotContainsStringIgnoringCase('<img', $html);
+        $this->assertDoesNotMatchRegularExpression('/<[^>]*\b(src|srcset|background|style)\s*=/i', $html);
+        $this->assertDoesNotMatchRegularExpression('/<[^>]*traceur\.exemple/i', $html);
+        $this->assertStringContainsString('Bonjour', $html);
+    }
+
+    public function testATruncatedBodyKeepsNoImageEither(): void
+    {
+        $filler = str_repeat('<p>' . str_repeat('x', 1000) . '</p>', 600);
+        $html = $this->sanitizer->sanitizeHtml($filler . '<im<img x>g src="https://traceur.exemple/p.gif">');
+
+        $this->assertStringEndsWith(MessageContentSanitizer::HTML_TRUNCATION_MARK, $html);
+        $this->assertStringNotContainsString('traceur.exemple', $html);
+    }
+
+    public function testTheSanitizerStillKeepsImagesInHtmlTheUnitWroteItself(): void
+    {
+        // The no-image mode is a mode: an article body keeps its picture.
+        $article = (new HtmlSanitizer())->sanitize('<p><img src="https://exemple.be/photo.jpg" alt="Camp"></p>');
+
+        $this->assertStringContainsString('<img src="https://exemple.be/photo.jpg"', $article);
+    }
+
     public function testAJavascriptHrefDoesNotSurvive(): void
     {
         $html = $this->sanitizer->sanitizeHtml('<p><a href="javascript:alert(1)">clic</a></p>');

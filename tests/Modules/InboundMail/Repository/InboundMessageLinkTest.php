@@ -348,6 +348,60 @@ class InboundMessageLinkTest extends TestCase
         $this->assertSame(1, $this->messages->countLinks($id));
     }
 
+    // ── The reprise of the stored HTML bodies (issue #1122) ─────────────
+
+    public function testTheHtmlReprisePullsARemoteImageAnEarlierRegexLetThrough(): void
+    {
+        // What the regular expression used to store from
+        // `<im<img x>g src=…>`: a real tag, written as it is here.
+        $tainted = $this->storeMessageWithHtml('<p>Bonjour</p><img src="https://traceur.exemple/p.gif">');
+        $clean = $this->storeMessageWithHtml('<p>Bonjour</p>');
+        $sanitizer = new \Modules\InboundMail\Service\MessageContentSanitizer(new \Core\Security\HtmlSanitizer());
+
+        $step = $this->service->resanitizeStoredHtmlBodies($sanitizer, 0, 50);
+
+        $this->assertSame(['last_id' => $clean, 'done' => true, 'rewritten' => 1], $step);
+        $this->assertSame('<p>Bonjour</p>', $this->storedHtml($tainted));
+        $this->assertSame('<p>Bonjour</p>', $this->storedHtml($clean));
+    }
+
+    public function testTheHtmlRepriseResumesWhereItStopped(): void
+    {
+        $first = $this->storeMessageWithHtml('<p>Un</p><img src="https://traceur.exemple/1.gif">');
+        $second = $this->storeMessageWithHtml('<p>Deux</p><img src="https://traceur.exemple/2.gif">');
+        $sanitizer = new \Modules\InboundMail\Service\MessageContentSanitizer(new \Core\Security\HtmlSanitizer());
+
+        $step = $this->service->resanitizeStoredHtmlBodies($sanitizer, 0, 1);
+        $this->assertSame(['last_id' => $first, 'done' => false, 'rewritten' => 1], $step);
+        $this->assertStringContainsString('traceur.exemple', (string) $this->storedHtml($second));
+
+        $step = $this->service->resanitizeStoredHtmlBodies($sanitizer, $step['last_id'], 1);
+        $this->assertSame(['last_id' => $second, 'done' => false, 'rewritten' => 1], $step);
+        $this->assertSame('<p>Deux</p>', $this->storedHtml($second));
+
+        // The batch after the last message is empty, which is what says done.
+        $step = $this->service->resanitizeStoredHtmlBodies($sanitizer, $step['last_id'], 1);
+        $this->assertSame(['last_id' => $second, 'done' => true, 'rewritten' => 0], $step);
+    }
+
+    public function testTheHtmlRepriseEmptiesABodyThatWasOnlyAnImageAndNeverCutsTwice(): void
+    {
+        // What a client leaves in the cell an image filled: a paragraph with
+        // a non-breaking space, which draws nothing once the image is gone.
+        $onlyImage = $this->storeMessageWithHtml('<p><img src="https://traceur.exemple/p.gif">&nbsp;</p>');
+        // Over the 512 KiB ceiling: a new message this size would be cut.
+        $long = str_repeat('<p>' . str_repeat('x', 1000) . '</p>', 540)
+            . \Modules\InboundMail\Service\MessageContentSanitizer::HTML_TRUNCATION_MARK;
+        $truncated = $this->storeMessageWithHtml($long);
+        $sanitizer = new \Modules\InboundMail\Service\MessageContentSanitizer(new \Core\Security\HtmlSanitizer());
+
+        $this->service->resanitizeStoredHtmlBodies($sanitizer, 0, 50);
+
+        $this->assertSame('', $this->storedHtml($onlyImage));
+        // Already cut once, over the ceiling: kept whole, with one mark.
+        $this->assertSame($long, $this->storedHtml($truncated));
+    }
+
     // ── The reprise of the attachments' ownership ───────────────────────
 
     public function testTheOwnerBackfillGivesEveryOrphanedAttachmentItsMessage(): void
@@ -462,6 +516,31 @@ class InboundMessageLinkTest extends TestCase
     private function candidate(string $reference, int $attachmentId = 0): MessageCandidate
     {
         return new MessageCandidate($reference, 'Cible', 'sender_window', 'Explication', $attachmentId);
+    }
+
+    private function storeMessageWithHtml(string $html): int
+    {
+        static $uid = 900;
+
+        return $this->messages->create(
+            mailboxId: $this->mailboxId,
+            folder: 'INBOX',
+            uidValidity: 1,
+            imapUid: ++$uid,
+            messageId: 'html-' . $uid . '@example.be',
+            inReplyTo: null,
+            subject: 'Facture',
+            fromEmail: 'jeanne@example.be',
+            fromName: null,
+            bodyText: 'Bonjour',
+            bodyHtml: $html,
+            sentAt: new \DateTimeImmutable('2027-07-12 09:30:00')
+        );
+    }
+
+    private function storedHtml(int $id): ?string
+    {
+        return $this->messages->findHtmlBodiesAfter($id - 1, 1)[0]['body_html'] ?? null;
     }
 
     private function storeMessage(string $messageId): int

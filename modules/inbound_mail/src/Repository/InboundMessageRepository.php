@@ -1219,6 +1219,42 @@ class InboundMessageRepository
     }
 
     /**
+     * The stored HTML bodies after a given id, decrypted, for a pass that
+     * re-cleans what was written before a sanitizing rule changed (issue
+     * #1122). A row whose ciphertext cannot be read comes back with a null
+     * body, so the pass still moves past it instead of stopping there.
+     *
+     * @return list<array{id: int, body_html: ?string}>
+     */
+    public function findHtmlBodiesAfter(int $afterId, int $limit): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT id, body_html_encrypted FROM inbound_messages
+              WHERE id > ? ORDER BY id ASC
+              LIMIT ' . max(1, $limit)
+        );
+        $stmt->execute([$afterId]);
+
+        $rows = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            try {
+                $body = $this->encryption->decrypt((string) $row['body_html_encrypted'], 'inbound_messages.body_html');
+            } catch (\Core\Security\DecryptionException) {
+                $body = null;
+            }
+            $rows[] = ['id' => (int) $row['id'], 'body_html' => $body];
+        }
+
+        return $rows;
+    }
+
+    public function updateBodyHtml(int $id, string $bodyHtml): void
+    {
+        $this->pdo->prepare('UPDATE inbound_messages SET body_html_encrypted = ? WHERE id = ?')
+            ->execute([$this->encryption->encrypt($bodyHtml, 'inbound_messages.body_html'), $id]);
+    }
+
+    /**
      * Every (file, message) pair an attachment row records, oldest first —
      * what the one-time reprise of `files.owner_type`/`owner_id` walks.
      *

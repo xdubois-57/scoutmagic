@@ -8203,6 +8203,42 @@ if ($isEnabled('inbound_mail')) {
         $settingService->clearCache();
     }
 
+    // One-time reprise of the HTML bodies stored while images were still
+    // removed by a regular expression a nested tag could get past (issue
+    // #1122). In steps, and resumed on the next request: the setting holds
+    // the last message id cleaned, then « done ».
+    $resanitizedThrough = $settingService->get('inbound_mail_html_bodies_resanitized');
+    if ($resanitizedThrough !== 'done') {
+        if ($resanitizedThrough === null) {
+            $settingService->register(
+                'inbound_mail_html_bodies_resanitized',
+                '0',
+                'text',
+                'Corps HTML du courrier entrant nettoyés à nouveau',
+                'Indique jusqu\'où les corps HTML des messages entrants déjà conservés ont été nettoyés '
+                    . 'à nouveau (images distantes retirées), puis « done ».',
+                null,
+                null,
+                null,
+                false,
+                999
+            );
+        }
+
+        $step = $inboundMailForOthers->resanitizeStoredHtmlBodies(
+            new \Modules\InboundMail\Service\MessageContentSanitizer(new \Core\Security\HtmlSanitizer()),
+            (int) $resanitizedThrough,
+            200
+        );
+
+        $settingRepo->updateValue(
+            null,
+            'inbound_mail_html_bodies_resanitized',
+            $step['done'] ? 'done' : (string) $step['last_id']
+        );
+        $settingService->clearCache();
+    }
+
     // One-time reprise of the `unsorted` associations Camps used to make
     // (IT-07). The reference was a bucket masquerading as a stay — with
     // its own retention, its own screen and its own purge task, all

@@ -640,6 +640,39 @@ class InboundMailService implements InboundMailInterface
     }
 
     /**
+     * One-time reprise, in bounded steps: the HTML bodies stored before
+     * images were removed from the parsed tree (issue #1122, audit
+     * SEC-027) are cleaned again under today's rules.
+     *
+     * Resumable rather than all at once: it runs inside a page view, where
+     * a unit's whole mailbox could outlast `max_execution_time`. Each call
+     * handles at most `$limit` messages after `$afterId` and says where it
+     * stopped; a body is rewritten only when cleaning changes it.
+     *
+     * @return array{last_id: int, done: bool, rewritten: int}
+     */
+    public function resanitizeStoredHtmlBodies(MessageContentSanitizer $sanitizer, int $afterId, int $limit): array
+    {
+        $rows = $this->messageRepository->findHtmlBodiesAfter($afterId, $limit);
+        $lastId = $afterId;
+        $rewritten = 0;
+
+        foreach ($rows as $row) {
+            $lastId = $row['id'];
+            if ($row['body_html'] === null) {
+                continue;
+            }
+            $cleaned = $sanitizer->resanitizeStoredHtml($row['body_html']);
+            if ($cleaned !== $row['body_html']) {
+                $this->messageRepository->updateBodyHtml($row['id'], $cleaned);
+                $rewritten++;
+            }
+        }
+
+        return ['last_id' => $lastId, 'done' => count($rows) < $limit, 'rewritten' => $rewritten];
+    }
+
+    /**
      * @param string[] $messageIds
      */
     public function findReferenceByThread(string $consumerId, int $mailboxId, array $messageIds): ?string
