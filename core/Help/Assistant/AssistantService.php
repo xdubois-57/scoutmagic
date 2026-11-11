@@ -11,6 +11,8 @@ namespace Core\Help\Assistant;
 use Core\Help\HelpException;
 use Core\Help\HelpService;
 use Core\Help\HelpTopic;
+use Core\Http\Request;
+use Core\Http\Router;
 use Core\Journal\JournalService;
 use Core\Security\Role;
 use Modules\LlmConnector\Api\LlmConnectorInterface;
@@ -67,6 +69,9 @@ class AssistantService
     /** Longer than this and it is not a question, it is a paste. */
     public const MAX_QUESTION_LENGTH = 500;
 
+    /** A browser path is a hint, never arbitrary prompt text. */
+    public const MAX_PATH_LENGTH = 2048;
+
     /** Questions one account may ask per window. */
     public const QUOTA_PER_WINDOW = 20;
     public const QUOTA_WINDOW_MINUTES = 60;
@@ -104,6 +109,7 @@ class AssistantService
         // null, the only name core ever autoloads is the Api\ interface,
         // and isAvailable() below answers false instead of throwing.
         private readonly ?LlmConnectorInterface $llmConnector = null,
+        private readonly ?Router $router = null,
     ) {
     }
 
@@ -182,8 +188,18 @@ class AssistantService
 
         // The cache is consulted BEFORE the quota is charged: serving an
         // answer that cost nothing must not spend somebody's allowance.
-        $fingerprint = AssistantCacheRepository::fingerprint($question, $role->value, $this->appVersion);
-        $cached = $this->cache->find($fingerprint);
+        $currentPath = $this->routePatternFor($currentPath);
+        $routeTopicIds = $currentPath === null ? [] : $routeTopicIds;
+        $fingerprint = $history === []
+            ? AssistantCacheRepository::fingerprint(
+                $question,
+                $role->value,
+                $this->appVersion,
+                $currentPath,
+                $routeTopicIds
+            )
+            : null;
+        $cached = $fingerprint !== null ? $this->cache->find($fingerprint) : null;
         if ($cached !== null) {
             $topics = $this->resolve($cached['topic_ids'], $role);
             $this->log($role, $topics, 0, 0, true);
@@ -200,7 +216,9 @@ class AssistantService
             // A real outcome, not an error: the corpus does not cover
             // this. Cached like any other answer — asking twice must not
             // cost twice just because the answer was "nothing".
-            $this->cache->store($fingerprint, '', []);
+            if ($fingerprint !== null) {
+                $this->cache->store($fingerprint, '', []);
+            }
             $this->log($role, [], $selectionTokens, 0, false);
 
             return new AssistantAnswer('', [], true);
@@ -208,10 +226,23 @@ class AssistantService
 
         [$text, $answerTokens] = $this->answer($question, $topics, $history);
 
-        $this->cache->store($fingerprint, $text, array_map(static fn (HelpTopic $t): string => $t->id, $topics));
+        if ($fingerprint !== null) {
+            $this->cache->store($fingerprint, $text, array_map(static fn (HelpTopic $t): string => $t->id, $topics));
+        }
         $this->log($role, $topics, $selectionTokens, $answerTokens, false);
 
         return new AssistantAnswer($text, $topics, false);
+    }
+
+    /** Resolve only known GET routes; never forward a path's parameter values. */
+    private function routePatternFor(?string $path): ?string
+    {
+        if ($path === null || strlen($path) > self::MAX_PATH_LENGTH
+            || !str_starts_with($path, '/') || preg_match('/[\\x00-\\x20\\x7f?#]/', $path) === 1) {
+            return null;
+        }
+
+        return $this->router?->resolve(new Request('GET', $path, [], [], [], []))?->path;
     }
 
     /**

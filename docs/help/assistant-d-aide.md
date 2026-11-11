@@ -47,9 +47,17 @@ nécessaire pour obtenir une réponse.
 
 ## Ce qu'il advient de vos questions
 
-Rien n'est conservé. Votre conversation vit le temps de votre visite :
-elle disparaît à la déconnexion et après une heure sans échange. Le site
-compte les questions posées, jamais leur contenu.
+Votre conversation reste dans votre session : elle disparaît à la
+déconnexion et après une heure sans échange. Votre question et les échanges
+précédents sont transmis au fournisseur d'IA pour permettre les questions
+de suivi. Le contexte de page transmis décrit seulement le type de page,
+jamais les identifiants ou jetons de son adresse.
+
+La réponse à une première question, sans historique, peut être réutilisée
+pour la même question et le même contexte de page. Le cache ne conserve
+pas le texte de la question. Les réponses aux questions de suivi ne sont
+pas mises dans ce cache partagé. Le journal conserve uniquement des
+compteurs et les sujets consultés.
 
 Le nombre de questions par heure est limité, pour que l'assistant reste
 disponible à tout le monde. Si vous atteignez cette limite, la recherche

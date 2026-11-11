@@ -13,7 +13,7 @@ namespace Core\Help\Assistant;
  * call instead of two.
  *
  * **The key is a fingerprint, never the question.** A SHA-256 of the
- * normalised question + the role + the application version: the row can
+ * normalised question + role + application version + sanitized route context: the row can
  * answer "have I seen this exact question" and nothing else, which is
  * what SECURITY.md §11 requires of free text a human typed. A stored
  * question would be a table of what the unit's chiefs worry about.
@@ -36,18 +36,29 @@ class AssistantCacheRepository
     }
 
     /**
-     * The fingerprint of one question, for one role, on one version.
+     * The fingerprint of one first question, role, version and sanitized page context.
      *
      * Normalised so that spacing and case do not split the cache:
      * lower-cased, runs of whitespace collapsed. Deliberately NOT
      * accent-folded — « ou » and « où » are different questions, and a
      * cache is not a search.
+     *
+     * @param string[] $routeTopicIds
      */
-    public static function fingerprint(string $question, string $role, string $appVersion): string
+    public static function fingerprint(
+        string $question,
+        string $role,
+        string $appVersion,
+        ?string $routePattern = null,
+        array $routeTopicIds = [],
+    ): string
     {
         $normalised = trim((string) preg_replace('/\s+/u', ' ', mb_strtolower($question, 'UTF-8')));
 
-        return hash('sha256', $normalised . "\0" . $role . "\0" . $appVersion);
+        // A new key namespace also makes pre-fix, context-blind rows unreachable.
+        return hash('sha256', (string) json_encode([
+            'route-context-v1', $normalised, $role, $appVersion, $routePattern, $routeTopicIds,
+        ], JSON_THROW_ON_ERROR));
     }
 
     /**

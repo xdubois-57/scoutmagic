@@ -16,6 +16,7 @@ use Core\Help\Assistant\AssistantRateLimitRepository;
 use Core\Help\Assistant\AssistantService;
 use Core\Help\HelpRegistry;
 use Core\Help\HelpService;
+use Core\Http\Router;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Security\Role;
@@ -80,6 +81,11 @@ final class AssistantServiceTest extends TestCase
     {
         $helpService = new HelpService(new HelpRegistry($this->topicDir));
 
+        $router = new Router();
+        foreach (['/r/{token}', '/members/{id}', '/mass-mail'] as $path) {
+            $router->addRoute('GET', $path, 'UnusedController', 'index', 'public');
+        }
+
         return new AssistantService(
             $helpService,
             new AssistantCatalog($helpService),
@@ -87,7 +93,8 @@ final class AssistantServiceTest extends TestCase
             new AssistantCacheRepository($this->pdo),
             new JournalService(new JournalRepository($this->pdo)),
             $version,
-            $connector
+            $connector,
+            $router
         );
     }
 
@@ -369,6 +376,68 @@ final class AssistantServiceTest extends TestCase
         $prompt = (string) $connector->promptFor(LlmTier::CHEAP);
         $this->assertStringContainsString('/mass-mail', $prompt);
         $this->assertStringContainsString('envoi-de-mails', $prompt);
+    }
+
+    public function testOnlyTheDeclaredRoutePatternReachesTheProvider(): void
+    {
+        $connector = $this->connectorAnswering(['calendrier']);
+        $this->service($connector)->ask('Comment faire ?', Role::CHIEF, 1, [], '/r/private-board-token');
+        $prompt = (string) $connector->promptFor(LlmTier::CHEAP);
+        $this->assertStringContainsString('/r/{token}', $prompt);
+        $this->assertStringNotContainsString('private-board-token', $prompt);
+    }
+
+    public function testUnusablePathsNeverReachTheProvider(): void
+    {
+        foreach (['/unknown-secret', '/r/' . str_repeat('x', 2049), "/r/secret\n", "/r/secret\0", "/r/secret\x7f", '/r/secret?key=private', '/r/secret#private', 'https://example.org/r/secret'] as $index => $path) {
+            $connector = $this->connectorAnswering(['calendrier']);
+            $this->service($connector)->ask('Comment faire ' . $index . ' ?', Role::CHIEF, 1, [], $path);
+            $prompt = (string) $connector->promptFor(LlmTier::CHEAP);
+            $this->assertStringNotContainsString('consulte actuellement', $prompt);
+            $this->assertStringNotContainsString($path, $prompt);
+        }
+    }
+
+    public function testFirstQuestionsAreCachedWithinTheirRouteContext(): void
+    {
+        $connector = $this->connectorAnswering(['calendrier']);
+        $service = $this->service($connector);
+        $service->ask('Comment faire ?', Role::CHIEF, 1, [], '/r/first-secret');
+        $sameRoute = $service->ask('Comment faire ?', Role::CHIEF, 2, [], '/r/second-secret');
+        $differentRoute = $service->ask('Comment faire ?', Role::CHIEF, 2, [], '/members/12');
+        $differentTopics = $service->ask('Comment faire ?', Role::CHIEF, 2, [], '/members/12', ['calendrier']);
+        $this->assertTrue($sameRoute->fromCache);
+        $this->assertFalse($differentRoute->fromCache);
+        $this->assertFalse($differentTopics->fromCache);
+        $this->assertSame(6, $connector->callCount());
+    }
+
+    public function testLegacyContextBlindEntriesAreNeverReused(): void
+    {
+        $question = 'Comment faire ?';
+        $legacyKey = hash('sha256', mb_strtolower($question) . "\0chief\0" . '1.2.3');
+        (new AssistantCacheRepository($this->pdo))->store($legacyKey, 'Ancienne conversation privée', ['calendrier']);
+        $connector = $this->connectorAnswering(['calendrier']);
+        $answer = $this->service($connector)->ask($question, Role::CHIEF, 1);
+        $this->assertFalse($answer->fromCache);
+        $this->assertSame('Voici comment faire.', $answer->text);
+    }
+
+    public function testFollowUpsNeitherReadNorWriteTheSharedCache(): void
+    {
+        foreach ([['calendrier'], []] as $ids) {
+            $this->pdo->exec('DELETE FROM help_assistant_cache');
+            $connector = $this->connectorAnswering($ids);
+            $service = $this->service($connector);
+            $service->ask('Et ensuite ?', Role::CHIEF, 1);
+            $before = $this->pdo->query('SELECT * FROM help_assistant_cache')->fetchAll();
+            $history = [['question' => 'Une conversation privée', 'answer' => 'Sa réponse privée']];
+            $followUp = $service->ask('Et ensuite ?', Role::CHIEF, 2, $history);
+            $service->ask('Une autre suite ?', Role::CHIEF, 2, $history);
+            $this->assertFalse($followUp->fromCache);
+            $this->assertSame($before, $this->pdo->query('SELECT * FROM help_assistant_cache')->fetchAll());
+            $this->assertSame($ids === [] ? 3 : 6, $connector->callCount());
+        }
     }
 
     public function testThePreviousExchangesReachBothCalls(): void
