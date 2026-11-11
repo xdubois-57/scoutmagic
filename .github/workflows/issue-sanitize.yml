@@ -14,11 +14,13 @@
 # bidirectional controls — and every hidden run is replaced with a VISIBLE
 # « ⚠️ [contenu caché retiré automatiquement] », so the removal is seen.
 #
-# WHAT IT NEVER TOUCHES: a text written by a bot. This repository's own
-# workflows write HTML comments on purpose and search for them later
-# (external-source markers, the « fixed » notice, the review status). A
-# human has no reason to write one, so a human text loses them all,
-# imitated markers included.
+# WHAT A BOT'S TEXT KEEPS: this repository's own markers. Its workflows
+# write HTML comments on purpose and search for them later (external-source
+# markers and fingerprints, the « fixed » notice); a bot's text keeps
+# exactly those forms and loses anything else, because a person can edit a
+# bot's issue and GitHub still names the bot as its author. A human has no
+# reason to write a marker, so a human text loses them all, imitated ones
+# included.
 #
 # NO LOOP. The rewrite triggers `edited`, and that run finds nothing left to
 # remove, so it writes nothing: the filter is idempotent, and

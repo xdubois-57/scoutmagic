@@ -394,12 +394,16 @@ keeps the two update channels apart.
 
 `.github/workflows/issue-sanitize.yml` (issue #1117) removes what the rendered
 view of an issue hides but an agent reading the raw text sees: HTML comments
-(`<!-- … -->`, an unclosed one to the end of the text, inside code blocks too)
-and invisible Unicode — tag characters U+E0000–U+E007F, zero-width characters,
-bidirectional controls. It runs on every new or edited issue body and comment,
-rewrites the text with a VISIBLE « ⚠️ [contenu caché retiré automatiquement] »
-in place of each hidden run, never touches a text written by a bot (this
-repository's own workflows write HTML-comment markers on purpose), and writes
+(`<!-- … -->`, an unclosed one to the end of the text, inside code blocks too),
+invisible Unicode — tag characters U+E0000–U+E007F, zero-width characters,
+the whole Bidi_Control set — and Markdown link reference definitions
+(`[x]: # (…)`, rendered as nothing; kept inside a fenced code block, never
+looked for in a title). It runs on every new or edited issue title, body and
+comment, rewrites the text with a VISIBLE « ⚠️ [contenu caché retiré
+automatiquement] » in place of each hidden run, lets a text written by a bot
+keep only this repository's own markers in their exact form (its workflows
+write them on purpose; anything else a person adds to a bot's issue goes), keeps
+line endings as they were, and writes
 nothing when nothing was hidden, which is also what keeps its own `edited`
 event from looping. It holds `issues: write` alone and runs two scripts read
 from `main` (`scripts/strip-hidden-issue-content.sh`, the filter, and

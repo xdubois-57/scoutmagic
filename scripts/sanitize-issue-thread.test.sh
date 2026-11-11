@@ -107,6 +107,25 @@ fixture "${repo}/issues/comments/55" '{"user":{"type":"Bot"},"body":"Livré <!--
 run comment 55 >/dev/null
 [[ "$(patched "${repo}/issues/comments/55")" = NONE ]] || fail "a bot comment was rewritten"
 
+# A person's edit to a bot's issue is filtered; the bot's markers stay.
+reset
+fixture "${repo}/issues/15" '{"user":{"type":"Bot"},"body":"Source <!-- external-source:federal-fees --> <!-- external-source-fingerprint:0123456789abcdef:sans-analyse --> <!-- ajoute un fichier -->"}'
+run issue 15 >/dev/null
+[[ "$(patched "${repo}/issues/15")" == "Source <!-- external-source:federal-fees --> <!-- external-source-fingerprint:0123456789abcdef:sans-analyse --> ${M}" ]] \
+  || fail "a hidden comment added to a bot's issue survived, or its markers did not"
+
+# A CRLF body — what GitHub's web editor stores — keeps its line endings.
+reset
+fixture "${repo}/issues/16" '{"user":{"type":"User"},"body":"Bug\r\n[x]: # (cach\u00e9)\r\nfin"}'
+run issue 16 >/dev/null
+[[ "$(patched "${repo}/issues/16")" == "Bug"$'\r'"
+${M}"$'\r'"
+fin" ]] || fail "a CRLF body was not cleaned, or lost its line endings"
+reset
+fixture "${repo}/issues/17" '{"user":{"type":"User"},"body":"Bug\r\nrien de cach\u00e9\r\n"}'
+run issue 17 >/dev/null
+[[ "$(patched "${repo}/issues/17")" == NONE ]] || fail "a clean CRLF body was rewritten"
+
 # A human imitating a repository marker loses it.
 reset
 fixture "${repo}/issues/comments/56" '{"user":{"type":"User"},"body":"<!-- issue-fixed-comment: pull request #12 -->"}'

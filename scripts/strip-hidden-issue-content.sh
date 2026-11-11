@@ -29,6 +29,17 @@ set -euo pipefail
 #     block it stays, because there GitHub shows it as text. A footnote,
 #     `[^1]: text`, is rendered and stays.
 #
+# `--bot` applies to a text a bot wrote. It keeps the repository's own
+# markers — the exact forms its workflows write on issues, nothing looser:
+# `<!-- external-source:<id> -->`, `<!-- external-source-fingerprint:<16
+# hex>[:sans-analyse] -->`, `<!-- issue-fixed-comment: pull request #<n> -->`
+# — and removes everything else like any text. A bot's issue can be edited
+# by a person afterwards, and GitHub still names the bot as its author.
+#
+# Line endings are kept: GitHub stores what its web editor sends with CRLF,
+# the rules work on LF, and a text that only changed its line endings
+# would be rewritten for nothing.
+#
 # `--title` applies to an issue title, which GitHub shows as plain text:
 # nothing in it is Markdown, so the link-definition rule is not applied
 # there — `[Bug]: le barème` is a title, not a hidden definition.
@@ -45,14 +56,20 @@ MARKER='⚠️ [contenu caché retiré automatiquement]'
 
 mode="${1:-}"
 TITLE=0
-if [[ "${mode}" == "--title" ]]; then
-    TITLE=1
-fi
+BOT=0
+case "${mode}" in
+    --title) TITLE=1 ;;
+    --bot) BOT=1 ;;
+    "") ;;
+    *) echo "usage: $0 [--title|--bot]" >&2; exit 2 ;;
+esac
 
-MARKER="${MARKER}" TITLE="${TITLE}" exec perl -CSDA -0777 -pe '
+MARKER="${MARKER}" TITLE="${TITLE}" BOT="${BOT}" exec perl -CSDA -0777 -pe '
     my $m = $ENV{MARKER};
     utf8::decode($m) unless utf8::is_utf8($m);
-    s/<!--.*?(?:-->|\z)/$m/gs;
+    my $crlf = s/\r\n/\n/g;
+    my $own = qr/<!-- (?:external-source:[a-z0-9-]+|external-source-fingerprint:[0-9a-f]{16}(?::sans-analyse)?|issue-fixed-comment: pull request #[0-9]+) -->/;
+    s{(<!--.*?(?:-->|\z))}{ my $c = $1; $ENV{BOT} && $c =~ m{\A$own\z} ? $c : $m }gse;
     s/[\x{E0000}-\x{E007F}\x{200B}-\x{200F}\x{2060}\x{FEFF}\x{061C}\x{202A}-\x{202E}\x{2066}-\x{2069}]+/$m/g;
     if (!$ENV{TITLE}) {
         # A newline, but never a blank line, may sit inside a label or title.
@@ -70,8 +87,10 @@ MARKER="${MARKER}" TITLE="${TITLE}" exec perl -CSDA -0777 -pe '
             if (defined $fence) {
                 $out .= $line;
                 $fence = undef if $line =~ /^$cont[ ]{0,3}$fence[ \t]*\n?\z/;
-            } elsif ($line =~ /^$cont[ ]{0,3}(`{3,}|~{3,})/) {
-                my $open = $1;
+            } elsif ($line =~ /^$cont[ ]{0,3}(?:(`{3,})(?![^\n]*`)|(~{3,}))/) {
+                # A backtick fence carries no backtick after it: ``` a ```
+                # on one line is inline code in a paragraph, never a fence.
+                my $open = $1 // $2;
                 $prose =~ s/$def/$1$m/g;
                 $out .= $prose . $line;
                 $prose = q{};
@@ -83,4 +102,5 @@ MARKER="${MARKER}" TITLE="${TITLE}" exec perl -CSDA -0777 -pe '
         $prose =~ s/$def/$1$m/g;
         $_ = $out . $prose;
     }
+    s/\n/\r\n/g if $crlf;
 '

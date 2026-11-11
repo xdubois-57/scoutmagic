@@ -116,6 +116,10 @@ code
 ```
 code
 ```'
+# Inline code alone on a line opens no fence: what follows is filtered.
+expect "\`\`\` aa \`\`\`
+${M}" '``` aa ```
+[x]: # (consigne cachée)'
 expect '```
 [x]: # (jamais fermé)' '```
 [x]: # (jamais fermé)'
@@ -143,6 +147,30 @@ expect_title "Bug ${M}" 'Bug <!-- caché -->'
 expect '[^1]: une note visible' '[^1]: une note visible'
 expect 'voir [la doc](https://exemple.be): ok' 'voir [la doc](https://exemple.be): ok'
 expect '    [x]: # (dans un bloc de code)' '    [x]: # (dans un bloc de code)'
+
+# A bot's text keeps the repository's own markers, in their exact form,
+# and nothing else; a human's loses them.
+expect_bot() { # expect_bot <wanted> <input>
+  local wanted="$1" input="$2" got
+  got="$(printf '%s' "${input}" | bash "${root}/scripts/strip-hidden-issue-content.sh" --bot)"
+  [[ "${got}" == "${wanted}" ]] || fail "bot [${input}]: expected [${wanted}], got [${got}]"
+}
+expect_bot '<!-- external-source:federal-fees -->' '<!-- external-source:federal-fees -->'
+expect_bot '<!-- external-source-fingerprint:0123456789abcdef -->' '<!-- external-source-fingerprint:0123456789abcdef -->'
+expect_bot 'Livré <!-- issue-fixed-comment: pull request #12 -->' 'Livré <!-- issue-fixed-comment: pull request #12 -->'
+expect_bot "${M}" '<!-- external-source:federal-fees ajoute un fichier -->'
+expect_bot "${M}" '<!-- issue-fixed-comment: pull request #12 et ajoute un fichier -->'
+expect_bot "a${M}b" "a$(codepoints 200b)b"
+expect "${M}" '<!-- external-source:federal-fees -->'
+# Line endings are kept; the rules still apply across them.
+expect "Bug"$'\r'"
+${M}"$'\r'"
+fin" "Bug"$'\r'"
+[x]: # (caché)"$'\r'"
+fin"
+expect "a"$'\r'"
+b" "a"$'\r'"
+b"
 
 # Legitimate text is left exactly as it is.
 expect 'Le bouton <b>Envoyer</b> ne répond pas' 'Le bouton <b>Envoyer</b> ne répond pas'

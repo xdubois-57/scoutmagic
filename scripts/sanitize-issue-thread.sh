@@ -9,13 +9,15 @@ set -euo pipefail
 #   sanitize-issue-thread.sh thread  <issue number>   # body + every comment
 #   sanitize-issue-thread.sh open    0                # every open issue's thread
 #
-# NEVER rewrites a text written by a bot. This repository's own workflows
-# write HTML comments on purpose — `<!-- external-source:<id> -->`,
-# `<!-- issue-fixed-comment: pull request #… -->`,
-# `<!-- claude-review-status -->` — and find them again by searching for
-# them. A human has no reason to write one, so a human text loses all of
-# them, imitated markers included; the workflows that search for markers
-# also only trust a bot's (external-sources-check.yml, issue-fixed-comment.yml).
+# A text written by a bot keeps the repository's own markers. Its
+# workflows write HTML comments on purpose — `<!-- external-source:<id> -->`,
+# its fingerprints, `<!-- issue-fixed-comment: pull request #… -->` — and
+# find them again by searching for them; the filter's `--bot` mode keeps
+# exactly those forms and removes anything else, since a person may edit a
+# bot's issue and GitHub still names the bot as its author. A human text
+# loses every HTML comment, imitated markers included; the workflows that
+# search for markers also only trust a bot's (external-sources-check.yml,
+# issue-fixed-comment.yml).
 #
 # Writes only when the cleaned text differs: an untouched text is never
 # PATCHed, and the rewrite's own `edited` event finds nothing left to do.
@@ -58,13 +60,15 @@ chars() {
 
 # sanitize_one <api path of the object> <label for the log>
 sanitize_one() {
-  local path="$1" label="$2" json body clean title clean_title
+  local path="$1" label="$2" json body clean title clean_title mode=()
   json="$(gh api "${path}")"
+  # A bot's text keeps the repository's own markers and loses the rest:
+  # GitHub keeps naming the bot as author after a person edits its issue.
   if [[ "$(jq -r '.user.type // ""' <<<"${json}")" == "Bot" ]]; then
-    return 0
+    mode=(--bot)
   fi
   body="$(jq -r '.body // ""' <<<"${json}")"
-  clean="$(printf '%s' "${body}" | bash "${strip}")"
+  clean="$(printf '%s' "${body}" | bash "${strip}" "${mode[@]}")"
   # An issue's title reaches the agents too (the triage prompt, the Ready
   # queue), and can carry the same invisible characters. A comment has none.
   title="$(jq -r '.title // ""' <<<"${json}")"
