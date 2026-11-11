@@ -2946,7 +2946,11 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
             $code,
             'issue-sanitize.yml must never interpolate an issue\'s text; the script reads it from the API.',
         );
-        self::assertStringContainsString("if: github.event.sender.type != 'Bot'", $code);
+        self::assertStringContainsString(
+            "if: github.event.sender.type != 'Bot' && !github.event.issue.pull_request",
+            $code,
+            'issue-sanitize.yml must skip bots and pull request comments.',
+        );
         self::assertStringContainsString('contents/scripts/${script}?ref=main', $code);
         self::assertMatchesRegularExpression('/^\s+timeout-minutes:\s*\d+/m', $code);
     }

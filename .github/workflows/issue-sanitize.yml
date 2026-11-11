@@ -62,7 +62,10 @@ jobs:
     # A bot's own writes — this workflow's rewrite included — are never
     # touched, and skipping them here saves a runner. The script checks the
     # stored text's author again, which is what actually decides.
-    if: github.event.sender.type != 'Bot'
+    # Not a pull request either: `issue_comment` fires on both, a review
+    # conversation is not what the agents read, and `issues: write` cannot
+    # read a PR comment — every human PR comment would be a red run.
+    if: github.event.sender.type != 'Bot' && !github.event.issue.pull_request
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:

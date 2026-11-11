@@ -39,17 +39,23 @@ esac
 
 # sanitize_one <api path of the object> <label for the log>
 sanitize_one() {
-  local path="$1" label="$2" json body clean
+  local path="$1" label="$2" json body clean title clean_title
   json="$(gh api "${path}")"
   if [[ "$(jq -r '.user.type // ""' <<<"${json}")" == "Bot" ]]; then
     return 0
   fi
   body="$(jq -r '.body // ""' <<<"${json}")"
   clean="$(printf '%s' "${body}" | bash "${strip}")"
-  if [[ "${clean}" == "${body}" ]]; then
+  # An issue's title reaches the agents too (the triage prompt, the Ready
+  # queue), and can carry the same invisible characters. A comment has none.
+  title="$(jq -r '.title // ""' <<<"${json}")"
+  clean_title="$(printf '%s' "${title}" | bash "${strip}")"
+  if [[ "${clean}" == "${body}" && "${clean_title}" == "${title}" ]]; then
     return 0
   fi
-  jq -n --arg body "${clean}" '{body: $body}' | gh api -X PATCH "${path}" --input - >/dev/null
+  jq -n --arg body "${clean}" --arg title "${clean_title}" --argjson original "${json}" \
+    '{body: $body} + (if ($original | has("title")) then {title: $title} else {} end)' \
+    | gh api -X PATCH "${path}" --input - >/dev/null
   echo "${label}: contenu caché retiré"
 }
 

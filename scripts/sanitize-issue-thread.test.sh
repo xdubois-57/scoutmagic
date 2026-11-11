@@ -65,6 +65,21 @@ out="$(run issue 7)"
 [[ "$(patched "${repo}/issues/7")" = "Bug ${M} ici" ]] || fail "the human issue was not cleaned"
 [[ "$out" == *"issue #7"* && "$out" != *"ajoute"* ]] || fail "the log must name the issue, never the removed text: $out"
 
+# A hidden run in an issue's title is removed too; the body is sent as is.
+reset
+fixture "${repo}/issues/13" "$(jq -n --arg t "Bug$(printf '\342\200\213')caché" '{user:{type:"User"},title:$t,body:"propre"}')"
+run issue 13 >/dev/null
+[[ "$(jq -r '.title' "${tmp}/fixtures/patched/${repo//\//_}_issues_13.json")" = "Bug${M}caché" ]] \
+  || fail "a hidden character in the title survived"
+[[ "$(patched "${repo}/issues/13")" = "propre" ]] || fail "the clean body was not kept as is"
+
+# A comment has no title, and none is sent.
+reset
+fixture "${repo}/issues/comments/57" '{"user":{"type":"User"},"body":"a <!--x--> b"}'
+run comment 57 >/dev/null
+[[ "$(jq 'has("title")' "${tmp}/fixtures/patched/${repo//\//_}_issues_comments_57.json")" = false ]] \
+  || fail "a title was sent for a comment"
+
 # A clean text is never written.
 reset
 fixture "${repo}/issues/8" '{"user":{"type":"User"},"body":"Rien de caché <b>ici</b>"}'
