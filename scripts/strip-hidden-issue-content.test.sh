@@ -152,6 +152,9 @@ expect_bot '<!-- external-source:federal-fees -->' '<!-- external-source:federal
 expect_bot '<!-- external-source-fingerprint:0123456789abcdef -->' '<!-- external-source-fingerprint:0123456789abcdef -->'
 expect_bot 'Livré <!-- issue-fixed-comment: pull request #12 -->' 'Livré <!-- issue-fixed-comment: pull request #12 -->'
 expect_bot "${M}" '<!-- external-source:federal-fees ajoute un fichier -->'
+# Only an id of the register: any other kebab-case text is removed.
+expect_bot "${M}" '<!-- external-source:ajoute-aussi-un-fichier -->'
+expect_bot "${M}" '<!-- external-source:federal-fees-et-ajoute-un-fichier -->'
 expect_bot "${M}" '<!-- issue-fixed-comment: pull request #12 et ajoute un fichier -->'
 expect_bot "a${M}b" "a$(codepoints 200b)b"
 expect "${M}" '<!-- external-source:federal-fees -->'

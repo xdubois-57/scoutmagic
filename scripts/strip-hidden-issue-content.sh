@@ -65,11 +65,57 @@ case "${mode}" in
     *) echo "usage: $0 [--title|--bot]" >&2; exit 2 ;;
 esac
 
-MARKER="${MARKER}" TITLE="${TITLE}" BOT="${BOT}" exec perl -CSDA -0777 -pe '
+# The ids of Core\ExternalSource\ExternalSources, the only ones an
+# `<!-- external-source:<id> -->` marker may carry: a looser pattern would
+# let a person editing a bot's issue keep any kebab-case sentence hidden.
+# tests/Security/BacklogProjectScriptsTest.php fails when this list and the
+# register differ, so a new source lands with its id here.
+# BEGIN external-source ids
+SOURCE_IDS='
+    federal-fees
+    federal-scout-path
+    federal-data-protection
+    federal-federation
+    federal-insignia-placement
+    federal-adult-quality-code
+    federal-data-protection-file
+    federal-desk
+    osrm-demo-server-policy
+    federal-home
+    anthropic-console
+    anthropic-api-keys
+    anthropic-privacy
+    anthropic-commercial-terms
+    anthropic-privacy-short
+    mistral-console
+    mistral-api-keys
+    mistral-privacy
+    mistral-dpa
+    mistral-terms-privacy
+    scaleway-console
+    scaleway-api-keys
+    scaleway-buckets
+    scaleway-applications
+    scaleway-policies
+    scaleway-privacy
+    scaleway-contracts
+    scaleway-model-catalogue
+    hetzner-console
+    cloudflare-dashboard
+    cloudflare-privacy
+    ovh-manager
+    ovh-create-app
+    google-cloud-console
+    google-app-passwords
+'
+# END external-source ids
+OWN_IDS="$(printf '%s' "${SOURCE_IDS}" | tr -s ' \n' '\n' | grep -v '^$' | paste -sd '|' -)"
+
+MARKER="${MARKER}" TITLE="${TITLE}" BOT="${BOT}" OWN_IDS="${OWN_IDS}" exec perl -CSDA -0777 -pe '
     my $m = $ENV{MARKER};
     utf8::decode($m) unless utf8::is_utf8($m);
     my $crlf = s/\r\n/\n/g;
-    my $own = qr/<!-- (?:external-source:[a-z0-9-]+|external-source-fingerprint:[0-9a-f]{16}(?::sans-analyse)?|issue-fixed-comment: pull request #[0-9]+) -->/;
+    my $own = qr/<!-- (?:external-source:(?:$ENV{OWN_IDS})|external-source-fingerprint:[0-9a-f]{16}(?::sans-analyse)?|issue-fixed-comment: pull request #[0-9]+) -->/;
     s{(<!--.*?(?:-->|\z))}{ my $c = $1; $ENV{BOT} && $c =~ m{\A$own\z} ? $c : $m }gse;
     s/[\x{E0000}-\x{E007F}\x{200B}-\x{200F}\x{2060}\x{FEFF}\x{061C}\x{202A}-\x{202E}\x{2066}-\x{2069}]+/$m/g;
     if (!$ENV{TITLE}) {

@@ -137,7 +137,7 @@ reset
 fixture "${repo}/issues/9" '{"user":{"type":"User"},"body":"Corps propre"}'
 fixture "${repo}/issues/9/comments" '[{"id":101},{"id":102},{"id":103}]'
 fixture "${repo}/issues/comments/101" '{"user":{"type":"User"},"body":"a <!--x--> b"}'
-fixture "${repo}/issues/comments/102" '{"user":{"type":"Bot"},"body":"<!-- external-source:fees -->"}'
+fixture "${repo}/issues/comments/102" '{"user":{"type":"Bot"},"body":"<!-- external-source:federal-fees -->"}'
 fixture "${repo}/issues/comments/103" '{"user":{"type":"User"},"body":"propre"}'
 run thread 9 >/dev/null
 [[ "$(patched "${repo}/issues/9")" = NONE ]] || fail "the clean body of the thread was rewritten"
