@@ -13167,6 +13167,56 @@ if ($isEnabled('fees')) {
     );
 }
 
+// Data migration (chantier « Migration de données »). Placed after every
+// module whose data an import writes, so their Api\ write contracts are in
+// scope: each import is registered by ONE line below, built with
+// `$its…ForOthers ?? null`, and the registry offers it only while its
+// target module is enabled (Importer::requiredModule()).
+if ($isEnabled('data_migration')) {
+    \Core\Debug\RequestTimeline::mark('module_data_migration');
+    $dataMigrationImporters = new \Modules\DataMigration\Importer\ImporterRegistry(
+        static fn (string $moduleId): bool => $isEnabled($moduleId)
+    );
+    // One line per import (vague 2 of the chantier), kept alphabetical by key:
+    // $dataMigrationImporters->add(new \Modules\DataMigration\Importer\…Importer(…));
+
+    $dataMigrationRuns = new \Modules\DataMigration\Repository\RunRepository($pdo, $encryptionService);
+    $dataMigrationStorage = new \Modules\DataMigration\Service\UploadStorage($storagePath);
+    $dataMigrationYears = new \Modules\DataMigration\Service\MissingScoutYears($scoutYearService);
+    $frontController->registerController(
+        \Modules\DataMigration\Controller\DataMigrationController::class,
+        new \Modules\DataMigration\Controller\DataMigrationController(
+            $twig,
+            $dataMigrationImporters,
+            new \Modules\DataMigration\Service\RunService(
+                $dataMigrationRuns,
+                new \Modules\DataMigration\Service\ImportEngine(
+                    $pdo,
+                    $dataMigrationRuns,
+                    new \Modules\DataMigration\Repository\ItemMappingRepository($pdo),
+                    $dataMigrationYears,
+                    $dataMigrationStorage,
+                    new \Modules\DataMigration\Manifest\ManifestReader(),
+                    $journalService
+                ),
+                $dataMigrationYears,
+                $dataMigrationStorage,
+                new \Core\File\ChunkedUploadStore($storagePath, $diskBudget),
+                $journalService
+            ),
+            $moduleManager->getEnabledModuleNames()
+        )
+    );
+
+    // seed() and not rearm(): this runs on every request (§8.5).
+    $schedulerService->seed(
+        \Modules\DataMigration\Task\PurgeUploadsHandler::MODULE_ID,
+        \Modules\DataMigration\Task\PurgeUploadsHandler::TASK_KEY,
+        \Modules\DataMigration\Task\PurgeUploadsHandler::REFERENCE,
+        new DateTimeImmutable()
+    );
+}
+
 // Re-registers MemberController (and its MemberPageService) with
 // whichever optional providers are available — mass_mail's "Communications
 // récentes", gallery's "Galeries photos", trombinoscope's section-

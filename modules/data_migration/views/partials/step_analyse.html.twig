@@ -1,0 +1,23 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{# Step 2: the archive is checked, then every item analysed, in slices the page drives. #}
+<div class="card mb-3">
+    <div class="card-body">
+        <h2 class="h6 mb-2">Analyse du fichier</h2>
+        <p class="mb-2" id="data-migration-analyse-label">
+            {% if progress.phase == 'verify' %}Vérification du contenu de l'archive…{% else %}Analyse des éléments : {{ progress.analysed }} lus.{% endif %}
+        </p>
+        <div class="progress mb-3" role="progressbar" aria-label="Analyse" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ progress.percent ?? 0 }}" id="data-migration-progress">
+            <div class="progress-bar progress-bar-striped progress-bar-animated" style="width: {{ progress.percent ?? 100 }}%"></div>
+        </div>
+        <p class="small text-body-secondary mb-0">
+            Rien n'est écrit pendant l'analyse. Gardez cette page ouverte : si elle se ferme, l'analyse reprendra à la prochaine visite.
+        </p>
+    </div>
+</div>
+<form method="post" action="{{ urls.abandon }}" data-confirm="Abandonner cet import ? Le fichier déposé est effacé du serveur.">
+    {{ csrf_field()|raw }}
+    <button type="submit" class="btn btn-outline-danger w-100-below-sm">Abandonner et effacer le fichier</button>
+</form>

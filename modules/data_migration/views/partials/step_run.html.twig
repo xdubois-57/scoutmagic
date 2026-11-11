@@ -1,0 +1,57 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{# Step 5: the execution in slices, or its interruption. #}
+{% if step == 'interrupted' %}
+    <div class="alert alert-warning" role="status">
+        <p class="fw-semibold mb-1">Import interrompu à {{ report.percent }} %.</p>
+        <p class="mb-0">
+            {{ report.imported }} {{ importer.unit }} sont déjà importés et ne le seront pas une deuxième fois.
+            {% if run.file_expires_at %}Le fichier est conservé jusqu'au {{ run.file_expires_at|datetime_fr }}.{% endif %}
+        </p>
+    </div>
+    <div class="progress mb-3" role="progressbar" aria-label="Avancement de l'import" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ report.percent }}">
+        <div class="progress-bar" style="width: {{ report.percent }}%"></div>
+    </div>
+    <div class="d-flex flex-wrap gap-2 mb-2">
+        <form method="post" action="{{ urls.resume }}">
+            {{ csrf_field()|raw }}
+            <button type="submit" class="btn btn-primary w-100-below-sm">Reprendre l'import</button>
+        </form>
+        <form method="post" action="{{ urls.abandon }}" data-confirm="Abandonner cet import ? Ce qui est déjà importé est conservé, le fichier déposé est effacé du serveur.">
+            {{ csrf_field()|raw }}
+            <button type="submit" class="btn btn-outline-danger w-100-below-sm">Abandonner et effacer le fichier</button>
+        </form>
+    </div>
+    <p class="small text-body-secondary border-start border-3 ps-2">Abandonner garde ce qui est déjà importé. Rien n'est défait.</p>
+{% else %}
+    <div class="d-flex flex-wrap justify-content-between mb-1">
+        <strong>Import en cours</strong>
+        <span class="text-body-secondary"><span id="data-migration-done">{{ report.imported + report.present + report.ignored + report.errors }}</span> sur {{ report.total }}</span>
+    </div>
+    <div class="progress mb-3" role="progressbar" aria-label="Avancement de l'import" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ report.percent }}" id="data-migration-progress">
+        <div class="progress-bar" style="width: {{ report.percent }}%"></div>
+    </div>
+    <div class="row row-cols-2 row-cols-md-4 g-3 mb-3">
+        {% for tile in [
+            { key: 'imported', label: 'Importés', value: report.imported },
+            { key: 'present', label: 'Déjà présents', value: report.present },
+            { key: 'ignored', label: 'Ignorés', value: report.ignored },
+            { key: 'errors', label: 'Erreurs', value: report.errors },
+        ] %}
+            <div class="col">
+                <div class="card h-100"><div class="card-body py-3">
+                    <div class="small text-body-secondary mb-1">{{ tile.label }}</div>
+                    <div class="fs-3 fw-semibold lh-1" id="data-migration-count-{{ tile.key }}">{{ tile.value }}</div>
+                </div></div>
+            </div>
+        {% endfor %}
+    </div>
+    <p class="text-body-secondary">Gardez cette page ouverte. L'import avance par petits paquets. Si la page se ferme, il s'arrête et vous pourrez le reprendre.</p>
+    <p class="small text-danger" id="data-migration-run-error" role="alert" hidden></p>
+    <form method="post" action="{{ urls.pause }}" id="data-migration-pause">
+        {{ csrf_field()|raw }}
+        <button type="submit" class="btn btn-outline-secondary w-100-below-sm">Mettre en pause</button>
+    </form>
+{% endif %}

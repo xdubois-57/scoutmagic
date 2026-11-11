@@ -1,0 +1,21 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{# The six steps every import goes through; `current` is the page's step. #}
+{% set _steps = [['source', 'Source'], ['analyse', 'Analyse'], ['preview', 'Aperçu'], ['confirm', 'Confirmation'], ['run', 'Exécution'], ['report', 'Bilan']] %}
+{% set _index = {'source': 0, 'analyse': 1, 'preview': 2, 'run': 4, 'interrupted': 4, 'report': 5}[current]|default(0) %}
+<ol class="list-inline d-flex flex-wrap gap-2 mb-3 small" aria-label="Étapes de l'import">
+    {% for step in _steps %}
+        {% set _i = loop.index0 %}
+        <li class="list-inline-item m-0">
+            {% if _i < _index %}
+                <span class="badge rounded-pill text-bg-success"><i class="bi bi-check-lg" aria-hidden="true"></i> {{ step[1] }}</span>
+            {% elseif _i == _index %}
+                <span class="badge rounded-pill text-bg-primary" aria-current="step">{{ _i + 1 }}. {{ step[1] }}</span>
+            {% else %}
+                <span class="badge rounded-pill bg-body-tertiary text-body-secondary border">{{ _i + 1 }}. {{ step[1] }}</span>
+            {% endif %}
+        </li>
+    {% endfor %}
+</ol>

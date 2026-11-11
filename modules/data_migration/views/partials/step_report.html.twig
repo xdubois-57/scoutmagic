@@ -1,0 +1,53 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{# Step 6: the report, in the four categories the specification names. #}
+<div class="alert alert-info" role="status">
+    <p class="fw-semibold mb-1">Import terminé le {{ run.finished_at|datetime_fr }}.</p>
+    <p class="mb-0">Vous pouvez relancer le même fichier : rien ne sera importé deux fois.</p>
+</div>
+
+{% include 'partials/stat_tiles.html.twig' with { tiles: [
+    { label: 'Importés', value: report.imported, icon: 'bi-box-arrow-in-down', tone: 'success' },
+    { label: 'Déjà présents', value: report.present, icon: 'bi-check2-all', tone: 'secondary' },
+    { label: 'Ignorés : données manquantes ou non reconnues', value: report.ignored, icon: 'bi-slash-circle', tone: 'warning' },
+    { label: 'Erreurs techniques', value: report.errors, icon: 'bi-exclamation-octagon', tone: 'danger' },
+] } only %}
+
+{% if report.errors > 0 %}
+    <details class="card mb-3" open>
+        <summary class="card-body py-2 fw-semibold">{{ report.errors }} {{ report.errors > 1 ? 'erreurs techniques' : 'erreur technique' }}</summary>
+        <div class="card-body pt-0">
+            <div class="table-responsive">
+                <table class="table table-sm mb-0">
+                    <thead><tr><th scope="col">Référence d'origine</th><th scope="col">Ce qui s'est passé</th></tr></thead>
+                    <tbody>
+                        {% for sample in report.error_samples %}
+                            <tr><td><code>{{ sample.reference }}</code></td><td>L'enregistrement a échoué. Relancez l'import : seul cet élément sera retenté.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </details>
+{% endif %}
+
+{% if report.ignored > 0 %}
+    <details class="card mb-3">
+        <summary class="card-body py-2 fw-semibold">{{ report.ignored }} ignorés</summary>
+        <div class="card-body pt-0">
+            {% include '@data_migration/partials/reasons.html.twig' with { reasons: report.ignored_reasons, samples: report.samples } only %}
+        </div>
+    </details>
+{% endif %}
+
+<div class="d-flex flex-wrap gap-2">
+    {% if run.has_file %}
+        <form method="post" action="{{ urls.restart }}">
+            {{ csrf_field()|raw }}
+            <button type="submit" class="btn btn-primary w-100-below-sm">Relancer le même fichier</button>
+        </form>
+    {% endif %}
+    <a class="btn btn-outline-secondary w-100-below-sm" href="{{ urls.new }}">Choisir un autre fichier</a>
+</div>

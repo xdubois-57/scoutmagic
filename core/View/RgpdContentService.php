@@ -1226,6 +1226,17 @@ Platforms Ireland Limited peut transférer ces données vers Meta Platforms, Inc
 avec le mécanisme applicable (cadre de protection des données UE–États-Unis et clauses contractuelles types). Ce module
 ne fait **aucun appel à une IA**.
 
+33quinquies. **Module Migration de données (module data_migration)** : Si "data_migration" ne figure PAS dans la liste
+des modules actifs ({$modulesText}), retire entièrement la sous-section "Module Migration de données" de la section 2.4
+et la ligne « Fichiers déposés pour la migration de données » de la section 3.1. S'il est actif, conserve-les. Conserve
+en particulier : (a) que le fichier déposé peut contenir des données personnelles et n'est lu que le temps de l'import ;
+(b) qu'il est **effacé automatiquement au plus tard 24 heures** après la fin de l'import, son abandon ou son dernier
+mouvement, qu'il n'est jamais extrait sur le disque ni inclus dans une sauvegarde ; (c) que les données importées
+suivent ensuite les règles du module qui les accueille ; (d) que le site garde, sans donnée personnelle, la
+correspondance entre les références de l'ancien site et les éléments importés, et que le bilan ne montre jamais le nom
+d'une personne ; (e) qu'aucun courriel ni aucune notification n'est envoyé par un import. Ce module n'introduit
+**aucun sous-traitant** et ne fait **aucun appel à une IA** : ne l'ajoute ni en section 4 ni en section 5.2.
+
 34. **Assistant d'aide (fonctionnalité du cœur du site, section 2.8)** : Cette section ne dépend d'aucun module — elle
 dépend uniquement de la présence d'un connecteur IA actif. Si "llm_connector" ne figure PAS dans la liste des modules
 actifs ({$modulesText}), ou si {$providerInfo} n'indique aucun fournisseur actif, retire entièrement la sous-section «

@@ -1,0 +1,31 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{# Why items were not imported: counts per reason, then the old site's references (D8: never a name). #}
+<div class="table-responsive">
+    <table class="table table-sm mb-3">
+        <thead><tr><th scope="col">Motif</th><th scope="col" class="text-end">Nombre</th></tr></thead>
+        <tbody>
+            {% for reason, count in reasons %}
+                <tr><td>{{ reason }}</td><td class="text-end">{{ count }}</td></tr>
+            {% endfor %}
+            {% if ambiguous|default(0) > 0 %}
+                <tr><td>Ressemble à un élément existant, sans certitude</td><td class="text-end">{{ ambiguous }}</td></tr>
+            {% endif %}
+        </tbody>
+    </table>
+</div>
+{% if samples is not empty %}
+    <div class="table-responsive">
+        <table class="table table-sm mb-2">
+            <thead><tr><th scope="col">Référence d'origine</th><th scope="col">Motif</th></tr></thead>
+            <tbody>
+                {% for sample in samples %}
+                    <tr><td><code>{{ sample.reference }}</code></td><td>{{ sample.reason }}</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+{% endif %}
+<p class="small text-body-secondary mb-0">Le détail montre la référence de l'ancien site, jamais le nom des personnes.</p>
