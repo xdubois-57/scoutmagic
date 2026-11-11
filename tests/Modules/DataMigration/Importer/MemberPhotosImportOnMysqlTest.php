@@ -154,8 +154,8 @@ final class MemberPhotosImportOnMysqlTest extends TestCase
         $this->assertSame([MemberPhotosImporter::REASON_EARLIER_LINE => 1], $run->analysis['ignored']);
         $this->assertSame(['2022-2023' => 1], $run->analysis['missing_years']);
         $this->assertSame([['reference' => 'desk E2E-MEMBER · 2023-2024', 'reason' => MemberPhotosImporter::REASON_EARLIER_LINE]], $run->analysis['samples']);
-        $this->assertSame(0, $this->count('member_photos'));
-        $this->assertSame(0, $this->count('files'));
+        $this->assertSame(0, $this->rowsIn('member_photos'));
+        $this->assertSame(0, $this->rowsIn('files'));
     }
 
     public function testTheExampleArchiveGivesEachMemberTheirPhotosOfEachYear(): void
@@ -183,8 +183,8 @@ final class MemberPhotosImportOnMysqlTest extends TestCase
         );
         // Every photo through the pipeline: a member's face is for identified visitors.
         $this->assertSame(['identified'], array_values(array_unique(array_column($this->photos(), 'role_min'))));
-        $this->assertSame(3, $this->count('files'));
-        $this->assertSame(3, $this->count('data_migration_items'));
+        $this->assertSame(3, $this->rowsIn('files'));
+        $this->assertSame(3, $this->rowsIn('data_migration_items'));
     }
 
     /**
@@ -199,7 +199,7 @@ final class MemberPhotosImportOnMysqlTest extends TestCase
         $run = $this->service->advance($this->importer, $run);
         $run = $this->service->advance($this->importer, $run);
         $this->assertSame(Run::RUNNING, $run->state);
-        $this->assertSame(2, $this->count('member_photos'));
+        $this->assertSame(2, $this->rowsIn('member_photos'));
 
         $this->now = $this->now->add(new \DateInterval('PT11M'));
         $run = $this->service->current($this->importer) ?? $this->fail('No run.');
@@ -209,8 +209,8 @@ final class MemberPhotosImportOnMysqlTest extends TestCase
 
         $this->assertSame(Run::DONE, $run->state);
         $this->assertSame(3, $run->report['imported']);
-        $this->assertSame(3, $this->count('member_photos'));
-        $this->assertSame(3, $this->count('files'));
+        $this->assertSame(3, $this->rowsIn('member_photos'));
+        $this->assertSame(3, $this->rowsIn('files'));
     }
 
     public function testARerunOfTheSameFileImportsNothing(): void
@@ -225,8 +225,8 @@ final class MemberPhotosImportOnMysqlTest extends TestCase
         $this->assertSame(0, $again->report['imported']);
         $this->assertSame(3, $again->report['present']);
         $this->assertSame([MemberPhotosImporter::REASON_EARLIER_LINE => 1], $again->report['ignored']);
-        $this->assertSame(3, $this->count('member_photos'));
-        $this->assertSame(3, $this->count('files'));
+        $this->assertSame(3, $this->rowsIn('member_photos'));
+        $this->assertSame(3, $this->rowsIn('files'));
     }
 
     public function testAPhotoAlreadyOnTheSiteIsKeptAndTheFilesOneIgnored(): void
@@ -271,7 +271,7 @@ final class MemberPhotosImportOnMysqlTest extends TestCase
 
         $this->assertSame(2, $run->report['imported']);
         $this->assertSame([MemberPhotosImporter::REASON_UNKNOWN_MEMBER => 2], $run->report['ignored']);
-        $this->assertSame(1, $this->count('members'));
+        $this->assertSame(1, $this->rowsIn('members'));
         $this->assertSame(0, (int) $this->pdo->query("SELECT COUNT(*) FROM members WHERE desk_id = 'E2E-MEMBER'")->fetchColumn());
     }
 
@@ -332,7 +332,7 @@ final class MemberPhotosImportOnMysqlTest extends TestCase
             'E2E-ADMIN/2023-2024/' . hash('sha256', $valid),
             (string) $this->pdo->query('SELECT source_id FROM data_migration_items')->fetchColumn()
         );
-        $this->assertSame(1, $this->count('member_photos'));
+        $this->assertSame(1, $this->rowsIn('member_photos'));
     }
 
     public function testOneImageMayServeSeveralYears(): void
@@ -344,7 +344,7 @@ final class MemberPhotosImportOnMysqlTest extends TestCase
         ]), []);
 
         $this->assertSame(2, $run->report['imported']);
-        $this->assertSame(2, $this->count('member_photos'));
+        $this->assertSame(2, $this->rowsIn('member_photos'));
     }
 
     /**
@@ -366,8 +366,8 @@ final class MemberPhotosImportOnMysqlTest extends TestCase
 
         $this->assertSame(Run::ABANDONED, $run->state);
         $this->assertStringContainsString($expected, (string) $run->rejectionReason);
-        $this->assertSame(0, $this->count('member_photos'));
-        $this->assertSame(0, $this->count('files'));
+        $this->assertSame(0, $this->rowsIn('member_photos'));
+        $this->assertSame(0, $this->rowsIn('files'));
     }
 
     public function testTheImportSendsNothingAndTouchesNoOtherPhoto(): void
@@ -375,7 +375,7 @@ final class MemberPhotosImportOnMysqlTest extends TestCase
         $this->imported('exemple.zip', ['2022-2023']);
 
         foreach (['notifications', 'mail_deferred_messages', 'mail_send_receipts', 'user_account_photos', 'section_staff_photos'] as $table) {
-            $this->assertSame(0, $this->count($table), $table);
+            $this->assertSame(0, $this->rowsIn($table), $table);
         }
     }
 
@@ -397,7 +397,7 @@ final class MemberPhotosImportOnMysqlTest extends TestCase
         )->fetchAll(\PDO::FETCH_ASSOC);
     }
 
-    private function count(string $table): int
+    private function rowsIn(string $table): int
     {
         return (int) $this->pdo->query('SELECT COUNT(*) FROM ' . $table)->fetchColumn();
     }
