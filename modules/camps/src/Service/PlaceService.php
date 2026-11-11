@@ -45,7 +45,7 @@ class PlaceService
             Support::clean($fields['postal_code'] ?? null),
             Support::clean($fields['city'] ?? null),
             Support::clean($fields['country'] ?? null),
-            $this->cleanUrl($fields['website_url'] ?? null),
+            $this->cleanWebsiteUrl($fields['website_url'] ?? null),
         );
 
         $this->audit->record(
@@ -82,7 +82,7 @@ class PlaceService
         $postalCode = Support::clean($fields['postal_code'] ?? null);
         $city = Support::clean($fields['city'] ?? null);
         $country = Support::clean($fields['country'] ?? null);
-        $websiteUrl = $this->cleanUrl($fields['website_url'] ?? null);
+        $websiteUrl = $this->cleanWebsiteUrl($fields['website_url'] ?? null);
 
         $this->places->update($place->id, $name, $address, $postalCode, $city, $country, $websiteUrl);
 
@@ -202,8 +202,12 @@ class PlaceService
      * A website that is not http(s) is refused rather than stored and
      * rendered as a link — a "javascript:" in an href is the whole reason
      * this check exists, and a place sheet renders this value as one.
+     * Public for Service\PlaceImportWriter, which leaves out what this
+     * refuses instead of refusing the whole place.
+     *
+     * @throws CampsException
      */
-    private function cleanUrl(?string $value): ?string
+    public function cleanWebsiteUrl(?string $value): ?string
     {
         $value = Support::clean($value);
         if ($value === null) {
