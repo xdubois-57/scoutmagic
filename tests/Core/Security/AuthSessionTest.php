@@ -155,8 +155,10 @@ class AuthSessionTest extends TestCase
         $this->assertNull(AuthSession::authenticatedAt());
         $this->assertFalse(AuthSession::authenticatedWithin(600));
 
+        $sessionId = session_id();
         AuthSession::markAuthenticatedNow();
         $this->assertNull(AuthSession::authenticatedAt());
+        $this->assertSame($sessionId, session_id());
     }
 
     /**
@@ -179,7 +181,12 @@ class AuthSessionTest extends TestCase
         $this->assertFalse(AuthSession::authenticatedWithin(600));
     }
 
-    public function testMarkingAuthenticatedNowKeepsTheSessionAndRefreshesOnlyThatStamp(): void
+    /**
+     * A fresh window rotates the session id, as a login does: a copy of
+     * the old cookie must not share in the right to add a passkey or a
+     * device credential. Everything held in the session stays.
+     */
+    public function testMarkingAuthenticatedNowRotatesTheIdAndRefreshesOnlyThatStamp(): void
     {
         $this->startTestSession();
         AuthSession::login(42, 'test@example.com', 'admin');
@@ -190,7 +197,7 @@ class AuthSessionTest extends TestCase
 
         AuthSession::markAuthenticatedNow();
 
-        $this->assertSame($sessionId, session_id());
+        $this->assertNotSame($sessionId, session_id());
         $this->assertSame($old, AuthSession::getIssuedAt());
         $this->assertTrue(AuthSession::authenticatedWithin(600));
         $this->assertSame(42, AuthSession::getUserAccountId());

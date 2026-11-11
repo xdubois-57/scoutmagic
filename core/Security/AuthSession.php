@@ -174,7 +174,12 @@ class AuthSession
      * Record that this already-signed-in session has just proved its
      * identity again: a magic link for the same account collected while
      * signed in, or the current password checked by « Mon compte ».
-     * Unlike login() it keeps the session id and everything else.
+     *
+     * It rotates the session id, as login() does: the fresh window is
+     * what lets the session add a passkey or a device credential, and a
+     * copy of the old cookie (a shared computer, a stolen session) must
+     * not share in it. With the old id destroyed, only the request that
+     * proved itself keeps the session. Everything else in it stays.
      */
     public static function markAuthenticatedNow(): void
     {
@@ -182,6 +187,9 @@ class AuthSession
         if (!isset($auth['user_account_id'])) {
             return;
         }
+
+        SessionStore::ensureWritable();
+        session_regenerate_id(true);
 
         $auth['authenticated_at'] = time();
         SessionStore::set(self::SESSION_KEY, $auth);
