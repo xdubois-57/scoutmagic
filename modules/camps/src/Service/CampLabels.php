@@ -67,6 +67,9 @@ class CampLabels
         'name' => 'Nom',
         'address' => 'Adresse',
         'website' => 'Site web',
+        'coordinates' => 'Coordonnées',
+        'archived' => 'Archivage',
+        'origin' => 'Provenance',
     ];
 
     public static function stayType(string $value): string
