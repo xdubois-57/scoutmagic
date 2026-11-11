@@ -783,7 +783,7 @@ A final state (encodée, refusée, retirée) starts both retention clocks (§17.
 
 The tracking page (§4.1) never shows an acceptance or a refusal before the corresponding email (§17.3) has actually been sent — it shows "en attente" until then, regardless of the real internal state. The email must be one of the decision the request holds now: when a decision changes — accepted then refused, or accepted, put back « en attente » and accepted again — an email sent for the earlier decision announces nothing about the new one, and the family keeps seeing "en attente" until the new decision's own email has left. Staff-facing pages always show the real state plus whether/when the current decision's email was first sent, side by side; a resend never moves that date.
 
-**A decision imported from the unit's old site** (chantier #1142, D2, §49.11) is the one exception: a request imported as accepted, refused or encoded had its decision told to the family by the old site, and its history holds a line « Communiquée par l'ancien site » instead of an email. That line makes the decision visible at once, exactly as a sent email does; no email of this site is sent, planned or pretended. It stops counting the moment the decision changes, like any email of an earlier decision.
+**A decision imported from the unit's old site** (chantier #1142, D2, §49.6) is the one exception: a request imported as accepted, refused or encoded had its decision told to the family by the old site, and its history holds a line « Communiquée par l'ancien site » instead of an email. That line makes the decision visible at once, exactly as a sent email does; no email of this site is sent, planned or pretended. It stops counting the moment the decision changes, like any email of an earlier decision.
 
 ### 17.3 Acceptance/refusal emails
 
@@ -1475,7 +1475,7 @@ Search covers a place's name, address, postal code and city. It deliberately doe
 
 A **map** shows the places that have coordinates, collapsed by default and loaded only when opened — drawing it contacts the tile provider with the reader's IP. Coordinates are found automatically from the address, one place at a time in the background; **the moment somebody types or corrects them by hand, the automatic search never touches that place again**.
 
-When a place is created, the ones that may already be it are offered. The comparison is textual first; an AI is asked only when that cannot decide, and it may only ever suggest.
+When a place is created, the ones that may already be it are offered. The comparison is textual first; an AI is asked only when that cannot decide, and it may only ever suggest. Places taken over from a former site by the data migration module (§49.5) go through the textual comparison alone, archived places included: a certain match is left untouched, a possible one is neither created nor merged and is named in the import's report, and the coordinates the old site gave are locked as typed by hand.
 
 ### 26.6 Putting things back together
 
@@ -4110,7 +4110,16 @@ Le site retient, pour chaque objet importé, le quadruplet (installation d'origi
 
 Le fichier déposé est effacé automatiquement **24 heures** après le dernier mouvement de l'import, quel que soit son état : terminé, abandonné, en attente ou interrompu. Un import qui avance n'est jamais privé de son fichier. Rien n'est extrait sur le disque, et le fichier n'entre dans aucune sauvegarde. La correspondance du §49.3 est conservée sans limite et ne contient aucune donnée personnelle.
 
-### 49.11 Inscriptions de l'année suivante
+### 49.5 Endroits de camp
+
+Disponible quand le module Camps est actif. L'archive (format `scoutmagic-camp-places` 1.0.0, `docs/formats/data-migration/camp-places.md`) contient un fichier `places.jsonl`, un lieu par ligne : identifiant d'origine et nom obligatoires ; adresse, code postal, localité, pays, latitude et longitude, site web et état archivé facultatifs. Seuls les lieux sont repris : ni séjours, ni contacts, ni avis, ni prix, ni contrats, ni documents.
+
+- **Doublons.** La correspondance du §49.3 est consultée d'abord. Ensuite, chaque lieu est comparé à ceux de Camps, **lieux archivés compris**, par la comparaison textuelle du module (nom, localité, adresse), **sans modèle de langage**. Une correspondance certaine compte le lieu « déjà présent » et ne modifie pas le lieu existant ; une correspondance possible le rend ambigu : il n'est ni créé ni fusionné, et l'aperçu (« Ambigus, non créés ») comme le bilan nomment le lieu auquel il ressemble (« Ressemble à « Ferme du Bois-Haut », Hamois »). Le nom d'un lieu n'est pas une donnée personnelle et peut apparaître au bilan. Les autres lieux sont créés.
+- **Création.** Un lieu est créé avec les informations reconnues, archivé s'il l'était sur l'ancien site, et son historique dit qu'il vient de l'ancien site. Une valeur facultative qui ne convient pas (texte trop long, site web qui n'est pas en http ou https, mauvais type) est écartée, et l'aperçu compte ces lieux.
+- **Coordonnées.** La latitude et la longitude sont contrôlées ensemble : si une seule est donnée, ou si l'une sort de ses bornes, les deux sont écartées et le lieu est créé quand même. Les coordonnées reprises sont marquées manuelles : le géocodage automatique ne les remplace jamais. Aucun géocodage n'a lieu pendant l'import ; un lieu sans coordonnées suit ensuite le géocodage habituel.
+- Un lieu importé reste modifiable, archivable et fusionnable normalement dans Camps (§26).
+
+### 49.6 Inscriptions de l'année suivante
 
 Import « Inscriptions de l'année suivante » (`inscriptions`, format `scoutmagic-next-year-registrations` 1.x, `docs/formats/data-migration/next-year-registrations.md`), proposé tant que « Inscriptions » (`registration`) est actif. Il reprend les **nouvelles** demandes d'inscription encore en cours sur l'ancien site — jamais les réponses à une campagne de réinscription — comme des demandes ordinaires du §17.
 

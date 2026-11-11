@@ -116,6 +116,47 @@ class DuplicatePlaceDetectorTest extends TestCase
         $this->assertSame([], $this->detector()->findCandidates(['name' => 'Domaine de Mozet', 'city' => 'Mozet']));
     }
 
+    public function testAnArchivedPlaceIsComparedWhenAskedFor(): void
+    {
+        // The data migration import: an archived place is still the plot
+        // of land, and re-creating it as a live one is a duplicate.
+        $this->places->create('Domaine de Mozet', null, null, 'Mozet', null, null);
+        $this->pdo->exec('UPDATE camp_places SET is_archived = 1');
+
+        $found = $this->detector()->findCandidates(['name' => 'Domaine de Mozet', 'city' => 'Mozet'], includeArchived: true);
+
+        $this->assertCount(1, $found);
+        $this->assertSame('certain', $found[0]['certainty']);
+        $this->assertTrue($found[0]['place']->isArchived);
+    }
+
+    public function testLivePlacesComeBeforeArchivedOnes(): void
+    {
+        $archived = $this->places->create('Domaine de Mozet', null, null, 'Mozet', null, null);
+        $this->places->archive($archived, true);
+        $live = $this->places->create('Domaine de Mozet asbl', null, null, 'Mozet', null, null);
+
+        $found = $this->detector()->findCandidates(['name' => 'Domaine de Mozet', 'city' => 'Mozet'], includeArchived: true);
+
+        $this->assertSame([$live, $archived], array_map(static fn (array $match): int => $match['place']->id, $found));
+    }
+
+    public function testTheAiIsNeverAskedWhenTheCallerSaysSo(): void
+    {
+        // Same town, unrelated names: exactly what level 2 exists for —
+        // and what an import must settle without a model call.
+        $this->places->create('Ferme du Moulin', null, null, 'Vielsalm', null, null);
+        $llm = $this->createMock(LlmConnectorInterface::class);
+        $llm->method('isAvailable')->willReturn(true);
+        $llm->method('isTierAvailable')->willReturn(true);
+        $llm->expects($this->never())->method('complete');
+
+        $found = (new DuplicatePlaceDetector($this->places, $llm))
+            ->findCandidates(['name' => 'Chez Delvaux', 'city' => 'Vielsalm'], includeArchived: true, askAi: false);
+
+        $this->assertSame([], $found);
+    }
+
     public function testANamelessSubjectIsNotCompared(): void
     {
         $this->places->create('Domaine de Mozet', null, null, 'Mozet', null, null);
