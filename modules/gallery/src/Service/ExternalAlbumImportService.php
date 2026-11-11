@@ -95,7 +95,9 @@ class ExternalAlbumImportService implements ExternalAlbumWriter
         $ogDescription = $album->ogDescription !== null && trim($album->ogDescription) !== ''
             ? trim($album->ogDescription)
             : null;
-        $imageId = $album->ogImageBytes !== null ? $this->ogImages->store($id, $album->ogImageBytes, $album->createdBy) : null;
+        $imageId = $album->ogImageBytes !== null
+            ? $this->ogImages->store($id, $album->ogImageBytes, $album->createdBy)
+            : null;
         if ($ogTitle !== null || $ogDescription !== null || $imageId !== null) {
             // The image's own address is not known here — the fetcher hands
             // over its bytes, never a URL — and og_image_url is kept for

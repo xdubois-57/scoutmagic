@@ -69,9 +69,39 @@ class AlbumRepositoryTest extends TestCase
 
     public function testExternalAlbumsAreFoundByAddressPrefixWithWildcardsTakenLiterally(): void
     {
-        $exact = $this->repository->create(Album::TYPE_EXTERNAL, 'A', null, '2026-06-01', null, $this->scoutYearId, 'https://example.com/a_1%#x', null, $this->authorId);
-        $this->repository->create(Album::TYPE_EXTERNAL, 'B', null, '2026-06-01', null, $this->scoutYearId, 'https://example.com/ab1', null, $this->authorId);
-        $this->repository->create(Album::TYPE_LOCAL, 'C', null, '2026-06-01', null, $this->scoutYearId, null, null, $this->authorId);
+        $exact = $this->repository->create(
+            Album::TYPE_EXTERNAL,
+            'A',
+            null,
+            '2026-06-01',
+            null,
+            $this->scoutYearId,
+            'https://example.com/a_1%#x',
+            null,
+            $this->authorId
+        );
+        $this->repository->create(
+            Album::TYPE_EXTERNAL,
+            'B',
+            null,
+            '2026-06-01',
+            null,
+            $this->scoutYearId,
+            'https://example.com/ab1',
+            null,
+            $this->authorId
+        );
+        $this->repository->create(
+            Album::TYPE_LOCAL,
+            'C',
+            null,
+            '2026-06-01',
+            null,
+            $this->scoutYearId,
+            null,
+            null,
+            $this->authorId
+        );
 
         $this->assertSame(
             [['id' => $exact, 'external_url' => 'https://example.com/a_1%#x']],

@@ -13201,7 +13201,11 @@ if ($isEnabled('data_migration')) {
     // $dataMigrationImporters->add(new \Modules\DataMigration\Importer\…Importer(…));
     $dataMigrationSections = new \Modules\DataMigration\Service\SectionByDeskCode($sectionService);
     $dataMigrationImporters->add(new \Modules\DataMigration\Importer\CampPlacesImporter($campsPlaceImportWriterForOthers ?? null));
-    $dataMigrationImporters->add(new \Modules\DataMigration\Importer\GalleryLinksImporter($galleryExternalAlbumWriterForOthers ?? null, $dataMigrationSections, $linkPreviewService));
+    $dataMigrationImporters->add(new \Modules\DataMigration\Importer\GalleryLinksImporter(
+        $galleryExternalAlbumWriterForOthers ?? null,
+        $dataMigrationSections,
+        $linkPreviewService
+    ));
 
     $dataMigrationRuns = new \Modules\DataMigration\Repository\RunRepository($pdo, $encryptionService);
     $dataMigrationStorage = new \Modules\DataMigration\Service\UploadStorage($storagePath);

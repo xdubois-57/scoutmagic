@@ -41,9 +41,14 @@ final class ExternalAlbumImportServiceTest extends TestCase
         GalleryTestHelper::createTables($this->pdo);
         $this->albums = new AlbumRepository($this->pdo);
 
-        $this->pdo->prepare('INSERT INTO user_accounts (email_encrypted, email_blind_index) VALUES (?, ?)')->execute(['enc', 'idx']);
+        $this->pdo->prepare('INSERT INTO user_accounts (email_encrypted, email_blind_index) VALUES (?, ?)')->execute([
+            'enc',
+            'idx'
+        ]);
         $this->authorId = (int) $this->pdo->lastInsertId();
-        $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date) VALUES ('2018-2019', '2018-09-01', '2019-08-31')");
+        $this->pdo->exec(
+            "INSERT INTO scout_years (label, start_date, end_date) VALUES ('2018-2019', '2018-09-01', '2019-08-31')"
+        );
         $this->scoutYearId = (int) $this->pdo->lastInsertId();
         $this->pdo->exec("INSERT INTO age_branches (desk_code, label, sort_order) VALUES ('LOU', 'Louveteaux', 1)");
         $this->pdo->prepare('INSERT INTO sections (age_branch_id, desk_code, name) VALUES (?, ?, ?)')
@@ -71,7 +76,11 @@ final class ExternalAlbumImportServiceTest extends TestCase
         $this->assertSame('2019-04-20', $album->albumDate);
         $this->assertSame($this->sectionId, $album->sectionId);
         $this->assertSame($this->scoutYearId, $album->scoutYearId);
-        $this->assertSame('https://Photos.Example.org/a#1', $album->externalUrl, 'The address is kept as the old site gave it.');
+        $this->assertSame(
+            'https://Photos.Example.org/a#1',
+            $album->externalUrl,
+            'The address is kept as the old site gave it.'
+        );
         $this->assertSame($this->authorId, $album->createdBy);
         $this->assertNull($album->locationId, 'An external album has no storage location.');
         $this->assertNull($album->ownerType, 'It is an ordinary album, in the gallery\'s own lists.');
@@ -81,7 +90,10 @@ final class ExternalAlbumImportServiceTest extends TestCase
 
     public function testThePagesImageIsKeptAsTheAlbumsOwnFile(): void
     {
-        $this->pdo->exec("INSERT INTO files (relative_path, original_name, mime_type, size_bytes, role_min) VALUES ('gallery/1/og/x.png', 'og', 'image/png', 1, 'identified')");
+        $this->pdo->exec(
+            "INSERT INTO files (relative_path, original_name, mime_type, size_bytes, role_min)
+             VALUES ('gallery/1/og/x.png', 'og', 'image/png', 1, 'identified')"
+        );
         $fileId = (int) $this->pdo->lastInsertId();
         $images = $this->createStub(OgImageStore::class);
         $images->method('store')->willReturn($fileId);
@@ -151,12 +163,25 @@ final class ExternalAlbumImportServiceTest extends TestCase
     {
         $service = $this->service($this->createStub(OgImageStore::class));
         $id = $service->createImportedExternalAlbum($this->album(url: 'HTTPS://Photos.Example.org/album/42?x=1#cover'));
-        $this->albums->create(Album::TYPE_LOCAL, 'Local', null, '2019-04-20', null, $this->scoutYearId, null, null, $this->authorId);
+        $this->albums->create(
+            Album::TYPE_LOCAL,
+            'Local',
+            null,
+            '2019-04-20',
+            null,
+            $this->scoutYearId,
+            null,
+            null,
+            $this->authorId
+        );
 
         $this->assertSame($id, $service->findExternalAlbumByUrl(' https://photos.example.org/album/42?x=1 '));
         $this->assertSame($id, $service->findExternalAlbumByUrl('https://PHOTOS.example.org/album/42?x=1#autre'));
         $this->assertNull($service->findExternalAlbumByUrl('https://photos.example.org/album/42?x=2'));
-        $this->assertNull($service->findExternalAlbumByUrl('https://photos.example.org/album/42'), 'A prefix is not the same album.');
+        $this->assertNull(
+            $service->findExternalAlbumByUrl('https://photos.example.org/album/42'),
+            'A prefix is not the same album.'
+        );
         $this->assertNull($service->findExternalAlbumByUrl('pas une adresse'));
     }
 
@@ -164,7 +189,8 @@ final class ExternalAlbumImportServiceTest extends TestCase
     {
         $settings = $this->createStub(SettingService::class);
         $settings->method('get')->willReturnCallback(
-            fn (string $key, string $module, mixed $default): mixed => $key === 'gallery_allow_external' ? $this->allowExternal : $default
+            fn (string $key, string $module, mixed $default): mixed
+                => $key === 'gallery_allow_external' ? $this->allowExternal : $default
         );
 
         return new ExternalAlbumImportService($this->albums, $images, $settings);

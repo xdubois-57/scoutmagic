@@ -94,7 +94,8 @@ final class GalleryLinksImporter implements ThrottledImporter
 
     public function description(): string
     {
-        return 'Les albums hébergés ailleurs (Google Photos, Flickr…), ajoutés comme albums externes. Aucune photo n\'est copiée.';
+        return 'Les albums hébergés ailleurs (Google Photos, Flickr…), ajoutés comme albums externes. '
+            . 'Aucune photo n\'est copiée.';
     }
 
     public function unitLabel(): string
@@ -198,8 +199,10 @@ final class GalleryLinksImporter implements ThrottledImporter
         $row = $item->data;
         $url = trim((string) $row['url']);
         $date = self::albumDate($row['album_date'] ?? null) ?? throw new \LogicException('Inspected without a date.');
-        $year = self::scoutYear($row['scout_year'] ?? null, $date) ?? throw new \LogicException('Inspected without a year.');
-        $scoutYearId = $context->scoutYearId($year) ?? throw new \LogicException('The album\'s scout year does not exist.');
+        $year = self::scoutYear($row['scout_year'] ?? null, $date)
+            ?? throw new \LogicException('Inspected without a year.');
+        $scoutYearId = $context->scoutYearId($year)
+            ?? throw new \LogicException('The album\'s scout year does not exist.');
         $createdBy = $context->userAccountId ?? throw new \LogicException('An import is run by an account.');
 
         $preview = $this->preview($url);
@@ -229,22 +232,26 @@ final class GalleryLinksImporter implements ThrottledImporter
         $notes = [];
         if ($summary->toImport > 0) {
             $notes[] = PreviewNote::info(
-                'Le titre et la vignette sont relus sur chaque album pendant l\'import. Comptez environ deux secondes par album.'
+                'Le titre et la vignette sont relus sur chaque album pendant l\'import. '
+                . 'Comptez environ deux secondes par album.'
             );
         }
 
         $withoutTitle = $summary->tag(self::TAG_TITLE_FROM_PAGE);
         if ($withoutTitle > 0) {
             $notes[] = PreviewNote::warning($withoutTitle === 1
-                ? '1 album n\'a pas de titre dans le fichier. Il prendra celui de sa page, ou sera ignoré si elle n\'en donne pas.'
-                : $withoutTitle . ' albums n\'ont pas de titre dans le fichier. Ils prendront celui de leur page, ou seront ignorés si elle n\'en donne pas.');
+                ? '1 album n\'a pas de titre dans le fichier. '
+                    . 'Il prendra celui de sa page, ou sera ignoré si elle n\'en donne pas.'
+                : $withoutTitle . ' albums n\'ont pas de titre dans le fichier. '
+                    . 'Ils prendront celui de leur page, ou seront ignorés si elle n\'en donne pas.');
         }
 
         $unknownSection = $summary->ignoredReasons[self::REASON_SECTION] ?? 0;
         if ($unknownSection > 0) {
             $notes[] = PreviewNote::warning($unknownSection === 1
                 ? '1 album vise une section inconnue. Il est ignoré plutôt que montré à toute l\'unité.'
-                : $unknownSection . ' albums visent une section inconnue. Ils sont ignorés plutôt que montrés à toute l\'unité.');
+                : $unknownSection . ' albums visent une section inconnue. '
+                    . 'Ils sont ignorés plutôt que montrés à toute l\'unité.');
         }
 
         return $notes;

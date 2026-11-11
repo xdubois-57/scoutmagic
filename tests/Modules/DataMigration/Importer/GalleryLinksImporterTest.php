@@ -151,14 +151,20 @@ final class GalleryLinksImporterTest extends TestCase
     {
         yield 'no address' => [['url' => null], GalleryLinksImporter::REASON_URL];
         yield 'not a web address' => [['url' => 'ftp://example.org/album'], GalleryLinksImporter::REASON_URL];
-        yield 'address too long' => [['url' => 'https://example.org/' . str_repeat('a', 490)], GalleryLinksImporter::REASON_URL_TOO_LONG];
+        yield 'address too long' => [
+            ['url' => 'https://example.org/' . str_repeat('a', 490)],
+            GalleryLinksImporter::REASON_URL_TOO_LONG
+        ];
         yield 'no date' => [['album_date' => null], GalleryLinksImporter::REASON_DATE];
         yield 'unreadable date' => [['album_date' => '12/10/2019'], GalleryLinksImporter::REASON_DATE];
         yield 'unreadable year' => [['scout_year' => '2019'], GalleryLinksImporter::REASON_YEAR];
         yield 'unknown section' => [['section_desk_code' => 'INCONNU'], GalleryLinksImporter::REASON_SECTION];
         yield 'section code as a number' => [['section_desk_code' => 12], GalleryLinksImporter::REASON_SECTION];
         yield 'title too long' => [['title' => str_repeat('t', 256)], GalleryLinksImporter::REASON_TITLE_TOO_LONG];
-        yield 'subtitle too long' => [['subtitle' => str_repeat('s', 256)], GalleryLinksImporter::REASON_SUBTITLE_TOO_LONG];
+        yield 'subtitle too long' => [
+            ['subtitle' => str_repeat('s', 256)],
+            GalleryLinksImporter::REASON_SUBTITLE_TOO_LONG
+        ];
     }
 
     /**
@@ -190,10 +196,16 @@ final class GalleryLinksImporterTest extends TestCase
      */
     public function testTheScoutYearComesFromTheFileOrTheDate(): void
     {
-        $fromDate = $this->importer->inspect($this->album(['scout_year' => null, 'album_date' => '2020-08-20']), $this->context(false));
+        $fromDate = $this->importer->inspect(
+            $this->album(['scout_year' => null, 'album_date' => '2020-08-20']),
+            $this->context(false)
+        );
         $this->assertSame('2019-2020', $fromDate->scoutYearLabel);
 
-        $fromFile = $this->importer->inspect($this->album(['scout_year' => '2020-2021', 'album_date' => '2020-08-20']), $this->context(false));
+        $fromFile = $this->importer->inspect(
+            $this->album(['scout_year' => '2020-2021', 'album_date' => '2020-08-20']),
+            $this->context(false)
+        );
         $this->assertSame('2020-2021', $fromFile->scoutYearLabel);
 
         $missing = $this->importer->inspect($this->album(['scout_year' => '2011-2012']), $this->context(true));
@@ -240,10 +252,14 @@ final class GalleryLinksImporterTest extends TestCase
 
         $texts = array_map(static fn (PreviewNote $note): string => $note->text, $notes);
         $this->assertContains(
-            'Le titre et la vignette sont relus sur chaque album pendant l\'import. Comptez environ deux secondes par album.',
+            'Le titre et la vignette sont relus sur chaque album pendant l\'import. '
+                . 'Comptez environ deux secondes par album.',
             $texts
         );
-        $this->assertContains('5 albums visent une section inconnue. Ils sont ignorés plutôt que montrés à toute l\'unité.', $texts);
+        $this->assertContains(
+            '5 albums visent une section inconnue. Ils sont ignorés plutôt que montrés à toute l\'unité.',
+            $texts
+        );
         $this->assertSame(PreviewNote::WARNING, $notes[2]->level);
         $this->assertStringStartsWith('2 albums n\'ont pas de titre dans le fichier.', $texts[1]);
     }

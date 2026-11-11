@@ -327,7 +327,9 @@ class ImportEngine
         // only checked between two items, and one remote page can take
         // several seconds on its own.
         $this->inspections = 0;
-        $inspectionLimit = $importer instanceof ThrottledImporter ? max(1, $importer->inspectionsPerExecutionSlice()) : null;
+        $inspectionLimit = $importer instanceof ThrottledImporter
+            ? max(1, $importer->inspectionsPerExecutionSlice())
+            : null;
 
         try {
             foreach ($importer->items($source, $position) as $itemPosition => $item) {

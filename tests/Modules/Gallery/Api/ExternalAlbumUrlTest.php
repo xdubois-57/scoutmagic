@@ -23,7 +23,10 @@ final class ExternalAlbumUrlTest extends TestCase
      */
     public static function folded(): iterable
     {
-        yield 'scheme and host lower-cased' => ['HTTPS://Photos.Example.ORG/Album/AbC', 'https://photos.example.org/Album/AbC'];
+        yield 'scheme and host lower-cased' => [
+            'HTTPS://Photos.Example.ORG/Album/AbC',
+            'https://photos.example.org/Album/AbC'
+        ];
         yield 'fragment dropped' => ['https://example.org/a?b=C#Photo-3', 'https://example.org/a?b=C'];
         yield 'blanks around trimmed' => ["  https://example.org/a \n", 'https://example.org/a'];
         yield 'port kept, host lowered' => ['http://EXAMPLE.org:8080/x', 'http://example.org:8080/x'];
@@ -39,10 +42,22 @@ final class ExternalAlbumUrlTest extends TestCase
 
     public function testWhatAPhotoHostMayGiveMeaningToIsKept(): void
     {
-        $this->assertNotSame(ExternalAlbumUrl::normalize('https://example.org/a'), ExternalAlbumUrl::normalize('https://example.org/a/'));
-        $this->assertNotSame(ExternalAlbumUrl::normalize('https://example.org/a'), ExternalAlbumUrl::normalize('https://example.org/A'));
-        $this->assertNotSame(ExternalAlbumUrl::normalize('https://example.org/a'), ExternalAlbumUrl::normalize('http://example.org/a'));
-        $this->assertNotSame(ExternalAlbumUrl::normalize('https://example.org/?id=1'), ExternalAlbumUrl::normalize('https://example.org/?id=2'));
+        $this->assertNotSame(
+            ExternalAlbumUrl::normalize('https://example.org/a'),
+            ExternalAlbumUrl::normalize('https://example.org/a/')
+        );
+        $this->assertNotSame(
+            ExternalAlbumUrl::normalize('https://example.org/a'),
+            ExternalAlbumUrl::normalize('https://example.org/A')
+        );
+        $this->assertNotSame(
+            ExternalAlbumUrl::normalize('https://example.org/a'),
+            ExternalAlbumUrl::normalize('http://example.org/a')
+        );
+        $this->assertNotSame(
+            ExternalAlbumUrl::normalize('https://example.org/?id=1'),
+            ExternalAlbumUrl::normalize('https://example.org/?id=2')
+        );
     }
 
     /**

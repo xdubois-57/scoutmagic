@@ -24,7 +24,15 @@ final class OgImageStoreTest extends TestCase
     {
         $uploads = $this->createMock(UploadHandler::class);
         $uploads->expects($this->once())->method('handle')
-            ->willReturnCallback(function (array $file, string $directory, array $mimes, int $max, string $role, ?string $module, ?int $by): int {
+            ->willReturnCallback(function (
+                array $file,
+                string $directory,
+                array $mimes,
+                int $max,
+                string $role,
+                ?string $module,
+                ?int $by
+            ): int {
                 $this->assertSame('image-bytes', file_get_contents((string) $file['tmp_name']));
                 $this->assertSame(11, $file['size']);
                 $this->assertSame('gallery/12/og', $directory);

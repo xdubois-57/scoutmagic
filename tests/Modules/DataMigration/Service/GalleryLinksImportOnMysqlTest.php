@@ -75,17 +75,29 @@ final class GalleryLinksImportOnMysqlTest extends TestCase
         $this->pdo->prepare('INSERT INTO user_accounts (email_encrypted, email_blind_index) VALUES (?, ?)')
             ->execute(['chiffré', str_repeat('a', 64)]);
         $this->adminId = (int) $this->pdo->lastInsertId();
-        $this->pdo->exec("INSERT INTO age_branches (desk_code, label, sort_order) VALUES ('EX-BR', 'Branche d''exemple', 1)");
+        $this->pdo->exec(
+            "INSERT INTO age_branches (desk_code, label, sort_order) VALUES ('EX-BR', 'Branche d''exemple', 1)"
+        );
         $branch = (int) $this->pdo->lastInsertId();
         foreach (['EX-LOUV' => 'Meute d\'exemple', 'EX-ECL' => 'Troupe d\'exemple'] as $code => $name) {
-            $this->pdo->prepare('INSERT INTO sections (age_branch_id, desk_code, name) VALUES (?, ?, ?)')->execute([$branch, $code, $name]);
+            $this->pdo->prepare('INSERT INTO sections (age_branch_id, desk_code, name) VALUES (?, ?, ?)')->execute([
+                $branch,
+                $code,
+                $name
+            ]);
             $this->sections[$code] = (int) $this->pdo->lastInsertId();
         }
         // 2019-2020 exists; 2018-2019, which the example also uses, does not.
-        $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date) VALUES ('2019-2020', '2019-09-01', '2020-08-31')");
+        $this->pdo->exec(
+            "INSERT INTO scout_years (label, start_date, end_date) VALUES ('2019-2020', '2019-09-01', '2020-08-31')"
+        );
 
         $this->pages = new FakeLinkPreviewFetcher([
-            'https://photos.example.org/albums/camp-eclaireurs-2019' => new LinkPreview('Grand camp des éclaireurs', 'Quinze jours en Ardenne', self::png()),
+            'https://photos.example.org/albums/camp-eclaireurs-2019' => new LinkPreview(
+                'Grand camp des éclaireurs',
+                'Quinze jours en Ardenne',
+                self::png()
+            ),
             'https://photos.example.org/albums/journee-de-rentree-2018' => new LinkPreview('Rentrée 2018', null, null),
         ]);
         $this->service = $this->runService(0.0);
@@ -127,9 +139,16 @@ final class GalleryLinksImportOnMysqlTest extends TestCase
         $camp = $albums['https://photos.example.org/albums/camp-eclaireurs-2019'];
         $this->assertSame('Grand camp des éclaireurs', $camp['title'], 'A title-less album takes its page\'s.');
         $this->assertSame($this->sections['EX-ECL'], (int) $camp['section_id']);
-        $this->assertSame('2018-2019', $this->yearLabel((int) $camp['scout_year_id']), 'The year the date falls in, created on request.');
+        $this->assertSame(
+            '2018-2019',
+            $this->yearLabel((int) $camp['scout_year_id']),
+            'The year the date falls in, created on request.'
+        );
         $this->assertNotNull($camp['og_image_file_id'], 'The page\'s image is kept as the album\'s own file.');
-        $this->assertSame('identified', $this->pdo->query('SELECT role_min FROM files WHERE id = ' . (int) $camp['og_image_file_id'])->fetchColumn());
+        $this->assertSame(
+            'identified',
+            $this->pdo->query('SELECT role_min FROM files WHERE id = ' . (int) $camp['og_image_file_id'])->fetchColumn()
+        );
 
         $rentree = $albums['https://photos.example.org/albums/journee-de-rentree-2018'];
         $this->assertSame('Journée de rentrée', $rentree['title'], 'The file\'s title wins.');
@@ -154,7 +173,8 @@ final class GalleryLinksImportOnMysqlTest extends TestCase
         $run = $this->drive($this->service->confirm($run, ['2018-2019']) ?? $this->fail('Not confirmed.'));
         $this->pages->fetched = [];
 
-        $again = $this->drive($this->service->restart($this->importer, $run, $this->adminId) ?? $this->fail('No restart.'));
+        $restarted = $this->service->restart($this->importer, $run, $this->adminId) ?? $this->fail('No restart.');
+        $again = $this->drive($restarted);
         $again = $this->drive($this->service->confirm($again, []) ?? $this->fail('Not confirmed.'));
 
         $this->assertSame(0, $again->report['imported']);
@@ -171,7 +191,8 @@ final class GalleryLinksImportOnMysqlTest extends TestCase
     {
         $this->pdo->prepare(
             "INSERT INTO gallery_albums (type, title, album_date, scout_year_id, external_url, created_by, created_at)
-             VALUES ('external', 'Souper (ajouté à la main)', '2019-11-09', (SELECT id FROM scout_years WHERE label = '2019-2020'), ?, ?, NOW())"
+             VALUES ('external', 'Souper (ajouté à la main)', '2019-11-09',
+                     (SELECT id FROM scout_years WHERE label = '2019-2020'), ?, ?, NOW())"
         )->execute(['HTTPS://PHOTOS.Example.ORG/albums/souper-d-unite-2019#photo-12', $this->adminId]);
 
         $run = $this->drive($this->deposit('galeries-exemple.zip'));
@@ -247,7 +268,11 @@ final class GalleryLinksImportOnMysqlTest extends TestCase
             GalleryLinksImporter::REASON_TITLE_TOO_LONG => 1,
         ], $run->analysis['ignored']);
         foreach ($run->analysis['samples'] as $sample) {
-            $this->assertMatchesRegularExpression('/^(album-01\d\d|ligne \d+)$/', $sample['reference'], 'A report shows references, never a title.');
+            $this->assertMatchesRegularExpression(
+                '/^(album-01\d\d|ligne \d+)$/',
+                $sample['reference'],
+                'A report shows references, never a title.'
+            );
         }
     }
 
@@ -277,12 +302,16 @@ final class GalleryLinksImportOnMysqlTest extends TestCase
     {
         $this->pdo->prepare(
             "INSERT INTO gallery_albums (type, title, album_date, scout_year_id, external_url, created_by, created_at)
-             VALUES ('external', 'Album', '2019-11-09', (SELECT id FROM scout_years WHERE label = '2019-2020'), ?, ?, NOW())"
+             VALUES ('external', 'Album', '2019-11-09',
+                     (SELECT id FROM scout_years WHERE label = '2019-2020'), ?, ?, NOW())"
         )->execute(['HTTPS://Photos.EXAMPLE.org/a_b%25#x', $this->adminId]);
         $id = (int) $this->pdo->lastInsertId();
         $repository = new AlbumRepository($this->pdo);
 
-        $this->assertSame([$id], array_column($repository->findExternalByUrlPrefix('https://photos.example.org/a_b%25'), 'id'));
+        $this->assertSame(
+            [$id],
+            array_column($repository->findExternalByUrlPrefix('https://photos.example.org/a_b%25'), 'id')
+        );
         $this->assertSame([], $repository->findExternalByUrlPrefix('https://photos.example.org/aXb'));
         $this->assertSame($id, $this->writer()->findExternalAlbumByUrl('https://photos.example.org/a_b%25'));
     }
@@ -302,7 +331,16 @@ final class GalleryLinksImportOnMysqlTest extends TestCase
 
         return new RunService(
             $runs,
-            new ImportEngine($this->pdo, $runs, new ItemMappingRepository($this->pdo), $years, $uploads, new ManifestReader(), $journal, $sliceSeconds),
+            new ImportEngine(
+                $this->pdo,
+                $runs,
+                new ItemMappingRepository($this->pdo),
+                $years,
+                $uploads,
+                new ManifestReader(),
+                $journal,
+                $sliceSeconds
+            ),
             $years,
             $uploads,
             new ChunkedUploadStore($this->storage),
@@ -323,7 +361,16 @@ final class GalleryLinksImportOnMysqlTest extends TestCase
     {
         $chunk = sys_get_temp_dir() . '/dm_chunk_' . bin2hex(random_bytes(6));
         copy(self::FIXTURES . $fixture, $chunk);
-        $result = $this->service->receiveChunk($this->importer, bin2hex(random_bytes(16)), 'test-session', 0, $chunk, true, $fixture, $this->adminId);
+        $result = $this->service->receiveChunk(
+            $this->importer,
+            bin2hex(random_bytes(16)),
+            'test-session',
+            0,
+            $chunk,
+            true,
+            $fixture,
+            $this->adminId
+        );
         @unlink($chunk);
 
         return $result['run'] ?? $this->fail('The last fragment created no run.');
