@@ -80,7 +80,7 @@ L'ordre des lignes compte (§ 7) : ScoutMagic les lit de haut en bas.
 
 | Champ | Type | Obligatoire | Règle |
 |---|---|---|---|
-| `desk_id` | chaîne | oui | L'identifiant Desk du membre (le numéro de Tiers), **toujours en chaîne** : `"004518"`, jamais `4518`. 1 à 190 octets ; en pratique, un identifiant Desk tient en 50 caractères. Jamais un identifiant interne de l'ancien site. |
+| `desk_id` | chaîne | oui | L'identifiant Desk du membre (le numéro de Tiers), **toujours en chaîne** : `"004518"`, jamais `4518`. 1 à 100 octets ; en pratique, un identifiant Desk tient en 50 caractères. Jamais un identifiant interne de l'ancien site. |
 | `scout_year` | chaîne | oui | Le libellé de l'année scoute : `AAAA-AAAA`, deux années consécutives (`2022-2023`). |
 | `path` | chaîne | oui | Le chemin de l'image dans l'archive : exactement `images/<sha256>.<extension>`, avec la même empreinte que `sha256`. |
 | `sha256` | chaîne | oui | L'empreinte SHA-256 des octets de l'image, 64 caractères hexadécimaux **minuscules**. Elle doit être celle que le manifeste donne pour `path`. |
@@ -201,7 +201,8 @@ chemin dangereux ou lien symbolique.
 | Situation | Motif au bilan |
 |---|---|
 | La ligne n'est pas un objet JSON | Ligne illisible |
-| `desk_id` absent, vide, numérique ou trop long (> 190 octets) | desk_id absent ou qui n'est pas une chaîne de caractères |
+| `desk_id` absent, vide, numérique ou de plus de 190 octets | desk_id absent ou qui n'est pas une chaîne de caractères |
+| `desk_id` de 101 à 190 octets : aucun membre de ScoutMagic n'en porte un si long | Membre introuvable dans ScoutMagic |
 | `scout_year` absent ou qui n'est pas `AAAA-AAAA` consécutifs | Année scoute absente ou illisible |
 | `sha256` absent ou qui n'est pas 64 caractères hexadécimaux minuscules | Empreinte SHA-256 absente ou invalide |
 | `path` absent, hors de `images/`, d'une extension non admise, ou dont le nom n'est pas `sha256` | Chemin d'image invalide |

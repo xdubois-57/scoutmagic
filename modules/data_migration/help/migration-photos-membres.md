@@ -29,4 +29,4 @@ Si des photos visent une année passée que le site n'a pas encore, l'aperçu la
 
 ## Les photos ignorées
 
-Le bilan donne, pour chaque photo ignorée, l'identifiant Desk, l'année et le motif, jamais un nom : membre introuvable, image illisible ou trop lourde, type d'image non accepté. Corrigez-les sur l'ancien site, puis « Relancer le même fichier » ne retente que celles-là.
+Le bilan donne, pour chaque photo ignorée, l'identifiant Desk, l'année et le motif, jamais un nom : membre introuvable, image illisible ou trop lourde, type d'image non accepté. Une image se corrige sur l'ancien site : préparez alors une nouvelle archive et déposez-la, les photos déjà importées ne le seront pas une deuxième fois. « Relancer le même fichier » relit l'archive déjà déposée : il sert quand c'est ScoutMagic qui a changé, par exemple un membre ajouté depuis.

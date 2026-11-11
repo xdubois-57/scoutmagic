@@ -233,7 +233,8 @@ final class MemberPhotosImportOnMysqlTest extends TestCase
     {
         $this->pdo->exec("INSERT INTO files (relative_path, original_name, mime_type, size_bytes) VALUES ('core/member_photos/ours.jpg', 'ours.jpg', 'image/jpeg', 1)");
         $ours = (int) $this->pdo->lastInsertId();
-        $this->pdo->exec("INSERT INTO member_photos (member_id, scout_year_id, file_id) VALUES ({$this->adminId}, {$this->year2324}, {$ours})");
+        $this->pdo->prepare('INSERT INTO member_photos (member_id, scout_year_id, file_id) VALUES (?, ?, ?)')
+            ->execute([$this->adminId, $this->year2324, $ours]);
 
         $run = $this->analysed('exemple.zip');
         $this->assertSame(1, $run->analysis['present']);
@@ -248,24 +249,29 @@ final class MemberPhotosImportOnMysqlTest extends TestCase
 
         $this->assertSame(2, $run->report['imported']);
         $this->assertSame(1, $run->report['present']);
-        $kept = $this->pdo->query("SELECT file_id FROM member_photos WHERE member_id = {$this->adminId} AND scout_year_id = {$this->year2324}")->fetchColumn();
+        $keptQuery = $this->pdo->prepare('SELECT file_id FROM member_photos WHERE member_id = ? AND scout_year_id = ?');
+        $keptQuery->execute([$this->adminId, $this->year2324]);
+        $kept = $keptQuery->fetchColumn();
         $this->assertSame($ours, (int) $kept);
     }
 
     public function testAMemberIsFoundByTheDeskIdOfAMergedRecord(): void
     {
-        $this->pdo->exec("UPDATE members SET desk_id = 'NOUVEAU-1' WHERE id = {$this->adminId}");
-        $this->pdo->exec("INSERT INTO member_desk_id_aliases (member_id, desk_id) VALUES ({$this->adminId}, 'E2E-ADMIN')");
+        $this->pdo->prepare("UPDATE members SET desk_id = 'NOUVEAU-1' WHERE id = ?")->execute([$this->adminId]);
+        $this->pdo->prepare("INSERT INTO member_desk_id_aliases (member_id, desk_id) VALUES (?, 'E2E-ADMIN')")
+            ->execute([$this->adminId]);
 
         $run = $this->imported('exemple.zip', ['2022-2023']);
 
         $this->assertSame(3, $run->report['imported']);
-        $this->assertSame(2, (int) $this->pdo->query("SELECT COUNT(*) FROM member_photos WHERE member_id = {$this->adminId}")->fetchColumn());
+        $photosOfAdmin = $this->pdo->prepare('SELECT COUNT(*) FROM member_photos WHERE member_id = ?');
+        $photosOfAdmin->execute([$this->adminId]);
+        $this->assertSame(2, (int) $photosOfAdmin->fetchColumn());
     }
 
     public function testAnUnknownMemberIsIgnoredAndNeverCreated(): void
     {
-        $this->pdo->exec("DELETE FROM members WHERE id = {$this->memberId}");
+        $this->pdo->prepare('DELETE FROM members WHERE id = ?')->execute([$this->memberId]);
 
         $run = $this->imported('exemple.zip', ['2022-2023']);
 
@@ -399,6 +405,16 @@ final class MemberPhotosImportOnMysqlTest extends TestCase
 
     private function rowsIn(string $table): int
     {
+        // A table name cannot be bound, so it must be one of these.
+        $tables = [
+            'member_photos', 'files', 'data_migration_items', 'members', 'scout_years',
+            'notifications', 'mail_deferred_messages', 'mail_send_receipts',
+            'user_account_photos', 'section_staff_photos',
+        ];
+        if (!in_array($table, $tables, true)) {
+            throw new \InvalidArgumentException('Unexpected table: ' . $table);
+        }
+
         return (int) $this->pdo->query('SELECT COUNT(*) FROM ' . $table)->fetchColumn();
     }
 

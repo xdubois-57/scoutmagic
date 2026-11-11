@@ -147,11 +147,15 @@ class ImportedMemberPhotoWriter
         }
 
         $temporary = tempnam(sys_get_temp_dir(), 'member_photo_import_');
-        if ($temporary === false || file_put_contents($temporary, $bytes) === false) {
-            throw new \RuntimeException('Could not write a temporary file for an imported member photo.');
+        if ($temporary === false) {
+            throw new \RuntimeException('Could not create a temporary file for an imported member photo.');
         }
 
         try {
+            // Inside the cleanup scope, so a failed or short write leaves nothing behind.
+            if (file_put_contents($temporary, $bytes) !== strlen($bytes)) {
+                throw new \RuntimeException('Could not write a temporary file for an imported member photo.');
+            }
             $result = $this->ingestion->ingest([
                 'tmp_name' => $temporary,
                 'name' => self::shownName($originalName),

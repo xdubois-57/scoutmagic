@@ -149,7 +149,9 @@ final class ImportedMemberPhotoWriterTest extends TestCase
             $photo
         ));
 
-        $file = $this->pdo->query('SELECT relative_path, original_name, role_min FROM files WHERE id = ' . $fileId)->fetch();
+        $query = $this->pdo->prepare('SELECT relative_path, original_name, role_min FROM files WHERE id = ?');
+        $query->execute([$fileId]);
+        $file = $query->fetch();
         $this->assertSame('portrait 2022.jpg', $file['original_name']);
         $this->assertSame('identified', $file['role_min']);
         $this->assertStringStartsWith('core/member_photos/', $file['relative_path']);
