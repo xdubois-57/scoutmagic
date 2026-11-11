@@ -36,9 +36,27 @@
             </div>
         {% endif %}
 
+        {#
+          History from the unit's previous site (D11, maquette « Marques
+          Importé » — Actualités): read-only for everybody, which the page
+          says before anything else. The server refuses every change on its
+          own (Service\ArticleService); this is the reader's half of it.
+        #}
+        {% if is_imported|default(false) %}
+            <div class="alert alert-imported" role="note" data-news-imported>
+                <div class="d-flex flex-wrap align-items-center gap-2">
+                    {% include '@news/partials/_imported_badge.html.twig' only %}
+                    <strong>Élément historique en lecture seule</strong>
+                </div>
+                <div class="small mt-1">Importé de l'ancien site le {{ imported_on|french_date }}. Il ne peut pas être modifié.</div>
+            </div>
+        {% endif %}
+
         {% include 'partials/page_header.html.twig' with {
             title: article.title,
-            subtitle: article.displayDate()|french_date ~ (author_name ? ' · ' ~ author_name : ''),
+            subtitle: is_imported|default(false)
+                ? 'Publié le ' ~ article.displayDate()|french_date ~ ' · ' ~ audience_line
+                : article.displayDate()|french_date ~ (author_name ? ' · ' ~ author_name : ''),
         } only %}
 
         {% if article.imageFileId %}
@@ -54,7 +72,24 @@
             {% endif %}
         {% endfor %}
 
-        {% if has_real_input %}
+        {% if is_imported|default(false) %}
+            {# The old site's form, as it was asked and closed for good: its
+               questions, never its answers, which were not brought over
+               (Controller\FormController refuses a response anyway). #}
+            {% if imported_questions is not empty %}
+                <hr class="my-4">
+                <div class="card" data-news-imported-form>
+                    <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+                        <h2 class="h5 mb-0">Formulaire</h2>
+                        {% include 'partials/status_badge.html.twig' with { status: 'closed', label: 'Formulaire fermé' } only %}
+                    </div>
+                    <div class="card-body small">
+                        <p>{{ imported_questions|join(' · ') }}</p>
+                        <p class="text-body-secondary mb-0">Formulaire de l'ancien site. Les réponses n'ont pas été reprises.</p>
+                    </div>
+                </div>
+            {% endif %}
+        {% elseif has_real_input %}
             <hr class="my-4">
             <div class="news-form-section bg-body-tertiary rounded-3 p-3 p-sm-4">
                 <h2 class="h4 mb-3">Formulaire</h2>

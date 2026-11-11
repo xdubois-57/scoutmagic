@@ -183,6 +183,11 @@ class FormController extends AbstractController
         if (!$this->articleService->isLive($article)) {
             return $this->forbidden(self::NOT_LIVE_MESSAGE, $request);
         }
+        // An imported article's form is history (D11): closed, and refused
+        // here whatever its row says — Service\ResponseService refuses again.
+        if ($article->isImported()) {
+            return $this->forbidden(ArticleService::IMPORTED_FORM_MESSAGE, $request);
+        }
 
         $form = $this->formService->findByArticleId($article->id);
         if ($form === null) {
@@ -912,6 +917,9 @@ class FormController extends AbstractController
         if (!$this->articleService->canEdit($article, $role, $accountId)) {
             return $this->json(['success' => false, 'error' => 'Accès refusé.'], 403);
         }
+        if ($article->isImported()) {
+            return $this->json(['success' => false, 'error' => ArticleService::IMPORTED_READ_ONLY_MESSAGE], 409);
+        }
 
         $ids = IntegerInput::idList($data['ids'] ?? []);
         if ($ids === null) {
@@ -996,6 +1004,13 @@ class FormController extends AbstractController
         // these routes are public, and a different answer would tell anyone
         // which articles exist unpublished.
         if (!$this->articleService->isLive($article)) {
+            return [null, null, null, new Response('Not Found', 404)];
+        }
+
+        // An imported form took no response here and none was imported
+        // (D11); should a row exist all the same, it is not edited. The same
+        // 404, for the same reason as above.
+        if ($article->isImported()) {
             return [null, null, null, new Response('Not Found', 404)];
         }
 

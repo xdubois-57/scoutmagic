@@ -276,6 +276,17 @@ class ArticleRepository
         return $stmt->rowCount() === 1;
     }
 
+    /**
+     * Sets the « Importé » lock (D11) on an article the data migration
+     * module has just written — Service\NewsImportWriter, and nothing else.
+     * There is no method to clear it: an imported article stays history.
+     */
+    public function markImported(int $id, string $importedAt, string $importSource): void
+    {
+        $stmt = $this->pdo->prepare('UPDATE news_articles SET imported_at = ?, import_source = ? WHERE id = ?');
+        $stmt->execute([$importedAt, $importSource, $id]);
+    }
+
     public function setHasForm(int $id, bool $hasForm): void
     {
         $stmt = $this->pdo->prepare('UPDATE news_articles SET has_form = ? WHERE id = ?');
@@ -314,7 +325,9 @@ class ArticleRepository
             summary: $row['summary'] !== null ? (string) $row['summary'] : null,
             imageFileId: $row['image_file_id'] !== null ? (int) $row['image_file_id'] : null,
             status: (string) ($row['status'] ?? Article::STATUS_PUBLISHED),
-            publishedAt: isset($row['published_at']) ? (string) $row['published_at'] : null
+            publishedAt: isset($row['published_at']) ? (string) $row['published_at'] : null,
+            importedAt: isset($row['imported_at']) ? (string) $row['imported_at'] : null,
+            importSource: isset($row['import_source']) ? (string) $row['import_source'] : null
         );
     }
 }

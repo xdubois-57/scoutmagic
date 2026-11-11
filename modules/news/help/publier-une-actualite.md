@@ -70,3 +70,11 @@ réponses venues de la même adresse font deux e-mails.
 Ce bouton demande le rôle animateur (la page des réponses, elle,
 s'ouvre dès intendant) et n'apparaît pas si le module Envoi de mails
 est désactivé.
+
+## Les actualités reprises de l'ancien site
+
+Une actualité marquée « Importé » vient de l'ancien site, par la
+migration de données. Elle s'ouvre comme les autres, mais personne ne
+peut la modifier, la publier, la repasser en brouillon ni la supprimer :
+le bandeau « Élément historique en lecture seule » le rappelle, et le
+site refuse ces actions.
