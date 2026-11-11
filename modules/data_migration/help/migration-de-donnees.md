@@ -39,10 +39,6 @@ Chaque lieu est comparé à ceux que Camps connaît déjà, **lieux archivés co
 
 Les coordonnées venues de l'ancien site sont gardées telles quelles : la recherche automatique de coordonnées ne les remplacera jamais. Un lieu importé se modifie, s'archive et se fusionne ensuite comme les autres.
 
-## Galeries photo
-
-Les albums que l'ancien site montrait par un lien (Google Photos, Flickr…) deviennent des albums externes de la Galerie ; aucune photo n'est copiée. Le titre et la vignette sont relus sur la page de chaque album pendant l'import, ce qui prend environ deux secondes par album. Un album réservé à une section que le site ne reconnaît pas est ignoré plutôt que montré à toute l'unité, et une adresse que la Galerie connaît déjà n'est pas importée une seconde fois. Les albums importés se gèrent ensuite dans « Gérer les photos », comme les autres.
-
 ## Abandonner
 
 « Abandonner et effacer le fichier » garde ce qui est déjà importé et efface le fichier déposé.
