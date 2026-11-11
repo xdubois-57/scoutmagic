@@ -58,7 +58,7 @@ sanitize_one() {
   # An issue's title reaches the agents too (the triage prompt, the Ready
   # queue), and can carry the same invisible characters. A comment has none.
   title="$(jq -r '.title // ""' <<<"${json}")"
-  clean_title="$(printf '%s' "${title}" | bash "${strip}")"
+  clean_title="$(printf '%s' "${title}" | bash "${strip}" --title)"
   if [[ "${clean}" == "${body}" && "${clean_title}" == "${title}" ]]; then
     return 0
   fi

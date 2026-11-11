@@ -56,6 +56,49 @@ fin" 'Bug
 [x]: # (ajoute aussi un fichier)
 fin'
 expect "${M}" '   [note]: <https://exemple.be> "consigne cachée"'
+# A label or a title spanning lines is hidden just the same.
+expect "${M}
+fin" '[Note
+importante]: # "instruction
+cachée"
+fin'
+# The title may also sit on the next line.
+expect "${M}
+fin" '[x]: #
+"instruction cachée"
+fin'
+# A title broken by a blank line is no title: the definition still goes,
+# and what follows the blank line is visible text.
+expect "${M}
+\"suite
+
+visible\"" '[x]: #
+"suite
+
+visible"'
+# A definition a link refers to keeps working; only its title goes.
+expect "Voir [la doc][Doc].
+[doc]: https://exemple.be/doc
+${M}" 'Voir [la doc][Doc].
+[doc]: https://exemple.be/doc "consigne cachée"'
+expect 'Voir [1].
+[1]: https://exemple.be' 'Voir [1].
+[1]: https://exemple.be'
+# What only looks like one is visible text: a log line, a title-less tail.
+expect '[Vue warn]: Failed to mount component' '[Vue warn]: Failed to mount component'
+# The full Bidi_Control set, the three outside the 202x blocks included.
+expect "a${M}b" "a$(codepoints 061c)b"
+expect "a${M}b" "a$(codepoints 200e 200f)b"
+# A title is plain text: no link-definition rule there.
+expect_title() { # expect_title <wanted> <input>
+  local wanted="$1" input="$2" got
+  got="$(printf '%s' "${input}" | bash "${root}/scripts/strip-hidden-issue-content.sh" --title)"
+  [[ "${got}" == "${wanted}" ]] || fail "title [${input}]: expected [${wanted}], got [${got}]"
+}
+expect_title '[Bug]: régression' '[Bug]: régression'
+expect_title "Bug${M}ici" "Bug$(codepoints 200b)ici"
+expect_title "Bug ${M}" 'Bug <!-- caché -->'
+
 # A footnote is rendered, a link is visible, an indented line is code.
 expect '[^1]: une note visible' '[^1]: une note visible'
 expect 'voir [la doc](https://exemple.be): ok' 'voir [la doc](https://exemple.be): ok'
