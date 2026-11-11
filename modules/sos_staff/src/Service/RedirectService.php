@@ -146,6 +146,27 @@ class RedirectService
     }
 
     /**
+     * The operator could not even be read (expired credentials, an API
+     * down): an outage like a refused change, reported the same way — the
+     * urgent attention point, and the alert to every chef d'unité once per
+     * outage. Cleared by the next redirection that succeeds or the next
+     * reading that finds the line where it should be.
+     */
+    public function reportUnreadableLine(int $scoutYearId): void
+    {
+        $alreadyFailing = $this->settingsService->lastRedirectFailureAt() !== null;
+        $this->settingsService->recordRedirectOutcome(true, AppClock::now());
+        if (!$alreadyFailing) {
+            $this->sendAdminAlert(
+                "L'état de la redirection du numéro SOS n'a pas pu être lu chez l'opérateur : le site ne peut "
+                    . 'ni vérifier ni modifier la redirection. Vérifiez la configuration du fournisseur de '
+                    . 'téléphonie.',
+                $scoutYearId
+            );
+        }
+    }
+
+    /**
      * The number a redirection to $memberId means — the member's mobile, or
      * the default number when the member is null or has none. apply() takes
      * its target from here, and so does the dashboard when it decides

@@ -57,6 +57,7 @@ final class ReconcileRedirectHandlerTest extends TestCase
     private int $year;
     private ForwardingState $forwarding;
     private bool $refuse = false;
+    private bool $unreadable = false;
     /** @var list<string> */
     private array $changes = [];
     /** @var list<string> */
@@ -80,7 +81,12 @@ final class ReconcileRedirectHandlerTest extends TestCase
 
         $this->forwarding = new ForwardingState(true, '+32470000001');
         $provider = $this->createStub(PhoneProviderInterface::class);
-        $provider->method('readForwardingState')->willReturnCallback(fn() => $this->forwarding);
+        $provider->method('readForwardingState')->willReturnCallback(function () {
+            if ($this->unreadable) {
+                throw new ProviderException('Identifiants expirés.');
+            }
+            return $this->forwarding;
+        });
         $provider->method('setForwarding')->willReturnCallback(function (string $number): void {
             if ($this->refuse) {
                 throw new ProviderException('Opérateur indisponible.');
@@ -218,6 +224,32 @@ final class ReconcileRedirectHandlerTest extends TestCase
         self::assertSame([1, 2, 3], $delays);
         self::assertSame([], $this->pending(ReconcileRedirectHandler::REFERENCE_RETRY));
         self::assertSame(['chef@example.test'], $this->mailedTo);
+    }
+
+    /**
+     * An operator that cannot even be read is an outage too: urgent
+     * attention point, one alert, quick retries — and it clears once the
+     * line reads back right (review of #1135).
+     */
+    public function testAnUnreadableOperatorIsReportedOnceAndClearsWhenReadableAgain(): void
+    {
+        $this->unreadable = true;
+        $this->queueNow(ReconcileRedirectHandler::REFERENCE_HOURLY, []);
+        $this->runner->processOverdue();
+        $retry = $this->pending(ReconcileRedirectHandler::REFERENCE_RETRY);
+        $this->makeDue((int) $retry[0]['id']);
+        $this->runner->processOverdue();
+
+        self::assertSame(['chef@example.test'], $this->mailedTo);
+        self::assertNotSame('', $this->settings->get('redirect_last_failure_at', 'sos_staff', ''));
+
+        $this->unreadable = false;
+        $this->forwarding = new ForwardingState(true, self::DEFAULT_NUMBER);
+        $retry = $this->pending(ReconcileRedirectHandler::REFERENCE_RETRY);
+        $this->makeDue((int) $retry[0]['id']);
+        $this->runner->processOverdue();
+
+        self::assertSame('', $this->settings->get('redirect_last_failure_at', 'sos_staff', ''));
     }
 
     public function testBootstrapSeedsTheHourlyChainOnce(): void

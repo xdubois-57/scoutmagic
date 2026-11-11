@@ -994,10 +994,11 @@ class SosAdminController extends AbstractController
                 . $this->destinationLabel($reconciled['expected_member_id'], $scoutYearId)
                 . ($reconciled['status'] === RedirectReconciler::CORRECTED ? ' (redirection modifiée).' : '.'),
             RedirectReconciler::FAILED => "Attention : la redirection n'a pas pu être modifiée chez l'opérateur — "
-                . "les appels arrivent peut-être encore chez la personne précédente. Les chefs d'unité ont été "
-                . 'prévenus ; le site réessaie automatiquement.',
+                . "les appels arrivent peut-être encore chez la personne précédente. Le site réessaie "
+                . "automatiquement ; les chefs d'unité sont alertés une fois par panne.",
             RedirectReconciler::UNREADABLE => "Attention : l'état de la redirection n'a pas pu être lu chez "
-                . "l'opérateur. Le site vérifie à nouveau automatiquement.",
+                . "l'opérateur. Le site vérifie à nouveau automatiquement ; les chefs d'unité sont alertés une "
+                . 'fois par panne.',
             RedirectReconciler::NO_DESTINATION => "Attention : personne n'est de garde et aucun numéro par "
                 . "défaut n'est utilisable — choisissez un numéro par défaut dans les réglages.",
             default => "La téléphonie n'est pas configurée : la redirection ne suit pas le planning.",

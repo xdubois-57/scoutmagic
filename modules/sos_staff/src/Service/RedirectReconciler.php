@@ -116,6 +116,10 @@ class RedirectReconciler
                 "Contrôle de la redirection SOS : l'état n'a pas pu être lu chez l'opérateur.",
                 ['trigger' => $trigger, 'exception_class' => $e::class]
             );
+            // An operator the site cannot even read is an outage like a
+            // refused change: nothing it does reaches the line. Same
+            // attention point, same once-per-outage alert (review of #1135).
+            $this->redirectService->reportUnreadableLine($scoutYearId);
             return $outcome(self::UNREADABLE);
         }
 
