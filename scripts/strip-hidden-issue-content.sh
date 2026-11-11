@@ -37,9 +37,10 @@ set -euo pipefail
 # — and removes everything else like any text. A bot's issue can be edited
 # by a person afterwards, and GitHub still names the bot as its author.
 #
-# Line endings are kept: GitHub stores what its web editor sends with CRLF,
-# the rules work on LF, and a text that only changed its line endings
-# would be rewritten for nothing.
+# Line endings are kept, each as it was: GitHub stores what its web editor
+# sends with CRLF, a text can mix both, and the rules accept either rather
+# than normalising — a text that only changed its line endings would be
+# rewritten for nothing.
 #
 # `--title` applies to an issue title, which GitHub shows as plain text:
 # nothing in it is Markdown, so the link-definition rule is not applied
@@ -114,21 +115,20 @@ OWN_IDS="$(printf '%s' "${SOURCE_IDS}" | tr -s ' \n' '\n' | grep -v '^$' | paste
 MARKER="${MARKER}" TITLE="${TITLE}" BOT="${BOT}" OWN_IDS="${OWN_IDS}" exec perl -CSDA -0777 -pe '
     my $m = $ENV{MARKER};
     utf8::decode($m) unless utf8::is_utf8($m);
-    my $crlf = s/\r\n/\n/g;
     my $own = qr/<!-- (?:external-source:(?:$ENV{OWN_IDS})|external-source-fingerprint:[0-9a-f]{16}(?::sans-analyse)?|issue-fixed-comment: pull request #[0-9]+) -->/;
     s{(<!--.*?(?:-->|\z))}{ my $c = $1; $ENV{BOT} && $c =~ m{\A$own\z} ? $c : $m }gse;
     s/[\x{E0000}-\x{E007F}\x{200B}-\x{200F}\x{2060}\x{FEFF}\x{061C}\x{202A}-\x{202E}\x{2066}-\x{2069}]+/$m/g;
     if (!$ENV{TITLE}) {
         # A newline, but never a blank line, may sit inside a label or title.
-        my $nl    = qr/\n(?![ \t]*\n)/;
+        my $nl    = qr/\r?\n(?![ \t]*\r?\n)/;
         # Any indentation and any block quote or list markers, nested or
         # lazy: approximating where CommonMark ends a container is exactly
         # how a hidden definition slipped past each earlier version.
         my $cont  = qr/(?:[ \t]|>|[-*+](?=[ \t])|\d{1,9}[.)](?=[ \t]))*/;
-        my $label = qr/\[(?!\^)(?:[^\[\]\\\n]|\\.|$nl)+\]/;
-        my $dest  = qr/<[^<>\n]*>|[^\s<]\S*/;
-        my $title = qr/"(?:[^"\\\n]|\\.|$nl)*"|\x27(?:[^\x27\\\n]|\\.|$nl)*\x27|\((?:[^()\\\n]|\\.|$nl)*\)/;
-        s/^($cont)$label:[ \t]*\n?[ \t]*(?:$dest)(?:(?:[ \t]+|[ \t]*\n[ \t]*)(?:$title))?[ \t]*$/$1$m/gm;
+        my $label = qr/\[(?!\^)(?:[^\[\]\\\r\n]|\\.|$nl)+\]/;
+        my $dest  = qr/<[^<>\r\n]*>|[^\s<]\S*/;
+        my $title = qr/"(?:[^"\\\r\n]|\\.|$nl)*"|\x27(?:[^\x27\\\r\n]|\\.|$nl)*\x27|\((?:[^()\\\r\n]|\\.|$nl)*\)/;
+        # A line ends in LF or CRLF, and keeps whichever it had.
+        s/^($cont)$label:[ \t]*(?:\r?\n)?[ \t]*(?:$dest)(?:(?:[ \t]+|[ \t]*\r?\n[ \t]*)(?:$title))?[ \t]*(?=\r?$)/$1$m/gm;
     }
-    s/\n/\r\n/g if $crlf;
 '

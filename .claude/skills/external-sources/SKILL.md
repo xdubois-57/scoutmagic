@@ -92,6 +92,14 @@ Before writing, look for an open issue about the same source: its body
 carries the hidden marker `<!-- external-source:<id> -->`. Search the open
 issues for that marker (and, failing that, for the source id and the URL).
 
+Only the workflow opens these issues. The marker is trusted only in a
+text a bot wrote (issue #1117): `issue-sanitize.yml` removes it from
+anyone else's, and the workflow's lookup ignores a human's issue. An issue
+opened by hand is therefore one the next weekly run cannot find, and it
+opens a duplicate. Run by hand, dispatch `external-sources-check.yml`
+(`workflow_dispatch`) instead; if you cannot, report what you found to the
+maintainer rather than opening the issue yourself.
+
 - **None open**: open one. Title `Source externe « <id> » : <what changed>`.
 - **One open**: do not open another. Add a comment only if the divergence
   is not the one it already reports (the page moved again, the amounts
@@ -114,9 +122,7 @@ becomes a GitHub issue — the issue must be fixable from its text alone:
    change (the register, each `usedIn` file, the shipped default). Say which test pins it:
    `tests/Architecture/ExternalSourcesAreRegisteredTest.php` fails until
    the register, the files and the defaults agree.
-5. The markers, last: `<!-- external-source:<id> -->`.
-
-In the weekly workflow you do not write to GitHub at all: you return the
+In the workflow you do not write to GitHub at all: you return the
 title (without the `Source externe « <id> » :` prefix) and the body
 (without the type line and without the markers) as JSON, and the workflow
 adds the prefix, the type line, the script's report, the markers, and

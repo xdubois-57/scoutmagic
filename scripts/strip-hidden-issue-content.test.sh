@@ -167,6 +167,29 @@ fin"
 expect "a"$'\r'"
 b" "a"$'\r'"
 b"
+# The destination on the line after the label, CRLF between them.
+expect "${M}"$'\r'"
+fin" "[x]:"$'\r'"
+<consigne cachée>"$'\r'"
+fin"
+# Mixed endings: each line keeps its own, cleaned or not.
+expect "a"$'\r'"
+b
+c" "a"$'\r'"
+b
+c"
+expect "a"$'\r'"
+${M}
+c"$'\r'"
+d" "a"$'\r'"
+[x]: # (caché)
+c"$'\r'"
+d"
+expect "${M}"$'\r'"
+fin" "[Note"$'\r'"
+importante]: # \"instruction"$'\r'"
+cachée\""$'\r'"
+fin"
 
 # Legitimate text is left exactly as it is.
 expect 'Le bouton <b>Envoyer</b> ne répond pas' 'Le bouton <b>Envoyer</b> ne répond pas'
