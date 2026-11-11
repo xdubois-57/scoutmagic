@@ -1473,7 +1473,7 @@ Search covers a place's name, address, postal code and city. It deliberately doe
 
 A **map** shows the places that have coordinates, collapsed by default and loaded only when opened — drawing it contacts the tile provider with the reader's IP. Coordinates are found automatically from the address, one place at a time in the background; **the moment somebody types or corrects them by hand, the automatic search never touches that place again**.
 
-When a place is created, the ones that may already be it are offered. The comparison is textual first; an AI is asked only when that cannot decide, and it may only ever suggest.
+When a place is created, the ones that may already be it are offered. The comparison is textual first; an AI is asked only when that cannot decide, and it may only ever suggest. Places taken over from a former site by the data migration module (§49.5) go through the textual comparison alone, archived places included: a certain match is left untouched, a possible one is neither created nor merged and is named in the import's report, and the coordinates the old site gave are locked as typed by hand.
 
 ### 26.6 Putting things back together
 
@@ -4107,3 +4107,12 @@ Le site retient, pour chaque objet importé, le quadruplet (installation d'origi
 ### 49.4 Conservation
 
 Le fichier déposé est effacé automatiquement **24 heures** après le dernier mouvement de l'import, quel que soit son état : terminé, abandonné, en attente ou interrompu. Un import qui avance n'est jamais privé de son fichier. Rien n'est extrait sur le disque, et le fichier n'entre dans aucune sauvegarde. La correspondance du §49.3 est conservée sans limite et ne contient aucune donnée personnelle.
+
+### 49.5 Endroits de camp
+
+Disponible quand le module Camps est actif. L'archive (format `scoutmagic-camp-places` 1.0.0, `docs/formats/data-migration/camp-places.md`) contient un fichier `places.jsonl`, un lieu par ligne : identifiant d'origine et nom obligatoires ; adresse, code postal, localité, pays, latitude et longitude, site web et état archivé facultatifs. Seuls les lieux sont repris : ni séjours, ni contacts, ni avis, ni prix, ni contrats, ni documents.
+
+- **Doublons.** La correspondance du §49.3 est consultée d'abord. Ensuite, chaque lieu est comparé à ceux de Camps, **lieux archivés compris**, par la comparaison textuelle du module (nom, localité, adresse), **sans modèle de langage**. Une correspondance certaine compte le lieu « déjà présent » et ne modifie pas le lieu existant ; une correspondance possible le rend ambigu : il n'est ni créé ni fusionné, et l'aperçu (« Ambigus, non créés ») comme le bilan nomment le lieu auquel il ressemble (« Ressemble à « Ferme du Bois-Haut », Hamois »). Le nom d'un lieu n'est pas une donnée personnelle et peut apparaître au bilan. Les autres lieux sont créés.
+- **Création.** Un lieu est créé avec les informations reconnues, archivé s'il l'était sur l'ancien site, et son historique dit qu'il vient de l'ancien site. Une valeur facultative qui ne convient pas (texte trop long, site web qui n'est pas en http ou https, mauvais type) est écartée, et l'aperçu compte ces lieux.
+- **Coordonnées.** La latitude et la longitude sont contrôlées ensemble : si une seule est donnée, ou si l'une sort de ses bornes, les deux sont écartées et le lieu est créé quand même. Les coordonnées reprises sont marquées manuelles : le géocodage automatique ne les remplace jamais. Aucun géocodage n'a lieu pendant l'import ; un lieu sans coordonnées suit ensuite le géocodage habituel.
+- Un lieu importé reste modifiable, archivable et fusionnable normalement dans Camps (§26).
