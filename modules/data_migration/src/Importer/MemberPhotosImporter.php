@@ -60,7 +60,12 @@ final class MemberPhotosImporter implements Importer
 
     public const MAX_TOTAL_BYTES = 2 * 1024 * 1024 * 1024;
 
-    public const EXTENSIONS = ['jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg', 'png' => 'image/png', 'webp' => 'image/webp'];
+    public const EXTENSIONS = [
+        'jpg' => 'image/jpeg',
+        'jpeg' => 'image/jpeg',
+        'png' => 'image/png',
+        'webp' => 'image/webp',
+    ];
 
     /** A Desk id is at most 50 characters on this site (`members.desk_id`). */
     private const MAX_DESK_ID_BYTES = 100;
@@ -251,7 +256,16 @@ final class MemberPhotosImporter implements Importer
      * fingerprint the line announces. A French reason when it falls short.
      *
      * @param array<string, mixed> $row
-     * @return array{desk_id: string, scout_year: string, sha256: string, path: string, mime: string, original_name: string, couple: string, source_id: string}|string
+     * @return array{
+     *     desk_id: string,
+     *     scout_year: string,
+     *     sha256: string,
+     *     path: string,
+     *     mime: string,
+     *     original_name: string,
+     *     couple: string,
+     *     source_id: string
+     * }|string
      */
     private static function parse(array $row, ImportSource $source): array|string
     {
