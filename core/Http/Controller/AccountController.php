@@ -13,6 +13,8 @@ use Core\Http\FlashMessage;
 use Core\Http\Request;
 use Core\Http\Response;
 use Core\Photo\AccountPhotoService;
+use Core\Security\AccountSecurityAlertService;
+use Core\Security\AccountSecurityChange;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Security\PasswordPolicy;
@@ -42,7 +44,12 @@ class AccountController extends AbstractController
         // Same rule: with none, the « Ma signature » card is not offered.
         // Only whether there is one, and since when — never the image,
         // since this page is cached for offline reading (issue #926).
-        private ?PersonalSignatureService $personalSignatures = null
+        private ?PersonalSignatureService $personalSignatures = null,
+        // Same rule: with none, a password or passkey changes in silence,
+        // as it did before issue #1115. Production always wires it — it is
+        // what tells the holder that a stolen session just gave itself a
+        // way back in.
+        private ?AccountSecurityAlertService $securityAlerts = null
     ) {
     }
 
@@ -278,6 +285,11 @@ class AccountController extends AbstractController
         // using: they stay signed in here, everywhere else is signed out.
         AuthSession::refreshIssuedAt();
 
+        $this->securityAlerts?->report(
+            $userId,
+            $hasPassword ? AccountSecurityChange::PasswordChanged : AccountSecurityChange::PasswordSet
+        );
+
         FlashMessage::set('success', $hasPassword ? 'Mot de passe mis à jour.' : 'Mot de passe défini.');
         return $this->redirect('/account');
     }
@@ -329,11 +341,14 @@ class AccountController extends AbstractController
         }
 
         try {
-            $this->webAuthnService->verifyRegistration($userId, $body, $deviceLabel);
-            return $this->json(['success' => true]);
+            $credentialId = $this->webAuthnService->verifyRegistration($userId, $body, $deviceLabel);
         } catch (\RuntimeException $e) {
             return $this->json(['success' => false, 'error' => 'L\'enregistrement a échoué.']);
         }
+
+        $this->securityAlerts?->report($userId, AccountSecurityChange::PasskeyAdded, $credentialId, $deviceLabel);
+
+        return $this->json(['success' => true]);
     }
 
     /**
@@ -367,19 +382,27 @@ class AccountController extends AbstractController
 
         // Verify the credential belongs to this user
         $credentials = $this->webAuthnCredentialRepo->findByUserAccountId($userId);
-        $found = false;
+        $found = null;
         foreach ($credentials as $cred) {
             if ((int) $cred['id'] === $id) {
-                $found = true;
+                $found = $cred;
                 break;
             }
         }
 
-        if (!$found) {
+        if ($found === null) {
             return $this->json(['success' => false, 'error' => 'Clé introuvable.']);
         }
 
         $this->webAuthnCredentialRepo->delete($id);
+
+        $this->securityAlerts?->report(
+            $userId,
+            AccountSecurityChange::PasskeyRemoved,
+            $id,
+            (string) ($found['device_label'] ?? '')
+        );
+
         return $this->json(['success' => true]);
     }
 }

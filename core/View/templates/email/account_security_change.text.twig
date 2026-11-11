@@ -1,0 +1,20 @@
+Alerte de sécurité sur votre compte
+
+Bonjour,
+
+{{ change_label }} sur {{ site_name }}, le {{ changed_at }}.
+{% if credential_label %}
+
+Nom indiqué : {{ credential_label }}
+{% endif %}
+
+Si c'est bien vous, il n'y a rien à faire : ce message est une simple information.
+
+Si ce n'est pas vous, quelqu'un d'autre a peut-être accès à votre compte :
+
+1. réinitialisez votre mot de passe avec le lien « Mot de passe oublié ? » de la page de connexion : {{ login_url }}
+2. dans « Mon compte », retirez toute clé d'accès (passkey) et tout appareil que vous ne reconnaissez pas : {{ account_url }}
+
+Prévenez aussi l'équipe de votre unité, pour qu'elle puisse vérifier ce qui s'est passé.
+
+{% include 'email/signature.text.twig' %}

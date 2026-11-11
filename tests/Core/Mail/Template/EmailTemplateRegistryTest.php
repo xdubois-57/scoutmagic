@@ -75,6 +75,9 @@ class EmailTemplateRegistryTest extends TestCase
             'password_reset',
             'member_email_confirmation',
             'registration.secondary_email_confirmation',
+            // Not a way in, but the alarm when one changes (#1115): a unit
+            // that reworded it into silence would switch the alarm off.
+            'account_security_change',
         ] as $id) {
             $template = $registry->find($id);
 

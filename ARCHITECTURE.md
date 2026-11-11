@@ -685,7 +685,10 @@ what a preview and a test send render with), and `editable`.
 lock rather than a "not yet": the magic link, the password reset and the two
 address confirmations. An administrator who broke one would shut themselves
 out with no way back in. They are declared all the same, because an
-inventory that omits them is an inventory that lies.
+inventory that omits them is an inventory that lies. The account-security
+alert (`account_security_change`, issue #1115) is locked for the opposite
+reason: it is the alarm a stolen session sets off when it adds a way in, and
+an alarm a unit could reword into silence is no alarm.
 
 **Declaring an e-mail changes nothing about how it is sent.** A service that
 renders its own Twig template goes on doing exactly that. The registry is an
@@ -783,7 +786,7 @@ MailService adds that to every message, and a renderer that added it too
 would double it on exactly the e-mails an administrator had touched.
 
 **The migration is one sender at a time**, and it is now finished: core's
-nine and every module's are on the renderer. A module that declares an e-mail
+ten and every module's are on the renderer. A module that declares an e-mail
 later still works the moment it does — nothing downstream had to change for
 the six that switched.
 
