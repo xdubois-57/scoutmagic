@@ -1192,7 +1192,7 @@ jobs:
           jq -n --arg body "${body}" '{body: $body}' > payload.json
 
           existing="$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" --paginate \
-            --jq ".[] | select(.user.type == \"Bot\") | select(.body | contains(\"${MARKER}\")) | .id" | head -n 1 || true)"
+            --jq ".[] | select(.body | contains(\"${MARKER}\")) | .id" | head -n 1 || true)"
 
           if [[ -n "${existing}" ]]; then
             gh api -X PATCH "repos/${GITHUB_REPOSITORY}/issues/comments/${existing}" --input payload.json >/dev/null
