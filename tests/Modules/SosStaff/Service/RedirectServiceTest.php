@@ -103,13 +103,18 @@ class RedirectServiceTest extends TestCase
     public function testApplyThrowsWhenNoProviderConfigured(): void
     {
         $this->providerConfigService->method('getActiveProvider')->willReturn(null);
-        $this->userAccountRepository->method('findFirstSuperAdmin')->willReturn(null);
+        $this->userAccountRepository->method('findStaffAndSuperAdminIds')->willReturn([]);
 
-        $this->journalService->expects($this->once())->method('log')
-            ->with('sos_staff', 'redirect_failure', 'info', $this->anything(), $this->anything());
+        $logged = $this->recordJournal();
 
-        $this->expectException(SosException::class);
-        $this->service()->apply(1, null, 100);
+        try {
+            $this->service()->apply(1, null, 100);
+            self::fail('Expected a SosException.');
+        } catch (SosException) {
+        }
+        // Issue #1102: a failed redirection is a warning, never an `info`
+        // among the routine lines.
+        self::assertSame('warning', $logged['redirect_failure'] ?? null);
     }
 
     public function testApplyThrowsWhenNoNumberResolvable(): void
@@ -118,7 +123,7 @@ class RedirectServiceTest extends TestCase
         $this->providerConfigService->method('getActiveProvider')->willReturn($provider);
         $this->memberService->method('findProfileByMemberAndYear')->willReturn(null);
         $this->settingsService->method('getDefaultNumber')->willReturn(null);
-        $this->userAccountRepository->method('findFirstSuperAdmin')->willReturn(null);
+        $this->userAccountRepository->method('findStaffAndSuperAdminIds')->willReturn([]);
 
         $this->expectException(SosException::class);
         $this->service()->apply(1, null, 100);
@@ -171,13 +176,16 @@ class RedirectServiceTest extends TestCase
         $this->providerConfigService->method('getActiveProvider')->willReturn($provider);
         $this->memberService->method('findProfileByMemberAndYear')
             ->willReturn($this->profile(1, 'Akela', '+32470000001', 'akela@test.be'));
-        $this->userAccountRepository->method('findFirstSuperAdmin')->willReturn(null);
+        $this->userAccountRepository->method('findStaffAndSuperAdminIds')->willReturn([]);
 
-        $this->journalService->expects($this->once())->method('log')
-            ->with('sos_staff', 'redirect_failure', 'info', $this->anything(), $this->anything());
+        $logged = $this->recordJournal();
 
-        $this->expectException(SosException::class);
-        $this->service()->apply(1, null, 100);
+        try {
+            $this->service()->apply(1, null, 100);
+            self::fail('Expected a SosException.');
+        } catch (SosException) {
+        }
+        self::assertSame('warning', $logged['redirect_failure'] ?? null);
     }
 
     public function testApplyWrapsProviderExceptionAsSosException(): void
@@ -188,7 +196,7 @@ class RedirectServiceTest extends TestCase
         $this->providerConfigService->method('getActiveProvider')->willReturn($provider);
         $this->memberService->method('findProfileByMemberAndYear')
             ->willReturn($this->profile(1, 'Akela', '+32470000001', 'akela@test.be'));
-        $this->userAccountRepository->method('findFirstSuperAdmin')->willReturn(null);
+        $this->userAccountRepository->method('findStaffAndSuperAdminIds')->willReturn([]);
 
         try {
             $this->service()->apply(1, null, 100);
@@ -204,22 +212,41 @@ class RedirectServiceTest extends TestCase
         }
     }
 
-    public function testApplySendsAdminAlertEmailOnFailure(): void
+    /**
+     * Issue #1102: the alert reaches every chef d'unité of the year and
+     * every super-administrator — it used to reach the first superadmin
+     * alone, often a technician outside the unit's staff — by email and by
+     * the `sos_staff.redirect_failed` notification.
+     */
+    public function testApplySendsAdminAlertToEveryChefDUniteAndSuperadmin(): void
     {
         $this->providerConfigService->method('getActiveProvider')->willReturn(null);
-        $admin = new UserAccount(1, 'admin@test.be', null, null, null, true, null);
-        $this->userAccountRepository->method('findFirstSuperAdmin')->willReturn($admin);
+        $this->userAccountRepository->method('findStaffAndSuperAdminIds')
+            ->willReturnCallback(static function (array $years, array $roles): array {
+                // The year of the redirection, the chef d'unité role only.
+                return $years === [100] && $roles === ['admin'] ? [1, 2] : [];
+            });
+        $this->userAccountRepository->method('findById')->willReturnMap([
+            [1, new UserAccount(1, 'admin@test.be', null, null, null, true, null)],
+            [2, new UserAccount(2, 'chef@test.be', null, null, null, false, null)],
+        ]);
 
-        $sent = ['to' => '', 'html' => '', 'text' => ''];
-        $this->mailService->expects($this->once())->method('send')
+        $sent = [];
+        $this->mailService->expects($this->exactly(2))->method('send')
             ->willReturnCallback(static function (
                 string $to,
                 string $subject,
                 string $html,
                 string $text
             ) use (&$sent): void {
-                $sent = ['to' => $to, 'html' => $html, 'text' => $text];
+                $sent[$to] = ['html' => $html, 'text' => $text];
             });
+        $this->notificationService->expects($this->once())->method('dispatch')
+            ->with(
+                'sos_staff.redirect_failed',
+                [['userAccountId' => 1, 'memberId' => null], ['userAccountId' => 2, 'memberId' => null]],
+                $this->callback(static fn(array $payload): bool => ($payload['url'] ?? null) === '/admin/sos')
+            );
 
         try {
             $this->service()->apply(1, null, 100);
@@ -228,11 +255,104 @@ class RedirectServiceTest extends TestCase
             // The original configuration error still reaches the caller after the alert.
         }
 
-        self::assertSame('admin@test.be', $sent['to']);
-        self::assertStringContainsString("(Configuration &gt; Téléphone d'urgence)", $sent['html']);
-        self::assertStringNotContainsString("(Configuration &gt; SOS Staff d'U)", $sent['html']);
-        self::assertStringContainsString("(Configuration > Téléphone d'urgence)", $sent['text']);
-        self::assertStringNotContainsString("(Configuration > SOS Staff d'U)", $sent['text']);
+        self::assertSame(['admin@test.be', 'chef@test.be'], array_keys($sent));
+        self::assertStringContainsString("(Configuration &gt; Téléphone d'urgence)", $sent['chef@test.be']['html']);
+        self::assertStringNotContainsString("(Configuration &gt; SOS Staff d'U)", $sent['chef@test.be']['html']);
+        self::assertStringContainsString("(Configuration > Téléphone d'urgence)", $sent['chef@test.be']['text']);
+        self::assertStringNotContainsString("(Configuration > SOS Staff d'U)", $sent['chef@test.be']['text']);
+    }
+
+    /**
+     * One alert per outage: the retries and the hourly check would
+     * otherwise mail every chef several times an hour while the operator
+     * refuses. The attention point carries the outage meanwhile.
+     */
+    public function testARefusalWhileAlreadyFailingDoesNotAlertAgain(): void
+    {
+        $provider = $this->createStub(PhoneProviderInterface::class);
+        $provider->method('readForwardingState')->willThrowException(new ProviderException('OVH indisponible'));
+        $this->providerConfigService->method('getActiveProvider')->willReturn($provider);
+        $this->memberService->method('findProfileByMemberAndYear')
+            ->willReturn($this->profile(1, 'Akela', '+32470000001', 'akela@test.be'));
+        $this->settingsService->method('lastRedirectFailureAt')
+            ->willReturn(new \DateTimeImmutable('-10 minutes'));
+        $this->userAccountRepository->method('findStaffAndSuperAdminIds')->willReturn([1]);
+
+        $this->mailService->expects($this->never())->method('send');
+        $this->notificationService->expects($this->never())->method('dispatch');
+
+        $this->expectException(SosException::class);
+        $this->service()->apply(1, null, 100);
+    }
+
+    /**
+     * An alert that could not be sent used to vanish in an empty catch:
+     * « the chefs were warned » was a belief nobody could check.
+     */
+    public function testAnAlertThatCannotBeSentIsJournaled(): void
+    {
+        $this->providerConfigService->method('getActiveProvider')->willReturn(null);
+        $this->userAccountRepository->method('findStaffAndSuperAdminIds')->willReturn([1]);
+        $this->userAccountRepository->method('findById')
+            ->willReturn(new UserAccount(1, 'admin@test.be', null, null, null, true, null));
+        $this->mailService->method('send')->willThrowException(new \RuntimeException('smtp down admin@test.be'));
+        $logged = $this->recordJournal();
+
+        try {
+            $this->service()->apply(1, null, 100);
+        } catch (SosException) {
+        }
+
+        self::assertSame('warning', $logged['admin_alert_failed'] ?? null);
+    }
+
+    /**
+     * One recipient whose address cannot be read (a decryption failure)
+     * must not cost the chefs after it their alert (review of #1135).
+     */
+    public function testOneUnreadableRecipientDoesNotStopTheOthers(): void
+    {
+        $this->providerConfigService->method('getActiveProvider')->willReturn(null);
+        $this->userAccountRepository->method('findStaffAndSuperAdminIds')->willReturn([1, 2]);
+        $this->userAccountRepository->method('findById')->willReturnCallback(
+            static function (int $id): UserAccount {
+                if ($id === 1) {
+                    throw new \RuntimeException('decryption failed');
+                }
+                return new UserAccount(2, 'chef@test.be', null, null, null, false, null);
+            }
+        );
+        $sentTo = [];
+        $this->mailService->method('send')->willReturnCallback(
+            static function (string $to) use (&$sentTo): void {
+                $sentTo[] = $to;
+            }
+        );
+        $logged = $this->recordJournal();
+
+        try {
+            $this->service()->apply(1, null, 100);
+        } catch (SosException) {
+        }
+
+        self::assertSame(['chef@test.be'], $sentTo);
+        self::assertSame('warning', $logged['admin_alert_failed'] ?? null);
+    }
+
+    /**
+     * The journal lines apply() writes, type => level.
+     *
+     * @return \ArrayObject<string, string>
+     */
+    private function recordJournal(): \ArrayObject
+    {
+        $logged = new \ArrayObject();
+        $this->journalService->method('log')->willReturnCallback(
+            static function (string $category, string $type, string $level) use ($logged): void {
+                $logged[$type] = $level;
+            }
+        );
+        return $logged;
     }
 
     /**
@@ -521,7 +641,7 @@ class RedirectServiceTest extends TestCase
         $this->providerConfigService->method('getActiveProvider')->willReturn($provider);
         $this->memberService->method('findProfileByMemberAndYear')
             ->willReturn($this->profile(1, 'Akela', '+32470000001', 'akela@test.be'));
-        $this->userAccountRepository->method('findFirstSuperAdmin')->willReturn(null);
+        $this->userAccountRepository->method('findStaffAndSuperAdminIds')->willReturn([]);
         $settings = $this->createMock(SosSettingsService::class);
         $settings->expects($this->once())->method('recordRedirectOutcome')->with(true, $this->anything());
         $this->settingsService = $settings;
@@ -538,7 +658,7 @@ class RedirectServiceTest extends TestCase
     public function testNoOperatorIsNotRecordedAsARefusal(): void
     {
         $this->providerConfigService->method('getActiveProvider')->willReturn(null);
-        $this->userAccountRepository->method('findFirstSuperAdmin')->willReturn(null);
+        $this->userAccountRepository->method('findStaffAndSuperAdminIds')->willReturn([]);
         $settings = $this->createMock(SosSettingsService::class);
         $settings->expects($this->never())->method('recordRedirectOutcome');
         $this->settingsService = $settings;

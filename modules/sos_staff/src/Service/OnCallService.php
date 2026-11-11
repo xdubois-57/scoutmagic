@@ -23,10 +23,16 @@ class OnCallService
     public const MODULE_ID = 'sos_staff';
     public const TASK_KEY = 'apply_redirect';
 
+    /**
+     * @param (\Closure(): \DateTimeImmutable)|null $clock « now », for the
+     *        line between a transition still to schedule and one already
+     *        due (tests pin it; production reads the wall clock)
+     */
     public function __construct(
         private OnCallRepository $repository,
         private SchedulerService $schedulerService,
-        private SosSettingsService $settingsService
+        private SosSettingsService $settingsService,
+        private ?\Closure $clock = null
     ) {
     }
 
@@ -84,15 +90,13 @@ class OnCallService
      *     transitions: array<
      *         int,
      *         array{date: string, member_id: ?int, previous_member_id: ?int, run_at: \DateTimeImmutable}
-     *     >,
-     *     today_transition: ?array{
-     *         date: string,
-     *         member_id: ?int,
-     *         previous_member_id: ?int,
-     *         run_at: \DateTimeImmutable
-     *     },
-     *     today_due_now: bool
+     *     >
      * }
+     *
+     * **What is due NOW is not this method's job** (issue #1102). It only
+     * schedules what is still to come; putting the line where the planning
+     * says it should be at this moment is RedirectReconciler's, which reads
+     * where the line really is. The caller runs it right after this.
      */
     public function saveMonth(
         int $year,
@@ -238,19 +242,31 @@ class OnCallService
     }
 
     /**
+     * The transitions the planning implies, from the first day of the saved
+     * month to the last day of the NEXT one (issue #1102).
+     *
+     * **Why the next month too.** Its 1st is a change or not depending on
+     * the last day of this one: Alice on the 31st and Alice on the 1st is no
+     * transition, Bob on the 31st and Alice on the 1st is one. Saving only
+     * the month that was edited left the 1st as it was computed when the
+     * next month was saved — so correcting the 31st after August was
+     * planned handed the whole camp to Bob. A month nobody planned at all
+     * is covered by the same pass: whoever is on call on the 31st must
+     * still hand back to the default number on the 1st. The month after
+     * that does not depend on anything this save changed.
+     *
+     * **Only transitions still to come are scheduled.** A change whose
+     * moment has passed is not replayed: SchedulerRunner would run every
+     * one of them as overdue, in a row, each one notifying its pair, only
+     * to end where the line should be now — which RedirectReconciler puts
+     * it, once, after reading where it actually is.
+     *
      * @param int[] $orderedStaffMemberIds
      * @return array{
      *     transitions: array<
      *         int,
      *         array{date: string, member_id: ?int, previous_member_id: ?int, run_at: \DateTimeImmutable}
-     *     >,
-     *     today_transition: ?array{
-     *         date: string,
-     *         member_id: ?int,
-     *         previous_member_id: ?int,
-     *         run_at: \DateTimeImmutable
-     *     },
-     *     today_due_now: bool
+     *     >
      * }
      */
     private function computeAndScheduleTransitions(
@@ -261,72 +277,94 @@ class OnCallService
     ): array
     {
         $firstOfMonth = DateInput::firstOfMonth($year, $month);
-        $lastOfMonth = $firstOfMonth->modify('last day of this month');
-        $prevMonthLastDay = $firstOfMonth->modify('-1 day');
+        $lastDay = $firstOfMonth->modify('first day of next month')->modify('last day of this month');
+        $dayBefore = $firstOfMonth->modify('-1 day');
 
-        $monthAssignments = $this->repository->findForRange(
+        $assignments = $this->repository->findForRange(
             $firstOfMonth->format('Y-m-d'),
-            $lastOfMonth->format('Y-m-d')
+            $lastDay->format('Y-m-d')
         );
         $byDate = [];
-        foreach ($monthAssignments as $assignment) {
+        foreach ($assignments as $assignment) {
             $byDate[$assignment->date][] = $assignment;
         }
 
         $previousTarget = $this->resolveTarget(
-            $this->repository->findForDate($prevMonthLastDay->format('Y-m-d')),
+            $this->repository->findForDate($dayBefore->format('Y-m-d')),
             $orderedStaffMemberIds
         );
 
-        $this->cancelPendingTransitionsInRange($firstOfMonth->format('Y-m-d'), $lastOfMonth->format('Y-m-d'));
+        $this->cancelPendingTransitionsInRange($firstOfMonth->format('Y-m-d'), $lastDay->format('Y-m-d'));
 
+        $now = $this->now();
         $transitionHour = $this->settingsService->getTransitionHour();
         $transitions = [];
         $cursor = $firstOfMonth;
-        while ($cursor <= $lastOfMonth) {
+        while ($cursor <= $lastDay) {
             $dateStr = $cursor->format('Y-m-d');
             $target = $this->resolveTarget($byDate[$dateStr] ?? [], $orderedStaffMemberIds);
 
             if ($target !== $previousTarget) {
                 $runAt = new \DateTimeImmutable("{$dateStr} {$transitionHour}:00");
-                $this->schedulerService->schedule(
-                    self::MODULE_ID,
-                    self::TASK_KEY,
-                    $runAt,
-                    [
+                if ($runAt > $now) {
+                    $this->schedulerService->schedule(
+                        self::MODULE_ID,
+                        self::TASK_KEY,
+                        $runAt,
+                        [
+                            'date' => $dateStr,
+                            'member_id' => $target,
+                            'previous_member_id' => $previousTarget,
+                            'scout_year_id' => $scoutYearId
+                        ],
+                        $dateStr
+                    );
+                    $transitions[] = [
                         'date' => $dateStr,
                         'member_id' => $target,
                         'previous_member_id' => $previousTarget,
-                        'scout_year_id' => $scoutYearId
-                    ],
-                    $dateStr
-                );
-                $transitions[] = [
-                    'date' => $dateStr,
-                    'member_id' => $target,
-                    'previous_member_id' => $previousTarget,
-                    'run_at' => $runAt
-                ];
+                        'run_at' => $runAt
+                    ];
+                }
             }
 
             $previousTarget = $target;
             $cursor = $cursor->modify('+1 day');
         }
 
-        $todayStr = (new \DateTimeImmutable())->format('Y-m-d');
-        $todayTransition = null;
-        foreach ($transitions as $transition) {
-            if ($transition['date'] === $todayStr) {
-                $todayTransition = $transition;
-                break;
+        return ['transitions' => $transitions];
+    }
+
+    /**
+     * The next transition still to run, as saved — what the planning page
+     * announces after a save (« prochaine bascule »). Null when none is
+     * pending.
+     *
+     * @return array{date: string, member_id: ?int, run_at: \DateTimeImmutable}|null
+     */
+    public function nextPendingTransition(): ?array
+    {
+        $now = $this->now();
+        $next = null;
+        foreach ($this->schedulerService->findAllForTask(self::MODULE_ID, self::TASK_KEY, 1000) as $row) {
+            if ($row['status'] !== 'pending') {
+                continue;
             }
+            $runAt = DateInput::requireFromStorage((string) $row['run_at'], 'run_at');
+            if ($runAt <= $now || ($next !== null && $runAt >= $next['run_at'])) {
+                continue;
+            }
+            $payload = json_decode((string) $row['payload'], true);
+            $memberId = is_array($payload) && isset($payload['member_id']) ? (int) $payload['member_id'] : null;
+            $next = ['date' => (string) $row['reference'], 'member_id' => $memberId, 'run_at' => $runAt];
         }
 
-        return [
-            'transitions' => $transitions,
-            'today_transition' => $todayTransition,
-            'today_due_now' => $todayTransition !== null && new \DateTimeImmutable() >= $todayTransition['run_at'],
-        ];
+        return $next;
+    }
+
+    private function now(): \DateTimeImmutable
+    {
+        return $this->clock !== null ? ($this->clock)() : new \DateTimeImmutable();
     }
 
     /**

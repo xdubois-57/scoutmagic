@@ -2,7 +2,7 @@
   "id": "sos_staff",
   "name": "Téléphone d'urgence",
   "description": "Dévie le numéro d'urgence de l'unité vers le staff de garde.",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -240,6 +240,18 @@
         "push": "default_on",
         "email": "default_on"
       }
+    },
+    {
+      "id": "sos_staff.redirect_failed",
+      "label": "La redirection du numéro SOS a échoué",
+      "description": "Quand le site n'arrive pas à rediriger le numéro SOS vers la personne de garde. L'alerte part aussi par e-mail à chaque chef d'unité, sans réglage possible.",
+      "group": "SOS Staff d'U",
+      "role_min": "admin",
+      "channels": {
+        "in_app": "default_on",
+        "push": "default_on",
+        "email": "off"
+      }
     }
   ],
   "cookies": [],
@@ -247,6 +259,10 @@
     {
       "key": "apply_redirect",
       "handler": "Modules\\SosStaff\\Task\\ApplyRedirectHandler"
+    },
+    {
+      "key": "reconcile_redirect",
+      "handler": "Modules\\SosStaff\\Task\\ReconcileRedirectHandler"
     }
   ],
   "storage": {},
@@ -254,7 +270,7 @@
     {
       "id": "sos_staff.admin_alert",
       "label": "Alerte de redirection SOS Staff d'U",
-      "description": "Envoyé aux chefs d'unité quand la redirection du numéro SOS échoue.",
+      "description": "Envoyé à chaque chef d'unité et à chaque superadmin quand la redirection du numéro SOS échoue — une fois par panne, jusqu'à ce qu'une redirection réussisse.",
       "default_subject": "Alerte — Redirection SOS Staff d'U",
       "template": "@sos_staff/email/admin_alert.html.twig",
       "variables": [

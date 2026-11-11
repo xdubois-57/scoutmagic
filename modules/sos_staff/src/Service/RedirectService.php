@@ -42,9 +42,12 @@ use Modules\SosStaff\Api\ProviderException;
  *    it reached while it was a direct MailService::send(). The module's
  *    `email_notifications_enabled` setting stays as the GLOBAL switch in
  *    front of that dispatch; the per-channel choice is each member's.
- *  - sendAdminAlert() stays a direct email. It is a technical alert
- *    addressed to a ROLE (the first superadmin), not to a person, and it
- *    must reach somebody precisely when the module is misconfigured.
+ *  - sendAdminAlert() is addressed to a ROLE: every chef d'unité of the
+ *    year, and the super-administrators (issue #1102 — it used to reach
+ *    the first superadmin alone, often a technician outside the unit's
+ *    staff). A direct email to each, which no preference can turn off
+ *    because it must arrive precisely when the line is wrong, plus the
+ *    `sos_staff.redirect_failed` notification for the bell and push.
  *
  * $notificationService is nullable for the same reason every optional
  * dependency in this codebase is (ARCHITECTURE.md §7.5): a narrow unit
@@ -55,6 +58,7 @@ class RedirectService
 {
     private const TYPE_ONCALL_STARTED = 'sos_staff.oncall_started';
     private const TYPE_ONCALL_ENDED = 'sos_staff.oncall_ended';
+    private const TYPE_REDIRECT_FAILED = 'sos_staff.redirect_failed';
 
     public function __construct(
         private ProviderConfigService $providerConfigService,
@@ -79,7 +83,7 @@ class RedirectService
         if ($provider === null) {
             $message = 'Aucun fournisseur de téléphonie actif configuré.';
             $this->logOutcome('failure', $message, $newMemberId);
-            $this->sendAdminAlert($message);
+            $this->sendAdminAlert($message, $scoutYearId);
             throw new SosException($message);
         }
 
@@ -87,7 +91,7 @@ class RedirectService
         if ($targetNumber === null) {
             $message = 'Numéro de redirection introuvable (ni garde ni numéro par défaut configuré).';
             $this->logOutcome('failure', $message, $newMemberId);
-            $this->sendAdminAlert($message);
+            $this->sendAdminAlert($message, $scoutYearId);
             throw new SosException($message);
         }
 
@@ -113,13 +117,21 @@ class RedirectService
             // page may render, with $e as $previous so nothing is lost.
             $detailed = "Échec du changement de redirection : {$e->getMessage()}";
             $this->logOutcome('failure', $detailed, $newMemberId);
+            // One alert per outage, not one per attempt: the retries and the
+            // hourly check (Task\ReconcileRedirectHandler) would otherwise
+            // mail every chef d'unité several times an hour for as long as
+            // the operator refuses. The attention point stays up, urgent,
+            // until a change succeeds or the line reads back as expected.
+            $alreadyFailing = $this->settingsService->lastRedirectFailureAt() !== null;
             // Kept for the attention page (#718 § C point 9) — this branch
             // only: the operator was asked and refused. No operator, or no
             // number to send calls to, is a configuration gap the attention
             // page reads from the configuration itself, and recording it
             // here would surface later as « l'opérateur a refusé ».
             $this->settingsService->recordRedirectOutcome(true, AppClock::now());
-            $this->sendAdminAlert($detailed);
+            if (!$alreadyFailing) {
+                $this->sendAdminAlert($detailed, $scoutYearId);
+            }
             throw new SosException(
                 'Le changement de redirection du numéro SOS a échoué — vérifiez la configuration du fournisseur de '
                     . 'téléphonie, puis réessayez.',
@@ -131,6 +143,27 @@ class RedirectService
         $this->logOutcome('success', 'Redirection modifiée.', $newMemberId);
         $this->settingsService->recordRedirectOutcome(false, AppClock::now());
         $this->notifyHandover($newMemberId, $previousMemberId, $scoutYearId);
+    }
+
+    /**
+     * The operator could not even be read (expired credentials, an API
+     * down): an outage like a refused change, reported the same way — the
+     * urgent attention point, and the alert to every chef d'unité once per
+     * outage. Cleared by the next redirection that succeeds or the next
+     * reading that finds the line where it should be.
+     */
+    public function reportUnreadableLine(int $scoutYearId): void
+    {
+        $alreadyFailing = $this->settingsService->lastRedirectFailureAt() !== null;
+        $this->settingsService->recordRedirectOutcome(true, AppClock::now());
+        if (!$alreadyFailing) {
+            $this->sendAdminAlert(
+                "L'état de la redirection du numéro SOS n'a pas pu être lu chez l'opérateur : le site ne peut "
+                    . 'ni vérifier ni modifier la redirection. Vérifiez la configuration du fournisseur de '
+                    . 'téléphonie.',
+                $scoutYearId
+            );
+        }
     }
 
     /**
@@ -238,32 +271,95 @@ class RedirectService
         }
     }
 
-    private function sendAdminAlert(string $message): void
+    /**
+     * Every chef d'unité of the year and every super-administrator — the
+     * people who can act on the planning or the operator — by email, and
+     * by notification for those who follow the site on their phone.
+     *
+     * Best-effort for the caller, which has already journaled the failure
+     * and is about to report it: an alert that cannot be sent must never
+     * mask it. But not silent — an alert nobody received is itself worth a
+     * journal line, or « the chefs were warned » is a belief nobody can
+     * check (issue #1102).
+     */
+    private function sendAdminAlert(string $message, int $scoutYearId): void
     {
         try {
-            $admin = $this->userAccountRepository->findFirstSuperAdmin();
-            if ($admin === null) {
-                return;
-            }
+            $accountIds = $this->userAccountRepository->findStaffAndSuperAdminIds([$scoutYearId], ['admin']);
+        } catch (\Throwable $e) {
+            $this->logAlertFailure('recipients', $e);
+            return;
+        }
+        if ($accountIds === []) {
+            $this->journalService->log(
+                'sos_staff',
+                'admin_alert_skipped',
+                'warning',
+                "Alerte de redirection SOS non envoyée : aucun chef d'unité ni superadmin.",
+                []
+            );
+            return;
+        }
 
+        try {
             // Through the register (ARCHITECTURE.md §8.7bis) rather than
             // Twig directly, so a unit that reworded this alert gets its
-            // own words. With no customisation the renderer renders the
-            // same two templates with the same context, which is what
-            // makes this a switch of path and not of behaviour.
+            // own words.
             $email = $this->emailTemplateRenderer->render('sos_staff.admin_alert', ['message' => $message]);
+            foreach ($accountIds as $accountId) {
+                // One recipient at a time, the lookup included: an address
+                // that cannot be decrypted must not cost every chef after it
+                // their alert.
+                try {
+                    $account = $this->userAccountRepository->findById($accountId);
+                    if ($account === null) {
+                        continue;
+                    }
+                    $this->mailService->send(
+                        to: $account->email,
+                        subject: $email->subject,
+                        bodyHtml: $email->bodyHtml,
+                        bodyText: $email->bodyText
+                    );
+                } catch (\Throwable $e) {
+                    $this->logAlertFailure('email', $e);
+                }
+            }
+        } catch (\Throwable $e) {
+            $this->logAlertFailure('email', $e);
+        }
 
-            $this->mailService->send(
-                to: $admin->email,
-                subject: $email->subject,
-                bodyHtml: $email->bodyHtml,
-                bodyText: $email->bodyText
+        if ($this->notificationService === null) {
+            return;
+        }
+        try {
+            // No operator message in the payload: a push renders on a lock
+            // screen, and the provider's text can carry a phone number.
+            $this->notificationService->dispatch(
+                self::TYPE_REDIRECT_FAILED,
+                array_map(static fn(int $id): array => ['userAccountId' => $id, 'memberId' => null], $accountIds),
+                [
+                    'title' => 'Redirection du numéro SOS en échec',
+                    'body' => "Le numéro SOS n'a pas pu être redirigé vers la personne de garde. "
+                        . 'Vérifiez la redirection.',
+                    'url' => '/admin/sos',
+                ]
             );
         } catch (\Throwable $e) {
-            // Best-effort — already journaled by the caller regardless; a
-            // failure to resolve/notify the admin must never mask the
-            // original failure being reported here.
+            $this->logAlertFailure('notification', $e);
         }
+    }
+
+    private function logAlertFailure(string $channel, \Throwable $e): void
+    {
+        // The class only, never the message: it can carry an address.
+        $this->journalService->log(
+            'sos_staff',
+            'admin_alert_failed',
+            'warning',
+            "Échec de l'envoi de l'alerte de redirection SOS.",
+            ['channel' => $channel, 'exception_class' => $e::class]
+        );
     }
 
     private function logOutcome(string $outcome, string $description, ?int $memberId): void
@@ -271,7 +367,9 @@ class RedirectService
         $this->journalService->log(
             'sos_staff',
             "redirect_{$outcome}",
-            'info',
+            // A failed redirection is the emergency line ringing in the
+            // wrong place: never an `info` among the routine lines.
+            $outcome === 'failure' ? 'warning' : 'info',
             $description,
             ['member_id' => $memberId]
         );

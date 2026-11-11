@@ -57,6 +57,8 @@ class SosAdminControllerTest extends TestCase
     private \Modules\SosStaff\Service\RedirectService $redirectService;
     private int $scoutYearId;
     private ?\DateTimeImmutable $now = null;
+    private ScoutYearResolver $scoutYearResolver;
+    private SettingService $settingService;
     /**
      * What the stubbed provider configuration answers: a provider by
      * default (the page's ordinary state), null for « nothing configured ».
@@ -106,7 +108,12 @@ class SosAdminControllerTest extends TestCase
         $this->onCallRepository = new OnCallRepository($this->pdo);
         $this->schedulerRepository = new SchedulerRepository($this->pdo);
         $schedulerService = new SchedulerService($this->schedulerRepository);
-        $onCallService = new OnCallService($this->onCallRepository, $schedulerService, $this->settingsService);
+        $onCallService = new OnCallService(
+            $this->onCallRepository,
+            $schedulerService,
+            $this->settingsService,
+            fn(): \DateTimeImmutable => $this->now ?? new \DateTimeImmutable()
+        );
 
         // A stubbed configuration with a provider whose state each test
         // can choose (issue #750): the real one would need OVH
@@ -151,6 +158,8 @@ class SosAdminControllerTest extends TestCase
 
         $scoutYearService = new ScoutYearService($this->pdo);
         $scoutYearResolver = new ScoutYearResolver($scoutYearService, $settingService, $memberYearRepository);
+        $this->scoutYearResolver = $scoutYearResolver;
+        $this->settingService = $settingService;
 
         $moduleViews = dirname(__DIR__, 4) . '/modules/sos_staff/views';
         $this->twig = TestTwig::create(['sos_staff' => $moduleViews]);
@@ -596,6 +605,9 @@ class SosAdminControllerTest extends TestCase
         // part of the roster order (getStaffOptions(), i.e. a real Staff
         // d'U member with a known mobile) — an arbitrary member_id with no
         // such row is silently ignored for transition purposes.
+        // Before the month planned: only a transition still to come is
+        // scheduled (issue #1102).
+        $this->now = new \DateTimeImmutable('2026-06-15 08:00:00');
         $memberId = $this->createStaffduMember('Akela', '+32470000001');
 
         $token = $this->csrfToken();
@@ -629,6 +641,7 @@ class SosAdminControllerTest extends TestCase
         // that's a soft cancel (status='canceled', row kept for audit) —
         // the planned-transitions list must filter those out, or every
         // re-save appears to leave duplicate/stale rows behind.
+        $this->now = new \DateTimeImmutable('2026-06-15 08:00:00');
         $memberId = $this->createStaffduMember('Akela', '+32470000001');
         $token = $this->csrfToken();
 
@@ -1026,6 +1039,12 @@ class SosAdminControllerTest extends TestCase
         $this->onCallRepository->replaceRange($date, $date, [
             new OnCallAssignment($member, $date, OnCallAssignment::STATE_ONCALL),
         ]);
+        if ($onDuty) {
+            // The line already rings for the person on duty: changing the
+            // default number has nothing to move (the check after the save
+            // reads it, issue #1102).
+            $this->forwarding = new \Modules\SosStaff\Api\ForwardingState(true, '+32470000021');
+        }
         $body = $this->settingsPage();
         $response = $this->controller->updateDefaultNumber(
             $this->jsonRequest(['member_id' => $member, '_csrf_token' => $this->csrfToken()]), []
@@ -1217,8 +1236,11 @@ class SosAdminControllerTest extends TestCase
 
     public function testThePlanningNamesThePersonWhoActuallyReceivesTheCallsOnADay(): void
     {
+        // After the changeover hour, so today's duty is the one in force
+        // (before it, yesterday's is — see the morning test below).
+        $this->now = new \DateTimeImmutable('today 12:00');
         $akela = $this->createStaffduMember('Akela', '+32470000001');
-        $today = (new \DateTimeImmutable())->format('Y-m-d');
+        $today = $this->now->format('Y-m-d');
         $this->onCallRepository->replaceRange($today, $today, [
             new OnCallAssignment($akela, $today, OnCallAssignment::STATE_ONCALL),
         ]);
@@ -1261,8 +1283,11 @@ class SosAdminControllerTest extends TestCase
 
     public function testThePlanningDoesNotFlagADayWithASingleOnCall(): void
     {
+        // After the changeover hour, so today's duty is the one in force
+        // (before it, yesterday's is — see the morning test below).
+        $this->now = new \DateTimeImmutable('today 12:00');
         $akela = $this->createStaffduMember('Akela', '+32470000001');
-        $today = (new \DateTimeImmutable())->format('Y-m-d');
+        $today = $this->now->format('Y-m-d');
         $this->onCallRepository->replaceRange($today, $today, [
             new OnCallAssignment($akela, $today, OnCallAssignment::STATE_ONCALL),
         ]);
@@ -1481,8 +1506,11 @@ class SosAdminControllerTest extends TestCase
 
     public function testDefaultNumberWarningIsHiddenWhenTodayHasAnOnCall(): void
     {
+        // After the changeover hour, so today's duty is the one in force
+        // (before it, yesterday's is — see the morning test below).
+        $this->now = new \DateTimeImmutable('today 12:00');
         $akela = $this->createStaffduMember('Akela', '+32470000001');
-        $today = (new \DateTimeImmutable())->format('Y-m-d');
+        $today = $this->now->format('Y-m-d');
         $this->onCallRepository->replaceRange($today, $today, [
             new OnCallAssignment($akela, $today, OnCallAssignment::STATE_ONCALL),
         ]);
@@ -1982,5 +2010,224 @@ class SosAdminControllerTest extends TestCase
                 );
             }
         }
+    }
+
+    /**
+     * Issue #1102, case 1, reproduced: Alice's duty began this morning and
+     * the line went to her; the chef then takes her off today. No
+     * transition is implied (yesterday and today are both « nobody »), and
+     * the line used to stay on Alice indefinitely. Saving now puts it back
+     * on the default number at once, and the answer says so.
+     */
+    public function testRemovingADutyAlreadyInForceTodayPutsTheLineBackAtOnce(): void
+    {
+        $this->now = new \DateTimeImmutable('2026-08-12 12:00:00');
+        $alice = $this->createStaffduMember('Alice', '+32470000031');
+        $default = $this->createStaffduMember('Chil', '+32470000039');
+        $this->settingsService->setDefaultNumberFromMember($default);
+        $this->onCallRepository->replaceRange('2026-08-12', '2026-08-12', [
+            new OnCallAssignment($alice, '2026-08-12', OnCallAssignment::STATE_ONCALL),
+        ]);
+        // This morning's handover happened.
+        $this->forwarding = new \Modules\SosStaff\Api\ForwardingState(true, '+32470000031');
+
+        $response = $this->controller->saveOnCall(
+            $this->jsonRequest(['year' => 2026, 'month' => 8, 'cells' => [], '_csrf_token' => $this->csrfToken()]),
+            []
+        );
+        $decoded = json_decode($response->getBody(), true);
+
+        self::assertSame([[null, $alice, $this->scoutYearId]], $this->applyCalls);
+        self::assertSame('+32470000039', $this->forwarding->number);
+        self::assertTrue($decoded['line_ok']);
+        self::assertStringContainsString(
+            'Les appels arrivent maintenant chez le numéro par défaut (redirection modifiée).',
+            $decoded['message']
+        );
+    }
+
+    /**
+     * The save answers with where the calls go now and the next change, as
+     * read after the save — and says plainly when the line could not be
+     * moved, instead of « Enregistré » alone.
+     */
+    public function testTheSaveAnswerNamesTheNextHandoverAndWarnsWhenTheLineCouldNotMove(): void
+    {
+        $this->now = new \DateTimeImmutable('2026-08-12 12:00:00');
+        $alice = $this->createStaffduMember('Alice', '+32470000031', 'Alice', 'Martin');
+        $default = $this->createStaffduMember('Chil', '+32470000039');
+        $this->settingsService->setDefaultNumberFromMember($default);
+        $this->forwarding = new \Modules\SosStaff\Api\ForwardingState(true, '+32470000031');
+        $this->applyFailure = new \Modules\SosStaff\Service\SosException('refusé');
+
+        $response = $this->controller->saveOnCall(
+            $this->jsonRequest([
+                'year' => 2026,
+                'month' => 8,
+                'cells' => [['member_id' => $alice, 'date' => '2026-08-20', 'state' => OnCallAssignment::STATE_ONCALL]],
+                '_csrf_token' => $this->csrfToken(),
+            ]),
+            []
+        );
+        $decoded = json_decode($response->getBody(), true);
+
+        self::assertTrue($decoded['success'], 'the planning itself is saved');
+        self::assertFalse($decoded['line_ok']);
+        self::assertStringContainsString("la redirection n'a pas pu être modifiée", $decoded['message']);
+        self::assertStringContainsString('Prochaine bascule le 20/08/2026 à 10:00 vers', $decoded['message']);
+        self::assertStringContainsString('Alice', $decoded['message']);
+        // And the quick retries are armed, as for a failed scheduled
+        // transition — not left to the next hourly check (review of #1135).
+        $retries = array_values(array_filter(
+            $this->schedulerRepository->findByModuleAndTaskKey('sos_staff', 'reconcile_redirect'),
+            static fn(array $row): bool => $row['status'] === 'pending' && $row['reference'] === 'retry'
+        ));
+        self::assertCount(1, $retries);
+    }
+
+    /**
+     * The line sits on the default number, which is some Staff d'U
+     * member's own mobile. Moving it to the person on duty must not tell
+     * that member their duty ended: they were never on duty (review of
+     * #1135).
+     */
+    public function testLeavingTheDefaultNumberTellsNobodyTheirDutyEnded(): void
+    {
+        $this->now = new \DateTimeImmutable('2026-08-12 12:00:00');
+        $alice = $this->createStaffduMember('Alice', '+32470000031');
+        $default = $this->createStaffduMember('Chil', '+32470000039');
+        $this->settingsService->setDefaultNumberFromMember($default);
+        $this->onCallRepository->replaceRange('2026-08-12', '2026-08-12', [
+            new OnCallAssignment($alice, '2026-08-12', OnCallAssignment::STATE_ONCALL),
+        ]);
+        $this->forwarding = new \Modules\SosStaff\Api\ForwardingState(true, '+32470000039');
+
+        $this->controller->saveOnCall(
+            $this->jsonRequest(['year' => 2026, 'month' => 8, 'cells' => [
+                ['member_id' => $alice, 'date' => '2026-08-12', 'state' => OnCallAssignment::STATE_ONCALL],
+            ], '_csrf_token' => $this->csrfToken()]),
+            []
+        );
+
+        self::assertSame([[$alice, null, $this->scoutYearId]], $this->applyCalls);
+    }
+
+    /**
+     * Issue #1102, part 3: a previewed year decides nothing here. Saving
+     * while previewing a year whose roster lacks the current Staff d'U
+     * used to drop their duties silently.
+     */
+    public function testAPreviewedYearChangesNeitherTheRosterNorTheWrites(): void
+    {
+        $this->now = new \DateTimeImmutable('2026-06-15 08:00:00');
+        $alice = $this->createStaffduMember('Alice', '+32470000031');
+        $this->pdo->exec(
+            "INSERT INTO scout_years (label, start_date, end_date, is_current) "
+                . "VALUES ('2099-2100', '2099-09-01', '2100-08-31', 0)"
+        );
+        \Core\ScoutYear\ScoutYearSession::setPreview((int) $this->pdo->lastInsertId());
+
+        try {
+            $response = $this->controller->saveOnCall(
+                $this->jsonRequest([
+                    'year' => 2026,
+                    'month' => 7,
+                    'cells' => [
+                        ['member_id' => $alice, 'date' => '2026-07-05', 'state' => OnCallAssignment::STATE_ONCALL],
+                    ],
+                    '_csrf_token' => $this->csrfToken(),
+                ]),
+                []
+            );
+            $page = $this->controller->planning(
+                new Request('GET', '/admin/sos/planning', ['month' => '2026-07'], [], [], []),
+                []
+            );
+        } finally {
+            \Core\ScoutYear\ScoutYearSession::clear();
+        }
+
+        self::assertTrue(json_decode($response->getBody(), true)['success']);
+        self::assertCount(1, $this->onCallRepository->findForDate('2026-07-05'));
+        $payloads = array_map(
+            static fn(array $row): array => json_decode((string) $row['payload'], true),
+            $this->schedulerRepository->findByModuleAndTaskKey(OnCallService::MODULE_ID, OnCallService::TASK_KEY)
+        );
+        self::assertSame([$this->scoutYearId], array_values(array_unique(array_column($payloads, 'scout_year_id'))));
+        self::assertStringContainsString(
+            "Vous prévisualisez l'année 2099-2100",
+            html_entity_decode($page->getBody(), ENT_QUOTES | ENT_HTML5)
+        );
+    }
+
+    /**
+     * Before the changeover hour the line is still yesterday's, and the
+     * save reconciles against exactly that — so the warning that saving
+     * will move the line follows the same rule, not « today's » duty
+     * (review of #1135).
+     *
+     * @return iterable<string, array{bool, bool}>
+     */
+    public static function morningDuties(): iterable
+    {
+        // [yesterday on duty, today on duty] => warning shown?
+        yield 'yesterday on duty, not today' => [true, false];
+        yield 'today on duty, not yesterday' => [false, true];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('morningDuties')]
+    public function testBeforeTheChangeoverTheDefaultWarningFollowsYesterdaysDuty(bool $yesterday, bool $today): void
+    {
+        $this->now = new \DateTimeImmutable('2001-02-03 08:00:00');
+        $member = $this->createStaffduMember('Akela', '+32470000021');
+        $date = $yesterday ? '2001-02-02' : '2001-02-03';
+        $this->onCallRepository->replaceRange($date, $date, [
+            new OnCallAssignment($member, $date, OnCallAssignment::STATE_ONCALL),
+        ]);
+
+        self::assertSame($today, str_contains($this->settingsPage(), 'id="default-number-immediate-warning"'));
+    }
+
+    /**
+     * During the passage an eligible chief is served next year's STAFF
+     * year everywhere else; the SOS pages stay on the public year, which is
+     * also the one the session-less hourly check resolves (review of
+     * #1135) — one line, one roster.
+     */
+    public function testAStaffYearOverrideDoesNotMoveThePagesOffThePublicYear(): void
+    {
+        $this->now = new \DateTimeImmutable('2026-06-15 08:00:00');
+        $alice = $this->createStaffduMember('Alice', '+32470000031');
+        [$nextLabel, $nextStart, $nextEnd] = DatabaseTestHelper::scoutYear(1);
+        $this->pdo->exec(
+            "INSERT INTO scout_years (label, start_date, end_date, is_current) "
+                . "VALUES ('{$nextLabel}', '{$nextStart}', '{$nextEnd}', 0)"
+        );
+        $nextYear = (int) $this->pdo->lastInsertId();
+        $this->settingService->register(
+            ScoutYearResolver::SETTING_STAFF_YEAR,
+            (string) $nextYear,
+            'text',
+            'Année',
+            'desc'
+        );
+        $this->scoutYearResolver->setStaffYearEligibility(static fn(int $yearId): bool => true);
+        self::assertSame($nextYear, $this->scoutYearResolver->getAuthorizationYear()->id, 'the override is live');
+
+        $response = $this->controller->saveOnCall(
+            $this->jsonRequest([
+                'year' => 2026,
+                'month' => 7,
+                'cells' => [
+                    ['member_id' => $alice, 'date' => '2026-07-05', 'state' => OnCallAssignment::STATE_ONCALL],
+                ],
+                '_csrf_token' => $this->csrfToken(),
+            ]),
+            []
+        );
+
+        self::assertTrue(json_decode($response->getBody(), true)['success']);
+        self::assertCount(1, $this->onCallRepository->findForDate('2026-07-05'));
+        self::assertStringNotContainsString('prévisualisez', $this->settingsPage());
     }
 }

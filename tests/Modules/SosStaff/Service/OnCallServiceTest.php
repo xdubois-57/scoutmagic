@@ -29,9 +29,11 @@ class OnCallServiceTest extends TestCase
     private OnCallRepository $onCallRepository;
     private SchedulerService $schedulerService;
     private SchedulerRepository $schedulerRepository;
+    private \DateTimeImmutable $now;
 
     protected function setUp(): void
     {
+        $this->now = new \DateTimeImmutable('2026-06-01 00:00:00');
         $this->pdo = DatabaseTestHelper::createTestDatabase();
         SosStaffTestHelper::createTables($this->pdo);
 
@@ -46,7 +48,14 @@ class OnCallServiceTest extends TestCase
         $settingsService = $this->createStub(SosSettingsService::class);
         $settingsService->method('getTransitionHour')->willReturn('10:00');
 
-        $this->service = new OnCallService($this->onCallRepository, $this->schedulerService, $settingsService);
+        // « Now » is pinned before the months these tests plan: only a
+        // transition still to come is scheduled (issue #1102).
+        $this->service = new OnCallService(
+            $this->onCallRepository,
+            $this->schedulerService,
+            $settingsService,
+            fn(): \DateTimeImmutable => $this->now
+        );
     }
 
     private function pendingReferencesFor(string $moduleId, string $taskKey): array
@@ -370,5 +379,101 @@ class OnCallServiceTest extends TestCase
         $this->assertSame(1, $deleted);
         $this->assertSame([], $this->onCallRepository->findForRange('2024-01-01', '2024-01-31'));
         $this->assertSame([], $this->schedulerRepository->findByModuleAndTaskKey(OnCallService::MODULE_ID, OnCallService::TASK_KEY));
+    }
+
+    /**
+     * Issue #1102, case 2, reproduced: August is planned with Alice from
+     * the 1st; July had Alice on the 31st, so no handover was due on the
+     * 1st. The chef then changes the 31st to Bob. A handover to Bob on the
+     * 31st was scheduled — and none back to Alice on the 1st: Bob kept the
+     * line for the whole camp.
+     */
+    public function testCorrectingTheLastDayOfAMonthReschedulesTheFirstOfTheNext(): void
+    {
+        $alice = 1;
+        $bob = 2;
+        $august = [];
+        foreach (range(1, 10) as $day) {
+            $august[] = [
+                'member_id' => $alice,
+                'date' => sprintf('2026-08-%02d', $day),
+                'state' => OnCallAssignment::STATE_ONCALL,
+            ];
+        }
+        $this->service->saveMonth(2026, 7, [
+            ['member_id' => $alice, 'date' => '2026-07-31', 'state' => OnCallAssignment::STATE_ONCALL],
+        ], [$alice, $bob], 100);
+        $this->service->saveMonth(2026, 8, $august, [$alice, $bob], 100);
+
+        $this->service->saveMonth(2026, 7, [
+            ['member_id' => $bob, 'date' => '2026-07-31', 'state' => OnCallAssignment::STATE_ONCALL],
+        ], [$alice, $bob], 100);
+
+        self::assertSame(
+            ['2026-07-31' => $bob, '2026-08-01' => $alice, '2026-08-11' => null],
+            $this->pendingTargets()
+        );
+    }
+
+    /**
+     * Whoever is on duty on the last day must still hand back to the
+     * default number on the 1st, even when nobody has planned the next
+     * month yet.
+     */
+    public function testADutyOnTheLastDayEndsOnTheFirstOfAnUnplannedMonth(): void
+    {
+        $this->service->saveMonth(2026, 7, [
+            ['member_id' => 1, 'date' => '2026-07-31', 'state' => OnCallAssignment::STATE_ONCALL],
+        ], [1], 100);
+
+        self::assertSame(['2026-07-31' => 1, '2026-08-01' => null], $this->pendingTargets());
+    }
+
+    /**
+     * A change whose moment has passed is not scheduled: the scheduler
+     * would replay every one of them as overdue, notifying each pair, only
+     * to end where RedirectReconciler puts the line anyway. Today's
+     * changeover counts as passed once its hour is.
+     */
+    public function testOnlyTransitionsStillToComeAreScheduled(): void
+    {
+        $this->now = new \DateTimeImmutable('2026-07-20 12:00:00');
+
+        $result = $this->service->saveMonth(2026, 7, [
+            ['member_id' => 1, 'date' => '2026-07-05', 'state' => OnCallAssignment::STATE_ONCALL],
+            ['member_id' => 1, 'date' => '2026-07-20', 'state' => OnCallAssignment::STATE_ONCALL],
+            ['member_id' => 1, 'date' => '2026-07-21', 'state' => OnCallAssignment::STATE_ONCALL],
+        ], [1], 100);
+
+        self::assertSame(['2026-07-22'], array_column($result['transitions'], 'date'));
+        self::assertSame(['2026-07-22' => null], $this->pendingTargets());
+    }
+
+    public function testNextPendingTransitionIsTheNearestStillToCome(): void
+    {
+        $this->service->saveMonth(2026, 7, [
+            ['member_id' => 1, 'date' => '2026-07-10', 'state' => OnCallAssignment::STATE_ONCALL],
+        ], [1], 100);
+
+        $next = $this->service->nextPendingTransition();
+
+        self::assertSame(['2026-07-10', 1, '2026-07-10 10:00'], [
+            $next['date'] ?? null, $next['member_id'] ?? null, $next['run_at']->format('Y-m-d H:i'),
+        ]);
+    }
+
+    /** @return array<string, ?int> pending transitions, date => target */
+    private function pendingTargets(): array
+    {
+        $targets = [];
+        $rows = $this->schedulerService->findAllForTask(OnCallService::MODULE_ID, OnCallService::TASK_KEY, 1000);
+        foreach ($rows as $row) {
+            if ($row['status'] === 'pending') {
+                $targets[(string) $row['reference']] = json_decode((string) $row['payload'], true)['member_id'];
+            }
+        }
+        ksort($targets);
+
+        return $targets;
     }
 }

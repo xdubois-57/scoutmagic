@@ -80,6 +80,11 @@ class BackgroundWorkIsNotSilentTest extends TestCase
             => 'modules/groups/src/Service/GroupLifecycleService.php',
         'modules/groups/src/Task/PurgePostsHandler.php'
             => 'modules/groups/src/Service/GroupLifecycleService.php',
+        // Both build their services through SosTaskServices, which hands
+        // the journal to RedirectService and RedirectReconciler (#1102).
+        'modules/sos_staff/src/Task/ApplyRedirectHandler.php' => 'modules/sos_staff/src/Task/SosTaskServices.php',
+        'modules/sos_staff/src/Task/ReconcileRedirectHandler.php'
+            => 'modules/sos_staff/src/Service/RedirectReconciler.php',
     ];
 
     /**

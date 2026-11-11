@@ -21,3 +21,11 @@
     current_path: sos_page,
     aria_label: "Pages du téléphone d'urgence",
 } only %}
+{#
+  Issue #1102: these pages always work in the year the site is on, never
+  in a previewed one — said here, so the roster shown does not contradict
+  the year selector without explanation.
+#}
+{% if sos_year_notice is defined and sos_year_notice %}
+    <div class="alert alert-info mt-2">{{ sos_year_notice }}</div>
+{% endif %}

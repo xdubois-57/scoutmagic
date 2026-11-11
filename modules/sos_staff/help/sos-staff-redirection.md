@@ -47,3 +47,13 @@ régler ce problème-là.
 
 Avant l'heure de changement de garde, le renvoi attendu est encore celui de
 la veille : c'est normal, la nouvelle garde commence à cette heure-là.
+
+## Ce que le site vérifie tout seul
+
+Après chaque enregistrement du planning ou du numéro par défaut, puis
+toutes les heures, le site compare le renvoi réel au planning et le corrige.
+Un changement refusé par l'opérateur est retenté après 5, 15 et
+60 minutes. Tant que le renvoi reste faux, un point d'attention urgent
+s'affiche, et chaque chef d'unité reçoit une alerte par e-mail et par
+notification, une seule fois par panne. Il suffit souvent d'attendre la
+prochaine tentative ; sinon, vérifiez la configuration de l'opérateur.

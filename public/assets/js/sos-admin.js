@@ -116,6 +116,28 @@
     }
 
     /**
+     * A save's confirmation, with where the calls go now and the next
+     * planned change as the server read them (issue #1102): « Enregistré »
+     * alone was also what this page said while the line rang for somebody
+     * just taken off duty. A line that is not where it should be is a
+     * warning, kept on screen longer.
+     *
+     * @param {string} saved what was saved, e.g. « Enregistré. »
+     * @param {{ok: boolean, status: number, data: any}} res
+     */
+    function toastSaved(saved, res) {
+        if (typeof res.data?.message !== 'string' || res.data.message === '') {
+            window.ScoutMagicToast.show(saved, { variant: 'success' });
+            return;
+        }
+        var lineOk = res.data.line_ok !== false;
+        window.ScoutMagicToast.show(saved + ' ' + res.data.message, {
+            variant: lineOk ? 'success' : 'warning',
+            delayMs: lineOk ? 6000 : 12000
+        });
+    }
+
+    /**
      * What to show for a failed call: the server's own French message when
      * it answered JSON, a generic line when it did not.
      *
@@ -180,7 +202,7 @@
             if (succeeded(res)) {
                 savedNumber = chosen;
                 syncSaveState();
-                window.ScoutMagicToast.show('Numéro par défaut enregistré.', { variant: 'success' });
+                toastSaved('Numéro par défaut enregistré.', res);
                 return;
             }
             // The save failed, so the stored value is still the old one and
@@ -355,7 +377,7 @@
 
         showSaveStatus('');
         if (succeeded(res)) {
-            window.ScoutMagicToast.show('Enregistré.', { variant: 'success' });
+            toastSaved('Enregistré.', res);
             return;
         }
         restoreSavedStates();

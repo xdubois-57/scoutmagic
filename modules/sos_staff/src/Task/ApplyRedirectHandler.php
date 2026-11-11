@@ -8,25 +8,8 @@ declare(strict_types=1);
 
 namespace Modules\SosStaff\Task;
 
-use Core\Badge\MemberBadgeRepository;
-use Core\Import\MemberYearRepository;
-use Core\Member\MemberEmailRepository;
-use Core\Member\MemberAccountResolver;
-use Core\Member\MemberService;
-use Core\Member\SectionService;
-use Core\Member\UnitStaffSectionService;
 use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
-use Core\View\TwigFactory;
-use Modules\SosStaff\Repository\ExcludedSectionRepository;
-use Modules\SosStaff\Api\PhoneProviderInterface;
-use Modules\SosStaff\Repository\ProviderCredentialRepository;
-use Modules\SosStaff\Repository\SosSettingsRepository;
-use Modules\SosStaff\Service\ProviderConfigService;
-use Modules\SosStaff\Service\RedirectService;
-use Modules\SosStaff\Service\SosSettingsService;
-use Core\Member\Repository\MemberProfileRepository;
-use Core\Member\Repository\SectionRepository;
 
 /**
  * Runs a single scheduled redirect transition (module spec §3/§4) — the
@@ -35,81 +18,15 @@ use Core\Member\Repository\SectionRepository;
  * `scout_year_id` (stored at scheduling time rather than re-derived here,
  * so it can never drift from what was actually being viewed/saved).
  *
- * A fresh set of services is built from TaskContext on every run — task
- * handlers have no persistent DI container, only the shared infrastructure
- * TaskContext carries (see docs/module-development.md).
+ * A fresh set of services is built from TaskContext on every run
+ * (SosTaskServices). A failure arms the reconciler's quick retries
+ * (ReconcileRedirectHandler, issue #1102) before it is re-thrown.
  */
 class ApplyRedirectHandler implements TaskHandlerInterface
 {
     public function handle(array $payload, TaskContext $context): void
     {
-        $pdo = $context->connection->getPdo();
-
-        $sectionService = new SectionService(
-            new SectionRepository($context->connection),
-            new MemberProfileRepository($context->connection, $context->encryption, new MemberBadgeRepository($pdo))
-        );
-        $memberYearRepository = new MemberYearRepository($pdo);
-        $memberEmails = new MemberEmailRepository($pdo, $context->encryption);
-        $memberService = new MemberService(
-            $memberYearRepository,
-            new MemberProfileRepository($context->connection, $context->encryption),
-            null,
-            $memberEmails
-        );
-
-        $settingsService = new SosSettingsService(
-            new ExcludedSectionRepository($pdo),
-            new SosSettingsRepository($pdo),
-            $sectionService,
-            $memberYearRepository,
-            new UnitStaffSectionService(new \Core\Member\Repository\UnitStaffSectionRepository($pdo)),
-            $context->settings
-        );
-
-        // A simulated line where test_tools offers one (ARCHITECTURE.md
-        // §8.63) — the same one the page talks to — null everywhere else.
-        $simulatedProvider = $context->getOptional(PhoneProviderInterface::class);
-        $providerConfigService = new ProviderConfigService(
-            new ProviderCredentialRepository($pdo, $context->encryption),
-            null,
-            $simulatedProvider instanceof PhoneProviderInterface ? $simulatedProvider : null
-        );
-
-        $twig = TwigFactory::create(
-            dirname(__DIR__, 4) . '/core/View/templates',
-            false,
-            ['sos_staff' => dirname(__DIR__, 4) . '/modules/sos_staff/views']
-        );
-
-        // Core's templates plus this module's own: a handler runs outside
-        // the composition root, so nothing has aggregated the manifests
-        // for it (ARCHITECTURE.md §8.7bis). A customisation is still
-        // honoured — that lives in the database, not in the registry.
-        $emailTemplateRegistry = new \Core\Mail\Template\EmailTemplateRegistry();
-        $emailTemplateRegistry->registerModuleManifest(
-            \Core\Module\ModuleManifest::fromFile(dirname(__DIR__, 2) . '/module.json')
-        );
-
-        $redirectService = new RedirectService(
-            $providerConfigService,
-            $settingsService,
-            $memberService,
-            $context->userAccounts,
-            $context->mailService,
-            $context->journal,
-            new \Core\Mail\Template\EmailTemplateRenderer(
-                $twig,
-                $emailTemplateRegistry,
-                new \Core\Mail\Template\EmailTemplateOverrideRepository($pdo),
-                $context->journal
-            ),
-            // Nullable on TaskContext, and nullable here: a scheduler run
-            // built without the notification stack still applies the
-            // redirection and simply tells nobody about it.
-            $context->notifications,
-            new MemberAccountResolver($memberYearRepository, $memberEmails, $context->userAccounts)
-        );
+        $redirectService = SosTaskServices::build($context)->redirectService;
 
         $memberId = isset($payload['member_id']) ? (int) $payload['member_id'] : null;
         $previousMemberId = isset($payload['previous_member_id'])
@@ -117,6 +34,18 @@ class ApplyRedirectHandler implements TaskHandlerInterface
             : null;
         $scoutYearId = (int) ($payload['scout_year_id'] ?? 0);
 
-        $redirectService->apply($memberId, $previousMemberId, $scoutYearId);
+        try {
+            $redirectService->apply($memberId, $previousMemberId, $scoutYearId);
+        } catch (\Modules\SosStaff\Service\SosException $e) {
+            // The transition stays `failed` in « Actions planifiées », as it
+            // must; what changes (issue #1102) is that the line is no longer
+            // left wherever it was until the next handover. The reconciler
+            // tries again in 5, 15 and 60 minutes, then the hourly check
+            // takes over.
+            ReconcileRedirectHandler::scheduleRetry(
+                \Core\Scheduler\SchedulerService::forPdo($context->connection->getPdo())
+            );
+            throw $e;
+        }
     }
 }

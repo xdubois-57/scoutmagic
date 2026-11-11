@@ -561,6 +561,21 @@ test('the default-number warning shows only when today has no on-call', async ({
         await expect(page.locator('.toast-body', { hasText: 'Enregistré.' }).last()).toBeVisible();
     }
 
+    // The warning follows the duty IN FORCE NOW (issue #1102), and before the
+    // changeover hour that is still yesterday's: put the changeover at
+    // midnight for this scenario, so today's duty is the one in force
+    // whatever hour CI runs at, and put it back afterwards.
+    await openSettings();
+    const hourInput = page.locator('#transition-hour');
+    const originalHour = await hourInput.inputValue();
+    async function setChangeover(hour) {
+        const saved = waitForServerResponse(page, (response) => response.url().includes('/admin/sos/settings'));
+        await hourInput.fill(hour);
+        await hourInput.dispatchEvent('change');
+        expect((await saved).ok()).toBe(true);
+    }
+    await setChangeover('00:00');
+
     // As provisioned, nobody is on call today — so the save really would
     // re-route the line, and the warning is there to say so.
     await openSettings();
@@ -582,6 +597,7 @@ test('the default-number warning shows only when today has no on-call', async ({
     await openSettings();
     await expect(warning).toBeVisible();
 
+    await setChangeover(originalHour);
     expect(serverErrors, 'the application returned a server error').toEqual([]);
 });
 

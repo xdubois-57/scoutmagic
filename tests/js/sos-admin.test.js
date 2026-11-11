@@ -530,6 +530,41 @@ describe('sos-admin.js', () => {
             expect(document.getElementById('oncall-save-status').textContent).toBe('');
         });
 
+        // Issue #1102: the answer says where the calls go now, as read after
+        // the save — « Enregistré » alone was also what the page said while
+        // the line rang for somebody just taken off duty.
+        it('adds where the calls go now to the confirmation', async () => {
+            global.fetch = mockFetch({ '/oncall': {
+                success: true, line_ok: true,
+                message: 'Les appels arrivent maintenant chez le numéro par défaut.',
+            } });
+            await boot();
+
+            clickCell('td.sos-oncall-cell[data-member-id="7"]');
+            await vi.waitFor(() => {
+                expect(window.ScoutMagicToast.show).toHaveBeenCalledWith(
+                    'Enregistré. Les appels arrivent maintenant chez le numéro par défaut.',
+                    { variant: 'success', delayMs: 6000 },
+                );
+            });
+        });
+
+        it('turns the confirmation into a lasting warning when the line is not where it should be', async () => {
+            global.fetch = mockFetch({ '/oncall': {
+                success: true, line_ok: false,
+                message: "Attention : la redirection n'a pas pu être modifiée chez l'opérateur.",
+            } });
+            await boot();
+
+            clickCell('td.sos-oncall-cell[data-member-id="7"]');
+            await vi.waitFor(() => {
+                expect(window.ScoutMagicToast.show).toHaveBeenCalledWith(
+                    "Enregistré. Attention : la redirection n'a pas pu être modifiée chez l'opérateur.",
+                    { variant: 'warning', delayMs: 12000 },
+                );
+            });
+        });
+
         it('reports a {success:false} save as an error toast, never inline', async () => {
             global.fetch = mockFetch({ '/oncall': { success: false, error: 'Mois invalide.' } });
             await boot();
