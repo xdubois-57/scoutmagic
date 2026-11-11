@@ -10626,6 +10626,9 @@ if ($isEnabled('test_tools')) {
     }
 }
 
+// The data migration's « Endroits de camp » import writes through this
+// (ARCHITECTURE.md §7.5); null while camps is off.
+$campsPlaceImportWriterForOthers = null;
 if ($isEnabled('camps')) {
     \Core\Debug\RequestTimeline::mark('module_camps');
     $campsPlaceRepo = new \Modules\Camps\Repository\PlaceRepository($pdo);
@@ -10730,6 +10733,16 @@ if ($isEnabled('camps')) {
     $campsDuplicateDetector = new \Modules\Camps\Service\DuplicatePlaceDetector(
         $campsPlaceRepo,
         $llmConnectorForOthers ?? null
+    );
+
+    // Places taken over from another site by the data migration module:
+    // created with no side effect, archived places compared too, and the
+    // model never asked (askAi: false inside, whatever this detector holds).
+    $campsPlaceImportWriterForOthers = new \Modules\Camps\Service\PlaceImportWriter(
+        $campsPlaceRepo,
+        $campsPlaceService,
+        $campsDuplicateDetector,
+        $auditService
     );
 
     // The DAILY tasks re-arm themselves to a fixed hour, so each
@@ -13180,6 +13193,7 @@ if ($isEnabled('data_migration')) {
     );
     // One line per import (vague 2 of the chantier), kept alphabetical by key:
     // $dataMigrationImporters->add(new \Modules\DataMigration\Importer\…Importer(…));
+    $dataMigrationImporters->add(new \Modules\DataMigration\Importer\CampPlacesImporter($campsPlaceImportWriterForOthers ?? null));
 
     $dataMigrationRuns = new \Modules\DataMigration\Repository\RunRepository($pdo, $encryptionService);
     $dataMigrationStorage = new \Modules\DataMigration\Service\UploadStorage($storagePath);
