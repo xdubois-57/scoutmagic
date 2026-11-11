@@ -144,6 +144,14 @@ expect "a${M}b" "a$(codepoints e0100 e0141 e01ef)b"
 expect "a${M}b" "a$(codepoints fe00 fe0d)b"
 expect "a${M}b" "a$(codepoints fe0f fe0f)b"
 expect "a${M}b" "a$(codepoints fe0f e0141 fe0e)b"
+# Emoji joined by U+200D are one visible emoji and stay whole; a joiner
+# that joins no two pictographs is hidden like any other.
+expect "dev $(codepoints 1f469 200d 1f4bb) ok" "dev $(codepoints 1f469 200d 1f4bb) ok"
+expect "$(codepoints 1f3f3 fe0f 200d 1f308)" "$(codepoints 1f3f3 fe0f 200d 1f308)"
+expect "$(codepoints 1f469 1f3fd 200d 1f4bb)" "$(codepoints 1f469 1f3fd 200d 1f4bb)"
+expect "$(codepoints 1f468 200d 1f469 200d 1f467)" "$(codepoints 1f468 200d 1f469 200d 1f467)"
+expect "$(codepoints 1f469)${M}a" "$(codepoints 1f469 200d)a"
+expect "$(codepoints 1f469)${M}$(codepoints 1f4bb)" "$(codepoints 1f469 200d e0041 1f4bb)"
 # One style selector alone is an ordinary emoji: it stays, and so does
 # the marker, whose ⚠️ carries one.
 expect "ok $(codepoints 2764 fe0f) merci" "ok $(codepoints 2764 fe0f) merci"

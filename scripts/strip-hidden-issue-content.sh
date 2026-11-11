@@ -18,9 +18,10 @@ set -euo pipefail
 #     spell a whole ASCII instruction, zero-width characters, the soft
 #     hyphen, invisible operators, the whole Bidi_Control set, variation
 #     selectors that can encode bytes on the character before them, and
-#     the rest. U+FE0E/U+FE0F (text or emoji style) are the one exception:
-#     one alone after a character is an ordinary emoji, so they go only in
-#     a run or next to another hidden character;
+#     the rest. Two exceptions, both visible emoji: U+FE0E/U+FE0F (text or
+#     emoji style), which go only in a run or next to another hidden
+#     character, and U+200D between two pictographs (👩‍💻, 🏳️‍🌈), kept with
+#     the emoji it joins;
 #   - every Markdown link reference definition, `[label]: destination
 #     "title"`, which GitHub renders as nothing at all — the classic
 #     `[x]: # (an instruction)`. Matched as CommonMark defines it: label
@@ -139,7 +140,11 @@ MARKER="${MARKER}" TITLE="${TITLE}" BOT="${BOT}" OWN_IDS="${OWN_IDS}" exec perl 
     # list that the next unlisted one walks past.
     my $hidden = qr/(?![\x{FE0E}\x{FE0F}])\p{Default_Ignorable_Code_Point}/;
     my $style  = qr/[\x{FE0E}\x{FE0F}]/;
-    s/(?:$hidden|$style)*$hidden(?:$hidden|$style)*|$style{2,}/$m/g;
+    # U+200D joins emoji into one (a woman and a laptop, a flag and a
+    # rainbow): a joiner between two pictographs is that emoji, visible,
+    # and is kept whole. A joiner anywhere else is hidden like the rest.
+    my $pict   = qr/\p{Extended_Pictographic}(?:$style|\p{Emoji_Modifier})?/;
+    s/($pict(?:\x{200D}$pict)+)|(?:$hidden|$style)*$hidden(?:$hidden|$style)*|$style{2,}/defined $1 ? $1 : $m/ge;
     if (!$ENV{TITLE}) {
         # A newline, but never a blank line, may sit inside a label or title.
         my $nl    = qr/\r?\n(?![ \t]*\r?\n)/;
