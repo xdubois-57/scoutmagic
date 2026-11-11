@@ -1,0 +1,450 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Migration de données</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;600;700&display=swap">
+<style>
+/* Layout: ScoutMagic Bootstrap-like look, hand-rolled; mockup control bar on top, then one screen of the module at desktop or phone width. */
+:root{
+  --bg:#f3f4f7; --surface:#fff; --surface-2:#f7f8fb; --fg:#1f2430; --muted:#5d6574; --line:#dde1e8;
+  --primary:#2f5bd3; --primary-fg:#fff; --ok:#1d7745; --ok-bg:#e2f3e9; --warn:#865700; --warn-bg:#fff2d3;
+  --danger:#b3232c; --danger-bg:#fde6e7; --info-bg:#e7edfc; --hist:#5a4bb0; --hist-bg:#ece9fb;
+  --new:#7a2fd3; --mod:#c05f00;
+  --font:"Source Sans 3","Segoe UI",system-ui,sans-serif; --mono:ui-monospace,"SFMono-Regular",Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#14161b; --surface:#1d2027; --surface-2:#23262e; --fg:#e7e9ee; --muted:#a3a9b6; --line:#353945;
+  --primary:#7196f3; --primary-fg:#0e1220; --ok:#72d39d; --ok-bg:#173225; --warn:#f1c35f; --warn-bg:#3a2f12;
+  --danger:#ff8b91; --danger-bg:#3d1c20; --info-bg:#1f2a45; --hist:#b7acf5; --hist-bg:#2a2548;
+  --new:#bb95f6; --mod:#f2a35f; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#14161b; --surface:#1d2027; --surface-2:#23262e; --fg:#e7e9ee; --muted:#a3a9b6; --line:#353945;
+  --primary:#7196f3; --primary-fg:#0e1220; --ok:#72d39d; --ok-bg:#173225; --warn:#f1c35f; --warn-bg:#3a2f12;
+  --danger:#ff8b91; --danger-bg:#3d1c20; --info-bg:#1f2a45; --hist:#b7acf5; --hist-bg:#2a2548;
+  --new:#bb95f6; --mod:#f2a35f; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--font);font-size:15px;line-height:1.45;margin:0;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:16px}
+h1,h2,h3{text-wrap:balance;margin:0;line-height:1.2}
+h1{font-size:24px}h2{font-size:18px}h3{font-size:15px}
+p{margin:0}
+button,select,input{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:3px solid var(--primary);outline-offset:2px}
+a{color:var(--primary)}
+.num{font-variant-numeric:tabular-nums}
+.mock-bar{max-width:1100px;margin:0 auto 14px;background:var(--surface-2);border:1px dashed var(--line);border-radius:8px;padding:10px 12px;display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;font-size:13px}
+.mock-bar b{font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-size:11px}
+.mock-bar label{display:inline-flex;gap:6px;align-items:center}
+.mock-bar select{padding:3px 6px;border:1px solid var(--line);border-radius:6px;background:var(--surface)}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:6px;overflow:hidden;flex-wrap:wrap}
+.seg button{border:0;background:var(--surface);padding:5px 10px;font-size:13px}
+.seg button[aria-pressed="true"]{background:var(--primary);color:var(--primary-fg)}
+.tag{display:inline-block;font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;padding:1px 6px;border-radius:4px;border:1px solid currentColor;vertical-align:middle;background:var(--surface)}
+.tag.new{color:var(--new)}.tag.mod{color:var(--mod)}
+.frame{max-width:1100px;margin:0 auto}
+.frame.phone{max-width:400px}
+.site{background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.crumbs{font-size:13px;color:var(--muted);padding:10px 18px;border-bottom:1px solid var(--line);background:var(--surface-2)}
+.page{padding:20px 18px 28px;display:grid;gap:18px}
+.lead{color:var(--muted);max-width:68ch}
+.card{border:1px solid var(--line);border-radius:8px;background:var(--surface)}
+.card-h{padding:12px 14px;border-bottom:1px solid var(--line);display:flex;gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+.card-b{padding:14px;display:grid;gap:12px}
+.btn{border:1px solid var(--line);background:var(--surface);border-radius:6px;padding:7px 13px;font-weight:600}
+.btn.primary{background:var(--primary);border-color:var(--primary);color:var(--primary-fg)}
+.btn.link{border:0;background:none;color:var(--primary);padding:0;font-weight:600}
+.btn[disabled]{opacity:.5;cursor:not-allowed}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.muted{color:var(--muted)}
+.small{font-size:13px}
+.pill{display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:600;padding:2px 8px;border-radius:999px;white-space:nowrap}
+.pill.ok{background:var(--ok-bg);color:var(--ok)}
+.pill.warn{background:var(--warn-bg);color:var(--warn)}
+.pill.danger{background:var(--danger-bg);color:var(--danger)}
+.pill.info{background:var(--info-bg);color:var(--primary)}
+.pill.hist{background:var(--hist-bg);color:var(--hist)}
+.alert{border-radius:8px;padding:10px 12px;display:grid;gap:4px}
+.alert.info{background:var(--info-bg)}
+.alert.warn{background:var(--warn-bg);color:var(--fg)}
+.alert.hist{background:var(--hist-bg)}
+.alert.danger{background:var(--danger-bg)}
+.list{display:grid}
+.list > *{padding:12px 14px;border-top:1px solid var(--line)}
+.list > *:first-child{border-top:0}
+.imp{display:grid;grid-template-columns:1fr auto;gap:4px 12px;align-items:center}
+.imp .meta{grid-column:1 / -1}
+.stepper{display:flex;gap:6px;flex-wrap:wrap;list-style:none;margin:0;padding:0;font-size:13px}
+.stepper li{display:flex;gap:6px;align-items:center;padding:4px 10px 4px 4px;border-radius:999px;background:var(--surface-2);color:var(--muted)}
+.stepper li span{display:inline-grid;place-items:center;width:20px;height:20px;border-radius:50%;background:var(--line);color:var(--fg);font-weight:700;font-size:11px}
+.stepper li.done span{background:var(--ok);color:var(--surface)}
+.stepper li.cur{background:var(--info-bg);color:var(--fg);font-weight:600}
+.stepper li.cur span{background:var(--primary);color:var(--primary-fg)}
+.field{display:grid;gap:4px}
+.field label{font-weight:600}
+.field input,.field select{border:1px solid var(--line);border-radius:6px;padding:7px 9px;background:var(--surface);width:100%;max-width:520px}
+.drop{border:2px dashed var(--line);border-radius:8px;padding:22px 14px;text-align:center;display:grid;gap:6px;background:var(--surface-2)}
+.bar{height:10px;border-radius:999px;background:var(--surface-2);border:1px solid var(--line);overflow:hidden}
+.bar > i{display:block;height:100%;background:var(--primary)}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.stat{border:1px solid var(--line);border-radius:8px;padding:10px 12px;display:grid;gap:2px}
+.stat b{font-size:22px;font-variant-numeric:tabular-nums}
+.stat.ok b{color:var(--ok)}.stat.warn b{color:var(--warn)}.stat.danger b{color:var(--danger)}
+.tbl-wrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{text-align:left;padding:7px 10px;border-top:1px solid var(--line);vertical-align:top}
+th{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);border-top:0}
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+details{border:1px solid var(--line);border-radius:8px}
+details > summary{padding:10px 12px;cursor:pointer;font-weight:600;display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}
+details > div{padding:0 12px 12px;display:grid;gap:8px}
+.checks{display:grid;gap:6px}
+.checks label{display:flex;gap:8px;align-items:center}
+ul.effects{margin:0;padding-left:18px;display:grid;gap:4px}
+.backdrop{background:rgba(10,12,18,.45);border-radius:10px;padding:28px 12px;display:grid;place-items:center}
+.dialog{background:var(--surface);border-radius:10px;max-width:520px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.25);overflow:hidden}
+.dialog .card-b{gap:10px}
+.dialog-f{padding:12px 14px;border-top:1px solid var(--line);display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap}
+.news-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px}
+.news{border:1px solid var(--line);border-radius:8px;overflow:hidden;display:grid}
+.news .img{aspect-ratio:16/9;max-width:100%;background:var(--surface-2);display:grid;place-items:center;color:var(--muted);font-size:13px;border-bottom:1px solid var(--line)}
+.news .img.photo{background:linear-gradient(135deg,#6f9a6a,#335f6e)}
+.news .b{padding:10px 12px;display:grid;gap:6px}
+.note{font-size:13px;color:var(--muted);border-left:3px solid var(--line);padding-left:10px;max-width:72ch}
+.legend{max-width:1100px;margin:14px auto 0;font-size:13px;color:var(--muted);display:grid;gap:6px}
+@media (max-width:560px){.imp{grid-template-columns:1fr}.imp .btn{justify-self:start}}
+@media (prefers-reduced-motion:no-preference){.bar > i{transition:width .4s}}
+</style>
+</head>
+<body>
+
+<div class="mock-bar" role="group" aria-label="Commandes de la maquette">
+  <b>Maquette</b>
+  <label for="screen">Écran
+    <select id="screen">
+      <option value="home">Accueil du module</option>
+      <option value="zip">Un import ZIP</option>
+      <option value="ics">Calendrier ICS</option>
+      <option value="marks">Marques « Importé »</option>
+    </select>
+  </label>
+  <label for="importer" id="importer-wrap">Import
+    <select id="importer"></select>
+  </label>
+  <label for="step" id="step-wrap">Étape
+    <select id="step">
+      <option value="source">1. Source</option>
+      <option value="preview">2–3. Analyse et aperçu</option>
+      <option value="confirm">4. Confirmation</option>
+      <option value="run">5. Exécution</option>
+      <option value="interrupted">5. Interrompu</option>
+      <option value="report">6. Bilan</option>
+    </select>
+  </label>
+  <label for="mark" id="mark-wrap">Surface
+    <select id="mark">
+      <option value="news">Actualités</option>
+      <option value="mail">Historique d'envoi</option>
+      <option value="member">Fiche d'un animé</option>
+      <option value="reg">Demande d'inscription</option>
+    </select>
+  </label>
+  <span class="seg" role="group" aria-label="Largeur">
+    <button type="button" id="w-desk" aria-pressed="true">Ordinateur</button>
+    <button type="button" id="w-phone" aria-pressed="false">Téléphone</button>
+  </span>
+  <span><span class="tag new">Nouveau</span> <span class="tag mod">Modifié</span></span>
+</div>
+
+<div class="frame" id="frame"><div class="site"><div class="crumbs" id="crumbs"></div><div class="page" id="page"></div></div></div>
+
+<div class="legend">
+  <p>Données d'exemple, inventées. Les comptes, les noms et les identifiants ne correspondent à aucune unité réelle.</p>
+  <p>Cette maquette fait foi pour la hiérarchie des écrans, les libellés et les états. Le produit est en Bootstrap 5 et suit <code>design.md</code>.</p>
+</div>
+
+<script>
+(function(){
+const $ = (s)=>document.querySelector(s);
+const esc = (s)=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const fmt = (n)=>n.toLocaleString('fr-BE');
+
+const IMPORTERS = {
+  emails:{name:"Historique des courriels",module:"Envois groupés",file:"historique-emails.zip",size:"212 Mo",unit:"courriels",
+    desc:"Les anciens courriels envoyés, visibles dans l'historique d'envoi et sur la fiche des animés concernés, en lecture seule.",
+    total:1291,create:1248,present:12,ignored:[["Sans date d'envoi",4],["Sans expéditeur",3],["Sans sujet ni contenu",24]],errors:0,
+    notes:[["info","812 courriels sont rattachés à une section d'après leur adresse d'expédition, 436 au Staff d'U. L'adresse et le nom d'origine restent affichés tels quels."],
+           ["info","40 publipostages sont importés avec leur texte modèle, sans les versions personnalisées."],
+           ["warn","6 pièces jointes sont illisibles. Leur courriel est importé sans elles."]],
+    effects:["Aucun courriel n'est envoyé ni renvoyé.","Les courriels importés ne peuvent être ni modifiés, ni supprimés, ni renvoyés.","Les statuts restent ceux d'origine : « Accepté par le serveur d'envoi » ne devient jamais « Remis »."],
+    sample:[["c-20231004-112","Sans date d'envoi"],["c-20210911-007","Sans expéditeur"],["c-20220302-045","Sans sujet ni contenu"]]},
+  news:{name:"Actualités et formulaires",module:"Actualités",file:"actualites-et-formulaires.zip",size:"148 Mo",unit:"actualités",
+    desc:"Les anciennes actualités et la définition de leurs formulaires, sans les réponses. Tout reste en lecture seule, formulaires fermés.",
+    total:222,create:214,present:3,ignored:[["Sans titre",2],["Formulaire sans actualité reconnue",3]],errors:0,
+    notes:[["info","38 formulaires sont importés et fermés. Le fichier ne contient aucune réponse."],
+           ["warn","9 actualités ont une visibilité inconnue. Elles seront visibles des seuls « Membres connectés »."],
+           ["info","17 actualités n'ont pas d'image et 4 pas de résumé. Elles sont importées telles quelles."]],
+    effects:["Aucune annonce de publication.","Les formulaires restent fermés et n'acceptent aucune réponse.","Aucune créance, aucun billet, aucun récapitulatif quotidien."],
+    sample:[["a-1187","Sans titre"],["f-0412","Formulaire sans actualité reconnue"]]},
+  photos:{name:"Photos des membres",module:"",file:"photos-membres.zip",size:"1,4 Go",unit:"photos",
+    desc:"Une photo par animé et par année scoute, rattachée par son identifiant Desk. Le trombinoscope et les fiches les utilisent aussitôt.",
+    total:2004,create:1930,present:12,ignored:[["Membre introuvable dans ScoutMagic",54],["Image illisible",8]],errors:0,years:["2017-2018","2018-2019","2019-2020"],
+    notes:[["info","12 animés ont déjà une photo pour l'année visée. Elle est conservée, la photo du fichier est ignorée."]],
+    effects:["Aucune photo existante n'est remplacée.","Les photos de compte et de section ne sont pas touchées."],
+    sample:[["desk 004518","Membre introuvable dans ScoutMagic"],["desk 007712","Image illisible"]]},
+  gallery:{name:"Galeries photo",module:"Photos",file:"galeries.zip",size:"84 Ko",unit:"albums",
+    desc:"Les albums hébergés ailleurs (Google Photos, Flickr…), ajoutés comme albums externes. Aucune photo n'est copiée.",
+    total:324,create:312,present:7,ignored:[["Section sans correspondance",5]],errors:0,years:["2018-2019","2019-2020"],
+    notes:[["info","Le titre et la vignette sont relus sur chaque album pendant l'import. Comptez environ deux secondes par album."],
+           ["warn","5 albums visent une section inconnue. Ils sont ignorés plutôt que montrés à toute l'unité."]],
+    effects:["Aucune notification « Nouvel album ».","Les albums suivent ensuite les règles normales de la Galerie."],
+    sample:[["album-0091","Section sans correspondance"]]},
+  camps:{name:"Endroits de camp",module:"Camps",file:"endroits-de-camp.zip",size:"36 Ko",unit:"lieux",
+    desc:"Les lieux de camp seuls, avec leurs coordonnées. Les anciens séjours ne sont pas repris.",
+    total:86,create:41,present:30,ignored:[["Sans nom",0]],ambiguous:15,errors:0,
+    notes:[["warn","15 lieux ressemblent à un lieu déjà présent sans certitude. Ils ne sont ni créés ni fusionnés : vérifiez-les dans Camps."],
+           ["info","Les lieux archivés sont aussi comparés, pour ne pas les recréer."]],
+    effects:["Aucun lieu existant n'est modifié ni fusionné.","Les coordonnées du fichier sont gardées et ne seront pas recalculées."],
+    sample:[["p-0043 · Ferme du Bois, Hamois","Ressemble à « Ferme du Bois-Haut », Hamois"],["p-0101 · Prairie Lambert, Ciney","Ressemble à « Prairie Lambert », Leignon"]]},
+  reg:{name:"Inscriptions de l'année suivante",module:"Inscriptions",file:"inscriptions-annee-suivante.zip",size:"91 Ko",unit:"demandes",
+    desc:"Les nouvelles demandes d'inscription en cours. Elles rejoignent la liste des demandes et se traitent comme les autres.",
+    total:66,create:64,present:0,ignored:[["Champ obligatoire manquant",2]],errors:0,target:"2027-2028",
+    notes:[["info","Année visée par le fichier : 2027-2028. 41 en attente, 15 acceptées, 6 refusées, 2 retirées."],
+           ["info","Les 21 décisions déjà prises sont marquées « Communiquée par l'ancien site ». Les familles les voient tout de suite, sans nouvel e-mail."],
+           ["warn","3 demandes ressemblent à une demande déjà présente. Elles sont importées et signalées « doublon possible », comme une demande normale."]],
+    effects:["Aucun accusé de réception, aucune alerte à l'unité, aucune décision envoyée.","Les liens de suivi de l'ancien site ne fonctionnent pas ici.","Après l'import, les demandes se traitent comme les autres."],
+    sample:[["r-2027-0031","Champ obligatoire manquant : téléphone"],["r-2027-0058","Champ obligatoire manquant : date de naissance"]]}
+};
+const ORDER=["emails","news","photos","gallery","camps","reg"];
+const sel=$('#importer');
+ORDER.forEach(k=>{const o=document.createElement('option');o.value=k;o.textContent=IMPORTERS[k].name;sel.appendChild(o)});
+
+let state={screen:'home',importer:'photos',step:'preview',mark:'news',phone:false};
+
+function crumbs(parts){$('#crumbs').innerHTML=parts.map(esc).join(' › ')}
+
+function stepper(cur){
+  const steps=[['source','Source'],['analyse','Analyse'],['preview','Aperçu'],['confirm','Confirmation'],['run','Exécution'],['report','Bilan']];
+  const map={source:0,preview:2,confirm:3,run:4,interrupted:4,report:5};
+  const idx=map[cur];
+  return '<ol class="stepper" aria-label="Étapes de l\'import">'+steps.map((s,i)=>{
+    const c=i<idx?'done':(i===idx?'cur':'');
+    return `<li class="${c}"${i===idx?' aria-current="step"':''}><span>${i<idx?'✓':i+1}</span>${s[1]}</li>`}).join('')+'</ol>';
+}
+
+function home(){
+  crumbs(["Espace chefs d'U","Migration de données"]);
+  const rows=ORDER.map(k=>{const im=IMPORTERS[k];
+    let status='<span class="pill info">Jamais lancé</span>';
+    if(k==='emails') status='<span class="pill ok">Importé le 09/11/2026</span>';
+    if(k==='photos') status='<span class="pill warn">Interrompu à 46 %</span>';
+    if(k==='camps') return null;
+    return `<div class="imp"><div><h3>${esc(im.name)}</h3></div>
+      <button class="btn${k==='photos'?' primary':''}" type="button">${k==='photos'?'Reprendre':'Ouvrir'}</button>
+      <div class="meta grid"><p class="muted small">${esc(im.desc)}</p><p class="small" style="margin-top:4px">${status}</p></div></div>`}).filter(Boolean);
+  rows.splice(4,0,`<div class="imp"><div><h3>${esc(IMPORTERS.reg.name)}</h3></div><button class="btn" type="button">Ouvrir</button><div class="meta"><p class="muted small">${esc(IMPORTERS.reg.desc)}</p></div></div>`);
+  rows.pop();
+  return `<div class="row" style="justify-content:space-between"><h1>Migration de données <span class="tag new">Nouveau</span></h1></div>
+  <p class="lead">Pour reprendre, en une fois, les données de votre ancien site. Chaque import se prépare sur l'ancien site sous forme de fichier ZIP, se vérifie ici avant d'écrire quoi que ce soit, et peut se relancer sans créer de doublons.</p>
+  <div class="alert warn"><strong>L'import des photos des membres a été interrompu à 46 %.</strong><span>Reprenez-le : les 890 photos déjà importées ne seront pas importées deux fois.</span></div>
+  <div class="card"><div class="card-h"><h2>Imports disponibles</h2><a href="#" class="small">Formats des fichiers ZIP</a></div><div class="list">
+    <div class="imp"><div><h3>Calendrier (fichier ICS)</h3></div><button class="btn" type="button">Ouvrir</button><div class="meta"><p class="muted small">Une copie unique des événements d'un calendrier en ligne, dans un calendrier de ScoutMagic.</p></div></div>
+    ${rows.join('')}
+  </div></div>
+  <p class="note">L'import « Endroits de camp » n'apparaît pas : le module Camps n'est pas activé. Seuls les imports dont le module est actif sont proposés, et les autres ne s'ouvrent pas non plus par leur adresse.</p>`;
+}
+
+function zipSource(im){
+  return `<div class="card"><div class="card-h"><h2>Choisir le fichier</h2></div><div class="card-b">
+    <p>Déposez le fichier ZIP préparé sur l'ancien site au format « ${esc(im.name)} ».</p>
+    <div class="drop"><strong>Glissez le fichier ici</strong><span class="muted small">ou</span><span><button class="btn" type="button">Choisir un fichier</button></span><span class="muted small">Jusqu'à 2 Go. Un envoi interrompu reprend là où il s'est arrêté.</span></div>
+    <div class="grid" style="display:grid;gap:6px"><div class="row small"><span>${esc(im.file)} · ${esc(im.size)}</span><span class="muted">envoi 62 %</span></div><div class="bar" role="progressbar" aria-valuenow="62" aria-valuemin="0" aria-valuemax="100"><i style="width:62%"></i></div></div>
+    <p class="muted small">Rien n'est écrit tant que vous n'avez pas confirmé, à l'étape 4. Le fichier est effacé du serveur au plus tard 24 heures après la fin de l'import.</p>
+  </div></div>`;
+}
+
+function preview(im){
+  const ign=im.ignored.filter(x=>x[1]>0).reduce((a,b)=>a+b[1],0);
+  const years=im.years?`<div class="card"><div class="card-h"><h2>Années scoutes manquantes</h2></div><div class="card-b">
+    <p>Des ${esc(im.unit)} visent des années qui n'existent pas encore dans ScoutMagic. Cochez celles à créer. Les ${esc(im.unit)} des années non cochées seront ignorés.</p>
+    <div class="checks">${im.years.map((y,i)=>`<label for="y${i}"><input type="checkbox" id="y${i}" checked> ${y} <span class="muted small num">(${[212,348,301][i]||40} ${esc(im.unit)})</span></label>`).join('')}</div>
+    <p class="muted small">Seules des années passées sont proposées. L'année en cours et les suivantes ne sont jamais créées ici.</p></div></div>`:'';
+  const amb=im.ambiguous?`<div class="stat warn"><span class="small">Ambigus, non créés</span><b>${im.ambiguous}</b></div>`:'';
+  return `<div class="alert info"><strong>${esc(im.file)} est valable.</strong><span class="small">Format ${esc(im.name.toLowerCase())}, version 1.0.0 · exporté le 08/11/2026 depuis « ancien-site-25sv » · contenu vérifié.</span></div>
+  <div class="stats">
+    <div class="stat ok"><span class="small">À importer</span><b>${fmt(im.create)}</b></div>
+    <div class="stat"><span class="small">Déjà présents</span><b>${fmt(im.present)}</b></div>
+    ${amb}
+    <div class="stat warn"><span class="small">Ignorés</span><b>${fmt(ign)}</b></div>
+  </div>
+  ${im.notes.map(n=>`<div class="alert ${n[0]}"><span>${esc(n[1])}</span></div>`).join('')}
+  ${years}
+  <details><summary><span>Pourquoi ${fmt(ign+(im.ambiguous||0))} ${esc(im.unit)} ne seront pas importés</span><span class="muted small">Détail</span></summary><div>
+    <div class="tbl-wrap"><table><thead><tr><th>Motif</th><th class="n">Nombre</th></tr></thead><tbody>
+    ${im.ignored.filter(x=>x[1]>0).map(x=>`<tr><td>${esc(x[0])}</td><td class="n">${x[1]}</td></tr>`).join('')}
+    ${im.ambiguous?`<tr><td>Ressemble à un élément existant, sans certitude</td><td class="n">${im.ambiguous}</td></tr>`:''}
+    </tbody></table></div>
+    <div class="tbl-wrap"><table><thead><tr><th>Référence d'origine</th><th>Motif</th></tr></thead><tbody>${im.sample.map(s=>`<tr><td><code>${esc(s[0])}</code></td><td>${esc(s[1])}</td></tr>`).join('')}</tbody></table></div>
+    <p class="muted small">Le détail montre la référence de l'ancien site, jamais le nom des personnes.</p>
+  </div></details>
+  <div class="card"><div class="card-h"><h2>Ce que l'import fera</h2></div><div class="card-b"><ul class="effects">${im.effects.map(e=>`<li>${esc(e)}</li>`).join('')}</ul></div></div>
+  <div class="row"><button class="btn primary" type="button">Importer ${fmt(im.create)} ${esc(im.unit)}</button><button class="btn" type="button">Choisir un autre fichier</button></div>`;
+}
+
+function confirmDlg(im){
+  return `<div class="backdrop"><div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dlg-t">
+    <div class="card-h"><h2 id="dlg-t">Importer ${fmt(im.create)} ${esc(im.unit)} ?</h2></div>
+    <div class="card-b"><ul class="effects">${im.effects.map(e=>`<li>${esc(e)}</li>`).join('')}</ul>
+    <p>Gardez cette page ouverte pendant l'import. Si elle se ferme, vous pourrez le reprendre là où il s'est arrêté.</p></div>
+    <div class="dialog-f"><button class="btn" type="button">Annuler</button><button class="btn primary" type="button">Importer</button></div></div></div>`;
+}
+
+function run(im,interrupted){
+  const pct=46, done=Math.round(im.create*pct/100);
+  if(interrupted){
+    return `<div class="alert warn"><strong>Import interrompu à ${pct} %.</strong><span>${fmt(done)} ${esc(im.unit)} sont déjà importés et ne le seront pas une deuxième fois. Le fichier est conservé jusqu'au 13/11/2026 à 16 h 20.</span></div>
+    <div class="bar" role="progressbar" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100"><i style="width:${pct}%"></i></div>
+    <div class="row"><button class="btn primary" type="button">Reprendre l'import</button><button class="btn" type="button">Abandonner et effacer le fichier</button></div>
+    <p class="note">Abandonner garde ce qui est déjà importé. Rien n'est défait.</p>`;
+  }
+  return `<div class="grid" style="display:grid;gap:8px"><div class="row" style="justify-content:space-between"><strong>Import en cours</strong><span class="num muted">${fmt(done)} sur ${fmt(im.create)}</span></div>
+    <div class="bar" role="progressbar" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100"><i style="width:${pct}%"></i></div></div>
+  <div class="stats"><div class="stat ok"><span class="small">Importés</span><b>${fmt(done)}</b></div><div class="stat"><span class="small">Déjà présents</span><b>${fmt(im.present)}</b></div><div class="stat warn"><span class="small">Ignorés</span><b>3</b></div><div class="stat danger"><span class="small">Erreurs</span><b>0</b></div></div>
+  <p class="muted">Gardez cette page ouverte. L'import avance par petits paquets. Si la page se ferme, il s'arrête et vous pourrez le reprendre.</p>
+  <div class="row"><button class="btn" type="button">Mettre en pause</button></div>`;
+}
+
+function report(im){
+  const ign=im.ignored.filter(x=>x[1]>0).reduce((a,b)=>a+b[1],0);
+  return `<div class="alert info"><strong>Import terminé le 11/11/2026 à 16 h 42.</strong><span>Vous pouvez relancer le même fichier : rien ne sera importé deux fois.</span></div>
+  <div class="stats">
+    <div class="stat ok"><span class="small">Importés</span><b>${fmt(im.create-1)}</b></div>
+    <div class="stat"><span class="small">Déjà présents</span><b>${fmt(im.present)}</b></div>
+    <div class="stat warn"><span class="small">Ignorés : données manquantes ou non reconnues</span><b>${fmt(ign+(im.ambiguous||0))}</b></div>
+    <div class="stat danger"><span class="small">Erreurs techniques</span><b>1</b></div>
+  </div>
+  <details open><summary><span>1 erreur technique</span><span class="muted small">Détail</span></summary><div>
+    <div class="tbl-wrap"><table><thead><tr><th>Référence d'origine</th><th>Ce qui s'est passé</th></tr></thead><tbody><tr><td><code>${esc(im.sample[0][0])}</code></td><td>L'enregistrement a échoué. Relancez l'import : seul cet élément sera retenté.</td></tr></tbody></table></div>
+  </div></details>
+  <details><summary><span>${fmt(ign+(im.ambiguous||0))} ignorés</span><span class="muted small">Détail</span></summary><div>
+    <div class="tbl-wrap"><table><thead><tr><th>Référence d'origine</th><th>Motif</th></tr></thead><tbody>${im.sample.map(s=>`<tr><td><code>${esc(s[0])}</code></td><td>${esc(s[1])}</td></tr>`).join('')}</tbody></table></div>
+  </div></details>
+  <div class="row"><button class="btn primary" type="button">Relancer le même fichier</button><button class="btn" type="button">Retour à la migration</button></div>`;
+}
+
+function zip(){
+  const im=IMPORTERS[state.importer];
+  crumbs(["Espace chefs d'U","Migration de données",im.name]);
+  let body='';
+  switch(state.step){
+    case 'source':body=zipSource(im);break;
+    case 'preview':body=preview(im);break;
+    case 'confirm':body=preview(im).slice(0,0)+confirmDlg(im);break;
+    case 'run':body=run(im,false);break;
+    case 'interrupted':body=run(im,true);break;
+    case 'report':body=report(im);break;
+  }
+  const req=im.module?`<span class="pill info">Module ${esc(im.module)}</span>`:'';
+  return `<div class="row" style="justify-content:space-between"><h1>${esc(im.name)} <span class="tag new">Nouveau</span></h1>${req}</div>
+  <p class="lead">${esc(im.desc)}</p>${stepper(state.step)}${body}`;
+}
+
+function ics(){
+  crumbs(["Espace chefs d'U","Migration de données","Calendrier (fichier ICS)"]);
+  const s=state.step;
+  let body;
+  if(s==='source'){
+    body=`<div class="alert info"><strong>Copie unique, pas un abonnement.</strong><span>Les événements sont copiés une fois. Ce qui changera plus tard à cette adresse n'arrivera pas dans ScoutMagic.</span></div>
+    <div class="card"><div class="card-b">
+      <div class="field"><label for="ics-url">Adresse du calendrier (ICS)</label><input id="ics-url" type="url" value="https://calendar.google.com/calendar/ical/…/basic.ics"></div>
+      <div class="field"><label for="ics-cal">Calendrier de destination</label><select id="ics-cal"><option>Animateurs</option><option>Louveteaux</option><option>Éclaireurs</option></select><span class="muted small">Seuls les calendriers que vous pouvez modifier sont proposés.</span></div>
+      <div class="field"><label for="ics-min">Importer les événements à partir du</label><input id="ics-min" type="date" value="2024-11-11"><span class="muted small">Par défaut, deux ans avant aujourd'hui.</span></div>
+      <div class="alert warn"><span><strong>Les événements récurrents ne sont pas importés</strong>, ni leurs occurrences modifiées. Recréez-les dans ScoutMagic si besoin.</span></div>
+      <div class="row"><button class="btn primary" type="button">Lire le calendrier</button></div>
+    </div></div>`;
+  } else {
+    body=`<div class="stats"><div class="stat ok"><span class="small">À créer</span><b>288</b></div><div class="stat"><span class="small">Déjà présents</span><b>18</b></div><div class="stat warn"><span class="small">Avant le 11/11/2024</span><b>61</b></div><div class="stat warn"><span class="small">Récurrents, exclus</span><b>37</b></div><div class="stat danger"><span class="small">Illisibles</span><b>8</b></div></div>
+    <div class="alert info"><span>Les heures sont converties à l'heure de Bruxelles. Les événements sans heure deviennent « toute la journée ».</span></div>
+    <div class="card"><div class="card-h"><h2>Ce que l'import fera</h2></div><div class="card-b"><ul class="effects"><li>288 événements ajoutés au calendrier « Animateurs ».</li><li>Aucune notification, aucun rappel pour les événements passés.</li><li>Relancé plus tard avec la même adresse, l'import ne recrée pas ces événements.</li></ul></div></div>
+    <div class="row"><button class="btn primary" type="button">Importer 288 événements</button></div>`;
+  }
+  return `<div class="row" style="justify-content:space-between"><h1>Calendrier (fichier ICS) <span class="tag new">Nouveau</span></h1><span class="pill info">Module Calendrier</span></div>${stepper(s==='source'?'source':'preview')}${body}`;
+}
+
+function marks(){
+  const m=state.mark;
+  if(m==='news'){
+    crumbs(["Notre unité","Actualités"]);
+    return `<div class="row" style="justify-content:space-between"><h1>Actualités</h1></div>
+    <div class="news-grid">
+      <article class="news"><div class="img photo" aria-hidden="true"></div><div class="b"><h3>Grand jeu de rentrée</h3><p class="muted small">Publié le 14/09/2026</p><p class="small">Rendez-vous samedi au local pour le premier grand jeu de l'année.</p></div></article>
+      <article class="news"><div class="img photo" aria-hidden="true"></div><div class="b"><div class="row"><span class="pill hist">Importé <span class="tag new">Nouveau</span></span></div><h3>Souper aux spaghettis 2023</h3><p class="muted small">Publié le 02/03/2023</p><p class="small">Merci aux 240 convives ! Les bénéfices financeront le camp des Pionniers.</p></div></article>
+      <article class="news"><div class="img" aria-hidden="true">Pas d'image</div><div class="b"><div class="row"><span class="pill hist">Importé</span></div><h3>Fermeture du local pendant les travaux</h3><p class="muted small">Publié le 18/01/2022</p></div></article>
+    </div>
+    <div class="card"><div class="card-h"><h2>Page d'une actualité importée</h2><span class="tag mod">Modifié</span></div><div class="card-b">
+      <div class="alert hist"><strong>Élément historique en lecture seule</strong><span class="small">Importé de l'ancien site le 10/11/2026. Il ne peut pas être modifié.</span></div>
+      <h3>Souper aux spaghettis 2023</h3><p class="muted small">Publié le 02/03/2023 · Visible des membres connectés</p>
+      <div class="card"><div class="card-h"><strong>Inscription au souper</strong><span class="pill">Formulaire fermé</span></div><div class="card-b small"><p>Nombre d'adultes · Nombre d'enfants · Allergies</p><p class="muted">Formulaire de l'ancien site. Les réponses n'ont pas été reprises.</p></div></div>
+      <p class="note">Ni « Modifier », ni « Repasser en brouillon », ni « Supprimer » pour un gestionnaire. Le serveur refuse aussi ces actions s'il les reçoit.</p>
+    </div></div>`;
+  }
+  if(m==='mail'){
+    crumbs(["Espace animateurs","Communication","Envois groupés"]);
+    return `<h1>Envois groupés</h1>
+    <div class="card"><div class="list">
+      <div class="imp"><div><h3>Rappel : réunion de parents</h3><p class="muted small">Envoyé le 03/11/2026 · Liste « Parents des Louveteaux » · 48 destinataires</p></div><a class="small" href="#">Suivi</a></div>
+      <div class="imp"><div><div class="row"><h3>Infos camp d'été 2024</h3><span class="pill hist">Importé <span class="tag new">Nouveau</span></span></div><p class="muted small">Envoyé le 21/05/2024 · Liste « Parents des Éclaireurs » (nom d'origine) · De : Éclaireurs 25e Saint-Vith &lt;eclaireurs@exemple.be&gt;</p></div><a class="small" href="#">Voir</a></div>
+    </div></div>
+    <div class="card"><div class="card-h"><h2>Infos camp d'été 2024</h2><span class="tag mod">Modifié</span></div><div class="card-b">
+      <div class="alert hist"><strong>Élément historique en lecture seule</strong><span class="small">Importé le 09/11/2026. Ce courriel ne peut pas être modifié, supprimé ni renvoyé.</span></div>
+      <div class="tbl-wrap"><table><thead><tr><th>Destinataire</th><th>Statut</th></tr></thead><tbody>
+      <tr><td>Famille Ndiaye</td><td><span class="pill info">Accepté par le serveur d'envoi</span></td></tr>
+      <tr><td>Famille Van Den Berg</td><td><span class="pill">Inconnu</span></td></tr>
+      </tbody></table></div>
+      <p class="note">Pas de bouton « Renvoyer » sur un courriel importé. Le serveur refuse le renvoi s'il le reçoit.</p>
+    </div></div>`;
+  }
+  if(m==='member'){
+    crumbs(["Espace chefs d'U","Membres","Léa Martin"]);
+    return `<h1>Léa Martin</h1>
+    <div class="card"><div class="card-h"><h2>Communications récentes</h2></div><div class="list">
+      <div class="imp"><div><h3>Rappel : réunion de parents</h3><p class="muted small">03/11/2026 · Louveteaux</p></div><a class="small" href="#">Voir</a></div>
+      <div class="imp"><div><div class="row"><h3>Infos camp d'été 2024</h3><span class="pill hist">Importé <span class="tag new">Nouveau</span></span></div><p class="muted small">21/05/2024 · Éclaireurs</p></div><a class="small" href="#">Voir</a></div>
+    </div></div>
+    <p class="note">La photo de Léa pour 2019-2020 vient de l'import des photos. Elle s'affiche comme une photo ajoutée à la main, sans marque ni nouvel écran d'historique.</p>`;
+  }
+  crumbs(["Espace chefs d'U","Inscriptions","Demandes"]);
+  return `<h1>Demande de Noah Peeters</h1>
+  <div class="row"><span class="pill ok">Acceptée</span><span class="muted small">Année 2027-2028 · Louveteaux · reçue le 12/10/2026</span></div>
+  <div class="card"><div class="card-h"><h2>Décisions et courriels</h2><span class="tag mod">Modifié</span></div><div class="list">
+    <div><div class="row"><strong>Acceptée</strong><span class="pill hist">Communiquée par l'ancien site <span class="tag new">Nouveau</span></span></div><p class="muted small">Décision du 03/11/2026. Aucun courriel n'est parti de ScoutMagic. La famille voit la décision sur sa page de suivi.</p></div>
+    <div><strong>Demande reçue</strong><p class="muted small">12/10/2026, sur l'ancien site.</p></div>
+  </div></div>
+  <p class="note">Aucune marque « Importé » sur la demande elle-même : elle se modifie, se décide et se rapproche de Desk comme toute autre demande.</p>`;
+}
+
+function render(){
+  const s=state.screen;
+  $('#importer-wrap').hidden=s!=='zip';
+  $('#step-wrap').hidden=!(s==='zip'||s==='ics');
+  $('#mark-wrap').hidden=s!=='marks';
+  [...$('#step').options].forEach(o=>{o.hidden=(s==='ics'&&!['source','preview'].includes(o.value))});
+  if(s==='ics'&&!['source','preview'].includes(state.step)){state.step='preview';$('#step').value='preview'}
+  $('#frame').classList.toggle('phone',state.phone);
+  $('#page').innerHTML = s==='home'?home():s==='zip'?zip():s==='ics'?ics():marks();
+}
+$('#screen').addEventListener('change',e=>{state.screen=e.target.value;render()});
+sel.addEventListener('change',e=>{state.importer=e.target.value;render()});
+$('#step').addEventListener('change',e=>{state.step=e.target.value;render()});
+$('#mark').addEventListener('change',e=>{state.mark=e.target.value;render()});
+$('#w-desk').addEventListener('click',()=>{state.phone=false;$('#w-desk').setAttribute('aria-pressed','true');$('#w-phone').setAttribute('aria-pressed','false');render()});
+$('#w-phone').addEventListener('click',()=>{state.phone=true;$('#w-phone').setAttribute('aria-pressed','true');$('#w-desk').setAttribute('aria-pressed','false');render()});
+sel.value=state.importer;$('#step').value=state.step;
+render();
+})();
+</script>
+</body>
+</html>
