@@ -25,7 +25,9 @@ dans le planning comme dans les réglages du numéro par défaut.
 La grille du mois croise les jours et les membres du Staff d'Unité.
 Cliquez une case pour la faire tourner entre trois états : vide, **de
 garde** (coche verte), **indisponible** (croix rouge). Tout
-s'enregistre aussitôt — le statut « Enregistré. » le confirme. Les
+s'enregistre aussitôt. La confirmation dit où arrivent les appels
+maintenant et la prochaine bascule ; si le renvoi n'a pas pu suivre, elle
+devient un avertissement orange. Les
 colonnes orange, à gauche, montrent les activités des sections : de
 quoi éviter de donner la garde à quelqu'un déjà en week-end.
 
@@ -44,7 +46,9 @@ chaque membre du Staff d'Unité a ses trois boutons **Garde**, **Indispo** et
 **Rien**, et la liste défile si elle est longue. Les activités des sections
 de la journée sont rappelées en tête.
 
-Vous planifiez ici les gardes de tout le monde.
+Vous planifiez ici les gardes de tout le monde, toujours dans l'année
+en cours : une année prévisualisée ne change rien ici, un bandeau le
+rappelle.
 
 ## Les gardes sur le calendrier
 

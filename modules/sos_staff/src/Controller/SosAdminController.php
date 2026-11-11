@@ -14,6 +14,7 @@ use Core\Http\Response;
 use Core\Journal\JournalService;
 use Core\Member\SectionService;
 use Core\Scheduler\SchedulerService;
+use Core\ScoutYear\EffectiveScoutYear;
 use Core\ScoutYear\ScoutYearResolver;
 use Core\ScoutYear\ScoutYearSession;
 use Core\Security\AuthSession;
@@ -26,6 +27,7 @@ use Modules\SosStaff\Api\ProviderException;
 use Modules\SosStaff\Repository\OnCallAssignment;
 use Modules\SosStaff\Service\OnCallService;
 use Modules\SosStaff\Service\ProviderConfigService;
+use Modules\SosStaff\Service\RedirectReconciler;
 use Modules\SosStaff\Service\RedirectService;
 use Modules\SosStaff\Service\SosException;
 use Modules\SosStaff\Service\SosSettingsService;
@@ -64,6 +66,8 @@ class SosAdminController extends AbstractController
     ) {
     }
 
+    private ?RedirectReconciler $reconciler = null;
+
     /**
      * Tableau de bord — where the calls go RIGHT NOW (as read from the
      * provider), the one correction that can be made from here, and what is
@@ -84,8 +88,7 @@ class SosAdminController extends AbstractController
             return $this->renderNotConfigured();
         }
 
-        $role = Role::fromString(AuthSession::getRole());
-        $effectiveYear = $this->scoutYearResolver->getEffectiveYear(ScoutYearSession::getPreviewId(), $role);
+        $effectiveYear = $this->operationalYear();
 
         // The list follows the CURRENT month: this page has no month to
         // browse, and what is about to change is what it is for.
@@ -97,6 +100,7 @@ class SosAdminController extends AbstractController
 
         $page = [
             'sos_page' => self::PAGE_DASHBOARD,
+            'sos_year_notice' => $this->yearNotice(),
             'month_param' => sprintf('%04d-%02d', $year, $month),
             'planned_transitions' => $transitions['entries'],
             'planned_transitions_page' => $transitions['page'],
@@ -122,7 +126,7 @@ class SosAdminController extends AbstractController
         }
 
         $role = Role::fromString(AuthSession::getRole());
-        $effectiveYear = $this->scoutYearResolver->getEffectiveYear(ScoutYearSession::getPreviewId(), $role);
+        $effectiveYear = $this->operationalYear();
 
         $staffOptions = $this->settingsService->getStaffOptions($effectiveYear->id);
         $orderedStaffMemberIds = array_column($staffOptions, 'member_id');
@@ -143,6 +147,7 @@ class SosAdminController extends AbstractController
 
         return $this->render('@sos_staff/planning.html.twig', [
             'sos_page' => self::PAGE_PLANNING,
+            'sos_year_notice' => $this->yearNotice(),
             'staff_options' => $staffOptions,
             'default_number_label' => $this->labelFromOptions($staffOptions, $defaultMemberId),
             'year' => $year,
@@ -180,8 +185,7 @@ class SosAdminController extends AbstractController
             return $this->renderNotConfigured();
         }
 
-        $role = Role::fromString(AuthSession::getRole());
-        $effectiveYear = $this->scoutYearResolver->getEffectiveYear(ScoutYearSession::getPreviewId(), $role);
+        $effectiveYear = $this->operationalYear();
 
         $staffOptions = $this->settingsService->getStaffOptions($effectiveYear->id);
         $orderedStaffMemberIds = array_column($staffOptions, 'member_id');
@@ -189,12 +193,13 @@ class SosAdminController extends AbstractController
 
         return $this->render('@sos_staff/settings.html.twig', [
             'sos_page' => self::PAGE_SETTINGS,
+            'sos_year_notice' => $this->yearNotice(),
             'staff_options' => $staffOptions,
             'default_number_selection_member_id' => $this->settingsService
                 ->resolveDefaultNumberMemberId($effectiveYear->id),
             // §4b: the warning beside the default-number picker is shown
             // only when saving would really change who the SOS line rings
-            // — exactly the condition applyImmediatelyIfTodayUsesDefault()
+            // — exactly when the reconciliation after saving moves the line
             // acts on. A permanent warning that is wrong half the time
             // ends up ignored.
             'today_uses_default_number' => $this->onCallService
@@ -236,8 +241,7 @@ class SosAdminController extends AbstractController
             return $this->json(['success' => false, 'error' => "La téléphonie n'est pas encore configurée."], 409);
         }
 
-        $role = Role::fromString(AuthSession::getRole());
-        $scoutYearId = $this->scoutYearResolver->getEffectiveYear(ScoutYearSession::getPreviewId(), $role)->id;
+        $scoutYearId = $this->operationalYear()->id;
 
         $status = $this->buildRedirectStatus($scoutYearId);
         if ($status['live_state']['error'] !== null) {
@@ -340,11 +344,9 @@ class SosAdminController extends AbstractController
         $live = $this->resolveLiveState($scoutYearId);
 
         $staffOptions = $this->settingsService->getStaffOptions($scoutYearId);
-        $expectedMemberId = $this->onCallService->resolveExpectedTargetAt(
-            $this->currentTime(),
-            array_column($staffOptions, 'member_id')
-        )['member_id'];
-        $expectedNumber = $this->redirectService->resolveNumber($expectedMemberId, $scoutYearId);
+        $expected = $this->reconciler()->expectedDestination($scoutYearId);
+        $expectedMemberId = $expected['member_id'];
+        $expectedNumber = $expected['number'];
 
         $action = null;
         if ($live['error'] === null && $expectedNumber !== null) {
@@ -544,8 +546,7 @@ class SosAdminController extends AbstractController
      */
     public function plannedTransitions(Request $request, array $params): Response
     {
-        $role = Role::fromString(AuthSession::getRole());
-        $effectiveYear = $this->scoutYearResolver->getEffectiveYear(ScoutYearSession::getPreviewId(), $role);
+        $effectiveYear = $this->operationalYear();
 
         [$year, $month] = $this->resolveRequestedMonth($request->getQuery('month'));
         $page = max(1, (int) $request->getQuery('transitions_page', 1));
@@ -579,8 +580,7 @@ class SosAdminController extends AbstractController
         // SOS line, so an unvalidated id would point the unit's emergency
         // number at any member's personal phone.
         $memberId = (int) $data['member_id'];
-        $role = Role::fromString(AuthSession::getRole());
-        $effectiveYear = $this->scoutYearResolver->getEffectiveYear(ScoutYearSession::getPreviewId(), $role);
+        $effectiveYear = $this->operationalYear();
         $isStaffOption = false;
         foreach ($this->settingsService->getStaffOptions($effectiveYear->id) as $option) {
             if ($option['member_id'] === $memberId) {
@@ -603,9 +603,19 @@ class SosAdminController extends AbstractController
             AuthSession::getUserAccountId()
         );
 
-        $this->applyImmediatelyIfTodayUsesDefault();
+        // The line follows at once when it is the default number that
+        // governs right now; reconcile() finds nothing to do otherwise.
+        $reconciled = $this->reconciler()->reconcile($effectiveYear->id, 'default_number');
 
-        return $this->json(['success' => true]);
+        return $this->json([
+            'success' => true,
+            'message' => $this->destinationMessage($reconciled, $effectiveYear->id),
+            'line_ok' => in_array(
+                $reconciled['status'],
+                [RedirectReconciler::ALIGNED, RedirectReconciler::CORRECTED],
+                true
+            ),
+        ]);
     }
 
     /**
@@ -673,8 +683,7 @@ class SosAdminController extends AbstractController
         }
         $lastOfMonth = $firstOfMonth->modify('last day of this month')->format('Y-m-d');
 
-        $role = Role::fromString(AuthSession::getRole());
-        $effectiveYear = $this->scoutYearResolver->getEffectiveYear(ScoutYearSession::getPreviewId(), $role);
+        $effectiveYear = $this->operationalYear();
 
         $staffOptions = $this->settingsService->getStaffOptions($effectiveYear->id);
         $orderedStaffMemberIds = array_column($staffOptions, 'member_id');
@@ -731,19 +740,13 @@ class SosAdminController extends AbstractController
 
         $this->onCallService->cleanupOlderThanOneYear();
 
-        if ($result['today_due_now']) {
-            try {
-                $this->redirectService->apply(
-                    $result['today_transition']['member_id'],
-                    $result['today_transition']['previous_member_id'],
-                    $effectiveYear->id
-                );
-            } catch (SosException $e) {
-                // Already journaled and alerted inside apply() — the grid
-                // save itself still succeeded, so this isn't a failure
-                // response, just a note for the client.
-            }
-        }
+        // Whatever the save changed, the line is put where the planning now
+        // says it should be at this moment — read from the operator first
+        // (issue #1102). Waiting for « a transition today » missed a duty
+        // removed after its handover: no transition, line left on the
+        // person just taken off. A failure is journaled, recorded and
+        // alerted inside; the grid save itself still succeeded.
+        $reconciled = $this->reconciler()->reconcile($effectiveYear->id, 'planning');
 
         $this->journalService->log(
             'sos_staff',
@@ -754,7 +757,16 @@ class SosAdminController extends AbstractController
             AuthSession::getUserAccountId()
         );
 
-        return $this->json(['success' => true, 'transitions' => count($result['transitions'])]);
+        return $this->json([
+            'success' => true,
+            'transitions' => count($result['transitions']),
+            'message' => $this->destinationMessage($reconciled, $effectiveYear->id),
+            'line_ok' => in_array(
+                $reconciled['status'],
+                [RedirectReconciler::ALIGNED, RedirectReconciler::CORRECTED],
+                true
+            ),
+        ]);
     }
 
     /**
@@ -925,23 +937,92 @@ class SosAdminController extends AbstractController
         return $this->clock !== null ? ($this->clock)() : new \DateTimeImmutable();
     }
 
-    private function applyImmediatelyIfTodayUsesDefault(): void
+    /**
+     * The year these pages work in: the year the site is ON, never a
+     * session preview (issue #1102). The roster a planning is validated
+     * against, the member a default number may be, the year the scheduled
+     * transitions look phone numbers up in — every one of them is a
+     * decision about where the unit's emergency calls go, and
+     * ScoutYearResolver keeps the preview for display alone. A planning
+     * saved while previewing next year silently dropped the duties of
+     * every current Staff d'U member absent from next year's roster.
+     */
+    private function operationalYear(): EffectiveScoutYear
     {
-        $role = Role::fromString(AuthSession::getRole());
-        $effectiveYear = $this->scoutYearResolver->getEffectiveYear(ScoutYearSession::getPreviewId(), $role);
-        $staffOptions = $this->settingsService->getStaffOptions($effectiveYear->id);
-        $orderedStaffMemberIds = array_column($staffOptions, 'member_id');
+        return $this->scoutYearResolver->getAuthorizationYear();
+    }
 
-        $today = $this->currentTime()->format('Y-m-d');
-        $todayTarget = $this->onCallService->resolveTargetForDate($today, $orderedStaffMemberIds);
-
-        if ($todayTarget === null) {
-            try {
-                $this->redirectService->apply(null, null, $effectiveYear->id);
-            } catch (SosException $e) {
-                // Already journaled and alerted inside apply().
-            }
+    /**
+     * Said on each page when a preview is active, since these pages ignore
+     * it: otherwise the roster shown would contradict the year selector.
+     */
+    private function yearNotice(): ?string
+    {
+        $previewed = $this->scoutYearResolver->getEffectiveYear(
+            ScoutYearSession::getPreviewId(),
+            Role::fromString(AuthSession::getRole())
+        );
+        $operational = $this->operationalYear();
+        if ($previewed->id === $operational->id) {
+            return null;
         }
+
+        return "Vous prévisualisez l'année {$previewed->label}. Le téléphone d'urgence suit toujours l'année "
+            . "en cours, {$operational->label} : ces pages montrent et modifient le Staff d'U de cette année-là.";
+    }
+
+    /**
+     * What the planning and the default number answer after a save: where
+     * the calls go now, as read from the operator, and the next planned
+     * change (issue #1102) — « Enregistré » alone was also what the page
+     * said while the line rang for somebody taken off duty.
+     *
+     * @param array{status: string, expected_member_id: ?int, expected_number: ?string} $reconciled
+     */
+    private function destinationMessage(array $reconciled, int $scoutYearId): string
+    {
+        $now = match ($reconciled['status']) {
+            RedirectReconciler::ALIGNED, RedirectReconciler::CORRECTED => 'Les appels arrivent maintenant chez '
+                . $this->destinationLabel($reconciled['expected_member_id'], $scoutYearId)
+                . ($reconciled['status'] === RedirectReconciler::CORRECTED ? ' (redirection modifiée).' : '.'),
+            RedirectReconciler::FAILED => "Attention : la redirection n'a pas pu être modifiée chez l'opérateur — "
+                . "les appels arrivent peut-être encore chez la personne précédente. Les chefs d'unité ont été "
+                . 'prévenus ; le site réessaie automatiquement.',
+            RedirectReconciler::UNREADABLE => "Attention : l'état de la redirection n'a pas pu être lu chez "
+                . "l'opérateur. Le site vérifie à nouveau automatiquement.",
+            RedirectReconciler::NO_DESTINATION => "Attention : personne n'est de garde et aucun numéro par "
+                . "défaut n'est utilisable — choisissez un numéro par défaut dans les réglages.",
+            default => "La téléphonie n'est pas configurée : la redirection ne suit pas le planning.",
+        };
+
+        $next = $this->onCallService->nextPendingTransition();
+        if ($next === null) {
+            return $now . ' Aucune bascule n\'est planifiée.';
+        }
+
+        return $now . ' Prochaine bascule le ' . $next['run_at']->format('d/m/Y à H:i') . ' vers '
+            . $this->destinationLabel($next['member_id'], $scoutYearId) . '.';
+    }
+
+    private function destinationLabel(?int $memberId, int $scoutYearId): string
+    {
+        if ($memberId === null) {
+            return 'le numéro par défaut';
+        }
+
+        return $this->settingsService->labelForMember($memberId, $scoutYearId) ?? 'la personne de garde';
+    }
+
+    private function reconciler(): RedirectReconciler
+    {
+        return $this->reconciler ??= new RedirectReconciler(
+            $this->onCallService,
+            $this->redirectService,
+            $this->providerConfigService,
+            $this->settingsService,
+            $this->journalService,
+            $this->clock
+        );
     }
 
     /**

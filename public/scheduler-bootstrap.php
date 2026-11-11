@@ -1005,6 +1005,15 @@ function scoutmagicBootstrapScheduler(
         \Modules\Rental\Task\ExpireRentalHoldsHandler::bootstrap($schedulerService);
     }
 
+    // The SOS line checked against the duty planning every hour (issue
+    // #1102): a failed transition or a line moved at the operator is
+    // corrected, and an outage that persists stays on the attention page.
+    // Owed to whoever dials the emergency number, so a crontab-only site
+    // runs it too. The handler is auto-resolved from the manifest.
+    if (in_array('sos_staff', $enabledModuleIds, true)) {
+        \Modules\SosStaff\Task\ReconcileRedirectHandler::bootstrap($schedulerService);
+    }
+
     // The automatic sending of registration decision e-mails (issue #843,
     // IT-09). Seeded here rather than on the web path with the module's
     // other pollers, because what it does is owed to a family at a due

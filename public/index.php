@@ -7755,10 +7755,10 @@ if ($isEnabled('sos_staff')) {
         $schedulerService,
         $sosSettingsService
     );
-    // The handover pair is told through the notification centre (the two
+    // The handover pair is told through the notification centre (the
     // types module.json declares) rather than by a direct mail — hence the
-    // NotificationService here. sendAdminAlert() still uses $mailService:
-    // a technical alert addressed to a role, not a personal notice.
+    // NotificationService here. sendAdminAlert() mails every chef d'unité
+    // directly and adds the `sos_staff.redirect_failed` notification.
     $sosRedirectService = new \Modules\SosStaff\Service\RedirectService(
         $sosProviderConfigService,
         $sosSettingsService,
