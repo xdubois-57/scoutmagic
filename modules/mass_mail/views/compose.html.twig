@@ -23,7 +23,7 @@
                 label: email.status == 'draft' ? 'Brouillon' : (email.status == 'test' ? 'Test' : (email.status == 'sending' ? 'Envoi en cours' : 'Envoyé')),
             } only %}
             {% if email.importedAt %}
-                {% include 'partials/status_badge.html.twig' with { status: 'neutral', label: 'Importé' } only %}
+                {% include '@mass_mail/partials/_imported_badge.html.twig' only %}
             {% endif %}
         </p>
     {% endif %}

@@ -78,7 +78,7 @@
                             {# Imported from a former site (D11): read-only, and its
                                sender and list as that site recorded them (D6). #}
                             {% if email.importedAt %}
-                                {% include 'partials/status_badge.html.twig' with { status: 'neutral', label: 'Importé' } only %}
+                                {% include '@mass_mail/partials/_imported_badge.html.twig' only %}
                                 {% include '@mass_mail/partials/_imported_origin.html.twig' with {
                                     email: email,
                                     sender: original_senders[email.id] ?? null,

@@ -13,7 +13,7 @@
       imported_at: email.importedAt,
   } only %}
 #}
-<div class="alert alert-secondary" role="status" id="mm-imported-notice">
+<div class="alert alert-imported" role="note" id="mm-imported-notice">
     <strong>Élément historique en lecture seule</strong>
     <span class="d-block small">Importé le {{ imported_at|date_fr }}. Ce courriel ne peut pas être modifié, supprimé ni renvoyé.</span>
 </div>
