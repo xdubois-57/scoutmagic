@@ -6756,6 +6756,18 @@ $authController->setPasswordAuth($passwordAuthMethod);
 $authController->setWebAuthnService($webAuthnService);
 $authController->setHumanCheck($humanCheckService);
 $frontController->registerController(AuthController::class, $authController);
+// Tells an account's holder, by e-mail and in-app, whenever a way into
+// their account is added, changed or removed — a password, a passkey, a
+// device credential (issue #1115, audit SEC-018) — and journals it.
+$accountSecurityAlertService = new \Core\Security\AccountSecurityAlertService(
+    $userAccountRepo,
+    $mailService,
+    $emailTemplateRenderer,
+    (string) $settingService->get('site_name'),
+    (string) $settingService->get('base_url'),
+    $journalService,
+    $notificationService
+);
 $frontController->registerController(
     AccountController::class,
     new AccountController(
@@ -6765,7 +6777,8 @@ $frontController->registerController(
         $webAuthnService,
         $accountPhotoService,
         $seenHelpTopicRepository,
-        $personalSignatureService
+        $personalSignatureService,
+        $accountSecurityAlertService
     )
 );
 $frontController->registerController(
@@ -6782,7 +6795,9 @@ $deviceCredentialService = new \Core\Contact\Device\DeviceCredentialService(
     $settingService,
     $journalService,
     // Only to name each device's owner on the superadmin's page.
-    $userAccountRepo
+    $userAccountRepo,
+    // Tells the holder a credential was created for their account (#1115).
+    $accountSecurityAlertService
 );
 $frontController->registerController(
     \Core\Contact\Controller\DeviceCredentialController::class,
