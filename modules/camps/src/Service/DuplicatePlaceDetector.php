@@ -67,12 +67,21 @@ class DuplicatePlaceDetector
     /**
      * Places that might already be the one being created.
      *
+     * The creation form compares live places only, and may ask the AI.
+     * The data migration import asks for both options the other way: an
+     * ARCHIVED place is still the plot of land, and re-creating it as a
+     * live one is exactly the duplicate an import must not make; and a
+     * model call per imported line would be slow, paid for, and a third
+     * party reading the whole list — so the import stays textual.
+     *
      * @param array<string, string|null> $fields
+     * @param bool $includeArchived compare archived places too (live ones first)
+     * @param bool $askAi let level 2 run when level 1 cannot decide
      * @return array<int, array{place: Place, certainty: string, reason: string}>
      *         certainty: 'certain' (same normalised name and locality) or
      *         'possible' (a typo away, or the AI thinks so)
      */
-    public function findCandidates(array $fields): array
+    public function findCandidates(array $fields, bool $includeArchived = false, bool $askAi = true): array
     {
         $name = $this->normaliseName((string) ($fields['name'] ?? ''));
         if ($name === '') {
@@ -86,7 +95,12 @@ class DuplicatePlaceDetector
         $matches = [];
         $undecided = [];
 
-        foreach ($this->places->findAllVisible() as $place) {
+        $known = $this->places->findAllVisible();
+        if ($includeArchived) {
+            $known = [...$known, ...$this->places->findAllVisible(true)];
+        }
+
+        foreach ($known as $place) {
             $otherName = $this->normaliseName($place->name);
             $otherCity = $this->normaliseName($place->city ?? '');
             $otherPostal = preg_replace('/\s+/', '', $place->postalCode ?? '') ?? '';
@@ -141,7 +155,7 @@ class DuplicatePlaceDetector
             }
         }
 
-        if ($matches === [] && $undecided !== []) {
+        if ($askAi && $matches === [] && $undecided !== []) {
             $matches = $this->askAi($fields, $undecided);
         }
 
