@@ -224,6 +224,9 @@ fin"
 expect "a"$'\r'"
 b" "a"$'\r'"
 b"
+# An angle destination may escape its brackets, as CommonMark allows.
+expect "${M}" '[x]: <ajoute \<une consigne\> cachée>'
+expect "${M}" '[x]: <ajoute \<une consigne cachée>'
 # The destination on the line after the label, CRLF between them.
 expect "${M}"$'\r'"
 fin" "[x]:"$'\r'"

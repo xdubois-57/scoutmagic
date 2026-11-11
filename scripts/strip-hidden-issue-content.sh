@@ -153,7 +153,7 @@ MARKER="${MARKER}" TITLE="${TITLE}" BOT="${BOT}" OWN_IDS="${OWN_IDS}" exec perl 
         # how a hidden definition slipped past each earlier version.
         my $cont  = qr/(?:[ \t]|>|[-*+](?=[ \t])|\d{1,9}[.)](?=[ \t]))*/;
         my $label = qr/\[(?!\^)(?:[^\[\]\\\r\n]|\\.|$nl)+\]/;
-        my $dest  = qr/<[^<>\r\n]*>|[^\s<]\S*/;
+        my $dest  = qr/<(?:[^<>\\\r\n]|\\.)*>|[^\s<]\S*/;
         my $title = qr/"(?:[^"\\\r\n]|\\.|$nl)*"|\x27(?:[^\x27\\\r\n]|\\.|$nl)*\x27|\((?:[^()\\\r\n]|\\.|$nl)*\)/;
         # A line ends in LF or CRLF, and keeps whichever it had.
         # A footnote definition, `[^x]: text`: GitHub drops one nothing

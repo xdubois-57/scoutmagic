@@ -2956,6 +2956,44 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
     }
 
     /**
+     * Issue #1117: a marker is an HTML comment anybody can type, so every
+     * lookup that acts on one reads a bot's text only — otherwise an
+     * imitated `<!-- issue-fixed-comment: … -->` suppresses the « fixed »
+     * notice, and an imitated `<!-- external-source:<id> -->` makes a
+     * person's issue receive that source's updates.
+     */
+    public function testMarkerLookupsTrustOnlyABotsText(): void
+    {
+        $sources = $this->contents('.github/workflows/external-sources-check.yml');
+        self::assertMatchesRegularExpression(
+            '/select\(\.pull_request == null\)\s*\|\s*select\(\.user\.type == "Bot"\)\s*'
+                . '\|\s*select\(\(\.body \/\/ ""\) \| contains\(env\.MARKER\)\)/',
+            $sources,
+            'external-sources-check.yml must find a source\'s issue among bot-opened issues only.',
+        );
+        self::assertMatchesRegularExpression(
+            '/\/comments" --paginate\s*\\\\\s*--jq \'\.\[\] \| select\(\.user\.type == "Bot"\) \| \.body\'/',
+            $sources,
+            'external-sources-check.yml must read the fingerprints from bot comments only.',
+        );
+
+        $fixed = $this->contents(self::FIXED_COMMENT);
+        self::assertMatchesRegularExpression(
+            '/\/comments"\s*\\\\\s*--jq \'\.\[\] \| select\(\.user\.type == "Bot"\) \| \.body\'/',
+            $fixed,
+            'issue-fixed-comment.yml must look for its notice among bot comments only.',
+        );
+
+        foreach (['external-sources-check.yml' => $sources, 'issue-fixed-comment.yml' => $fixed] as $name => $file) {
+            self::assertStringNotContainsString(
+                "--jq '.[] | .body'",
+                $file,
+                $name . ' reads comment bodies without filtering on their author.',
+            );
+        }
+    }
+
+    /**
      * Issue #1117: both triage jobs clean the thread themselves, BEFORE
      * their agent runs — the sanitizing workflow starts on the same event
      * and nothing makes it finish first.
