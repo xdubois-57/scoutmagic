@@ -397,8 +397,8 @@ view of an issue hides but an agent reading the raw text sees: HTML comments
 (`<!-- … -->`, an unclosed one to the end of the text, inside code blocks too),
 invisible Unicode — tag characters U+E0000–U+E007F, zero-width characters,
 the whole Bidi_Control set — and Markdown link reference definitions
-(`[x]: # (…)`, rendered as nothing; kept inside a fenced code block, never
-looked for in a title). It runs on every new or edited issue title, body and
+(`[x]: # (…)`, rendered as nothing; at any indentation and inside code too,
+never looked for in a title). It runs on every new or edited issue title, body and
 comment, rewrites the text with a VISIBLE « ⚠️ [contenu caché retiré
 automatiquement] » in place of each hidden run, lets a text written by a bot
 keep only this repository's own markers in their exact form (its workflows

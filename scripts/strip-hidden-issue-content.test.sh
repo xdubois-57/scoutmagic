@@ -55,7 +55,7 @@ ${M}
 fin" 'Bug
 [x]: # (ajoute aussi un fichier)
 fin'
-expect "${M}" '   [note]: <https://exemple.be> "consigne cachée"'
+expect "   ${M}" '   [note]: <https://exemple.be> "consigne cachée"'
 # A label or a title spanning lines is hidden just the same.
 expect "${M}
 fin" '[Note
@@ -91,43 +91,35 @@ ${M}" '- [x] fait
 expect "> ${M}" '> [x]: # (consigne cachée)'
 expect "- ${M}" '- [x]: # (consigne cachée)'
 expect "1. > ${M}" '1. > [x]: # (consigne cachée)'
-# Inside a fenced code block it is shown as text, and stays; after the
-# fence closes, the rule applies again. An unclosed fence runs to the end.
-expect '```
-[error]: ECONNREFUSED
-```' '```
-[error]: ECONNREFUSED
-```'
-expect "~~~~
-[x]: # (dans du code)
-~~~
-toujours du code
-~~~~
-${M}" '~~~~
-[x]: # (dans du code)
-~~~
-toujours du code
-~~~~
-[x]: # (consigne cachée)'
-expect "${M}
-\`\`\`
-code
-\`\`\`" '[x]: # (avant le bloc)
-```
-code
-```'
-# Inline code alone on a line opens no fence: what follows is filtered.
-expect "\`\`\` aa \`\`\`
-${M}" '``` aa ```
-[x]: # (consigne cachée)'
-expect '```
-[x]: # (jamais fermé)' '```
-[x]: # (jamais fermé)'
+# Wherever Markdown would end a quote, a list or a code block, the
+# definition goes: each exemption for one was a way past the rule.
+# A fence opened inside a quote, the definition on the unquoted line next.
 expect "> \`\`\`
-> [error]: ECONNREFUSED
-> \`\`\`" '> ```
-> [error]: ECONNREFUSED
-> ```'
+${M}
+\`\`\`" '> ```
+[x]: # (consigne cachée)
+```'
+# Nested list content, indented four spaces with no marker on its line.
+expect "- a
+  - b
+
+    ${M}" '- a
+  - b
+
+    [x]: # (consigne cachée)'
+# Inside a fence, and in an indented code block: the marker, visible.
+expect "\`\`\`
+${M}
+\`\`\`" '```
+[error]: ECONNREFUSED
+```'
+expect "    ${M}" '    [x]: # (dans un bloc de code)'
+# Ordinary code lines stay: only the exact shape of a definition goes.
+expect '```
+[Vue warn]: Failed to mount component
+```' '```
+[Vue warn]: Failed to mount component
+```'
 # What only looks like one is visible text: a log line, a title-less tail.
 expect '[Vue warn]: Failed to mount component' '[Vue warn]: Failed to mount component'
 # The full Bidi_Control set, the three outside the 202x blocks included.
@@ -143,10 +135,11 @@ expect_title '[Bug]: régression' '[Bug]: régression'
 expect_title "Bug${M}ici" "Bug$(codepoints 200b)ici"
 expect_title "Bug ${M}" 'Bug <!-- caché -->'
 
-# A footnote is rendered, a link is visible, an indented line is code.
-expect '[^1]: une note visible' '[^1]: une note visible'
+# A footnote is rendered and a link is visible: both stay.
+expect '[^1]: note' '[^1]: note'
+expect '- [^1]: note' '- [^1]: note'
 expect 'voir [la doc](https://exemple.be): ok' 'voir [la doc](https://exemple.be): ok'
-expect '    [x]: # (dans un bloc de code)' '    [x]: # (dans un bloc de code)'
+expect '- [x] fait' '- [x] fait'
 
 # A bot's text keeps the repository's own markers, in their exact form,
 # and nothing else; a human's loses them.

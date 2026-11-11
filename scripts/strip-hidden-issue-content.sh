@@ -21,12 +21,13 @@ set -euo pipefail
 #     and title may span lines (never a blank one), the destination is one
 #     token, and a title, if any, is the last thing on its line — so
 #     `[Vue warn]: Failed to mount component` is visible text and stays.
-#     Inside a block quote or a list item too (`> [x]: …`, `- [x]: …`),
-#     which hide it just the same. The definition always goes, even one a
-#     link refers to: telling a real reference from any other bracket is a
-#     parser's job, and a link that falls back to plain text next to the
-#     marker is a visible loss, never a hidden one. Inside a fenced code
-#     block it stays, because there GitHub shows it as text. A footnote,
+#     At any indentation, behind any block quote or list markers, and
+#     inside code too, like an HTML comment: every exemption for where
+#     Markdown "really" ends a quote, a list or a code block was a way
+#     past this rule. The definition always goes, even one a link refers
+#     to. What this costs is visible, never hidden: a link falls back to
+#     plain text, and a code line shaped exactly like `[label]: token`
+#     shows the marker, its original in the edit history. A footnote,
 #     `[^1]: text`, is rendered and stays.
 #
 # `--bot` applies to a text a bot wrote. It keeps the repository's own
@@ -74,33 +75,14 @@ MARKER="${MARKER}" TITLE="${TITLE}" BOT="${BOT}" exec perl -CSDA -0777 -pe '
     if (!$ENV{TITLE}) {
         # A newline, but never a blank line, may sit inside a label or title.
         my $nl    = qr/\n(?![ \t]*\n)/;
-        # Block quote and list item markers, nested any number of times.
-        my $cont  = qr/(?:[ ]{0,3}(?:>[ ]?|[-*+][ ]+|\d{1,9}[.)][ ]+))*/;
+        # Any indentation and any block quote or list markers, nested or
+        # lazy: approximating where CommonMark ends a container is exactly
+        # how a hidden definition slipped past each earlier version.
+        my $cont  = qr/(?:[ \t]|>|[-*+](?=[ \t])|\d{1,9}[.)](?=[ \t]))*/;
         my $label = qr/\[(?!\^)(?:[^\[\]\\\n]|\\.|$nl)+\]/;
         my $dest  = qr/<[^<>\n]*>|[^\s<]\S*/;
         my $title = qr/"(?:[^"\\\n]|\\.|$nl)*"|\x27(?:[^\x27\\\n]|\\.|$nl)*\x27|\((?:[^()\\\n]|\\.|$nl)*\)/;
-        my $def   = qr/^($cont)[ ]{0,3}$label:[ \t]*\n?[ \t]*(?:$dest)(?:(?:[ \t]+|[ \t]*\n[ \t]*)(?:$title))?[ \t]*$/m;
-        # Fenced code blocks are copied as they are; the rest is filtered.
-        # An unclosed fence runs to the end of the text, as CommonMark has it.
-        my ($out, $prose, $fence) = (q{}, q{}, undef);
-        for my $line (split /(?<=\n)/, $_) {
-            if (defined $fence) {
-                $out .= $line;
-                $fence = undef if $line =~ /^$cont[ ]{0,3}$fence[ \t]*\n?\z/;
-            } elsif ($line =~ /^$cont[ ]{0,3}(?:(`{3,})(?![^\n]*`)|(~{3,}))/) {
-                # A backtick fence carries no backtick after it: ``` a ```
-                # on one line is inline code in a paragraph, never a fence.
-                my $open = $1 // $2;
-                $prose =~ s/$def/$1$m/g;
-                $out .= $prose . $line;
-                $prose = q{};
-                $fence = quotemeta(substr($open, 0, 1)) . "{" . length($open) . ",}";
-            } else {
-                $prose .= $line;
-            }
-        }
-        $prose =~ s/$def/$1$m/g;
-        $_ = $out . $prose;
+        s/^($cont)$label:[ \t]*\n?[ \t]*(?:$dest)(?:(?:[ \t]+|[ \t]*\n[ \t]*)(?:$title))?[ \t]*$/$1$m/gm;
     }
     s/\n/\r\n/g if $crlf;
 '
