@@ -277,9 +277,9 @@ final class EmailHistoryImporter implements Importer
             return $ignored('Adresse d\'expéditeur invalide');
         }
 
-        $body = $this->body($context->source, is_array($data['body'] ?? null) ? $data['body'] : []);
-        if (is_string($body) && str_starts_with($body, '!')) {
-            return $ignored(substr($body, 1));
+        [$body, $bodyRefusal] = $this->body($context->source, is_array($data['body'] ?? null) ? $data['body'] : []);
+        if ($bodyRefusal !== null) {
+            return $ignored($bodyRefusal);
         }
         if ($body === null) {
             return $ignored('Sans contenu');
@@ -337,12 +337,15 @@ final class EmailHistoryImporter implements Importer
     /**
      * The body to keep, as HTML: the HTML version when it says anything once
      * sanitized — the version actually sent (spec §6.1) — else the text
-     * version, escaped. Null when neither says anything; a string starting
-     * with `!` is an ignore reason.
+     * version, escaped. Returned with no reason, the body is null when
+     * neither says anything; with a reason, the email is ignored. Two
+     * values, never a marker in the body: an HTML body may start with any
+     * character, and its text must never become a reason in the report.
      *
      * @param array<string, mixed> $body
+     * @return array{0: ?string, 1: ?string} the body, and the reason to ignore the email
      */
-    private function body(ImportSource $source, array $body): ?string
+    private function body(ImportSource $source, array $body): array
     {
         foreach (['html', 'text'] as $kind) {
             if (!isset($body[$kind])) {
@@ -350,7 +353,7 @@ final class EmailHistoryImporter implements Importer
             }
             $path = $body[$kind];
             if (!is_string($path) || !str_starts_with($path, self::CONTENT) || !$source->archive()->has($path)) {
-                return '!Contenu introuvable dans l\'archive';
+                return [null, 'Contenu introuvable dans l\'archive'];
             }
             // Streamed and kept only up to the ceiling: a body past it is
             // one email ignored, not a whole archive refused, and never
@@ -362,20 +365,20 @@ final class EmailHistoryImporter implements Importer
                 }
             });
             if (strlen($bytes) > self::MAX_CONTENT_BYTES) {
-                return '!Contenu de plus de 2 Mio';
+                return [null, 'Contenu de plus de 2 Mio'];
             }
             if (!mb_check_encoding($bytes, 'UTF-8')) {
-                return '!Contenu qui n\'est pas en UTF-8';
+                return [null, 'Contenu qui n\'est pas en UTF-8'];
             }
             $html = $kind === 'html'
                 ? $bytes
                 : '<p>' . nl2br(htmlspecialchars(trim($bytes), ENT_QUOTES | ENT_HTML5, 'UTF-8'), false) . '</p>';
             if (self::hasContent($this->sanitizer->sanitize($html))) {
-                return $html;
+                return [$html, null];
             }
         }
 
-        return null;
+        return [null, null];
     }
 
     /**

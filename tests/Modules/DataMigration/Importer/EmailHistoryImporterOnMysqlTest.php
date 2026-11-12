@@ -355,6 +355,39 @@ final class EmailHistoryImporterOnMysqlTest extends TestCase
         $this->assertSame(1, $run->analysis['to_import']);
     }
 
+    /**
+     * A body is any HTML: one that opens on « ! » is imported like any
+     * other, and its text never becomes a reason in the report.
+     */
+    public function testAnHtmlBodyStartingWithAnExclamationMarkIsImported(): void
+    {
+        $html = '!! Rappel : réunion chez Jean Dupont, rue des Exemples 1.';
+        $content = 'content/' . hash('sha256', $html) . '.html';
+        $zip = TestArchive::build(
+            [
+                'communications/c-1.json' => (string) json_encode([
+                    'id' => 'c-1',
+                    'sent_at' => '2023-09-04T20:00:00+02:00',
+                    'subject' => 'Rappel',
+                    'sender' => ['address' => 'tresorerie@exemple.test'],
+                    'body' => ['html' => $content],
+                ]),
+                $content => $html,
+            ],
+            ['format' => EmailHistoryImporter::FORMAT, 'format_version' => '1.0.0']
+        );
+
+        $run = $this->service->confirm($this->drive($this->deposit($zip)), []);
+        $this->assertNotNull($run);
+        $run = $this->drive($run);
+        @unlink($zip);
+
+        $this->assertSame(Run::DONE, $run->state, (string) $run->rejectionReason);
+        $this->assertSame(1, $run->report['imported']);
+        $this->assertSame([], $run->report['ignored']);
+        $this->assertSame(1, $this->rows('mass_mail_emails'));
+    }
+
     public function testAnArchiveMissingFromItsOwnInventoryIsRefusedWhole(): void
     {
         $zip = TestArchive::build(
