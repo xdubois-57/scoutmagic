@@ -8,9 +8,9 @@ declare(strict_types=1);
 
 namespace Modules\Calendar\Service;
 
-use Core\Config\ScoutYearService;
 use Core\Member\SectionStaffAuthorizationService;
 use Core\ScoutYear\AuthorizationYearService;
+use Core\ScoutYear\ScoutYearResolver;
 use Core\Security\Role;
 use Core\Security\RoleResolver;
 use Core\Security\UserAccountRepository;
@@ -24,8 +24,11 @@ use Core\Security\UserAccountRepository;
  * running in later requests, so its rights are resolved here, afresh, at
  * every check: the role exactly as the session revalidator would compute
  * it (Core\Security\SessionRevalidator, over the authorization years), and
- * the sections for the current scout year, widened to all of them for an
- * administrator by SectionStaffAuthorizationService itself.
+ * the sections for the effective scout year the chief calendar page uses
+ * (ScoutYearResolver::getEffectiveYear(), without its display-only session
+ * preview), widened to all of them for an administrator by
+ * SectionStaffAuthorizationService itself — the same year, through the same
+ * fallback, as that page.
  */
 class AccountCalendarRights
 {
@@ -34,7 +37,7 @@ class AccountCalendarRights
         private RoleResolver $roles,
         private AuthorizationYearService $authorizationYears,
         private SectionStaffAuthorizationService $staff,
-        private ScoutYearService $scoutYears
+        private ScoutYearResolver $scoutYears
     ) {
     }
 
@@ -57,7 +60,7 @@ class AccountCalendarRights
         $sections = $this->staff->getStaffedSections(
             $account->email,
             $role->value,
-            (int) $this->scoutYears->getCurrentYear()['id']
+            $this->scoutYears->getEffectiveYear(null, $role)->id
         );
 
         return [

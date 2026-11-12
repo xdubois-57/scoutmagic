@@ -7535,7 +7535,7 @@ if ($isEnabled('calendar')) {
             $roleResolver,
             $authorizationYearService,
             $sectionStaffAuthorizationService,
-            $scoutYearService
+            $scoutYearResolver
         )
     );
 

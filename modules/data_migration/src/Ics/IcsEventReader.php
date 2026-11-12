@@ -423,9 +423,10 @@ final class IcsEventReader
                     }
                 } else {
                     if ($end === 'VEVENT') {
-                        // Close what the event left open, so that vobject
-                        // gets a well-formed event.
-                        foreach (array_reverse($inner) as $component) {
+                        // Close what the event left open, innermost first, so
+                        // that vobject gets a well-formed event: prepending in
+                        // opening order puts the innermost END nearest the top.
+                        foreach ($inner as $component) {
                             $line = 'END:' . $component . "\r\n" . $line;
                         }
                         $inner = [];
@@ -554,7 +555,9 @@ final class IcsEventReader
      */
     private static function description(string $text): string
     {
-        if (preg_match('/<\/?[a-z][a-z0-9]*[\s>\/]/i', $text) === 1) {
+        // Only the tags such an export uses: `<sa>` in plain text is text.
+        $tags = 'a|b|br|div|em|html|i|li|ol|p|span|strong|u|ul';
+        if (preg_match('/<\/?(?:' . $tags . ')(?:\s[^>]*)?\/?>/i', $text) === 1) {
             $text = (string) preg_replace('/<br\s*\/?>|<\/p>|<\/div>|<\/li>/i', "\n", $text);
             $text = html_entity_decode(strip_tags($text), ENT_QUOTES | ENT_HTML5, 'UTF-8');
         }

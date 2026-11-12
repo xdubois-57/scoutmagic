@@ -185,6 +185,37 @@ final class IcsEventReaderTest extends TestCase
         $this->assertSame('événement non terminé', $lines[1]['reason']);
     }
 
+    /**
+     * Two components left open inside one event are closed innermost
+     * first, so the event is still read rather than lost.
+     */
+    public function testTwoNestedComponentsLeftOpenAreClosedInnermostFirst(): void
+    {
+        $lines = $this->convertText(
+            "BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:n\nDTSTART;VALUE=DATE:20250101\nSUMMARY:Imbriqué\n"
+            . "BEGIN:VALARM\nTRIGGER:-PT1H\nBEGIN:X-SOUS\nX-A:1\nEND:VEVENT\nEND:VCALENDAR\n"
+        );
+
+        $this->assertSame([['event', 'n']], array_map(
+            static fn (array $l): array => [$l['state'], $l['uid']],
+            $lines
+        ));
+    }
+
+    /**
+     * Words between angle brackets in a plain-text description are text,
+     * not tags to strip: only the tags an HTML export uses mark it as HTML.
+     */
+    public function testAnglesInAPlainTextDescriptionAreKept(): void
+    {
+        $record = (new IcsEventReader())->read(
+            "BEGIN:VEVENT\r\nUID:t\r\nDTSTART;VALUE=DATE:20250101\r\nSUMMARY:Sortie\r\n"
+            . "DESCRIPTION:Apporter <sa> gourde\\, rendez-vous <devant> l'église\r\nEND:VEVENT\r\n"
+        );
+
+        $this->assertSame("Apporter <sa> gourde, rendez-vous <devant> l'église", $record['description']);
+    }
+
     public function testAnOversizedEventIsReportedAsSuch(): void
     {
         $lines = $this->convertText(
