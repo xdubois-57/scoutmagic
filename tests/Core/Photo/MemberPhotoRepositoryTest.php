@@ -171,4 +171,33 @@ class MemberPhotoRepositoryTest extends TestCase
 
         $this->assertSame([], $this->repository->findPhotoYears([], $this->yearNewId));
     }
+
+    public function testHasPhotoForYearAnswersForThatYearOnly(): void
+    {
+        $this->repository->upsert($this->memberId, $this->yearOldId, $this->fileIdA, null);
+
+        $this->assertTrue($this->repository->hasPhotoForYear($this->memberId, $this->yearOldId));
+        // A later year shows the older photo, but has none of its own.
+        $this->assertFalse($this->repository->hasPhotoForYear($this->memberId, $this->yearNewId));
+    }
+
+    public function testInsertIfAbsentNeverReplacesAPhoto(): void
+    {
+        $this->assertTrue($this->repository->insertIfAbsent($this->memberId, $this->yearOldId, $this->fileIdA, null));
+        $this->assertFalse($this->repository->insertIfAbsent($this->memberId, $this->yearOldId, $this->fileIdB, null));
+
+        $this->assertSame($this->fileIdA, $this->repository->findFileIdForYearOrEarlier($this->memberId, $this->yearOldId));
+        $this->assertSame(
+            1,
+            (int) $this->pdo->query('SELECT COUNT(*) FROM member_photos')->fetchColumn()
+        );
+    }
+
+    public function testInsertIfAbsentStillRefusesWhatIsNotADuplicate(): void
+    {
+        $this->pdo->exec('PRAGMA foreign_keys = ON');
+
+        $this->expectException(\PDOException::class);
+        $this->repository->insertIfAbsent(999999, $this->yearOldId, $this->fileIdA, null);
+    }
 }
