@@ -13209,7 +13209,10 @@ if ($isEnabled('data_migration')) {
     );
     // One line per import (vague 2 of the chantier), kept alphabetical by key:
     // $dataMigrationImporters->add(new \Modules\DataMigration\Importer\…Importer(…));
-    $dataMigrationImporters->add(new \Modules\DataMigration\Importer\NewsHistoryImporter($newsImportWriterForOthers ?? null, new \Modules\DataMigration\Repository\ItemMappingRepository($pdo)));
+    $dataMigrationImporters->add(new \Modules\DataMigration\Importer\NewsHistoryImporter(
+        $newsImportWriterForOthers ?? null,
+        new \Modules\DataMigration\Repository\ItemMappingRepository($pdo)
+    ));
     $dataMigrationImporters->add(new \Modules\DataMigration\Importer\CampPlacesImporter($campsPlaceImportWriterForOthers ?? null));
 
     $dataMigrationRuns = new \Modules\DataMigration\Repository\RunRepository($pdo, $encryptionService);

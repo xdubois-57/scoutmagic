@@ -110,7 +110,8 @@ class NewsImportWriter implements NewsImportWriterInterface
                     ->format('Y-m-d H:i:s')
             );
             $this->articles->markImported($id, $this->now()->format('Y-m-d H:i:s'), $article->importSource);
-            $this->articles->setShortUrlCode($id, $this->shortUrls->createShortUrl('/news/' . $id, $article->importedBy));
+            $shortCode = $this->shortUrls->createShortUrl('/news/' . $id, $article->importedBy);
+            $this->articles->setShortUrlCode($id, $shortCode);
 
             // The cover belongs to its article, as ArticleService::
             // syncCoverImageAccess() makes it for one written here.
@@ -166,10 +167,16 @@ class NewsImportWriter implements NewsImportWriterInterface
     public function importForm(int $articleId, array $fields, int $importedBy): int
     {
         if (!$this->acceptsImportedForm($articleId)) {
-            throw new \InvalidArgumentException('Only an imported article whose form asks nothing yet takes imported questions.');
+            throw new \InvalidArgumentException(
+                'Only an imported article whose form asks nothing yet takes imported questions.'
+            );
         }
         $rows = array_map(fn (ImportedFormField $field): array => $this->fieldRow($field), $fields);
-        if (array_filter($rows, static fn (array $row): bool => !in_array($row['type'], self::NON_INPUT_FIELD_TYPES, true)) === []) {
+        $inputRows = array_filter(
+            $rows,
+            static fn (array $row): bool => !in_array($row['type'], self::NON_INPUT_FIELD_TYPES, true)
+        );
+        if ($inputRows === []) {
             throw new \InvalidArgumentException('An imported form asks at least one question.');
         }
 
@@ -414,7 +421,13 @@ class NewsImportWriter implements NewsImportWriterInterface
             $options = implode("\n", $lines);
         }
 
-        return ['type' => $field->type, 'label' => $label, 'required' => $field->required, 'options' => $options, 'content' => null];
+        return [
+            'type' => $field->type,
+            'label' => $label,
+            'required' => $field->required,
+            'options' => $options,
+            'content' => null,
+        ];
     }
 
     private function now(): \DateTimeImmutable

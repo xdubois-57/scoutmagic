@@ -95,7 +95,8 @@ interface NewsImportWriterInterface
      *
      * @param list<ImportedFormField> $fields
      *
-     * @throws \InvalidArgumentException the article is not one {@see acceptsImportedForm()} accepts, or a field breaks a rule
+     * @throws \InvalidArgumentException the article is not one {@see acceptsImportedForm()} accepts,
+     *         or a field breaks a rule
      */
     public function importForm(int $articleId, array $fields, int $importedBy): int;
 }

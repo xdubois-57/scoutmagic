@@ -175,9 +175,11 @@ final class NewsHistoryImporter implements Importer
         for ($position = max(0, $from); $position < count($paths); $position++) {
             [$kind, $path] = $paths[$position];
             yield $position => $kind === self::KIND_FILE
-                ? SourceItem::unreadable(self::KIND_FILE, $path, self::isResponsesFile($path)
-                    ? self::REASON_RESPONSES
-                    : self::REASON_OTHER_FILE)
+                ? SourceItem::unreadable(
+                    self::KIND_FILE,
+                    $path,
+                    self::isResponsesFile($path) ? self::REASON_RESPONSES : self::REASON_OTHER_FILE
+                )
                 : $this->readItem($source, $kind, $path);
         }
     }
@@ -242,11 +244,16 @@ final class NewsHistoryImporter implements Importer
         $notes = [];
 
         $forms = $summary->tag(self::TAG_FORM);
-        $responses = ($summary->ignoredReasons[self::REASON_RESPONSES] ?? 0) + $summary->tag(self::TAG_RESPONSES_LEFT_OUT);
+        $responses = ($summary->ignoredReasons[self::REASON_RESPONSES] ?? 0)
+            + $summary->tag(self::TAG_RESPONSES_LEFT_OUT);
         if ($forms > 0 || $responses > 0) {
             $notes[] = PreviewNote::info(trim(
                 ($forms > 0
-                    ? self::counted($forms, 'formulaire est importé et fermé.', 'formulaires sont importés et fermés.') . ' '
+                    ? self::counted(
+                        $forms,
+                        'formulaire est importé et fermé.',
+                        'formulaires sont importés et fermés.'
+                    ) . ' '
                     : '')
                 . ($responses > 0
                     ? 'Les réponses présentes dans le fichier sont ignorées : aucune n\'est importée.'
@@ -257,7 +264,11 @@ final class NewsHistoryImporter implements Importer
         $unknown = $summary->tag(self::TAG_VISIBILITY_UNKNOWN);
         if ($unknown > 0) {
             $notes[] = PreviewNote::warning(
-                self::counted($unknown, 'actualité a une visibilité inconnue. Elle sera visible', 'actualités ont une visibilité inconnue. Elles seront visibles')
+                self::counted(
+                    $unknown,
+                    'actualité a une visibilité inconnue. Elle sera visible',
+                    'actualités ont une visibilité inconnue. Elles seront visibles'
+                )
                 . ' des seuls « Membres connectés ».'
             );
         }
@@ -276,15 +287,24 @@ final class NewsHistoryImporter implements Importer
             }
             $notes[] = PreviewNote::info(
                 implode(' et ', $parts) . '. '
-                . ($noImage + $noSummary > 1 ? 'Elles sont importées telles quelles.' : 'Elle est importée telle quelle.')
+                . ($noImage + $noSummary > 1
+                    ? 'Elles sont importées telles quelles.'
+                    : 'Elle est importée telle quelle.')
             );
         }
 
         $leftOut = $summary->tag(self::TAG_IMAGE_LEFT_OUT);
         if ($leftOut > 0) {
             $notes[] = PreviewNote::warning(
-                self::counted($leftOut, 'image est illisible, absente du fichier ou trop lourde', 'images sont illisibles, absentes du fichier ou trop lourdes')
-                . ' (plus de 5 Mo). ' . ($leftOut > 1 ? 'Leur actualité est importée sans elles.' : 'Son actualité est importée sans elle.')
+                self::counted(
+                    $leftOut,
+                    'image est illisible, absente du fichier ou trop lourde',
+                    'images sont illisibles, absentes du fichier ou trop lourdes'
+                )
+                . ' (plus de 5 Mo). '
+                . ($leftOut > 1
+                    ? 'Leur actualité est importée sans elles.'
+                    : 'Son actualité est importée sans elle.')
             );
         }
 
@@ -390,7 +410,12 @@ final class NewsHistoryImporter implements Importer
             return ItemVerdict::ignored(self::REASON_NO_PARENT);
         }
 
-        $target = $this->mappings->findTarget($context->installationId, $context->format, self::KIND_ARTICLE, $parentId);
+        $target = $this->mappings->findTarget(
+            $context->installationId,
+            $context->format,
+            self::KIND_ARTICLE,
+            $parentId
+        );
         if ($target !== null) {
             if ($target['target_type'] !== self::TARGET_ARTICLE || $this->writer === null) {
                 return ItemVerdict::ignored(self::REASON_NO_PARENT);
@@ -505,8 +530,12 @@ final class NewsHistoryImporter implements Importer
         }
 
         $label = $field['label'] ?? null;
-        if (!is_string($label) || trim($label) === '' || mb_strlen(trim($label)) > NewsImportWriterInterface::MAX_LABEL_LENGTH
-            || strpbrk($label, '<>') !== false) {
+        if (
+            !is_string($label)
+            || trim($label) === ''
+            || mb_strlen(trim($label)) > NewsImportWriterInterface::MAX_LABEL_LENGTH
+            || strpbrk($label, '<>') !== false
+        ) {
             return self::REASON_BAD_LABEL;
         }
         if (isset($field['required']) && !is_bool($field['required'])) {
@@ -657,11 +686,13 @@ final class NewsHistoryImporter implements Importer
 
         $paragraphs = preg_split('/\R\s*\R/u', trim(str_replace("\r\n", "\n", $data['body_text']))) ?: [];
 
-        return implode('', array_map(
+        $html = array_map(
             static fn (string $paragraph): string => '<p>'
                 . nl2br(htmlspecialchars(trim($paragraph), ENT_QUOTES | ENT_HTML5, 'UTF-8'), false) . '</p>',
             $paragraphs
-        ));
+        );
+
+        return implode('', $html);
     }
 
     /**
