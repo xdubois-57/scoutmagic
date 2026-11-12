@@ -284,7 +284,9 @@ class ArticleService implements HomeNewsProvider
                 'summary' => $article->summary,
                 // The 192px thumb, not the original: the homepage card renders
                 // this in a 56px box, and originals can weigh several MB.
-                'image_url' => $article->imageFileId !== null ? '/files/' . $article->imageFileId . '/thumb' : null,
+                'image_url' => $article->imageFileId !== null
+                    ? \Core\File\FilePublicIds::urlFor($article->imageFileId, 'thumb')
+                    : null,
                 // The key keeps its name (Core\Module\HomeNewsProvider's
                 // contract); the date it carries is the publication date,
                 // the one every list shows since issue #845.

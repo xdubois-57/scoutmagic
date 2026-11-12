@@ -83,7 +83,7 @@
                            the row, never answered with a 404. #}
                         <span class="d-inline-flex" data-backup-download="{{ backup.id }}">
                             {% include 'partials/file_link.html.twig' with {
-                                href: '/files/' ~ backup.fileId,
+                                href: file_url(backup.fileId),
                                 label: '',
                                 aria_label: 'Télécharger la sauvegarde « ' ~ backup.typeLabel ~ ' » du ' ~ backup.createdAt,
                                 title: 'Télécharger',

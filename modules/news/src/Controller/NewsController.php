@@ -307,7 +307,7 @@ class NewsController extends AbstractController
 
         return $this->json([
             'success' => true,
-            'url' => '/files/' . $fileId . ($this->hasMediumRendition($fileId) ? '/md' : ''),
+            'url' => \Core\File\FilePublicIds::urlFor($fileId, $this->hasMediumRendition($fileId) ? 'md' : null),
         ]);
     }
 
@@ -844,7 +844,9 @@ class NewsController extends AbstractController
             'og_url' => $article->shortUrlCode !== null
                 ? $baseUrl . '/s/' . $article->shortUrlCode
                 : $baseUrl . '/news/' . $article->id,
-            'og_image_url' => $article->imageFileId !== null ? $baseUrl . '/files/' . $article->imageFileId : null,
+            'og_image_url' => $article->imageFileId !== null
+                ? $baseUrl . \Core\File\FilePublicIds::urlFor($article->imageFileId)
+                : null,
         ];
     }
 

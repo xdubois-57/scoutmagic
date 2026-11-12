@@ -607,7 +607,7 @@
             </output>
 
             <a class="btn btn-primary{% if not package_file_id %} d-none{% endif %}" id="support-package-download"
-               href="{% if package_file_id %}/files/{{ package_file_id }}{% else %}#{% endif %}">
+               href="{% if package_file_id %}{{ file_url(package_file_id) }}{% else %}#{% endif %}">
                 Télécharger l'archive
             </a>
         </div>

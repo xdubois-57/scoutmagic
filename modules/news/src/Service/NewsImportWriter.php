@@ -298,7 +298,7 @@ class NewsImportWriter implements NewsImportWriterInterface
                     }
                     $resolved[$key] ??= $this->storeImage($image, 'public', $article->importedBy, $stored);
 
-                    return str_replace($src[0], ' src="/files/' . $resolved[$key] . '"', $tag[0]);
+                    return str_replace($src[0], ' src="' . \Core\File\FilePublicIds::urlFor($resolved[$key]) . '"', $tag[0]);
                 },
                 $html
             );

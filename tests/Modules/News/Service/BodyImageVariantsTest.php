@@ -58,4 +58,40 @@ final class BodyImageVariantsTest extends TestCase
 
         $this->assertSame($html, BodyImageVariants::rewrite($html, static fn (): bool => true));
     }
+
+    /**
+     * Issue #1109: a stored image is shown under its file's opaque address,
+     * whether the text names it by its old sequential id or already by the
+     * opaque one — and the md rendition is still asked about by file id.
+     */
+    public function testStoredImagesAreShownUnderTheirOpaqueAddress(): void
+    {
+        $pdo = \Tests\DatabaseTestHelper::createTestDatabase();
+        $files = new \Core\File\FileRepository($pdo);
+        \Core\File\FilePublicIds::useRepository($files);
+        try {
+            $old = $files->create('old.jpg', 'old.jpg', 'image/jpeg', 1, 'public', null, null);
+            $new = $files->create('new.jpg', 'new.jpg', 'image/jpeg', 1, 'public', null, null);
+            $oldPublic = (string) $files->findById($old)?->publicId;
+            $newPublic = (string) $files->findById($new)?->publicId;
+            $asked = [];
+            $hasMedium = static function (int $id) use (&$asked, $old): bool {
+                $asked[] = $id;
+
+                return $id === $old;
+            };
+
+            $html = '<img src="/files/' . $old . '"><img src="/files/' . $newPublic . '">'
+                . '<img src="/files/' . str_repeat('Q', 22) . '">';
+
+            $this->assertSame(
+                '<img src="/files/' . $oldPublic . '/md"><img src="/files/' . $newPublic . '">'
+                    . '<img src="/files/' . str_repeat('Q', 22) . '">',
+                BodyImageVariants::rewrite($html, $hasMedium)
+            );
+            $this->assertSame([$old, $new], $asked, 'an unknown opaque id is left alone without asking');
+        } finally {
+            \Core\File\FilePublicIds::useRepository(null);
+        }
+    }
 }

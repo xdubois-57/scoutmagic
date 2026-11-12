@@ -55,6 +55,8 @@ function receipt(overrides = {}) {
     return {
         id: 31,
         file_id: 99,
+        file_url: '/files/99',
+        thumbnail_url: '/files/99/thumbnail',
         mime_type: 'image/jpeg',
         original_filename: 'ticket.jpg',
         uploaded_at: '01/07/2026 14:00',

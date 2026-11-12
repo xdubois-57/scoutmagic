@@ -67,6 +67,27 @@ class PersonAvatarTest extends TestCase
     }
 
     /**
+     * Issue #1109: the thumbnail is addressed by the file's opaque id.
+     */
+    public function testThePhotoIsAddressedByItsOpaqueId(): void
+    {
+        $pdo = \Tests\DatabaseTestHelper::createTestDatabase();
+        $files = new \Core\File\FileRepository($pdo);
+        \Core\File\FilePublicIds::useRepository($files);
+        try {
+            $id = $files->create('me.jpg', 'me.jpg', 'image/jpeg', 1, 'identified', null, null);
+            $public = (string) $files->findById($id)?->publicId;
+
+            $html = PersonAvatar::render('Marie Dupont', $id, 32);
+
+            $this->assertStringContainsString('src="/files/' . $public . '/thumb"', $html);
+            $this->assertStringNotContainsString('/files/' . $id . '/', $html);
+        } finally {
+            \Core\File\FilePublicIds::useRepository(null);
+        }
+    }
+
+    /**
      * A roster page draws dozens of avatars, each /files/… request a full
      * application boot — only the visible ones should fire. The explicit
      * width/height reserve the box, so lazy-loading cannot shift layout.

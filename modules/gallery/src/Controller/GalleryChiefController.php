@@ -498,7 +498,7 @@ class GalleryChiefController extends AbstractController
             'success' => true,
             'og_title' => $album->ogTitle,
             'og_description' => $album->ogDescription,
-            'og_image_url' => $album->ogImageFileId !== null ? '/files/' . $album->ogImageFileId : null,
+            'og_image_url' => $album->ogImageFileId !== null ? \Core\File\FilePublicIds::urlFor($album->ogImageFileId) : null,
         ]);
     }
 

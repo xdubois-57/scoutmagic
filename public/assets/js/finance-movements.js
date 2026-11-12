@@ -225,15 +225,15 @@
     const attachmentsModal = window.bootstrap ? new window.bootstrap.Modal(attachmentsModalEl) : null;
 
     /**
-     * @param {{mime_type: string, file_id: number}} a
+     * @param {{mime_type: string, file_url: string, thumbnail_url: string}} a
      * @returns {string}
      */
     function attachmentThumbnailHtml(a) {
         if (a.mime_type.startsWith('image/')) {
-            return '<img src="/files/' + a.file_id + '" alt="" class="rounded pdf-thumbnail" style="width:64px;height:64px;object-fit:cover;">';
+            return '<img src="' + escapeHtml(a.file_url) + '" alt="" class="rounded pdf-thumbnail" style="width:64px;height:64px;object-fit:cover;">';
         }
         if (a.mime_type === 'application/pdf') {
-            return '<img src="/files/' + a.file_id + '/thumbnail" alt="" class="rounded pdf-thumbnail" style="width:64px;height:64px;object-fit:cover;">';
+            return '<img src="' + escapeHtml(a.thumbnail_url) + '" alt="" class="rounded pdf-thumbnail" style="width:64px;height:64px;object-fit:cover;">';
         }
         return '<div class="d-flex align-items-center justify-content-center bg-body-secondary rounded" style="width:64px;height:64px;"><i class="bi bi-file-earmark fs-4"></i></div>';
     }
@@ -253,7 +253,7 @@
         data.attachments.forEach(a => {
             const row = document.createElement('div');
             row.className = 'd-flex align-items-center gap-2 border rounded p-2';
-            let info = '<a href="/files/' + a.file_id + '" target="_blank" rel="noopener" class="fw-semibold">' + escapeHtml(a.original_filename) + '</a>';
+            let info = '<a href="' + escapeHtml(a.file_url) + '" target="_blank" rel="noopener" class="fw-semibold">' + escapeHtml(a.original_filename) + '</a>';
             const suggested = [];
             if (a.suggested_amount) {
                 suggested.push(formatAmountEur(a.suggested_amount));

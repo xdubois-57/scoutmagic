@@ -479,6 +479,8 @@ describe('finance-movements.js: receipts dialog', () => {
     const attachment = (overrides = {}) => ({
         id: 31,
         file_id: 99,
+        file_url: '/files/99',
+        thumbnail_url: '/files/99/thumbnail',
         mime_type: 'image/jpeg',
         original_filename: 'ticket.jpg',
         suggested_amount: null,

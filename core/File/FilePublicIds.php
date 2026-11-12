@@ -112,6 +112,30 @@ final class FilePublicIds
     }
 
     /**
+     * The numeric id of the file served under $publicId, or null for none
+     * or a malformed value — for code that reads stored addresses back
+     * (an article's body images). Remembered for the request, both ways.
+     */
+    public static function fileIdOf(string $publicId): ?int
+    {
+        if (self::$repository === null || !self::isWellFormed($publicId)) {
+            return null;
+        }
+
+        $known = array_search($publicId, self::$resolved, true);
+        if (is_int($known)) {
+            return $known;
+        }
+
+        $id = self::$repository->findByPublicId($publicId)?->id;
+        if ($id !== null) {
+            self::$resolved[$id] = $publicId;
+        }
+
+        return $id;
+    }
+
+    /**
      * The address of file $fileId: `/files/{public_id}`, plus `/{variant}`
      * when given. Empty for no file.
      *

@@ -121,6 +121,24 @@ describe('sw.js: refreshOfflineCopies() — the pass (#883)', () => {
         expect(Math.max(asked.indexOf('/'), asked.indexOf('/contact'))).toBeLessThan(asked.indexOf('/files/5/md'));
     });
 
+    // Issue #1109: a file is addressed by its opaque id; its renditions are
+    // kept offline exactly like the numeric ones, and its original still
+    // never is.
+    it('keeps the renditions of a file addressed by its opaque id, never its original', async () => {
+        const opaque = 'aB3_x-9QzLm0PqRsTuVwXy';
+        await seed();
+        const asked = serve({
+            '/api/offline/manifest': manifest(['/'], []),
+            '/': html('<img src="/files/' + opaque + '/md" alt=""><a href="/files/' + opaque + '">original</a>'),
+            ['/files/' + opaque + '/md']: new Response('webp-opaque'),
+        });
+
+        expect(await sw.refreshOfflineCopies()).toBe(true);
+
+        expect(stored()).toEqual(['/', '/files/' + opaque + '/md']);
+        expect(asked).not.toContain('/files/' + opaque);
+    });
+
     it('re-asks a stored page with its ETag, and a « 304 » only moves its date', async () => {
         await seed();
         const old = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toUTCString();

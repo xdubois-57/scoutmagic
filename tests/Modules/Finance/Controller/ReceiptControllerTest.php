@@ -326,6 +326,11 @@ class ReceiptControllerTest extends TestCase
         $this->assertCount(1, $data['receipts']);
         $this->assertTrue($data['receipts'][0]['is_pending']);
         $this->assertSame(12.5, $data['receipts'][0]['suggested_amount']);
+        // Issue #1109: the script is handed the addresses, built by the
+        // server; it never builds one from file_id.
+        $fileUrl = \Core\File\FilePublicIds::urlFor($data['receipts'][0]['file_id']);
+        $this->assertSame($fileUrl, $data['receipts'][0]['file_url']);
+        $this->assertSame($fileUrl . '/thumbnail', $data['receipts'][0]['thumbnail_url']);
         $this->assertSame(1, $data['total']);
         $this->assertSame(1, $data['total_pages']);
     }

@@ -49,10 +49,10 @@
 
     function receiptThumbHtml(r) {
         if (r.mime_type.startsWith('image/')) {
-            return '<img src="/files/' + r.file_id + '" alt="' + escapeHtml(r.original_filename) + '" class="img-fluid rounded" style="max-height:160px;object-fit:cover;width:100%;">';
+            return '<img src="' + escapeHtml(r.file_url) + '" alt="' + escapeHtml(r.original_filename) + '" class="img-fluid rounded" style="max-height:160px;object-fit:cover;width:100%;">';
         }
         if (r.mime_type === 'application/pdf') {
-            return '<img src="/files/' + r.file_id + '/thumbnail" alt="' + escapeHtml(r.original_filename) + '" class="img-fluid rounded pdf-thumbnail" style="max-height:160px;object-fit:cover;width:100%;">';
+            return '<img src="' + escapeHtml(r.thumbnail_url) + '" alt="' + escapeHtml(r.original_filename) + '" class="img-fluid rounded pdf-thumbnail" style="max-height:160px;object-fit:cover;width:100%;">';
         }
         return '<div class="d-flex align-items-center justify-content-center bg-body-secondary rounded" style="height:160px;">'
             + '<i class="bi bi-file-earmark-word fs-1"></i></div>';
@@ -85,7 +85,7 @@
     function receiptCardHtml(r) {
         return '<div class="col-12 col-md-4" data-receipt-id="' + r.id + '">'
             + '<div class="border rounded-3 p-3 h-100 d-flex flex-column gap-2">'
-            + '<a href="/files/' + r.file_id + '" target="_blank" rel="noopener">' + receiptThumbHtml(r) + '</a>'
+            + '<a href="' + escapeHtml(r.file_url) + '" target="_blank" rel="noopener">' + receiptThumbHtml(r) + '</a>'
             + '<div class="fw-semibold text-truncate" title="' + escapeHtml(r.original_filename) + '">' + escapeHtml(r.original_filename) + '</div>'
             + '<div class="text-body-secondary small">' + escapeHtml(r.uploaded_at) + '</div>'
             + receiptSuggestedBlockHtml(r)

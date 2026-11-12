@@ -78,7 +78,7 @@ class DocumentsPublicController extends AbstractController
             $this->directLinkGrants->grant($document->id);
         }
 
-        $response = $this->redirect('/files/' . $document->fileId)
+        $response = $this->redirect(\Core\File\FilePublicIds::urlFor($document->fileId))
             ->setHeader('Cache-Control', 'no-store');
 
         // Kept out of search engines server-side, not merely left out of

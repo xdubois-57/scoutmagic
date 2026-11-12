@@ -61,7 +61,7 @@
                             <li class="d-flex align-items-center gap-2">
                                 <span>Version {{ version.versionNumber }} · {{ version.sizeBytes|filesize }} · du {{ version.uploadedAt|date_fr }}</span>
                                 {% include 'partials/file_link.html.twig' with {
-                                    href: '/files/' ~ version.fileId,
+                                    href: file_url(version.fileId),
                                     label: '',
                                     icon: 'download',
                                     classes: 'btn btn-sm btn-outline-secondary',
