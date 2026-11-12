@@ -177,13 +177,15 @@ class AuthController extends AbstractController
 
         // Only this session may later collect the session created by
         // confirming that link (see Core\Security\PendingMagicLink).
-        PendingMagicLink::remember((int) $result->magicLinkId, $this->installationGeneration);
+        $pollToken = PendingMagicLink::remember((int) $result->magicLinkId, $this->installationGeneration);
 
         // The code this window shows, to be typed if the link is opened in
-        // another browser (issue #1099). Sent to this window only.
+        // another browser (issue #1099), and the poll token only this page
+        // holds (issue #1115). Sent to this window only.
         return $this->json([
             'success' => true,
             'poll_id' => $result->magicLinkId,
+            'poll_token' => $pollToken,
             'match_code' => $result->matchCode,
         ]);
     }
@@ -365,7 +367,15 @@ class AuthController extends AbstractController
         // that actually requested this link may poll it. Answering the
         // uniform "not confirmed yet" for every other id also keeps this
         // endpoint from confirming that some id exists or was clicked.
-        if (!PendingMagicLink::matches($id)) {
+        // Nor is the session cookie: a copy of it would race the page that
+        // asked for the link. Only that page holds the poll token
+        // (PendingMagicLink, issue #1115); any other poller gets the same
+        // uniform answer.
+        $pollToken = $request->getServer(PendingMagicLink::POLL_TOKEN_HEADER);
+        if (
+            !PendingMagicLink::matches($id)
+            || !PendingMagicLink::pollTokenMatches(is_string($pollToken) ? $pollToken : null)
+        ) {
             return $this->json(['confirmed' => false]);
         }
         if (!PendingMagicLink::matches($id, $this->installationGeneration)) {
