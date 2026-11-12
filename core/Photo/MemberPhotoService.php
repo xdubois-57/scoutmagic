@@ -70,6 +70,10 @@ class MemberPhotoService
         foreach ($missing as $memberId) {
             $this->resolved[$memberId . ':' . $scoutYearId] = $found[$memberId] ?? null;
         }
+
+        // Their opaque addresses in the same breath (issue #1109): one query
+        // for the roster rather than one per photo when the page renders.
+        \Core\File\FilePublicIds::prime(array_values($found));
     }
 
     /**

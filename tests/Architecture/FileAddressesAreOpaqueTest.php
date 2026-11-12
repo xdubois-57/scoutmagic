@@ -20,10 +20,11 @@ final class FileAddressesAreOpaqueTest extends TestCase
 {
     /**
      * `/files/` immediately followed by something that joins a value onto
-     * it: a PHP `.`, a JavaScript `+` or template literal, a Twig `~` or
-     * `{{ }}`, a `sprintf` placeholder.
+     * it: a PHP `.` or interpolation (`"/files/$id"`, `"/files/{$id}"`), a
+     * JavaScript `+` or template literal, a Twig `~` or `{{ }}`, a `sprintf`
+     * placeholder.
      */
-    private const HAND_BUILT = '#/files/[\'"`]?\s*(?:\.|\+|~)|/files/\{\{|/files/\$\{|/files/%[ds]#';
+    private const HAND_BUILT = '#/files/[\'"`]?\s*(?:\.|\+|~)|/files/\{\{|/files/\$\{|/files/\{?\$\w|/files/%[ds]#';
 
     /**
      * Where the string `/files/` means something else.
@@ -85,6 +86,8 @@ final class FileAddressesAreOpaqueTest extends TestCase
             "'/files/' ~ doc.fileId",
             'href="/files/{{ doc.fileId }}"',
             "sprintf('/files/%d', \$id)",
+            '"/files/{$id}"',
+            '"/files/$fileId/thumb"',
         ] as $built) {
             $this->assertSame(1, preg_match(self::HAND_BUILT, $built), $built);
         }

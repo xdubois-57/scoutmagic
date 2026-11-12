@@ -21,6 +21,7 @@
                            possible (partials/file_link.html.twig). Écrit à la main
                            plutôt qu'inclus, parce que ce lien enveloppe un titre et
                            un badge que le partial ne saurait pas rendre. #}
+                        {% if file_url(document.fileId) %}
                         <a href="{{ file_url(document.fileId) }}" class="text-decoration-none min-w-0 text-break"
                            download="{{ document.title }}" target="_blank" rel="noopener">
                             <i class="bi bi-file-earmark-text me-2" aria-hidden="true"></i>{{ document.title }}
@@ -28,6 +29,14 @@
                                 <span class="badge text-bg-info ms-2">Reçu par e-mail</span>
                             {% endif %}
                         </a>
+                        {% else %}
+                            <span class="min-w-0 text-break text-body-secondary" title="Fichier indisponible">
+                            <i class="bi bi-file-earmark-text me-2" aria-hidden="true"></i>{{ document.title }}
+                            {% if document.source == 'email' %}
+                                <span class="badge text-bg-info ms-2">Reçu par e-mail</span>
+                            {% endif %}
+                        </span>
+                        {% endif %}
                         <form method="post" action="/chefs/camps/documents/{{ document.id }}/supprimer" data-confirm="{{ document.ownsItsFile()
                                         ? 'Supprimer définitivement ce document ?'
                                         : 'Retirer ce document du séjour ? Le fichier reste attaché au message reçu.' }}">

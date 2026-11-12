@@ -248,6 +248,34 @@ final class DocumentsControllerTest extends TestCase
         $this->assertTrue($grants->has($document->id));
     }
 
+    /**
+     * Issue #1109: the stable address sends to the file's opaque one; a file
+     * not yet given one has nowhere to send to, and the answer is « not
+     * found » rather than a redirect to an empty address.
+     */
+    public function testTheStableAddressRedirectsToTheOpaqueOneOrIsNotFoundWithout(): void
+    {
+        $document = $this->service->findById($this->documentId);
+        \assert($document !== null);
+        \Core\File\FilePublicIds::useRepository(new \Core\File\FileRepository($this->pdo));
+        try {
+            $response = $this->handle('GET', '/documents/{slug}', 'open', 'public', '/documents/' . $document->slug);
+            $this->assertSame(302, $response->getStatusCode());
+            $this->assertMatchesRegularExpression(
+                '#^/files/[A-Za-z0-9_-]{22}$#',
+                (string) ($response->getHeaders()['Location'] ?? '')
+            );
+
+            $this->pdo->prepare('UPDATE files SET public_id = NULL WHERE id = ?')->execute([$document->fileId]);
+            \Core\File\FilePublicIds::useRepository(new \Core\File\FileRepository($this->pdo));
+
+            $response = $this->handle('GET', '/documents/{slug}', 'open', 'public', '/documents/' . $document->slug);
+            $this->assertSame(404, $response->getStatusCode());
+        } finally {
+            \Core\File\FilePublicIds::useRepository(null);
+        }
+    }
+
     public function testAnUnknownAddressIsNotFound(): void
     {
         $response = $this->handle('GET', '/documents/{slug}', 'open', 'public', '/documents/inconnu');

@@ -50,7 +50,7 @@
                                 <td>{{ row.invoice.issueDate ? row.invoice.issueDate|date_fr : '—' }}</td>
                                 <td>
                                     <a href="/admin/fees/factures/{{ row.invoice.id }}" class="font-monospace">{{ row.invoice.documentNumber }}</a>
-                                    {% if row.invoice.financeFileId %}
+                                    {% if row.invoice.financeFileId and file_url(row.invoice.financeFileId) %}
                                         <a href="{{ file_url(row.invoice.financeFileId) }}"
                                            class="ms-1 text-body-secondary" title="Le PDF conservé dans Finances"
                                            download target="_blank" rel="noopener">

@@ -19,13 +19,15 @@
                    plus rien pour revenir. Le href reste, pour le cas sans
                    JavaScript — FileController répond alors « attachment » à
                    une navigation, ce qui télécharge sans bouger la page. #}
-                <a href="{{ file_url(attachment.fileId) }}"
-                   data-file-viewer="{{ file_url(attachment.fileId) }}"
+                {% set receipt_url = file_url(attachment.fileId) %}
+                {% if receipt_url %}
+                <a href="{{ receipt_url }}"
+                   data-file-viewer="{{ receipt_url }}"
                    data-file-name="{{ attachment.originalFilename }}"
                    data-file-image="{{ attachment.mimeType starts with 'image/' ? '1' : '0' }}"
                    download="{{ attachment.originalFilename }}" target="_blank" rel="noopener">
                     {% if attachment.mimeType starts with 'image/' %}
-                        <img src="{{ file_url(attachment.fileId) }}" alt="{{ attachment.originalFilename }}" class="img-fluid rounded" style="max-height:160px;object-fit:cover;width:100%;">
+                        <img src="{{ receipt_url }}" alt="{{ attachment.originalFilename }}" class="img-fluid rounded" style="max-height:160px;object-fit:cover;width:100%;">
                     {% elseif attachment.mimeType == 'application/pdf' %}
                         <img src="{{ file_url(attachment.fileId, 'thumbnail') }}" alt="{{ attachment.originalFilename }}" class="img-fluid rounded pdf-thumbnail" style="max-height:160px;object-fit:cover;width:100%;">
                     {% else %}
@@ -34,6 +36,13 @@
                         </div>
                     {% endif %}
                 </a>
+                {% else %}
+                    {# No opaque address yet (issue #1109): no link to nowhere. #}
+                    <div class="d-flex align-items-center justify-content-center bg-body-secondary rounded" style="height:160px;">
+                        <i class="bi bi-file-earmark-x fs-1" aria-hidden="true"></i>
+                        <span class="visually-hidden">Fichier indisponible</span>
+                    </div>
+                {% endif %}
                 <div class="fw-semibold text-truncate" title="{{ attachment.originalFilename }}">{{ attachment.originalFilename }}</div>
                 <div class="text-body-secondary small">{{ attachment.uploadedAt }}</div>
                 {% if attachment.suggestedAmount or attachment.suggestedDate or attachment.suggestedLabel %}

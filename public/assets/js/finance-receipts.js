@@ -43,16 +43,38 @@
     // .test.js exercises its definition in public/assets/js/api.js.
     const escapeHtml = window.ScoutMagicApi.escapeHtml;
 
+    /**
+     * A file address the server handed this script, checked where it is
+     * written into the page (issue #1109): only `/files/{opaque id}` and
+     * its renditions pass, so no other scheme or host can ever reach an
+     * href or a src. Empty for anything else — the file then shows as
+     * unavailable rather than as a link to nowhere.
+     *
+     * @param {unknown} url
+     * @returns {string}
+     */
+    function fileUrl(url) {
+        return typeof url === 'string' && /^\/files\/[A-Za-z0-9_-]{22}(?:\/(?:thumbnail|thumb|md))?$/.test(url)
+            ? url
+            : '';
+    }
+
     function formatAmount(amount) {
         return Number(amount).toLocaleString('fr-BE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     }
 
     function receiptThumbHtml(r) {
+        const src = r.mime_type === 'application/pdf' ? fileUrl(r.thumbnail_url) : fileUrl(r.file_url);
+        if (src === '') {
+            return '<div class="d-flex align-items-center justify-content-center bg-body-secondary rounded" style="height:160px;">'
+                + '<i class="bi bi-file-earmark-x fs-1" aria-hidden="true"></i>'
+                + '<span class="visually-hidden">Fichier indisponible</span></div>';
+        }
         if (r.mime_type.startsWith('image/')) {
-            return '<img src="' + escapeHtml(r.file_url) + '" alt="' + escapeHtml(r.original_filename) + '" class="img-fluid rounded" style="max-height:160px;object-fit:cover;width:100%;">';
+            return '<img src="' + escapeHtml(src) + '" alt="' + escapeHtml(r.original_filename) + '" class="img-fluid rounded" style="max-height:160px;object-fit:cover;width:100%;">';
         }
         if (r.mime_type === 'application/pdf') {
-            return '<img src="' + escapeHtml(r.thumbnail_url) + '" alt="' + escapeHtml(r.original_filename) + '" class="img-fluid rounded pdf-thumbnail" style="max-height:160px;object-fit:cover;width:100%;">';
+            return '<img src="' + escapeHtml(src) + '" alt="' + escapeHtml(r.original_filename) + '" class="img-fluid rounded pdf-thumbnail" style="max-height:160px;object-fit:cover;width:100%;">';
         }
         return '<div class="d-flex align-items-center justify-content-center bg-body-secondary rounded" style="height:160px;">'
             + '<i class="bi bi-file-earmark-word fs-1"></i></div>';
@@ -85,7 +107,9 @@
     function receiptCardHtml(r) {
         return '<div class="col-12 col-md-4" data-receipt-id="' + r.id + '">'
             + '<div class="border rounded-3 p-3 h-100 d-flex flex-column gap-2">'
-            + '<a href="' + escapeHtml(r.file_url) + '" target="_blank" rel="noopener">' + receiptThumbHtml(r) + '</a>'
+            + (fileUrl(r.file_url) === ''
+                ? receiptThumbHtml(r)
+                : '<a href="' + escapeHtml(fileUrl(r.file_url)) + '" target="_blank" rel="noopener">' + receiptThumbHtml(r) + '</a>')
             + '<div class="fw-semibold text-truncate" title="' + escapeHtml(r.original_filename) + '">' + escapeHtml(r.original_filename) + '</div>'
             + '<div class="text-body-secondary small">' + escapeHtml(r.uploaded_at) + '</div>'
             + receiptSuggestedBlockHtml(r)
