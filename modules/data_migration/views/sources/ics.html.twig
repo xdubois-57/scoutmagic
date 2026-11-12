@@ -1,0 +1,63 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{#
+  Step 1 of the ICS calendar import (Importer\IcsCalendarImporter): the
+  fields and the button. The shared step_source partial draws the form
+  around them, with its CSRF token, and posts it to …/calendrier/source.
+#}
+<div class="alert alert-info" role="note">
+    <p class="fw-semibold mb-1">Copie unique, pas un abonnement.</p>
+    <p class="mb-0">Les événements sont copiés une fois. Ce qui changera plus tard à cette adresse n'arrivera pas dans ScoutMagic.</p>
+</div>
+
+{% include 'partials/form_field.html.twig' with {
+    field_id: 'ics-address',
+    field_name: 'address',
+    label: 'Adresse du calendrier (ICS)',
+    type: 'url',
+    required: true,
+    maxlength: 2000,
+    placeholder: 'https://…/basic.ics',
+    autocomplete: 'off',
+    help: 'L\'adresse publique ou secrète du fichier ICS, telle que votre ancien agenda la donne. Les adresses webcal:// sont acceptées.',
+} only %}
+
+{% if ics_calendars is empty %}
+    {# No control to render: the partial needs one, so this branch stays by hand. #}
+    <div class="mb-3">
+        <div class="form-label">Calendrier de destination</div>
+        <p class="text-body-secondary mb-0" id="ics-calendar">Vous ne pouvez modifier aucun calendrier. Demandez l'accès à un calendrier avant d'importer.</p>
+    </div>
+{% else %}
+    {% include 'partials/form_field.html.twig' with {
+        field_id: 'ics-calendar',
+        field_name: 'calendar',
+        label: 'Calendrier de destination',
+        type: 'select',
+        required: true,
+        options: ics_calendars|map(c => { value: c.id, label: c.label }),
+        help: 'Seuls les calendriers que vous pouvez modifier sont proposés.',
+    } only %}
+{% endif %}
+
+{% include 'partials/form_field.html.twig' with {
+    field_id: 'ics-min-date',
+    field_name: 'min_date',
+    label: 'Importer les événements à partir du',
+    type: 'date',
+    value: ics_default_min_date,
+    required: true,
+    control_class_extra: 'w-auto',
+    help: 'Par défaut, deux ans avant aujourd\'hui.',
+} only %}
+
+<div class="alert alert-warning" role="note">
+    <strong>Les événements récurrents ne sont pas importés</strong>, ni leurs occurrences modifiées. Recréez-les dans ScoutMagic si besoin.
+</div>
+
+<button type="submit" class="btn btn-primary w-100-below-sm" {{ ics_calendars is empty ? 'disabled' }}>Lire le calendrier</button>
+<p class="small text-body-secondary mt-3 mb-0">
+    Rien n'est écrit tant que vous n'avez pas confirmé, à l'étape 4. Le fichier téléchargé est effacé du serveur au plus tard 24 heures après la fin de l'import.
+</p>

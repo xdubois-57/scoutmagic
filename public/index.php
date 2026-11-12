@@ -7541,6 +7541,21 @@ if ($isEnabled('calendar')) {
     // section's », which is the whole of what an attendance sheet hangs
     // off.
     $calendarSectionEventLookupForOthers = $calendarService;
+    // Api\CalendarImportWriterInterface — the data migration module's ICS
+    // import writes through this, and through nothing else: an event
+    // created without « Nouvelle activité » and with the importing
+    // account's rights re-checked at every write.
+    $calendarImportWriterForOthers = new \Modules\Calendar\Service\CalendarImportWriter(
+        $calendarEventService,
+        $calendarService,
+        new \Modules\Calendar\Service\AccountCalendarRights(
+            $userAccountRepo,
+            $roleResolver,
+            $authorizationYearService,
+            $sectionStaffAuthorizationService,
+            $scoutYearResolver
+        )
+    );
 
     $frontController->registerController(
         \Modules\Calendar\Controller\CalendarPublicController::class,
@@ -13273,6 +13288,10 @@ if ($isEnabled('data_migration')) {
     $dataMigrationImporters->add(new \Modules\DataMigration\Importer\NewsHistoryImporter(
         $newsImportWriterForOthers ?? null,
         new \Modules\DataMigration\Repository\ItemMappingRepository($pdo)
+    ));
+    $dataMigrationImporters->add(new \Modules\DataMigration\Importer\IcsCalendarImporter(
+        $calendarImportWriterForOthers ?? null,
+        $urlMetadataFetcher
     ));
     $dataMigrationImporters->add(new \Modules\DataMigration\Importer\CampPlacesImporter($campsPlaceImportWriterForOthers ?? null));
     $dataMigrationImporters->add(new \Modules\DataMigration\Importer\EmailHistoryImporter(

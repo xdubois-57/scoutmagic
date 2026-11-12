@@ -39,6 +39,24 @@ final class RgpdCoverageTest extends TestCase
         $this->assertStringContainsString('<p><strong>Galeries photo</strong> : pour chaque album importé', $page);
     }
 
+    /**
+     * The ICS import is the module's one outbound request (AGENTS.md
+     * § RGPD — a new outbound flow is a documentation change): the page
+     * says where it goes, that nothing of the unit's is sent, and that
+     * the address is not kept.
+     */
+    public function testTheDefaultPageDescribesTheCalendarDownload(): void
+    {
+        $page = self::read('core/View/rgpd_default.html');
+
+        $this->assertStringContainsString('<p><strong>Copie d\'un calendrier en ligne</strong>', $page);
+        $this->assertStringContainsString('<strong>aucune donnée de l\'unité</strong>', $page);
+        $this->assertStringContainsString('L\'adresse elle-même n\'est pas conservée', $page);
+
+        $prompt = self::read('core/View/RgpdContentService.php');
+        $this->assertStringContainsString('(f) le paragraphe « Copie d\'un calendrier en ligne »', $prompt);
+    }
+
     public function testThePromptTellsTheModelWhatToKeepAndWhenToRemoveIt(): void
     {
         $prompt = self::read('core/View/RgpdContentService.php');

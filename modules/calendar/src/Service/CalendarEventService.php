@@ -17,6 +17,11 @@ use Modules\Presences\Api\PresenceEventCleanupInterface;
 
 class CalendarEventService
 {
+    /** calendar_events.title is VARCHAR(200). */
+    public const MAX_TITLE_LENGTH = 200;
+    /** calendar_events.location is VARCHAR(255). */
+    public const MAX_LOCATION_LENGTH = 255;
+
     public function __construct(
         private CalendarEventRepository $eventRepository,
         private CalendarService $calendarService,
@@ -142,6 +147,79 @@ class CalendarEventService
         $this->notificationService->syncActivityReminderForEvent($event);
         $this->notificationService->dispatchEventPublished($event, $createdBy);
         $this->retroAutoCreateService?->syncAutoCreateForEvent($event);
+        return $event;
+    }
+
+    /**
+     * An event copied from another site's calendar (Api\
+     * CalendarImportWriterInterface): the same checks as createEvent() —
+     * fields, and the calendar re-checked against the caller's editable
+     * set — and none of its broadcast.
+     *
+     * - **No dispatchEventPublished().** A unit copying years of history
+     *   would otherwise send its members one « Nouvelle activité » per
+     *   event (specifications.md §49, roadmap §2).
+     * - **Reminders only where createEvent() would schedule them for an
+     *   event in the future.** Both sync methods already skip an event that
+     *   has started or whose reminder time is past, so a past event gets
+     *   none, and an upcoming one behaves like any other event from now on —
+     *   the « fonctionnement normal ultérieur » the specification keeps.
+     * - **No automatic retrospective**: auto_create_retro is false, so the
+     *   retro scheduler is never involved.
+     *
+     * The times must be `HH:MM` (or `HH:MM:SS`); the importer has already
+     * converted them to Brussels local time.
+     *
+     * @param int[] $staffedSectionIds
+     * @throws CalendarException
+     */
+    public function createImportedEvent(
+        int $calendarId,
+        string $title,
+        string $startDate,
+        ?string $endDate,
+        ?string $startTime,
+        ?string $endTime,
+        ?string $location,
+        ?string $description,
+        ?int $createdBy,
+        Role $viewerRole,
+        array $staffedSectionIds
+    ): CalendarEvent {
+        $title = trim($title);
+        $this->validateEventFields($title, $startDate, $endDate);
+        if (mb_strlen($title) > self::MAX_TITLE_LENGTH || mb_strlen((string) $location) > self::MAX_LOCATION_LENGTH) {
+            throw new CalendarException('Le titre ou le lieu est trop long.');
+        }
+        $startTime = $this->emptyToNull($startTime);
+        $endTime = $startTime === null ? null : $this->emptyToNull($endTime);
+        foreach ([$startTime, $endTime] as $time) {
+            if ($time !== null && preg_match('/^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/', $time) !== 1) {
+                throw new CalendarException('Heure invalide.');
+            }
+        }
+        if ($this->calendarService->findById($calendarId) === null) {
+            throw new CalendarException('Calendrier introuvable.');
+        }
+        $this->assertCalendarEditable($calendarId, $viewerRole, $staffedSectionIds);
+
+        $id = $this->eventRepository->create(
+            $calendarId,
+            $title,
+            $startDate,
+            $this->emptyToNull($endDate),
+            $startTime,
+            $endTime,
+            $this->emptyToNull($location),
+            $this->emptyToNull($description),
+            $createdBy,
+            false
+        );
+        $event = $this->eventRepository->findById($id);
+        \assert($event !== null);
+        $this->notificationService->syncReminderForEvent($event);
+        $this->notificationService->syncActivityReminderForEvent($event);
+
         return $event;
     }
 

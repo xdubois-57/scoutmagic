@@ -18,8 +18,9 @@ use Core\Security\SsrfUrlValidator;
  * Every feature that needs to know something about a member-supplied URL
  * goes through here: the gallery's external albums, the link previews of
  * the groups and camps modules (through Core\Http\LinkPreviewService),
- * and the rich-text editors' « baguette magique » that proposes a link's
- * text (Core\Http\LinkLabelResolver, issue #840). It was born in the
+ * the rich-text editors' « baguette magique » that proposes a link's
+ * text (Core\Http\LinkLabelResolver, issue #840), and the data migration
+ * module's copy of an ICS calendar (fetchCalendar()). It was born in the
  * gallery as OgScraperService and moved here because a capability every
  * editor offers cannot depend on a module a unit may switch off — the same
  * move the LinkPreviewFetcher contract had already made.
@@ -45,6 +46,18 @@ class UrlMetadataFetcher
     private const TIMEOUT_SECONDS = 8.0;
     private const MAX_BYTES = 2 * 1024 * 1024;
     private const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+    /**
+     * An ICS file a unit copies its old calendar from (the data migration
+     * module, specifications.md §49). Years of a busy calendar fit well
+     * under it; past it the parse would not fit the hosting's 128 MiB.
+     */
+    public const MAX_CALENDAR_BYTES = 5 * 1024 * 1024;
+    /**
+     * The budget of a calendar download, every hop included. Longer than a
+     * page's: a few megabytes from a slow server, inside a request that
+     * still has to parse them in the 30 s the hosting gives it.
+     */
+    private const CALENDAR_TIMEOUT_SECONDS = 15.0;
     private const MAX_REDIRECTS = 5;
     private const USER_AGENT = 'Mozilla/5.0 (compatible; ScoutMagicBot/1.0)';
 
@@ -82,6 +95,35 @@ class UrlMetadataFetcher
     }
 
     /**
+     * The body of an iCalendar file (RFC 5545) at $url, or null — for
+     * every reason at once, as everywhere in this class: an unsafe target
+     * at any hop, a network error, a status other than 200, a content
+     * type that is a web page or an image, or a body over MAX_CALENDAR_BYTES.
+     *
+     * Over the ceiling is refused, never cut: the other two downloads keep
+     * the first bytes of an oversized answer, which is harmless for a page
+     * whose tags are at the top and fatal for a calendar, whose truncated
+     * copy would silently lose every event after the cut. So one byte more
+     * than the ceiling is asked for, and getting it means « too large ».
+     *
+     * Same chain as fetch() and fetchImageBytes() — every hop re-validated,
+     * the IP pinned — because SECURITY.md §17 allows no second way out.
+     */
+    public function fetchCalendar(string $url): ?string
+    {
+        $result = $this->fetchChain($url, self::MAX_CALENDAR_BYTES + 1, self::CALENDAR_TIMEOUT_SECONDS);
+        if (
+            $result === null
+            || strlen($result['body']) > self::MAX_CALENDAR_BYTES
+            || !$this->looksLikeCalendar($result['contentType'])
+        ) {
+            return null;
+        }
+
+        return $result['body'];
+    }
+
+    /**
      * Follows redirects itself (PHP's own follow_location would connect
      * straight through to wherever a 3xx points without this class ever
      * seeing — let alone re-validating — the new target) under a single
@@ -92,9 +134,9 @@ class UrlMetadataFetcher
      *
      * @return array{body: string, contentType: string}|null
      */
-    private function fetchChain(string $url, int $maxBytes): ?array
+    private function fetchChain(string $url, int $maxBytes, float $timeoutSeconds = self::TIMEOUT_SECONDS): ?array
     {
-        $deadline = microtime(true) + self::TIMEOUT_SECONDS;
+        $deadline = microtime(true) + $timeoutSeconds;
 
         for ($hop = 0; $hop <= self::MAX_REDIRECTS; $hop++) {
             $remaining = $deadline - microtime(true);
@@ -375,6 +417,23 @@ class UrlMetadataFetcher
         $normalized = strtolower(trim(explode(';', $contentType)[0]));
 
         return str_starts_with($normalized, 'image/');
+    }
+
+    /**
+     * Anything but a type that is clearly not a calendar: a web page or an
+     * image. Servers label ICS files loosely — a raw file host answers
+     * `text/plain`, some CMS plugins `application/octet-stream` or nothing
+     * at all — and the form takes nothing but an address, so refusing on
+     * the header would leave such a calendar with no way in. The body is
+     * what proves a calendar: IcsEventReader refuses a file whose first
+     * line is not `BEGIN:VCALENDAR`, so an error page or a login form
+     * served under a vague type is still turned away, with its reason.
+     */
+    private function looksLikeCalendar(string $contentType): bool
+    {
+        $type = strtolower(trim(explode(';', $contentType)[0]));
+
+        return $type !== 'text/html' && $type !== 'application/xhtml+xml' && !str_starts_with($type, 'image/');
     }
 
     /**

@@ -1528,6 +1528,10 @@ The warning that « Vu par » does not restrict the ICS links is stated once, ab
 
 That page configures **one** notification, the reminder before a multi-day event. The evening-before activity reminder goes out at a fixed hour and is each member's own choice in their notification preferences — a second unit-wide setting for it existed on no page and only made the configuration look like it held two. On the chiefs' calendar page, an animateur is offered only the calendars they may actually write in — the "new event" dialog lists those and no others, and a day cell or an event belonging to a calendar they cannot write in does not open the form. An animateur the Desk import left attached to no section at all is told so on the page rather than left wondering why nothing opens; supplementary calendars remain available to them.
 
+### 27.5bis Events copied from another calendar
+
+The data migration module's ICS import (§49.8) writes events through `Api\CalendarImportWriterInterface` with exactly this rule: the importing site administrator's role and sections, resolved again at every write, against the calendar they chose. An imported event is an ordinary event afterwards — editable, deletable, in the feeds — but its creation announces nothing: no « Nouvelle activité », no automatic retrospective, and no reminder when it is already past.
+
 ### 27.6 Out of scope
 
 Per-event permissions, per-person exceptions, a write role finer than *animateurs* / *chefs d'unité*, and any change to the ICS feeds (which are read-only by nature).
@@ -4141,6 +4145,23 @@ Disponible si le module Actualités est actif. Format `scoutmagic-news-history` 
 - **Formulaires.** Seules les questions sont reprises, dans l'ordre, avec leur type, leur libellé et leurs options. Le formulaire est **toujours fermé**, sans récapitulatif quotidien, sans billet, sans compte ni catégorie financière. **Aucune réponse n'est importée** : un fichier de réponses présent dans l'archive est listé comme ignoré et jamais lu. Un formulaire dont l'actualité n'est ni importée ni importable est ignoré (« Formulaire sans actualité reconnue ») ; une actualité n'a qu'un formulaire.
 - **Écartés avec leur motif** : actualité sans titre, sans date de publication lisible ou datée dans le futur, pas publiée sur l'ancien site, nom de fichier différent de l'identifiant ; formulaire sans question, avec une question d'un type inconnu ou mal formée.
 - **Lecture seule, pour toujours** (§32.1). Le verrou est porté par l'actualité elle-même (`imported_at`, `import_source`) et tient module de migration désactivé.
+
+### 49.8 Calendrier ICS (module `calendar`)
+
+« Calendrier (fichier ICS) » copie **une fois** les événements d'un agenda en ligne dans un calendrier du site. Il n'existe que si le module Calendrier est actif. C'est le seul import dont la source est un formulaire et non un ZIP : il n'a donc pas de document de format.
+
+- **Formulaire** : « Adresse du calendrier (ICS) » (http, https ou webcal://, lu comme https), « Calendrier de destination », choisi parmi ceux que l'administrateur qui importe peut modifier, et « Importer les événements à partir du », par défaut aujourd'hui moins deux ans. La page dit « Copie unique, pas un abonnement » et que les événements récurrents ne sont pas importés. « Lire le calendrier » télécharge le fichier.
+- **Téléchargement** : par le seul outil de récupération du site (SECURITY.md §17), adresses internes refusées à chaque redirection. Le fichier doit commencer par `BEGIN:VCALENDAR` (une page web ou une image est refusée sur son type, mais un calendrier servi en `text/plain` ou sans type est accepté) et faire au plus 5 Mo ; au-delà, il est refusé et non tronqué. Une adresse qui ne répond pas, une page web ou un fichier illisible renvoient au formulaire avec un motif. L'adresse n'est pas conservée, seulement son empreinte SHA-256 et le nom de son hôte.
+- **Lecture** par la bibliothèque `sabre/vobject`, événement par événement (un fichier de 5 Mo lu d'un bloc dépasserait la mémoire de l'hébergement).
+- **Exclus**, chacun avec son motif à l'aperçu et au bilan :
+  - tout événement porteur de `RRULE`, `RDATE`, `EXDATE` ou `RECURRENCE-ID` (« Événement récurrent, exclu »), sans exception ;
+  - un événement antérieur à la date minimale, jugé sur son jour de début à Bruxelles ;
+  - un événement annulé (`STATUS:CANCELLED`) ;
+  - un événement illisible ou incomplet : sans UID, sans début, sans titre, avec une date invalide, un fuseau inconnu, une fin avant le début, un texte hors UTF-8, plus de 256 Kio, ou un UID déjà vu dans le fichier.
+- **Heures** : converties à Europe/Brussels (une heure sans fuseau est lue comme heure de Bruxelles). Un événement en date seule devient « toute la journée » ; la date de fin exclusive de l'ICS devient la date de fin inclusive du calendrier. Le titre est ramené à 200 caractères, le lieu à 255, et une description HTML devient du texte.
+- **Dédoublonnage** sur (empreinte de l'adresse, empreinte de l'UID ; l'UID lui-même n'est pas conservé, car il peut contenir une adresse électronique) : la même adresse relue, même en webcal://, trouve ses événements « déjà présents », quel que soit le calendrier choisi la seconde fois. L'aperçu et le bilan désignent un événement par son jour et son rang dans le fichier (« 19/04/2025 · événement n° 9 »), jamais par son titre ni par son UID.
+- **Écriture** par l'interface `Modules\Calendar\Api\CalendarImportWriterInterface` : les droits du compte qui importe sur le calendrier choisi sont recalculés depuis son compte à l'analyse et à chaque écriture ; un calendrier devenu non modifiable fait ignorer l'événement (« Calendrier de destination non modifiable »). L'événement est créé **sans** notification « Nouvelle activité », sans rétrospective automatique, et sans rappel s'il est passé ; un événement à venir reçoit les rappels de tout événement.
+- L'aperçu indique le calendrier de destination, la conversion des heures et le nombre d'événements antérieurs, récurrents et illisibles.
 
 ### 49.9 Galeries photo (import `galeries`)
 
