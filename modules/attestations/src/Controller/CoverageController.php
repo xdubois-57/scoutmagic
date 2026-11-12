@@ -58,8 +58,14 @@ class CoverageController extends AbstractController
         // The current year, same default and same reason as the deposit
         // form: the public year lags behind during a transition, and the
         // question being asked is about the season the reader is living in.
-        $scoutYearId = IntegerInput::id($request->getQuery('scout_year_id', ''))
-            ?? (int) $this->scoutYears->getCurrentYear()['id'];
+        $currentYearId = (int) $this->scoutYears->getCurrentYear()['id'];
+        $scoutYearId = IntegerInput::id($request->getQuery('scout_year_id', '')) ?? $currentYearId;
+        // A year id the site does not hold — a stale bookmark, a hand-edited
+        // address — reads as the default, so the selector always shows the
+        // year the figures are about (issue #1097).
+        if (!in_array($scoutYearId, array_map(static fn(array $year): int => (int) $year['id'], $years), true)) {
+            $scoutYearId = $currentYearId;
+        }
 
         $coverage = $this->coverage->forYear($category, $scoutYearId);
 

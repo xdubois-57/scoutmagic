@@ -237,6 +237,172 @@ class CoverageControllerTest extends TestCase
         $this->assertStringContainsString('Margaux Vandenbrande', $body);
     }
 
+    // --- the filters actually filter, and the lists name the section (#1097)
+
+    /**
+     * The selects carry the names the controller reads. Without them the
+     * GET form submitted nothing, and every choice fell back to the default
+     * — which is the bug as reported.
+     */
+    public function testBothFiltersAreSubmittedUnderTheNamesTheControllerReads(): void
+    {
+        $body = $this->body();
+
+        $this->assertMatchesRegularExpression('#<select[^>]*id="coverage-category"[^>]*name="category"#', $body);
+        $this->assertMatchesRegularExpression(
+            '#<select[^>]*id="coverage-scout-year"[^>]*name="scout_year_id"#',
+            $body
+        );
+        $this->assertStringContainsString('for="coverage-category"', $body);
+        $this->assertStringContainsString('for="coverage-scout-year"', $body);
+    }
+
+    /**
+     * The button lines up with the selects: the partial's default bottom
+     * margin is dropped on both, and on nothing else of the page.
+     */
+    public function testTheFiltersCarryNoBottomMarginSoTheButtonLinesUp(): void
+    {
+        $body = $this->body();
+        $start = strpos($body, '<form method="get" action="/admin/attestations/couverture"');
+        $this->assertNotFalse($start);
+        $form = substr($body, $start, (int) strpos($body, '</form>', $start) - $start);
+
+        $this->assertStringContainsString('align-items-end', $form);
+        $this->assertStringNotContainsString('mb-3', $form);
+    }
+
+    /**
+     * Both choices come back selected, and the figures are about them: a
+     * year other than the current one, and a category other than the
+     * default, each kept when the other changes.
+     */
+    public function testTheChosenYearAndCategoryStaySelectedAndDecideTheFigures(): void
+    {
+        $otherYearId = AttestationsTestHelper::createScoutYear($this->pdo, '2019-2020');
+        $this->createMember('autrefois', 'Camille', 'Delacroix');
+        $this->moveMemberToYear('autrefois', $otherYearId);
+        $this->createMember('cette-annee', 'Margaux', 'Vandenbrande');
+
+        $body = $this->body([
+            'category' => AttestationCategory::Attendance->value,
+            'scout_year_id' => (string) $otherYearId,
+        ]);
+
+        $this->assertMatchesRegularExpression('#<option value="' . $otherYearId . '"[^>]*selected#', $body);
+        $this->assertMatchesRegularExpression(
+            '#<option value="' . AttestationCategory::Attendance->value . '"[^>]*selected#',
+            $body
+        );
+        $this->assertStringContainsString('Camille Delacroix', $body);
+        $this->assertStringNotContainsString('Margaux Vandenbrande', $body);
+    }
+
+    /** A year the site does not hold reads as the default, never as an empty page. */
+    public function testAnUnknownYearFallsBackToTheCurrentOne(): void
+    {
+        $currentYearId = (int) (new \Core\Config\ScoutYearService($this->pdo))->getCurrentYear()['id'];
+        $this->createMember('cette-annee', 'Margaux', 'Vandenbrande');
+        $this->moveMemberToYear('cette-annee', $currentYearId);
+
+        $body = $this->body(['scout_year_id' => '999999']);
+
+        $this->assertStringContainsString('Margaux Vandenbrande', $body);
+        $this->assertMatchesRegularExpression('#<option value="' . $currentYearId . '"[^>]*selected#', $body);
+    }
+
+    /**
+     * The section shown is the one of the season being checked, read from
+     * that season's main function — not today's. Margaux was a louveteau
+     * that year and is an éclaireur now; the screen answers about then.
+     * Section and function are each named as what they are.
+     */
+    public function testEachListNamesTheSectionOfTheChosenYearBesideTheFunction(): void
+    {
+        $branch = $this->createBranch();
+        $meute = $this->createSection($branch, 'LOUV-A', 'Meute Seeonee');
+        $troupe = $this->createSection($branch, 'ECL-A', 'Troupe Saint-Michel');
+        $function = AttestationsTestHelper::createFunction($this->pdo, 'LOUV', 'Louveteau');
+        $laterFunction = AttestationsTestHelper::createFunction($this->pdo, 'ECL', 'Éclaireur');
+
+        $this->createMember('margaux', 'Margaux', 'Vandenbrande');
+        $this->createMember('sacha', 'Sacha', 'Meunier');
+        $this->giveMainFunction('margaux', $this->scoutYearId, $function, $meute);
+        $this->giveMainFunction('sacha', $this->scoutYearId, $function, $meute);
+        $laterYearId = AttestationsTestHelper::createScoutYear($this->pdo, '2031-2032');
+        $later = AttestationsTestHelper::addMemberYear(
+            $this->pdo, $this->memberIds['margaux'], $laterYearId, 'Margaux', 'Vandenbrande'
+        );
+        $this->attachFunction($later, $laterFunction, $troupe);
+        $this->publishFor(['margaux']);
+
+        $body = $this->body(['scout_year_id' => (string) $this->scoutYearId]);
+
+        // Both lists: Sacha is missing, Margaux is covered.
+        $this->assertSame(2, substr_count($body, 'Section : Meute Seeonee'));
+        $this->assertSame(2, substr_count($body, 'Fonction principale : Louveteau'));
+        $this->assertStringNotContainsString('Troupe Saint-Michel', $body);
+        $this->assertStringNotContainsString('Éclaireur', $body);
+    }
+
+    /** A section with no name reads as its Desk code rather than as nothing. */
+    public function testASectionWithoutANameReadsAsItsDeskCode(): void
+    {
+        $section = $this->createSection($this->createBranch(), 'BAL-B', null);
+        $function = AttestationsTestHelper::createFunction($this->pdo, 'BAL', 'Baladin');
+        $this->createMember('sacha', 'Sacha', 'Meunier');
+        $this->giveMainFunction('sacha', $this->scoutYearId, $function, $section);
+
+        $this->assertStringContainsString('Section : BAL-B', $this->body());
+    }
+
+    /**
+     * A member with no main function that year — so no section either —
+     * keeps their row and their place in the count.
+     */
+    public function testAMemberWithoutSectionOrFunctionIsStillListedAndCounted(): void
+    {
+        $this->createMember('sacha', 'Sacha', 'Meunier');
+
+        $body = $this->body();
+
+        $this->assertStringContainsString('Sacha Meunier', $body);
+        $this->assertStringContainsString('1 membre(s) sans attestation', $body);
+        $this->assertStringNotContainsString('Section :', $body);
+        $this->assertStringNotContainsString('Fonction principale :', $body);
+    }
+
+    private function createBranch(): int
+    {
+        $this->pdo->prepare('INSERT INTO age_branches (desk_code, label) VALUES (?, ?)')
+            ->execute(['B' . bin2hex(random_bytes(3)), 'Branche']);
+
+        return (int) $this->pdo->lastInsertId();
+    }
+
+    private function createSection(int $branchId, string $deskCode, ?string $name): int
+    {
+        $this->pdo->prepare('INSERT INTO sections (age_branch_id, desk_code, name) VALUES (?, ?, ?)')
+            ->execute([$branchId, $deskCode, $name]);
+
+        return (int) $this->pdo->lastInsertId();
+    }
+
+    private function giveMainFunction(string $key, int $scoutYearId, int $functionId, int $sectionId): void
+    {
+        $stmt = $this->pdo->prepare('SELECT id FROM member_years WHERE member_id = ? AND scout_year_id = ?');
+        $stmt->execute([$this->memberIds[$key], $scoutYearId]);
+        $this->attachFunction((int) $stmt->fetchColumn(), $functionId, $sectionId);
+    }
+
+    private function attachFunction(int $memberYearId, int $functionId, int $sectionId): void
+    {
+        $this->pdo->prepare(
+            'INSERT INTO member_functions (member_year_id, function_id, section_id, start_date, is_main_function)
+             VALUES (?, ?, ?, ?, 1)'
+        )->execute([$memberYearId, $functionId, $sectionId, '2025-09-01']);
+    }
+
     /** An unreadable category falls back rather than failing the page. */
     public function testAnUnknownCategoryFallsBackToTheTaxOne(): void
     {

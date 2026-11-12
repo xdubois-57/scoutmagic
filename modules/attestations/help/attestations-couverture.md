@@ -24,6 +24,12 @@ C'est elle qui vient en premier, parce que c'est elle que vous transmettez
 à la fédération pour réclamer le complément. Les membres déjà servis sont
 repliés en dessous, pour vérification.
 
+Chaque membre y figure avec sa **section** et sa **fonction principale**
+de l'année choisie — celles de cette saison-là, pas d'aujourd'hui : un
+louveteau devenu éclaireur depuis apparaît dans sa meute de l'époque. Un
+membre sans fonction principale cette année-là reste dans la liste, sans
+ces deux précisions.
+
 Deux causes possibles pour un nom qui apparaît là : soit la fédération ne
 l'a pas encore envoyée, soit son attestation figurait dans un fichier dont
 la ligne n'a trouvé aucun membre — auquel cas c'est l'écran de vérification
@@ -45,7 +51,8 @@ n'existe pas.
 
 ## Changer de catégorie ou d'année
 
-Les deux listes déroulantes en haut de la page. L'écran s'ouvre sur
-l'attestation fiscale de l'**année en cours** ; l'adresse de la page garde
-votre choix, vous pouvez donc la mettre en favori ou l'envoyer à un autre
-chef d'unité.
+Les deux listes déroulantes en haut de la page, puis « Afficher ». L'écran
+s'ouvre sur l'attestation fiscale de l'**année en cours** ; l'adresse de la
+page garde vos deux choix, vous pouvez donc la mettre en favori ou l'envoyer
+à un autre chef d'unité. Une adresse qui désigne une année que le site ne
+connaît pas revient à l'année en cours.
