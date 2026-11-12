@@ -34,8 +34,21 @@ exacte que `manifest.json` doit porter.
 
 ## Exemples
 
-Chaque format a une archive exemple valide, et des archives invalides, sous
-[`tests/fixtures/data-migration/<format>/`](../../../tests/fixtures/data-migration/).
+Chaque format a une archive exemple valide, et des cas invalides, sous
+[`tests/fixtures/data-migration/`](../../../tests/fixtures/data-migration/),
+dans un dossier qui ne porte pas toujours le nom du `format` ; les autres
+fichiers du dossier sont les cas invalides :
+
+| Import | Dossier | Exemple valide |
+|---|---|---|
+| Calendrier (fichier ICS) | `ics/` | aucun ZIP : des fichiers `.ics`, chacun pour un cas |
+| Historique des courriels | `email-history/` | `exemple.zip` |
+| Actualités et formulaires | `scoutmagic-news-history/` | `exemple.zip` |
+| Photos des membres | `scoutmagic-member-photos/` | `exemple.zip` |
+| Galeries photo | `gallery-links/` | `galeries-exemple.zip` |
+| Endroits de camp | `scoutmagic-camp-places/` | `endroits-de-camp.zip` |
+| Inscriptions de l'année suivante | `scoutmagic-next-year-registrations/` | `exemple-valide.zip` |
+
 Leurs données sont inventées et ne correspondent à aucune unité réelle.
 
 ## Ce que ces formats ne couvrent pas
