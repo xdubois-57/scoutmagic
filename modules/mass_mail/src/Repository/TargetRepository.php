@@ -46,7 +46,13 @@ class TargetRepository
                     WHERE dt.target_id = t.id AND d.status = 'sent') AS sent_count,
                 (SELECT COUNT(*) FROM mass_mail_delivery_targets dt
                     JOIN mass_mail_deliveries d ON d.id = dt.delivery_id
-                    WHERE dt.target_id = t.id AND d.status = 'pending') AS pending_count
+                    WHERE dt.target_id = t.id AND d.status = 'pending') AS pending_count,
+                (SELECT COUNT(*) FROM mass_mail_delivery_targets dt
+                    JOIN mass_mail_deliveries d ON d.id = dt.delivery_id
+                    WHERE dt.target_id = t.id AND d.status = 'error') AS error_count,
+                (SELECT COUNT(*) FROM mass_mail_delivery_targets dt
+                    JOIN mass_mail_deliveries d ON d.id = dt.delivery_id
+                    WHERE dt.target_id = t.id AND d.status = 'unknown') AS unknown_count
          FROM mass_mail_targets t
          JOIN mass_mail_emails e ON e.id = t.email_id
          JOIN sections s ON s.id = e.section_id";
@@ -114,7 +120,7 @@ class TargetRepository
      * @return array<int, array{
      *     id: int, email_id: int, member_id: int, scout_year_id: int|null, audience_row_id: int|null,
      *     subject: string, body_html: string, list_type: string, section_name: string,
-     *     sent_at: string, not_sent: bool, imported: bool
+     *     sent_at: string, not_sent: bool, imported: bool, failed: bool
      * }>
      */
     public function findRecentEntriesForMember(int $memberId, int $limit): array
@@ -139,7 +145,7 @@ class TargetRepository
      * @return array{
      *     id: int, email_id: int, member_id: int, scout_year_id: int|null, audience_row_id: int|null,
      *     subject: string, body_html: string, list_type: string, section_name: string,
-     *     sent_at: string, not_sent: bool, imported: bool
+     *     sent_at: string, not_sent: bool, imported: bool, failed: bool
      * }|null
      */
     public function findEntryForMember(int $targetId, int $memberId): ?array
@@ -200,7 +206,7 @@ class TargetRepository
      * @return array{
      *     id: int, email_id: int, member_id: int, scout_year_id: int|null, audience_row_id: int|null,
      *     subject: string, body_html: string, list_type: string, section_name: string,
-     *     sent_at: string, not_sent: bool, imported: bool
+     *     sent_at: string, not_sent: bool, imported: bool, failed: bool
      * }
      */
     private function hydrateEntry(array $row): array
@@ -210,6 +216,10 @@ class TargetRepository
         // not a failure. It is dated by its historical sending.
         $imported = $row['imported_at'] !== null;
         $notSent = !$imported && (int) $row['sent_count'] === 0;
+        // What the former site DID record as a failure, though: every
+        // message of the member in error, none sent and none of unknown fate.
+        $failed = $imported && (int) $row['sent_count'] === 0 && (int) $row['unknown_count'] === 0
+            && (int) $row['error_count'] > 0;
 
         return [
             'id' => (int) $row['id'],
@@ -227,6 +237,7 @@ class TargetRepository
                 : ($notSent ? (string) $row['created_at'] : (string) $row['first_sent_at']),
             'not_sent' => $notSent,
             'imported' => $imported,
+            'failed' => $failed,
         ];
     }
 

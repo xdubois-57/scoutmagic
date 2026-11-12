@@ -46,11 +46,11 @@ final class EmailHistoryImportServiceTest extends TestCase
         mkdir($this->storage, 0700, true);
         $this->service = ImportedEmailFixture::service($this->pdo, $this->storage);
 
-        $this->pdo->exec("INSERT INTO age_branches (desk_code, label, sort_order) VALUES ('ECL', 'Éclaireurs', 30)");
+        $this->statement("INSERT INTO age_branches (desk_code, label, sort_order) VALUES ('ECL', 'Éclaireurs', 30)");
         $branch = (int) $this->pdo->lastInsertId();
-        $this->pdo->exec(
-            "INSERT INTO sections (desk_code, age_branch_id, name, email) VALUES ('ECL01', {$branch}, 'Éclaireurs', "
-                . "' Eclaireurs@Exemple.test ')"
+        $this->statement(
+            'INSERT INTO sections (desk_code, age_branch_id, name, email) VALUES (?, ?, ?, ?)',
+            ['ECL01', $branch, 'Éclaireurs', ' Eclaireurs@Exemple.test '],
         );
         $this->sectionId = (int) $this->pdo->lastInsertId();
         $this->staffId = ImportedEmailFixture::staffSection($this->pdo);
@@ -127,16 +127,16 @@ final class EmailHistoryImportServiceTest extends TestCase
     {
         $result = $this->service->import(ImportedEmailFixture::email());
 
-        $row = $this->pdo->query(
-            'SELECT original_sender_address_encrypted, original_sender_name_encrypted FROM mass_mail_emails WHERE id = '
-                . $result->emailId
+        $row = $this->statement(
+            'SELECT original_sender_address_encrypted, original_sender_name_encrypted FROM mass_mail_emails WHERE id = ?',
+            [$result->emailId],
         )->fetch(\PDO::FETCH_ASSOC);
         $this->assertStringNotContainsString(
             'eclaireurs@exemple.test',
             (string) $row['original_sender_address_encrypted'],
         );
         $this->assertStringNotContainsString('Exempleville', (string) $row['original_sender_name_encrypted']);
-        $ciphers = $this->pdo->query('SELECT email_address_encrypted FROM mass_mail_deliveries')
+        $ciphers = $this->statement('SELECT email_address_encrypted FROM mass_mail_deliveries')
             ->fetchAll(\PDO::FETCH_COLUMN);
         foreach ($ciphers as $cipher) {
             $this->assertStringNotContainsString('@exemple.test', (string) $cipher);
@@ -175,10 +175,11 @@ final class EmailHistoryImportServiceTest extends TestCase
 
     public function testTwoSectionsSharingTheAddressLeaveTheEmailToTheStaff(): void
     {
-        $this->pdo->exec(
+        $this->statement(
             "INSERT INTO sections (desk_code, age_branch_id, name, email) "
                 . "SELECT 'ECL02', age_branch_id, 'Éclaireurs B', "
-                . "'eclaireurs@exemple.test' FROM sections WHERE id = {$this->sectionId}"
+                . "'eclaireurs@exemple.test' FROM sections WHERE id = ?",
+            [$this->sectionId],
         );
 
         $section = $this->service->senderSection('eclaireurs@exemple.test');
@@ -189,7 +190,7 @@ final class EmailHistoryImportServiceTest extends TestCase
 
     public function testWithoutAStaffSectionAnUnrecognisedSenderHasNowhereToGo(): void
     {
-        $this->pdo->exec("DELETE FROM sections WHERE desk_code = 'STAFFDU'");
+        $this->statement("DELETE FROM sections WHERE desk_code = 'STAFFDU'");
 
         $this->assertNull($this->service->senderSection('quelquun@ailleurs.test'));
         $this->expectException(MassMailException::class);
@@ -212,22 +213,23 @@ final class EmailHistoryImportServiceTest extends TestCase
 
     public function testMembersBecomeTargetsLinkedToTheirMessageWithTheirLatestYear(): void
     {
-        $this->pdo->exec(
+        $this->statement(
             "INSERT INTO scout_years (label, start_date, end_date) VALUES ('2022-2023', '2022-09-01', '2023-08-31')",
         );
         $older = (int) $this->pdo->lastInsertId();
-        $this->pdo->exec(
+        $this->statement(
             "INSERT INTO scout_years (label, start_date, end_date) VALUES ('2023-2024', '2023-09-01', '2024-08-31')",
         );
         $latest = (int) $this->pdo->lastInsertId();
-        $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('900001')");
+        $this->statement("INSERT INTO members (desk_id) VALUES ('900001')");
         $alpha = (int) $this->pdo->lastInsertId();
-        $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('900003')");
+        $this->statement("INSERT INTO members (desk_id) VALUES ('900003')");
         $withoutAddress = (int) $this->pdo->lastInsertId();
         foreach ([$older, $latest] as $year) {
-            $this->pdo->exec(
+            $this->statement(
                 "INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted) "
-                    . "VALUES ({$alpha}, {$year}, 'x', 'y')"
+                    . "VALUES (?, ?, 'x', 'y')",
+                [$alpha, $year],
             );
         }
 
@@ -236,7 +238,7 @@ final class EmailHistoryImportServiceTest extends TestCase
         ], [$withoutAddress]));
 
         $this->assertSame(2, $result->targets);
-        $targets = $this->pdo->query(
+        $targets = $this->statement(
             'SELECT member_id, scout_year_id FROM mass_mail_targets ORDER BY member_id'
         )->fetchAll(\PDO::FETCH_KEY_PAIR);
         $this->assertSame([$alpha => $latest, $withoutAddress => null], array_map(
@@ -265,7 +267,7 @@ final class EmailHistoryImportServiceTest extends TestCase
 
         $this->assertSame(1, $result->attachments);
         $this->assertSame(2, $result->attachmentsRefused);
-        $file = $this->pdo->query(
+        $file = $this->statement(
             'SELECT f.original_name, f.mime_type, f.role_min, f.module_id FROM mass_mail_attachments a '
                 . 'JOIN files f ON f.id = a.file_id'
         )->fetch(\PDO::FETCH_ASSOC);
@@ -284,16 +286,16 @@ final class EmailHistoryImportServiceTest extends TestCase
     {
         $result = $this->service->import(ImportedEmailFixture::email('A-1', []));
 
-        $this->assertSame($result->emailId, $this->service->findImported("site-exempleville\nA-1"));
-        $this->assertNull($this->service->findImported("site-exempleville\na-1"));
-        $this->assertNull($this->service->findImported('site-exempleville'));
+        $this->assertSame($result->emailId, $this->service->findImported("17:site-exempleville\nA-1"));
+        $this->assertNull($this->service->findImported("17:site-exempleville\na-1"));
+        $this->assertNull($this->service->findImported('17:site-exempleville'));
     }
 
     public function testItsImportIsJournaledWithoutSubjectNorAddress(): void
     {
         $result = $this->service->import(ImportedEmailFixture::email());
 
-        $row = $this->pdo->query("SELECT description, context FROM event_log WHERE event_type = 'email_imported'")
+        $row = $this->statement("SELECT description, context FROM event_log WHERE event_type = 'email_imported'")
             ->fetch(\PDO::FETCH_ASSOC);
         $this->assertIsArray($row);
         $this->assertStringContainsString('#' . $result->emailId, (string) $row['description']);
@@ -334,6 +336,19 @@ final class EmailHistoryImportServiceTest extends TestCase
 
     private function rows(string $sql): int
     {
-        return (int) $this->pdo->query($sql)->fetchColumn();
+        return (int) $this->statement($sql)->fetchColumn();
+    }
+
+    /**
+     * A prepared and executed statement, values bound.
+     *
+     * @param list<int|string> $values
+     */
+    private function statement(string $sql, array $values = []): \PDOStatement
+    {
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute($values);
+
+        return $stmt;
     }
 }

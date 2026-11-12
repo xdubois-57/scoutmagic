@@ -68,21 +68,21 @@ final class EmailHistoryImporterOnMysqlTest extends TestCase
         $this->storage = sys_get_temp_dir() . '/dm_mail_' . bin2hex(random_bytes(6));
         mkdir($this->storage, 0700, true);
 
-        $this->pdo->exec(
+        $this->statement(
             "INSERT INTO age_branches (desk_code, label) VALUES ('ECL', 'Éclaireurs'), ('STAFF', 'Staff d''U')",
         );
-        $this->pdo->exec(
+        $this->statement(
             "INSERT INTO sections (age_branch_id, desk_code, name, email) VALUES "
                 . "((SELECT id FROM age_branches WHERE desk_code = 'ECL'), 'ECL01', 'Éclaireurs', "
                 . "'Eclaireurs@Exemple.test'), "
                 . "((SELECT id FROM age_branches WHERE desk_code = 'STAFF'), 'STAFFDU', 'Staff d''U', NULL)"
         );
-        $this->sectionId = (int) $this->pdo->query("SELECT id FROM sections WHERE desk_code = 'ECL01'")->fetchColumn();
-        $this->staffId = (int) $this->pdo->query("SELECT id FROM sections WHERE desk_code = 'STAFFDU'")->fetchColumn();
+        $this->sectionId = (int) $this->statement("SELECT id FROM sections WHERE desk_code = 'ECL01'")->fetchColumn();
+        $this->staffId = (int) $this->statement("SELECT id FROM sections WHERE desk_code = 'STAFFDU'")->fetchColumn();
         // 900001 and 900002 exist; 900003 does not, and must never be created.
-        $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('900001'), ('900002')");
-        $this->alpha = (int) $this->pdo->query("SELECT id FROM members WHERE desk_id = '900001'")->fetchColumn();
-        $this->beta = (int) $this->pdo->query("SELECT id FROM members WHERE desk_id = '900002'")->fetchColumn();
+        $this->statement("INSERT INTO members (desk_id) VALUES ('900001'), ('900002')");
+        $this->alpha = (int) $this->statement("SELECT id FROM members WHERE desk_id = '900001'")->fetchColumn();
+        $this->beta = (int) $this->statement("SELECT id FROM members WHERE desk_id = '900002'")->fetchColumn();
 
         $encryption = ImportedEmailFixture::encryption();
         $journal = new JournalService(new JournalRepository($this->pdo));
@@ -162,7 +162,7 @@ final class EmailHistoryImporterOnMysqlTest extends TestCase
         $this->assertSame(3, $this->rows('data_migration_items'));
 
         // D6: the section whose address sent it, else the Staff d'U.
-        $sections = $this->pdo->query(
+        $sections = $this->statement(
             'SELECT subject, section_id FROM mass_mail_emails',
         )->fetchAll(\PDO::FETCH_KEY_PAIR);
         $this->assertSame($this->sectionId, (int) $sections["Infos camp d'été 2024"]);
@@ -171,7 +171,7 @@ final class EmailHistoryImporterOnMysqlTest extends TestCase
         // The camp email: its known messages, statuses as the former site
         // said, its two valid attachments, two members linked — and the
         // unknown Desk id created nobody.
-        $campId = (int) $this->pdo->query(
+        $campId = (int) $this->statement(
             "SELECT id FROM mass_mail_emails WHERE subject = 'Infos camp d''été 2024'",
         )->fetchColumn();
         $statuses = [];
@@ -186,14 +186,16 @@ final class EmailHistoryImporterOnMysqlTest extends TestCase
         ], $statuses);
         $this->assertSame(
             2,
-            (int) $this->pdo->query(
-                "SELECT COUNT(*) FROM mass_mail_attachments WHERE email_id = {$campId}",
+            (int) $this->statement(
+                'SELECT COUNT(*) FROM mass_mail_attachments WHERE email_id = ?',
+                [$campId],
             )->fetchColumn(),
         );
         $this->assertSame(
             [$this->alpha, $this->beta],
-            array_map('intval', $this->pdo->query(
-                "SELECT member_id FROM mass_mail_targets WHERE email_id = {$campId} ORDER BY member_id"
+            array_map('intval', $this->statement(
+                'SELECT member_id FROM mass_mail_targets WHERE email_id = ? ORDER BY member_id',
+                [$campId],
             )->fetchAll(\PDO::FETCH_COLUMN))
         );
         $this->assertSame(2, $this->rows('members'));
@@ -209,7 +211,7 @@ final class EmailHistoryImporterOnMysqlTest extends TestCase
         );
 
         // The mail merge is ONE email, its template text (D3).
-        $merge = $this->pdo->query(
+        $merge = $this->statement(
             "SELECT body_html FROM mass_mail_emails WHERE subject = 'Cotisation {{Annee}}'",
         )->fetchColumn();
         $this->assertStringContainsString('{{Prenom}}', (string) $merge);
@@ -217,13 +219,13 @@ final class EmailHistoryImporterOnMysqlTest extends TestCase
         // Nothing to send, nothing scheduled, nobody notified.
         $this->assertSame(
             0,
-            (int) $this->pdo->query(
+            (int) $this->statement(
                 "SELECT COUNT(*) FROM mass_mail_deliveries WHERE status = 'pending'",
             )->fetchColumn(),
         );
         $this->assertSame(
             0,
-            (int) $this->pdo->query(
+            (int) $this->statement(
                 "SELECT COUNT(*) FROM scheduled_actions WHERE module_id = 'mass_mail'",
             )->fetchColumn(),
         );
@@ -250,7 +252,7 @@ final class EmailHistoryImporterOnMysqlTest extends TestCase
     public function testWithoutItsCorrespondenceRowsAnEmailIsStillRecognisedByItsProvenance(): void
     {
         $this->executed('exemple.zip');
-        $this->pdo->exec('DELETE FROM data_migration_items');
+        $this->statement('DELETE FROM data_migration_items');
 
         $run = $this->analysed('exemple.zip');
 
@@ -278,12 +280,12 @@ final class EmailHistoryImporterOnMysqlTest extends TestCase
         $this->assertSame(0, $this->rows('mass_mail_attachments'));
         $this->assertSame(
             0,
-            (int) $this->pdo->query("SELECT COUNT(*) FROM mass_mail_deliveries WHERE status = 'sent'")->fetchColumn(),
+            (int) $this->statement("SELECT COUNT(*) FROM mass_mail_deliveries WHERE status = 'sent'")->fetchColumn(),
         );
         // « delivered » is not a status this format knows: never « Remis ».
         $this->assertSame(
             1,
-            (int) $this->pdo->query(
+            (int) $this->statement(
                 "SELECT COUNT(*) FROM mass_mail_deliveries WHERE status = 'unknown'",
             )->fetchColumn(),
         );
@@ -330,12 +332,12 @@ final class EmailHistoryImporterOnMysqlTest extends TestCase
     public function testTheImportedEmailsStayLockedOnceTheMigrationModuleIsGone(): void
     {
         $this->executed('exemple.zip');
-        $this->pdo->exec('DELETE FROM data_migration_items');
-        $this->pdo->exec('DELETE FROM data_migration_runs');
+        $this->statement('DELETE FROM data_migration_items');
+        $this->statement('DELETE FROM data_migration_runs');
 
         $emails = new EmailRepository($this->pdo);
         $deliveries = new DeliveryRepository($this->pdo, ImportedEmailFixture::encryption());
-        foreach ($this->pdo->query('SELECT id FROM mass_mail_emails')->fetchAll(\PDO::FETCH_COLUMN) as $id) {
+        foreach ($this->statement('SELECT id FROM mass_mail_emails')->fetchAll(\PDO::FETCH_COLUMN) as $id) {
             $email = $emails->findById((int) $id);
             $this->assertTrue($email?->isImported());
             $this->assertFalse($email?->isEditable());
@@ -347,7 +349,7 @@ final class EmailHistoryImporterOnMysqlTest extends TestCase
 
     public function testWithoutAStaffSectionTheEmailsNoSectionClaimsAreIgnored(): void
     {
-        $this->pdo->exec("UPDATE sections SET desk_code = 'STAFFX' WHERE id = {$this->staffId}");
+        $this->statement('UPDATE sections SET desk_code = ? WHERE id = ?', ['STAFFX', $this->staffId]);
 
         $run = $this->analysed('exemple.zip');
 
@@ -388,6 +390,45 @@ final class EmailHistoryImporterOnMysqlTest extends TestCase
         $this->assertSame(1, $this->rows('mass_mail_emails'));
     }
 
+    /**
+     * Two installations whose ids would join into the same provenance —
+     * `ancien` LF `site` + `c-1` and `ancien` + `site` LF `c-1` — are two
+     * emails: the second is imported, never taken for the first.
+     */
+    public function testTwoInstallationsNeverShareAProvenance(): void
+    {
+        foreach ([["ancien\nsite", 'c-1'], ['ancien', "site\nc-1"]] as [$installation, $id]) {
+            $run = $this->ran($this->singleEmailArchive($installation, $id, []));
+
+            $this->assertSame(1, $run->report['imported'], (string) json_encode($installation));
+            $this->assertSame(0, $run->report['present']);
+        }
+        $this->assertSame(2, $this->rows('mass_mail_emails'));
+    }
+
+    /**
+     * An attachment is named by its content: cited three times by one
+     * email, it is joined once.
+     */
+    public function testAnAttachmentCitedSeveralTimesIsJoinedOnce(): void
+    {
+        $pdf = ImportedEmailFixture::pdf();
+        $bytes = (string) file_get_contents($pdf);
+        @unlink($pdf);
+        $hash = hash('sha256', $bytes);
+        $entry = ['path' => 'attachments/' . $hash, 'sha256' => $hash, 'filename' => 'programme.pdf'];
+
+        $run = $this->ran($this->singleEmailArchive(
+            'ancien-site',
+            'c-1',
+            [$entry, $entry, $entry],
+            ['attachments/' . $hash => $bytes]
+        ));
+
+        $this->assertSame(1, $run->report['imported']);
+        $this->assertSame(1, $this->rows('mass_mail_attachments'));
+    }
+
     public function testAnArchiveMissingFromItsOwnInventoryIsRefusedWhole(): void
     {
         $zip = TestArchive::build(
@@ -400,6 +441,49 @@ final class EmailHistoryImporterOnMysqlTest extends TestCase
 
         $this->assertNotSame(Run::ANALYSED, $run->state);
         $this->assertSame(0, $this->rows('mass_mail_emails'));
+    }
+
+    /**
+     * An archive of one email with an HTML body, from $installation.
+     *
+     * @param list<array<string, string>> $attachments
+     * @param array<string, string> $files
+     */
+    private function singleEmailArchive(string $installation, string $id, array $attachments, array $files = []): string
+    {
+        $html = '<p>Rappel</p>';
+        $content = 'content/' . hash('sha256', $html) . '.html';
+
+        return TestArchive::build(
+            [
+                'communications/c-1.json' => (string) json_encode([
+                    'id' => $id,
+                    'sent_at' => '2023-09-04T20:00:00+02:00',
+                    'subject' => 'Rappel',
+                    'sender' => ['address' => 'tresorerie@exemple.test'],
+                    'body' => ['html' => $content],
+                    'attachments' => $attachments,
+                ]),
+                $content => $html,
+            ] + $files,
+            [
+                'format' => EmailHistoryImporter::FORMAT,
+                'format_version' => '1.0.0',
+                'source' => ['installation_id' => $installation],
+            ]
+        );
+    }
+
+    /** $zip deposited, analysed, confirmed and run to its end, then removed. */
+    private function ran(string $zip): Run
+    {
+        $run = $this->service->confirm($this->drive($this->deposit($zip)), []);
+        @unlink($zip);
+        $this->assertNotNull($run);
+        $run = $this->drive($run);
+        $this->assertSame(Run::DONE, $run->state, (string) $run->rejectionReason);
+
+        return $run;
     }
 
     private function analysed(string $fixture): Run
@@ -448,9 +532,35 @@ final class EmailHistoryImporterOnMysqlTest extends TestCase
         return $run;
     }
 
+    /**
+     * A table's row count. PDO binds no table name, so each table this file
+     * counts has its own fixed statement.
+     */
     private function rows(string $table): int
     {
-        return (int) $this->pdo->query("SELECT COUNT(*) FROM {$table}")->fetchColumn();
+        $sql = match ($table) {
+            'data_migration_items' => 'SELECT COUNT(*) FROM data_migration_items',
+            'mass_mail_attachments' => 'SELECT COUNT(*) FROM mass_mail_attachments',
+            'mass_mail_emails' => 'SELECT COUNT(*) FROM mass_mail_emails',
+            'mass_mail_notified_accounts' => 'SELECT COUNT(*) FROM mass_mail_notified_accounts',
+            'members' => 'SELECT COUNT(*) FROM members',
+            'notifications' => 'SELECT COUNT(*) FROM notifications',
+        };
+
+        return (int) $this->statement($sql)->fetchColumn();
+    }
+
+    /**
+     * A prepared and executed statement, values bound.
+     *
+     * @param list<int|string> $values
+     */
+    private function statement(string $sql, array $values = []): \PDOStatement
+    {
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute($values);
+
+        return $stmt;
     }
 
     private static function summary(Run $run): AnalysisSummary

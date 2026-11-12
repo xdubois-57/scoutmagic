@@ -5,7 +5,7 @@
        (design.md §7.3) — no « Retour » button here. #}
     {% include 'partials/page_header.html.twig' with {
         title: email.subject,
-        subtitle: (email.not_sent ? 'Non envoyée · ' ~ email.sent_at|french_date : 'Envoyé le ' ~ email.sent_at|french_date) ~ ' · ' ~ email.section_name,
+        subtitle: (email.not_sent or email.failed|default(false) ? 'Non envoyée · ' ~ email.sent_at|french_date : 'Envoyé le ' ~ email.sent_at|french_date) ~ ' · ' ~ email.section_name,
     } only %}
     {# « Concerne aussi » (issue #999): the other members this same
        communication was meant for, named only when the reader may already
@@ -37,6 +37,13 @@
     {% if email.not_sent %}
         <div class="alert alert-warning" role="alert">
             Cet e-mail n'a pas pu être envoyé aux adresses de cet animé. Son contenu est reproduit ci-dessous.
+        </div>
+    {% endif %}
+    {# An imported email the former site recorded as failed for this
+       member — every message in error, none of unknown fate. #}
+    {% if email.failed|default(false) %}
+        <div class="alert alert-warning" role="alert">
+            D'après l'ancien site, cet e-mail n'a pas pu être envoyé aux adresses de cet animé. Son contenu est reproduit ci-dessous.
         </div>
     {% endif %}
     {# A publipostage past its retention: the values that made this mail

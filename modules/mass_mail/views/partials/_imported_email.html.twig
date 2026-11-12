@@ -44,7 +44,7 @@
     <div class="d-flex flex-column gap-1">
         {% for attachment in attachments %}
             <div class="border rounded px-2 py-1">
-                <a href="/files/{{ attachment.file_id }}"
+                <a href="{{ file_url(attachment.file_id) }}"
                    download="{{ attachment.name }}" target="_blank" rel="noopener">{{ attachment.name }}</a>
             </div>
         {% else %}

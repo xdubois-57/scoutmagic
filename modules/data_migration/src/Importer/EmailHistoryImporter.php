@@ -290,7 +290,7 @@ final class EmailHistoryImporter implements Importer
             return $ignored('Section « Staff d\'U » absente du site');
         }
 
-        $importSource = $context->installationId . "\n" . $item->sourceId;
+        $importSource = self::importSource($context->installationId, $item->sourceId);
         if ($this->emails->findImported($importSource) !== null) {
             return ['verdict' => ItemVerdict::present(), 'email' => null, 'files' => []];
         }
@@ -463,6 +463,7 @@ final class EmailHistoryImporter implements Importer
         $attachments = [];
         $files = [];
         $tags = [];
+        $seen = [];
         foreach ($list as $entry) {
             $path = is_array($entry) && is_string($entry['path'] ?? null) ? $entry['path'] : '';
             $declared = is_array($entry) && is_string($entry['sha256'] ?? null) ? $entry['sha256'] : '';
@@ -472,6 +473,14 @@ final class EmailHistoryImporter implements Importer
                 $tags[] = self::TAG_ATTACHMENT_INVALID;
                 continue;
             }
+            // A file of attachments/ is named by its content: cited twice,
+            // it is the same attachment, joined once. That also bounds what
+            // one email extracts at once by the archive's own distinct
+            // files, however many times an entry repeats one.
+            if (isset($seen[$path])) {
+                continue;
+            }
+            $seen[$path] = true;
 
             $temporary = $this->extract($source, $path, $declared);
             if ($temporary === null) {
@@ -514,26 +523,30 @@ final class EmailHistoryImporter implements Importer
 
         $hash = hash_init('sha256');
         $size = 0;
+        $complete = true;
         $limit = $this->emails->maxAttachmentBytes();
         try {
             $source->archive()->stream($path, static function (string $chunk) use (
                 $handle,
                 $hash,
                 &$size,
+                &$complete,
                 $limit,
             ): void {
                 $size += strlen($chunk);
                 hash_update($hash, $chunk);
-                if ($size <= $limit) {
-                    fwrite($handle, $chunk);
+                if ($size <= $limit && $complete) {
+                    $complete = self::writeAll($handle, $chunk);
                 }
             });
         } finally {
             fclose($handle);
         }
 
+        // The hash is of the archive's bytes, not of the file's: a short
+        // write (a full disk) leaves a file the fingerprint never saw.
         $mime = (new \finfo(FILEINFO_MIME_TYPE))->file($temporary);
-        if ($size > $limit || !hash_equals($declared, hash_final($hash))
+        if (!$complete || $size > $limit || !hash_equals($declared, hash_final($hash))
             || !in_array($mime, $this->emails->acceptedAttachmentTypes(), true)
         ) {
             @unlink($temporary);
@@ -542,6 +555,36 @@ final class EmailHistoryImporter implements Importer
         }
 
         return $temporary;
+    }
+
+    /**
+     * Every byte of $chunk, or false: fwrite() may write fewer bytes than
+     * asked, and answers 0 or false once it can write no more.
+     *
+     * @param resource $handle
+     */
+    private static function writeAll($handle, string $chunk): bool
+    {
+        while ($chunk !== '') {
+            $written = fwrite($handle, $chunk);
+            if ($written === false || $written === 0) {
+                return false;
+            }
+            $chunk = substr($chunk, $written);
+        }
+
+        return true;
+    }
+
+    /**
+     * mass_mail's provenance key: the installation prefixed with its length
+     * in bytes, then a line feed and the source id. Both may hold any byte,
+     * a line feed included, so the length is what keeps `A\nB` + `C` from
+     * reading as `A` + `B\nC`. At most 3 + 1 + 190 + 1 + 190 = 385 bytes.
+     */
+    private static function importSource(string $installationId, string $sourceId): string
+    {
+        return strlen($installationId) . ':' . $installationId . "\n" . $sourceId;
     }
 
     /**

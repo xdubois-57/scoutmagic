@@ -185,6 +185,10 @@ Une pièce jointe est **ignorée**, et le courriel importé sans elle, si :
 Ce sont les règles d'une pièce jointe ajoutée à la main. Les images sont
 réenregistrées sans leurs métadonnées.
 
+Un même `path` cité plusieurs fois par un courriel n'y est joint **qu'une
+fois**, sous le nom de sa première entrée : le fichier est nommé par son
+contenu, c'est donc la même pièce jointe.
+
 ## 5. Ce que devient un courriel
 
 - **Section** : si `sender.address` est l'adresse d'une section ScoutMagic

@@ -148,8 +148,8 @@ class ImportedEmailRepository
      */
     public function findSectionAddresses(): array
     {
-        $stmt = $this->pdo->query('SELECT id, desk_code, email FROM sections ORDER BY id ASC');
-        if ($stmt === false) {
+        $stmt = $this->pdo->prepare('SELECT id, desk_code, email FROM sections ORDER BY id ASC');
+        if ($stmt === false || !$stmt->execute()) {
             return [];
         }
 

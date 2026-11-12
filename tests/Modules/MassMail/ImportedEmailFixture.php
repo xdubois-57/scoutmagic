@@ -61,17 +61,22 @@ final class ImportedEmailFixture
      */
     public static function staffSection(\PDO $pdo): int
     {
-        $id = $pdo->query("SELECT id FROM sections WHERE desk_code = 'STAFFDU'")->fetchColumn();
+        $stmt = $pdo->prepare('SELECT id FROM sections WHERE desk_code = ?');
+        $stmt->execute(['STAFFDU']);
+        $id = $stmt->fetchColumn();
         if ($id !== false) {
             return (int) $id;
         }
-        $branch = $pdo->query('SELECT id FROM age_branches ORDER BY id LIMIT 1')->fetchColumn();
+        $stmt = $pdo->prepare('SELECT id FROM age_branches ORDER BY id LIMIT 1');
+        $stmt->execute();
+        $branch = $stmt->fetchColumn();
         if ($branch === false) {
-            $pdo->exec("INSERT INTO age_branches (desk_code, label, sort_order) VALUES ('STAFF', 'Staff d''U', 50)");
+            $pdo->prepare('INSERT INTO age_branches (desk_code, label, sort_order) VALUES (?, ?, ?)')
+                ->execute(['STAFF', 'Staff d\'U', 50]);
             $branch = $pdo->lastInsertId();
         }
-        $pdo->prepare("INSERT INTO sections (desk_code, age_branch_id, name) VALUES ('STAFFDU', ?, 'Staff d''U')")
-            ->execute([(int) $branch]);
+        $pdo->prepare('INSERT INTO sections (desk_code, age_branch_id, name) VALUES (?, ?, ?)')
+            ->execute(['STAFFDU', (int) $branch, 'Staff d\'U']);
 
         return (int) $pdo->lastInsertId();
     }
@@ -89,7 +94,7 @@ final class ImportedEmailFixture
         string $sender = 'eclaireurs@exemple.test'
     ): ImportedEmail {
         return new ImportedEmail(
-            "site-exempleville\n" . $sourceId,
+            "17:site-exempleville\n" . $sourceId,
             "Infos camp d'été 2024",
             '<p>Chers parents,</p><script>alert(1)</script><p>Le camp aura lieu en juillet.</p>',
             new \DateTimeImmutable('2024-05-21T18:30:00+02:00'),

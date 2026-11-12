@@ -80,6 +80,8 @@ class MassMailPageTest extends TestCase
     private \PDO $pdo;
     private MassMailController $controller;
     private MassMailService $massMailService;
+    /** @var array<int|string, mixed> what $massMailService was built from */
+    private array $massMailServiceArguments;
     private AudienceRepository $audienceRepository;
     private MailingListService $listService;
     private ListBlockRepository $blockRepository;
@@ -155,7 +157,7 @@ class MassMailPageTest extends TestCase
         $mailService->method('getDefaultSender')
             ->willReturn(['address' => 'unite@test.be', 'name' => 'Test Unité']);
 
-        $this->massMailService = new MassMailService(
+        $this->massMailServiceArguments = [
             new EmailRepository($this->pdo),
             new DeliveryRepository($this->pdo, $encryption),
             new TargetRepository($this->pdo),
@@ -176,8 +178,9 @@ class MassMailPageTest extends TestCase
             new MemberResolutionRepository($this->pdo, $encryption),
             new SuppressedAddressRepository($this->pdo),
             new MergeRenderer(),
-            importedEmails: new \Modules\MassMail\Repository\ImportedEmailRepository($this->pdo, $encryption)
-        );
+            'importedEmails' => new \Modules\MassMail\Repository\ImportedEmailRepository($this->pdo, $encryption),
+        ];
+        $this->massMailService = new MassMailService(...$this->massMailServiceArguments);
 
         $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
         $twig = TwigFactory::create($templateDir, false, ['mass_mail' => dirname(__DIR__, 4) . '/modules/mass_mail/views']);
@@ -1794,10 +1797,10 @@ class MassMailPageTest extends TestCase
      */
     private function importedEmail(): array
     {
-        $this->pdo->exec(
+        $this->pdo->prepare(
             "INSERT INTO sections (desk_code, age_branch_id, name) SELECT 'STAFFDU', age_branch_id, 'Staff d''U' "
-                . "FROM sections WHERE id = {$this->sectionId}"
-        );
+                . 'FROM sections WHERE id = ?'
+        )->execute([$this->sectionId]);
         $pdf = \Tests\Modules\MassMail\ImportedEmailFixture::pdf();
         try {
             $emailId = \Tests\Modules\MassMail\ImportedEmailFixture::service($this->pdo, sys_get_temp_dir())->import(
@@ -1812,19 +1815,20 @@ class MassMailPageTest extends TestCase
             @unlink($pdf);
         }
         $ids = [];
+        $delivery = $this->pdo->prepare('SELECT id FROM mass_mail_deliveries WHERE email_id = ? AND status = ?');
         foreach (['sent' => 'accepted', 'unknown' => 'unknown'] as $status => $key) {
-            $ids[$key] = (int) $this->pdo->query(
-                "SELECT id FROM mass_mail_deliveries WHERE email_id = {$emailId} AND status = '{$status}'"
-            )->fetchColumn();
+            $delivery->execute([$emailId, $status]);
+            $ids[$key] = (int) $delivery->fetchColumn();
+            $delivery->closeCursor();
         }
+        $attachment = $this->pdo->prepare('SELECT id FROM mass_mail_attachments WHERE email_id = ?');
+        $attachment->execute([$emailId]);
 
         return [
             'email_id' => $emailId,
             'accepted' => $ids['accepted'],
             'unknown' => $ids['unknown'],
-            'attachment' => (int) $this->pdo->query(
-                "SELECT id FROM mass_mail_attachments WHERE email_id = {$emailId}"
-            )->fetchColumn(),
+            'attachment' => (int) $attachment->fetchColumn(),
         ];
     }
 
@@ -1882,8 +1886,19 @@ class MassMailPageTest extends TestCase
     public function testTheRecipientsPageOfAnImportedEmailRecomputesNothing(): void
     {
         $imported = $this->importedEmail();
+        // The recount is observed, not inferred from the page: a flash it
+        // set would already be consumed by the render, and one that
+        // succeeded would change nothing visible.
+        $guarded = new class (...$this->massMailServiceArguments) extends MassMailService {
+            public function estimateRecipientCount(int $id): array
+            {
+                throw new \LogicException('estimateRecipientCount() ran for an imported email.');
+            }
+        };
+        $controller = clone $this->controller;
+        (new \ReflectionProperty(MassMailController::class, 'massMailService'))->setValue($controller, $guarded);
 
-        $response = $this->controller->recipients(
+        $response = $controller->recipients(
             $this->get('/mass-mail/' . $imported['email_id'] . '/recipients'),
             ['id' => (string) $imported['email_id']]
         );
@@ -1892,7 +1907,6 @@ class MassMailPageTest extends TestCase
         $body = (string) $response->getBody();
         $this->assertStringContainsString('ses destinataires ne sont pas recalculés', $body);
         $this->assertStringContainsString('« Parents des Éclaireurs » (nom d&#039;origine)', $body);
-        $this->assertNull(FlashMessage::get(), 'no list was resolved, so nothing could fail');
     }
 
     public function testResendingAMessageOfAnImportedEmailIsRefusedByTheServer(): void

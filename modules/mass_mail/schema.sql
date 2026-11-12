@@ -293,11 +293,13 @@ CREATE TABLE IF NOT EXISTS mass_mail_emails (
     -- lock: Service\MassMailService refuses to edit, delete, resend or
     -- touch the attachments of such an email, and it reads this column —
     -- never the data_migration module, so disabling that module unlocks
-    -- nothing. import_source is the provenance, `<installation_id>` and
-    -- `<source id>` joined by a line feed: VARBINARY, compared byte for
-    -- byte (`A-1` is not `a-1`), because it is also the heuristic that
-    -- keeps a re-import from duplicating an email whose data_migration
-    -- correspondence row is gone (Repository\ImportedEmailRepository).
+    -- nothing. import_source is the provenance: the installation_id's
+    -- length in bytes, `:`, the installation_id, a line feed and the
+    -- source id (the length keeps two pairs from ever sharing a key).
+    -- VARBINARY, compared byte for byte (`A-1` is not `a-1`), because it
+    -- is also the heuristic that keeps a re-import from duplicating an
+    -- email whose data_migration correspondence row is gone
+    -- (Repository\ImportedEmailRepository).
     imported_at DATETIME NULL,
     import_source VARBINARY(400) NULL,
     -- The sender as the former site recorded it, shown as is (D6): the

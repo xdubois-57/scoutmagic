@@ -306,6 +306,31 @@ class MemberShowTemplateTest extends TestCase
         $this->assertStringNotContainsString('>Importé<', $native);
     }
 
+    /**
+     * An imported communication the former site recorded as failed reads
+     * « Non envoyée » like a native one, never as sent.
+     */
+    public function testAnImportedCommunicationRecordedAsFailedIsMarkedNonEnvoyee(): void
+    {
+        $item = ['id' => 9, 'subject' => 'Rappel', 'sent_at' => '2024-05-21 18:30:00',
+            'section_name' => 'Éclaireurs', 'merge_purged' => false, 'not_sent' => false, 'imported' => true];
+        $context = ['mass_mail_enabled' => true];
+
+        $failed = $this->render(
+            $this->makeMember(),
+            true,
+            $context + ['recent_mass_mail_emails' => [$item + ['failed' => true]]],
+        );
+        $unknown = $this->render(
+            $this->makeMember(),
+            true,
+            $context + ['recent_mass_mail_emails' => [$item + ['failed' => false]]],
+        );
+
+        $this->assertStringContainsString('Non envoyée', $failed);
+        $this->assertStringNotContainsString('Non envoyée', $unknown);
+    }
+
     public function testACommunicationNotSentIsMarkedNonEnvoyee(): void
     {
         $item = ['id' => 7, 'subject' => 'Réunion', 'sent_at' => '2026-01-01 10:00:00', 'section_name' => 'Meute A', 'merge_purged' => false];

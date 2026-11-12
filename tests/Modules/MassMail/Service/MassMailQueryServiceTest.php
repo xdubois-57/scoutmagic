@@ -410,11 +410,56 @@ class MassMailQueryServiceTest extends TestCase
             $this->assertCount(1, $entries);
             $this->assertTrue($entries[0]['imported']);
             $this->assertFalse($entries[0]['not_sent']);
+            $this->assertFalse($entries[0]['failed'], 'an unknown is not a failure');
             $this->assertSame($expected, $entries[0]['sent_at']);
 
             $detail = $service->findEmailDetailForMember($memberId, $entries[0]['id']);
             $this->assertTrue($detail['imported'] ?? null);
             $this->assertFalse($detail['not_sent'] ?? null);
+        }
+    }
+
+    /**
+     * What the former site DID record as a failure is said: `failed` when
+     * every message of the member is in error — not when one of them was
+     * sent, nor when one is of unknown fate. Never `not_sent`, which is
+     * this site's own sending.
+     */
+    public function testAnImportedEmailRecordedAsFailedIsFlaggedFailed(): void
+    {
+        $pdo = DatabaseTestHelper::createTestDatabase();
+        MassMailTestHelper::createTables($pdo);
+        \Tests\Modules\MassMail\ImportedEmailFixture::staffSection($pdo);
+        $members = [];
+        foreach (['failed_only' => '900011', 'failed_and_unknown' => '900012', 'failed_and_sent' => '900013'] as $key => $deskId) {
+            $pdo->prepare('INSERT INTO members (desk_id) VALUES (?)')->execute([$deskId]);
+            $members[$key] = (int) $pdo->lastInsertId();
+        }
+
+        $recipient = static fn(string $address, string $status, array $memberIds) =>
+            new \Modules\MassMail\Api\ImportedRecipient($address, $status, null, $memberIds);
+        \Tests\Modules\MassMail\ImportedEmailFixture::service($pdo, sys_get_temp_dir())->import(
+            \Tests\Modules\MassMail\ImportedEmailFixture::email('c-err', [
+                $recipient('ancien.chef@exemple.test', \Modules\MassMail\Api\ImportedRecipient::FAILED, array_values($members)),
+                $recipient('famille@exemple.test', \Modules\MassMail\Api\ImportedRecipient::UNKNOWN, [$members['failed_and_unknown']]),
+                $recipient('autre@exemple.test', \Modules\MassMail\Api\ImportedRecipient::ACCEPTED, [$members['failed_and_sent']]),
+            ])
+        );
+
+        $service = new MassMailQueryService(
+            new TargetRepository($pdo),
+            new AudienceRepository($pdo, \Tests\Modules\MassMail\ImportedEmailFixture::encryption()),
+            new MergeRenderer()
+        );
+        foreach (['failed_only' => true, 'failed_and_unknown' => false, 'failed_and_sent' => false] as $key => $failed) {
+            $entries = $service->getRecentEmailsForMember($members[$key], 10);
+            $this->assertCount(1, $entries, $key);
+            $this->assertSame($failed, $entries[0]['failed'], $key);
+            $this->assertFalse($entries[0]['not_sent'], $key);
+
+            $detail = $service->findEmailDetailForMember($members[$key], $entries[0]['id']);
+            $this->assertSame($failed, $detail['failed'] ?? null, $key);
+            $this->assertFalse($detail['not_sent'] ?? null, $key);
         }
     }
 

@@ -109,9 +109,9 @@ final class ImportedEmailsOnMysqlTest extends TestCase
 
         $result = $this->service->import(ImportedEmailFixture::email('A-1', []));
 
-        $this->assertSame($result->emailId, $this->service->findImported("site-exempleville\nA-1"));
-        $this->assertNull($this->service->findImported("site-exempleville\na-1"));
-        $this->assertNull($this->service->findImported("site-exempleville\nA-1 "));
+        $this->assertSame($result->emailId, $this->service->findImported("17:site-exempleville\nA-1"));
+        $this->assertNull($this->service->findImported("17:site-exempleville\na-1"));
+        $this->assertNull($this->service->findImported("17:site-exempleville\nA-1 "));
     }
 
     public function testABodyPastSixtyFourKibibytesIsKeptWhole(): void
@@ -144,10 +144,10 @@ final class ImportedEmailsOnMysqlTest extends TestCase
 
         // A native email to the same member, sent today.
         $sectionId = (int) $this->pdo->query("SELECT id FROM sections WHERE desk_code = 'STAFFDU'")->fetchColumn();
-        $this->pdo->exec(
+        $this->pdo->prepare(
             "INSERT INTO mass_mail_emails (subject, body_html, section_id, list_type, status, sent_at)
-             VALUES ('Aujourd''hui', '<p>x</p>', {$sectionId}, 'default_active_members', 'sent', NOW())"
-        );
+             VALUES ('Aujourd''hui', '<p>x</p>', ?, 'default_active_members', 'sent', NOW())"
+        )->execute([$sectionId]);
         $nativeId = (int) $this->pdo->lastInsertId();
         $target = (new TargetRepository($this->pdo))->create($nativeId, $memberId, null);
         $deliveries = new \Modules\MassMail\Repository\DeliveryRepository(
@@ -174,7 +174,7 @@ final class ImportedEmailsOnMysqlTest extends TestCase
     public function testTheRepositoryRefusesToDeleteAnImportedEmailOnThisEngineToo(): void
     {
         $result = $this->service->import(ImportedEmailFixture::email('c-del', []));
-        $this->pdo->exec("UPDATE mass_mail_emails SET status = 'draft' WHERE id = {$result->emailId}");
+        $this->pdo->prepare("UPDATE mass_mail_emails SET status = 'draft' WHERE id = ?")->execute([$result->emailId]);
 
         $this->assertFalse((new EmailRepository($this->pdo))->deleteIfNotStarted($result->emailId));
         $this->assertNotNull((new EmailRepository($this->pdo))->findById($result->emailId));

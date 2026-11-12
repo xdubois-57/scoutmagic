@@ -388,25 +388,22 @@ class SendBatchHandlerTest extends TestCase
      */
     public function testAPendingMessageOfAnImportedEmailIsFailedRatherThanSent(): void
     {
-        $this->pdo->exec(
-            "UPDATE mass_mail_emails SET list_type = 'imported', imported_at = '2026-11-09 10:00:00' "
-                . "WHERE id = {$this->emailId}"
-        );
+        $this->pdo->prepare(
+            "UPDATE mass_mail_emails SET list_type = 'imported', imported_at = '2026-11-09 10:00:00' WHERE id = ?"
+        )->execute([$this->emailId]);
 
         $mailService = $this->createMock(MailService::class);
         $mailService->expects($this->never())->method('send');
         (new SendBatchHandler())->handle([], $this->buildContext($mailService));
 
-        $statuses = $this->pdo->query('SELECT DISTINCT status FROM mass_mail_deliveries ORDER BY status')
-            ->fetchAll(\PDO::FETCH_COLUMN);
+        $stmt = $this->pdo->prepare('SELECT DISTINCT status FROM mass_mail_deliveries ORDER BY status');
+        $stmt->execute();
+        $statuses = $stmt->fetchAll(\PDO::FETCH_COLUMN);
         $this->assertContains('error', $statuses);
         $this->assertNotContains('sent', $statuses);
-        $this->assertSame(
-            'Courriel importé, jamais envoyé',
-            $this->pdo->query(
-                "SELECT error_message FROM mass_mail_deliveries WHERE status = 'error' LIMIT 1",
-            )->fetchColumn()
-        );
+        $stmt = $this->pdo->prepare('SELECT error_message FROM mass_mail_deliveries WHERE status = ? LIMIT 1');
+        $stmt->execute(['error']);
+        $this->assertSame('Courriel importé, jamais envoyé', $stmt->fetchColumn());
     }
 
     public function testDoesNotRescheduleWhenNoPendingRemain(): void
