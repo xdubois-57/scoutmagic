@@ -1528,7 +1528,7 @@ That page configures **one** notification, the reminder before a multi-day event
 
 ### 27.5bis Events copied from another calendar
 
-The data migration module's ICS import (§49.6) writes events through `Api\CalendarImportWriterInterface` with exactly this rule: the importing chef d'unité's role and sections, resolved again at every write, against the calendar they chose. An imported event is an ordinary event afterwards — editable, deletable, in the feeds — but its creation announces nothing: no « Nouvelle activité », no automatic retrospective, and no reminder when it is already past.
+The data migration module's ICS import (§49.8) writes events through `Api\CalendarImportWriterInterface` with exactly this rule: the importing chef d'unité's role and sections, resolved again at every write, against the calendar they chose. An imported event is an ordinary event afterwards — editable, deletable, in the feeds — but its creation announces nothing: no « Nouvelle activité », no automatic retrospective, and no reminder when it is already past.
 
 ### 27.6 Out of scope
 
@@ -4121,7 +4121,18 @@ Disponible quand le module Camps est actif. L'archive (format `scoutmagic-camp-p
 - **Coordonnées.** La latitude et la longitude sont contrôlées ensemble : si une seule est donnée, ou si l'une sort de ses bornes, les deux sont écartées et le lieu est créé quand même. Les coordonnées reprises sont marquées manuelles : le géocodage automatique ne les remplace jamais. Aucun géocodage n'a lieu pendant l'import ; un lieu sans coordonnées suit ensuite le géocodage habituel.
 - Un lieu importé reste modifiable, archivable et fusionnable normalement dans Camps (§26).
 
-### 49.6 Calendrier ICS (module `calendar`)
+### 49.6 Photos des membres
+
+Import « Photos des membres », adresse `/admin/migration-donnees/photos`. Fonction du cœur : il est proposé dès que le module est actif, sans autre module requis. Format `scoutmagic-member-photos` 1.x, décrit pour les exporteurs dans `docs/formats/data-migration/member-photos.md`.
+
+- **Une ligne de `photos.jsonl`, une photo** : un membre par son identifiant Desk (`desk_id`), une année par son libellé, une image `images/<sha256>.<extension>` (JPEG, PNG ou WebP).
+- **Membre** cherché par son identifiant Desk, anciens identifiants des fiches fusionnées compris. Introuvable : la photo est ignorée (« Membre introuvable dans ScoutMagic ») et aucun membre n'est créé.
+- **Année** : une année passée absente du site est proposée à la création dans l'aperçu (§49.2) ; les photos d'une année non cochée sont ignorées.
+- **Jamais d'écrasement.** Un membre qui a déjà une photo pour l'année la garde : la ligne compte parmi les « Déjà présents », et l'aperçu dit combien d'animés sont dans ce cas. Si le fichier vise plusieurs fois le même membre et la même année, seule la première ligne dont l'image est valide est prise ; les suivantes sont ignorées.
+- **Contrôles** : l'empreinte annoncée par la ligne est celle que le manifeste a vérifiée ; le type réel de l'image (et non son nom), 10 Mo au plus, 16 mégapixels et 10 000 pixels de côté au plus, et une image qui se décode. Sinon la photo est ignorée avec son motif (« Image illisible »…).
+- **Le traitement normal des photos de membre** : orientation appliquée, métadonnées supprimées, réencodage, vignette, fichier réservé aux visiteurs connectés. La photo s'affiche au trombinoscope et sur la fiche comme une photo ajoutée à la main, sans marque ni écran d'historique. Les photos de compte, de section et les albums ne sont pas touchés.
+- **Limites** : 4 000 images par archive (le manifeste les inventorie toutes) ; au-delà, plusieurs archives du même site, qui se dédoublonnent entre elles.
+### 49.8 Calendrier ICS (module `calendar`)
 
 « Calendrier (fichier ICS) » copie **une fois** les événements d'un agenda en ligne dans un calendrier du site. Il n'existe que si le module Calendrier est actif. C'est le seul import dont la source est un formulaire et non un ZIP : il n'a donc pas de document de format.
 
