@@ -279,7 +279,9 @@ class DecisionEmailService
      * decision: one more than its earlier tries, and a resend once one of
      * them went out. Only the current decision's rows count — a superseded
      * one belongs to another decision, and that includes every cancelled
-     * row, since only a change of decision cancels.
+     * row, since only a change of decision cancels. A decision the old site
+     * of an imported request had told the family (chantier #1142, D2) was
+     * no try of this site's at all, and is not counted.
      *
      * @return array{0: int, 1: bool}
      */
@@ -287,7 +289,9 @@ class DecisionEmailService
     {
         $tries = array_filter(
             $this->repository->findForRequest($requestId),
-            static fn(DecisionEmail $email): bool => $email->isCurrent() && $email->decision === $decision
+            static fn(DecisionEmail $email): bool => $email->isCurrent()
+                && $email->decision === $decision
+                && !$email->isCommunicatedElsewhere()
         );
         $sent = array_filter(
             $tries,

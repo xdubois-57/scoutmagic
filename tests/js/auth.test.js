@@ -329,7 +329,7 @@ describe('auth.js: magic-link polling', () => {
     async function startPolling() {
         buildCoreDom();
         global.fetch = vi.fn()
-            .mockResolvedValueOnce({ json: () => Promise.resolve({ success: true, poll_id: 42 }) });
+            .mockResolvedValueOnce({ json: () => Promise.resolve({ success: true, poll_id: 42, poll_token: 'tok-42' }) });
         /** @type {HTMLInputElement} */ (document.getElementById('email')).value = 'a@b.test';
         vi.useFakeTimers();
         await boot();
@@ -342,10 +342,38 @@ describe('auth.js: magic-link polling', () => {
         global.fetch.mockResolvedValue({ json: () => Promise.resolve({ confirmed: false }) });
 
         await vi.advanceTimersByTimeAsync(3000);
-        expect(fetch).toHaveBeenCalledWith('/auth/poll/42');
+        expect(fetch).toHaveBeenCalledWith('/auth/poll/42', expect.anything());
         const countAfterOne = fetch.mock.calls.length;
         await vi.advanceTimersByTimeAsync(3000);
         expect(fetch.mock.calls.length).toBeGreaterThan(countAfterOne);
+    });
+
+    // Issue #1115: the poll token the server handed this page, and only
+    // this page, goes with every poll — a copy of the session cookie
+    // without it collects nothing.
+    it('sends the poll token it was given with every poll, in a header', async () => {
+        await startPolling();
+        global.fetch.mockResolvedValue({ json: () => Promise.resolve({ confirmed: false }) });
+
+        await vi.advanceTimersByTimeAsync(6000);
+
+        const polls = fetch.mock.calls.filter(([url]) => url === '/auth/poll/42');
+        expect(polls.length).toBeGreaterThanOrEqual(2);
+        polls.forEach(([, opts]) => {
+            expect(opts.headers['X-Magic-Link-Poll-Token']).toBe('tok-42');
+        });
+    });
+
+    it('switches to the new token when the link is sent again', async () => {
+        await startPolling();
+        global.fetch.mockImplementation((url) => Promise.resolve({ json: () => Promise.resolve(url === '/login/magic-link'
+            ? { success: true, poll_id: 43, poll_token: 'tok-43' }
+            : { confirmed: false }) }));
+        document.getElementById('resend-magic-link').dispatchEvent(new Event('click'));
+        await vi.advanceTimersByTimeAsync(3000);
+
+        const last = fetch.mock.calls.filter(([url]) => url === '/auth/poll/43').pop();
+        expect(last[1].headers['X-Magic-Link-Poll-Token']).toBe('tok-43');
     });
 
     it('stops immediately when its pending link has been invalidated', async () => {
@@ -380,7 +408,7 @@ describe('auth.js: magic-link polling', () => {
 
         expect(document.getElementById('waiting-expired').classList.contains('d-none')).toBe(true);
         await vi.advanceTimersByTimeAsync(3000);
-        expect(fetch).toHaveBeenCalledWith('/auth/poll/43');
+        expect(fetch).toHaveBeenCalledWith('/auth/poll/43', expect.anything());
     });
 
     it('on confirmed, shows the confirmed state, stops polling, and redirects after 2s', async () => {
@@ -518,7 +546,7 @@ describe('auth.js: magic-link polling', () => {
         // 15 minutes after the FIRST send — the stale timer must not fire.
         await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
         expect(document.getElementById('waiting-expired').classList.contains('d-none')).toBe(true);
-        expect(fetch).toHaveBeenCalledWith('/auth/poll/43'); // still polling
+        expect(fetch).toHaveBeenCalledWith('/auth/poll/43', expect.anything()); // still polling
 
         // 15 minutes after the SECOND send — now it expires.
         await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
@@ -575,7 +603,7 @@ describe('auth.js: "Renvoyer le lien" (waiting screen)', () => {
         }));
         // Polling restarts against the NEW poll id.
         await vi.advanceTimersByTimeAsync(3000);
-        expect(fetch).toHaveBeenCalledWith('/auth/poll/43');
+        expect(fetch).toHaveBeenCalledWith('/auth/poll/43', expect.anything());
     });
 
     it('after expiry, resending restores the spinner state and resumes polling', async () => {
@@ -595,7 +623,7 @@ describe('auth.js: "Renvoyer le lien" (waiting screen)', () => {
         expect(document.getElementById('waiting-pending').classList.contains('d-none')).toBe(false);
         expect(document.getElementById('waiting-expired').classList.contains('d-none')).toBe(true);
         await vi.advanceTimersByTimeAsync(3000);
-        expect(fetch).toHaveBeenCalledWith('/auth/poll/43');
+        expect(fetch).toHaveBeenCalledWith('/auth/poll/43', expect.anything());
     });
 
     it('disables the button and changes its label while in flight, restoring both afterwards', async () => {

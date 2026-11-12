@@ -96,6 +96,34 @@
         }
     }
 
+    /**
+     * The server refuses to add a key to a session whose last login is
+     * older than ten minutes (issue #1115) and says where to confirm:
+     * `{error, reauth_url}`. Explain, and offer to go there — the login
+     * page brings the owner back to « Mon compte » afterwards. Only a
+     * login-page address is followed, whatever the answer holds.
+     *
+     * @param {any} data
+     * @returns {boolean} true when the answer was such a refusal
+     */
+    function offerReauthentication(data) {
+        var url = data?.reauth_url;
+        if (typeof url !== 'string' || !url.startsWith('/login?')) {
+            return false;
+        }
+        void window.ScoutMagicConfirm.ask({
+            title: 'Confirmez votre identité',
+            message: data.error || 'Pour votre sécurité, confirmez votre identité en vous reconnectant.',
+            confirmLabel: 'Me reconnecter',
+            variant: 'primary'
+        }).then(function (confirmed) {
+            if (confirmed) {
+                window.location.href = url;
+            }
+        });
+        return true;
+    }
+
     // A browser with no WebAuthn cannot be talked into it: say so, and
     // take the button out of the tab order rather than let it throw.
     if (!window.PublicKeyCredential) {
@@ -126,6 +154,9 @@
             var deviceLabel = labelInput?.value || 'Clé sans nom';
 
             var optRes = await api.getJson('/account/passkey/register-options');
+            if (offerReauthentication(optRes.data)) {
+                return;
+            }
             if (!optRes.ok || !optRes.data) {
                 toastError('Les options d\'enregistrement n\'ont pas pu être obtenues.');
                 return;
@@ -164,6 +195,9 @@
                 // A new key changes the list, its labels and its dates —
                 // the page re-renders rather than patching them by hand.
                 window.location.reload();
+                return;
+            }
+            if (offerReauthentication(res.data)) {
                 return;
             }
             toastError(res.data?.error || 'L\'enregistrement a échoué.');

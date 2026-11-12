@@ -93,6 +93,28 @@ describe('device-credentials.js', () => {
         expect(el('device-add-btn').disabled).toBe(false);
     });
 
+    // Issue #1115: a login older than ten minutes is refused with a way out.
+    it('shows why and offers to sign in again when the last login is too old', async () => {
+        const refusal = {
+            success: false,
+            error: 'Pour votre sécurité, cette action demande une connexion de moins de 10 minutes.',
+            reauth_url: '/login?return=%2Faccount%2Fdevices&reauth=1',
+        };
+        global.fetch = vi.fn(() => jsonResponse(refusal, 403));
+        window.ScoutMagicConfirm = { ask: vi.fn(() => Promise.resolve(true)) };
+        Object.defineProperty(window, 'location', { configurable: true, value: { href: '/account/devices' } });
+        await boot();
+        el('device-add-btn').click();
+
+        await vi.waitFor(() => expect(window.location.href).toBe(refusal.reauth_url));
+        expect(el('device-error').textContent).toBe(refusal.error);
+        expect(window.ScoutMagicConfirm.ask).toHaveBeenCalledWith(expect.objectContaining({
+            confirmLabel: 'Me reconnecter',
+        }));
+        expect(el('device-secret-panel').classList.contains('d-none')).toBe(true);
+        delete window.ScoutMagicConfirm;
+    });
+
     it('says so when the request never reached a server', async () => {
         global.fetch = vi.fn(() => Promise.reject(new TypeError('offline')));
         await boot();

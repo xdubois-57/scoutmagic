@@ -15,6 +15,7 @@ use Tests\RequestWithInput;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Security\AuthSession;
+use Core\Security\RecentAuthentication;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Twig\Environment;
@@ -197,6 +198,47 @@ class DeviceCredentialControllerTest extends TestCase
 
         $this->assertSame(400, $response->getStatusCode());
         $this->assertSame([], $this->service->listForAccount($this->accountId));
+    }
+
+    /**
+     * Issue #1115: a credential outlives the session that made it, so a
+     * session whose last login is past the window creates nothing and is
+     * told where to sign in again — and is brought back here afterwards.
+     */
+    public function testCreatingIsRefusedWhenTheLastLoginIsTooOld(): void
+    {
+        $_SESSION['_auth']['authenticated_at'] = time() - RecentAuthentication::WINDOW_SECONDS - 1;
+
+        $response = $this->controller->create(
+            $this->jsonRequest(['_csrf_token' => $this->csrfToken(), 'label' => 'Téléphone']),
+            []
+        );
+
+        $this->assertSame(403, $response->getStatusCode());
+        $payload = json_decode($response->getBody(), true);
+        $this->assertFalse($payload['success']);
+        $this->assertSame(RecentAuthentication::MESSAGE, $payload['error']);
+        $this->assertSame('/login?return=%2Faccount%2Fdevices&reauth=1', $payload['reauth_url']);
+        $this->assertArrayNotHasKey('secret', $payload);
+        $this->assertSame([], $this->service->listForAccount($this->accountId));
+        $this->assertSame(
+            0,
+            (int) $this->pdo->query("SELECT COUNT(*) FROM event_log WHERE event_type = 'device_credential_created'")
+                ->fetchColumn()
+        );
+    }
+
+    public function testCreatingIsAllowedJustInsideTheWindow(): void
+    {
+        $_SESSION['_auth']['authenticated_at'] = time() - RecentAuthentication::WINDOW_SECONDS + 5;
+
+        $response = $this->controller->create(
+            $this->jsonRequest(['_csrf_token' => $this->csrfToken(), 'label' => 'Téléphone']),
+            []
+        );
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertCount(1, $this->service->listForAccount($this->accountId));
     }
 
     public function testCreatingPastTheCeilingIsRefusedWithoutCreatingAnything(): void

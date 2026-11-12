@@ -216,9 +216,12 @@ $controller->confirmLink(
             ->willReturn($this->userRepo->findById($account->id));
 
         $controller = $this->controllerWith($authService);
-        PendingMagicLink::remember(7, \Tests\SessionGenerationFixture::forPdo($this->pdo)->current());
+        $pollToken = PendingMagicLink::remember(7, \Tests\SessionGenerationFixture::forPdo($this->pdo)->current());
 
-        $controller->pollMagicLink($this->getRequest('/auth/poll/7', []), ['id' => '7']);
+        $controller->pollMagicLink(
+            new Request('GET', '/auth/poll/7', [], [], [], [PendingMagicLink::POLL_TOKEN_HEADER => $pollToken]),
+            ['id' => '7']
+        );
 
         $this->assertFalse(AuthSession::isAuthenticated());
     }
@@ -233,9 +236,12 @@ $controller->confirmLink(
             ->willReturn($this->userRepo->findById($account->id));
 
         $controller = $this->controllerWith($authService);
-        PendingMagicLink::remember(7, \Tests\SessionGenerationFixture::forPdo($this->pdo)->current());
+        $pollToken = PendingMagicLink::remember(7, \Tests\SessionGenerationFixture::forPdo($this->pdo)->current());
 
-        $controller->pollMagicLink($this->getRequest('/auth/poll/7', []), ['id' => '7']);
+        $controller->pollMagicLink(
+            new Request('GET', '/auth/poll/7', [], [], [], [PendingMagicLink::POLL_TOKEN_HEADER => $pollToken]),
+            ['id' => '7']
+        );
 
         $this->assertTrue(AuthSession::isAuthenticated());
     }

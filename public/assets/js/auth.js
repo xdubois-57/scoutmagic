@@ -180,7 +180,7 @@
                 setWaitingExpired(false);
                 resendError.classList.add('d-none');
                 showState(stateWaiting);
-                startPolling(data.poll_id);
+                startPolling(data.poll_id, data.poll_token);
             } else {
                 showError(data.error || 'Une erreur est survenue.');
             }
@@ -204,7 +204,15 @@
         }
     });
 
-    function startPolling(pollId) {
+    /**
+     * @param {number} pollId
+     * @param {string} pollToken Held here, in memory only, and sent with
+     *   every poll: the server answers a poll without it as if nothing
+     *   were confirmed, so a copy of this session's cookie cannot collect
+     *   the link this page asked for (issue #1115). A reload loses it on
+     *   purpose — the page then starts over from the address form.
+     */
+    function startPolling(pollId, pollToken) {
         // One poll at a time. The 3s tick and the visibility handler below
         // can fire together (a throttled tab brought back), and the first
         // confirmed answer spends the return path server-side
@@ -217,7 +225,7 @@
                 return;
             }
             inFlight = true;
-            fetch('/auth/poll/' + pollId)
+            fetch('/auth/poll/' + pollId, { headers: { 'X-Magic-Link-Poll-Token': String(pollToken || '') } })
                 .finally(function() { inFlight = false; })
                 .then(function(r) { return r.json(); })
                 .then(function(data) {
@@ -296,7 +304,7 @@
                 stopPolling();
                 showMatchCode(data.match_code);
                 setWaitingExpired(false);
-                startPolling(data.poll_id);
+                startPolling(data.poll_id, data.poll_token);
             } else {
                 resendError.textContent = data.error || 'Une erreur est survenue.';
                 resendError.classList.remove('d-none');
