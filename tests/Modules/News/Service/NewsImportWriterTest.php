@@ -69,6 +69,9 @@ final class NewsImportWriterTest extends TestCase
         $this->forms = new FormRepository($this->pdo);
         $this->fields = new FormFieldRepository($this->pdo);
         $this->files = new FileRepository($this->pdo);
+        // Issue #1109: the body's addresses are the opaque ones, as in
+        // production — not the numeric form printed with no repository.
+        \Core\File\FilePublicIds::useRepository($this->files);
         $this->writer = new NewsImportWriter(
             $this->articles,
             $this->forms,
@@ -83,6 +86,7 @@ final class NewsImportWriterTest extends TestCase
 
     protected function tearDown(): void
     {
+        \Core\File\FilePublicIds::useRepository(null);
         foreach ($this->temporary as $path) {
             @unlink($path);
         }
@@ -171,12 +175,12 @@ final class NewsImportWriterTest extends TestCase
         $this->assertStringNotContainsString('onclick', $body);
         $this->assertStringNotContainsString('ancien.example', $body, 'An image the archive does not carry is dropped.');
         $this->assertStringNotContainsString('media/abc', $body);
-        $this->assertMatchesRegularExpression('~<img[^>]*src="/files/(\d+)"~', $body);
-        preg_match('~src="/files/(\d+)"~', $body, $match);
+        $this->assertMatchesRegularExpression('~<img[^>]*src="/files/([A-Za-z0-9_-]{22})"~', $body);
+        preg_match('~src="/files/([A-Za-z0-9_-]{22})"~', $body, $match);
 
         // The editor stores a body image `public`, whatever the article's
         // visibility (NewsController::uploadBodyImage()): so does this.
-        $file = $this->files->findById((int) $match[1]) ?? $this->fail('No file.');
+        $file = $this->files->findByPublicId($match[1]) ?? $this->fail('No file.');
         $this->assertSame('public', $file->roleMin);
         $this->assertFileExists($this->storage . '/' . $file->relativePath);
     }

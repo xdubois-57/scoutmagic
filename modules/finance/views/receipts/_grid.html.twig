@@ -13,12 +13,12 @@
         {% set attachment = row.attachment %}
         <div class="col-12 col-md-4" data-receipt-id="{{ attachment.id }}">
             <div class="border rounded-3 p-3 h-100 d-flex flex-column gap-2">
-                {# Ouvre la visionneuse intégrée (partials/file_viewer.html.twig)
-                   plutôt que de naviguer : dans l'application installée, une
-                   navigation vers une image remplace la fenêtre et il n'y a
-                   plus rien pour revenir. Le href reste, pour le cas sans
-                   JavaScript — FileController répond alors « attachment » à
-                   une navigation, ce qui télécharge sans bouger la page. #}
+                {# Opens the built-in viewer (partials/file_viewer.html.twig)
+                   rather than navigating: in the installed application, a
+                   navigation to an image replaces the window and nothing is
+                   left to come back with. The href stays for the case without
+                   JavaScript — FileController then answers a navigation with
+                   « attachment », which downloads without leaving the page. #}
                 {% set receipt_url = file_url(attachment.fileId) %}
                 {% if receipt_url %}
                 <a href="{{ receipt_url }}"

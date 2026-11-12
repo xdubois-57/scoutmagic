@@ -2240,14 +2240,20 @@ class NewsIntegrationTest extends TestCase
         [$controller, $fileRepository, $variantService] = $this->controllerWithImageVariants();
 
         $_FILES['image'] = $this->fakeUploadedImage();
-        $response = $controller->uploadBodyImage(new Request('POST', '/news/images/upload', [], [
-            '_csrf_token' => CsrfGuard::generateToken(),
-        ], [], []), []);
+        // Issue #1109: the address handed to the editor is the opaque one.
+        \Core\File\FilePublicIds::useRepository($fileRepository);
+        try {
+            $response = $controller->uploadBodyImage(new Request('POST', '/news/images/upload', [], [
+                '_csrf_token' => CsrfGuard::generateToken(),
+            ], [], []), []);
+        } finally {
+            \Core\File\FilePublicIds::useRepository(null);
+        }
 
         $payload = json_decode($response->getBody(), true);
         $this->assertTrue($payload['success']);
-        $this->assertMatchesRegularExpression('~^/files/(\d+)/md$~', $payload['url']);
-        $file = $fileRepository->findById((int) explode('/', $payload['url'])[2]);
+        $this->assertMatchesRegularExpression('~^/files/[A-Za-z0-9_-]{22}/md$~', $payload['url']);
+        $file = $fileRepository->findByPublicId(explode('/', $payload['url'])[2]);
         $this->assertNotNull($file);
         $this->assertNotNull($variantService->resolvePath($file->relativePath, 'thumb'));
         $this->assertNotNull($variantService->resolvePath($file->relativePath, 'md'));
