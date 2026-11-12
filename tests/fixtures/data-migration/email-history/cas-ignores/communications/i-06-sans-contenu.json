@@ -1,0 +1,9 @@
+{
+    "id": "i-06-sans-contenu",
+    "sent_at": "2021-03-01T10:00:00+01:00",
+    "subject": "Un sujet",
+    "sender": {
+        "address": "baladins@exemple.test"
+    },
+    "body": []
+}

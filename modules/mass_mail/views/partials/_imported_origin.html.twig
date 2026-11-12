@@ -1,0 +1,21 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{#
+  What the former site said of an imported email, shown as it said it
+  (decision D6): when it left, to which list — a name only, never re-read
+  against today's members — and from whom. The section the email hangs on
+  is only the one this site recognised from that address.
+
+  Usage:
+  {% include '@mass_mail/partials/_imported_origin.html.twig' with {
+      email: email,
+      sender: original_senders[email.id] ?? null,
+  } only %}
+#}
+<span class="d-block small text-body-secondary">
+    Envoyé le {{ email.sentAt|date_fr }}
+    {%- if email.originalAudienceName %} · Liste « {{ email.originalAudienceName }} » (nom d'origine){% endif %}
+    {%- if sender %} · De : {% if sender.name %}{{ sender.name }} &lt;{{ sender.address }}&gt;{% else %}{{ sender.address }}{% endif %}{% endif %}
+</span>

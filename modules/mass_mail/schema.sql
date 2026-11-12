@@ -249,7 +249,11 @@ CREATE TABLE IF NOT EXISTS mass_mail_block_contacts (
 CREATE TABLE IF NOT EXISTS mass_mail_emails (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     subject VARCHAR(255) NOT NULL,
-    body_html TEXT NOT NULL,
+    -- MEDIUMTEXT rather than TEXT for the emails imported from a former
+    -- site (data_migration, format scoutmagic.email-history): a sent
+    -- newsletter's HTML, even sanitized, can pass TEXT's 64 KiB, and the
+    -- message is the one thing such an import must not lose.
+    body_html MEDIUMTEXT NOT NULL,
     section_id INT UNSIGNED NOT NULL,
     -- 'external': a predefined, non-editable list contributed by another
     -- module via Api\ExternalMailingListProvider (ARCHITECTURE.md §7.5) —
@@ -269,7 +273,13 @@ CREATE TABLE IF NOT EXISTS mass_mail_emails (
     -- that is what mass_mail_targets.scout_year_id carries for them —
     -- the tracking page looks their profile up by it, and their profile
     -- only exists for that year.
-    list_type ENUM('default_section', 'default_active_members', 'default_chiefs', 'custom', 'external', 'mail_merge', 'default_former_members') NOT NULL,
+    -- 'imported': an email sent from a former site and imported by the
+    -- data_migration module (docs/formats/data-migration/email-history.md).
+    -- No list behind it at all: list_id/list_section_id/audience_id stay
+    -- NULL, the scout-year junction stays empty, and the only trace of its
+    -- audience is original_audience_name below — a historical list is
+    -- never re-resolved against today's members.
+    list_type ENUM('default_section', 'default_active_members', 'default_chiefs', 'custom', 'external', 'mail_merge', 'default_former_members', 'imported') NOT NULL,
     list_id INT UNSIGNED NULL,
     list_section_id INT UNSIGNED NULL,
     audience_id INT UNSIGNED NULL,
@@ -278,7 +288,32 @@ CREATE TABLE IF NOT EXISTS mass_mail_emails (
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     sent_at DATETIME NULL,
     created_by INT UNSIGNED,
+    -- An email imported from a former site (chantier « Migration de
+    -- données », decision D11). imported_at NOT NULL is THE read-only
+    -- lock: Service\MassMailService refuses to edit, delete, resend or
+    -- touch the attachments of such an email, and it reads this column —
+    -- never the data_migration module, so disabling that module unlocks
+    -- nothing. import_source is the provenance: the installation_id's
+    -- length in bytes, `:`, the installation_id, a line feed and the
+    -- source id (the length keeps two pairs from ever sharing a key).
+    -- VARBINARY, compared byte for byte (`A-1` is not `a-1`), because it
+    -- is also the heuristic that keeps a re-import from duplicating an
+    -- email whose data_migration correspondence row is gone
+    -- (Repository\ImportedEmailRepository).
+    imported_at DATETIME NULL,
+    import_source VARBINARY(400) NULL,
+    -- The sender as the former site recorded it, shown as is (D6): the
+    -- section the email hangs on is only the one this site recognised from
+    -- that address, or the Staff d'U. An address and a name are personal
+    -- data → BLOB + EncryptionService, decrypted only in
+    -- Repository\ImportedEmailRepository (SECURITY.md §5).
+    original_sender_address_encrypted BLOB NULL,
+    original_sender_name_encrypted BLOB NULL,
+    -- The name the former site gave its mailing list, informative only
+    -- (« Parents des Éclaireurs »). A list name, not a person's.
+    original_audience_name VARCHAR(255) NULL,
     INDEX idx_mme_status (status),
+    INDEX idx_mme_import_source (import_source),
     CONSTRAINT fk_mme_section FOREIGN KEY (section_id) REFERENCES sections(id),
     CONSTRAINT fk_mme_list FOREIGN KEY (list_id) REFERENCES mass_mail_lists(id),
     CONSTRAINT fk_mme_list_section FOREIGN KEY (list_section_id) REFERENCES sections(id),
@@ -342,7 +377,12 @@ CREATE TABLE IF NOT EXISTS mass_mail_deliveries (
     -- lazily creates the Desk override row). What the unsubscribe flips to
     -- 'inactive'. NULL for a contact or a file address.
     member_email_id INT UNSIGNED NULL,
-    status ENUM('pending', 'sent', 'error') NOT NULL DEFAULT 'pending',
+    -- 'unknown' only on an imported email (mass_mail_emails.imported_at):
+    -- the former site did not say what became of the message. An imported
+    -- message is never 'pending' — Task\SendBatchHandler would send it —
+    -- and its 'sent' reads « Accepté par le serveur d'envoi », never
+    -- « Remis » (nothing proves a delivery).
+    status ENUM('pending', 'sent', 'error', 'unknown') NOT NULL DEFAULT 'pending',
     error_message TEXT NULL,
     sent_at DATETIME NULL,
     attempts INT UNSIGNED NOT NULL DEFAULT 0,
