@@ -164,6 +164,39 @@ class AlbumRepository
         return $row !== false ? $this->hydrate($row) : null;
     }
 
+    /**
+     * The external albums whose address starts with `$prefix`, compared
+     * the way the column's collation compares (case-insensitively on
+     * MySQL/MariaDB). A coarse filter, never a decision: the caller
+     * compares each candidate exactly (`Service\ExternalAlbumUrl`). It exists
+     * so that the comparison reads a handful of rows rather than every
+     * external album there is — the stored addresses are kept as typed,
+     * so an exact `=` on the normalised form would miss
+     * `HTTPS://Example.org/a#x`, and a prefix catches it.
+     *
+     * Delegated albums are included: an address is known to this site
+     * whoever owns the album.
+     *
+     * @return list<array{id: int, external_url: string}>
+     */
+    public function findExternalByUrlPrefix(string $prefix): array
+    {
+        $escaped = strtr($prefix, ['!' => '!!', '%' => '!%', '_' => '!_']);
+        $stmt = $this->pdo->prepare(
+            "SELECT id, external_url FROM gallery_albums
+             WHERE type = 'external' AND external_url LIKE ? ESCAPE '!'
+             ORDER BY id"
+        );
+        $stmt->execute([$escaped . '%']);
+
+        $rows = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $rows[] = ['id' => (int) $row['id'], 'external_url' => (string) $row['external_url']];
+        }
+
+        return $rows;
+    }
+
     public function create(
         string $type,
         string $title,

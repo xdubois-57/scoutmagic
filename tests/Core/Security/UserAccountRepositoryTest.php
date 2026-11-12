@@ -274,6 +274,32 @@ class UserAccountRepositoryTest extends TestCase
         $this->assertTrue($reloaded->isSuperAdmin, 'deactivation withdraws access, not the flag');
     }
 
+    /**
+     * « Déconnecter partout » (issue #1115): the stamp, and nothing else —
+     * the account stays active, the password stays, and only that account
+     * is touched.
+     */
+    public function testRevokeSessionsStampsOnlyThatAccountAndChangesNothingElse(): void
+    {
+        $account = $this->repo->create('holder@test.com');
+        $other = $this->repo->create('other@test.com');
+        $this->repo->updatePasswordHash($account->id, password_hash('x', PASSWORD_DEFAULT));
+        $this->pdo->prepare('UPDATE user_accounts SET sessions_valid_from = NULL, password_changed_at = ? WHERE id = ?')
+            ->execute(['2020-01-01 00:00:00', $account->id]);
+
+        $this->repo->revokeSessions($account->id);
+
+        $reloaded = $this->repo->findById($account->id);
+        $this->assertNotNull($reloaded?->sessionsValidFrom);
+        $this->assertEqualsWithDelta(time(), $reloaded->sessionsValidFrom->getTimestamp(), 5);
+        $this->assertTrue($reloaded->isActive);
+        $this->assertTrue($this->repo->hasPassword($account->id));
+        $changedAt = $this->pdo->prepare('SELECT password_changed_at FROM user_accounts WHERE id = ?');
+        $changedAt->execute([$account->id]);
+        $this->assertSame('2020-01-01 00:00:00', (string) $changedAt->fetchColumn());
+        $this->assertNull($this->repo->findById($other->id)?->sessionsValidFrom);
+    }
+
     public function testDeactivateNeverRemovesTheRow(): void
     {
         $account = $this->repo->create('admin@test.com', true);
