@@ -188,10 +188,9 @@ class FilePublicIdsTest extends TestCase
     {
         $id = $this->repository->create('t.jpg', 't.jpg', 'image/jpeg', 1, 'public', null, null);
         $public = (string) $this->repository->findById($id)?->publicId;
-        $twig = \Core\View\TwigFactory::create(dirname(__DIR__, 3) . '/core/View/templates');
-
-        $html = $twig->createTemplate("{{ file_url(id) }}|{{ file_url(id, 'thumb') }}|{{ file_url(null) }}")
-            ->render(['id' => $id]);
+        $html = \Tests\TestTwig::withTemplates([
+            'urls.twig' => "{{ file_url(id) }}|{{ file_url(id, 'thumb') }}|{{ file_url(null) }}",
+        ])->render('urls.twig', ['id' => $id]);
 
         $this->assertSame('/files/' . $public . '|/files/' . $public . '/thumb|', $html);
     }

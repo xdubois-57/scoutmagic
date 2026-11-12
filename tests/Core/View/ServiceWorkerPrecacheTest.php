@@ -249,7 +249,7 @@ class ServiceWorkerPrecacheTest extends TestCase
      */
     public function testFileVariantBranchIsNetworkFirstAndWritesOnlyForAListedPage(): void
     {
-        $this->assertStringContainsString("const IMAGE_VARIANT_PATH = /^\\/files\\/\\d+\\/(thumb|md)$/;", $this->swJs);
+        $this->assertStringContainsString("const IMAGE_VARIANT_PATH = /^\\/files\\/(?:[A-Za-z0-9_-]{22}|\\d+)\\/(thumb|md)$/;", $this->swJs);
         $this->assertStringContainsString('event.respondWith(variantResponse(request, event));', $this->swJs);
 
         preg_match('/function variantResponse\(request, event\) \{(.*?)\n\}/s', $this->swJs, $m);

@@ -5132,15 +5132,18 @@ $router->addRoute('POST', '/cookies/accept-all', CookieController::class, 'accep
 $router->addRoute('POST', '/cookies/reject-all', CookieController::class, 'rejectAll', 'public');
 
 // File serving
-$router->addRoute('GET', '/files/{id}', FileController::class, 'serve', 'public');
-$router->addRoute('GET', '/files/{id}/thumbnail', FileController::class, 'thumbnail', 'public');
+// {file}, not {id}: the segment is the file's opaque public id (issue
+// #1109), and Router::placeholderPattern() holds an id-named placeholder
+// to digits.
+$router->addRoute('GET', '/files/{file}', FileController::class, 'serve', 'public');
+$router->addRoute('GET', '/files/{file}/thumbnail', FileController::class, 'thumbnail', 'public');
 // Registered after the literal /thumbnail route above so that path stays
 // reachable — Router::resolve() matches in registration order and a
 // {variant} wildcard would otherwise happily swallow it too. Serves a
 // pre-generated derivative (Core\Photo\ImageVariantService) through the
 // same FileAccessGuard/journal path as serve() — see
 // Core\Http\Controller\FileController::variant()'s own docblock.
-$router->addRoute('GET', '/files/{id}/{variant}', FileController::class, 'variant', 'public');
+$router->addRoute('GET', '/files/{file}/{variant}', FileController::class, 'variant', 'public');
 // Offline mode pre-download manifest — every page/image URL it lists is
 // guarded exactly like any other request once actually fetched; this
 // endpoint itself only lists candidates. role_min: public — see

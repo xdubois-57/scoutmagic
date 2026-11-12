@@ -58,7 +58,7 @@ class FileController extends AbstractController
      */
     public function serve(Request $request, array $params): Response
     {
-        $id = $this->fileIdFromSegment((string) ($params['id'] ?? ''));
+        $id = $this->fileIdFromSegment((string) ($params['file'] ?? ''));
 
         if ($id <= 0) {
             return (new Response('Not Found', 404));
@@ -293,7 +293,7 @@ class FileController extends AbstractController
      */
     public function thumbnail(Request $request, array $params): Response
     {
-        $id = $this->fileIdFromSegment((string) ($params['id'] ?? ''));
+        $id = $this->fileIdFromSegment((string) ($params['file'] ?? ''));
 
         if ($id <= 0) {
             return (new Response('Not Found', 404));
@@ -443,7 +443,7 @@ class FileController extends AbstractController
      */
     public function variant(Request $request, array $params): Response
     {
-        $id = $this->fileIdFromSegment((string) ($params['id'] ?? ''));
+        $id = $this->fileIdFromSegment((string) ($params['file'] ?? ''));
         $variant = (string) ($params['variant'] ?? '');
 
         if ($id <= 0 || !ImageVariantService::isValidVariant($variant)) {
