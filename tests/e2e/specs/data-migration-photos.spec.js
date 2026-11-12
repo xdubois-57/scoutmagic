@@ -52,7 +52,7 @@ const ARCHIVE = path.join(
     '../../fixtures/data-migration/scoutmagic-member-photos/exemple.zip',
 );
 
-const HOME = '/admin/migration-donnees';
+const HOME = '/config/migration-donnees';
 const PAGE = `${HOME}/photos`;
 const ADVANCE = `**${PAGE}/avancer`;
 

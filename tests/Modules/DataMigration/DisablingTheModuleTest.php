@@ -1,0 +1,143 @@
+<?php
+/**
+ * ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ * Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+ */
+
+declare(strict_types=1);
+
+namespace Tests\Modules\DataMigration;
+
+use Core\Config\SettingRepository;
+use Core\Config\SettingService;
+use Core\Cookie\CookieConsentService;
+use Core\Http\Router;
+use Core\Journal\JournalRepository;
+use Core\Journal\JournalService;
+use Core\Module\ModuleManager;
+use Core\Module\ModuleRegistryRepository;
+use Core\Offline\OfflineWhitelist;
+use Core\Security\Role;
+use Core\View\MenuBuilder;
+use Modules\MassMail\Repository\EmailRepository;
+use PHPUnit\Framework\Attributes\Group;
+use PHPUnit\Framework\TestCase;
+use Tests\DatabaseTestHelper;
+use Tests\Modules\MassMail\ImportedEmailFixture;
+use Tests\Modules\MassMail\MassMailTestHelper;
+
+/**
+ * Disabling data_migration once the migration is over (roadmap, lot I):
+ * the real ModuleManager, on the real modules directory, deactivates it —
+ * and what the imports wrote into the locked modules stays, still locked.
+ *
+ * The lock itself is tested in each module (ImportedEmailLockTest, the news
+ * lock tests); what this adds is the deactivation path in between.
+ */
+#[Group('database')]
+final class DisablingTheModuleTest extends TestCase
+{
+    private \PDO $pdo;
+    private ModuleRegistryRepository $registry;
+    private string $storage;
+
+    protected function setUp(): void
+    {
+        $this->pdo = DatabaseTestHelper::createTestDatabase();
+        $this->registry = new ModuleRegistryRepository($this->pdo);
+        $this->storage = sys_get_temp_dir() . '/dm_disable_' . bin2hex(random_bytes(6));
+        mkdir($this->storage, 0700, true);
+    }
+
+    protected function tearDown(): void
+    {
+        foreach (new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($this->storage, \FilesystemIterator::SKIP_DOTS),
+            \RecursiveIteratorIterator::CHILD_FIRST
+        ) as $entry) {
+            $entry->isDir() ? rmdir($entry->getPathname()) : unlink($entry->getPathname());
+        }
+        rmdir($this->storage);
+    }
+
+    public function testAnImportedEmailOutlivesTheModuleStillLocked(): void
+    {
+        MassMailTestHelper::createTables($this->pdo);
+        ImportedEmailFixture::staffSection($this->pdo);
+        $pdf = ImportedEmailFixture::pdf();
+        try {
+            $emailId = ImportedEmailFixture::service($this->pdo, $this->storage)->import(
+                ImportedEmailFixture::email(
+                    'i-disable',
+                    null,
+                    [],
+                    [new \Modules\MassMail\Api\ImportedAttachment($pdf, 'programme.pdf')],
+                )
+            )->emailId;
+        } finally {
+            @unlink($pdf);
+        }
+        $before = $this->snapshot('mass_mail_emails', 'mass_mail_deliveries', 'mass_mail_attachments', 'files');
+
+        $this->disableDataMigration('mass_mail');
+
+        $this->assertSame($before, $this->snapshot(
+            'mass_mail_emails',
+            'mass_mail_deliveries',
+            'mass_mail_attachments',
+            'files',
+        ), 'deactivating deletes nothing');
+        $stmt = $this->pdo->prepare('SELECT imported_at FROM mass_mail_emails WHERE id = ?');
+        $stmt->execute([$emailId]);
+        $this->assertNotEmpty($stmt->fetchColumn(), 'the lock column is untouched');
+        $this->assertFalse(
+            (new EmailRepository($this->pdo))->deleteIfNotStarted($emailId),
+            'and the email is still refused deletion'
+        );
+    }
+
+    /**
+     * Enables data_migration and the target module, then deactivates
+     * data_migration through the real manager and checks it took.
+     */
+    private function disableDataMigration(string $targetModule): void
+    {
+        $this->registry->upsert('data_migration', true, '1.0.0', 1);
+        $this->registry->upsert($targetModule, true, '1.0.0', 1);
+
+        $this->manager()->deactivate('data_migration', 1);
+
+        $this->assertFalse($this->registry->findByModuleId('data_migration')['enabled'] ?? true);
+        $this->assertTrue($this->registry->findByModuleId($targetModule)['enabled'] ?? false);
+    }
+
+    private function manager(): ModuleManager
+    {
+        return new ModuleManager(
+            dirname(__DIR__, 3) . '/modules',
+            new SettingService(new SettingRepository($this->pdo)),
+            new CookieConsentService([]),
+            new MenuBuilder(Role::fromString('superadmin')),
+            $this->registry,
+            new JournalService(new JournalRepository($this->pdo)),
+            new Router(),
+            null,
+            new OfflineWhitelist()
+        );
+    }
+
+    /**
+     * Every row of the given tables, in id order.
+     *
+     * @return array<string, list<array<string, mixed>>>
+     */
+    private function snapshot(string ...$tables): array
+    {
+        $rows = [];
+        foreach ($tables as $table) {
+            $rows[$table] = $this->pdo->query("SELECT * FROM {$table} ORDER BY id")->fetchAll(\PDO::FETCH_ASSOC);
+        }
+
+        return $rows;
+    }
+}
