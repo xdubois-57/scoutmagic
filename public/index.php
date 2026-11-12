@@ -2815,34 +2815,29 @@ $fileRepository = new FileRepository($pdo);
 // Every address /files/… is built from the file's opaque public id
 // (Core\File\FilePublicIds, issue #1109); file_url() resolves it here.
 \Core\File\FilePublicIds::useRepository($fileRepository);
-// Files that predate the column get theirs, a bounded batch per request
-// until none is left — then the setting stops the check for good. The
-// numeric address keeps answering for a file until it has one.
-if ($settingService->get('files_public_ids_backfilled') !== '1') {
+// Files that predate the column get theirs from a task, a slice per cron
+// pass (Core\File\Task\BackfillFilePublicIdsHandler) — never inline on a
+// request. Seeded once here; the handler sets the flag when none is left,
+// which keeps this to a settings-cache read on every later request.
+if ($settingService->get(\Core\File\Task\BackfillFilePublicIdsHandler::DONE_FLAG) !== '1') {
     $settingService->register(
-        'files_public_ids_backfilled',
+        \Core\File\Task\BackfillFilePublicIdsHandler::DONE_FLAG,
         '0',
         'boolean',
         'Identifiants opaques des fichiers attribués',
-        'Indique si chaque fichier existant a reçu son identifiant opaque.',
+        'Indicateur interne : chaque fichier existant a reçu son identifiant opaque.',
         null,
         null,
         null,
         false,
         999
     );
-
-    $filesBackfillBatch = 500;
-    $filesBackfilled = 0;
-    do {
-        $filesBackfilledNow = $fileRepository->backfillPublicIds($filesBackfillBatch);
-        $filesBackfilled += $filesBackfilledNow;
-    } while ($filesBackfilledNow === $filesBackfillBatch && $filesBackfilled < 10 * $filesBackfillBatch);
-
-    if ($filesBackfilledNow < $filesBackfillBatch) {
-        $settingRepo->updateValue(null, 'files_public_ids_backfilled', '1');
-        $settingService->clearCache();
-    }
+    $schedulerService->seed(
+        'core',
+        \Core\File\Task\BackfillFilePublicIdsHandler::TASK_KEY,
+        \Core\File\Task\BackfillFilePublicIdsHandler::REFERENCE,
+        new DateTimeImmutable()
+    );
 }
 // The shared "attached document" invariant (Core\File\AttachedFileRemover):
 // row first, bytes second, bytes only when the module owns them and nobody

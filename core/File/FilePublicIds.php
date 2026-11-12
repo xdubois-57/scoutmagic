@@ -23,12 +23,13 @@ namespace Core\File;
  *   without padding — 22 characters of `[A-Za-z0-9_-]`. Never derived
  *   from `files.id`, never written to the journal.
  * - **Where it comes from**: `FileRepository::create()` mints it with the
- *   row; rows that predate the column get one from the guarded backfill
- *   in `public/index.php` (`FileRepository::backfillPublicIds()`).
+ *   row; rows that predate the column get one from a scheduled task
+ *   (`Core\File\Task\BackfillFilePublicIdsHandler`), a slice per cron pass.
  * - **How addresses are built**: `urlFor()`, which `file_url()` in Twig
  *   calls. It still takes the numeric id every caller already has, and
  *   resolves it through the repository it was given, once per id per
- *   request; `prime()` resolves a whole page's ids in one query.
+ *   request — one indexed lookup per distinct file; `prime()` resolves a
+ *   list in one query for a page that has its ids at hand.
  */
 final class FilePublicIds
 {
