@@ -13,6 +13,7 @@ use Core\File\EncryptedFileStorageService;
 use Core\Member\Duplicate\DuplicateMemberDetector;
 use Core\Journal\JournalService;
 use Core\Member\AddressNormalizer;
+use Core\Member\StaleDeskEmailCleanup;
 use Core\Member\SectionMembershipService;
 use Core\Member\UnitStaffSectionService;
 use Core\Security\EncryptionService;
@@ -68,7 +69,15 @@ class DeskImportService
          * empty registry (or none, for a fixture replay) means no
          * reconciliation.
          */
-        private ?DeskImportListenerRegistry $importListeners = null
+        private ?DeskImportListenerRegistry $importListeners = null,
+        /**
+         * Where the status-override rows of a former Desk address are
+         * deleted once Desk gives the member another one (issue #1100).
+         * Nullable for a fixture replay; those rows grant nothing either
+         * way, since no login or access lookup reads a 'desk' row — this
+         * keeps them from piling up out of sight.
+         */
+        private ?StaleDeskEmailCleanup $staleDeskEmails = null
     ) {
     }
 
@@ -159,6 +168,12 @@ class DeskImportService
             // Recompute Staff d'U from stored roles, including defaults just
             // assigned to newly encountered standard functions.
             $this->unitStaffSectionService->syncMembership($scoutYearId);
+
+            // A member whose Desk address just changed keeps the status
+            // row a mailing wrote for the former one; it goes now, inside
+            // the transaction, on the addresses the passes above just wrote
+            // (issue #1100).
+            $this->staleDeskEmails?->run($asOf, [$scoutYearId]);
 
             // Freeze what Desk contained. member_years is overwritten
             // wholesale above, so without this the only roster the site

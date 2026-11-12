@@ -2654,6 +2654,32 @@ $sectionDocumentRepository = new \Core\Member\SectionDocumentRepository($pdo);
 // before $roleResolver so login-by-email resolution can also match a
 // currently-valid secondary address (see RoleResolver's own docblock).
 $memberEmailRepository = new \Core\Member\MemberEmailRepository($pdo, $encryptionService);
+$staleDeskEmailCleanup = new \Core\Member\StaleDeskEmailCleanup($memberEmailRepository, $authorizationYearService);
+// One-time cleanup (issue #1100): the status rows a mailing wrote for a
+// member's Desk address used to survive a change of that address, and they
+// made the former address a login of its own. No lookup reads them any
+// more; this deletes the ones every installation already holds, which
+// otherwise would wait for its next Desk import. Same shape as
+// member_section_periods_backfilled.
+if ($settingService->get('stale_desk_email_rows_deleted') !== '1') {
+    $settingService->register(
+        'stale_desk_email_rows_deleted',
+        '0',
+        'boolean',
+        'Anciennes adresses Desk nettoyées',
+        'Indique si les lignes d\'état laissées par d\'anciennes adresses Desk ont été supprimées.',
+        null,
+        null,
+        null,
+        false,
+        999
+    );
+
+    $staleDeskEmailCleanup->run(new \DateTimeImmutable());
+
+    $settingRepo->updateValue(null, 'stale_desk_email_rows_deleted', '1');
+    $settingService->clearCache();
+}
 
 // "Which logins can read a notification addressed to this member?" — the
 // Desk address plus every confirmed secondary one, resolved in one place
@@ -2996,7 +3022,8 @@ $importService = new DeskImportService(
     $scoutYearService,
     $deskImportYearPolicy,
     $duplicateMemberDetector,
-    $deskImportListeners
+    $deskImportListeners,
+    $staleDeskEmailCleanup
 );
 $importReportPresenter = new \Core\Import\ImportReportPresenter(
     new \Core\Import\ImportReportRepository($pdo, $encryptionService)
