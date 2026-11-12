@@ -20,19 +20,25 @@ use Core\Offline\OfflineWhitelist;
 use Core\Security\Role;
 use Core\View\MenuBuilder;
 use Modules\MassMail\Repository\EmailRepository;
+use Modules\News\Repository\Article;
+use Modules\News\Repository\ArticleRepository;
+use Modules\News\Repository\FormRepository;
+use Modules\News\Repository\NewsForm;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\MassMail\ImportedEmailFixture;
 use Tests\Modules\MassMail\MassMailTestHelper;
+use Tests\Modules\News\NewsTestHelper;
 
 /**
  * Disabling data_migration once the migration is over (roadmap, lot I):
  * the real ModuleManager, on the real modules directory, deactivates it —
  * and what the imports wrote into the locked modules stays, still locked.
  *
- * The lock itself is tested in each module (ImportedEmailLockTest, the news
- * lock tests); what this adds is the deactivation path in between.
+ * The lock itself is tested in each module (ImportedEmailLockTest,
+ * ImportedArticleLockTest); what this adds is the deactivation path in
+ * between.
  */
 #[Group('database')]
 final class DisablingTheModuleTest extends TestCase
@@ -93,6 +99,43 @@ final class DisablingTheModuleTest extends TestCase
         $this->assertFalse(
             (new EmailRepository($this->pdo))->deleteIfNotStarted($emailId),
             'and the email is still refused deletion'
+        );
+    }
+
+    public function testAnImportedArticleOutlivesTheModuleStillLocked(): void
+    {
+        NewsTestHelper::createTables($this->pdo);
+        $this->pdo->prepare('INSERT INTO user_accounts (email_encrypted, email_blind_index) VALUES (?, ?)')
+            ->execute(['chiffré', 'index']);
+        $articles = new ArticleRepository($this->pdo);
+        $articleId = NewsTestHelper::publish(
+            $this->pdo,
+            $articles->create('Fermeture du local', Article::VISIBILITY_PUBLIC, false, null, null, (int) $this->pdo->lastInsertId())
+        );
+        $articles->markImported($articleId, '2026-11-10 09:00:00', 'scoutmagic-news-history:ancien-site');
+        $articles->setHasForm($articleId, true);
+        (new FormRepository($this->pdo))->create(
+            $articleId,
+            NewsForm::ACCESS_PUBLIC,
+            NewsForm::RESPONSE_LIMIT_UNLIMITED,
+            null,
+            null,
+            true,
+            'chief',
+            null,
+            null
+        );
+        $before = $this->snapshot('news_articles', 'news_forms');
+
+        $this->disableDataMigration('news');
+
+        $this->assertSame($before, $this->snapshot('news_articles', 'news_forms'), 'deactivating deletes nothing');
+        $article = $articles->findById($articleId);
+        $this->assertTrue($article?->isImported(), 'the lock column is untouched');
+        $this->assertSame(
+            1,
+            (int) $this->pdo->query('SELECT is_force_closed FROM news_forms')->fetchColumn(),
+            'and its form stays closed'
         );
     }
 
