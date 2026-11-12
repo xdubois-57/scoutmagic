@@ -25,6 +25,9 @@ namespace Core\File;
  * - **Where it comes from**: `FileRepository::create()` mints it with the
  *   row; rows that predate the column get one from a scheduled task
  *   (`Core\File\Task\BackfillFilePublicIdsHandler`), a slice per cron pass.
+ * - **The sequential address is gone**: `/files/123` names nothing, and
+ *   nothing stored was rewritten — the site was still in its test phase
+ *   when this changed, so no existing content had to survive it.
  * - **How addresses are built**: `urlFor()`, which `file_url()` in Twig
  *   calls. It still takes the numeric id every caller already has, and
  *   resolves it through the repository it was given, once per id per
@@ -137,11 +140,13 @@ final class FilePublicIds
 
     /**
      * The address of file $fileId: `/files/{public_id}`, plus `/{variant}`
-     * when given. Empty for no file.
+     * when given. Empty for no file, and for a file with no public id —
+     * there is no other address to give it: the sequential one is gone.
      *
-     * Falls back to the numeric address while a file has no public id yet
-     * (before the backfill has reached it, or with no repository wired):
-     * the numeric route still answers during the transition.
+     * With no repository wired at all (a unit test rendering a template),
+     * the numeric address is printed so a test can still read which file
+     * a page names; production always wires one (`public/index.php`), and
+     * the route answers that address 404.
      */
     public static function urlFor(int|string|null $fileId, ?string $variant = null): string
     {
@@ -152,6 +157,12 @@ final class FilePublicIds
 
         $suffix = $variant !== null ? '/' . $variant : '';
 
-        return '/files/' . (self::forFileId($id) ?? (string) $id) . $suffix;
+        if (self::$repository === null) {
+            return '/files/' . $id . $suffix;
+        }
+
+        $publicId = self::forFileId($id);
+
+        return $publicId === null ? '' : '/files/' . $publicId . $suffix;
     }
 }

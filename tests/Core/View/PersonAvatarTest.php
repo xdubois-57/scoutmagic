@@ -12,6 +12,7 @@ use PHPUnit\Framework\TestCase;
  * initials rule and the shape of what it renders, without a Twig
  * environment or a database.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class PersonAvatarTest extends TestCase
 {
     public function testAFirstNameAndASurnameGiveOneLetterEach(): void

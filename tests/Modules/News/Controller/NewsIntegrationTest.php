@@ -2267,6 +2267,10 @@ class NewsIntegrationTest extends TestCase
         $variantService->generate($withMedium, 'md');
         $withoutMedium = $uploadHandler->handle($this->fakeUploadedImage(), 'news/images', ['image/jpeg'], 1_000_000, 'public', 'news', $this->chiefAccountId);
 
+        $withMediumPublic = (string) $fileRepository->findById($withMedium)?->publicId;
+        $withoutMediumPublic = (string) $fileRepository->findById($withoutMedium)?->publicId;
+        \Core\File\FilePublicIds::useRepository($fileRepository);
+
         $_FILES['image'] = $this->fakeUploadedImage();
         $controller->store(new Request('POST', '/news', [], [
             '_csrf_token' => CsrfGuard::generateToken(),
@@ -2280,16 +2284,24 @@ class NewsIntegrationTest extends TestCase
             'fields_json' => json_encode([[
                 'id' => null, 'field_type' => 'text', 'label' => null, 'is_required' => false,
                 'options_source' => null, 'options_manual' => null, 'capacity_max' => null, 'price_per_unit' => null,
-                'confirmation_text' => '<p><img src="/files/' . $withMedium . '" alt="Feu"><img src="/files/' . $withoutMedium . '" alt="Tente"></p>',
+                'confirmation_text' => '<p><img src="/files/' . $withMediumPublic . '" alt="Feu">'
+                    . '<img src="/files/' . $withoutMediumPublic . '" alt="Tente"></p>',
             ]]),
         ], [], []), []);
         $articleId = $this->articleRepository->findAll()[0]->id;
 
-        $html = $controller->show(new Request('GET', '/news/' . $articleId, [], [], [], []), ['id' => (string) $articleId])->getBody();
+        try {
+            $html = $controller->show(
+                new Request('GET', '/news/' . $articleId, [], [], [], []),
+                ['id' => (string) $articleId]
+            )->getBody();
+        } finally {
+            \Core\File\FilePublicIds::useRepository(null);
+        }
 
-        $this->assertStringContainsString('src="/files/' . $withMedium . '/md"', $html);
-        $this->assertStringContainsString('src="/files/' . $withoutMedium . '"', $html);
-        $this->assertStringNotContainsString('src="/files/' . $withMedium . '"', $html);
+        $this->assertStringContainsString('src="/files/' . $withMediumPublic . '/md"', $html);
+        $this->assertStringContainsString('src="/files/' . $withoutMediumPublic . '"', $html);
+        $this->assertStringNotContainsString('src="/files/' . $withMediumPublic . '"', $html);
     }
 
     /**

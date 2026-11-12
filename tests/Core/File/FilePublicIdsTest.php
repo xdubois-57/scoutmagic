@@ -104,14 +104,14 @@ class FilePublicIdsTest extends TestCase
     }
 
     /**
-     * Transition only: a file not yet reached by the backfill keeps its
-     * numeric address, which the route still answers.
+     * The sequential address is gone: a file without a public id has no
+     * address to give, rather than one that names nothing.
      */
-    public function testAFileWithoutAPublicIdYetKeepsItsNumericAddress(): void
+    public function testAFileWithoutAPublicIdHasNoAddress(): void
     {
         $id = $this->insertLegacyFile('legacy.jpg');
 
-        $this->assertSame('/files/' . $id . '/thumb', FilePublicIds::urlFor($id, 'thumb'));
+        $this->assertSame('', FilePublicIds::urlFor($id, 'thumb'));
     }
 
     public function testPrimeResolvesAPageInOneQueryAndRemembersMisses(): void
@@ -128,7 +128,7 @@ class FilePublicIdsTest extends TestCase
         foreach ($ids as $id) {
             $this->assertMatchesRegularExpression('#^/files/[A-Za-z0-9_-]{22}$#', FilePublicIds::urlFor($id));
         }
-        $this->assertSame('/files/9999', FilePublicIds::urlFor(9999));
+        $this->assertSame('', FilePublicIds::urlFor(9999));
     }
 
     public function testWithoutARepositoryAddressesStayNumeric(): void

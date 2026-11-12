@@ -33,7 +33,7 @@ final class BodyImageVariants
      * A `src` naming an original, in double quotes — the only quoting the
      * sanitiser (Core\Security\HtmlSanitizer, DOM-serialised) ever writes.
      */
-    private const ORIGINAL_SRC = '~(<img\b[^>]*?\ssrc=")/files/(\d+|[A-Za-z0-9_-]{22})(")~i';
+    private const ORIGINAL_SRC = '~(<img\b[^>]*?\ssrc=")/files/([A-Za-z0-9_-]{22})(")~i';
 
     /**
      * @param \Closure(int): bool $hasMedium whether the file has an `md`
@@ -48,9 +48,7 @@ final class BodyImageVariants
         return (string) preg_replace_callback(
             self::ORIGINAL_SRC,
             static function (array $m) use ($hasMedium): string {
-                // A text stored before issue #1109 names its images by
-                // their sequential id; it is shown under the opaque one.
-                $fileId = ctype_digit($m[2]) ? (int) $m[2] : FilePublicIds::fileIdOf($m[2]);
+                $fileId = FilePublicIds::fileIdOf($m[2]);
                 if ($fileId === null) {
                     return $m[0];
                 }

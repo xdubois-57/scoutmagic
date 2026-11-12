@@ -217,22 +217,19 @@ class FileController extends AbstractController
      * The file the address segment names, or 0 for none (issue #1109).
      *
      * The segment is the file's opaque public id (Core\File\FilePublicIds):
-     * an unknown or malformed one is 0, answered 404 before the guard, so a
+     * an unknown or malformed one — a sequential id included, which no
+     * longer names anything — is 0, answered 404 before the guard, so a
      * malformed value costs no query. Everything after this — the guard,
      * the journal, which keeps logging the numeric id and never the public
      * one — is unchanged.
-     *
-     * Transition: a plain number is still taken as the sequential id until
-     * every address the site builds is opaque and stored contents are
-     * rewritten; the last lot of #1109 removes it.
      */
     private function fileIdFromSegment(string $segment): int
     {
-        if (FilePublicIds::isWellFormed($segment)) {
-            return $this->fileAccessGuard->fileIdForPublicId($segment) ?? 0;
+        if (!FilePublicIds::isWellFormed($segment)) {
+            return 0;
         }
 
-        return ctype_digit($segment) ? (int) $segment : 0;
+        return $this->fileAccessGuard->fileIdForPublicId($segment) ?? 0;
     }
 
     /**
