@@ -30,6 +30,7 @@ use Modules\MassMail\Repository\Email;
 use Modules\MassMail\Repository\EmailAttachment;
 use Modules\MassMail\Repository\EmailAttachmentRepository;
 use Modules\MassMail\Repository\EmailRepository;
+use Modules\MassMail\Repository\ImportedEmailRepository;
 use Modules\MassMail\Repository\MemberResolutionRepository;
 use Modules\MassMail\Repository\SuppressedAddressRepository;
 use Modules\MassMail\Repository\Target;
@@ -75,8 +76,45 @@ class MassMailService
          * « rien n'a jamais rebondi », which is true rather than
          * degraded.
          */
-        private ?\Core\Mail\Feedback\Bounce\BounceService $bounces = null
+        private ?\Core\Mail\Feedback\Bounce\BounceService $bounces = null,
+        /**
+         * The original sender of an email imported from a former site,
+         * for the screens that show it as is (decision D6). Display only:
+         * the read-only lock of such an email is Email::isImported(), read
+         * from EmailRepository, and never depends on this being wired.
+         */
+        private ?ImportedEmailRepository $importedEmails = null
     ) {
+    }
+
+    /**
+     * The sender each imported email had on the former site, by email id —
+     * empty for an email written here, and when nothing reads them.
+     *
+     * @param int[] $emailIds
+     * @return array<int, array{address: string, name: ?string}>
+     */
+    public function getOriginalSenders(array $emailIds): array
+    {
+        return $this->importedEmails?->findOriginalSenders($emailIds) ?? [];
+    }
+
+    /**
+     * The read-only lock of an email imported from a former site (decision
+     * D11), asked by every action that would change it or send it again.
+     * It reads this module's own column, never the data_migration module:
+     * disabling that module after the migration unlocks nothing.
+     *
+     * @throws MassMailException
+     */
+    private static function refuseImported(Email $email, string $action): void
+    {
+        if ($email->isImported()) {
+            throw new MassMailException(
+                'Ce courriel a été importé de l\'ancien site : il est en lecture seule et ne peut pas être '
+                    . $action . '.'
+            );
+        }
     }
 
     /**
@@ -423,7 +461,7 @@ class MassMailService
     /**
      * Messages by status — one per address, never people.
      *
-     * @return array{pending: int, sent: int, error: int, total: int}
+     * @return array{pending: int, sent: int, error: int, unknown: int, total: int}
      */
     public function getStatusCounts(int $emailId): array
     {
@@ -522,6 +560,7 @@ class MassMailService
         ?int $actorId = null
     ): Email {
         $email = $this->requireEmail($id);
+        self::refuseImported($email, 'modifié');
         if (!$email->isEditable()) {
             throw new MassMailException('Cet email ne peut plus être modifié.');
         }
@@ -579,6 +618,7 @@ class MassMailService
     public function moveToTest(int $id, ?int $actorId): Email
     {
         $email = $this->requireEmail($id);
+        self::refuseImported($email, 'envoyé');
         if ($email->status !== Email::STATUS_DRAFT) {
             throw new MassMailException('Seul un brouillon peut passer en mode test.');
         }
@@ -611,6 +651,7 @@ class MassMailService
     public function deleteUnsent(int $id, ?int $actorId): void
     {
         $email = $this->requireEmail($id);
+        self::refuseImported($email, 'supprimé');
         $attachments = $this->attachmentRepository->findByEmailId($id);
 
         if (!in_array($email->status, [Email::STATUS_DRAFT, Email::STATUS_TEST], true)
@@ -646,6 +687,7 @@ class MassMailService
     public function backToDraft(int $id, ?int $actorId): Email
     {
         $email = $this->requireEmail($id);
+        self::refuseImported($email, 'modifié');
         if ($email->status !== Email::STATUS_TEST) {
             throw new MassMailException('Seul un email en mode test peut revenir en brouillon.');
         }
@@ -675,6 +717,7 @@ class MassMailService
     public function sendTestEmail(int $id, string $toAddress, int $mergeOffset = 0): void
     {
         $email = $this->requireEmail($id);
+        self::refuseImported($email, 'envoyé');
         if ($email->status !== Email::STATUS_TEST) {
             throw new MassMailException('L\'envoi de test n\'est disponible qu\'en mode test.');
         }
@@ -1045,6 +1088,7 @@ class MassMailService
     public function startSending(int $id, ?int $actorId): Email
     {
         $email = $this->requireEmail($id);
+        self::refuseImported($email, 'envoyé');
         if ($email->status !== Email::STATUS_TEST) {
             throw new MassMailException('Seul un email en mode test peut être envoyé.');
         }
@@ -1471,6 +1515,16 @@ class MassMailService
         if ($delivery === null) {
             throw new MassMailException('Message introuvable.');
         }
+        // « Renvoyer » would REALLY send it: back to 'pending', and the next
+        // batch delivers it. An imported email is a record of the past, and
+        // its message of 2021 must never leave again (D11).
+        $owner = $this->emailRepository->findById($delivery->emailId);
+        if ($owner !== null) {
+            self::refuseImported($owner, 'renvoyé');
+        }
+        if ($delivery->status === Delivery::STATUS_UNKNOWN) {
+            throw new MassMailException('Ce message ne peut pas être renvoyé.');
+        }
 
         $this->deliveryRepository->resend($deliveryId);
 
@@ -1501,7 +1555,7 @@ class MassMailService
      *
      * @return array{
      *     email: Email,
-     *     counts: array{pending: int, sent: int, error: int, total: int},
+     *     counts: array{pending: int, sent: int, error: int, unknown: int, total: int},
      *     target_count: int,
      *     targets_without_message: int,
      *     messages: list<array{delivery: Delivery, members: string, row_index: ?int}>,
@@ -1657,7 +1711,9 @@ class MassMailService
      */
     public function assertAcceptsAttachments(int $emailId): void
     {
-        if (!$this->requireEmail($emailId)->isEditable()) {
+        $email = $this->requireEmail($emailId);
+        self::refuseImported($email, 'modifié');
+        if (!$email->isEditable()) {
             throw new MassMailException('Des pièces jointes ne peuvent être ajoutées qu\'à un brouillon.');
         }
     }
@@ -1682,6 +1738,9 @@ class MassMailService
             throw new MassMailException('Pièce jointe introuvable.');
         }
         $email = $this->emailRepository->findById($attachment->emailId);
+        if ($email !== null) {
+            self::refuseImported($email, 'modifié');
+        }
         if ($email === null || !$email->isEditable()) {
             throw new MassMailException('Des pièces jointes ne peuvent être retirées que d\'un brouillon.');
         }

@@ -54,6 +54,14 @@ final class Email
     public const LIST_TYPE_DEFAULT_FORMER_MEMBERS = 'default_former_members';
 
     /**
+     * An email sent from a former site and imported by the data_migration
+     * module (chantier « Migration de données », decision D11). No list
+     * behind it: its audience survives only as {@see $originalAudienceName},
+     * and it is read-only for ever — {@see isImported()}.
+     */
+    public const LIST_TYPE_IMPORTED = 'imported';
+
+    /**
      * @param int[] $scoutYearIds One or more scout years this email targets — module addendum
      *                            (e.g. "Montages dias" retrospectives spanning several promotions).
      *                            Lists resolved for each are merged and deduplicated by address.
@@ -72,12 +80,28 @@ final class Email
         public readonly string $createdAt,
         public readonly string $updatedAt,
         public readonly ?string $sentAt,
-        public readonly ?int $createdBy
+        public readonly ?int $createdBy,
+        // When this email was imported from a former site, null for one
+        // written here. The read-only lock of D11: see isImported().
+        public readonly ?string $importedAt = null,
+        // The former site's name for its mailing list, informative only.
+        public readonly ?string $originalAudienceName = null
     ) {
+    }
+
+    /**
+     * An email imported from a former site: nothing may edit, delete or
+     * resend it, nor touch its attachments (Service\MassMailService). The
+     * lock is this module's own column, so it holds whether or not the
+     * data_migration module that wrote it is still enabled.
+     */
+    public function isImported(): bool
+    {
+        return $this->importedAt !== null;
     }
 
     public function isEditable(): bool
     {
-        return $this->status === self::STATUS_DRAFT;
+        return $this->status === self::STATUS_DRAFT && !$this->isImported();
     }
 }

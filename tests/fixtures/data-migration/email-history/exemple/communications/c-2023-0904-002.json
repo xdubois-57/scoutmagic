@@ -1,0 +1,12 @@
+{
+    "id": "c-2023-0904-002",
+    "sent_at": "2023-09-04T07:15:00Z",
+    "subject": "Réunion de rentrée",
+    "sender": {
+        "address": "staff@exemple.test"
+    },
+    "body": {
+        "text": "content/3a5b277dbbf2a015be9d49474e70f3b2ddb02461e9187e1b2d22ae160f88ab04.txt"
+    },
+    "audience_name": "Toute l'unité"
+}

@@ -167,7 +167,7 @@ class DeliveryRepositoryTest extends TestCase
 
         $counts = $this->repository->countGroupedByStatus($this->emailId);
 
-        $this->assertSame(['pending' => 1, 'sent' => 1, 'error' => 1, 'total' => 3], $counts);
+        $this->assertSame(['pending' => 1, 'sent' => 1, 'error' => 1, 'unknown' => 0, 'total' => 3], $counts);
         $this->assertCount(3, $this->repository->findByEmailId($this->emailId));
     }
 }

@@ -5,7 +5,7 @@
        (design.md §7.3) — no « Retour » button here. #}
     {% include 'partials/page_header.html.twig' with {
         title: email.subject,
-        subtitle: (email.not_sent ? 'Non envoyée · ' ~ email.sent_at|french_date : 'Envoyé le ' ~ email.sent_at|french_date) ~ ' · ' ~ email.section_name,
+        subtitle: (email.not_sent or email.failed|default(false) ? 'Non envoyée · ' ~ email.sent_at|french_date : 'Envoyé le ' ~ email.sent_at|french_date) ~ ' · ' ~ email.section_name,
     } only %}
     {# « Concerne aussi » (issue #999): the other members this same
        communication was meant for, named only when the reader may already
@@ -22,12 +22,28 @@
             .
         </p>
     {% endif %}
+    {# An email imported from a former site (data_migration, D11): a
+       record of the past, which nothing on this site can change or send
+       again. #}
+    {% if email.imported|default(false) %}
+        <div class="alert alert-imported" role="note">
+            <strong>Élément historique en lecture seule</strong>
+            <span class="d-block small">Ce courriel a été importé de l'ancien site. Il ne peut pas être modifié, supprimé ni renvoyé.</span>
+        </div>
+    {% endif %}
     {# Nothing of it left for this member — every message in error, or no
        address it could go to. The content is still what was meant for
        them, so it is shown, under a sentence that says so. #}
     {% if email.not_sent %}
         <div class="alert alert-warning" role="alert">
             Cet e-mail n'a pas pu être envoyé aux adresses de cet animé. Son contenu est reproduit ci-dessous.
+        </div>
+    {% endif %}
+    {# An imported email the former site recorded as failed for this
+       member — every message in error, none of unknown fate. #}
+    {% if email.failed|default(false) %}
+        <div class="alert alert-warning" role="alert">
+            D'après l'ancien site, cet e-mail n'a pas pu être envoyé aux adresses de cet animé. Son contenu est reproduit ci-dessous.
         </div>
     {% endif %}
     {# A publipostage past its retention: the values that made this mail

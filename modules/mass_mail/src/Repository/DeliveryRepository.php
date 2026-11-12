@@ -66,6 +66,43 @@ class DeliveryRepository
     }
 
     /**
+     * One message of an email imported from a former site, written in the
+     * state that site recorded — never 'pending', which Task\SendBatchHandler
+     * would pick up and really send. `$sentAt` is the historical moment,
+     * kept only for an accepted message, the one status the tracking page
+     * dates. No attempt is counted: none was made here.
+     *
+     * @throws \InvalidArgumentException for any status but sent/error/unknown
+     */
+    public function createImported(
+        int $emailId,
+        string $emailAddress,
+        string $status,
+        ?string $sentAt,
+        ?string $errorMessage
+    ): int {
+        if (!in_array($status, [Delivery::STATUS_SENT, Delivery::STATUS_ERROR, Delivery::STATUS_UNKNOWN], true)) {
+            throw new \InvalidArgumentException('An imported message is sent, in error or unknown — never pending.');
+        }
+
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO mass_mail_deliveries (email_id, email_address_encrypted, email_blind_index, status, '
+                . 'error_message, sent_at)
+             VALUES (?, ?, ?, ?, ?, ?)'
+        );
+        $stmt->execute([
+            $emailId,
+            $this->encryption->encrypt($emailAddress, self::ENCRYPTION_CONTEXT),
+            $this->blindIndex($emailAddress),
+            $status,
+            $status === Delivery::STATUS_ERROR ? $errorMessage : null,
+            $status === Delivery::STATUS_SENT ? $sentAt : null,
+        ]);
+
+        return (int) $this->pdo->lastInsertId();
+    }
+
+    /**
      * Ties one message to the targets whose address it carries — every
      * target that has it, so a family address shared by two targeted
      * siblings concerns both.
@@ -243,9 +280,10 @@ class DeliveryRepository
     }
 
     /**
-     * Counts MESSAGES — one per address — never people.
+     * Counts MESSAGES — one per address — never people. `unknown` is only
+     * ever non-zero for an email imported from a former site.
      *
-     * @return array{pending: int, sent: int, error: int, total: int}
+     * @return array{pending: int, sent: int, error: int, unknown: int, total: int}
      */
     public function countGroupedByStatus(int $emailId): array
     {
@@ -254,7 +292,7 @@ class DeliveryRepository
         );
         $stmt->execute([$emailId]);
 
-        $counts = ['pending' => 0, 'sent' => 0, 'error' => 0];
+        $counts = ['pending' => 0, 'sent' => 0, 'error' => 0, 'unknown' => 0];
         foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
             $counts[(string) $row['status']] = (int) $row['c'];
         }
@@ -263,7 +301,8 @@ class DeliveryRepository
             'pending' => $counts['pending'],
             'sent' => $counts['sent'],
             'error' => $counts['error'],
-            'total' => $counts['pending'] + $counts['sent'] + $counts['error'],
+            'unknown' => $counts['unknown'],
+            'total' => $counts['pending'] + $counts['sent'] + $counts['error'] + $counts['unknown'],
         ];
     }
 
