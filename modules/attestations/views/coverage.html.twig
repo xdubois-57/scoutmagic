@@ -15,6 +15,23 @@
   exactly the family nobody else will notice received nothing.
 #}
 {% extends 'base.html.twig' %}
+
+{#
+  The content of one member's list item in either list (the item itself
+  stays in its list): the name, then the section they were in THAT
+  season and their main function, each named as what it is — a section is
+  not a function, and the two are read from the same main-function row of
+  the year shown (issue #1097). A member with neither still has a row.
+#}
+{% macro member_row(member) %}
+    <div class="text-break">{{ member.fullName }}</div>
+    {% if member.sectionLabel or member.functionLabel %}
+        <div class="small text-body-secondary d-flex flex-wrap column-gap-3">
+            {% if member.sectionLabel %}<span>Section : {{ member.sectionLabel }}</span>{% endif %}
+            {% if member.functionLabel %}<span>Fonction principale : {{ member.functionLabel }}</span>{% endif %}
+        </div>
+    {% endif %}
+{% endmacro %}
 {% block title %}Couverture des attestations — {{ site_name }}{% endblock %}
 {% block content %}
     <div class="page-medium">
@@ -23,22 +40,29 @@
             subtitle: "Pour une catégorie et une année scoute, qui la détient et qui ne l'a pas encore.",
         } only %}
 
-        {# A GET form: a reading has to survive being bookmarked and sent on. #}
+        {# A GET form: a reading has to survive being bookmarked and sent on.
+           `field_name` is what puts the selects in the query string, and
+           `wrapper_class: ''` drops the partial's bottom margin so the
+           button lines up with them (issue #1097). #}
         <form method="get" action="/admin/attestations/couverture" class="row g-2 align-items-end mb-4">
             <div class="col-12 col-sm-6">
                 {% include 'partials/form_field.html.twig' with {
                     type: 'select',
-                    name: 'category',
+                    field_id: 'coverage-category',
+                    field_name: 'category',
                     label: 'Catégorie',
                     options: category_options,
+                    wrapper_class: '',
                 } only %}
             </div>
             <div class="col-12 col-sm-4">
                 {% include 'partials/form_field.html.twig' with {
                     type: 'select',
-                    name: 'scout_year_id',
+                    field_id: 'coverage-scout-year',
+                    field_name: 'scout_year_id',
                     label: 'Année scoute',
                     options: year_options,
+                    wrapper_class: '',
                 } only %}
             </div>
             <div class="col-12 col-sm-2">
@@ -98,12 +122,7 @@
                     </div>
                     <ul class="list-group list-group-flush" id="attestations-missing-list">
                         {% for member in coverage.missing %}
-                            <li class="list-group-item d-flex justify-content-between align-items-center gap-2">
-                                <span class="min-w-0 text-truncate">{{ member.fullName }}</span>
-                                {% if member.functionLabel %}
-                                    <span class="badge text-bg-light border flex-shrink-0">{{ member.functionLabel }}</span>
-                                {% endif %}
-                            </li>
+                            <li class="list-group-item">{{ _self.member_row(member) }}</li>
                         {% endfor %}
                     </ul>
                 </div>
@@ -117,12 +136,7 @@
                     </summary>
                     <ul class="list-group list-group-flush border-top">
                         {% for member in coverage.covered %}
-                            <li class="list-group-item d-flex justify-content-between align-items-center gap-2">
-                                <span class="min-w-0 text-truncate">{{ member.fullName }}</span>
-                                {% if member.functionLabel %}
-                                    <span class="badge text-bg-light border flex-shrink-0">{{ member.functionLabel }}</span>
-                                {% endif %}
-                            </li>
+                            <li class="list-group-item">{{ _self.member_row(member) }}</li>
                         {% endfor %}
                     </ul>
                 </details>
