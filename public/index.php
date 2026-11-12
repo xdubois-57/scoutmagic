@@ -9007,6 +9007,25 @@ if ($isEnabled('finance')) {
     // flag, and SettingService caches settings once per request, so every
     // run after the first costs one array lookup and no query.
     $financeReceiptService->ensureReceiptFileOwnership();
+    // The same for the account's other file, a campaign's source workbook
+    // (issue #1111) — its own flag, since the receipts' one is already set
+    // on every installation that has run the line above.
+    if ($settingService->get('campaign_source_file_ownership_backfilled', 'finance', '0') !== '1') {
+        (new \Modules\Finance\Repository\CampaignRepository($pdo))
+            ->backfillSourceFileOwnership(\Modules\Finance\File\FinanceAccountOwnershipChecker::OWNER_TYPE);
+        $settingService->register(
+            'campaign_source_file_ownership_backfilled',
+            '0',
+            'boolean',
+            'Classeurs de campagne rattachés à leur compte',
+            'Indicateur interne — ne pas modifier.',
+            'finance',
+            null,
+            null,
+            false
+        );
+        $settingService->setInternal('campaign_source_file_ownership_backfilled', '1', 'finance');
+    }
     $financeFirstReceiptResolver = new \Modules\Finance\Service\FirstReceiptResolver(
         $financeTransactionAttachmentRepo,
         $financeAttachmentRepo
@@ -9063,7 +9082,8 @@ if ($isEnabled('finance')) {
             $sectionService,
             $financeAttachmentRepo,
             $fileRepository,
-            $journalService
+            $journalService,
+            new \Modules\Finance\Repository\CampaignRepository($pdo)
         )
     );
     $frontController->registerController(

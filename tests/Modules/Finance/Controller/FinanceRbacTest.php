@@ -319,7 +319,8 @@ class FinanceRbacTest extends TestCase
             ),
             'ConfigController' => new ConfigController($this->twig, $this->financeService, $this->schedulerService),
             'ConfigAccountController' => new ConfigAccountController(
-                $this->twig, $this->financeService, $this->sectionService, $this->attachmentRepository, $this->fileRepository, $this->journalService
+                $this->twig, $this->financeService, $this->sectionService, $this->attachmentRepository, $this->fileRepository, $this->journalService,
+                new \Modules\Finance\Repository\CampaignRepository($this->pdo)
             ),
             'ConfigCategoryController' => new ConfigCategoryController(
                 $this->twig, $this->financeService, $this->categoryRuleRepository, $this->journalService,

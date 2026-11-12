@@ -110,7 +110,8 @@ class ConfigAccountControllerTest extends TestCase
             $sectionService,
             $this->attachmentRepository,
             $this->fileRepository,
-            new JournalService(new JournalRepository($this->pdo))
+            new JournalService(new JournalRepository($this->pdo)),
+            new \Modules\Finance\Repository\CampaignRepository($this->pdo)
         );
 
         AuthSession::login(1, 'tresorier@example.be', 'admin');
@@ -175,6 +176,30 @@ class ConfigAccountControllerTest extends TestCase
         ]);
 
         $this->assertSame('intendant', $this->roleMinOf($otherFile));
+    }
+
+    /**
+     * Issue #1111: a campaign's source workbook is the account's other
+     * file, under the same rule — its floor follows the account's too, and
+     * another account's workbook stays where it was.
+     */
+    public function testAnAccountsFloorFollowsOnItsCampaignWorkbooks(): void
+    {
+        $accountId = $this->createAccount('Compte unité', 'intendant');
+        $other = $this->createAccount('Compte section', 'intendant');
+        $workbook = $this->campaignWorkbook($accountId, 'intendant');
+        $otherWorkbook = $this->campaignWorkbook($other, 'intendant');
+
+        $this->save([
+            'action' => 'update',
+            'id' => $accountId,
+            'name' => 'Compte unité',
+            'account_type' => Account::TYPE_BANK,
+            'role_min_view' => 'admin',
+        ]);
+
+        $this->assertSame('admin', $this->roleMinOf($workbook));
+        $this->assertSame('intendant', $this->roleMinOf($otherWorkbook));
     }
 
     // ── the ordinary contract of an auto-save endpoint ────────────────
@@ -350,6 +375,25 @@ class ConfigAccountControllerTest extends TestCase
             'INSERT INTO finance_attachments (account_id, file_id, mime_type, original_filename, uploaded_at)
              VALUES (?, ?, ?, ?, ?)'
         )->execute([$accountId, $fileId, 'application/pdf', 'recu.pdf', '2026-09-01 10:00:00']);
+
+        return $fileId;
+    }
+
+    private function campaignWorkbook(int $accountId, string $roleMin): int
+    {
+        $fileId = $this->fileRepository->create(
+            'finance/campaigns/source.xlsx.enc',
+            'campagne.xlsx',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            1024,
+            $roleMin,
+            'finance',
+            null
+        );
+        $this->pdo->exec("INSERT OR IGNORE INTO scout_years (id, label, start_date, end_date) VALUES (1, '2026-2027', '2026-09-01', '2027-08-31')");
+        $this->pdo->prepare(
+            'INSERT INTO finance_campaigns (label, scout_year_id, account_id, source_file_id) VALUES (?, 1, ?, ?)'
+        )->execute(['Cotisations', $accountId, $fileId]);
 
         return $fileId;
     }

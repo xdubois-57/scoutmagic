@@ -10,6 +10,7 @@ use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Security\EncryptionService;
 use Core\Security\Role;
+use Modules\Finance\File\FinanceAccountOwnershipChecker;
 use Modules\Finance\Repository\AccountRepository;
 use Modules\Finance\Repository\Campaign;
 use Modules\Finance\Repository\CampaignRepository;
@@ -173,6 +174,61 @@ class CampaignServiceTest extends TestCase
         // and a ZIP starts with "PK".
         $raw = (string) file_get_contents($this->storagePath . '/' . $file->relativePath);
         $this->assertStringStartsNotWith('PK', $raw);
+    }
+
+    /**
+     * Issue #1111: the workbook is the list of the people concerned, often
+     * with their parents' contact details, and is served under its
+     * account's rule — the account's floor, and the finance_account owner
+     * pair File\FinanceAccountOwnershipChecker judges (visibility, the
+     * treasurer rule). It used to be a flat `intendant` with no owner,
+     * readable by every intendant whether the account was visible or not.
+     */
+    public function testTheSourceFileIsServedUnderItsAccountsRule(): void
+    {
+        $campaignId = $this->create(
+            'Cotisations',
+            [[$this->memberIds['D-100'], '45,00']],
+            null,
+            $this->otherAccountId,
+            Role::ADMIN
+        );
+
+        $campaign = $this->campaigns->findById($campaignId);
+        $this->assertNotNull($campaign);
+        $file = (new FileRepository($this->pdo))->findById((int) $campaign->sourceFileId);
+        $this->assertNotNull($file);
+
+        $this->assertSame('admin', $file->roleMin);
+        $this->assertSame(FinanceAccountOwnershipChecker::OWNER_TYPE, $file->ownerType);
+        $this->assertSame($this->otherAccountId, $file->ownerId);
+    }
+
+    /**
+     * And the one-time stamp for workbooks stored before: every campaign's
+     * file gets its account as owner, a file that already has one is left
+     * alone, and a replay changes nothing.
+     */
+    public function testWorkbooksStoredBeforeTheRuleGetTheirAccountOnce(): void
+    {
+        $fileRepository = new FileRepository($this->pdo);
+        $legacy = $fileRepository->create('finance/campaigns/a.enc', 'a.xlsx', 'application/octet-stream', 1, 'intendant', 'finance', null);
+        $owned = $fileRepository->create('finance/b.enc', 'b.pdf', 'application/pdf', 1, 'intendant', 'finance', null);
+        $fileRepository->updateOwner($owned, 'section_document', 5);
+        $unrelated = $fileRepository->create('finance/c.enc', 'c.pdf', 'application/pdf', 1, 'intendant', 'finance', null);
+        $insert = $this->pdo->prepare(
+            'INSERT INTO finance_campaigns (label, scout_year_id, account_id, source_file_id) VALUES (?, ?, ?, ?)'
+        );
+        $insert->execute(['Ancienne', $this->scoutYearId, $this->otherAccountId, $legacy]);
+        $insert->execute(['Autre', $this->scoutYearId, $this->accountId, $owned]);
+
+        $this->assertSame(1, $this->campaigns->backfillSourceFileOwnership(FinanceAccountOwnershipChecker::OWNER_TYPE));
+
+        $this->assertSame(FinanceAccountOwnershipChecker::OWNER_TYPE, $fileRepository->findById($legacy)?->ownerType);
+        $this->assertSame($this->otherAccountId, $fileRepository->findById($legacy)?->ownerId);
+        $this->assertSame('section_document', $fileRepository->findById($owned)?->ownerType);
+        $this->assertNull($fileRepository->findById($unrelated)?->ownerType);
+        $this->assertSame(0, $this->campaigns->backfillSourceFileOwnership(FinanceAccountOwnershipChecker::OWNER_TYPE));
     }
 
     /**
@@ -382,8 +438,13 @@ class CampaignServiceTest extends TestCase
      * @param array<int, array<int, string|int>> $lines
      * @param ?string[] $headers
      */
-    private function create(string $label, array $lines, ?array $headers = null, ?int $accountId = null): int
-    {
+    private function create(
+        string $label,
+        array $lines,
+        ?array $headers = null,
+        ?int $accountId = null,
+        Role $viewer = Role::INTENDANT
+    ): int {
         $headers ??= ['ID interne', 'Montant'];
 
         $spreadsheet = new Spreadsheet();
@@ -409,7 +470,7 @@ class CampaignServiceTest extends TestCase
             $this->categoryId,
             $path,
             'cotisations.xlsx',
-            Role::INTENDANT,
+            $viewer,
             7
         );
     }

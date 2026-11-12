@@ -18,6 +18,7 @@ use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Modules\Finance\Repository\Account;
 use Modules\Finance\Repository\AttachmentRepository;
+use Modules\Finance\Repository\CampaignRepository;
 use Modules\Finance\Api\FinanceException;
 use Modules\Finance\Service\FinanceService;
 
@@ -35,7 +36,8 @@ class ConfigAccountController extends AbstractController
         private SectionService $sectionService,
         private AttachmentRepository $attachmentRepository,
         private FileRepository $fileRepository,
-        private JournalService $journalService
+        private JournalService $journalService,
+        private CampaignRepository $campaignRepository
     ) {
     }
 
@@ -157,7 +159,13 @@ class ConfigAccountController extends AbstractController
      */
     private function syncReceiptFilesRoleMin(int $accountId, string $roleMinView): void
     {
-        foreach ($this->attachmentRepository->findFileIdsForAccount($accountId) as $fileId) {
+        // A campaign's source workbook is the account's other file, under
+        // the same rule since issue #1111 — it follows too.
+        $fileIds = [
+            ...$this->attachmentRepository->findFileIdsForAccount($accountId),
+            ...$this->campaignRepository->findSourceFileIdsForAccount($accountId),
+        ];
+        foreach ($fileIds as $fileId) {
             $this->fileRepository->updateRoleMin($fileId, $roleMinView);
         }
     }
