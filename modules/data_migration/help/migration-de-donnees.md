@@ -2,14 +2,14 @@
 id: migration-de-donnees
 title: Reprendre les données de l'ancien site
 summary: Importer une fois, depuis un fichier préparé sur l'ancien site, sans doublon et sans rien envoyer.
-category: Espace chefs d'U
-role_min: admin
+category: Configuration
+role_min: superadmin
 discovery: off
 question: Comment reprendre les données de notre ancien site ?
 question: Que se passe-t-il si l'import s'arrête en cours de route ?
 question: Peut-on relancer un import sans créer de doublons ?
 question: Combien de temps le fichier déposé reste-t-il sur le serveur ?
-paths: /admin/migration-donnees, /admin/migration-donnees/*
+paths: /config/migration-donnees, /config/migration-donnees/*
 ---
 
 Cette page sert à reprendre, une seule fois, ce que votre ancien site contenait : chaque import se prépare sur l'ancien site sous forme de fichier ZIP, puis se dépose ici. Seuls les imports dont le module est activé sont proposés.

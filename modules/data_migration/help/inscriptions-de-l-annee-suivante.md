@@ -2,13 +2,13 @@
 id: inscriptions-de-l-annee-suivante
 title: Reprendre les inscriptions de l'année suivante
 summary: Les demandes d'inscription en cours sur l'ancien site rejoignent la liste des demandes, sans qu'aucun e-mail ne parte.
-category: Espace chefs d'U
-role_min: admin
+category: Configuration
+role_min: superadmin
 discovery: off
 question: Comment reprendre les demandes d'inscription de l'ancien site ?
 question: Les familles reçoivent-elles un e-mail quand on importe leur demande ?
 question: Que devient une demande déjà acceptée ou refusée sur l'ancien site ?
-paths: /admin/migration-donnees/inscriptions
+paths: /config/migration-donnees/inscriptions
 related: migration-de-donnees, gerer-les-demandes, envoyer-l-e-mail-de-decision
 ---
 
