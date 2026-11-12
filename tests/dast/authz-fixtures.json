@@ -384,7 +384,7 @@
     "/admin/leadership/{page}": {
       "page": "training"
     },
-    "/admin/migration-donnees/{importer}": {
+    "/config/migration-donnees/{importer}": {
       "importer": "essai"
     }
   }

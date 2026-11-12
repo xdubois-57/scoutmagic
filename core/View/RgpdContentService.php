@@ -1237,7 +1237,8 @@ correspondance entre les références de l'ancien site et les éléments import�
 d'une personne ; (e) qu'aucun courriel ni aucune notification n'est envoyé par un import ; (f) si "gallery" est
 aussi actif, le paragraphe « Galeries photo » : la page de chaque album importé est consultée une fois sur le site qui
 l'héberge, comme pour un album externe ajouté à la main, sans aucune donnée de membre ; si "gallery" n'est pas actif,
-retire ce paragraphe. Ce module n'introduit
+retire ce paragraphe ; (g) que le fichier est déposé, et peut être effacé, par l'administrateur du site seul
+(jamais par un chef d'unité ni par un animateur). Ce module n'introduit
 **aucun sous-traitant** et ne fait **aucun appel à une IA** : ne l'ajoute ni en section 4 ni en section 5.2.
 
 34. **Assistant d'aide (fonctionnalité du cœur du site, section 2.8)** : Cette section ne dépend d'aucun module — elle

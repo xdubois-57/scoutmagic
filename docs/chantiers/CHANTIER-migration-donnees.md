@@ -41,6 +41,7 @@ Elles complètent ou corrigent la spécification.
 | D10 | Référence d'une section dans les ZIP | Le **code Desk de la section** (`sections.desk_code`), jamais un identifiant SQL. Sans correspondance, le lien est ignoré. S'il est indispensable (album limité à une section), l'élément est ignoré. Jamais d'élargissement silencieux de la visibilité. |
 | D11 | Protection permanente | Le verrou « Importé » des actualités et des courriels est **porté par les tables de leur module** (colonnes `imported_at` et `import_source`), jamais par `data_migration`. Il survit à la désactivation du module. Le serveur refuse les actions interdites, pas seulement l'interface. |
 | D12 | Provenance et dédoublonnage | Une **table de correspondance propre à `data_migration`** : (installation source, format, identifiant source) → (type cible, identifiant cible). C'est la référence de dédoublonnage. Aucune colonne `legacy_*` n'est ajoutée aux modules, sauf le verrou de D11. |
+| D13 | Emplacement et rôle de la page | **Configuration › Données et sauvegardes**, `role_min: superadmin`, à l'adresse `/config/migration-donnees` — décision du mainteneur prise après le lot F, qui prime sur la spécification §2.1, la maquette et le lot A ci-dessous. Un import réécrit d'un coup l'historique de toute l'unité : c'est un outil de mise en service du site, à côté de la maintenance et des sauvegardes, et non un outil courant du Staff d'Unité. Les tests RBAC des lots accordent donc chaque route à `superadmin` et la refusent à `admin`. |
 
 ## 2. Ce que le code impose
 
@@ -81,7 +82,7 @@ Constats établis le 11/11/2026 sur `main`. À revérifier au début de chaque l
 
 1. **Le module** `modules/data_migration/` :
    - `module.json` : catégorie `technique`, désactivé par défaut. Un `requires` vers d'autres modules est **interdit**, puisque chaque sous-page dépend d'un module différent.
-   - Entrée « Migration de données » dans `espace_admin` (`role_min: admin`), colonne `services`, avec `menu_order` explicite.
+   - Entrée « Migration de données » dans `espace_admin` (`role_min: admin`), colonne `services`, avec `menu_order` explicite. *Remplacé par D13 : `configuration`, `role_min: superadmin`, colonne `donnees_sauvegardes`.*
    - Accueil conforme à la maquette : la liste des imports disponibles, leur dernier état et le bandeau « Reprendre ».
 2. **Disponibilité de chaque sous-page.** Un import n'est proposé que si son module cible est actif. Le même contrôle s'applique à l'affichage, à l'accès direct par l'adresse, aux points d'entrée AJAX et à l'exécution d'une tranche : module inactif = 404.
    - Les entrées de sous-page passent par un `MenuEntryProvider` (ARCHITECTURE §7.4), pas par un `label` statique.

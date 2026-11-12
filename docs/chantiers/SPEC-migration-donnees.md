@@ -36,6 +36,8 @@ Le nouveau module, désigné provisoirement par l'identifiant technique `data_mi
 
 Il propose une entrée **« Migration de données » dans « Espace chefs d'U »**, accessible au niveau **administrateur / chef d'unité** (`admin`), et **non** dans la Configuration réservée au superadministrateur.
 
+> **Décision ultérieure du mainteneur (roadmap, D13)** : la page est finalement placée dans **Configuration › Données et sauvegardes**, réservée au superadministrateur (`superadmin`), à l'adresse `/config/migration-donnees`. Le paragraphe ci-dessus est conservé pour l'historique ; il ne fait plus foi.
+
 La page d'accueil du module affiche uniquement les importateurs disponibles. Chaque sous-page dépend de l'activation du module correspondant :
 
 | Sous-page | Module requis |
