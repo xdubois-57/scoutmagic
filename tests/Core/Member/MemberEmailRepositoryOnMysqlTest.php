@@ -53,7 +53,7 @@ final class MemberEmailRepositoryOnMysqlTest extends TestCase
         $this->repository->create($member, 'current@test.com', MemberEmail::SOURCE_DESK, MemberEmail::STATUS_INACTIVE, null, null);
         $this->repository->create($member, 'alias@test.com', MemberEmail::SOURCE_MANUAL, MemberEmail::STATUS_VALID, null, null);
 
-        $this->assertSame(3, $this->repository->deleteStaleDeskOverrides(new \DateTimeImmutable('2026-11-12')));
+        $this->assertSame(3, $this->repository->deleteStaleDeskOverrides(new \DateTimeImmutable('2026-11-12'), [$current]));
 
         $this->assertNull($this->repository->findByMemberAndEmail($member, 'former@test.com'));
         $this->assertNull($this->repository->findByMemberAndEmail($member, 'oldest@test.com'));
@@ -65,13 +65,14 @@ final class MemberEmailRepositoryOnMysqlTest extends TestCase
         $this->assertNotNull($this->repository->findByMemberAndEmail($member, 'alias@test.com'));
 
         // Nothing left to delete: a second run, the next import, is a no-op.
-        $this->assertSame(0, $this->repository->deleteStaleDeskOverrides(new \DateTimeImmutable('2026-11-12')));
+        $this->assertSame(0, $this->repository->deleteStaleDeskOverrides(new \DateTimeImmutable('2026-11-12'), [$current]));
     }
 
+    /** is_current = 1, as ScoutYearService::ensureYear() writes every row. */
     private function scoutYear(string $start, string $end): int
     {
         $this->pdo->prepare(
-            'INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES (?, ?, ?, 0)'
+            'INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES (?, ?, ?, 1)'
         )->execute([substr($start, 0, 4) . '-' . substr($end, 0, 4), $start, $end]);
 
         return (int) $this->pdo->lastInsertId();

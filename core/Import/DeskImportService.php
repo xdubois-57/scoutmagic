@@ -13,7 +13,7 @@ use Core\File\EncryptedFileStorageService;
 use Core\Member\Duplicate\DuplicateMemberDetector;
 use Core\Journal\JournalService;
 use Core\Member\AddressNormalizer;
-use Core\Member\MemberEmailRepository;
+use Core\Member\StaleDeskEmailCleanup;
 use Core\Member\SectionMembershipService;
 use Core\Member\UnitStaffSectionService;
 use Core\Security\EncryptionService;
@@ -72,13 +72,12 @@ class DeskImportService
         private ?DeskImportListenerRegistry $importListeners = null,
         /**
          * Where the status-override rows of a former Desk address are
-         * deleted once Desk gives the member another one (issue #1100,
-         * MemberEmailRepository::deleteStaleDeskOverrides()). Nullable for
-         * a fixture replay; those rows grant nothing either way, since no
-         * login or access lookup reads a 'desk' row — this keeps them from
-         * piling up out of sight.
+         * deleted once Desk gives the member another one (issue #1100).
+         * Nullable for a fixture replay; those rows grant nothing either
+         * way, since no login or access lookup reads a 'desk' row — this
+         * keeps them from piling up out of sight.
          */
-        private ?MemberEmailRepository $memberEmails = null
+        private ?StaleDeskEmailCleanup $staleDeskEmails = null
     ) {
     }
 
@@ -174,7 +173,7 @@ class DeskImportService
             // row a mailing wrote for the former one; it goes now, inside
             // the transaction, on the addresses the passes above just wrote
             // (issue #1100).
-            $this->memberEmails?->deleteStaleDeskOverrides($asOf);
+            $this->staleDeskEmails?->run($asOf, [$scoutYearId]);
 
             // Freeze what Desk contained. member_years is overwritten
             // wholesale above, so without this the only roster the site

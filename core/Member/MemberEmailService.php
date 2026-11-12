@@ -146,7 +146,7 @@ class MemberEmailService
      * this member is never shown here, since it matches neither
      * $deskEmail's blind index nor source 'manual' — and it grants
      * nothing while it waits for the next import to delete it
-     * (MemberEmailRepository::deleteStaleDeskOverrides(), issue #1100).
+     * (StaleDeskEmailCleanup, issue #1100).
      *
      * @return MemberEmail[]
      */

@@ -2654,6 +2654,7 @@ $sectionDocumentRepository = new \Core\Member\SectionDocumentRepository($pdo);
 // before $roleResolver so login-by-email resolution can also match a
 // currently-valid secondary address (see RoleResolver's own docblock).
 $memberEmailRepository = new \Core\Member\MemberEmailRepository($pdo, $encryptionService);
+$staleDeskEmailCleanup = new \Core\Member\StaleDeskEmailCleanup($memberEmailRepository, $authorizationYearService);
 // One-time cleanup (issue #1100): the status rows a mailing wrote for a
 // member's Desk address used to survive a change of that address, and they
 // made the former address a login of its own. No lookup reads them any
@@ -2674,7 +2675,7 @@ if ($settingService->get('stale_desk_email_rows_deleted') !== '1') {
         999
     );
 
-    $memberEmailRepository->deleteStaleDeskOverrides(new \DateTimeImmutable());
+    $staleDeskEmailCleanup->run(new \DateTimeImmutable());
 
     $settingRepo->updateValue(null, 'stale_desk_email_rows_deleted', '1');
     $settingService->clearCache();
@@ -3022,7 +3023,7 @@ $importService = new DeskImportService(
     $deskImportYearPolicy,
     $duplicateMemberDetector,
     $deskImportListeners,
-    $memberEmailRepository
+    $staleDeskEmailCleanup
 );
 $importReportPresenter = new \Core\Import\ImportReportPresenter(
     new \Core\Import\ImportReportRepository($pdo, $encryptionService)

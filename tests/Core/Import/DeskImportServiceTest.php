@@ -96,7 +96,13 @@ class DeskImportServiceTest extends TestCase
             new \Core\Import\ImportDiffCalculator(new \Core\Import\RosterSnapshotRepository($this->pdo)),
             new \Core\Config\ScoutYearService($this->pdo),
             $policy ?? \Core\Import\DeskImportYearPolicy::unrestricted(),
-            memberEmails: new \Core\Member\MemberEmailRepository($this->pdo, $this->encryption)
+            staleDeskEmails: new \Core\Member\StaleDeskEmailCleanup(
+                new \Core\Member\MemberEmailRepository($this->pdo, $this->encryption),
+                new \Core\ScoutYear\AuthorizationYearService(
+                    new \Core\Config\ScoutYearService($this->pdo),
+                    new \Core\Config\SettingService(new \Core\Config\SettingRepository($this->pdo))
+                )
+            )
         );
     }
 

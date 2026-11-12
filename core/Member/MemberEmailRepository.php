@@ -270,7 +270,7 @@ class MemberEmailRepository
      * Never created at Desk import time. A later change of the member's
      * Desk address starts fresh with no row here, and the row of the
      * former address is deleted by the next import
-     * (deleteStaleDeskOverrides()) — until then it grants nothing, since
+     * (StaleDeskEmailCleanup) — until then it grants nothing, since
      * no login or access lookup reads a 'desk' row (issue #1100). This is
      * not rare: it happens to every member whose address changes after
      * they received one mailing.
@@ -300,9 +300,10 @@ class MemberEmailRepository
 
     /**
      * Deletes every 'desk' row whose address is no longer the Desk address
-     * of its member in the current scout year nor in any year that has not
-     * ended on $today — the leftovers of a Desk address that changed
-     * (issue #1100). Returns how many went.
+     * of its member in any of $keptYearIds nor in any scout year that has
+     * not ended on $today — the leftovers of a Desk address that changed
+     * (issue #1100). Returns how many went. Callers go through
+     * StaleDeskEmailCleanup, which supplies the years.
      *
      * Deleted rather than set 'inactive': an 'inactive' row on an address
      * that becomes the member's Desk address again would silently refuse
@@ -312,22 +313,28 @@ class MemberEmailRepository
      * the row keeps its delivery (mass_mail_deliveries.member_email_id is
      * ON DELETE SET NULL).
      *
-     * Every year not yet ended, and not only the one an import targets:
-     * while two years are open (the staff year being prepared beside the
-     * public one), an address changed for next year is still this year's,
-     * and its row — an 'inactive' one above all — still applies to it. And
-     * the current year whatever its dates: a unit that has not opened the
-     * next year yet in September still lives in one whose end date has
-     * passed.
+     * $keptYearIds are the years login reads (AuthorizationYears): an
+     * address that is the member's Desk address in one of them still logs
+     * in through it, and its row — an 'inactive' one above all — still
+     * applies. That set includes a public year whose end date has passed,
+     * on a site whose transition has not been run yet in September.
+     * Every year not yet ended is kept on top, for a year being prepared
+     * before it enters that set. Never scout_years.is_current: it is
+     * written 1 on every row and never updated, so it would keep every
+     * past year's address alive.
      *
-     * Called at the end of every Desk import (Core\Import\
-     * DeskImportService) and once on every installation from
-     * public/index.php, for the rows written before this existed. A
-     * correlated subquery the engine decides:
+     * A correlated subquery the engine decides:
      * MemberEmailRepositoryOnMysqlTest holds it on the production engine.
+     *
+     * @param int[] $keptYearIds
      */
-    public function deleteStaleDeskOverrides(\DateTimeImmutable $today): int
+    public function deleteStaleDeskOverrides(\DateTimeImmutable $today, array $keptYearIds): int
     {
+        $keptYearIds = array_values(array_unique(array_map('intval', $keptYearIds)));
+        $keptClause = $keptYearIds === []
+            ? ''
+            : ' OR my.scout_year_id IN (' . implode(',', array_fill(0, count($keptYearIds), '?')) . ')';
+
         $stmt = $this->pdo->prepare(
             "DELETE FROM member_emails
              WHERE source = 'desk'
@@ -337,10 +344,10 @@ class MemberEmailRepository
                      JOIN scout_years sy ON sy.id = my.scout_year_id
                     WHERE my.member_id = member_emails.member_id
                       AND my.email_blind_index = member_emails.email_blind_index
-                      AND (sy.is_current = 1 OR sy.end_date >= ?)
+                      AND (sy.end_date >= ?{$keptClause})
                )"
         );
-        $stmt->execute([$today->format('Y-m-d')]);
+        $stmt->execute([$today->format('Y-m-d'), ...$keptYearIds]);
 
         return $stmt->rowCount();
     }

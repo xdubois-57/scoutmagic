@@ -153,7 +153,7 @@ class MemberEmailRepositoryTest extends TestCase
         $this->insertDesk(4, 'current@test.com', MemberEmail::STATUS_INACTIVE);
         $this->insert(4, 'alias@test.com', MemberEmail::STATUS_VALID);
 
-        $this->assertSame(1, $this->repository->deleteStaleDeskOverrides(new \DateTimeImmutable('2026-11-12')));
+        $this->assertSame(1, $this->repository->deleteStaleDeskOverrides(new \DateTimeImmutable('2026-11-12'), [$yearId]));
 
         $this->assertNull($this->repository->findByMemberAndEmail(4, 'former@test.com'));
         $this->assertSame(
@@ -173,7 +173,7 @@ class MemberEmailRepositoryTest extends TestCase
         $this->memberYear(5, $yearId, 'parent@test.com');
         $this->insertDesk(4, 'parent@test.com', MemberEmail::STATUS_VALID);
 
-        $this->assertSame(1, $this->repository->deleteStaleDeskOverrides(new \DateTimeImmutable('2026-11-12')));
+        $this->assertSame(1, $this->repository->deleteStaleDeskOverrides(new \DateTimeImmutable('2026-11-12'), [$yearId]));
         $this->assertNull($this->repository->findByMemberAndEmail(4, 'parent@test.com'));
     }
 
@@ -194,7 +194,7 @@ class MemberEmailRepositoryTest extends TestCase
         $this->insertDesk(4, 'this-year@test.com', MemberEmail::STATUS_INACTIVE);
         $this->insertDesk(4, 'next-year@test.com', MemberEmail::STATUS_VALID);
 
-        $this->assertSame(1, $this->repository->deleteStaleDeskOverrides(new \DateTimeImmutable('2027-07-31')));
+        $this->assertSame(1, $this->repository->deleteStaleDeskOverrides(new \DateTimeImmutable('2027-07-31'), []));
 
         $this->assertNull($this->repository->findByMemberAndEmail(4, 'oldest@test.com'));
         $this->assertNotNull($this->repository->findByMemberAndEmail(4, 'this-year@test.com'));
@@ -202,20 +202,43 @@ class MemberEmailRepositoryTest extends TestCase
     }
 
     /**
-     * A unit that has not opened the next year yet lives, in September, in
-     * a current year whose end date has passed: its addresses are still
-     * the ones Desk gives, and their rows stay.
+     * A site whose transition has not been run yet in September still
+     * serves a public year whose end date has passed: login reads it
+     * (AuthorizationYears), so its addresses keep their rows.
      */
-    public function testDeleteStaleDeskOverridesKeepsTheAddressOfTheCurrentYearPastItsEndDate(): void
+    public function testDeleteStaleDeskOverridesKeepsTheAddressOfAKeptYearPastItsEndDate(): void
     {
-        $current = $this->scoutYear('2025-08-01', '2026-07-31', true);
-        $this->memberYear(4, $current, 'current@test.com');
+        $public = $this->scoutYear('2025-09-01', '2026-08-31');
+        $this->memberYear(4, $public, 'current@test.com');
         $this->insertDesk(4, 'current@test.com', MemberEmail::STATUS_INACTIVE);
         $this->insertDesk(4, 'former@test.com', MemberEmail::STATUS_VALID);
 
-        $this->assertSame(1, $this->repository->deleteStaleDeskOverrides(new \DateTimeImmutable('2026-09-15')));
+        $this->assertSame(1, $this->repository->deleteStaleDeskOverrides(new \DateTimeImmutable('2026-09-15'), [$public]));
 
         $this->assertNotNull($this->repository->findByMemberAndEmail(4, 'current@test.com'));
+        $this->assertNull($this->repository->findByMemberAndEmail(4, 'former@test.com'));
+    }
+
+    /**
+     * The case #1100 is mostly about: the address changed across a year
+     * boundary, so last year's member_years still carries the former one.
+     * Last year's row says is_current = 1, like every row ensureYear()
+     * ever inserted — that flag is never cleared and must keep nothing.
+     */
+    public function testDeleteStaleDeskOverridesIgnoresTheIsCurrentFlagOfAPastYear(): void
+    {
+        $last = $this->scoutYear('2025-09-01', '2026-08-31');
+        $this->assertSame(
+            1,
+            (int) $this->pdo->query("SELECT is_current FROM scout_years WHERE id = {$last}")->fetchColumn(),
+            'premise: every year row carries is_current = 1, as ScoutYearService::ensureYear() writes it'
+        );
+        $thisYear = $this->scoutYear('2026-09-01', '2027-08-31');
+        $this->memberYear(4, $last, 'former@test.com');
+        $this->memberYear(4, $thisYear, 'current@test.com');
+        $this->insertDesk(4, 'former@test.com', MemberEmail::STATUS_VALID);
+
+        $this->assertSame(1, $this->repository->deleteStaleDeskOverrides(new \DateTimeImmutable('2026-11-12'), [$thisYear]));
         $this->assertNull($this->repository->findByMemberAndEmail(4, 'former@test.com'));
     }
 
@@ -232,11 +255,12 @@ class MemberEmailRepositoryTest extends TestCase
         ]);
     }
 
-    private function scoutYear(string $start, string $end, bool $isCurrent = false): int
+    /** is_current = 1, as ScoutYearService::ensureYear() writes every row. */
+    private function scoutYear(string $start, string $end): int
     {
         $this->pdo->prepare(
-            'INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES (?, ?, ?, ?)'
-        )->execute([substr($start, 0, 4) . '-' . substr($end, 0, 4), $start, $end, $isCurrent ? 1 : 0]);
+            'INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES (?, ?, ?, 1)'
+        )->execute([substr($start, 0, 4) . '-' . substr($end, 0, 4), $start, $end]);
 
         return (int) $this->pdo->lastInsertId();
     }

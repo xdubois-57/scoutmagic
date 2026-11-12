@@ -1022,7 +1022,7 @@ CREATE TABLE member_documents (
 --   or recording an explicit status override, never at Desk import. It is
 --   NOT an address of its own: no login or access lookup reads it (issue
 --   #1100), and each Desk import deletes the row of an address the member
---   no longer has (MemberEmailRepository::deleteStaleDeskOverrides()).
+--   no longer has (Core\Member\StaleDeskEmailCleanup).
 -- status: 'pending' (manual only, awaiting confirmation), 'valid' (usable
 -- for login and personal messages — a 'manual' row; a 'desk' one only
 -- leaves its member_years address usable), 'inactive' (explicitly disabled).
