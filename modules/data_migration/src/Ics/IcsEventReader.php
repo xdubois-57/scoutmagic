@@ -400,6 +400,9 @@ final class IcsEventReader
  *   stray one inside the event is dropped;
      * - a `BEGIN:VEVENT` inside an event that was never closed reports that
      *   event as unfinished and starts the new one;
+     * - a `BEGIN:VEVENT` after another component that never closed (a
+     *   VTIMEZONE without its `END:`) closes that component and starts the
+     *   event;
      * - the end of the file inside an event reports it as cut off.
      *
      * @param resource $in
@@ -462,9 +465,11 @@ final class IcsEventReader
             }
 
             if ($begin !== null) {
-                // An event directly inside the calendar; one nested in some
-                // other component is not the calendar's.
-                if ($begin === 'VEVENT' && array_diff($open, ['VCALENDAR']) === []) {
+                // RFC 5545 nests a VEVENT in nothing but the calendar: a
+                // component still open here (a VTIMEZONE that never said
+                // END:) is a malformation, closed so that it hides no event.
+                if ($begin === 'VEVENT') {
+                    $open = array_values(array_intersect($open, ['VCALENDAR']));
                     $event = $line . "\r\n";
                     $inner = [];
                     $tooLarge = false;

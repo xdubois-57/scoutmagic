@@ -263,6 +263,22 @@ final class IcsEventReaderTest extends TestCase
     }
 
     /**
+     * A component that never closed before the events (a VTIMEZONE cut
+     * short) hides none of them.
+     */
+    public function testAnUnterminatedComponentBeforeTheEventsHidesNone(): void
+    {
+        $lines = $this->convertText(
+            "BEGIN:VCALENDAR\nBEGIN:VTIMEZONE\nTZID:Coupe\n"
+            . "BEGIN:VEVENT\nUID:a\nDTSTART;VALUE=DATE:20250101\nSUMMARY:Un\nEND:VEVENT\n"
+            . "BEGIN:VEVENT\nUID:b\nDTSTART;VALUE=DATE:20250102\nSUMMARY:Deux\nEND:VEVENT\nEND:VCALENDAR\n"
+        );
+
+        $this->assertSame(['a', 'b'], array_column($lines, 'uid'));
+        $this->assertSame(['event', 'event'], array_column($lines, 'state'));
+    }
+
+    /**
      * A TZID that reads as an integer is an int array key in PHP: the
      * event is still judged on its own, never a TypeError for the file.
      */
