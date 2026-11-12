@@ -68,6 +68,9 @@ final class NewsHistoryImporterOnMysqlTest extends TestCase
     /** @var list<string> */
     private array $zips = [];
 
+    /** @var list<string> */
+    private array $trees = [];
+
     protected function setUp(): void
     {
         $this->pdo = $this->productionEngine();
@@ -114,6 +117,9 @@ final class NewsHistoryImporterOnMysqlTest extends TestCase
     {
         foreach ($this->zips as $zip) {
             @unlink($zip);
+        }
+        foreach ($this->trees as $tree) {
+            exec('rm -rf ' . escapeshellarg($tree));
         }
         exec('rm -rf ' . escapeshellarg($this->storage));
     }
@@ -215,6 +221,57 @@ final class NewsHistoryImporterOnMysqlTest extends TestCase
 
         $article = $this->pdo->query("SELECT * FROM news_articles WHERE title = 'La seule actualité valide'")->fetch(\PDO::FETCH_ASSOC);
         $this->assertNull($article['image_file_id'], 'An image missing from the archive leaves its article without it.');
+    }
+
+    /**
+     * An image past the site's pixel ceiling is left out like any other
+     * unusable image: its article is imported without it, not failed at
+     * every re-run by the upload pipeline's own refusal.
+     */
+    public function testAnImagePastThePixelCeilingLeavesItsArticleWithoutIt(): void
+    {
+        $tree = sys_get_temp_dir() . '/dm_news_tree_' . bin2hex(random_bytes(6));
+        $this->copyTree(self::FIXTURES . '/exemple', $tree);
+        // A PNG whose header claims 10 000 × 10 000 pixels: 100 MP, twice the ceiling.
+        $png = "\x89PNG\r\n\x1a\n" . pack('N', 13) . 'IHDR' . pack('NN', 10000, 10000) . "\x08\x02\x00\x00\x00"
+            . pack('N', 0) . str_repeat("\x00", 64);
+        $sha = hash('sha256', $png);
+        file_put_contents($tree . '/media/' . $sha . '.png', $png);
+        $article = json_decode((string) file_get_contents($tree . '/articles/a-1187.json'), true);
+        $article['image'] = 'media/' . $sha . '.png';
+        file_put_contents($tree . '/articles/a-1187.json', json_encode($article, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+        $manifest = json_decode((string) file_get_contents($tree . '/manifest.json'), true);
+        $manifest['files'][] = ['path' => 'media/' . $sha . '.png', 'sha256' => $sha, 'size' => strlen($png)];
+        foreach ($manifest['files'] as &$file) {
+            $file['sha256'] = hash_file('sha256', $tree . '/' . $file['path']);
+            $file['size'] = filesize($tree . '/' . $file['path']);
+        }
+        unset($file);
+        file_put_contents($tree . '/manifest.json', json_encode($manifest, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+
+        $run = $this->analysed($this->zipOf($tree));
+        $run = $this->drive($this->service->confirm($run, []) ?? $this->fail('Not confirmed.'));
+
+        $this->assertSame(Run::DONE, $run->state);
+        $this->assertSame(0, $run->report['errors']);
+        $souper = $this->pdo->query("SELECT * FROM news_articles WHERE title = 'Souper aux spaghettis 2023'")
+            ->fetch(\PDO::FETCH_ASSOC);
+        $this->assertIsArray($souper, 'The article itself is imported.');
+        $this->assertNull($souper['image_file_id']);
+    }
+
+    private function copyTree(string $from, string $to): void
+    {
+        mkdir($to, 0700, true);
+        $this->trees[] = $to;
+        $items = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($from, \FilesystemIterator::SKIP_DOTS),
+            \RecursiveIteratorIterator::SELF_FIRST
+        );
+        foreach ($items as $item) {
+            $target = $to . '/' . substr($item->getPathname(), strlen($from) + 1);
+            $item->isDir() ? mkdir($target, 0700, true) : copy($item->getPathname(), $target);
+        }
     }
 
     public function testARerunAndAnInterruptionWriteNothingTwice(): void

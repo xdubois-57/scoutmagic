@@ -10,6 +10,8 @@ namespace Modules\DataMigration\Importer;
 
 use Core\Archive\ArchiveLimits;
 use Core\Archive\ArchiveRejectedException;
+use Core\Image\ImageDimensionException;
+use Core\Image\ImageDimensionGuard;
 use Modules\DataMigration\Repository\ItemMappingRepository;
 use Modules\News\Api\ImportedArticle;
 use Modules\News\Api\ImportedFormField;
@@ -602,12 +604,12 @@ final class NewsHistoryImporter implements Importer
             return false;
         }
 
-        $head = '';
+        // The whole image, at most 5 MB: its dimensions can sit behind a
+        // large EXIF block, past any fixed head.
+        $bytes = '';
         try {
-            $archive->stream($path, static function (string $chunk) use (&$head): void {
-                if (strlen($head) < self::SNIFF_BYTES) {
-                    $head .= substr($chunk, 0, self::SNIFF_BYTES - strlen($head));
-                }
+            $archive->stream($path, static function (string $chunk) use (&$bytes): void {
+                $bytes .= $chunk;
             }, NewsImportWriterInterface::MAX_IMAGE_BYTES);
         } catch (ArchiveRejectedException) {
             // Heavier than the ceiling: this image is left out, the article
@@ -615,9 +617,21 @@ final class NewsHistoryImporter implements Importer
             return false;
         }
 
-        $mime = (new \finfo(FILEINFO_MIME_TYPE))->buffer($head);
+        $mime = (new \finfo(FILEINFO_MIME_TYPE))->buffer(substr($bytes, 0, self::SNIFF_BYTES));
+        if (!is_string($mime) || !in_array($mime, NewsImportWriterInterface::IMAGE_MIME_TYPES, true)) {
+            return false;
+        }
 
-        return is_string($mime) && in_array($mime, NewsImportWriterInterface::IMAGE_MIME_TYPES, true);
+        // The upload pipeline refuses an image past the site's pixel
+        // ceiling; checked here, such an image is left out rather than
+        // failing its whole article at every re-run.
+        try {
+            ImageDimensionGuard::assertWithinCeilingFromString($bytes);
+        } catch (ImageDimensionException) {
+            return false;
+        }
+
+        return true;
     }
 
     /**
