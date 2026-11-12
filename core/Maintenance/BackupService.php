@@ -693,11 +693,20 @@ class BackupService implements BackupServiceInterface
         // database.sql — anything else means "this is not our backup".
         $this->assertArchiveEntriesAreSafe($zip);
 
-        $extracted = $zip->extractTo($this->basePath);
-        $zip->close();
+        // The compiled templates are emptied whatever happens next (issue
+        // #1103): extractTo() writes entry by entry and does not undo what
+        // it wrote before failing, so a failed extraction can have left a
+        // file in storage/temp/twig_cache — PHP the next page runs — and
+        // must not skip the step that removes it.
+        try {
+            $extracted = $zip->extractTo($this->basePath);
+            $zip->close();
 
-        if (!$extracted) {
-            throw new BackupException('L\'extraction de l\'archive a échoué (mot de passe incorrect ?).');
+            if (!$extracted) {
+                throw new BackupException('L\'extraction de l\'archive a échoué (mot de passe incorrect ?).');
+            }
+        } finally {
+            CompiledTemplateCache::clear($this->basePath);
         }
 
         // core/, modules/ and public/ have just been rewritten underneath a
@@ -709,10 +718,6 @@ class BackupService implements BackupServiceInterface
         // goes, which is the honest cost of not having the list.
         clearstatcache(true);
         OpcodeCache::reset();
-
-        // And the compiled templates, for the same reason and one more: a
-        // file there is PHP the next page runs (issue #1103).
-        CompiledTemplateCache::clear($this->basePath);
     }
 
     /**

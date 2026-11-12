@@ -379,19 +379,23 @@ final class PortableRestore
     {
         $entries ??= $this->plannedEntries($archive);
 
-        // Every storage file was left out (PortableArchive::
-        // restorableEntries()): nothing to write, and extractTo() must not
-        // be handed an empty list — the cache is still emptied below.
-        if ($entries !== [] && !$archive->handle()->extractTo($this->basePath, $entries)) {
-            throw new BackupException(
-                'L\'extraction de la sauvegarde portable a échoué. Vérifiez l\'espace disque et les droits '
-                . 'sur le dossier du site.'
-            );
-        }
-
         // Whatever the guards above let through, no compiled template
-        // survives a restore (issue #1103).
-        CompiledTemplateCache::clear($this->basePath);
+        // survives a restore (issue #1103) — a failed one included:
+        // extractTo() writes entry by entry and does not undo what it wrote
+        // before failing, hence the finally.
+        try {
+            // Every storage file was left out (PortableArchive::
+            // restorableEntries()): nothing to write, and extractTo() must
+            // not be handed an empty list.
+            if ($entries !== [] && !$archive->handle()->extractTo($this->basePath, $entries)) {
+                throw new BackupException(
+                    'L\'extraction de la sauvegarde portable a échoué. Vérifiez l\'espace disque et les droits '
+                    . 'sur le dossier du site.'
+                );
+            }
+        } finally {
+            CompiledTemplateCache::clear($this->basePath);
+        }
     }
 
     /**

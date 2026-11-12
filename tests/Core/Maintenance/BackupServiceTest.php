@@ -508,6 +508,33 @@ class BackupServiceTest extends TestCase
         $this->service->restoreFiles($zipPath);
     }
 
+    /**
+     * **A failed extraction still empties the compiled templates** (issue
+     * #1103, Claude review of #1175). extractTo() writes entry by entry and
+     * does not undo what it wrote before failing: a template planted ahead
+     * of an entry the password cannot open stays on disk — PHP the next page
+     * runs — unless the cache is emptied whatever the outcome.
+     */
+    public function testAFailedRestoreStillEmptiesTheCompiledTemplates(): void
+    {
+        $zipPath = $this->maliciousZip(function (\ZipArchive $z): void {
+            $z->addFromString('storage/temp/twig_cache/v/planted.php', '<?php echo "planted";');
+            $z->addFromString('storage/uploads/b.pdf', 'des octets');
+            $z->setEncryptionName('storage/uploads/b.pdf', \ZipArchive::EM_AES_256, 'le-bon-mot-de-passe');
+        });
+
+        try {
+            $this->service->restoreFiles($zipPath, 'un-autre-mot-de-passe');
+            $this->fail('An extraction the password cannot complete was reported as a success.');
+        } catch (BackupException $e) {
+            $this->assertStringContainsString('extraction', $e->getMessage());
+        } finally {
+            @unlink($zipPath);
+        }
+
+        $this->assertFileDoesNotExist($this->basePath . '/storage/temp/twig_cache/v/planted.php');
+    }
+
     public function testRestoreFilesRejectsAnEntryOutsideTheKnownBackupStructure(): void
     {
         // A well-formed relative path, but not one a real backup contains
