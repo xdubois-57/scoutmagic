@@ -131,6 +131,12 @@ final class IcsEventReader
         // parse is excluded as recurring when it says it is one.
         if (preg_match('/^(?:RRULE|RDATE|EXDATE|RECURRENCE-ID)[;:]/mi', $eventText) === 1) {
             $uid = preg_match('/^UID(?:;[^:\r\n]*)?:([^\r\n]*)/mi', $eventText, $m) === 1 ? trim($m[1]) : '';
+            // Matched byte-wise: a UID that is not UTF-8 would break the
+            // JSON record, so it is dropped and the event still counted as
+            // recurring.
+            if (!mb_check_encoding($uid, 'UTF-8')) {
+                $uid = '';
+            }
 
             return ['state' => self::STATE_RECURRING, 'uid' => $uid, 'date' => null];
         }

@@ -216,6 +216,24 @@ final class IcsEventReaderTest extends TestCase
         $this->assertSame("Apporter <sa> gourde, rendez-vous <devant> l'église", $record['description']);
     }
 
+    /**
+     * A recurring event from an old ISO-8859-1 export is still counted as
+     * recurring: its non-UTF-8 UID is dropped rather than breaking the
+     * JSON record.
+     */
+    public function testARecurringEventWithANonUtf8UidIsStillRecurring(): void
+    {
+        $lines = $this->convertText(
+            "BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:r\xe9union\nDTSTART;VALUE=DATE:20250101\nRRULE:FREQ=WEEKLY\n"
+            . "SUMMARY:Hebdo\nEND:VEVENT\nEND:VCALENDAR\n"
+        );
+
+        $this->assertSame([['recurring', '']], array_map(
+            static fn (array $l): array => [$l['state'], $l['uid']],
+            $lines
+        ));
+    }
+
     public function testAnOversizedEventIsReportedAsSuch(): void
     {
         $lines = $this->convertText(
