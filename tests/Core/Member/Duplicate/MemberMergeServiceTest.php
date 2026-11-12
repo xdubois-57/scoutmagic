@@ -75,6 +75,35 @@ class MemberMergeServiceTest extends TestCase
         $this->assertNotNull($row['merged_at']);
     }
 
+    /**
+     * Issue #1108: a photo's file names its member as owner, and the photo
+     * moves to the kept member — so the owner must move too, or the parents
+     * linked to the kept member could no longer open their own child's
+     * original. Only that owner type: another type's owner_id is not a
+     * member id, and a coincidence of numbers must not move it.
+     */
+    public function testThePhotoFilesOwnerFollowsThePhoto(): void
+    {
+        $kept = $this->createMember('T001', $this->lastYear);
+        $duplicate = $this->createMember('T900', $this->thisYear);
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO files (relative_path, original_name, mime_type, size_bytes, role_min, owner_type, owner_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?)'
+        );
+        $stmt->execute(['photos/p.jpg', 'p.jpg', 'image/jpeg', 10, 'identified', 'member_photo', $duplicate]);
+        $photo = (int) $this->pdo->lastInsertId();
+        $stmt->execute(['docs/d.pdf', 'd.pdf', 'application/pdf', 10, 'identified', 'section_document', $duplicate]);
+        $sectionDocument = (int) $this->pdo->lastInsertId();
+
+        $this->service->merge($kept, $duplicate, 1);
+
+        $owner = $this->pdo->prepare('SELECT owner_id FROM files WHERE id = ?');
+        $owner->execute([$photo]);
+        $this->assertSame($kept, (int) $owner->fetchColumn());
+        $owner->execute([$sectionDocument]);
+        $this->assertSame($duplicate, (int) $owner->fetchColumn());
+    }
+
     public function testTheAbandonedDeskIdBecomesAnAliasSoTheSplitCannotReopen(): void
     {
         $kept = $this->createMember('T001', $this->lastYear);

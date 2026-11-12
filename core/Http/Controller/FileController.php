@@ -447,7 +447,9 @@ class FileController extends AbstractController
             return new Response('Not Found', 404);
         }
 
-        $file = $this->fileAccessGuard->check($id);
+        // Named, because a reduced rendition can have a wider audience than
+        // the original (issue #1108: a person's photo).
+        $file = $this->fileAccessGuard->check($id, $variant);
 
         if ($file === null) {
             $this->journalService?->log(

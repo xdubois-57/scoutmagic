@@ -3130,6 +3130,31 @@ $accountPhotoService = new AccountPhotoService(
     $storagePath
 );
 
+// One-time stamp (issue #1108): every person photo linked before its file
+// carried an owner. Until this runs, those originals stay readable at their
+// role_min alone, exactly as before — the checker only judges files that
+// carry its owner type. Same shape as member_section_periods_backfilled.
+if ($settingService->get('person_photo_owners_backfilled') !== '1') {
+    $settingService->register(
+        'person_photo_owners_backfilled',
+        '0',
+        'boolean',
+        'Propriétaires des photos de personnes renseignés',
+        'Indique si les photos de membres et de comptes existantes ont reçu leur propriétaire.',
+        null,
+        null,
+        null,
+        false,
+        999
+    );
+
+    (new MemberPhotoRepository($pdo))->backfillFileOwnership();
+    (new AccountPhotoRepository($pdo))->backfillFileOwnership();
+
+    $settingRepo->updateValue(null, 'person_photo_owners_backfilled', '1');
+    $settingService->clearCache();
+}
+
 // Same "one per year, fall back to the most recent earlier one" component
 // as above, keyed by section instead of member — the Staffs page's group
 // photo of a section's chiefs. See Core\Photo\SectionPhotoService.
@@ -3259,7 +3284,15 @@ $sectionDocumentOwnershipChecker = new \Core\Member\SectionDocumentOwnershipChec
 // it is immutable by design, so its registry has to be complete first,
 // and module blocks only run after loadEnabledModules(). See where
 // FileController is wired, at the end of this file.
-$fileOwnershipCheckers = [$sectionDocumentOwnershipChecker, new \Core\Import\DeskImportFileOwnershipChecker()];
+// A person's photo (issue #1108): its reduced renditions at role_min, its
+// original to the person, their linked parents (the account holder, for an
+// account photo) and chief+. Core's own, so no module can leave it unwired.
+$fileOwnershipCheckers = [
+    $sectionDocumentOwnershipChecker,
+    new \Core\Import\DeskImportFileOwnershipChecker(),
+    \Core\Photo\PersonPhotoOwnershipChecker::forMemberPhotos(),
+    \Core\Photo\PersonPhotoOwnershipChecker::forAccountPhotos(AuthSession::getUserAccountId()),
+];
 
 // The registry Core\Attention\AttentionService consults for the
 // attention-points page — same shape and same reason as

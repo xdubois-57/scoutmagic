@@ -78,6 +78,7 @@ class AccountPhotoRepository
                 'UPDATE user_account_photos SET file_id = ?, created_at = ? WHERE user_account_id = ?'
             );
             $stmt->execute([$fileId, date('Y-m-d H:i:s'), $userAccountId]);
+            $this->claimFile($fileId, $userAccountId);
 
             return $previous === $fileId ? null : $previous;
         }
@@ -86,8 +87,44 @@ class AccountPhotoRepository
             'INSERT INTO user_account_photos (user_account_id, file_id) VALUES (?, ?)'
         );
         $stmt->execute([$userAccountId, $fileId]);
+        $this->claimFile($fileId, $userAccountId);
 
         return null;
+    }
+
+    /**
+     * Stamps the account as the owner of its photo file (issue #1108), so
+     * the original is served only through
+     * Core\Photo\PersonPhotoOwnershipChecker; its reduced renditions keep
+     * the file's role_min.
+     */
+    private function claimFile(int $fileId, int $userAccountId): void
+    {
+        $this->pdo->prepare('UPDATE files SET owner_type = ?, owner_id = ? WHERE id = ?')
+            ->execute([PersonPhotoOwnershipChecker::OWNER_ACCOUNT, $userAccountId, $fileId]);
+    }
+
+    /**
+     * The same stamp, once, on every account photo linked before it
+     * existed — called from public/index.php behind a settings flag, like
+     * MemberPhotoRepository::backfillFileOwnership(). A replay is a no-op.
+     *
+     * @return int how many files were stamped
+     */
+    public function backfillFileOwnership(): int
+    {
+        $stmt = $this->pdo->prepare(
+            'UPDATE files
+                SET owner_type = ?,
+                    owner_id = (SELECT MIN(uap.user_account_id)
+                                  FROM user_account_photos uap
+                                 WHERE uap.file_id = files.id)
+              WHERE owner_type IS NULL
+                AND id IN (SELECT file_id FROM user_account_photos)'
+        );
+        $stmt->execute([PersonPhotoOwnershipChecker::OWNER_ACCOUNT]);
+
+        return $stmt->rowCount();
     }
 
     /**

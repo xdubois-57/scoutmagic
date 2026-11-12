@@ -517,6 +517,65 @@ class FileControllerTest extends TestCase
         $this->assertSame(403, $response->getStatusCode());
     }
 
+    /**
+     * Issue #1108, end to end through the controller: the same person's
+     * photo answers 403 for its original and 200 for its thumbnail to an
+     * account with no link to the child, and 200 for both to a parent
+     * linked to them. The refusal is journalled like any other.
+     */
+    public function testAPersonPhotoGivesAStrangerTheThumbnailAndNotTheOriginal(): void
+    {
+        $id = $this->storeFileWithVariant('identified');
+        $this->fileRepository->updateOwner($id, \Core\Photo\PersonPhotoOwnershipChecker::OWNER_MEMBER, 42);
+
+        $stranger = $this->photoController([7]);
+        $this->assertSame(
+            403,
+            $stranger->serve($this->fileRequest(), ['file' => $this->segmentOf($id)])->getStatusCode()
+        );
+        $this->assertSame(
+            200,
+            $stranger->variant($this->fileRequest(), ['file' => $this->segmentOf($id), 'variant' => 'thumb'])
+                ->getStatusCode()
+        );
+        $this->assertSame(
+            1,
+            (int) $this->pdo->query("SELECT COUNT(*) FROM event_log WHERE event_type = 'file_access_denied'")
+                ->fetchColumn()
+        );
+
+        $parent = $this->photoController([7, 42]);
+        $this->assertSame(
+            200,
+            $parent->serve($this->fileRequest(), ['file' => $this->segmentOf($id)])->getStatusCode()
+        );
+    }
+
+    /** @param array<int, int> $linkedMemberIds */
+    private function photoController(array $linkedMemberIds): FileController
+    {
+        $guard = new FileAccessGuard($this->fileRepository, Role::IDENTIFIED, $linkedMemberIds, [
+            \Core\Photo\PersonPhotoOwnershipChecker::forMemberPhotos(),
+            \Core\Photo\PersonPhotoOwnershipChecker::forAccountPhotos(3),
+        ]);
+        $controller = new FileController(
+            new Environment(new ArrayLoader(self::REFUSAL_TEMPLATE)),
+            $guard,
+            $this->storagePath,
+            new EncryptedFileStorageService(
+                $this->fileRepository,
+                new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)),
+                $this->storagePath
+            ),
+            $this->imageVariantService
+        );
+        $controller->setJournalService(
+            new \Core\Journal\JournalService(new \Core\Journal\JournalRepository($this->pdo))
+        );
+
+        return $controller;
+    }
+
     public function testVariantAllowsAnOwnerScopedFileTheSessionDoesOwn(): void
     {
         $guard = new FileAccessGuard($this->fileRepository, Role::IDENTIFIED, [42]);
