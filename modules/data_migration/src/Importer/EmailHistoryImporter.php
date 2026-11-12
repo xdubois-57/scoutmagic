@@ -475,18 +475,20 @@ final class EmailHistoryImporter implements Importer
             }
             // A file of attachments/ is named by its content: cited twice,
             // it is the same attachment, joined once. That also bounds what
-            // one email extracts at once by the archive's own distinct
-            // files, however many times an entry repeats one.
+            // one email keeps extracted at once by the archive's own
+            // distinct files, however many times an entry repeats one. Only
+            // a SUCCESSFUL extraction counts: a first citation with a wrong
+            // fingerprint must not cost a later, correct one.
             if (isset($seen[$path])) {
                 continue;
             }
-            $seen[$path] = true;
 
             $temporary = $this->extract($source, $path, $declared);
             if ($temporary === null) {
                 $tags[] = self::TAG_ATTACHMENT_INVALID;
                 continue;
             }
+            $seen[$path] = true;
             if (!$keep) {
                 @unlink($temporary);
                 continue;

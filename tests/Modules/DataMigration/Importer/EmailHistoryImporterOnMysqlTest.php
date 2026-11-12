@@ -429,6 +429,33 @@ final class EmailHistoryImporterOnMysqlTest extends TestCase
         $this->assertSame(1, $this->rows('mass_mail_attachments'));
     }
 
+    /**
+     * Only a citation that extracts counts as the attachment: one whose
+     * fingerprint is wrong is ignored, and a later, correct citation of the
+     * same file is still joined.
+     */
+    public function testACorrectCitationAfterAWrongFingerprintIsStillJoined(): void
+    {
+        $pdf = ImportedEmailFixture::pdf();
+        $bytes = (string) file_get_contents($pdf);
+        @unlink($pdf);
+        $hash = hash('sha256', $bytes);
+        $path = 'attachments/' . $hash;
+
+        $run = $this->ran($this->singleEmailArchive(
+            'ancien-site',
+            'c-1',
+            [
+                ['path' => $path, 'sha256' => hash('sha256', 'autre chose'), 'filename' => 'faux.pdf'],
+                ['path' => $path, 'sha256' => $hash, 'filename' => 'programme.pdf'],
+            ],
+            [$path => $bytes]
+        ));
+
+        $this->assertSame(1, $run->report['imported']);
+        $this->assertSame(1, $this->rows('mass_mail_attachments'));
+    }
+
     public function testAnArchiveMissingFromItsOwnInventoryIsRefusedWhole(): void
     {
         $zip = TestArchive::build(
