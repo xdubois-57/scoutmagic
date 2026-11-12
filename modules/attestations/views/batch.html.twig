@@ -16,8 +16,8 @@
         {% if is_editable %}
             <div class="alert alert-warning" role="alert">
                 <strong>C'est votre seule occasion de vérifier.</strong>
-                Les lignes décochées sont supprimées à la validation, et une attestation publiée ne
-                peut plus être rouverte par vous — seule la famille concernée y accède.
+                Les lignes décochées sont supprimées à la validation, et un lot publié ne se modifie
+                plus : les attestations conservées restent consultables, mais plus rien ne s'y décide.
             </div>
         {% endif %}
 
@@ -136,6 +136,28 @@
                                         <div class="fw-medium text-truncate">{{ line.readName|default('Aucun nom lisible') }}</div>
                                         <div class="small text-body-secondary">nom lu dans le PDF</div>
                                     </div>
+                                </div>
+
+                                {#
+                                  The certificate cut for THIS row, so the cut
+                                  itself can be checked — the pages as split,
+                                  not the name as read (issue #1095). Every row
+                                  has one, matched or not, draft or published:
+                                  it reads, it decides nothing. A row's file
+                                  cannot go before the row (fk_abl_file), so
+                                  every row on screen has one.
+                                #}
+                                <div class="flex-shrink-0 order-last">
+                                    {% include 'partials/file_link.html.twig' with {
+                                        href: file_url(line.fileId),
+                                        label: 'PDF',
+                                        icon: 'file-earmark-pdf',
+                                        classes: 'btn btn-sm btn-outline-secondary',
+                                        title: 'Télécharger le PDF découpé',
+                                        aria_label: 'Télécharger le PDF découpé de l\'attestation lue « '
+                                            ~ (line.readName|default('sans nom lisible'))
+                                            ~ ' », p. ' ~ line.pageRangeLabel(),
+                                    } only %}
                                 </div>
 
                                 <div class="ms-md-auto" style="min-width:16rem;">
