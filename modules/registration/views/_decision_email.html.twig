@@ -33,6 +33,8 @@
                 {% include 'partials/status_badge.html.twig' with { status: 'failed', label: 'Échec le ' ~ panel.at|datetime_fr } only %}
             {% elseif panel.state == 'cancelled' %}
                 {% include 'partials/status_badge.html.twig' with { status: 'waiting', label: 'Annulé suite à un changement de décision' } only %}
+            {% elseif panel.state == 'communicated_elsewhere' %}
+                {% include 'partials/status_badge.html.twig' with { status: 'info', label: "Communiquée par l'ancien site" } only %}
             {% else %}
                 {% include 'partials/status_badge.html.twig' with { status: 'neutral', label: 'Non planifié' } only %}
             {% endif %}
@@ -44,6 +46,8 @@
                 {% if panel.lastFailedResend %}
                     Le dernier renvoi a échoué le {{ panel.lastFailedResend.failedAt|datetime_fr }}{% if panel.lastFailedResend.failureMessage %} : {{ panel.lastFailedResend.failureMessage }}{% else %}.{% endif %}
                 {% endif %}
+            {% elseif panel.state == 'communicated_elsewhere' %}
+                {% if panel.at %}Décision du {{ panel.at|date_fr }}. {% endif %}Aucun courriel n'est parti de ScoutMagic. La famille voit la décision sur sa page de suivi.
             {% elseif panel.state == 'scheduled' and not auto_send_enabled %}
                 L'envoi automatique est désormais désactivé, mais cet e-mail, planifié avant, partira quand même
                 à son échéance. « Envoyer maintenant » le fait partir tout de suite ; changer la décision d'ici là
@@ -127,6 +131,7 @@
                             {%- elseif event.kind == 'failed' -%}Échec
                             {%- elseif event.kind == 'cancelled' -%}Annulé
                             {%- elseif event.kind == 'interrupted' -%}Interrompu
+                            {%- elseif event.kind == 'communicated_elsewhere' -%}Communiquée par l'ancien site
                             {%- else -%}Envoi en cours
                             {%- endif -%}
                         </span>

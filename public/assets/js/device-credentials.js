@@ -66,6 +66,34 @@
             : 'Impossible d\'enregistrer cet appareil.';
     }
 
+    /**
+     * A session whose last login is older than ten minutes may not create
+     * a credential (issue #1115); the refusal says where to confirm
+     * (`reauth_url`). The error box already shows why — this offers the
+     * way out, and the login page brings the reader back here afterwards.
+     * Only a login-page address is followed, whatever the answer holds.
+     *
+     * @param {any} data
+     * @returns {void}
+     */
+    function offerReauthentication(data) {
+        var url = data?.reauth_url;
+        var confirm = window.ScoutMagicConfirm;
+        if (typeof url !== 'string' || !url.startsWith('/login?') || !confirm) {
+            return;
+        }
+        void confirm.ask({
+            title: 'Confirmez votre identité',
+            message: typeof data.error === 'string' ? data.error : 'Confirmez votre identité en vous reconnectant.',
+            confirmLabel: 'Me reconnecter',
+            variant: 'primary'
+        }).then(function (confirmed) {
+            if (confirmed) {
+                window.location.href = url;
+            }
+        });
+    }
+
     addButton.addEventListener('click', function () {
         clearError();
         addButton.disabled = true;
@@ -75,6 +103,7 @@
                 if (!res.data?.success || typeof res.data.secret !== 'string') {
                     showError(failureMessage(res));
                     addButton.disabled = false;
+                    offerReauthentication(res.data);
                     return;
                 }
 

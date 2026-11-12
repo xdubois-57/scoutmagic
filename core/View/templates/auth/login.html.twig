@@ -7,6 +7,13 @@
 
     {% include 'partials/page_header.html.twig' with { title: 'Se connecter' } only %}
 
+    {# « Confirmez votre identité » (Core\Security\RecentAuthentication,
+       issue #1115): a signed-in visitor sent here before adding a new way
+       into their account. #}
+    {% if reauth_notice|default(null) %}
+    <output class="alert alert-info d-block">{{ reauth_notice }}</output>
+    {% endif %}
+
     {# Tabs — data-default marks which one the server pre-selected (module addendum: remembers the last method used, via an optional functional cookie). #}
     <ul class="nav nav-pills nav-fill mb-4" role="tablist">
         <li class="nav-item" role="presentation">
@@ -36,6 +43,7 @@
                     {% include 'partials/form_field.html.twig' with {
                         field_id: 'email', field_name: 'email', type: 'email',
                         label: 'Adresse email', required: true,
+                        value: prefill_email|default(''),
                         placeholder: 'nom@exemple.be', autocomplete: 'email',
                         describedby_extra: 'email-error',
                     } only %}
@@ -129,6 +137,7 @@
                 {% include 'partials/form_field.html.twig' with {
                     field_id: 'password-email',
                     field_name: 'email',
+                    value: prefill_email|default(''),
                     label: 'Adresse email',
                     type: 'email',
                     required: true,

@@ -19,6 +19,7 @@ use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Security\PasswordPolicy;
 use Core\Security\ProfileCompletionGate;
+use Core\Security\RecentAuthentication;
 use Core\Security\UserAccountRepository;
 use Core\Security\WebAuthnCredentialRepository;
 use Core\Security\WebAuthnService;
@@ -251,6 +252,14 @@ class AccountController extends AbstractController
         }
 
         $hasPassword = $this->userAccountRepo->hasPassword($userId);
+
+        // A FIRST password is a new way in that proves nothing by itself,
+        // so it needs a recent login (issue #1115). A change is not gated:
+        // the current password it checks below is that proof.
+        if (!$hasPassword && !RecentAuthentication::isRecent()) {
+            return $this->redirect(RecentAuthentication::loginUrl('/account'));
+        }
+
         $currentPassword = (string) $request->getBody('current_password', '');
         $newPassword = (string) $request->getBody('new_password', '');
         $confirmPassword = (string) $request->getBody('confirm_password', '');
@@ -284,6 +293,11 @@ class AccountController extends AbstractController
         // ...including this one, so re-stamp the tab the member is actually
         // using: they stay signed in here, everywhere else is signed out.
         AuthSession::refreshIssuedAt();
+        // Typing the current password is as good a proof as a login; setting
+        // a first one is not, and leaves the last login's time where it was.
+        if ($hasPassword) {
+            AuthSession::markAuthenticatedNow();
+        }
 
         $this->securityAlerts?->report(
             $userId,
@@ -308,6 +322,12 @@ class AccountController extends AbstractController
             return $this->json(['error' => 'Non authentifié.'], 401);
         }
 
+        // A new passkey is a new way in: a recent login first (issue #1115).
+        // Gated here too, since this is what starts the ceremony.
+        if (!RecentAuthentication::isRecent()) {
+            return $this->json(RecentAuthentication::jsonRefusal('/account'), 403);
+        }
+
         $options = $this->webAuthnService->generateRegistrationOptions($userId, $email);
         return $this->json($options);
     }
@@ -322,6 +342,12 @@ class AccountController extends AbstractController
         $userId = AuthSession::getUserAccountId();
         if ($userId === null) {
             return $this->json(['error' => 'Non authentifié.'], 401);
+        }
+
+        // Checked again, not trusted from the options request: the ceremony
+        // may have started a minute before the window closed.
+        if (!RecentAuthentication::isRecent()) {
+            return $this->json(RecentAuthentication::jsonRefusal('/account'), 403);
         }
 
         $body = json_decode((string) $request->getRawBody(), true);

@@ -25,6 +25,16 @@ final class DecisionEmail
     public const STATE_SENT = 'sent';
     public const STATE_FAILED = 'failed';
     public const STATE_CANCELLED = 'cancelled';
+    /**
+     * « Communiquée par l'ancien site » (chantier #1142, D2): the decision
+     * of a request imported from another site, which that site had already
+     * told the family. Not an e-mail of this site and never one to send —
+     * no transport, no claim, no due date, no attempt — but, while current,
+     * it makes the decision visible to the family exactly as a sent one
+     * does (Service\RequestStatusService::visibleStatus()). Written once,
+     * by the import, and never moved to another state.
+     */
+    public const STATE_COMMUNICATED_ELSEWHERE = 'communicated_elsewhere';
 
     /** The body has not been written: the module's own guard refused to send. */
     public const FAILURE_BODY_NOT_WRITTEN = 'body_not_written';
@@ -70,8 +80,17 @@ final class DecisionEmail
         public readonly ?\DateTimeImmutable $supersededAt,
         public readonly \DateTimeImmutable $createdAt,
         public readonly bool $automaticAttempt = false,
-        public readonly int $automaticRetryCount = 0
+        public readonly int $automaticRetryCount = 0,
+        // A `communicated_elsewhere` row only: when the old site decided,
+        // as the imported archive said — null when it did not say.
+        public readonly ?\DateTimeImmutable $communicatedAt = null
     ) {
+    }
+
+    /** « Communiquée par l'ancien site » (chantier #1142, D2): not an e-mail of this site. */
+    public function isCommunicatedElsewhere(): bool
+    {
+        return $this->state === self::STATE_COMMUNICATED_ELSEWHERE;
     }
 
     /**

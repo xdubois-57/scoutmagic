@@ -516,7 +516,15 @@ CREATE TABLE registration_decision_emails (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     registration_request_id INT UNSIGNED NOT NULL,
     decision ENUM('accepted', 'refused') NOT NULL,
-    state ENUM('scheduled', 'sending', 'sent', 'failed', 'cancelled') NOT NULL DEFAULT 'scheduled',
+    -- 'communicated_elsewhere' (« Communiquée par l'ancien site », chantier
+    -- #1142, D2) is not an e-mail at all: the decision of a request
+    -- imported from another site, which that site had already told the
+    -- family. Written once by the import (Service\RequestImportService),
+    -- never claimed, never sent, never retried — every send path reads
+    -- 'scheduled', 'sending' or 'failed' only — and, while not superseded,
+    -- it makes the decision visible exactly as a 'sent' row does. Its
+    -- sent_at stays NULL: nothing here pretends this site sent anything.
+    state ENUM('scheduled', 'sending', 'sent', 'failed', 'cancelled', 'communicated_elsewhere') NOT NULL DEFAULT 'scheduled',
     -- When it is due — NULL for a send a chief started by hand, which has
     -- no due date of its own.
     due_at DATETIME NULL,
@@ -538,6 +546,9 @@ CREATE TABLE registration_decision_emails (
     automatic_attempt TINYINT(1) NOT NULL DEFAULT 0,
     automatic_retry_count SMALLINT UNSIGNED NOT NULL DEFAULT 0,
     recovery_processed_at DATETIME NULL,
+    -- A 'communicated_elsewhere' row only: when the old site decided, as
+    -- the imported archive says; NULL when it does not say.
+    communicated_at DATETIME NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_rde_request FOREIGN KEY (registration_request_id) REFERENCES registration_requests(id) ON DELETE CASCADE,

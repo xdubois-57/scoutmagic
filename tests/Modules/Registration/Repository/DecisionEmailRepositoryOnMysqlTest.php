@@ -176,7 +176,9 @@ class DecisionEmailRepositoryOnMysqlTest extends TestCase
             'cancel_reason' => $enum([DecisionEmail::CANCEL_DECISION_CHANGED]),
             'decision' => $enum(DecisionEmail::DECISIONS),
             'failure_code' => $enum(DecisionEmail::FAILURE_CODES),
-            'state' => $enum(['scheduled', 'sending', 'sent', 'failed', 'cancelled']),
+            'state' => $enum([
+                'scheduled', 'sending', 'sent', 'failed', 'cancelled', DecisionEmail::STATE_COMMUNICATED_ELSEWHERE,
+            ]),
         ], (static function (array $types): array {
             ksort($types);
 

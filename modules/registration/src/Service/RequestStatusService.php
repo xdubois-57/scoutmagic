@@ -164,10 +164,15 @@ class RequestStatusService
      * sent before the request was refused — or before it went back to
      * pending and was accepted again — never makes the new decision
      * visible ahead of its own e-mail.
+     *
+     * A decision imported from an old site that had already told the
+     * family (chantier #1142, D2: a current `communicated_elsewhere` row)
+     * counts as sent: the family sees it at once, though no e-mail of this
+     * site went out.
      */
     public function visibleStatus(RegistrationRequest $request): string
     {
-        if (DecisionEmail::decisionForStatus($request->status) !== null && $request->decisionEmailSentAt === null) {
+        if (DecisionEmail::decisionForStatus($request->status) !== null && !$request->decisionIsCommunicated()) {
             return RegistrationRequest::STATUS_PENDING;
         }
 
