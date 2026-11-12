@@ -330,10 +330,10 @@ class MemberEmailRepository
      */
     public function deleteStaleDeskOverrides(\DateTimeImmutable $today, array $keptYearIds): int
     {
-        $keptYearIds = array_values(array_unique(array_map('intval', $keptYearIds)));
-        $keptClause = $keptYearIds === []
-            ? ''
-            : ' OR my.scout_year_id IN (' . implode(',', array_fill(0, count($keptYearIds), '?')) . ')';
+        // 0 names no scout year: it keeps the IN list non-empty, so the
+        // statement has one shape whatever the caller passes.
+        $keptYearIds = array_values(array_unique([0, ...array_map('intval', $keptYearIds)]));
+        $placeholders = implode(',', array_fill(0, count($keptYearIds), '?'));
 
         $stmt = $this->pdo->prepare(
             "DELETE FROM member_emails
@@ -344,7 +344,7 @@ class MemberEmailRepository
                      JOIN scout_years sy ON sy.id = my.scout_year_id
                     WHERE my.member_id = member_emails.member_id
                       AND my.email_blind_index = member_emails.email_blind_index
-                      AND (sy.end_date >= ?{$keptClause})
+                      AND (sy.end_date >= ? OR my.scout_year_id IN ({$placeholders}))
                )"
         );
         $stmt->execute([$today->format('Y-m-d'), ...$keptYearIds]);
