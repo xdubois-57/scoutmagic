@@ -104,14 +104,35 @@ class FilePublicIdsTest extends TestCase
     }
 
     /**
-     * The sequential address is gone: a file without a public id has no
-     * address to give, rather than one that names nothing.
+     * A file that predates the column is given its public id by the first
+     * page that names it, rather than an empty address — the sequential
+     * one is gone, and a page must never link to nowhere.
      */
-    public function testAFileWithoutAPublicIdHasNoAddress(): void
+    public function testAFileWithoutAPublicIdIsGivenOneByThePageThatNamesIt(): void
     {
         $id = $this->insertLegacyFile('legacy.jpg');
 
-        $this->assertSame('', FilePublicIds::urlFor($id, 'thumb'));
+        $url = FilePublicIds::urlFor($id, 'thumb');
+
+        $stored = $this->repository->findById($id)?->publicId;
+        $this->assertNotNull($stored);
+        $this->assertSame('/files/' . $stored . '/thumb', $url);
+    }
+
+    public function testMintingSkipsFilesThatHaveOneAndFilesThatDoNotExist(): void
+    {
+        $kept = $this->repository->create('k.jpg', 'k.jpg', 'image/jpeg', 1, 'public', null, null);
+        $before = $this->repository->findById($kept)?->publicId;
+        $legacy = $this->insertLegacyFile('l.jpg');
+
+        $found = $this->repository->mintPublicIdsFor([$kept, $legacy, 9999, 0]);
+
+        $keys = array_keys($found);
+        sort($keys);
+        $this->assertSame([$kept, $legacy], $keys);
+        $this->assertSame($before, $found[$kept]);
+        $this->assertTrue(FilePublicIds::isWellFormed($found[$legacy]));
+        $this->assertSame([], $this->repository->mintPublicIdsFor([]));
     }
 
     public function testPrimeResolvesAPageInOneQueryAndRemembersMisses(): void

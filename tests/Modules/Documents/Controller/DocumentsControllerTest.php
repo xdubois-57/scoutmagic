@@ -249,9 +249,10 @@ final class DocumentsControllerTest extends TestCase
     }
 
     /**
-     * Issue #1109: the stable address sends to the file's opaque one; a file
-     * not yet given one has nowhere to send to, and the answer is « not
-     * found » rather than a redirect to an empty address.
+     * Issue #1109: the stable address sends to the file's opaque one — one
+     * minted on the way for a file that predates the column; a file that no
+     * longer exists has nowhere to send to, and the answer is « not found »
+     * rather than a redirect to an empty address.
      */
     public function testTheStableAddressRedirectsToTheOpaqueOneOrIsNotFoundWithout(): void
     {
@@ -267,6 +268,15 @@ final class DocumentsControllerTest extends TestCase
             );
 
             $this->pdo->prepare('UPDATE files SET public_id = NULL WHERE id = ?')->execute([$document->fileId]);
+            \Core\File\FilePublicIds::useRepository(new \Core\File\FileRepository($this->pdo));
+
+            $response = $this->handle('GET', '/documents/{slug}', 'open', 'public', '/documents/' . $document->slug);
+            $this->assertSame(302, $response->getStatusCode());
+            $minted = $this->pdo->query('SELECT public_id FROM files WHERE id = ' . (int) $document->fileId)
+                ->fetchColumn();
+            $this->assertSame('/files/' . $minted, $response->getHeaders()['Location'] ?? null);
+
+            $this->pdo->prepare('DELETE FROM files WHERE id = ?')->execute([$document->fileId]);
             \Core\File\FilePublicIds::useRepository(new \Core\File\FileRepository($this->pdo));
 
             $response = $this->handle('GET', '/documents/{slug}', 'open', 'public', '/documents/' . $document->slug);

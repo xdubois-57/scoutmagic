@@ -93,10 +93,42 @@ class FileRepository
     }
 
     /**
+     * Give each of $fileIds that exists but has no public id yet one now,
+     * and return the public id of each that exists, keyed by file id
+     * (issue #1109). A page naming a file that predates the column then
+     * still gets its opaque address, rather than an empty one, without
+     * waiting for the scheduled backfill to reach that row.
+     *
+     * @param list<int> $fileIds
+     * @return array<int, string>
+     */
+    public function mintPublicIdsFor(array $fileIds): array
+    {
+        $ids = array_values(array_unique(array_filter(
+            array_map('intval', $fileIds),
+            static fn(int $id): bool => $id > 0
+        )));
+        if ($ids === []) {
+            return [];
+        }
+
+        foreach (array_chunk($ids, 500) as $chunk) {
+            $placeholders = implode(',', array_fill(0, count($chunk), '?'));
+            $stmt = $this->pdo->prepare(
+                'SELECT id FROM files WHERE public_id IS NULL AND id IN (' . $placeholders . ')'
+            );
+            $stmt->execute($chunk);
+            $this->mintPublicIds(array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN)));
+        }
+
+        // Read back rather than trust what was minted here: a concurrent
+        // request or the backfill may have given the row its id first.
+        return $this->publicIdsFor($ids);
+    }
+
+    /**
      * Give up to $limit files that predate the column a public id, and say
-     * how many were done (issue #1109). Each id is minted on its own, never
-     * derived from the row; a collision with an existing id (2^-128) is
-     * retried rather than reported.
+     * how many were done (issue #1109).
      */
     public function backfillPublicIds(int $limit = 500): int
     {
@@ -105,9 +137,23 @@ class FileRepository
         $stmt->execute();
         $ids = array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN));
 
-        // « AND public_id IS NULL »: the backfill runs on every request
-        // until it is done, so two requests can select the same rows; the
-        // second must not replace an id the first already handed out.
+        $this->mintPublicIds($ids);
+
+        return count($ids);
+    }
+
+    /**
+     * Each id is minted on its own, never derived from the row; a collision
+     * with an existing id (2^-128) is retried rather than reported.
+     *
+     * « AND public_id IS NULL »: the backfill and a page resolving its
+     * addresses can reach the same row at once; the second must not
+     * replace an id the first already handed out.
+     *
+     * @param list<int> $ids
+     */
+    private function mintPublicIds(array $ids): void
+    {
         $update = $this->pdo->prepare('UPDATE files SET public_id = ? WHERE id = ? AND public_id IS NULL');
         foreach ($ids as $id) {
             for ($attempt = 0; ; $attempt++) {
@@ -121,8 +167,6 @@ class FileRepository
                 }
             }
         }
-
-        return count($ids);
     }
 
     /**

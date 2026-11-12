@@ -24,7 +24,9 @@ namespace Core\File;
  *   from `files.id`, never written to the journal.
  * - **Where it comes from**: `FileRepository::create()` mints it with the
  *   row; rows that predate the column get one from a scheduled task
- *   (`Core\File\Task\BackfillFilePublicIdsHandler`), a slice per cron pass.
+ *   (`Core\File\Task\BackfillFilePublicIdsHandler`), a slice per cron pass,
+ *   or sooner from the first page that names them (`prime()`), so an
+ *   existing file always has an address.
  * - **The sequential address is gone**: `/files/123` names nothing, and
  *   nothing stored was rewritten — the site was still in its test phase
  *   when this changed, so no existing content had to survive it.
@@ -94,14 +96,20 @@ final class FilePublicIds
         }
 
         $found = self::$repository->publicIdsFor(array_values($missing));
+        $without = array_values(array_diff_key($missing, $found));
+        if ($without !== []) {
+            // Files that predate the column and the backfill has not
+            // reached yet: minted now, so an existing file always has an
+            // address and an empty one means there is no such file.
+            $found += self::$repository->mintPublicIdsFor($without);
+        }
         foreach ($missing as $id) {
             self::$resolved[$id] = $found[$id] ?? null;
         }
     }
 
     /**
-     * The public id of file $fileId, or null when there is no such file or
-     * it has none yet.
+     * The public id of file $fileId, or null when there is no such file.
      */
     public static function forFileId(int $fileId): ?string
     {
@@ -140,8 +148,8 @@ final class FilePublicIds
 
     /**
      * The address of file $fileId: `/files/{public_id}`, plus `/{variant}`
-     * when given. Empty for no file, and for a file with no public id —
-     * there is no other address to give it: the sequential one is gone.
+     * when given. Empty only when there is no such file: one that predates
+     * the column is given its public id on the way (`prime()`).
      *
      * With no repository wired at all (a unit test rendering a template),
      * the numeric address is printed so a test can still read which file
