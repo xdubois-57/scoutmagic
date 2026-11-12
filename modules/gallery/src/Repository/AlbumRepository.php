@@ -168,7 +168,7 @@ class AlbumRepository
      * The external albums whose address starts with `$prefix`, compared
      * the way the column's collation compares (case-insensitively on
      * MySQL/MariaDB). A coarse filter, never a decision: the caller
-     * compares each candidate exactly (`Api\ExternalAlbumUrl`). It exists
+     * compares each candidate exactly (`Service\ExternalAlbumUrl`). It exists
      * so that the comparison reads a handful of rows rather than every
      * external album there is — the stored addresses are kept as typed,
      * so an exact `=` on the normalised form would miss

@@ -185,6 +185,16 @@ final class ExternalAlbumImportServiceTest extends TestCase
         $this->assertNull($service->findExternalAlbumByUrl('pas une adresse'));
     }
 
+    public function testOnlyAnAbsoluteWebAddressIsAcceptable(): void
+    {
+        $service = $this->service($this->createStub(OgImageStore::class));
+
+        $this->assertTrue($service->isAcceptableUrl('https://photos.example.org:8443/album'));
+        $this->assertFalse($service->isAcceptableUrl('ftp://photos.example.org/album'));
+        $this->assertFalse($service->isAcceptableUrl('https://photos.example.org:bad/album'));
+        $this->assertFalse($service->isAcceptableUrl('pas une adresse'));
+    }
+
     private function service(OgImageStore $images): ExternalAlbumImportService
     {
         $settings = $this->createStub(SettingService::class);

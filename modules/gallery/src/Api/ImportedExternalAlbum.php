@@ -28,7 +28,7 @@ final class ImportedExternalAlbum
     public const MAX_URL_LENGTH = 500;
 
     /**
-     * @param string $url the address as the old site gave it (kept as is; compared through {@see ExternalAlbumUrl})
+     * @param string $url the address as the old site gave it (kept as is; compared through the gallery's own normalisation)
      * @param string $albumDate `YYYY-MM-DD`
      * @param ?int $sectionId null for an album the whole unit sees
      * @param int $createdBy the user account of the administrator who imports

@@ -6,9 +6,9 @@
 
 declare(strict_types=1);
 
-namespace Tests\Modules\Gallery\Api;
+namespace Tests\Modules\Gallery\Service;
 
-use Modules\Gallery\Api\ExternalAlbumUrl;
+use Modules\Gallery\Service\ExternalAlbumUrl;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 

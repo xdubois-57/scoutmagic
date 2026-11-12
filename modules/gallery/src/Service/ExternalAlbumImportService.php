@@ -10,7 +10,6 @@ namespace Modules\Gallery\Service;
 
 use Core\Config\SettingService;
 use Core\Service\DateInput;
-use Modules\Gallery\Api\ExternalAlbumUrl;
 use Modules\Gallery\Api\ExternalAlbumWriter;
 use Modules\Gallery\Api\GalleryException;
 use Modules\Gallery\Api\ImportedExternalAlbum;
@@ -38,6 +37,11 @@ class ExternalAlbumImportService implements ExternalAlbumWriter
     public function externalAlbumsAllowed(): bool
     {
         return (bool) $this->settings->get('gallery_allow_external', 'gallery', true);
+    }
+
+    public function isAcceptableUrl(string $url): bool
+    {
+        return ExternalAlbumUrl::normalize($url) !== null;
     }
 
     public function findExternalAlbumByUrl(string $url): ?int

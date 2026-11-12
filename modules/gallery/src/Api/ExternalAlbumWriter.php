@@ -43,8 +43,16 @@ interface ExternalAlbumWriter
     public function externalAlbumsAllowed(): bool;
 
     /**
+     * Whether this is an address the gallery accepts for an external album:
+     * absolute, http(s), with a host and, if any, a valid port. An address
+     * refused here is refused by createImportedExternalAlbum() too.
+     */
+    public function isAcceptableUrl(string $url): bool;
+
+    /**
      * The id of an external album already on this site at the same address,
-     * compared after {@see ExternalAlbumUrl::normalize()} — or null.
+     * compared after the gallery's own normalisation (scheme and host in
+     * lower case, no fragment) — or null.
      */
     public function findExternalAlbumByUrl(string $url): ?int;
 

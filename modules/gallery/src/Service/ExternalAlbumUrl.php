@@ -6,7 +6,7 @@
 
 declare(strict_types=1);
 
-namespace Modules\Gallery\Api;
+namespace Modules\Gallery\Service;
 
 /**
  * The comparable form of an external album's address: how the gallery

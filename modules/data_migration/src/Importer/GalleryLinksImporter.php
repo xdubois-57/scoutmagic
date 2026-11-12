@@ -15,7 +15,6 @@ use Core\Http\LinkPreviewFetcher;
 use Core\Service\DateInput;
 use Modules\DataMigration\Service\MissingScoutYears;
 use Modules\DataMigration\Service\SectionByDeskCode;
-use Modules\Gallery\Api\ExternalAlbumUrl;
 use Modules\Gallery\Api\ExternalAlbumWriter;
 use Modules\Gallery\Api\ImportedExternalAlbum;
 
@@ -139,7 +138,7 @@ final class GalleryLinksImporter implements ThrottledImporter
         $row = $item->data;
 
         $url = is_string($row['url'] ?? null) ? trim($row['url']) : '';
-        if (ExternalAlbumUrl::normalize($url) === null) {
+        if (!$albums->isAcceptableUrl($url)) {
             return ItemVerdict::ignored(self::REASON_URL);
         }
         if (mb_strlen($url) > ImportedExternalAlbum::MAX_URL_LENGTH) {

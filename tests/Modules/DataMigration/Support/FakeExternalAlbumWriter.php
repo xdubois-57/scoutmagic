@@ -8,9 +8,9 @@ declare(strict_types=1);
 
 namespace Tests\Modules\DataMigration\Support;
 
-use Modules\Gallery\Api\ExternalAlbumUrl;
 use Modules\Gallery\Api\ExternalAlbumWriter;
 use Modules\Gallery\Api\ImportedExternalAlbum;
+use Modules\Gallery\Service\ExternalAlbumUrl;
 
 /**
  * The gallery's writer as the import sees it, in memory: what the import
@@ -33,6 +33,11 @@ final class FakeExternalAlbumWriter implements ExternalAlbumWriter
     public function externalAlbumsAllowed(): bool
     {
         return $this->allowed;
+    }
+
+    public function isAcceptableUrl(string $url): bool
+    {
+        return ExternalAlbumUrl::normalize($url) !== null;
     }
 
     public function findExternalAlbumByUrl(string $url): ?int
