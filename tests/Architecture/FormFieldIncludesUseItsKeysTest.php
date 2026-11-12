@@ -75,6 +75,34 @@ final class FormFieldIncludesUseItsKeysTest extends TestCase
         $this->assertContains('name', $keys);
         $this->assertNotContains('field_id', $keys);
         $this->assertNotContains('a', $keys, 'a key of a nested map is not a key of the include');
+
+        // An escaped apostrophe inside a label ends nothing.
+        $escaped = "{% include 'partials/form_field.html.twig' with {\n    label: 'Année d\\'inscription',"
+            . "\n    field_id: 'year',\n    field_name: 'scout_year_id',\n} only %}";
+        $this->assertSame(1, preg_match(self::INCLUDE, $escaped, $match));
+        $this->assertSame(['label', 'field_id', 'field_name'], $this->keysOf($match[1]));
+    }
+
+    /**
+     * Where the string literal opening at $start ends, past any escaped
+     * character — `'Année d\\'inscription'` is one string, and stopping at
+     * its escaped apostrophe would swallow the keys after it.
+     */
+    private function endOfString(string $arguments, int $start): int
+    {
+        $quote = $arguments[$start];
+        $length = strlen($arguments);
+        for ($i = $start + 1; $i < $length; $i++) {
+            if ($arguments[$i] === '\\') {
+                $i++;
+                continue;
+            }
+            if ($arguments[$i] === $quote) {
+                return $i;
+            }
+        }
+
+        return $length;
     }
 
     /**
@@ -93,8 +121,7 @@ final class FormFieldIncludesUseItsKeysTest extends TestCase
         for ($i = 0; $i < $length; $i++) {
             $char = $arguments[$i];
             if ($char === "'" || $char === '"') {
-                $end = strpos($arguments, $char, $i + 1);
-                $i = $end === false ? $length : $end;
+                $i = $this->endOfString($arguments, $i);
                 $expectKey = false;
                 continue;
             }
