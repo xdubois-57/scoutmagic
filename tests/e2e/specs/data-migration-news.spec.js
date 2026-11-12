@@ -7,9 +7,9 @@
 // The lock is tested on the server, route by route, in
 // ImportedArticleLockTest, and the import itself in
 // NewsHistoryImporterOnMysqlTest. What neither crosses is what a person
-// sees once the import is over: the article in the list with its
-// « Importé » mark, its page saying it cannot be changed and offering no
-// editor, and the editor's own address leading back to the article. The
+// sees once the import is over: its page saying it cannot be changed, the
+// manage list opening the article rather than its editor, and the editor's
+// own address leading back to the article. The
 // six steps of an import are walked in data-migration-photos.spec.js; this
 // scenario goes through them straight, without an interruption.
 //
@@ -82,13 +82,17 @@ test('an imported article is read-only, on its page and at its editor\'s address
     expect(href).toMatch(/^\/news\/\d+/);
     const articlePath = (href ?? '').replace(/[?#].*$/, '');
 
-    // Its page: the note, and no way into the editor.
+    // Its page: the note.
     await page.goto(articlePath, { waitUntil: 'domcontentloaded' });
     await expect(page.getByRole('heading', { level: 1, name: TITLE })).toBeVisible();
     const note = page.locator('[data-news-imported]');
     await expect(note).toContainText('Importé');
     await expect(note).toContainText('Il ne peut pas être modifié.');
-    await expect(page.locator(`a[href="${articlePath}/gerer"]`)).toHaveCount(0);
+
+    // The manage list, where every other article's title opens its editor:
+    // the imported one's opens the article itself (row.is_imported).
+    await page.goto('/news/manage', { waitUntil: 'domcontentloaded' });
+    await expect(page.getByRole('link', { name: TITLE }).first()).toHaveAttribute('href', articlePath);
 
     // The editor's address, typed by hand, leads back to the article.
     await page.goto(`${articlePath}/gerer`, { waitUntil: 'domcontentloaded' });

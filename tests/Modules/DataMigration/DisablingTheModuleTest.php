@@ -106,10 +106,16 @@ final class DisablingTheModuleTest extends TestCase
         $stmt = $this->pdo->prepare('SELECT imported_at FROM mass_mail_emails WHERE id = ?');
         $stmt->execute([$emailId]);
         $this->assertNotEmpty($stmt->fetchColumn(), 'the lock column is untouched');
+
+        // And it still locks: forced back to a draft, a status that alone
+        // would let the delete through, the email is refused for being
+        // imported — the guard reads that column and nothing else.
+        $this->pdo->prepare('UPDATE mass_mail_emails SET status = ? WHERE id = ?')->execute(['draft', $emailId]);
         $this->assertFalse(
             (new EmailRepository($this->pdo))->deleteIfNotStarted($emailId),
-            'and the email is still refused deletion'
+            'the email is still refused deletion'
         );
+        $this->assertCount(1, $this->snapshot('mass_mail_emails')['mass_mail_emails']);
     }
 
     public function testAnImportedArticleOutlivesTheModuleStillLocked(): void
@@ -141,12 +147,10 @@ final class DisablingTheModuleTest extends TestCase
 
         $this->assertSame($before, $this->snapshot('news_articles', 'news_forms'), 'deactivating deletes nothing');
         $article = $articles->findById($articleId);
+        // What every lock of the news module reads (ArticleService,
+        // ResponseService, NewsController, FormController); their refusals
+        // are ImportedArticleLockTest's.
         $this->assertTrue($article?->isImported(), 'the lock column is untouched');
-        $this->assertSame(
-            1,
-            $this->formClosedFlag($articleId),
-            'and its form stays closed'
-        );
     }
 
     /**
@@ -177,14 +181,6 @@ final class DisablingTheModuleTest extends TestCase
             null,
             new OfflineWhitelist()
         );
-    }
-
-    private function formClosedFlag(int $articleId): int
-    {
-        $stmt = $this->pdo->prepare('SELECT is_force_closed FROM news_forms WHERE news_article_id = ?');
-        $stmt->execute([$articleId]);
-
-        return (int) $stmt->fetchColumn();
     }
 
     /**
