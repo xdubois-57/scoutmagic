@@ -338,7 +338,7 @@ final class IcsCalendarImporter implements FormSourceImporter
             );
         }
         $uid = (string) ($row['uid'] ?? '');
-        $reference = self::reference($position, $uid, is_string($row['date'] ?? null) ? $row['date'] : null);
+        $reference = self::reference($position, is_string($row['date'] ?? null) ? $row['date'] : null);
 
         if (($row['state'] ?? null) === IcsEventReader::STATE_UNREADABLE) {
             $reason = (string) ($row['reason'] ?? 'événement incomplet');
@@ -367,16 +367,18 @@ final class IcsCalendarImporter implements FormSourceImporter
     }
 
     /**
-     * What the preview and the report show: the day and the UID, never the
-     * title, which may name somebody (D8).
+     * What the preview and the report show, and the run row keeps: the day
+     * and the event's rank in the file — never the title, which may name
+     * somebody (D8), nor the UID, which may carry an address (see
+     * sourceId()).
      */
-    private static function reference(int $position, string $uid, ?string $date): string
+    private static function reference(int $position, ?string $date): string
     {
         $parts = [];
         if ($date !== null && DateInput::isIso($date)) {
             $parts[] = self::frenchDate($date);
         }
-        $parts[] = $uid !== '' ? $uid : 'événement n° ' . ($position + 1);
+        $parts[] = 'événement n° ' . ($position + 1);
 
         return implode(' · ', $parts);
     }

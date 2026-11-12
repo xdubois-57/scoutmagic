@@ -259,8 +259,9 @@ final class IcsCalendarImporterTest extends TestCase
 
     /**
      * An unreadable event is yielded as such — the module counts it as
-     * ignored with its reason — and its reference is a day and a UID,
-     * never a title, which may name somebody (D8).
+     * ignored with its reason — and its reference is a day and a rank in
+     * the file, never a title, which may name somebody (D8), nor a UID,
+     * which may carry an address.
      */
     public function testUnreadableEventsAreItemsWithTheirReasonAndNoTitle(): void
     {
@@ -273,14 +274,15 @@ final class IcsCalendarImporterTest extends TestCase
         $this->assertSame('01/03/2025 · événement n° 1', $items[0]->shownReference());
         $this->assertSame('Illisible : fuseau horaire inconnu', $items[2]->unreadableReason);
         $this->assertSame('Illisible : UID en double dans le fichier', $items[8]->unreadableReason);
-        $this->assertSame('19/04/2025 · double@exemple.test', $items[8]->shownReference());
+        $this->assertSame('19/04/2025 · événement n° 9', $items[8]->shownReference());
         $this->assertSame(
             'Événement annulé',
             $this->importer->inspect($items[6], $this->context($accepted))->reason
         );
-        $this->assertSame('12/04/2025 · double@exemple.test', $items[7]->shownReference());
+        $this->assertSame('12/04/2025 · événement n° 8', $items[7]->shownReference());
         foreach ($items as $item) {
             $this->assertStringNotContainsString('Premier du nom', $item->shownReference());
+            $this->assertStringNotContainsString('@', $item->shownReference(), 'a UID may carry an address');
         }
     }
 
