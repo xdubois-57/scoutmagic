@@ -68,9 +68,10 @@ final class GalleryLinksImportOnMysqlTest extends TestCase
 
     protected function setUp(): void
     {
-        $this->pdo = $this->productionEngine();
+        // Before productionEngine(), which may skip: tearDown() still runs then.
         $this->storage = sys_get_temp_dir() . '/dm_gallery_' . bin2hex(random_bytes(6));
         mkdir($this->storage, 0700, true);
+        $this->pdo = $this->productionEngine();
 
         $this->pdo->prepare('INSERT INTO user_accounts (email_encrypted, email_blind_index) VALUES (?, ?)')
             ->execute(['chiffré', str_repeat('a', 64)]);
@@ -147,7 +148,7 @@ final class GalleryLinksImportOnMysqlTest extends TestCase
         $this->assertNotNull($camp['og_image_file_id'], 'The page\'s image is kept as the album\'s own file.');
         $this->assertSame(
             'identified',
-            $this->pdo->query('SELECT role_min FROM files WHERE id = ' . (int) $camp['og_image_file_id'])->fetchColumn()
+            $this->scalar('SELECT role_min FROM files WHERE id = ?', (int) $camp['og_image_file_id'])
         );
 
         $rentree = $albums['https://photos.example.org/albums/journee-de-rentree-2018'];
@@ -400,7 +401,15 @@ final class GalleryLinksImportOnMysqlTest extends TestCase
 
     private function yearLabel(int $id): string
     {
-        return (string) $this->pdo->query('SELECT label FROM scout_years WHERE id = ' . $id)->fetchColumn();
+        return (string) $this->scalar('SELECT label FROM scout_years WHERE id = ?', $id);
+    }
+
+    private function scalar(string $sql, int $id): mixed
+    {
+        $query = $this->pdo->prepare($sql);
+        $query->execute([$id]);
+
+        return $query->fetchColumn();
     }
 
     private static function png(): string

@@ -53,7 +53,12 @@ final class ExternalAlbumUrl
         $at = strrpos($authority, '@');
         $userInfo = $at === false ? '' : substr($authority, 0, $at + 1);
         $hostAndPort = strtolower($at === false ? $authority : substr($authority, $at + 1));
-        if ($hostAndPort === '' || str_starts_with($hostAndPort, ':')) {
+        // A host — a name or a bracketed IPv6 literal — and, if any, a port
+        // that is a number a socket can open.
+        if (preg_match('~^(\[[0-9a-f:.]+\]|[^:\[\]]+)(?::(\d{1,5}))?$~', $hostAndPort, $host) !== 1) {
+            return null;
+        }
+        if (isset($host[2]) && ((int) $host[2] < 1 || (int) $host[2] > 65535)) {
             return null;
         }
 

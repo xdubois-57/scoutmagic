@@ -72,6 +72,9 @@ final class ExternalAlbumUrlTest extends TestCase
         yield 'javascript' => ['javascript:alert(1)'];
         yield 'no host' => ['https:///album'];
         yield 'port without host' => ['https://:443/album'];
+        yield 'port that is not a number' => ['https://photos.example.org:bad/album'];
+        yield 'port out of range' => ['https://photos.example.org:70000/album'];
+        yield 'colon without a port' => ['https://photos.example.org:/album'];
         yield 'blank inside' => ['https://example.org/mon album'];
         yield 'control character' => ["https://example.org/\x00a"];
     }
