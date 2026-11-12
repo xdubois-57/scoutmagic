@@ -13,7 +13,7 @@
 
 - **Lire d'abord** `AGENTS.md`, `ARCHITECTURE.md` (en particulier §7.4 à §7.6 sur les modules et les `Api\`, et §8.1 sur l'import Desk), `SECURITY.md`, `CONTRIBUTING.md`, `docs/module-development.md`, `docs/exigences-non-fonctionnelles.md` §2 (hébergement) et `design.md`.
 - **Enchaîner les lots dans l'ordre des vagues, sans poser de question.** On ne s'arrête que pour un changement de design ou un manque de clarté fonctionnelle. Une décision technique ordinaire se prend et se note dans la description de la PR.
-- **Une PR par lot**, en français, avec `Corrige #1142 (lot X)` dans la description, jamais un mot-clé de fermeture.
+- **Une PR par lot**, en français, dont la description dit `Lot X du chantier #1142 (le ticket reste ouvert jusqu'au lot I).` Jamais un mot de fermeture (corrige, close, fix, resolve…) suivi du numéro, ni dans la PR ni dans les commits : `issue-fixed-comment.yml` fermerait le ticket. Le lot I le ferme à la main, avec son commentaire de synthèse (§3).
   - **Fusion automatique dès que tout est vert**, par l'auto-merge de la PR, sans demander de confirmation.
   - Pas de poussée directe sur `main`.
 - **Paralléliser la vague 2.** Ses sept lots partent en même temps, chacun dans sa propre branche ou son worktree. Le §4 dit quels fichiers ils partagent et comment résoudre les conflits.
