@@ -13207,6 +13207,10 @@ if ($isEnabled('data_migration')) {
     // One line per import (vague 2 of the chantier), kept alphabetical by key:
     // $dataMigrationImporters->add(new \Modules\DataMigration\Importer\…Importer(…));
     $dataMigrationImporters->add(new \Modules\DataMigration\Importer\CampPlacesImporter($campsPlaceImportWriterForOthers ?? null));
+    $dataMigrationImporters->add(new \Modules\DataMigration\Importer\MemberPhotosImporter(
+        $memberRepo,
+        new \Core\Photo\ImportedMemberPhotoWriter($photoIngestionService, new MemberPhotoRepository($pdo))
+    ));
     $dataMigrationImporters->add(new \Modules\DataMigration\Importer\RegistrationRequestsImporter(
         $registrationRequestImportForOthers ?? null,
         $scoutYearService,

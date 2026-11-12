@@ -783,7 +783,7 @@ A final state (encodée, refusée, retirée) starts both retention clocks (§17.
 
 The tracking page (§4.1) never shows an acceptance or a refusal before the corresponding email (§17.3) has actually been sent — it shows "en attente" until then, regardless of the real internal state. The email must be one of the decision the request holds now: when a decision changes — accepted then refused, or accepted, put back « en attente » and accepted again — an email sent for the earlier decision announces nothing about the new one, and the family keeps seeing "en attente" until the new decision's own email has left. Staff-facing pages always show the real state plus whether/when the current decision's email was first sent, side by side; a resend never moves that date.
 
-**A decision imported from the unit's old site** (chantier #1142, D2, §49.6) is the one exception: a request imported as accepted, refused or encoded had its decision told to the family by the old site, and its history holds a line « Communiquée par l'ancien site » instead of an email. That line makes the decision visible at once, exactly as a sent email does; no email of this site is sent, planned or pretended. It stops counting the moment the decision changes, like any email of an earlier decision.
+**A decision imported from the unit's old site** (chantier #1142, D2, §49.10) is the one exception: a request imported as accepted, refused or encoded had its decision told to the family by the old site, and its history holds a line « Communiquée par l'ancien site » instead of an email. That line makes the decision visible at once, exactly as a sent email does; no email of this site is sent, planned or pretended. It stops counting the moment the decision changes, like any email of an earlier decision.
 
 ### 17.3 Acceptance/refusal emails
 
@@ -4119,7 +4119,18 @@ Disponible quand le module Camps est actif. L'archive (format `scoutmagic-camp-p
 - **Coordonnées.** La latitude et la longitude sont contrôlées ensemble : si une seule est donnée, ou si l'une sort de ses bornes, les deux sont écartées et le lieu est créé quand même. Les coordonnées reprises sont marquées manuelles : le géocodage automatique ne les remplace jamais. Aucun géocodage n'a lieu pendant l'import ; un lieu sans coordonnées suit ensuite le géocodage habituel.
 - Un lieu importé reste modifiable, archivable et fusionnable normalement dans Camps (§26).
 
-### 49.6 Inscriptions de l'année suivante
+### 49.6 Photos des membres
+
+Import « Photos des membres », adresse `/admin/migration-donnees/photos`. Fonction du cœur : il est proposé dès que le module est actif, sans autre module requis. Format `scoutmagic-member-photos` 1.x, décrit pour les exporteurs dans `docs/formats/data-migration/member-photos.md`.
+
+- **Une ligne de `photos.jsonl`, une photo** : un membre par son identifiant Desk (`desk_id`), une année par son libellé, une image `images/<sha256>.<extension>` (JPEG, PNG ou WebP).
+- **Membre** cherché par son identifiant Desk, anciens identifiants des fiches fusionnées compris. Introuvable : la photo est ignorée (« Membre introuvable dans ScoutMagic ») et aucun membre n'est créé.
+- **Année** : une année passée absente du site est proposée à la création dans l'aperçu (§49.2) ; les photos d'une année non cochée sont ignorées.
+- **Jamais d'écrasement.** Un membre qui a déjà une photo pour l'année la garde : la ligne compte parmi les « Déjà présents », et l'aperçu dit combien d'animés sont dans ce cas. Si le fichier vise plusieurs fois le même membre et la même année, seule la première ligne dont l'image est valide est prise ; les suivantes sont ignorées.
+- **Contrôles** : l'empreinte annoncée par la ligne est celle que le manifeste a vérifiée ; le type réel de l'image (et non son nom), 10 Mo au plus, 16 mégapixels et 10 000 pixels de côté au plus, et une image qui se décode. Sinon la photo est ignorée avec son motif (« Image illisible »…).
+- **Le traitement normal des photos de membre** : orientation appliquée, métadonnées supprimées, réencodage, vignette, fichier réservé aux visiteurs connectés. La photo s'affiche au trombinoscope et sur la fiche comme une photo ajoutée à la main, sans marque ni écran d'historique. Les photos de compte, de section et les albums ne sont pas touchés.
+- **Limites** : 4 000 images par archive (le manifeste les inventorie toutes) ; au-delà, plusieurs archives du même site, qui se dédoublonnent entre elles.
+### 49.10 Inscriptions de l'année suivante
 
 Import « Inscriptions de l'année suivante » (`inscriptions`, format `scoutmagic-next-year-registrations` 1.x, `docs/formats/data-migration/next-year-registrations.md`), proposé tant que « Inscriptions » (`registration`) est actif. Il reprend les **nouvelles** demandes d'inscription encore en cours sur l'ancien site — jamais les réponses à une campagne de réinscription — comme des demandes ordinaires du §17.
 
