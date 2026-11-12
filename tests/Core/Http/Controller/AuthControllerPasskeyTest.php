@@ -139,4 +139,30 @@ class AuthControllerPasskeyTest extends TestCase
         $this->assertSame(\Tests\SessionGenerationFixture::forPdo($this->pdo)->current(), AuthSession::getGeneration());
         $this->assertSame('/r/abc123', $data['redirect']);
     }
+
+    /** Issue #1115: a passkey login is a fresh proof of identity. */
+    public function testAPasskeyLoginCountsAsAFreshAuthentication(): void
+    {
+        $account = (new UserAccountRepository($this->pdo, new EncryptionService(random_bytes(32), random_bytes(32))))
+            ->create('passkey-fresh@example.com');
+        $webAuthn = $this->createStub(WebAuthnService::class);
+        $webAuthn->method('verifyAuthentication')->willReturn($account);
+        $controller = new AuthController(
+            $this->createStub(Environment::class),
+            $this->createStub(AuthService::class),
+            \Tests\SessionGenerationFixture::forPdo($this->pdo)
+        );
+        $controller->setWebAuthnService($webAuthn);
+        AuthSession::login($account->id, 'passkey-fresh@example.com', 'identified');
+        $_SESSION['_auth']['authenticated_at'] = time() - 3600;
+
+        $request = new RequestWithInput('POST', '/login/passkey/verify', [], [], [], [], (string) json_encode([
+            'id' => 'x',
+            'rgpd_consent' => true,
+        ]));
+        $data = json_decode($controller->passkeyVerify($request, [])->getBody(), true);
+
+        $this->assertTrue($data['success']);
+        $this->assertTrue(\Core\Security\RecentAuthentication::isRecent());
+    }
 }

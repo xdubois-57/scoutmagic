@@ -22,17 +22,26 @@ class AuthSession
      * (Core\Security\SessionRevalidator), so a password change can end
      * sessions that PHP's file-based session store gives us no way to
      * enumerate and delete directly.
+     *
+     * 'authenticated_at' is when this session last PROVED who it is
+     * (Core\Security\RecentAuthentication, issue #1115). Every way of
+     * logging in ends here — magic link, password, passkey — so a login is
+     * by definition that proof. It starts equal to 'issued_at' but the two
+     * drift apart: refreshIssuedAt() moves the revocation stamp without
+     * moving this one.
      */
     public static function login(int $userAccountId, string $email, string $role, ?string $generation = null): void
     {
         SessionStore::ensureWritable();
         session_regenerate_id(true);
 
+        $now = time();
         SessionStore::set(self::SESSION_KEY, [
             'user_account_id' => $userAccountId,
             'email' => $email,
             'role' => $role,
-            'issued_at' => time(),
+            'issued_at' => $now,
+            'authenticated_at' => $now,
             'generation' => $generation,
         ]);
     }
@@ -130,6 +139,12 @@ class AuthSession
      * changes their OWN password: the change revokes every session for the
      * account, and this exempts the tab they are actively using — the
      * usual "you stay logged in here, everywhere else is signed out".
+     *
+     * It does NOT count as a fresh authentication (authenticatedAt() is
+     * left alone): it also runs after a FIRST password is set, which
+     * proves nothing about who is at the keyboard. A caller that has just
+     * checked a secret — the current password — says so itself with
+     * markAuthenticatedNow().
      */
     public static function refreshIssuedAt(): void
     {
@@ -140,6 +155,65 @@ class AuthSession
 
         $auth['issued_at'] = time();
         SessionStore::set(self::SESSION_KEY, $auth);
+    }
+
+    /**
+     * When this session last proved who it is — a login by any method, or
+     * markAuthenticatedNow() — as a Unix timestamp. Null for a session
+     * that predates this field, which therefore never counts as recent.
+     */
+    public static function authenticatedAt(): ?int
+    {
+        $auth = SessionStore::get(self::SESSION_KEY, []);
+        $at = $auth['authenticated_at'] ?? null;
+
+        return is_int($at) ? $at : null;
+    }
+
+    /**
+     * Record that this already-signed-in session has just proved its
+     * identity again: a magic link for the same account collected while
+     * signed in, or the current password checked by « Mon compte ».
+     *
+     * It rotates the session id, as login() does: the fresh window is
+     * what lets the session add a passkey or a device credential, and a
+     * copy of the old cookie (a shared computer, a stolen session) must
+     * not share in it. With the old id destroyed, only the request that
+     * proved itself keeps the session. Everything else in it stays.
+     */
+    public static function markAuthenticatedNow(): void
+    {
+        $auth = SessionStore::get(self::SESSION_KEY, []);
+        if (!isset($auth['user_account_id'])) {
+            return;
+        }
+
+        SessionStore::ensureWritable();
+        session_regenerate_id(true);
+
+        $auth['authenticated_at'] = time();
+        SessionStore::set(self::SESSION_KEY, $auth);
+    }
+
+    /**
+     * Whether the last proof of identity is at most $seconds old. False
+     * when signed out, when the session predates the field, and when the
+     * stamp lies in the future (a clock stepped backwards proves nothing).
+     *
+     * @param int|null $now the current Unix time; null reads the clock
+     */
+    public static function authenticatedWithin(int $seconds, ?int $now = null): bool
+    {
+        if (!self::isAuthenticated()) {
+            return false;
+        }
+        $at = self::authenticatedAt();
+        if ($at === null) {
+            return false;
+        }
+        $age = ($now ?? time()) - $at;
+
+        return $age >= 0 && $age <= $seconds;
     }
 
     /**
