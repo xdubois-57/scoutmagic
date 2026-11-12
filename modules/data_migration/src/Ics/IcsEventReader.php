@@ -434,14 +434,22 @@ final class IcsEventReader
                 } else {
                     if ($end === 'VEVENT') {
                         // Close what the event left open, innermost first, so
-                        // that vobject gets a well-formed event: prepending in
-                        // opening order puts the innermost END nearest the top.
-                        foreach ($inner as $component) {
-                            $line = 'END:' . $component . "\r\n" . $line;
+                        // that vobject gets a well-formed event. Built in one
+                        // pass: prepending line by line is quadratic.
+                        if ($inner !== []) {
+                            $closing = array_map(
+                                static fn (string $component): string => 'END:' . $component . "\r\n",
+                                array_reverse($inner)
+                            );
+                            $line = implode('', $closing) . $line;
                         }
                         $inner = [];
                     } elseif ($begin !== null) {
-                        $inner[] = $begin;
+                        // An event already too large is dropped whole: what it
+                        // still opens is not kept either.
+                        if (!$tooLarge) {
+                            $inner[] = $begin;
+                        }
                     } elseif ($end !== null) {
                         $at = array_search($end, $inner, true);
                         if ($at === false) {

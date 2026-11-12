@@ -263,6 +263,23 @@ final class IcsEventReaderTest extends TestCase
     }
 
     /**
+     * An event that opens hundreds of thousands of components and closes
+     * none is dropped as too large, in linear time.
+     */
+    public function testAnEventOpeningEndlessComponentsIsDroppedQuickly(): void
+    {
+        $started = microtime(true);
+        $lines = $this->convertText(
+            "BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:x\nDTSTART;VALUE=DATE:20250101\nSUMMARY:X\n"
+            . str_repeat("BEGIN:X\n", 200000)
+            . "END:VEVENT\nEND:VCALENDAR\n"
+        );
+
+        $this->assertSame(['unreadable', 'événement trop volumineux'], [$lines[0]['state'], $lines[0]['reason']]);
+        $this->assertLessThan(3.0, microtime(true) - $started);
+    }
+
+    /**
      * A component that never closed before the events (a VTIMEZONE cut
      * short) hides none of them.
      */
