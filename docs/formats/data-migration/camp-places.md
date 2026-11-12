@@ -146,7 +146,7 @@ différents : la première est créée, la seconde est ensuite reconnue comme
 
 Un lieu importé est un lieu ordinaire de Camps : il se modifie, s'archive,
 se restaure et se fusionne comme les autres. Son historique dit qu'il a été
-repris de l'ancien site, et nomme le chef d'unité qui a lancé l'import.
+repris de l'ancien site, et nomme l'administrateur qui a lancé l'import.
 L'import n'envoie aucun courriel ni aucune notification, et ne modifie
 jamais un lieu déjà présent.
 

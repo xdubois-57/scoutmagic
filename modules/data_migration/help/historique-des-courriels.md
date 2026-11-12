@@ -2,13 +2,13 @@
 id: historique-des-courriels
 title: Reprendre les courriels de l'ancien site
 summary: Importer l'historique des courriels envoyés, en lecture seule, sans rien renvoyer.
-category: Espace chefs d'U
-role_min: admin
+category: Configuration
+role_min: superadmin
 discovery: off
 question: Comment reprendre les anciens courriels de notre ancien site ?
 question: Un courriel importé peut-il être renvoyé ou modifié ?
 question: À quelle section un ancien courriel est-il rattaché ?
-paths: /admin/migration-donnees/courriels
+paths: /config/migration-donnees/courriels
 related: migration-de-donnees, envoi-de-mails
 ---
 

@@ -1245,7 +1245,8 @@ sans envoyer aucune donnée de l'unité au serveur de cet agenda, et l'adresse n
 empreinte). Si "calendar" ne figure PAS dans la liste des modules actifs, retire ce paragraphe et la mention des
 événements de calendrier ; (g) si "gallery" est aussi actif, le paragraphe « Galeries photo » : la page de chaque album
 importé est consultée une fois sur le site qui l'héberge, comme pour un album externe ajouté à la main, sans aucune
-donnée de membre ; si "gallery" n'est pas actif, retire ce paragraphe. Ce module n'introduit
+donnée de membre ; si "gallery" n'est pas actif, retire ce paragraphe ; (h) que le fichier est déposé, et peut être
+effacé, par l'administrateur du site seul (jamais par un chef d'unité ni par un animateur). Ce module n'introduit
 **aucun sous-traitant** et ne fait **aucun appel à une IA** : ne l'ajoute ni en section 4 ni en section 5.2.
 
 34. **Assistant d'aide (fonctionnalité du cœur du site, section 2.8)** : Cette section ne dépend d'aucun module — elle

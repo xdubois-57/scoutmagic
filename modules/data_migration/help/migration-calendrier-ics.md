@@ -2,13 +2,13 @@
 id: migration-calendrier-ics
 title: Copier le calendrier de l'ancien site
 summary: Copier une fois les événements d'un agenda en ligne (fichier ICS) dans un calendrier de ScoutMagic.
-category: Espace chefs d'U
-role_min: admin
+category: Configuration
+role_min: superadmin
 discovery: off
 question: Comment récupérer les événements de notre ancien agenda en ligne ?
 question: Pourquoi les événements récurrents ne sont-ils pas importés ?
 question: Les événements copiés depuis un fichier ICS se mettent-ils à jour ?
-paths: /admin/migration-donnees/calendrier
+paths: /config/migration-donnees/calendrier
 related: migration-de-donnees, calendrier-animateurs
 ---
 

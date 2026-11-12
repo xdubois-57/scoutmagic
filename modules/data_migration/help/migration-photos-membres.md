@@ -2,13 +2,13 @@
 id: migration-photos-membres
 title: Reprendre les photos des membres de l'ancien site
 summary: Une photo par membre et par année scoute, rattachée par l'identifiant Desk, sans jamais remplacer une photo existante.
-category: Espace chefs d'U
-role_min: admin
+category: Configuration
+role_min: superadmin
 discovery: off
 question: Comment importer les photos des animés de notre ancien site ?
 question: L'import des photos remplace-t-il les photos déjà présentes ?
 question: Pourquoi une photo importée est-elle ignorée ?
-paths: /admin/migration-donnees/photos
+paths: /config/migration-donnees/photos
 ---
 
 « Photos des membres » reprend, depuis un fichier ZIP préparé sur l'ancien site, les photos des membres pour les années passées. Elles apparaissent aussitôt au trombinoscope et sur les fiches, comme une photo ajoutée à la main.

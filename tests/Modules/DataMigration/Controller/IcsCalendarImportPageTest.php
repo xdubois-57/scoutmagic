@@ -50,7 +50,7 @@ final class IcsCalendarImportPageTest extends TestCase
 {
     use UsesProductionEngine;
 
-    private const PAGE = '/admin/migration-donnees/calendrier';
+    private const PAGE = '/config/migration-donnees/calendrier';
 
     private \PDO $pdo;
     private string $storage;

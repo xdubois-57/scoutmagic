@@ -236,7 +236,7 @@ function stepper(cur){
 }
 
 function home(){
-  crumbs(["Espace chefs d'U","Migration de données"]);
+  crumbs(["Configuration","Migration de données"]);
   const rows=ORDER.map(k=>{const im=IMPORTERS[k];
     let status='<span class="pill info">Jamais lancé</span>';
     if(k==='emails') status='<span class="pill ok">Importé le 09/11/2026</span>';
@@ -337,7 +337,7 @@ function report(im){
 
 function zip(){
   const im=IMPORTERS[state.importer];
-  crumbs(["Espace chefs d'U","Migration de données",im.name]);
+  crumbs(["Configuration","Migration de données",im.name]);
   let body='';
   switch(state.step){
     case 'source':body=zipSource(im);break;
@@ -353,7 +353,7 @@ function zip(){
 }
 
 function ics(){
-  crumbs(["Espace chefs d'U","Migration de données","Calendrier (fichier ICS)"]);
+  crumbs(["Configuration","Migration de données","Calendrier (fichier ICS)"]);
   const s=state.step;
   let body;
   if(s==='source'){
