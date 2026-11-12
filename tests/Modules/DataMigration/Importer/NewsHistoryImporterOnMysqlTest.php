@@ -250,6 +250,13 @@ final class NewsHistoryImporterOnMysqlTest extends TestCase
         file_put_contents($tree . '/manifest.json', json_encode($manifest, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
 
         $run = $this->analysed($this->zipOf($tree));
+        // The preview names every cause, not the weight alone.
+        $notes = array_map(static fn ($note): string => $note->text, $this->importer->previewNotes($this->summary($run)));
+        $this->assertContains(
+            '1 image est illisible, absente du fichier, d\'un type non accepté, trop lourde (plus de 5 Mo) '
+                . 'ou trop grande (plus de 50 mégapixels). Son actualité est importée sans elle.',
+            $notes
+        );
         $run = $this->drive($this->service->confirm($run, []) ?? $this->fail('Not confirmed.'));
 
         $this->assertSame(Run::DONE, $run->state);
