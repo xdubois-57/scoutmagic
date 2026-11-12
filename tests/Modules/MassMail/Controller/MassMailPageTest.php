@@ -1858,7 +1858,7 @@ class MassMailPageTest extends TestCase
 
         $this->assertStringContainsString('>Importé<', $body);
         $this->assertStringContainsString('De : Éclaireurs 99e Exempleville &lt;eclaireurs@exemple.test&gt;', $body);
-        $this->assertStringContainsString('Liste « Parents des Éclaireurs » (nom d&#039;origine)', $body);
+        $this->assertStringContainsString('Liste « Parents des Éclaireurs » (nom d\'origine)', $body);
         $this->assertStringNotContainsString('/delete"', $body);
     }
 

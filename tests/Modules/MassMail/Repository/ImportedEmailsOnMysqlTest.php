@@ -91,12 +91,13 @@ final class ImportedEmailsOnMysqlTest extends TestCase
 
         $email = (new EmailRepository($this->pdo))->findById($result->emailId);
         $this->assertTrue($email?->isImported());
-        $this->assertSame(
-            ['error' => 1, 'sent' => 1, 'unknown' => 1],
-            array_map('intval', $this->pdo->query(
-                'SELECT status, COUNT(*) FROM mass_mail_deliveries GROUP BY status ORDER BY status'
-            )->fetchAll(\PDO::FETCH_KEY_PAIR))
-        );
+        // Grouped in PHP: an ENUM sorts by its declaration order on the
+        // server, not alphabetically.
+        $counts = array_map('intval', $this->pdo->query(
+            'SELECT status, COUNT(*) FROM mass_mail_deliveries GROUP BY status'
+        )->fetchAll(\PDO::FETCH_KEY_PAIR));
+        ksort($counts);
+        $this->assertSame(['error' => 1, 'sent' => 1, 'unknown' => 1], $counts);
     }
 
     public function testTheProvenanceIsComparedByteForByte(): void

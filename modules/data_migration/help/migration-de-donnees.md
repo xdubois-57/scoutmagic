@@ -39,10 +39,6 @@ Chaque lieu est comparé à ceux que Camps connaît déjà, **lieux archivés co
 
 Les coordonnées venues de l'ancien site sont gardées telles quelles : la recherche automatique de coordonnées ne les remplacera jamais. Un lieu importé se modifie, s'archive et se fusionne ensuite comme les autres.
 
-## Historique des courriels
-
-L'import « Historique des courriels » reprend les courriels envoyés par l'ancien site dans « Envoi de mails », en lecture seule. Un courriel est rattaché à la section dont l'adresse l'a envoyé, sinon au Staff d'U ; l'adresse et le nom d'expéditeur d'origine restent affichés tels quels. Un courriel sans sujet, sans contenu, sans date ou sans expéditeur est ignoré. Les destinataires sont facultatifs, et leur statut reste celui d'origine : « Accepté par le serveur d'envoi » ne devient jamais « Remis ». Aucun courriel n'est envoyé ni renvoyé.
-
 ## Abandonner
 
 « Abandonner et effacer le fichier » garde ce qui est déjà importé et efface le fichier déposé.

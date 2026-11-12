@@ -10,6 +10,7 @@ namespace Modules\DataMigration\Importer;
 
 use Core\Archive\ArchiveLimits;
 use Core\Import\MemberRepository;
+use Core\Service\DateInput;
 use Core\Security\HtmlSanitizer;
 use Modules\MassMail\Api\EmailHistoryImportInterface;
 use Modules\MassMail\Api\ImportedAttachment;
@@ -569,14 +570,10 @@ final class EmailHistoryImporter implements Importer
         ) {
             return null;
         }
-        try {
-            $moment = new \DateTimeImmutable($value);
-        } catch (\Exception) {
-            return null;
-        }
-        $errors = \DateTimeImmutable::getLastErrors();
-
-        return $errors !== false && ($errors['warning_count'] > 0 || $errors['error_count'] > 0) ? null : $moment;
+        // The shape above already demands a calendar date and an offset;
+        // fromStorage() refuses what still does not parse rather than
+        // answering « now ».
+        return DateInput::fromStorage($value);
     }
 
     /**
