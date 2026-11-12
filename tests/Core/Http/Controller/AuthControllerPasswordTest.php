@@ -107,6 +107,29 @@ class AuthControllerPasswordTest extends TestCase
         $this->assertSame('/r/abc123', $data['redirect']);
     }
 
+    /**
+     * Issue #1115: « confirmez votre identité » — a signed-in session whose
+     * last login is old signs in again with its password and is recent.
+     */
+    public function testAPasswordLoginCountsAsAFreshAuthentication(): void
+    {
+        $account = $this->userRepo->create('fresh@example.com');
+        $this->userRepo->updatePasswordHash($account->id, password_hash('CorrectPassword', PASSWORD_DEFAULT));
+        AuthSession::login($account->id, 'fresh@example.com', 'identified');
+        $_SESSION['_auth']['authenticated_at'] = time() - 3600;
+        $this->assertFalse(\Core\Security\RecentAuthentication::isRecent());
+
+        $data = json_decode($this->controller->loginWithPassword($this->createJsonRequest('/login/password', [
+            'email' => 'fresh@example.com',
+            'password' => 'CorrectPassword',
+            '_csrf_token' => $this->csrfToken,
+            'rgpd_consent' => true,
+        ]), [])->getBody(), true);
+
+        $this->assertTrue($data['success']);
+        $this->assertTrue(\Core\Security\RecentAuthentication::isRecent());
+    }
+
     public function testLoginWithoutRgpdConsentReturnsFailure(): void
     {
         $account = $this->userRepo->create('valid2@example.com');
