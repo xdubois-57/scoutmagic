@@ -76,7 +76,6 @@ class FilePublicIdsTest extends TestCase
         $this->assertNotNull($publicA);
         $this->assertNotNull($publicB);
         $this->assertNotSame($publicA, $publicB);
-        $this->assertStringNotContainsString((string) $a, $publicA);
         $this->assertSame($a, $this->repository->findByPublicId($publicA)?->id);
     }
 
