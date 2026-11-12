@@ -263,6 +263,22 @@ final class IcsEventReaderTest extends TestCase
     }
 
     /**
+     * A TZID that reads as an integer is an int array key in PHP: the
+     * event is still judged on its own, never a TypeError for the file.
+     */
+    public function testANumericTimeZoneNameDoesNotStopTheFile(): void
+    {
+        $lines = $this->convertText(
+            "BEGIN:VCALENDAR\nBEGIN:VTIMEZONE\nTZID:1\nEND:VTIMEZONE\n"
+            . "BEGIN:VEVENT\nUID:n\nDTSTART;TZID=1:20250101T100000\nSUMMARY:Numérique\nEND:VEVENT\n"
+            . "BEGIN:VEVENT\nUID:ok\nDTSTART;VALUE=DATE:20250102\nSUMMARY:Après\nEND:VEVENT\nEND:VCALENDAR\n"
+        );
+
+        $this->assertCount(2, $lines);
+        $this->assertSame('ok', $lines[1]['uid']);
+    }
+
+    /**
      * @return list<array<string, mixed>>
      */
     private function convertText(string $ics): array

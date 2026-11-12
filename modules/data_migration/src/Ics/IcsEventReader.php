@@ -146,7 +146,8 @@ final class IcsEventReader
 
         $wrapped = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//ScoutMagic//Migration//FR\r\n";
         foreach ($timeZones as $tzid => $block) {
-            if (str_contains($eventText, $tzid)) {
+            // A numeric TZID (« 1 ») became an int array key.
+            if (str_contains($eventText, (string) $tzid)) {
                 $wrapped .= $block;
             }
         }
