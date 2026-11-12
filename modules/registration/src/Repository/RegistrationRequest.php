@@ -100,8 +100,24 @@ final class RegistrationRequest
         public readonly ?string $previousUnitName = null,
         // Issue #843, D6: one of the REFUSAL_* constants while the request
         // is refused with a known reason, null otherwise.
-        public readonly ?string $refusalReason = null
+        public readonly ?string $refusalReason = null,
+        // Chantier #1142, D2: the decision this request holds NOW was told
+        // to the family by the old site it was imported from — a current
+        // `communicated_elsewhere` row of registration_decision_emails. No
+        // e-mail of this site went out, and none is owed: the family sees
+        // the decision as if one had.
+        public readonly bool $decisionCommunicatedElsewhere = false
     ) {
+    }
+
+    /**
+     * Whether the family may see the decision this request holds now: an
+     * e-mail of it went out (R3), or the old site the request was imported
+     * from told them (D2). Meaningless for a request holding no decision.
+     */
+    public function decisionIsCommunicated(): bool
+    {
+        return $this->decisionEmailSentAt !== null || $this->decisionCommunicatedElsewhere;
     }
 
     /**
