@@ -16,8 +16,8 @@
         {% if is_editable %}
             <div class="alert alert-warning" role="alert">
                 <strong>C'est votre seule occasion de vérifier.</strong>
-                Les lignes décochées sont supprimées à la validation, et une attestation publiée ne
-                peut plus être rouverte par vous — seule la famille concernée y accède.
+                Les lignes décochées sont supprimées à la validation, et un lot publié ne se modifie
+                plus : les attestations conservées restent consultables, mais plus rien ne s'y décide.
             </div>
         {% endif %}
 
@@ -143,9 +143,9 @@
                                   itself can be checked — the pages as split,
                                   not the name as read (issue #1095). Every row
                                   has one, matched or not, draft or published:
-                                  it reads, it decides nothing. The partial
-                                  renders nothing when the file is gone, so a
-                                  row never offers a link to nowhere.
+                                  it reads, it decides nothing. A row's file
+                                  cannot go before the row (fk_abl_file), so
+                                  every row on screen has one.
                                 #}
                                 <div class="flex-shrink-0 order-last">
                                     {% include 'partials/file_link.html.twig' with {

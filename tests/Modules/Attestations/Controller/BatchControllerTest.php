@@ -304,6 +304,10 @@ class BatchControllerTest extends TestCase
         $this->assertStringContainsString('Les lignes non cochées seront supprimées', $body);
         // Static template text, so Twig escapes nothing here.
         $this->assertStringContainsString("C'est votre seule occasion de vérifier", $body);
+        // Issue #1095: the kept certificates stay downloadable from the
+        // published batch, so the warning must not claim the opposite.
+        $this->assertStringContainsString('les attestations conservées restent consultables', $body);
+        $this->assertStringNotContainsString('ne peut plus être rouverte', $body);
     }
 
     public function testAnUnknownBatchIs404(): void
@@ -453,19 +457,6 @@ class BatchControllerTest extends TestCase
             $this->assertSame('', \Core\File\FilePublicIds::urlFor($fileId), 'a discarded file survived');
         }
         $this->assertStringNotContainsString('href=""', $body);
-    }
-
-    /** A row whose file is gone offers no link rather than one to this page. */
-    public function testARowWhoseFileIsGoneOffersNoLink(): void
-    {
-        $this->wireFileAddresses();
-        $this->pdo->prepare('DELETE FROM files WHERE id = ?')->execute([$this->fileIdOf('xavier')]);
-
-        $row = $this->rowOf('xavier');
-
-        $this->assertStringNotContainsString('Télécharger le PDF découpé', $row);
-        $this->assertStringNotContainsString('href=""', $row);
-        $this->assertStringContainsString('Télécharger le PDF découpé', $this->rowOf('margaux'));
     }
 
     // --- publication, and the send that follows it -----------------------
