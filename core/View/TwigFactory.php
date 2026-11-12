@@ -180,11 +180,15 @@ class TwigFactory
             $configMode = $environment->getGlobals()['config_mode'] ?? false;
 
             $fileId = $service !== null ? $service->get($key) : null;
-            $hasImage = $fileId !== null && $fileId !== '';
+            // The stored value is a bare id with no foreign key: it can
+            // outlive its file (#1109). No address means no image — the
+            // placeholder, never an `<img src="">` pointing at this page.
+            $url = $fileId !== null && $fileId !== '' ? FilePublicIds::urlFor((int) $fileId, 'md') : '';
+            $hasImage = $url !== '';
 
             if ($configMode) {
                 $img = $hasImage
-                    ? '<img src="' . FilePublicIds::urlFor((int) $fileId, 'md') . '" alt="' . htmlspecialchars(
+                    ? '<img src="' . $url . '" alt="' . htmlspecialchars(
                         $alt,
                         ENT_QUOTES
                     ) . '" class="' . htmlspecialchars($cssClass, ENT_QUOTES) . '">'
@@ -209,7 +213,7 @@ class TwigFactory
                 // page's hero — usually the largest paint on the page —
                 // and lazy-loading the LCP image delays it for no saving
                 // (there is one editable image per page, not dozens).
-                return '<img src="' . FilePublicIds::urlFor((int) $fileId, 'md') . '" alt="' . htmlspecialchars(
+                return '<img src="' . $url . '" alt="' . htmlspecialchars(
                     $alt,
                     ENT_QUOTES
                 ) . '" class="' . htmlspecialchars($cssClass, ENT_QUOTES) . '" decoding="async">';
