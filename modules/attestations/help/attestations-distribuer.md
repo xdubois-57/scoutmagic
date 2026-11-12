@@ -18,9 +18,9 @@ Publier et prévenir sont deux gestes, et c'est voulu.
 « Publier » dépose chaque attestation conservée sur la page de son membre.
 À partir de là, le lot est verrouillé : vous ne pouvez plus rien y changer.
 Pour répondre à une famille, vous pouvez ouvrir son attestation depuis sa
-fiche — une par une, et chaque ouverture est consignée au journal. Aucune
-famille ne voit celle d'une autre, et un animateur de section n'en voit
-aucune.
+fiche, ou depuis le lot lui-même avec le bouton **PDF** de sa ligne — une
+par une, et chaque ouverture est consignée au journal. Aucune famille ne
+voit celle d'une autre, et un animateur de section n'en voit aucune.
 
 Les lignes non cochées sont supprimées à ce moment-là, y compris celles qui
 n'ont pas de membre. Le lot conserve leur nombre, pas leur contenu.

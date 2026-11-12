@@ -138,6 +138,28 @@
                                     </div>
                                 </div>
 
+                                {#
+                                  The certificate cut for THIS row, so the cut
+                                  itself can be checked — the pages as split,
+                                  not the name as read (issue #1095). Every row
+                                  has one, matched or not, draft or published:
+                                  it reads, it decides nothing. The partial
+                                  renders nothing when the file is gone, so a
+                                  row never offers a link to nowhere.
+                                #}
+                                <div class="flex-shrink-0 order-last">
+                                    {% include 'partials/file_link.html.twig' with {
+                                        href: file_url(line.fileId),
+                                        label: 'PDF',
+                                        icon: 'file-earmark-pdf',
+                                        classes: 'btn btn-sm btn-outline-secondary',
+                                        title: 'Télécharger le PDF découpé',
+                                        aria_label: 'Télécharger le PDF découpé de l\'attestation lue « '
+                                            ~ (line.readName|default('sans nom lisible'))
+                                            ~ ' », p. ' ~ line.pageRangeLabel(),
+                                    } only %}
+                                </div>
+
                                 <div class="ms-md-auto" style="min-width:16rem;">
                                     {% if summary %}
                                         <div class="d-flex align-items-center gap-2">

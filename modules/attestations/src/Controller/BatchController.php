@@ -10,12 +10,14 @@ namespace Modules\Attestations\Controller;
 
 use Core\Config\ScoutYearService;
 use Core\Exception\UserFacingMessage;
+use Core\File\FilePublicIds;
 use Core\Http\Controller\AbstractController;
 use Core\Http\FlashMessage;
 use Core\Http\Request;
 use Core\Http\Response;
 use Core\Security\AuthSession;
 use Core\Service\IntegerInput;
+use Modules\Attestations\Repository\BatchLine;
 use Modules\Attestations\Repository\BatchLineRepository;
 use Modules\Attestations\Repository\BatchRepository;
 use Modules\Attestations\Repository\MemberNameRepository;
@@ -86,6 +88,10 @@ class BatchController extends AbstractController
             }
         }
         $summaries = $this->members->findSummaries(array_values(array_unique($memberIds)));
+
+        // Each row links to the certificate cut for it (issue #1095): one
+        // query for the whole batch's addresses rather than one per row.
+        FilePublicIds::prime(array_map(static fn(BatchLine $line): int => $line->fileId, $lines));
 
         $year = $this->scoutYears->findById($batch->scoutYearId);
 
