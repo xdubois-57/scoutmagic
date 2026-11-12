@@ -57,6 +57,31 @@ const PAGE = `${HOME}/photos`;
 const ADVANCE = `**${PAGE}/avancer`;
 
 /**
+ * Collects page errors and server errors for the closing assertions (as
+ * desk-import-years.spec.js does): a slice answered 500 and then retried by
+ * data-migration.js must still fail the scenario.
+ *
+ * @param {import('@playwright/test').Page} page
+ */
+function watchErrors(page) {
+    /** @type {string[]} */
+    const pageErrors = [];
+    page.on('pageerror', (error) => pageErrors.push(error.message));
+    /** @type {string[]} */
+    const serverErrors = [];
+    page.on('response', (response) => {
+        if (response.status() >= 500) {
+            serverErrors.push(`HTTP ${response.status()} on ${response.url()}`);
+        }
+    });
+
+    return () => {
+        expect(serverErrors, 'the application returned a server error').toEqual([]);
+        expect(pageErrors, 'uncaught JavaScript error in the browser').toEqual([]);
+    };
+}
+
+/**
  * The figure of one stat tile, found by its exact label: « Ignorés » on
  * the preview and « Ignorés : données manquantes ou non reconnues » on the
  * report are two different tiles.
@@ -71,6 +96,7 @@ function tile(page, label) {
 }
 
 test('a photo archive is imported, interrupted, resumed, and re-run without a duplicate', async ({ page }) => {
+    const assertNoErrors = watchErrors(page);
     await loginAsAdmin(page);
 
     // « Activer le module »: the instance ships with every module on
@@ -141,4 +167,6 @@ test('a photo archive is imported, interrupted, resumed, and re-run without a du
     // The two years exist now: nothing left to tick.
     await expect(olderYear).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Importer 0 photos' })).toBeDisabled();
+
+    assertNoErrors();
 });

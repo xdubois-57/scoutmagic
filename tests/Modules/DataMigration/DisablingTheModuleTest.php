@@ -43,6 +43,16 @@ use Tests\Modules\News\NewsTestHelper;
 #[Group('database')]
 final class DisablingTheModuleTest extends TestCase
 {
+    /** One fixed, prepared query per table a snapshot may read. */
+    private const SNAPSHOT_QUERIES = [
+        'files' => 'SELECT * FROM files ORDER BY id',
+        'mass_mail_attachments' => 'SELECT * FROM mass_mail_attachments ORDER BY id',
+        'mass_mail_deliveries' => 'SELECT * FROM mass_mail_deliveries ORDER BY id',
+        'mass_mail_emails' => 'SELECT * FROM mass_mail_emails ORDER BY id',
+        'news_articles' => 'SELECT * FROM news_articles ORDER BY id',
+        'news_forms' => 'SELECT * FROM news_forms ORDER BY id',
+    ];
+
     private \PDO $pdo;
     private ModuleRegistryRepository $registry;
     private string $storage;
@@ -134,7 +144,7 @@ final class DisablingTheModuleTest extends TestCase
         $this->assertTrue($article?->isImported(), 'the lock column is untouched');
         $this->assertSame(
             1,
-            (int) $this->pdo->query('SELECT is_force_closed FROM news_forms')->fetchColumn(),
+            $this->formClosedFlag($articleId),
             'and its form stays closed'
         );
     }
@@ -169,16 +179,27 @@ final class DisablingTheModuleTest extends TestCase
         );
     }
 
+    private function formClosedFlag(int $articleId): int
+    {
+        $stmt = $this->pdo->prepare('SELECT is_force_closed FROM news_forms WHERE news_article_id = ?');
+        $stmt->execute([$articleId]);
+
+        return (int) $stmt->fetchColumn();
+    }
+
     /**
      * Every row of the given tables, in id order.
      *
+     * @param key-of<self::SNAPSHOT_QUERIES> ...$tables
      * @return array<string, list<array<string, mixed>>>
      */
     private function snapshot(string ...$tables): array
     {
         $rows = [];
         foreach ($tables as $table) {
-            $rows[$table] = $this->pdo->query("SELECT * FROM {$table} ORDER BY id")->fetchAll(\PDO::FETCH_ASSOC);
+            $stmt = $this->pdo->prepare(self::SNAPSHOT_QUERIES[$table]);
+            $stmt->execute();
+            $rows[$table] = $stmt->fetchAll(\PDO::FETCH_ASSOC);
         }
 
         return $rows;

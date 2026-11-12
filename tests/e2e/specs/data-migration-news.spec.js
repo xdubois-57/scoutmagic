@@ -36,7 +36,33 @@ const ARCHIVE = path.join(
 const PAGE = '/config/migration-donnees/actualites';
 const TITLE = 'Inscriptions pour la nouvelle année';
 
+/**
+ * Collects page errors and server errors for the closing assertions (as
+ * desk-import-years.spec.js does): a slice answered 500 and then retried by
+ * data-migration.js must still fail the scenario.
+ *
+ * @param {import('@playwright/test').Page} page
+ */
+function watchErrors(page) {
+    /** @type {string[]} */
+    const pageErrors = [];
+    page.on('pageerror', (error) => pageErrors.push(error.message));
+    /** @type {string[]} */
+    const serverErrors = [];
+    page.on('response', (response) => {
+        if (response.status() >= 500) {
+            serverErrors.push(`HTTP ${response.status()} on ${response.url()}`);
+        }
+    });
+
+    return () => {
+        expect(serverErrors, 'the application returned a server error').toEqual([]);
+        expect(pageErrors, 'uncaught JavaScript error in the browser').toEqual([]);
+    };
+}
+
 test('an imported article is read-only, on its page and at its editor\'s address', async ({ page }) => {
+    const assertNoErrors = watchErrors(page);
     await loginAsAdmin(page);
 
     await page.goto(PAGE, { waitUntil: 'domcontentloaded' });
@@ -68,4 +94,6 @@ test('an imported article is read-only, on its page and at its editor\'s address
     await page.goto(`${articlePath}/gerer`, { waitUntil: 'domcontentloaded' });
     await expect(page).toHaveURL(new RegExp(`${articlePath}$`));
     await expect(note).toBeVisible();
+
+    assertNoErrors();
 });
